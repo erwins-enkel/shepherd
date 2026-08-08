@@ -642,6 +642,26 @@ export function createSerializer(): <T>(fn: () => Promise<T>) => Promise<T> {
 }
 
 /**
+ * Whether `tabId` is the only tab left in its workspace — the close both drivers must DECLINE
+ * (#2039).
+ *
+ * herdr 0.8.0 (herdr #1760) changed teardown: closing a workspace's last tab now closes the
+ * WORKSPACE too, where 0.7.5 refused with `tab_close_failed`. Since `closeTab` swallows errors as
+ * best-effort, that refusal used to be a harmless no-op; on 0.8.0 the same call silently takes the
+ * operator's workspace — its label, tab arrangement and worktree-group state — with it. Shepherd's
+ * boot reconcilers (`reapTransientByLabel`) can close every Shepherd tab in a workspace at once,
+ * which is exactly the trigger. Declining here restores the 0.7.5 outcome on every version.
+ *
+ * A tab that is ABSENT from `tabs` returns false: it is already gone, so there is no workspace left
+ * to protect and the caller's close can proceed (it will simply no-op).
+ */
+export function isLastTabInWorkspace(tabs: HerdrTab[], tabId: string): boolean {
+  const target = tabs.find((t) => t.tabId === tabId);
+  if (!target) return false;
+  return tabs.filter((t) => t.workspaceId === target.workspaceId).length <= 1;
+}
+
+/**
  * Extracts the buffer text from a herdr `agent.read` reply's `result` object
  * (`""` when absent). Shared with the socket driver — see `parseAgents`.
  */
@@ -742,7 +762,10 @@ export async function stopViaRecordedTab(
       }
       if (tab.label === known.label) {
         ledger.delete(terminalId);
-        await driver.closeTab(known.tabId);
+        // `allowLastTab`: an operator-initiated stop MUST actually take the agent down. Declining
+        // here to spare a workspace would leave a live agent that ignored a stop — a worse failure
+        // than the workspace churn, which `ensureWorkspace` repairs on the next spawn (#2039).
+        await driver.closeTab(known.tabId, { allowLastTab: true });
         return;
       }
       // Label mismatch: recorded id now denotes some other tab — closing it could kill
@@ -759,7 +782,7 @@ export async function stopViaRecordedTab(
   const agent = (await driver.listAsync()).find((a) => a.terminalId === terminalId);
   if (agent?.tabId) {
     ledger.delete(terminalId);
-    await driver.closeTab(agent.tabId);
+    await driver.closeTab(agent.tabId, { allowLastTab: true }); // see above — stop must stop
     return;
   }
   console.warn(
@@ -803,7 +826,9 @@ export interface IHerdrDriver {
   readAsync(target: string, source?: "visible" | "recent", lines?: number): Promise<string>;
   stop(terminalId: string): Promise<void>;
   relabel(terminalId: string, newName: string): Promise<void>;
-  closeTab(tabId: string): Promise<void>;
+  /** Close a tab, declining when it is the last in its workspace unless `allowLastTab` —
+   *  see `HerdrDriver.closeTab` (#2039). */
+  closeTab(tabId: string, opts?: { allowLastTab?: boolean }): Promise<void>;
   /** Non-blocking sibling of `panes()` — for poller-loop consumers (clean-terminal pane
    *  liveness) that must never run `execFileSync` on Bun's loop. */
   panesAsync(): Promise<HerdrPane[]>;
@@ -827,6 +852,11 @@ export class HerdrDriver implements IHerdrDriver {
   /** Serializes `start` so concurrent spawns can't race the workspace/tab orchestration
    *  now that the writes are async (issue #1553); see `createSerializer`. */
   private serializeStart = createSerializer();
+
+  /** Serializes `closeTab` so concurrent reapers can't both clear the last-tab check and
+   *  delete the workspace between them (#2039). Separate from `serializeStart` — a spawn
+   *  rollback calls `closeTab` from inside that chain. */
+  private serializeClose = createSerializer();
 
   /** Spawn-handle registry: authoritative tabId per started terminalId (#1852). */
   private ledger = new TabLedger();
@@ -1125,7 +1155,7 @@ export class HerdrDriver implements IHerdrDriver {
       this.ledger.record(agent.terminalId, tabId, name);
       return agent;
     } catch (err) {
-      await this.closeTab(tabId); // roll back the orphan tab before propagating
+      await this.closeTab(tabId, { allowLastTab: true }); // roll back OUR just-created tab fully (#2039)
       throw err;
     }
   }
@@ -1291,7 +1321,7 @@ export class HerdrDriver implements IHerdrDriver {
 
       return agent;
     } catch (err) {
-      await this.closeTab(tabId); // roll back the orphan tab before propagating
+      await this.closeTab(tabId, { allowLastTab: true }); // roll back OUR just-created tab fully (#2039)
       throw err;
     }
   }
@@ -1438,12 +1468,40 @@ export class HerdrDriver implements IHerdrDriver {
     }
   }
 
-  /** Best-effort: close a tab by id (takes its panes + any agent down with it). */
-  async closeTab(tabId: string): Promise<void> {
-    try {
-      await this.asyncRunner(["tab", "close", tabId]);
-    } catch {
-      /* best-effort; tab may already be gone */
-    }
+  /**
+   * Best-effort: close a tab by id (takes its panes + any agent down with it), DECLINING the close
+   * when it would be the last tab in its workspace — see {@link isLastTabInWorkspace}.
+   *
+   * Serialized, and that is load-bearing rather than tidiness: every reaper is launched
+   * fire-and-forget with `void` (`distiller`, `merge-suggest`, `optimizer`, `standalone-critic`), so
+   * several run concurrently at boot. On a workspace down to its final two tabs, an unserialized
+   * read-then-close lets both observers see two tabs, both conclude they are not closing the last
+   * one, and together delete the workspace. Chaining makes the check and the close atomic, so the
+   * second caller re-reads only after the first close has settled and then declines.
+   *
+   * Its OWN chain, never `serializeStart`: `startImpl`/`startImpl075` call `closeTab` to roll back
+   * an orphan tab while already inside `serializeStart`, so sharing one chain would deadlock.
+   *
+   * Fails OPEN — a `tabsAsync()` throw falls through to the close. That failure means herdr is
+   * effectively unreachable (so the close fails anyway), and declining instead would leak orphan
+   * tabs and break that rollback path.
+   *
+   * `allowLastTab` skips the check (never the serialization) for callers that must take the agent
+   * down no matter what — only `stopViaRecordedTab`. Every other caller is housekeeping (reapers,
+   * squatter eviction, spawn rollback) and keeps the guard.
+   */
+  async closeTab(tabId: string, opts: { allowLastTab?: boolean } = {}): Promise<void> {
+    return this.serializeClose(async () => {
+      try {
+        if (!opts.allowLastTab && isLastTabInWorkspace(await this.tabsAsync(), tabId)) return;
+      } catch {
+        /* can't tell → fail open and attempt the close */
+      }
+      try {
+        await this.asyncRunner(["tab", "close", tabId]);
+      } catch {
+        /* best-effort; tab may already be gone */
+      }
+    });
   }
 }

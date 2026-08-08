@@ -8,6 +8,7 @@ import {
   classifyPaneWrite,
   createSerializer,
   isHeadlessCodexExec,
+  isLastTabInWorkspace,
   isNameTakenError,
   parseAgentInfo,
   parseAgents,
@@ -45,6 +46,11 @@ export class SocketHerdrDriver implements IHerdrDriver {
   /** Serializes `start` so concurrent spawns can't race the workspace/tab orchestration
    *  across the socket round-trips' async yield points (issue #1553). */
   private serializeStart = createSerializer();
+
+  /** Serializes `closeTab` so concurrent reapers can't both clear the last-tab check and
+   *  delete the workspace between them (#2039). Separate from `serializeStart` — a spawn
+   *  rollback calls `closeTab` from inside that chain. */
+  private serializeClose = createSerializer();
 
   /** Spawn-handle registry: authoritative tabId per started terminalId (#1852). Owned
    *  here, not shared with the wrapped CLI driver — all starts/stops route through
@@ -231,7 +237,7 @@ export class SocketHerdrDriver implements IHerdrDriver {
       this.ledger.record(agent.terminalId, tabId, name);
       return agent;
     } catch (err) {
-      await this.closeTab(tabId); // roll back the orphan tab before propagating
+      await this.closeTab(tabId, { allowLastTab: true }); // roll back OUR just-created tab fully (#2039)
       throw err;
     }
   }
@@ -373,7 +379,7 @@ export class SocketHerdrDriver implements IHerdrDriver {
       }
       return started;
     } catch (err) {
-      await this.closeTab(tabId); // roll back the orphan tab before propagating
+      await this.closeTab(tabId, { allowLastTab: true }); // roll back OUR just-created tab fully (#2039)
       throw err;
     }
   }
@@ -470,13 +476,22 @@ export class SocketHerdrDriver implements IHerdrDriver {
     }
   }
 
-  /** Best-effort: close a tab by id (takes its panes + any agent down with it). */
-  async closeTab(tabId: string): Promise<void> {
-    try {
-      await this.client.request("tab.close", { tab_id: tabId });
-    } catch {
-      /* best-effort; tab may already be gone */
-    }
+  /** Best-effort: close a tab by id (takes its panes + any agent down with it), declining the close
+   *  when it would be the last tab in its workspace. Serialized on its own chain, fails open on a
+   *  `tabsAsync()` throw — same contract and rationale as `HerdrDriver.closeTab` (#2039). */
+  async closeTab(tabId: string, opts: { allowLastTab?: boolean } = {}): Promise<void> {
+    return this.serializeClose(async () => {
+      try {
+        if (!opts.allowLastTab && isLastTabInWorkspace(await this.tabsAsync(), tabId)) return;
+      } catch {
+        /* can't tell → fail open and attempt the close */
+      }
+      try {
+        await this.client.request("tab.close", { tab_id: tabId });
+      } catch {
+        /* best-effort; tab may already be gone */
+      }
+    });
   }
 
   /**

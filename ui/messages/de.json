@@ -3649,5 +3649,7 @@
   "guardtl_head_plan_auto_codex": "Diese Aufgabe: nur Rückfragen zum Plan, danach zieht Shepherd durch — sofern Codex eine isolierte Worktree bekommt",
   "guardtl_head_nogate_auto_codex": "Diese Aufgabe: Shepherd zieht ohne Rückfragen durch — sofern Codex eine isolierte Worktree bekommt",
   "guardtl_step_release_auto_codex": "Shepherd gibt die Ausführung frei, sofern Codex eine isolierte Worktree bekommen hat — sonst wartet sie auf dein „Los“",
-  "guardtl_step_topr_auto_codex": "Shepherd treibt durch Routine-Stopps bis zum offenen PR, sofern Codex eine isolierte Worktree bekommen hat — sonst wartet jeder Stopp auf dich"
+  "guardtl_step_topr_auto_codex": "Shepherd treibt durch Routine-Stopps bis zum offenen PR, sofern Codex eine isolierte Worktree bekommen hat — sonst wartet jeder Stopp auf dich",
+  "feat_herdr_080_title": "herdr 0.8.0 wird unterstützt",
+  "feat_herdr_080_body": "Das In-App-Update für herdr blockiert 0.8.0 nicht mehr — wer bisher gleichzeitig einen Update-Hinweis und eine „nicht unterstützt“-Absage sah, ist damit durch. Shepherd wurde vor dem Anheben der Grenze gegen einen laufenden 0.8.0-Daemon geprüft: Das Socket-Protokoll (17 → 19) kommt rein additiv, die von Shepherd genutzten Befehle sind unverändert. Eine Verhaltensänderung war zu behandeln: Unter 0.8.0 schließt das Schließen des letzten Tabs den ganzen Workspace — Shepherd verweigert das jetzt und erhält Workspace, Label und Tab-Anordnung."
 }

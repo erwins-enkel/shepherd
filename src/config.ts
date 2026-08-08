@@ -78,7 +78,11 @@ export const HERDR_MIN_VERSION = "0.7.0";
 // herdr, never an open `>=` floor. Extend this set explicitly as new protocols are verified.
 // 17 = herdr 0.7.5: the socket driver branches its spawn/drive surface to the 0.7.5
 // external-registration path (#1892), mirroring the CLI driver.
-export const HERDR_SOCKET_SUPPORTED_PROTOCOLS = new Set([16, 17]);
+// 19 = herdr 0.8.0: purely additive over 17 (`workspace.move_block`, the `workspace.reordered`
+// event, two new `IntegrationTarget`s) — nothing removed or reshaped, so the p17 drive surface
+// carries over and 0.8.0 stays on the same external-registration path (#2039). 18 never shipped
+// in a stable release and is deliberately NOT admitted: this is an allowlist, not a floor.
+export const HERDR_SOCKET_SUPPORTED_PROTOCOLS = new Set([16, 17, 19]);
 // TTL backing DiagnosticsService.current() — a request without ?refresh=1 reads
 // this cache. Matches the existing CountsService/backlog 60s TTL.
 export const DIAGNOSTICS_TTL_MS = 60_000;

@@ -294,10 +294,15 @@ stack-merge and land". The landing PR keeps its shape, its single conventional t
 - **The single `Closes #parent`.** `buildLandingPrBody` emits `Closes #parent` plus one `Closes #child`
   per child, so one merge closes the whole epic. Without a landing PR, each layer closes its own child
   issue but the parent needs an explicit close.
-- **One conventional-commit title for release-please.** `buildLandingPrTitle` exists precisely because
-  child titles are _not_ trusted to be conventional — it normalizes the parent title and appends
-  `(epic #N)`. Per-layer squash makes every child title a changelog line, which is better output but a
-  new requirement nothing currently enforces.
+- **One conventional-commit title for release-please.** Today exactly one title has to be
+  release-please-parseable: the landing PR's, because it doubles as the squash-merge **subject**
+  (`src/epic-landing.ts:41-44`, #1206). `buildLandingPrTitle` normalizes the **parent** title to
+  guarantee that — lowercasing a recognized type, stripping a leading `Epic:` / trailing `[EPIC]`, or
+  prepending `feat:`, then appending `(epic #N)` (`src/epic-landing.ts:46-48`, `:59-69`). Child titles
+  never reach it; they are only sanitized for the body's table cells (`cellSafe`,
+  `src/epic-landing.ts:72`). Per-layer squash inverts that: every child title becomes a squash subject
+  and therefore a changelog line — better output, but it turns one normalized title into N titles that
+  must each be conventional, and nothing currently enforces that on a child PR.
 - **The whole-epic review artifact.** The standalone critic sweeps a repo without `criticAllPrs` _only_
   because it has an open landing PR, and reviews exactly that PR (`isEpicIntegrationBranch(headRefName)`,
   `src/standalone-critic.ts:291`). It is the one place the assembled epic gets looked at as a whole. The

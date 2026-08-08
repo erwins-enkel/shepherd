@@ -501,6 +501,28 @@ test("closeTab({allowLastTab}) closes anyway — an operator stop must take the 
   expect(closed).toEqual(["w1:t1"]);
 });
 
+test("startShellTab rolls back a half-created SOLE tab — the guard must not orphan it", async () => {
+  // herdr returns a tab but no root pane: the create failed, and the contract is that it "leaves
+  // nothing". The rolled-back tab is its workspace's only one, so an un-exempted last-tab guard
+  // would strand it forever (no reaper can clear it either — they keep the guard).
+  const calls: string[][] = [];
+  const d = mkDriver((args) => {
+    calls.push(args);
+    if (args[0] === "workspace" && args[1] === "list") return WORKSPACE_LIST;
+    if (args[0] === "tab" && args[1] === "create")
+      return JSON.stringify({ result: { type: "tab_created", tab: { tab_id: "w1:t1" } } }); // no root_pane
+    if (args[0] === "tab" && args[1] === "list")
+      return JSON.stringify({
+        result: { type: "tab_list", tabs: [{ tab_id: "w1:t1", label: "sh", workspace_id: "w1" }] },
+      });
+    return "{}";
+  });
+
+  await expect(d.startShellTab("/wt/a", "sh")).rejects.toThrow("incomplete shell pane");
+
+  expect(calls).toContainEqual(["tab", "close", "w1:t1"]);
+});
+
 test("closeTab fails OPEN: an unreadable tab list still attempts the close", async () => {
   const seen: string[][] = [];
   const d = mkDriver((args) => {

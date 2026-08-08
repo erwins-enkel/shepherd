@@ -1060,7 +1060,9 @@ export class HerdrDriver implements IHerdrDriver {
     const terminalId: string | undefined = pane.terminal_id;
     if (!tabId || !paneId || !terminalId) {
       // A half-created tab must not linger — roll it back so a failed create leaves nothing.
-      if (tabId) await this.closeTab(tabId).catch(() => {});
+      // allowLastTab: undoing OUR own just-created tab, so the last-tab guard (#2039) must not
+      // turn "leaves nothing" into a permanent orphan.
+      if (tabId) await this.closeTab(tabId, { allowLastTab: true }).catch(() => {});
       throw new Error(`herdr: tab create returned an incomplete shell pane for ${label}`);
     }
     return { tabId, paneId, terminalId, cwd: pane.cwd ?? "" };
@@ -1479,16 +1481,23 @@ export class HerdrDriver implements IHerdrDriver {
    * one, and together delete the workspace. Chaining makes the check and the close atomic, so the
    * second caller re-reads only after the first close has settled and then declines.
    *
-   * Its OWN chain, never `serializeStart`: `startImpl`/`startImpl075` call `closeTab` to roll back
-   * an orphan tab while already inside `serializeStart`, so sharing one chain would deadlock.
+   * Its OWN chain, never `serializeStart`: `startImpl`/`startImpl075`/`startShellTabImpl` call
+   * `closeTab` to roll back an orphan tab while already inside `serializeStart`, so sharing one
+   * chain would deadlock.
    *
    * Fails OPEN — a `tabsAsync()` throw falls through to the close. That failure means herdr is
-   * effectively unreachable (so the close fails anyway), and declining instead would leak orphan
-   * tabs and break that rollback path.
+   * effectively unreachable (so the close fails anyway), and declining instead would leak orphans.
    *
-   * `allowLastTab` skips the check (never the serialization) for callers that must take the agent
-   * down no matter what — only `stopViaRecordedTab`. Every other caller is housekeeping (reapers,
-   * squatter eviction, spawn rollback) and keeps the guard.
+   * `allowLastTab` skips the check (never the serialization). Two caller classes pass it:
+   *  - TEARDOWN that must actually tear down — `stopViaRecordedTab` (both its recorded-tab and
+   *    agent-list arms) and the clean-terminal arm of session archive. A stop that silently did
+   *    nothing is worse than workspace churn, which `ensureWorkspace` repairs on the next spawn.
+   *  - ROLLBACK of a tab we ourselves just created — the agent-spawn rollback in both drivers,
+   *    `startShellTabImpl`'s half-created tab, and the clean-terminal session-row rollback in
+   *    `SessionService`. Undoing our own creation must leave nothing, not a permanent orphan.
+   *
+   * Everything that keeps the guard is HOUSEKEEPING of tabs we no longer own: the husk/transient
+   * reapers and doc-agent cleanup, plus squatter eviction in both drivers and the PR critic.
    */
   async closeTab(tabId: string, opts: { allowLastTab?: boolean } = {}): Promise<void> {
     return this.serializeClose(async () => {

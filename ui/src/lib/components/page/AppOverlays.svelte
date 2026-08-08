@@ -663,7 +663,7 @@
     {onaddclone}
     {onaddfork}
     {onaddnewproject}
-    selectPath={backlogSelectPath}
+    selectPath={backlogSelectPath ?? repoFilter}
     onclose={onbacklogclose}
     epics={store.epics}
     {inTrainPrs}

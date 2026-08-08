@@ -24,9 +24,13 @@ on 2026-08-08. Implementation would be one or more follow-up issues; §6 ranks t
   stacked PR**. `--admin` bypass does not work on stacks either, and **auto-merge is unsupported
   entirely**. The merge train and the Backlog "Merge" button therefore fail against any stacked PR — and
   Shepherd already _renders_ stacked PRs (the `→base` chip), so the UI invites the click that breaks.
-- **Our epic model is a hand-rolled stack whose main cost is serialization.** `selectEpicCandidates`
-  only spawns a child once every blocker is `integrationMerged || issueClosed`. Dependent children run
-  strictly one at a time. Stacks replace that _wait_ with a _base pointer_.
+- **Our epic model is a hand-rolled stack, and the landing PR is where it hurts.** `selectEpicCandidates`
+  only spawns a child once every blocker is `integrationMerged || issueClosed`, so dependent children run
+  strictly one at a time — stacks replace that _wait_ with a _base pointer_. More importantly, the whole
+  landing-PR apparatus (`landingState`, `landingAttempts`, rebase pause reasons, repair sessions,
+  stranded escalation, divergence detection) is failure handling for **one structural cause: a long-lived
+  integration branch that accumulates merges while `main` moves underneath it**. Stacks remove that drift
+  by construction. See §5.2.1 — this is the most interesting application in the report.
 - **The flagship idea is Build Queue → stack layers.** The build queue is already an ordered,
   agent-authored, operator-editable, position-stable plan with a per-step lifecycle. It is the _shape_ of
   a stack that currently collapses into one big PR. Making approved steps into stack layers turns the
@@ -205,10 +209,81 @@ integration branch. With stacks, child 2 starts _immediately_ on top of child 1'
 chain lands bottom-up in one operation.
 
 The DAG already exists: `EpicDraftChild.blockedBy` is an explicit list of dependency edges
-(`src/types.ts:981`). The limit is linearity — a stack models one chain, not a DAG. The natural fit is
-to stack the **critical path** (or each maximal chain) and leave independent siblings as today's
-parallel branches off the integration branch. That is a throughput win on exactly the epics that are
-slowest today.
+(`src/types.ts:981`), and `Epic.noDependencyEdges` treats an epic with **zero** edges as a legibility
+_warning_ (`src/epic-model.ts:176`, surfaced in `EpicPanel.svelte:149`) — so Shepherd already expects
+real dependency structure to be the norm.
+
+A stack models one chain, not a DAG — but that is a smaller constraint than it first appears. An epic
+decomposes into its **maximal chains**; each chain is one stack, and independent chains are independent
+stacks. Cross-chain parallelism is preserved, and within-chain serialization disappears. The linearity
+limit costs nothing here; it just means "one stack per chain", not "one stack per epic".
+
+### 5.2.1 The landing PR is where this actually pays off
+
+The aggregate landing PR is the single most machinery-dense object in the epic model. Around it sit:
+`landingState` (`pending|open|merged|error|none`), `landingAttempts` with `MAX_LANDING_ATTEMPTS = 5`,
+`landingRebasePauseReason` (`cap|conflict|driver`), `landingRepairCount`/`landingRepairHead` (one
+lifetime agent-repair session per landing), `landingStranded` escalation, `landingCiFailing`,
+`landingRepairing`, a pre-warm draft PR, an in-flight dedup set, a per-head merge backoff, a
+fail-closed `tryAutoLandEpic` with race reconciliation against the manual land endpoint, plus
+`scanDivergentEpicBranches` and the `epic_base_mismatch` self-healing sweep protecting its base.
+
+Almost all of that is **failure handling for one structural cause: drift.** The integration branch is
+long-lived and accumulates children one squash-merge at a time over days while `main` moves underneath
+it. Nothing rebases it — the critic is handed the base delta in prose precisely because "this branch was
+never rebased onto it." The landing PR is where all that accumulated drift finally has to be
+reconciled, at the very end, when the epic is nominally done. That is the worst possible moment to
+discover a conflict, and the repair machinery exists because it happens.
+
+**Stacks remove the drift by construction.** When a lower layer merges, GitHub auto-rebases the
+remainder. When the trunk moves, there is an explicit restack (button or `gh stack rebase`) that
+happens continuously rather than once at the end. The reconciliation cost is paid in small increments
+against a live stack instead of as one lump against a months-old branch.
+
+Two shapes are available, and they differ in what happens to the landing PR:
+
+**(a) Stack rooted at `main` — the landing PR disappears entirely.** Children stack toward the default
+branch; `gh stack merge` lands the chain. No integration branch, so no landing PR, no `landingState`, no
+repair sessions, no divergence detection, no fail-closed base checks. This also fixes a real
+history-quality problem: today the landing PR is squash-merged (`forge.mergeMethod` defaults to
+`"squash"`), so **an entire epic collapses into one commit on `main`** — one changelog entry, one revert
+unit, one bisect point for N children. Stack squash-merge produces **one commit per layer**, restoring
+per-child granularity in release notes and history.
+
+**(b) Stack rooted at the integration branch — the landing PR survives but stops being eventful.** The
+docs describe the trunk as "the base branch of the bottom pull request… typically your `main` branch,
+but it can be any branch, such as a release branch or a long-lived feature branch"
+([reference](https://docs.github.com/en/pull-requests/reference/stacked-pull-requests)). Rooting the
+stack at `epic/<#>-<slug>` means children land into the integration branch in one bulk operation at the
+end rather than trickling in, shrinking the drift window from "the whole epic" to "the gap between
+stack-merge and land". The landing PR keeps its shape, its single conventional title, and its
+`Closes #parent` — it just becomes a formality instead of a repair site.
+
+**What (a) genuinely costs, and (b) preserves:**
+
+- **The single `Closes #parent`.** `buildLandingPrBody` emits `Closes #parent` plus one `Closes #child`
+  per child, so one merge closes the whole epic. Without a landing PR, each layer closes its own child
+  issue but the parent needs an explicit close.
+- **One conventional-commit title for release-please.** `buildLandingPrTitle` exists precisely because
+  child titles are _not_ trusted to be conventional — it normalizes the parent title and appends
+  `(epic #N)`. Per-layer squash makes every child title a changelog line, which is better output but a
+  new requirement nothing currently enforces.
+- **The whole-epic review artifact.** The standalone critic sweeps a repo without `criticAllPrs` _only_
+  because it has an open landing PR, and reviews exactly that PR (`isEpicIntegrationBranch(headRefName)`,
+  `src/standalone-critic.ts:291`). It is the one place the assembled epic gets looked at as a whole. The
+  substitute in a stack is the top layer — `position == size` carries the accumulated change — but that
+  is a substitute, not the same thing.
+- **The migration-awareness gate.** `migrationPaths` / `migrationsAckedAt` currently gate on the landing
+  PR's diff. The gate does not disappear, but it has to move to per-layer or whole-stack detection.
+
+**Unresolved and decision-relevant:** the docs conflict on partial-merge atomicity. The merging page
+says the group lands "together as a single operation", while the troubleshooting page says "Merges stop
+at the failed pull request. Successfully merged PRs land on the base branch; the failed PR and those
+above remain open." Those cannot both be true for the same path. Whether shape (a) is safe hinges on
+this — if a mid-stack failure can leave half an epic on `main`, that is exactly what `resolveSpawnBase`'s
+fail-closed comment ("Never silently base an epic child on the default branch… that child would land on
+main mid-epic") is written to prevent. **Verify empirically on a throwaway stack before betting the epic
+model on it.**
 
 ### 5.3 Real stack awareness in the PRs tab
 
@@ -241,13 +316,13 @@ unattended agents will wedge on the TUI.
 
 ## 6. Ranked recommendation
 
-| Tier  | Item                                                                                                                                                                    | Why now                                                                                          | Size |
-| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | ---- |
-| **0** | Stack-safe merge path: `merge-async` + uuid polling behind `forge.merge`, and refuse-with-explanation rather than fail-with-retries when a stacked PR reaches the train | Breakage exists today on an already-enabled feature; everything else depends on it               | S–M  |
-| **1** | Real stack graph in the PRs tab (stop collapsing `baseRefName`, fill the REST-fallback gap, render position/depth)                                                      | Zero extra API cost; independently useful; precondition for the rest                             | S    |
-| **2** | Epic dependency chains as stacks — spawn a blocked child on its blocker's branch instead of waiting                                                                     | Converts serialization into parallelism on the slowest epics; the `blockedBy` DAG already exists | M–L  |
-| **3** | Build queue steps → stack layers                                                                                                                                        | Highest leverage on review load, but wants Tiers 0–1 in place first                              | L    |
-| —     | Ship `gh-stack` SKILL.md to agents, with mandatory non-interactive flags                                                                                                | Cheap, but only meaningful once something above needs agents to author stacks                    | S    |
+| Tier  | Item                                                                                                                                                                    | Why now                                                                                     | Size |
+| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- | ---- |
+| **0** | Stack-safe merge path: `merge-async` + uuid polling behind `forge.merge`, and refuse-with-explanation rather than fail-with-retries when a stacked PR reaches the train | Breakage exists today on an already-enabled feature; everything else depends on it          | S–M  |
+| **1** | Real stack graph in the PRs tab (stop collapsing `baseRefName`, fill the REST-fallback gap, render position/depth)                                                      | Zero extra API cost; independently useful; precondition for the rest                        | S    |
+| **2** | Epic dependency chains as stacks, rooted at the integration branch (§5.2.1 shape (b)) — spawn a blocked child on its blocker's branch instead of waiting                | Converts serialization into parallelism AND collapses the landing PR's drift-repair surface | M–L  |
+| **3** | Build queue steps → stack layers                                                                                                                                        | Highest leverage on review load, but wants Tiers 0–1 in place first                         | L    |
+| —     | Ship `gh-stack` SKILL.md to agents, with mandatory non-interactive flags                                                                                                | Cheap, but only meaningful once something above needs agents to author stacks               | S    |
 
 Tier 0 is the one that plausibly deserves its own issue immediately; the rest are worth sequencing
 deliberately behind it.
@@ -256,13 +331,23 @@ deliberately behind it.
 
 ## 7. Evaluated and recommended against (for now)
 
-**Replacing the `epic/` integration branch with a stack.** Tempting — it would delete the integration
-branch, the aggregate landing PR, `landingState`, divergence detection, and the fail-closed base checks.
-But: stacks are **strictly linear** and the epic model is a DAG; a **mid-stack close blocks every layer
-above it**, whereas today an abandoned epic child is harmless; there is **no reorder API**, so
-restructuring means unstack-and-recreate; and cross-fork is unsupported. Trading a working DAG for a
-linear chain with a new wedge mode is a bad deal while the feature is in preview. Revisit if GitHub
-ships reorder + mid-stack repair.
+**Retiring the `epic/` integration branch and the landing PR outright (§5.2.1 shape (a)) — not yet, but
+this is a "when", not a "no".** The prize is real and large: the entire landing-repair surface deleted,
+plus per-child commits on `main` instead of one squashed epic. Linearity is _not_ the blocker — an epic
+becomes one stack per maximal chain (§5.2). The blockers are narrower and concrete:
+
+1. **Partial-merge atomicity is undocumented-to-contradictory** (§5.2.1). If a mid-stack failure can
+   leave half an epic on `main`, shape (a) violates the invariant `resolveSpawnBase` currently fails
+   closed to protect. Settle this empirically first — it is one throwaway stack's worth of work.
+2. **A mid-stack close blocks every layer above it**, with no auto-repair. Today an abandoned epic child
+   is harmless; in a stack it wedges the chain. Shepherd abandons children often enough that this needs
+   a deliberate answer, and there is **no reorder API** — repair means unstack-and-recreate.
+3. **Preview churn.** Betting the epic model on a one-week-old preview feature is premature regardless
+   of how good the design is.
+
+Shape **(b)** — stack rooted at the integration branch — is the low-risk way to get most of the drift
+reduction while keeping the landing PR, the single `Closes #parent`, the conventional title, and the
+whole-epic review artifact. It is the better first move, and it does not foreclose (a).
 
 **Relying on GitHub auto-merge for stacks.** Not available, at any granularity. Worth noting that this
 costs us little: `AutoMergeService` is already its own poll-and-merge loop rather than a wrapper around

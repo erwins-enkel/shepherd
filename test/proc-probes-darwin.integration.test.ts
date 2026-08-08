@@ -64,9 +64,15 @@ maybe("darwin backend over real lsof: joins a child's cwd and its listening port
 
     // And the batched worktree mapping resolves the same port for the root — the
     // path the preview sweep actually takes.
-    const byWorktree = scanListeningPortsByWorktree([root], probes);
+    const byWorktree = scanListeningPortsByWorktree(
+      [{ worktreePath: root, sessionId: "s-1" }],
+      probes,
+    );
     expect(byWorktree).not.toBeNull();
-    expect(byWorktree!.get(root)).toContain(port);
+    expect(byWorktree!.get(root)!.ports).toContain(port);
+    // Darwin supplies no `environForPid`, so the scratchpad provenance fallback can
+    // never fire there — no hint dirs are ever contributed.
+    expect(byWorktree!.get(root)!.hintDirs).toEqual([]);
   } finally {
     child.kill("SIGKILL");
     rmSync(root, { recursive: true, force: true });

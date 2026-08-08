@@ -15,6 +15,7 @@ import { SessionStore } from "../src/store";
 import { StatusPoller } from "../src/poller";
 import { makeApp } from "../src/server";
 import type { HerdrAgent } from "../src/herdr";
+import type { ListenerScanTarget, WorktreeListeners } from "../src/process-reaper";
 
 /**
  * tick() (issue #1529) now reads agents over the socket via `listAsync()`, not the
@@ -109,11 +110,14 @@ function makePollerWithPreview(opts: {
     now = () => Date.now(),
   } = opts;
 
-  const scan = (worktrees: string[]): Map<string, number[]> => {
+  const scan = (worktrees: ListenerScanTarget[]): Map<string, WorktreeListeners> => {
     scanCalls.count++;
-    const result = new Map<string, number[]>();
-    for (const wt of worktrees) {
-      result.set(wt, scanResult.get(wt) ?? []);
+    const result = new Map<string, WorktreeListeners>();
+    for (const t of worktrees) {
+      result.set(t.worktreePath, {
+        ports: scanResult.get(t.worktreePath) ?? [],
+        hintDirs: [],
+      });
     }
     return result;
   };
@@ -241,8 +245,8 @@ test("preview sweep: re-entrancy — pending sweep blocks a concurrent second sw
       sweepMs: 4000,
       scan: (worktrees) => {
         scanCalls.count++;
-        const result = new Map<string, number[]>();
-        for (const wt of worktrees) result.set(wt, [5173]);
+        const result = new Map<string, WorktreeListeners>();
+        for (const t of worktrees) result.set(t.worktreePath, { ports: [5173], hintDirs: [] });
         return result;
       },
       pick: pickFn,
@@ -383,8 +387,8 @@ test("preview sweep: when idle agent's port disappears → converge excludes it 
       sweepMs: 4000,
       scan: (worktrees) => {
         scanCalls.count++;
-        const m = new Map<string, number[]>();
-        for (const wt of worktrees) m.set(wt, currentPorts);
+        const m = new Map<string, WorktreeListeners>();
+        for (const t of worktrees) m.set(t.worktreePath, { ports: currentPorts, hintDirs: [] });
         return m;
       },
       pick: async () => pickResult,
@@ -449,13 +453,13 @@ test("preview sweep: single scan per sweep regardless of session count", async (
   expect(scanCalls.count).toBe(1);
 });
 
-// ── pick receives worktreePath ────────────────────────────────────────────────
+// ── pick receives the hint dirs ───────────────────────────────────────────────
 
-test("preview sweep: pick is called with the session's worktreePath", async () => {
+test("preview sweep: pick is called with the session's worktreePath first in hintDirs", async () => {
   const store = new SessionStore(":memory:");
   const s = store.create(baseSessionInput); // worktreePath = "/wt-a"
 
-  const pickCalls: Array<{ ports: number[]; worktreePath: string }> = [];
+  const pickCalls: Array<{ ports: number[]; hintDirs: string[] }> = [];
   const service = makePreviewService();
   const clock = 100_000;
 
@@ -477,12 +481,12 @@ test("preview sweep: pick is called with the session's worktreePath", async () =
       service,
       sweepMs: 4000,
       scan: (worktrees) => {
-        const m = new Map<string, number[]>();
-        for (const wt of worktrees) m.set(wt, [5173]);
+        const m = new Map<string, WorktreeListeners>();
+        for (const t of worktrees) m.set(t.worktreePath, { ports: [5173], hintDirs: [] });
         return m;
       },
-      pick: async (ports, worktreePath) => {
-        pickCalls.push({ ports, worktreePath });
+      pick: async (ports, hintDirs) => {
+        pickCalls.push({ ports, hintDirs });
         return 5173;
       },
     },
@@ -492,7 +496,7 @@ test("preview sweep: pick is called with the session's worktreePath", async () =
   await new Promise((r) => setTimeout(r, 10));
 
   expect(pickCalls.length).toBeGreaterThanOrEqual(1);
-  expect(pickCalls[0]!.worktreePath).toBe(s.worktreePath);
+  expect(pickCalls[0]!.hintDirs[0]).toBe(s.worktreePath);
 });
 
 // ── GET /api/preview server endpoint ─────────────────────────────────────────
@@ -548,7 +552,7 @@ test("preview sweep: throwing scan → no crash + previewSweeping resets → lat
       sweepMs: 4000,
       scan: () => {
         if (shouldThrow) throw new Error("scan boom");
-        return new Map([["/wt-a", [5173]]]);
+        return new Map([["/wt-a", { ports: [5173], hintDirs: [] }]]);
       },
       pick: async () => 5173,
     },
@@ -594,7 +598,7 @@ test("preview sweep: rejecting pick → no crash + previewSweeping resets → la
     {
       service,
       sweepMs: 4000,
-      scan: () => new Map([["/wt-a", [5173]]]),
+      scan: () => new Map([["/wt-a", { ports: [5173], hintDirs: [] }]]),
       pick: async () => {
         if (shouldReject) throw new Error("pick boom");
         return 5173;
@@ -690,8 +694,8 @@ function makeIdleStopPoller(opts: {
         service,
         sweepMs: 4000,
         scan: (worktrees) => {
-          const m = new Map<string, number[]>();
-          for (const wt of worktrees) m.set(wt, [5173]);
+          const m = new Map<string, WorktreeListeners>();
+          for (const t of worktrees) m.set(t.worktreePath, { ports: [5173], hintDirs: [] });
           return m;
         },
         pick: pickFn ?? (async () => pickResult),
@@ -745,8 +749,8 @@ test("idle-stop: disabled by default — no stop called even when idle+stale", a
       service,
       sweepMs: 4000,
       scan: (worktrees) => {
-        const m = new Map<string, number[]>();
-        for (const wt of worktrees) m.set(wt, [5173]);
+        const m = new Map<string, WorktreeListeners>();
+        for (const t of worktrees) m.set(t.worktreePath, { ports: [5173], hintDirs: [] });
         return m;
       },
       pick: async () => 5173,
@@ -859,8 +863,8 @@ test("idle-stop: stale-status guard — s.status is idle (stale snapshot) but st
       service,
       sweepMs: 4000,
       scan: (worktrees) => {
-        const m = new Map<string, number[]>();
-        for (const wt of worktrees) m.set(wt, [5173]);
+        const m = new Map<string, WorktreeListeners>();
+        for (const t of worktrees) m.set(t.worktreePath, { ports: [5173], hintDirs: [] });
         return m;
       },
       pick: async () => 5173,
@@ -1054,8 +1058,8 @@ test("idle-stop: reset on recovery — after SIGTERM, next sweep with low idleSi
       service,
       sweepMs: 4000,
       scan: (worktrees) => {
-        const m = new Map<string, number[]>();
-        for (const wt of worktrees) m.set(wt, [5173]);
+        const m = new Map<string, WorktreeListeners>();
+        for (const t of worktrees) m.set(t.worktreePath, { ports: [5173], hintDirs: [] });
         return m;
       },
       pick: async () => 5173,
@@ -1122,8 +1126,9 @@ test("idle-stop: reset on port death — after SIGTERM, port disappears then rea
       service,
       sweepMs: 4000,
       scan: (worktrees) => {
-        const m = new Map<string, number[]>();
-        for (const wt of worktrees) m.set(wt, currentPick !== null ? [5173] : []);
+        const m = new Map<string, WorktreeListeners>();
+        for (const t of worktrees)
+          m.set(t.worktreePath, { ports: currentPick !== null ? [5173] : [], hintDirs: [] });
         return m;
       },
       pick: async () => currentPick,
@@ -1190,8 +1195,8 @@ test("idle-stop: devPort change mid-escalation → resets to fresh SIGTERM (not 
       service,
       sweepMs: 4000,
       scan: (worktrees) => {
-        const m = new Map<string, number[]>();
-        for (const wt of worktrees) m.set(wt, [currentDevPort]);
+        const m = new Map<string, WorktreeListeners>();
+        for (const t of worktrees) m.set(t.worktreePath, { ports: [currentDevPort], hintDirs: [] });
         return m;
       },
       pick: async () => currentDevPort,

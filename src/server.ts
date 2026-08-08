@@ -372,7 +372,7 @@ export interface AppDeps {
   /** Local preview launcher. Defaults to `.git/shepherd/preview-start.sh` scripts;
    *  injectable so route tests never spawn real dev servers. */
   previewLauncher?: {
-    findDevPort(worktreePath: string): Promise<number | null>;
+    findDevPort(worktreePath: string, sessionId: string): Promise<number | null>;
     scriptExists(path: string | null | undefined): Promise<boolean>;
     scriptPath(worktreePath: string): Promise<string | null>;
     ensureScript(worktreePath: string, command: string): Promise<string | null>;
@@ -2736,7 +2736,7 @@ async function bindExistingPreviewServer(
   deps: AppDeps,
   launcher: PreviewLauncher,
 ): Promise<Response | null> {
-  const devPort = await launcher.findDevPort(s.worktreePath);
+  const devPort = await launcher.findDevPort(s.worktreePath, s.id);
   if (devPort === null) return null;
   const previewPort = deps.preview?.ensure?.(id, devPort) ?? null;
   if (previewPort === null) return json({ error: "preview_slot_unavailable" }, 503);

@@ -209,6 +209,15 @@ const CURATED_PORTS: readonly number[] = [5173, 5174, 4321, 4173, 3000, 8000, 80
 const CURATED_SET = new Set<number>(CURATED_PORTS);
 
 /**
+ * Never a preview, always an HTTP responder: the Node inspector (9229, and 9230 for a
+ * second concurrent inspector) and a Chrome DevTools Protocol endpoint (9222) both answer
+ * a plain GET, so the liveness probe alone would let one win the non-curated fallback.
+ * Excluded outright rather than probed — proxying a debugger to the operator's browser is
+ * never the intent, and the agent scratchpad is full of both.
+ */
+const EXCLUDED_PORTS = new Set<number>([9222, 9229, 9230]);
+
+/**
  * HTTP liveness probe: returns true when a plain HTTP GET/HEAD to 127.0.0.1:<port>
  * yields any well-formed HTTP response within ~500 ms.
  *
@@ -259,7 +268,7 @@ async function readHintFileBounded(path: string, enc: "utf8"): Promise<string> {
 }
 
 /**
- * Read a `.shepherd-preview` hint file from the worktree root.
+ * Read a `.shepherd-preview` hint file from a directory.
  *
  * Returns the declared port (integer in [1, 65535]) or null on any failure:
  * missing/unreadable file, empty/whitespace content, content that is not a
@@ -272,10 +281,10 @@ async function readHintFileBounded(path: string, enc: "utf8"): Promise<string> {
  * between digits.
  */
 async function readPreviewHint(
-  worktreePath: string,
+  dir: string,
   readFile: (path: string, enc: "utf8") => Promise<string> = readHintFileBounded,
 ): Promise<number | null> {
-  const hintPath = join(worktreePath, PREVIEW_HINT_FILE);
+  const hintPath = join(dir, PREVIEW_HINT_FILE);
   let text: string;
   try {
     text = await readFile(hintPath, "utf8");
@@ -287,6 +296,22 @@ async function readPreviewHint(
   const port = Number.parseInt(trimmed, 10);
   if (port < 1 || port > 65535) return null;
   return port;
+}
+
+/**
+ * First readable, well-formed hint across `hintDirs`, in order. The caller puts the
+ * worktree root first, so an agent-declared port there always outranks one found next
+ * to a scratchpad-rooted server.
+ */
+async function firstPreviewHint(
+  hintDirs: readonly string[],
+  readFile?: (path: string, enc: "utf8") => Promise<string>,
+): Promise<number | null> {
+  for (const dir of hintDirs) {
+    const hint = await readPreviewHint(dir, readFile);
+    if (hint !== null) return hint;
+  }
+  return null;
 }
 
 /**
@@ -303,20 +328,24 @@ async function readPreviewHint(
  *     the heuristic for multi-listener apps or apps on uncommon ports
  *
  * Falls through to `pickPrimaryPort` when the hint is absent, unreadable,
- * not in `ports`, or not an HTTP server.
+ * not in `ports`, or not an HTTP server. `EXCLUDED_PORTS` are dropped up front, so not
+ * even an explicit hint can point the preview at a debugger.
  *
- * @param ports        Listening ports for this worktree (from /proc scan).
- * @param worktreePath Absolute path to the worktree root (hint file location).
- * @param readFile     Injectable file reader (forwarded to readPreviewHint).
- * @param httpProbe    Injectable HTTP liveness probe (default: real network call).
+ * @param candidates Listening ports for this worktree (from /proc scan).
+ * @param hintDirs   Directories to look for `.shepherd-preview` in, most authoritative
+ *                   FIRST — the worktree root, then any directory contributed by a
+ *                   scratchpad-rooted listener.
+ * @param readFile   Injectable file reader (forwarded to readPreviewHint).
+ * @param httpProbe  Injectable HTTP liveness probe (default: real network call).
  */
 export async function resolveDevPort(
-  ports: number[],
-  worktreePath: string,
+  candidates: number[],
+  hintDirs: readonly string[],
   readFile?: (path: string, enc: "utf8") => Promise<string>,
   httpProbe: (port: number) => Promise<boolean> = defaultHttpProbe,
 ): Promise<number | null> {
-  const hint = await readPreviewHint(worktreePath, readFile);
+  const ports = candidates.filter((p) => !EXCLUDED_PORTS.has(p));
+  const hint = await firstPreviewHint(hintDirs, readFile);
   if (hint !== null && ports.includes(hint)) {
     // Curated ports are trusted HTTP servers — no probe needed.
     // Non-curated declared ports must still pass the HTTP probe to be surfaced.
@@ -342,13 +371,16 @@ export async function resolveDevPort(
  *    the HTTP liveness probe.
  * 3. If nothing answers → null.
  *
- * @param ports      Listening ports detected in the worktree (any order).
+ * `EXCLUDED_PORTS` are dropped before either step.
+ *
+ * @param candidates Listening ports detected in the worktree (any order).
  * @param httpProbe  Injectable probe; defaults to real network call.
  */
 export async function pickPrimaryPort(
-  ports: number[],
+  candidates: number[],
   httpProbe: (port: number) => Promise<boolean> = defaultHttpProbe,
 ): Promise<number | null> {
+  const ports = candidates.filter((p) => !EXCLUDED_PORTS.has(p));
   if (ports.length === 0) return null;
 
   // Step 1: curated-first by list order.

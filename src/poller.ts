@@ -31,8 +31,14 @@ import { statSync } from "node:fs";
 import { classifyHalt, assistantSideText } from "./usage-halt";
 import type { UsageLimits } from "./usage-limits";
 import { maintenance } from "./maintenance";
-import { scanListeningPortsByWorktree, scanClaudeAliveByWorktree } from "./process-reaper";
+import {
+  scanListeningPortsByWorktree,
+  scanClaudeAliveByWorktree,
+  type ListenerScanTarget,
+  type WorktreeListeners,
+} from "./process-reaper";
 import { resolveDevPort } from "./preview";
+import { agentTmpDir } from "./tmp-sweep";
 import { config } from "./config";
 import { SessionLiveness, type LivenessOutcome, type TranscriptSignals } from "./session-liveness";
 
@@ -90,15 +96,16 @@ export interface PreviewWiring {
    *  union filter, so the liveness sweep — which has no wiring of its own — is
    *  covered too. Defaults to `deps.reaper`-backed refresh in index.ts. */
   refresh?: (opts?: { force?: boolean }) => Promise<void>;
-  /** Batched /proc scan: builds the inode→port map ONCE and resolves all worktrees.
+  /** Batched /proc scan: builds the inode→port map ONCE and resolves all sessions.
    *  Defaults to the real `scanListeningPortsByWorktree`. Returns `null` when the
    *  snapshot backend cannot support a negative verdict (darwin, stale/none cell) —
    *  the sweep must then leave bound listeners untouched, not tear them down. */
-  scan: (worktrees: string[]) => Map<string, number[]> | null;
+  scan: (targets: ListenerScanTarget[]) => Map<string, WorktreeListeners> | null;
   /** Pick the primary dev port from a set of listening ports for a given worktree.
    *  Defaults to `resolveDevPort`, which honors the agent-declared `.shepherd-preview`
-   *  hint (if listening + HTTP-live) and otherwise falls back to the primary-port heuristic. */
-  pick: (ports: number[], worktreePath: string) => Promise<number | null>;
+   *  hint (if listening + HTTP-live) and otherwise falls back to the primary-port heuristic.
+   *  `hintDirs` is worktree-root-first; see `resolveDevPort`. */
+  pick: (ports: number[], hintDirs: string[]) => Promise<number | null>;
   /** Opt-in idle-stop. idleMs > 0 enables it; `stop` signals a session's dev-server
    *  process (wired to SessionService.stopPreview in index.ts). Returns the stop
    *  outcome. The two that signalled NOTHING must NOT advance the escalation ladder:
@@ -519,8 +526,10 @@ export class StatusPoller {
       },
       sweepMs: preview?.sweepMs ?? config.previewSweepMs,
       refresh: preview?.refresh,
-      scan: preview?.scan ?? ((worktrees) => scanListeningPortsByWorktree(worktrees)),
-      pick: preview?.pick ?? ((ports, worktreePath) => resolveDevPort(ports, worktreePath)),
+      scan:
+        preview?.scan ??
+        ((targets) => scanListeningPortsByWorktree(targets, undefined, agentTmpDir())),
+      pick: preview?.pick ?? ((ports, hintDirs) => resolveDevPort(ports, hintDirs)),
       idleStop: preview?.idleStop,
     };
     this.livenessWiring = {
@@ -1881,6 +1890,18 @@ export class StatusPoller {
       });
   }
 
+  /** This session's dev port from its scan result. The worktree root leads `hintDirs`:
+   *  an agent-declared hint there outranks one found next to a scratchpad-rooted server. */
+  private pickDevPort(
+    s: Session,
+    listeners: WorktreeListeners | undefined,
+  ): Promise<number | null> {
+    return this.previewWiring.pick(listeners?.ports ?? [], [
+      s.worktreePath,
+      ...(listeners?.hintDirs ?? []),
+    ]);
+  }
+
   /**
    * Async core of the preview sweep. Builds the /proc map ONCE, picks a primary
    * port per session, then calls converge() on the full active set. The PreviewService
@@ -1889,9 +1910,11 @@ export class StatusPoller {
    */
   private async runPreviewSweep(isolated: Session[]): Promise<void> {
     const now = this.now();
-    const worktrees = isolated.map((s) => s.worktreePath);
-    // Single /proc scan for ALL sessions — never once per session.
-    const portsMap = this.previewWiring.scan(worktrees);
+    // Single /proc scan for ALL sessions — never once per session. Session ids ride along
+    // so a scratchpad-rooted server can be attributed by its inherited marker.
+    const portsMap = this.previewWiring.scan(
+      isolated.map((s) => ({ worktreePath: s.worktreePath, sessionId: s.id })),
+    );
 
     // `null` = the snapshot backend can't support a negative verdict (darwin,
     // stale/none cell). An empty/partial map here would drive `converge` to tear
@@ -1901,8 +1924,7 @@ export class StatusPoller {
 
     const active: Array<{ sessionId: string; devPort: number }> = [];
     for (const s of isolated) {
-      const ports = portsMap.get(s.worktreePath) ?? [];
-      const devPort = await this.previewWiring.pick(ports, s.worktreePath);
+      const devPort = await this.pickDevPort(s, portsMap.get(s.worktreePath));
       if (devPort === null) {
         // Server is gone — clear any escalation state and skip (converge will release it).
         this.previewStopState.delete(s.id);

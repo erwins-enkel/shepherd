@@ -8,7 +8,11 @@ import {
   makeRelayHandlers,
   type FsAccessors,
 } from "../src/preview";
-import { scanListeningPortsByWorktree, type ReaperProbes } from "../src/process-reaper";
+import {
+  scanListeningPortsByWorktree,
+  type ListenerScanTarget,
+  type ReaperProbes,
+} from "../src/process-reaper";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -97,6 +101,18 @@ test("pickPrimaryPort: only non-curated, none answer HTTP → null", async () =>
   expect(result).toBeNull();
 });
 
+// EXCLUDED_PORTS: a debugger/CDP endpoint answers a plain HTTP GET, so the liveness
+// probe alone would happily hand one to the operator's browser as "the preview".
+
+test("pickPrimaryPort: debugger/CDP ports are never picked, even answering HTTP", async () => {
+  const alwaysLive = async (): Promise<boolean> => true;
+  for (const port of [9222, 9229, 9230]) {
+    expect(await pickPrimaryPort([port], alwaysLive)).toBeNull();
+  }
+  // …and they never outrank a real, higher-numbered dev port.
+  expect(await pickPrimaryPort([9222, 9500], alwaysLive)).toBe(9500);
+});
+
 // ── readPreviewHint + resolveDevPort ──────────────────────────────────────────
 
 // Fake readFile helpers
@@ -106,23 +122,29 @@ const rejectReadFile = async (): Promise<string> => {
 const makeReadFile = (content: string) => async (): Promise<string> => content;
 
 // These tests exercise readPreviewHint behaviour indirectly via resolveDevPort.
+test("resolveDevPort: an explicit hint cannot point the preview at a debugger", async () => {
+  const alwaysLive = async (): Promise<boolean> => true;
+  const result = await resolveDevPort([9229, 5173], ["/any"], makeReadFile("9229"), alwaysLive);
+  expect(result).toBe(5173);
+});
+
 test("resolveDevPort: valid port string '3000\\n' → hint honored (3000 curated, no probe)", async () => {
-  const result = await resolveDevPort([3000], "/any", makeReadFile("3000\n"), async () => true);
+  const result = await resolveDevPort([3000], ["/any"], makeReadFile("3000\n"), async () => true);
   expect(result).toBe(3000);
 });
 
 test("resolveDevPort: non-numeric 'abc' hint → null (falls back to pickPrimaryPort)", async () => {
-  const result = await resolveDevPort([5173], "/any", makeReadFile("abc"), neverProbe);
+  const result = await resolveDevPort([5173], ["/any"], makeReadFile("abc"), neverProbe);
   expect(result).toBe(5173); // bad hint → falls back
 });
 
 test("resolveDevPort: out-of-range '0' hint → null (falls back)", async () => {
-  const result = await resolveDevPort([5173], "/any", makeReadFile("0"), neverProbe);
+  const result = await resolveDevPort([5173], ["/any"], makeReadFile("0"), neverProbe);
   expect(result).toBe(5173);
 });
 
 test("resolveDevPort: out-of-range '70000' hint → null (falls back)", async () => {
-  const result = await resolveDevPort([5173], "/any", makeReadFile("70000"), neverProbe);
+  const result = await resolveDevPort([5173], ["/any"], makeReadFile("70000"), neverProbe);
   expect(result).toBe(5173);
 });
 
@@ -132,7 +154,7 @@ test("resolveDevPort: surrounding whitespace '  5173  ' → hint honored (curate
     probeCount++;
     return true;
   };
-  const result = await resolveDevPort([5173], "/any", makeReadFile("  5173  "), countingProbe);
+  const result = await resolveDevPort([5173], ["/any"], makeReadFile("  5173  "), countingProbe);
   expect(result).toBe(5173);
   expect(probeCount).toBe(0); // curated → no probe
 });
@@ -145,14 +167,14 @@ test("resolveDevPort: junk-suffixed hint '3000abc' → rejected (falls back to p
     probeCount++;
     return false;
   };
-  const result = await resolveDevPort([5173], "/any", makeReadFile("3000abc"), countingProbe);
+  const result = await resolveDevPort([5173], ["/any"], makeReadFile("3000abc"), countingProbe);
   expect(result).toBe(5173); // curated 5173 returned via fallback (no probe)
   expect(probeCount).toBe(0); // 3000 was NEVER probed (hint was rejected outright)
 });
 
 test("resolveDevPort: curated hint not in ports → falls back to pickPrimaryPort (ports.includes gate)", async () => {
   // hint=3000 (curated), ports=[5173] — 3000 not listening → ignored
-  const result = await resolveDevPort([5173], "/any", makeReadFile("3000"), neverProbe);
+  const result = await resolveDevPort([5173], ["/any"], makeReadFile("3000"), neverProbe);
   expect(result).toBe(5173); // fallback picks curated 5173
 });
 
@@ -163,7 +185,7 @@ test("resolveDevPort: hint curated, in ports → returns hint WITHOUT probing", 
     return true;
   };
   // hint=5173 (curated), ports=[3000, 5173]
-  const result = await resolveDevPort([3000, 5173], "/any", makeReadFile("5173"), countingProbe);
+  const result = await resolveDevPort([3000, 5173], ["/any"], makeReadFile("5173"), countingProbe);
   expect(result).toBe(5173);
   expect(probeCount).toBe(0);
 });
@@ -172,14 +194,14 @@ test("resolveDevPort: hint non-curated, in ports, probe passes → returns hint 
   // hint=9000 (non-curated), ports=[9000, 5173]; probe passes for 9000
   // Without the hint, pickPrimaryPort would return 5173. The hint overrides it.
   const probe = async (port: number): Promise<boolean> => port === 9000;
-  const result = await resolveDevPort([9000, 5173], "/any", makeReadFile("9000"), probe);
+  const result = await resolveDevPort([9000, 5173], ["/any"], makeReadFile("9000"), probe);
   expect(result).toBe(9000);
 });
 
 test("resolveDevPort: hint non-curated, in ports, probe fails → falls back to pickPrimaryPort (returns curated 5173)", async () => {
   // hint=9000 (non-curated), probe fails for 9000; 5173 is curated → returned unprobed
   const probe = async (port: number): Promise<boolean> => port !== 9000;
-  const result = await resolveDevPort([9000, 5173], "/any", makeReadFile("9000"), probe);
+  const result = await resolveDevPort([9000, 5173], ["/any"], makeReadFile("9000"), probe);
   expect(result).toBe(5173);
 });
 
@@ -192,7 +214,7 @@ test("resolveDevPort: failed non-curated hint is NOT re-probed in the fallback",
     probed.push(port);
     return port === 9500;
   };
-  const result = await resolveDevPort([9000, 9500], "/any", makeReadFile("9000"), probe);
+  const result = await resolveDevPort([9000, 9500], ["/any"], makeReadFile("9000"), probe);
   expect(result).toBe(9500);
   expect(probed.filter((p) => p === 9000).length).toBe(1); // probed once (hint branch), not re-probed
 });
@@ -204,13 +226,13 @@ test("resolveDevPort: hint not in ports → falls back, hint port never probed",
     probedPorts.push(port);
     return false;
   };
-  const result = await resolveDevPort([5173], "/any", makeReadFile("9000"), trackingProbe);
+  const result = await resolveDevPort([5173], ["/any"], makeReadFile("9000"), trackingProbe);
   expect(result).toBe(5173); // curated 5173 returned (no probe for curated)
   expect(probedPorts).not.toContain(9000);
 });
 
 test("resolveDevPort: no hint (readFile rejects) → falls back to pickPrimaryPort", async () => {
-  const result = await resolveDevPort([5173], "/any", rejectReadFile, neverProbe);
+  const result = await resolveDevPort([5173], ["/any"], rejectReadFile, neverProbe);
   expect(result).toBe(5173);
 });
 
@@ -227,11 +249,59 @@ test("resolveDevPort: default reader caps the read at MAX_HINT_BYTES", async () 
     writeFileSync(join(dir, ".shepherd-preview"), `9000${" ".repeat(200)}x`);
     const alwaysLive = async (): Promise<boolean> => true;
     // Default readFile (undefined) → bounded reader.
-    const result = await resolveDevPort([9000, 5173], dir, undefined, alwaysLive);
+    const result = await resolveDevPort([9000, 5173], [dir], undefined, alwaysLive);
     expect(result).toBe(9000);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// ── resolveDevPort across several hint directories ────────────────────────────
+//
+// A scratchpad-rooted server contributes its own directory as a hint location, so the
+// worktree root has to keep winning: it is the canonical, agent-declared one.
+
+/** Reader that resolves `.shepherd-preview` per directory; missing dirs throw (ENOENT). */
+const makeDirReadFile = (byDir: Record<string, string>) => async (path: string) => {
+  for (const [dir, content] of Object.entries(byDir)) {
+    if (path === `${dir}/.shepherd-preview`) return content;
+  }
+  throw new Error("ENOENT: no such file");
+};
+
+test("resolveDevPort: the worktree-root hint outranks a scratchpad one", async () => {
+  const result = await resolveDevPort(
+    [3000, 4321],
+    ["/wt/app", "/scratch/proto"],
+    makeDirReadFile({ "/wt/app": "3000", "/scratch/proto": "4321" }),
+    neverProbe,
+  );
+  expect(result).toBe(3000);
+});
+
+test("resolveDevPort: a scratchpad hint is honored when the worktree root has none", async () => {
+  const result = await resolveDevPort(
+    [3000, 9000],
+    ["/wt/app", "/scratch/proto"],
+    makeDirReadFile({ "/scratch/proto": "9000" }),
+    async () => true,
+  );
+  expect(result).toBe(9000);
+});
+
+test("resolveDevPort: hint dirs are tried in order, first VALID one wins", async () => {
+  // An unreadable/garbage hint must not stop the walk — it is not a declaration.
+  const result = await resolveDevPort(
+    [4321],
+    ["/wt/app", "/scratch/proto", "/scratch"],
+    makeDirReadFile({ "/wt/app": "not-a-port", "/scratch": "4321" }),
+    neverProbe,
+  );
+  expect(result).toBe(4321);
+});
+
+test("resolveDevPort: no hint dirs at all still falls back to the heuristic", async () => {
+  expect(await resolveDevPort([5173], [], undefined, neverProbe)).toBe(5173);
 });
 
 // ── sanitizeCloseCode ─────────────────────────────────────────────────────────
@@ -315,6 +385,12 @@ function makeProbes(over: Partial<ReaperProbes> = {}): ReaperProbes {
   };
 }
 
+/** Scan targets from bare worktree paths, with a session id derived from each path.
+ *  Tests that exercise the scratchpad fallback build their targets explicitly instead. */
+function targets(paths: string[]): ListenerScanTarget[] {
+  return paths.map((worktreePath) => ({ worktreePath, sessionId: `sess:${worktreePath}` }));
+}
+
 test("scanListeningPortsByWorktree: builds the inode→port map EXACTLY ONCE for N worktrees/PIDs", () => {
   let mapBuildCount = 0;
 
@@ -346,14 +422,14 @@ test("scanListeningPortsByWorktree: builds the inode→port map EXACTLY ONCE for
     socketInodesForPid: (pid) => pidInodes[pid] ?? [],
   });
 
-  const result = scanListeningPortsByWorktree(["/wt/alpha", "/wt/beta"], probes);
+  const result = scanListeningPortsByWorktree(targets(["/wt/alpha", "/wt/beta"]), probes);
 
   // Map built exactly once
   expect(mapBuildCount).toBe(1);
   // alpha gets pid 101 (port 5173) + pid 103 (no ports)
-  expect(result!.get("/wt/alpha")).toEqual([5173]);
+  expect(result!.get("/wt/alpha")!.ports).toEqual([5173]);
   // beta gets pid 102 (port 3000)
-  expect(result!.get("/wt/beta")).toEqual([3000]);
+  expect(result!.get("/wt/beta")!.ports).toEqual([3000]);
 });
 
 test("scanListeningPortsByWorktree: ports are sorted and deduplicated per worktree", () => {
@@ -370,9 +446,9 @@ test("scanListeningPortsByWorktree: ports are sorted and deduplicated per worktr
     inodeToPortMap: () => inodeMap,
     socketInodesForPid: (pid) => (pid === 10 ? [1, 2] : [3]),
   });
-  const result = scanListeningPortsByWorktree(["/wt/app"], probes);
+  const result = scanListeningPortsByWorktree(targets(["/wt/app"]), probes);
   // sorted, deduped: [3000, 5173]
-  expect(result!.get("/wt/app")).toEqual([3000, 5173]);
+  expect(result!.get("/wt/app")!.ports).toEqual([3000, 5173]);
 });
 
 test("scanListeningPortsByWorktree: excludes the agent comm (claude)", () => {
@@ -382,8 +458,8 @@ test("scanListeningPortsByWorktree: excludes the agent comm (claude)", () => {
     inodeToPortMap: () => inodeMap,
     socketInodesForPid: () => [1],
   });
-  const result = scanListeningPortsByWorktree(["/wt/app"], probes);
-  expect(result!.get("/wt/app")).toEqual([]);
+  const result = scanListeningPortsByWorktree(targets(["/wt/app"]), probes);
+  expect(result!.get("/wt/app")!.ports).toEqual([]);
 });
 
 test("scanListeningPortsByWorktree: excludes own process.pid", () => {
@@ -393,8 +469,8 @@ test("scanListeningPortsByWorktree: excludes own process.pid", () => {
     inodeToPortMap: () => inodeMap,
     socketInodesForPid: () => [1],
   });
-  const result = scanListeningPortsByWorktree(["/wt/app"], probes);
-  expect(result!.get("/wt/app")).toEqual([]);
+  const result = scanListeningPortsByWorktree(targets(["/wt/app"]), probes);
+  expect(result!.get("/wt/app")!.ports).toEqual([]);
 });
 
 test("scanListeningPortsByWorktree: processes outside all worktrees are ignored", () => {
@@ -404,8 +480,8 @@ test("scanListeningPortsByWorktree: processes outside all worktrees are ignored"
     inodeToPortMap: () => inodeMap,
     socketInodesForPid: () => [1],
   });
-  const result = scanListeningPortsByWorktree(["/wt/app"], probes);
-  expect(result!.get("/wt/app")).toEqual([]);
+  const result = scanListeningPortsByWorktree(targets(["/wt/app"]), probes);
+  expect(result!.get("/wt/app")!.ports).toEqual([]);
 });
 
 test("scanListeningPortsByWorktree: returns empty arrays for worktrees with no matching procs", () => {
@@ -414,9 +490,9 @@ test("scanListeningPortsByWorktree: returns empty arrays for worktrees with no m
     inodeToPortMap: () => new Map([[1, 5173]]),
     socketInodesForPid: () => [1],
   });
-  const result = scanListeningPortsByWorktree(["/wt/alpha", "/wt/beta"], probes);
-  expect(result!.get("/wt/alpha")).toEqual([]);
-  expect(result!.get("/wt/beta")).toEqual([]);
+  const result = scanListeningPortsByWorktree(targets(["/wt/alpha", "/wt/beta"]), probes);
+  expect(result!.get("/wt/alpha")!.ports).toEqual([]);
+  expect(result!.get("/wt/beta")!.ports).toEqual([]);
 });
 
 test("scanListeningPortsByWorktree: empty worktreePaths → empty map", () => {
@@ -425,7 +501,7 @@ test("scanListeningPortsByWorktree: empty worktreePaths → empty map", () => {
     inodeToPortMap: () => new Map([[1, 5173]]),
     socketInodesForPid: () => [1],
   });
-  const result = scanListeningPortsByWorktree([], probes);
+  const result = scanListeningPortsByWorktree(targets([]), probes);
   expect(result!.size).toBe(0);
 });
 
@@ -436,8 +512,8 @@ test("scanListeningPortsByWorktree: a PID under a nested subdir is attributed to
     inodeToPortMap: () => inodeMap,
     socketInodesForPid: () => [1],
   });
-  const result = scanListeningPortsByWorktree(["/wt/myapp"], probes);
-  expect(result!.get("/wt/myapp")).toEqual([3000]);
+  const result = scanListeningPortsByWorktree(targets(["/wt/myapp"]), probes);
+  expect(result!.get("/wt/myapp")!.ports).toEqual([3000]);
 });
 
 test("scanListeningPortsByWorktree: multiple worktrees get independent port sets", () => {
@@ -453,9 +529,9 @@ test("scanListeningPortsByWorktree: multiple worktrees get independent port sets
     inodeToPortMap: () => inodeMap,
     socketInodesForPid: (pid) => (pid === 10 ? [1] : [2]),
   });
-  const result = scanListeningPortsByWorktree(["/wt/alpha", "/wt/beta"], probes);
-  expect(result!.get("/wt/alpha")).toEqual([5173]);
-  expect(result!.get("/wt/beta")).toEqual([4321]);
+  const result = scanListeningPortsByWorktree(targets(["/wt/alpha", "/wt/beta"]), probes);
+  expect(result!.get("/wt/alpha")!.ports).toEqual([5173]);
+  expect(result!.get("/wt/beta")!.ports).toEqual([4321]);
 });
 
 test("scanListeningPortsByWorktree: mismatched probe config (socketInodesForPid only) falls back to portsForPid", () => {
@@ -471,9 +547,9 @@ test("scanListeningPortsByWorktree: mismatched probe config (socketInodesForPid 
       return pid === 88 ? [5173] : [];
     },
   });
-  const result = scanListeningPortsByWorktree(["/wt/app"], probes);
+  const result = scanListeningPortsByWorktree(targets(["/wt/app"]), probes);
   expect(portsForPidCalled).toBe(true);
-  expect(result!.get("/wt/app")).toEqual([5173]);
+  expect(result!.get("/wt/app")!.ports).toEqual([5173]);
 });
 
 test("scanListeningPortsByWorktree: proc under /wt/appold is NOT attributed to /wt/app", () => {
@@ -484,8 +560,111 @@ test("scanListeningPortsByWorktree: proc under /wt/appold is NOT attributed to /
     inodeToPortMap: () => inodeMap,
     socketInodesForPid: () => [1],
   });
-  const result = scanListeningPortsByWorktree(["/wt/app"], probes);
-  expect(result!.get("/wt/app")).toEqual([]);
+  const result = scanListeningPortsByWorktree(targets(["/wt/app"]), probes);
+  expect(result!.get("/wt/app")!.ports).toEqual([]);
+});
+
+// ── scanListeningPortsByWorktree: the scratchpad provenance fallback ──────────
+//
+// Agents prototyping in the Claude scratchpad start their dev server there, so a cwd
+// test alone never sees it. The inherited SHEPHERD_SESSION_ID marker re-attaches it —
+// but only for a process that is BOTH inside the scratch root and actually listening.
+
+const SCRATCH = "/scratch";
+const PROTO = "/scratch/claude-1000/wt-slug/cc-session/scratchpad/proto";
+
+/** One listening scratchpad process, with whatever marker (or none) a test wants. */
+function scratchScanProbes(marker: string | null, over: Partial<ReaperProbes> = {}) {
+  return makeProbes({
+    scanProcs: () => [{ pid: 91, cwd: PROTO, comm: "python3" }],
+    inodeToPortMap: () => new Map([[1, 8123]]),
+    socketInodesForPid: () => [1],
+    environForPid: (): Record<string, string> =>
+      marker === null ? {} : { SHEPHERD_SESSION_ID: marker },
+    ...over,
+  });
+}
+
+const oneTarget = [{ worktreePath: "/wt/app", sessionId: "s-1" }];
+
+test("scanListeningPortsByWorktree: a marked scratchpad listener lands on its session's worktree", () => {
+  const result = scanListeningPortsByWorktree(oneTarget, scratchScanProbes("s-1"), SCRATCH);
+  expect(result!.get("/wt/app")!.ports).toEqual([8123]);
+});
+
+test("scanListeningPortsByWorktree: the scratchpad listener contributes its dirs as hint locations", () => {
+  const result = scanListeningPortsByWorktree(oneTarget, scratchScanProbes("s-1"), SCRATCH);
+  const hints = result!.get("/wt/app")!.hintDirs;
+  // Own dir first, then ancestors — capped, and never reaching the scratch root itself.
+  expect(hints[0]).toBe(PROTO);
+  expect(hints.length).toBeLessThanOrEqual(4);
+  expect(hints).not.toContain(SCRATCH);
+  for (const dir of hints) expect(dir.startsWith(`${SCRATCH}/`)).toBe(true);
+});
+
+test("scanListeningPortsByWorktree: a marker naming another session is not attributed", () => {
+  const result = scanListeningPortsByWorktree(oneTarget, scratchScanProbes("s-other"), SCRATCH);
+  expect(result!.get("/wt/app")).toEqual({ ports: [], hintDirs: [] });
+});
+
+test("scanListeningPortsByWorktree: an unmarked scratchpad listener is not attributed", () => {
+  const result = scanListeningPortsByWorktree(oneTarget, scratchScanProbes(null), SCRATCH);
+  expect(result!.get("/wt/app")).toEqual({ ports: [], hintDirs: [] });
+});
+
+test("scanListeningPortsByWorktree: no scratchRoot (redirect disabled) keeps the scan cwd-only", () => {
+  const result = scanListeningPortsByWorktree(oneTarget, scratchScanProbes("s-1"));
+  expect(result!.get("/wt/app")).toEqual({ ports: [], hintDirs: [] });
+});
+
+test("scanListeningPortsByWorktree: a backend without environForPid never attributes by marker", () => {
+  const probes = makeProbes({
+    scanProcs: () => [{ pid: 91, cwd: PROTO, comm: "python3" }],
+    inodeToPortMap: () => new Map([[1, 8123]]),
+    socketInodesForPid: () => [1],
+    // environForPid deliberately absent (darwin)
+  });
+  const result = scanListeningPortsByWorktree(oneTarget, probes, SCRATCH);
+  expect(result!.get("/wt/app")).toEqual({ ports: [], hintDirs: [] });
+});
+
+test("scanListeningPortsByWorktree: a non-listening scratchpad proc is never environ-read", () => {
+  // The environ read takes the target's mmap lock, so it must stay behind the
+  // listening test — a transient agent child must not cost one.
+  let environReads = 0;
+  const probes = makeProbes({
+    scanProcs: () => [{ pid: 91, cwd: PROTO, comm: "bash" }],
+    inodeToPortMap: () => new Map(),
+    socketInodesForPid: () => [],
+    environForPid: () => {
+      environReads++;
+      return { SHEPHERD_SESSION_ID: "s-1" };
+    },
+  });
+  const result = scanListeningPortsByWorktree(oneTarget, probes, SCRATCH);
+  expect(result!.get("/wt/app")!.ports).toEqual([]);
+  expect(environReads).toBe(0);
+});
+
+test("scanListeningPortsByWorktree: a marked listener outside the scratch root stays ignored", () => {
+  const probes = scratchScanProbes("s-1", {
+    scanProcs: () => [{ pid: 91, cwd: "/tmp/elsewhere", comm: "python3" }],
+  });
+  const result = scanListeningPortsByWorktree(oneTarget, probes, SCRATCH);
+  expect(result!.get("/wt/app")).toEqual({ ports: [], hintDirs: [] });
+});
+
+test("scanListeningPortsByWorktree: two sessions sharing a worktree path do not shadow each other", () => {
+  const result = scanListeningPortsByWorktree(
+    [
+      { worktreePath: "/wt/app", sessionId: "s-1" },
+      { worktreePath: "/wt/app", sessionId: "s-2" },
+    ],
+    scratchScanProbes("s-2"),
+    SCRATCH,
+  );
+  expect(result!.size).toBe(1);
+  expect(result!.get("/wt/app")!.ports).toEqual([8123]);
 });
 
 // ── PreviewService: reverse-proxy listeners + slot allocation ──────────────────

@@ -26,7 +26,8 @@ on 2026-08-08. Implementation would be one or more follow-up issues; §6 ranks t
   Shepherd already _renders_ stacked PRs (the `→base` chip), so the UI invites the click that breaks.
 - **Our epic model is a hand-rolled stack, and the landing PR is where it hurts.** `selectEpicCandidates`
   only spawns a child once every blocker is `integrationMerged || issueClosed`, so dependent children run
-  strictly one at a time — stacks replace that _wait_ with a _base pointer_. More importantly, the whole
+  strictly one at a time — stacks convert that _wait_ into a _base pointer_ for the edges that fall
+  inside a chain, while cross-chain edges keep the gate (§5.2). More importantly, the whole
   landing-PR apparatus (`landingState`, `landingAttempts`, rebase pause reasons, repair sessions,
   stranded escalation, divergence detection) is failure handling for **one structural cause: a long-lived
   integration branch that accumulates merges while `main` moves underneath it**. Stacks remove that drift
@@ -37,7 +38,9 @@ on 2026-08-08. Implementation would be one or more follow-up issues; §6 ranks t
   plan the operator already approved into the review unit — which attacks the same human O(N) review
   ceiling the critic was built for.
 - **Hard constraint to design around: stacks are strictly linear.** One parent, at most one child. That
-  fits a dependency _chain_; it does not model the epic DAG.
+  fits a dependency _chain_; it does not model the epic DAG, where `blockedBy` gives first-class fan-in
+  and fan-out. Stacks therefore **augment** `selectEpicCandidates` rather than replacing it — chain
+  edges become base pointers, cross-chain edges keep the existing wait-gate (§5.2, §7).
 
 **Recommended:** fix the merge-path compat gap (§6 Tier 0) → real stack awareness in the PRs tab
 (Tier 1) → epic dependency chains as stacks (Tier 2) → build queue as a stack (Tier 3).
@@ -213,10 +216,31 @@ The DAG already exists: `EpicDraftChild.blockedBy` is an explicit list of depend
 _warning_ (`src/epic-model.ts:176`, surfaced in `EpicPanel.svelte:149`) — so Shepherd already expects
 real dependency structure to be the norm.
 
-A stack models one chain, not a DAG — but that is a smaller constraint than it first appears. An epic
-decomposes into its **maximal chains**; each chain is one stack, and independent chains are independent
-stacks. Cross-chain parallelism is preserved, and within-chain serialization disappears. The linearity
-limit costs nothing here; it just means "one stack per chain", not "one stack per epic".
+**A stack models one chain, and Shepherd's dependency model is a genuine DAG — so stacks augment
+`selectEpicCandidates`, they do not replace it.** `blockedBy` is a per-child _list_ of blockers
+(`src/types.ts:990`), and `assembleEpic` filters only self-loops and out-of-epic edges
+(`src/epic-model.ts:135-145`). Fan-in and fan-out are both first-class: a child may have several
+blockers, and several children may share one.
+
+That matters because a chain decomposition covers **nodes**, not **edges**. Assign every child to
+exactly one chain and each chain becomes a stack — but any edge that crosses chains is not represented
+by a base pointer and must still be enforced by the existing gate,
+`blockedBy.every(b => done.has(b))` (`src/epic-core.ts:85`). With `C.blockedBy = [A, B]`, `C` can sit
+on top of at most one of `A` or `B`; the other edge stays a wait, no matter how the chains are cut.
+
+So the precise win is narrower than "linearity costs nothing":
+
+- **Within-chain edges** convert from _wait for the blocker to merge_ into _base on the blocker's
+  branch_ — the serialization disappears.
+- **Cross-chain edges** keep the `integrationMerged || issueClosed` gate exactly as today.
+- A child is therefore spawnable early only when its chain predecessor is its **sole** outstanding
+  blocker; if it still has an unsatisfied cross-chain blocker, the gate holds it regardless of the
+  stack. The two mechanisms compose, with the gate remaining authoritative.
+
+The payoff scales with what fraction of the edge set a good chain cut can absorb. A mostly-linear epic
+(the slow ones this targets) absorbs nearly all of it; a wide fan-in epic absorbs little. Neither the
+chain cut nor a maximum path cover exists in the code today — that is part of the work, not a
+precondition already met.
 
 ### 5.2.1 The landing PR is where this actually pays off
 
@@ -316,13 +340,13 @@ unattended agents will wedge on the TUI.
 
 ## 6. Ranked recommendation
 
-| Tier  | Item                                                                                                                                                                    | Why now                                                                                     | Size |
-| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- | ---- |
-| **0** | Stack-safe merge path: `merge-async` + uuid polling behind `forge.merge`, and refuse-with-explanation rather than fail-with-retries when a stacked PR reaches the train | Breakage exists today on an already-enabled feature; everything else depends on it          | S–M  |
-| **1** | Real stack graph in the PRs tab (stop collapsing `baseRefName`, fill the REST-fallback gap, render position/depth)                                                      | Zero extra API cost; independently useful; precondition for the rest                        | S    |
-| **2** | Epic dependency chains as stacks, rooted at the integration branch (§5.2.1 shape (b)) — spawn a blocked child on its blocker's branch instead of waiting                | Converts serialization into parallelism AND collapses the landing PR's drift-repair surface | M–L  |
-| **3** | Build queue steps → stack layers                                                                                                                                        | Highest leverage on review load, but wants Tiers 0–1 in place first                         | L    |
-| —     | Ship `gh-stack` SKILL.md to agents, with mandatory non-interactive flags                                                                                                | Cheap, but only meaningful once something above needs agents to author stacks               | S    |
+| Tier  | Item                                                                                                                                                                              | Why now                                                                                                  | Size |
+| ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | ---- |
+| **0** | Stack-safe merge path: `merge-async` + uuid polling behind `forge.merge`, and refuse-with-explanation rather than fail-with-retries when a stacked PR reaches the train           | Breakage exists today on an already-enabled feature; everything else depends on it                       | S–M  |
+| **1** | Real stack graph in the PRs tab (stop collapsing `baseRefName`, fill the REST-fallback gap, render position/depth)                                                                | Zero extra API cost; independently useful; precondition for the rest                                     | S    |
+| **2** | Epic dependency chains as stacks, rooted at the integration branch (§5.2.1 shape (b)) — base a child on its chain predecessor's branch; the wait-gate stays for cross-chain edges | Converts within-chain serialization into parallelism AND collapses the landing PR's drift-repair surface | M–L  |
+| **3** | Build queue steps → stack layers                                                                                                                                                  | Highest leverage on review load, but wants Tiers 0–1 in place first                                      | L    |
+| —     | Ship `gh-stack` SKILL.md to agents, with mandatory non-interactive flags                                                                                                          | Cheap, but only meaningful once something above needs agents to author stacks                            | S    |
 
 Tier 0 is the one that plausibly deserves its own issue immediately; the rest are worth sequencing
 deliberately behind it.
@@ -333,16 +357,20 @@ deliberately behind it.
 
 **Retiring the `epic/` integration branch and the landing PR outright (§5.2.1 shape (a)) — not yet, but
 this is a "when", not a "no".** The prize is real and large: the entire landing-repair surface deleted,
-plus per-child commits on `main` instead of one squashed epic. Linearity is _not_ the blocker — an epic
-becomes one stack per maximal chain (§5.2). The blockers are narrower and concrete:
+plus per-child commits on `main` instead of one squashed epic. The blockers:
 
-1. **Partial-merge atomicity is undocumented-to-contradictory** (§5.2.1). If a mid-stack failure can
+1. **Linearity — a partial constraint, not a solved one.** A stack is a chain; `blockedBy` is a DAG with
+   first-class fan-in and fan-out (§5.2). Chains absorb only the edges that fall inside them, so
+   cross-chain edges still need `selectEpicCandidates`' `integrationMerged || issueClosed` gate. Stacks
+   therefore cannot be the _whole_ ordering mechanism for an epic — the gate has to survive alongside
+   them, which is a good reason not to demolish the structure that currently implements it.
+2. **Partial-merge atomicity is undocumented-to-contradictory** (§5.2.1). If a mid-stack failure can
    leave half an epic on `main`, shape (a) violates the invariant `resolveSpawnBase` currently fails
    closed to protect. Settle this empirically first — it is one throwaway stack's worth of work.
-2. **A mid-stack close blocks every layer above it**, with no auto-repair. Today an abandoned epic child
+3. **A mid-stack close blocks every layer above it**, with no auto-repair. Today an abandoned epic child
    is harmless; in a stack it wedges the chain. Shepherd abandons children often enough that this needs
    a deliberate answer, and there is **no reorder API** — repair means unstack-and-recreate.
-3. **Preview churn.** Betting the epic model on a one-week-old preview feature is premature regardless
+4. **Preview churn.** Betting the epic model on a one-week-old preview feature is premature regardless
    of how good the design is.
 
 Shape **(b)** — stack rooted at the integration branch — is the low-risk way to get most of the drift

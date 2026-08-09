@@ -16,8 +16,8 @@ stale:
 - **Tier 0 shipped.** #2059 → PR #2061 (merged): `GithubForge.merge` now probes for stack membership
   and routes stacked merges through `merge-async` + uuid polling, behind an explicit
   `MergeInput.allowStacked` opt-in with typed refusals. §4 is kept as the rationale, marked resolved.
-- **The atomicity contradiction is settled.** #2060 Step 1 → PR #2064, note
-  `docs/research/stacked-pr-partial-merge-spike-2026-08-09.md`. Result folded into §5.2.1 and §7.
+- **The atomicity contradiction is settled.** #2060 Step 1 → PR #2064 (merged); the spike note is on
+  `main` at `docs/research/stacked-pr-partial-merge-spike-2026-08-09.md`. Result folded into §5.2.1 and §7.
   Step 2 (shape (b)) is now #2063; a defect the spike surfaced is #2062.
 
 ---
@@ -347,7 +347,7 @@ stack-merge and land". The landing PR keeps its shape, its single conventional t
 **Settled (2026-08-09): no partial landing was observed, in any leg.** The docs appeared to conflict —
 the merging page says the group lands "together as a single operation", the troubleshooting page says
 "Merges stop at the failed pull request. Successfully merged PRs land on the base branch." The spike
-(#2060 Step 1, PR #2064, `docs/research/stacked-pr-partial-merge-spike-2026-08-09.md`) ran three
+(#2060 Step 1, PR #2064 merged; `docs/research/stacked-pr-partial-merge-spike-2026-08-09.md`) ran three
 independent 3-layer stacks on a throwaway repo with a required check failing only on the middle layer,
 plus a positive control:
 
@@ -526,7 +526,7 @@ GitHub auto-merge. It needs the async merge API, not the auto-merge feature.
 - [Community discussion #201439](https://github.com/orgs/community/discussions/201439)
 
 Companion note (empirical, this repo): `docs/research/stacked-pr-partial-merge-spike-2026-08-09.md` —
-#2060 Step 1 / PR #2064. Source of every "live-verified" claim about merge behaviour in §2.2, §2.6,
+#2060 Step 1 / PR #2064 (merged). Source of every "live-verified" claim about merge behaviour in §2.2, §2.6,
 §5.2.1 and §8.
 
 Shepherd source referenced: `src/forge/github.ts`, `src/forge/types.ts`, `src/full-auto.ts`,

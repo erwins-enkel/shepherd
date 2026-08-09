@@ -820,6 +820,9 @@ export interface RepoConfig {
   /** Opens the epic's landing PR early as a draft during drain so each child merge re-runs
    *  landing CI against main (#1664). Default off — opt-in. */
   preWarmEpicLandingCi: boolean;
+  /** Stack epic children onto their chain predecessor's PR branch instead of waiting for it to
+   *  merge (#2069). GitHub-only. Default off — opt-in. */
+  epicStacksEnabled: boolean;
   /** Hidden from the Backlog repos panel (list-only declutter; sessions/drain unaffected). Default off. */
   hidden: boolean;
   /** Local, non-replicated preview start script path stored by Shepherd. */

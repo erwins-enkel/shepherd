@@ -139,6 +139,7 @@ function makeHarness(
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: opts.preWarm ?? false,
+    epicStacksEnabled: false,
     hidden: false,
   });
 

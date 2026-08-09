@@ -322,6 +322,7 @@ function setRepoAutopilot(store: SessionStore, on: boolean, repoPath = "/repo") 
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
+    epicStacksEnabled: false,
   } as any);
 }
 
@@ -537,6 +538,7 @@ test("createSession: codex plan-gate + build-queue + autopilot → build queue s
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
+    epicStacksEnabled: false,
   } as any);
   await service.create({
     repoPath: "/repo",
@@ -4470,6 +4472,7 @@ test("create omits house rules when learnings disabled for the repo", async () =
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
+    epicStacksEnabled: false,
     hidden: false,
   });
   const captured: { argv?: string[] } = {};
@@ -4529,6 +4532,7 @@ test("create seeds the autopilot directive when the repo has autopilot on", asyn
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
+    epicStacksEnabled: false,
     hidden: false,
   });
   const captured: { argv?: string[] } = {};
@@ -5485,6 +5489,7 @@ function buildQueueDeps(
       autoOptimizeFlagged: false,
       manualStepsIssueEnabled: false,
       preWarmEpicLandingCi: false,
+      epicStacksEnabled: false,
       hidden: false,
       ...repoConfig,
     });
@@ -7722,6 +7727,7 @@ test("create research under autonomous: downgrades to standard (sandboxApplied=s
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
+    epicStacksEnabled: false,
     hidden: false,
   });
   const captured: { argv?: string[] } = {};
@@ -7769,6 +7775,7 @@ test("create NON-research under autonomous: stays autonomous (no downgrade)", as
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
+    epicStacksEnabled: false,
     hidden: false,
   });
   const captured: { argv?: string[] } = {};

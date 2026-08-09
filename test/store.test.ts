@@ -258,6 +258,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
+    epicStacksEnabled: false,
     hidden: false,
     previewStartScript: null,
     previewStartCommand: null,
@@ -287,6 +288,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
+    epicStacksEnabled: false,
     hidden: false,
     previewStartScript: null,
     previewStartCommand: null,
@@ -316,6 +318,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
+    epicStacksEnabled: false,
     hidden: false,
     previewStartScript: null,
     previewStartCommand: null,
@@ -345,6 +348,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
+    epicStacksEnabled: false,
     hidden: false,
     previewStartScript: null,
     previewStartCommand: null,
@@ -374,6 +378,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
+    epicStacksEnabled: false,
     hidden: false,
     previewStartScript: null,
     previewStartCommand: null,
@@ -387,8 +392,68 @@ test("repo_config: preWarmEpicLandingCi defaults off, round-trips through set/ge
   store.setRepoConfig("/repo/prewarm", {
     ...store.getRepoConfig("/repo/prewarm"),
     preWarmEpicLandingCi: true,
+    epicStacksEnabled: false,
   });
   expect(store.getRepoConfig("/repo/prewarm").preWarmEpicLandingCi).toBe(true);
+});
+
+test("repo_config: epicStacksEnabled defaults off, round-trips through set/getRepoConfig (#2069)", () => {
+  const store = new SessionStore(":memory:");
+  expect(store.getRepoConfig("/repo/stacks").epicStacksEnabled).toBe(false);
+  store.setRepoConfig("/repo/stacks", {
+    ...store.getRepoConfig("/repo/stacks"),
+    epicStacksEnabled: true,
+  });
+  expect(store.getRepoConfig("/repo/stacks").epicStacksEnabled).toBe(true);
+});
+
+// #2069: the epic_stack memo — what makes the composition pass idempotent across ticks/restarts.
+test("epic_stack: layers round-trip bottom→top, upsert by child, scoped per epic", () => {
+  const store = new SessionStore(":memory:");
+  const repo = "/repo/stack";
+  expect(store.listEpicStack(repo, 327)).toEqual([]);
+  store.recordEpicStackMember(repo, 327, {
+    childNumber: 321,
+    stackNumber: 7,
+    prNumber: 901,
+    baseBranch: "shepherd/auto-320",
+    position: 2,
+  });
+  store.recordEpicStackMember(repo, 327, {
+    childNumber: 320,
+    stackNumber: 7,
+    prNumber: 900,
+    baseBranch: "epic/327-x",
+    position: 1,
+  });
+  // Another epic in the same repo is a separate stack.
+  store.recordEpicStackMember(repo, 400, {
+    childNumber: 401,
+    stackNumber: 9,
+    prNumber: 990,
+    baseBranch: "epic/400-y",
+    position: 1,
+  });
+
+  expect(store.listEpicStack(repo, 327).map((r) => r.childNumber)).toEqual([320, 321]);
+  expect(store.listEpicStack(repo, 327)[0]).toMatchObject({
+    stackNumber: 7,
+    prNumber: 900,
+    baseBranch: "epic/327-x",
+    position: 1,
+  });
+  expect(store.listEpicStack(repo, 400).map((r) => r.childNumber)).toEqual([401]);
+
+  // Re-observing a layer updates it in place rather than duplicating it.
+  store.recordEpicStackMember(repo, 327, {
+    childNumber: 321,
+    stackNumber: 8,
+    prNumber: 901,
+    baseBranch: "shepherd/auto-320",
+    position: 2,
+  });
+  expect(store.listEpicStack(repo, 327)).toHaveLength(2);
+  expect(store.listEpicStack(repo, 327)[1]?.stackNumber).toBe(8);
 });
 
 test("repo_config: drain fields default off/cap-1/default-label/ceiling-80, persist round-trip", () => {
@@ -426,6 +491,7 @@ test("repo_config: drain fields default off/cap-1/default-label/ceiling-80, pers
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
+    epicStacksEnabled: false,
     hidden: false,
     previewStartScript: null,
     previewStartCommand: null,

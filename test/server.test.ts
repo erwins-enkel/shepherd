@@ -2122,6 +2122,7 @@ test("GET /api/learnings/injectable marks all rules uninjected when learnings di
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
+    epicStacksEnabled: false,
     hidden: false,
   });
 
@@ -2480,6 +2481,24 @@ test("PUT /api/repo-config rejects non-boolean preWarmEpicLandingCi", async () =
   const app = makeApp(deps);
   const res = await putRepoConfig(app, validRepo, { preWarmEpicLandingCi: "yes" });
   expect(res.status).toBe(400);
+});
+
+// ── epicStacksEnabled repo-config (#2069) ────────────────────────────────────
+test("PUT /api/repo-config accepts epicStacksEnabled true → 200 and GET reflects it", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  expect(deps.store.getRepoConfig(validRepo).epicStacksEnabled).toBe(false);
+  const res = await putRepoConfig(app, validRepo, { epicStacksEnabled: true });
+  expect(res.status).toBe(200);
+  expect(deps.store.getRepoConfig(validRepo).epicStacksEnabled).toBe(true);
+});
+
+test("PUT /api/repo-config rejects non-boolean epicStacksEnabled", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  const res = await putRepoConfig(app, validRepo, { epicStacksEnabled: "yes" });
+  expect(res.status).toBe(400);
+  expect(deps.store.getRepoConfig(validRepo).epicStacksEnabled).toBe(false);
 });
 
 // ── draftMode + signoffAuthority repo-config ─────────────────────────────────

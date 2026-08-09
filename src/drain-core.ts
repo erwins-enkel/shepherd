@@ -57,6 +57,10 @@ export type DrainDecision =
       /** Epic parent issue number to stamp on the spawned session (#2067). Set from the same
        *  epic run as `integrationBranch`, so the two cannot drift; undefined for label-drain. */
       epicParent?: number;
+      /** #2069: this epic child stacks on its chain predecessor — base it on THIS branch (the
+       *  predecessor's live PR head) instead of `integrationBranch`, and do NOT ensure it on the
+       *  forge. Set only when `epicStacksEnabled` and the forge exposes the stacked-PR surface. */
+      stackedBase?: string;
       epicProviderSettings?: EpicProviderSettings;
     }
   | { kind: "retire"; sessionId: string; prNumber: number }
@@ -129,6 +133,10 @@ export interface DrainRepoState {
   /** Epic mode: explicit provider/model/effort for child spawns. Undefined for label-drain
    *  and for epics inheriting the repo/global defaults. */
   epicProviderSettings?: EpicProviderSettings | null;
+  /** #2069: child # → the chain predecessor's head branch it should be based on. Populated only
+   *  when the repo opted into `epicStacksEnabled` AND the predecessor's PR is open; absent
+   *  everywhere else, which leaves every child on the integration branch as before. */
+  epicStackBases?: Map<number, string> | null;
   /** Epic mode (#1757): the integration branch a RECENT epic-child spawn failed to ensure on the
    *  forge (`ensureBranch` threw), while that failure is still inside its cooldown window; null
    *  otherwise. Set ONLY for that specific, typed failure — never for an ordinary spawn error —
@@ -343,6 +351,7 @@ export function computeNext(state: DrainRepoState): DrainDecision {
     integrationBranch: state.epicIntegrationBranch ?? undefined,
     epicParent: state.epicParent ?? undefined,
     epicProviderSettings: state.epicProviderSettings ?? undefined,
+    stackedBase: state.epicStackBases?.get(next.number),
   };
 }
 

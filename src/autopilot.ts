@@ -58,6 +58,21 @@ export function epicBaseDirective(baseBranch: string): string {
   ].join(" ");
 }
 
+/** Agent-facing directive for a STACKED epic child (#2069): its work sits on top of a sibling's
+ *  still-open pull request, so its PR must target that sibling's branch — not the epic integration
+ *  branch, and not the default branch. Naming the integration branch as the stack's eventual
+ *  destination is what stops an agent from "correcting" the base to the epic branch it can see
+ *  every sibling using. Shepherd owns this text (never i18n'd). */
+export function epicStackedBaseDirective(stackBase: string, integrationBranch: string): string {
+  return [
+    `This task is part of an epic and builds directly on a sibling task whose pull request is`,
+    `still open. Your branch is based on that sibling's branch \`${stackBase}\`, so your pull`,
+    `request MUST target it as its base — open it with \`gh pr create --base ${stackBase} ...\`.`,
+    `Do NOT re-target it at \`${integrationBranch}\` or at the default branch: the pull requests`,
+    `are linked into a stack that lands on \`${integrationBranch}\` as a whole.`,
+  ].join(" ");
+}
+
 /** Returns the open-PR steer for a session whose PR base is `baseBranch`, appending the
  *  draft-mode note when `draftMode` is true. The explicit `--base` keeps a session that opens
  *  its PR from the steer (rather than proactively) targeting the right branch — load-bearing for

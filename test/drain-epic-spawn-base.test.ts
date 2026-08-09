@@ -53,6 +53,8 @@ function fakeForge(
     ensureBranch?: (branch: string, fromRef: string) => Promise<void>;
     /** Omit the ensureBranch method entirely (e.g. a gitea forge that can't create refs). */
     noEnsureBranch?: boolean;
+    /** #2069: expose the stacked-PR surface (GitHub). Reads report "unstacked". */
+    stacks?: boolean;
   } = {},
 ): GitForge {
   return {
@@ -93,6 +95,17 @@ function fakeForge(
           rec.ensured.push({ branch, fromRef });
           if (opts.ensureBranch) await opts.ensureBranch(branch, fromRef);
         },
+    ...(opts.stacks
+      ? {
+          stackForPr: async () => null,
+          createStack: async (prNumbers: number[]) => ({
+            number: 7,
+            baseRef: "epic/327-efi-cluster",
+            prNumbers,
+          }),
+          addToStack: async () => {},
+        }
+      : {}),
   };
 }
 
@@ -103,6 +116,7 @@ interface Harness {
   creates: StandardCreateInput[];
   statuses: DrainStatus[];
   epics: Epic[];
+  prCache: Record<string, GitState>;
 }
 
 function makeHarness(
@@ -118,6 +132,10 @@ function makeHarness(
     ensureBranchImpl?: (branch: string, fromRef: string) => Promise<void>;
     /** #1757: injectable clock, so a test can advance past SPAWN_FAIL_COOLDOWN_MS. */
     now?: () => number;
+    /** #2069: per-repo opt-in for stacking epic children. */
+    epicStacksEnabled?: boolean;
+    /** #2069: give the forge the stacked-PR surface. */
+    stacks?: boolean;
   } = {},
 ): Harness {
   const store = new SessionStore(":memory:");
@@ -146,6 +164,7 @@ function makeHarness(
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
+    epicStacksEnabled: opts.epicStacksEnabled ?? false,
     hidden: false,
   });
 
@@ -157,6 +176,7 @@ function makeHarness(
     listBlockedBy: opts.listBlockedByImpl,
     noEnsureBranch: opts.noEnsureBranch,
     ensureBranch: opts.ensureBranchImpl,
+    stacks: opts.stacks,
   });
 
   const prCache: Record<string, GitState> = {};
@@ -211,7 +231,7 @@ function makeHarness(
     rebaseCap: 5,
   });
 
-  return { store, drain, forgeRec, creates, statuses, epics };
+  return { store, drain, forgeRec, creates, statuses, epics, prCache };
 }
 
 describe("epic-child spawns base on the integration branch", () => {
@@ -597,5 +617,119 @@ describe("#2067 epic-child identity stamped at spawn", () => {
     await h.drain.pump(REPO);
     expect(h.creates).toHaveLength(1);
     expect(h.creates[0]!.epicParent ?? null).toBeNull();
+  });
+});
+
+// ── #2069: a stacked child spawns on its predecessor's PR head branch ────────────────────────────
+//
+// With `epicStacksEnabled`, a child whose ONLY outstanding blocker is its chain predecessor spawns
+// as soon as that predecessor's PR is OPEN — based on the predecessor's branch rather than the epic
+// integration branch, and a whole CI + critic + merge cycle earlier than the wait-for-merge path.
+
+describe("#2069 stacked epic-child spawn base", () => {
+  const PARENT = 327;
+  const LOWER = 320;
+  const UPPER = 321;
+  const EPIC_BRANCH = "epic/327-efi-cluster";
+  const LOWER_BRANCH = "shepherd/auto-320";
+
+  const subIssues: SubIssueRef[] = [
+    { number: LOWER, title: "EFI", url: "u320", body: "spec 320", closed: false, labels: [] },
+    { number: UPPER, title: "boot", url: "u321", body: "spec 321", closed: false, labels: [] },
+  ];
+  const parentIssue: Issue = {
+    number: PARENT,
+    title: "EFI cluster",
+    body: "epic body",
+    url: `https://x/${PARENT}`,
+    labels: [],
+    createdAt: 0,
+    assignees: [],
+  };
+  const epicOpts = {
+    listIssuesImpl: async () => [],
+    getIssueImpl: async (n: number) => (n === PARENT ? parentIssue : null),
+    listSubIssuesImpl: async (n: number) => (n === PARENT ? subIssues : []),
+    listBlockedByImpl: async (n: number) => (n === UPPER ? [LOWER] : []),
+  };
+
+  /** The predecessor as the drain sees it mid-flight: a live auto session with an OPEN PR. */
+  function seedLowerWithOpenPr(h: Harness): void {
+    const s = h.store.create({
+      name: "auto",
+      prompt: "p",
+      repoPath: REPO,
+      baseBranch: EPIC_BRANCH,
+      branch: LOWER_BRANCH,
+      worktreePath: "/wt",
+      isolated: true,
+      herdrSession: "default",
+      herdrAgentId: "t",
+      auto: true,
+      issueNumber: LOWER,
+      epicParent: PARENT,
+    });
+    h.prCache[s.id] = {
+      kind: "github",
+      state: "open",
+      number: 900,
+      checks: "none",
+      deployConfigured: false,
+    };
+    h.store.setEpicRun({
+      repoPath: REPO,
+      parentIssueNumber: PARENT,
+      mode: "auto",
+      status: "running",
+    });
+  }
+
+  test("spawns the successor on the predecessor's branch — no ensureBranch, epicParent stamped", async () => {
+    const h = makeHarness({ ...epicOpts, epicStacksEnabled: true, stacks: true });
+    seedLowerWithOpenPr(h);
+
+    await h.drain.pump(REPO);
+
+    expect(h.creates).toHaveLength(1);
+    const created = h.creates[0]!;
+    expect(created.issueRef?.number).toBe(UPPER);
+    expect(created.baseBranch).toBe(LOWER_BRANCH);
+    // The predecessor's head is a LIVE branch; ensuring it would create it at the default
+    // branch's tip if it had been deleted, silently basing the child on nothing.
+    expect(h.forgeRec.ensured).toHaveLength(0);
+    // Still an epic child: stamped, so it stays off the merge train and retires into the epic.
+    expect(created.epicParent).toBe(PARENT);
+    // The directive names the sibling branch as the PR base and the epic branch as the stack's
+    // destination, so the agent doesn't "correct" the base to the one its siblings use.
+    expect(created.prompt).toContain(`--base ${LOWER_BRANCH}`);
+    expect(created.prompt).toContain(EPIC_BRANCH);
+  });
+
+  test("flag OFF: the successor waits for its blocker to merge (today's behaviour)", async () => {
+    const h = makeHarness({ ...epicOpts, epicStacksEnabled: false, stacks: true });
+    seedLowerWithOpenPr(h);
+
+    await h.drain.pump(REPO);
+
+    expect(h.creates).toHaveLength(0);
+  });
+
+  test("forge without the stack surface never stacks, even with the flag on", async () => {
+    const h = makeHarness({ ...epicOpts, epicStacksEnabled: true, stacks: false });
+    seedLowerWithOpenPr(h);
+
+    await h.drain.pump(REPO);
+
+    expect(h.creates).toHaveLength(0);
+  });
+
+  test("predecessor with no PR yet is not stack-ready", async () => {
+    const h = makeHarness({ ...epicOpts, epicStacksEnabled: true, stacks: true });
+    seedLowerWithOpenPr(h);
+    for (const id of Object.keys(h.prCache)) delete h.prCache[id];
+
+    await h.drain.pump(REPO);
+
+    expect(h.creates).toHaveLength(0);
   });
 });

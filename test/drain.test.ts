@@ -197,6 +197,7 @@ function makeHarness(
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
+    epicStacksEnabled: false,
     hidden: false,
   });
   const forgeRec: ForgeRec = {
@@ -987,6 +988,7 @@ test("tick + snapshot over repos: only drain-enabled repo is acted on and report
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
+    epicStacksEnabled: false,
     hidden: false,
   });
   store.setRepoConfig(REPO2, {
@@ -1014,6 +1016,7 @@ test("tick + snapshot over repos: only drain-enabled repo is acted on and report
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
+    epicStacksEnabled: false,
     hidden: false,
   });
 
@@ -1736,6 +1739,7 @@ test("#790: spawn-failure cooldown: failed issue is skipped until window expires
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
+    epicStacksEnabled: false,
     hidden: false,
   });
 

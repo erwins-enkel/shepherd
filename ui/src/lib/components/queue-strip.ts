@@ -212,7 +212,7 @@ export function activeMergeTrain(autoMerge: Record<string, AutoMergeStatus>): Au
 
 /** Whether the merge-train state is an attention/error state (vs active/in-progress). */
 export function mergeTrainIsAttention(state: string): boolean {
-  return state === "merge_error" || state === "rebase_cap";
+  return state === "merge_error" || state === "rebase_cap" || state === "stacked";
 }
 
 /**
@@ -229,6 +229,8 @@ export function mergeTrainLabel(state: string | null | undefined): string {
       return m.automerge_state_merge_error();
     case "rebase_cap":
       return m.automerge_state_rebase_cap();
+    case "stacked":
+      return m.automerge_state_stacked();
     default:
       return "";
   }

@@ -859,7 +859,8 @@ test("GithubForge.merge: invokes gh pr merge with squash + delete-branch", async
   const { run, calls } = fakeRunner({});
   const forge = new GithubForge("o/r", {}, run);
   await forge.merge(7, { method: "squash", deleteBranch: true });
-  const args = calls[0]!;
+  // calls[0] is the stack probe (#2059); the merge itself is the `pr merge` call.
+  const args = calls.find((c) => c[0] === "pr")!;
   expect(args.slice(0, 3)).toEqual(["pr", "merge", "7"]);
   expect(args).toContain("--squash");
   expect(args).toContain("--delete-branch");

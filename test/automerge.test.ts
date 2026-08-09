@@ -1,5 +1,6 @@
 import { test, expect, mock } from "bun:test";
 import { AutoMergeService, type AutoMergeDeps } from "../src/automerge";
+import { MergeEnqueuedError, StackedMergeRefusedError } from "../src/forge/types";
 
 function baseSession(over: any = {}) {
   return {
@@ -884,4 +885,87 @@ test("conflict rebase on an UNRESUMABLE pane still counts + stamps (cap stays re
     s.id,
     { rebaseCount: 1, rebaseHead: "h1", rebaseSteeredAt: 12_345 },
   ]);
+});
+
+// ── #2059: a stacked PR holds the train instead of burning MERGE_ERROR_CAP ────
+
+/** Deps whose forge refuses every merge the way GithubForge does for a stacked PR. */
+function stackedDeps(over: Partial<AutoMergeDeps> = {}) {
+  const merge = mock(async () => {
+    throw new StackedMergeRefusedError(7, 2, 3);
+  });
+  const emitStatus = mock(() => {});
+  const archive = mock(() => 1);
+  const d = deps({
+    resolveForge: () =>
+      ({ kind: "github", mergeMethod: "squash", merge, closeIssue: mock(async () => {}) }) as any,
+    service: {
+      archive,
+      reply: mock(() => true),
+      resume: mock(() => true),
+      resolveMerging: mock(() => {}),
+    } as any,
+    emitStatus,
+    ...over,
+  });
+  return { d, merge, emitStatus, archive };
+}
+
+test("stacked refusal → `stacked` status, never `merge_error`, never archived", async () => {
+  const { d, emitStatus, archive } = stackedDeps();
+  const svc = new AutoMergeService(d);
+  await svc.pump("/r");
+  const states = (emitStatus as any).mock.calls.map((c: any[]) => c[0]?.state);
+  expect(states).toContain("stacked");
+  expect(states).not.toContain("merge_error");
+  expect(archive.mock.calls.length).toBe(0);
+});
+
+test("stacked refusal costs the session NO merge-error budget (#2059)", async () => {
+  const { d, merge, emitStatus } = stackedDeps();
+  const svc = new AutoMergeService(d);
+  // Three pumps — one more than MERGE_ERROR_CAP would tolerate for a genuine failure.
+  await svc.pump("/r");
+  await svc.pump("/r");
+  await svc.pump("/r");
+  // The forge is asked exactly ONCE: after the first refusal the core holds the PR, so the train
+  // stops re-probing. A cap burn would instead show up as three attempts then a backoff.
+  expect((merge as any).mock.calls.length).toBe(1);
+  expect((emitStatus as any).mock.calls.map((c: any[]) => c[0]?.state)).not.toContain(
+    "merge_error",
+  );
+});
+
+test("stacked hold surfaces on snapshot() too, not only the live status event", async () => {
+  const { d } = stackedDeps();
+  const svc = new AutoMergeService(d);
+  await svc.pump("/r"); // learn the stack
+  expect(await svc.snapshot()).toEqual([
+    { repoPath: "/r", enabled: true, state: "stacked", detail: "TASK-01", sessionId: "s1" },
+  ]);
+});
+
+test("an in-flight async merge neither settles the session nor records a failure", async () => {
+  const merge = mock(async () => {
+    throw new MergeEnqueuedError(7);
+  });
+  const archive = mock(() => 1);
+  const emitStatus = mock(() => {});
+  const d = deps({
+    resolveForge: () =>
+      ({ kind: "github", mergeMethod: "squash", merge, closeIssue: mock(async () => {}) }) as any,
+    service: {
+      archive,
+      reply: mock(() => true),
+      resume: mock(() => true),
+      resolveMerging: mock(() => {}),
+    } as any,
+    emitStatus,
+  });
+  const svc = new AutoMergeService(d);
+  await svc.pump("/r");
+  expect(archive.mock.calls.length).toBe(0); // enqueued ≠ merged — must NOT archive
+  expect((emitStatus as any).mock.calls.map((c: any[]) => c[0]?.state)).not.toContain(
+    "merge_error",
+  );
 });

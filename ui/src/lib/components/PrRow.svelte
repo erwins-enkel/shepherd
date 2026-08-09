@@ -2,7 +2,7 @@
   import { onDestroy } from "svelte";
   import type { PullRequest } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
-  import { mergeBacklogPr, requestDependabotRebase } from "$lib/api";
+  import { ApiError, mergeBacklogPr, requestDependabotRebase } from "$lib/api";
   import { showRebaseOffer } from "./pr-row";
   import { isConflicting } from "$lib/pr-conflict";
   import { relativeAge } from "$lib/format";
@@ -40,6 +40,10 @@
   let armed = $state(false);
   let mergeBusy = $state(false);
   let failed = $state(false);
+  // #2059: a stacked PR goes through GitHub's async merge API, which can return "in flight"
+  // (queued, or still merging when we stopped waiting) rather than a result. That is NOT a
+  // failure — the merge is happening — so it gets its own neutral line instead of the red one.
+  let mergeInFlight = $state(false);
   // Stuck Dependabot PRs get a one-click "@dependabot rebase" opt-in. `requested`
   // is sticky for the row's lifetime so Dependabot is never asked twice.
   let requesting = $state(false);
@@ -95,6 +99,7 @@
   async function onmerge() {
     if (mergeBusy || blocked) return;
     failed = false;
+    mergeInFlight = false;
     rebaseFailed = false; // a fresh merge attempt clears any stale rebase-error text
     if (!armed) {
       armed = true;
@@ -106,8 +111,13 @@
     try {
       await mergeBacklogPr(repoPath, pr.number);
       onmerged(pr.number);
-    } catch {
-      failed = true;
+    } catch (e) {
+      // The PR is not gone from the list either way, so the row stays — only the message differs.
+      if (e instanceof ApiError && (e.code === "merge_enqueued" || e.code === "merge_pending")) {
+        mergeInFlight = true;
+      } else {
+        failed = true;
+      }
       mergeBusy = false;
     }
   }
@@ -247,9 +257,12 @@
       <!-- Left-aligned status text. One container carries the margin-right:auto push
          so co-occurring messages (e.g. a failed merge *and* a later rebase request)
          stay flush-left as a group instead of fighting over the free space. -->
-      {#if failed || rebaseFailed || requested}
+      {#if failed || mergeInFlight || rebaseFailed || requested}
         <div class="pr-status">
           {#if failed}<span class="merge-err">{m.prspanel_merge_failed()}</span>{/if}
+          {#if mergeInFlight}
+            <span class="rebase-note" role="status">{m.prspanel_merge_in_progress()}</span>
+          {/if}
           {#if rebaseFailed}<span class="merge-err">{m.prspanel_rebase_failed()}</span>{/if}
           {#if requested}
             <span class="rebase-note" role="status">{m.prspanel_rebase_requested()}</span>

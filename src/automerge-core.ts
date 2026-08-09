@@ -17,10 +17,11 @@ export const OWNERSHIP_TTL_MS = 2 * REBASE_DEDUP_TTL_MS;
 
 /** Why the merge train is holding — surfaced on automerge:status. */
 export interface MergeHoldReason {
-  code: "disabled" | "rebase_cap" | "idle" | "manual_steps";
-  /** A desig (rebase_cap / manual_steps) for the operator banner. */
+  code: "disabled" | "rebase_cap" | "idle" | "manual_steps" | "stacked";
+  /** A desig (rebase_cap / manual_steps / stacked) for the operator banner. */
   detail?: string;
-  /** The affected session's id, so the push deep-link selects it (rebase_cap / manual_steps). */
+  /** The affected session's id, so the push deep-link selects it (rebase_cap / manual_steps /
+   *  stacked). */
   sessionId?: string;
 }
 
@@ -69,6 +70,12 @@ export interface MergeSessionView {
   /** True when this PR's merge is backed off (CAP rapid failures on the current head,
    *  inside the backoff window) → the core skips it so siblings can still merge. */
   mergeBlocked: boolean;
+  /** True when this PR belongs to a GitHub stack on its CURRENT head (#2059). The train never
+   *  lands one: merging a layer also lands every unmerged layer below it, and those layers were
+   *  never gated by our CI check or the critic. Surfaced as a named `stacked` hold, NOT as a
+   *  merge error — so it costs the session none of its MERGE_ERROR_CAP budget. The operator
+   *  lands it from the Backlog, where the stack is visible. */
+  stacked: boolean;
   /** Manual operator steps detected in the PR body (#1059); [] when none. A non-`POST-MERGE`
    *  step that is still un-acked (`manualStepsAckedAt == null`) holds auto-merge (#1060). */
   manualSteps: ManualStep[];
@@ -149,7 +156,9 @@ function readyToMerge(
   authority: SignoffAuthority,
 ): boolean {
   return (
-    readyExceptManualSteps(s, criticEnabled, draftMode, authority) && !hasBlockingManualSteps(s)
+    readyExceptManualSteps(s, criticEnabled, draftMode, authority) &&
+    !hasBlockingManualSteps(s) &&
+    !s.stacked // #2059 — the train never lands a stack; see MergeSessionView.stacked
   );
 }
 
@@ -174,6 +183,10 @@ function rebaseEligible(
   authority: SignoffAuthority,
 ): boolean {
   if (s.state !== "open" || !s.number) return false;
+  // #2059: a stack layer is RESTACKED (its base is the layer below), never rebased onto the
+  // default branch. Steering the agent to `git rebase origin/main` would be actively wrong, and
+  // the train can't land it anyway — so it warrants no rebase either.
+  if (s.stacked) return false;
   if (!isDefiniteConflict(s) && !checksCleared(s.checks, s.noCi)) return false;
   // draftMode: never rebase an unsigned PR (don't churn CI on a draft awaiting sign-off).
   if (draftMode && !signedOff(authority, signoffView(s))) return false;
@@ -265,6 +278,25 @@ export function computeMerge(state: MergeRepoState): MergeDecision {
     return {
       kind: "hold",
       reason: { code: "rebase_cap", detail: capped.desig, sessionId: capped.id },
+    };
+  }
+
+  // A PR that is otherwise ready to land but belongs to a GitHub stack (#2059). Scanned BEFORE
+  // the manual-steps hold because stacking is the terminal blocker — the train will never clear
+  // it on its own, whereas manual steps are one operator ack away. This reads
+  // `readyExceptManualSteps && stacked` rather than a dedicated predicate precisely because the
+  // `stacked` guard lives in readyToMerge (not in readyExceptManualSteps, where its sibling
+  // `mergeBlocked` sits): that placement keeps this PR "ready" from readyExceptManualSteps' point
+  // of view, which is exactly the question this hold needs answered.
+  const heldStacked = state.sessions.find(
+    (s) =>
+      readyExceptManualSteps(s, state.criticEnabled, state.draftMode, state.signoffAuthority) &&
+      s.stacked,
+  );
+  if (heldStacked) {
+    return {
+      kind: "hold",
+      reason: { code: "stacked", detail: heldStacked.desig, sessionId: heldStacked.id },
     };
   }
 

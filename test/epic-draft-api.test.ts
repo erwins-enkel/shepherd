@@ -2,6 +2,7 @@ import { test, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { makeApp, slowRequestTimeoutSec, type AppDeps } from "../src/server";
+import { MERGE_ASYNC_MAX_WAIT_MS } from "../src/forge/github";
 import { SessionStore } from "../src/store";
 import { EventHub } from "../src/events";
 import { config } from "../src/config";
@@ -218,6 +219,15 @@ test("slowRequestTimeoutSec budgets the known-slow routes and leaves others on t
   expect(sec("POST", "/api/uploads")).toBe(120);
   expect(sec("POST", "/api/sessions/abc-123/scratchpad/upload")).toBe(120);
 
+  // #2059: both merge routes can land a STACKED PR via GitHub's async merge API, which polls
+  // in-request. On the 10s default Bun severs the socket mid-merge and the PRs panel renders
+  // "merge failed" for a merge that is in flight — or already landed. The budget is derived from
+  // MERGE_ASYNC_MAX_WAIT_MS, so assert the coupling rather than a literal that could drift.
+  const mergeBudget = Math.ceil(MERGE_ASYNC_MAX_WAIT_MS / 1000) + 60;
+  expect(sec("POST", "/api/prs/merge")).toBe(mergeBudget);
+  expect(sec("POST", "/api/sessions/abc-123/git/merge")).toBe(mergeBudget);
+  expect(mergeBudget).toBeGreaterThan(MERGE_ASYNC_MAX_WAIT_MS / 1000); // must outlast the poll
+
   // Everything else keeps the 10s default — including the draft's other verbs and near-miss paths.
   expect(sec("GET", "/api/sessions/abc-123/epic-draft/approve")).toBeNull();
   expect(sec("GET", "/api/uploads")).toBeNull();
@@ -225,4 +235,6 @@ test("slowRequestTimeoutSec budgets the known-slow routes and leaves others on t
   expect(sec("POST", "/api/sessions/abc-123/epic-draft")).toBeNull();
   expect(sec("POST", "/api/sessions/abc-123/epic-draft/approve/extra")).toBeNull();
   expect(sec("POST", "/api/sessions")).toBeNull();
+  expect(sec("GET", "/api/prs/merge")).toBeNull();
+  expect(sec("POST", "/api/sessions/abc-123/merge")).toBeNull(); // the real path carries /git/
 });

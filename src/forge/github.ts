@@ -17,7 +17,13 @@ import {
   isRateLimitError,
   parseRetryAfter,
 } from "./rate-limit";
-import { CRITIC_REVIEW_MARKER, EmptyDiffError } from "./types";
+import {
+  CRITIC_REVIEW_MARKER,
+  EmptyDiffError,
+  MergeEnqueuedError,
+  MergePendingError,
+  StackedMergeRefusedError,
+} from "./types";
 import type {
   ChecksState,
   CiStatus,
@@ -44,6 +50,69 @@ import type {
   WorkflowJob,
   WorkflowRun,
 } from "./types";
+
+/** Poll cadence for GitHub's async merge API (#2059). Bounded by ATTEMPTS rather than wall
+ *  clock so an injected no-op sleeper makes the budget-exhaustion path testable instantly.
+ *  15 × 2s = 30s, after which the merge is still in flight host-side — see MergePendingError,
+ *  which is non-destructive: the host keeps merging and the PR poller reconciles. */
+const MERGE_ASYNC_POLL_MS = 2_000;
+const MERGE_ASYNC_POLL_ATTEMPTS = 15;
+
+/** Worst-case time {@link GithubForge.merge} can spend WAITING on the async merge API.
+ *
+ *  Exported because two HTTP routes can trigger that wait inside a request handler, and Bun's
+ *  10s default socket budget would sever the connection mid-merge — the browser would then see a
+ *  transport error and report "merge failed" for a merge that is in flight or has already landed.
+ *  Those routes size their own budget off THIS constant (see `slowRequestTimeoutSec`) rather than
+ *  hardcoding a second number that could silently drift out of step with it. */
+export const MERGE_ASYNC_MAX_WAIT_MS = MERGE_ASYNC_POLL_MS * MERGE_ASYNC_POLL_ATTEMPTS;
+
+const defaultSleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
+/** The `{ status, details }` body BOTH merge-async endpoints return (PUT and the uuid GET).
+ *  Note the uuid lives at `details.uuid`, NOT at the top level. */
+interface MergeAsyncBody {
+  status?: string;
+  details?: { uuid?: string; message?: string; sha?: string };
+}
+
+/** What the merge path needs to know about a PR before choosing a merge strategy. */
+interface StackProbe {
+  /** True when the PR belongs to a GitHub stack. The REST `stack` object is ABSENT (not null)
+   *  on unstacked PRs, so any object at all means stacked; no field of it is load-bearing. */
+  stacked: boolean;
+  /** 1-based layer position and stack size, when reported. Advisory — message text only. */
+  position?: number;
+  size?: number;
+  /** Head SHA, passed to merge-async as the optimistic-concurrency guard. */
+  sha?: string;
+}
+
+/** A merge-request uuid is interpolated straight into the `gh api` path, so it is validated
+ *  before use: a garbled or hostile value (`../..`) would otherwise retarget the request at a
+ *  different endpoint. Anything that is not a plain UUID is treated as "no uuid to poll". */
+const MERGE_UUID_RE = /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
+
+/** Parse the JSON body `gh api` emitted, tolerating a Buffer, a non-JSON body, or nothing.
+ *  `gh` writes HTTP ERROR bodies to stdout (only `gh: HTTP 409` goes to stderr) and exits 1,
+ *  so on a rejection the body is read off the error's `stdout` — that is what makes
+ *  "409 ⇒ adopt the in-flight uuid" reachable through the GhRunner seam. */
+function parseMergeAsyncBody(raw: unknown): MergeAsyncBody | null {
+  const text = typeof raw === "string" ? raw : Buffer.isBuffer(raw) ? raw.toString() : "";
+  if (!text.trim()) return null;
+  try {
+    const v: unknown = JSON.parse(text);
+    return v && typeof v === "object" ? (v as MergeAsyncBody) : null;
+  } catch {
+    return null; // not JSON (a gh usage error, an HTML error page) → nothing to adopt
+  }
+}
+
+/** The body's uuid, but only when it is actually shaped like one. See {@link MERGE_UUID_RE}. */
+function mergeAsyncUuid(body: MergeAsyncBody | null): string | undefined {
+  const uuid = body?.details?.uuid;
+  return uuid && MERGE_UUID_RE.test(uuid) ? uuid : undefined;
+}
 
 /** Cap on distinct workflows fetched per repo: each kept run costs one extra
  *  `gh run view` subprocess, so bound the fan-out. */
@@ -436,6 +505,8 @@ export class GithubForge implements GitForge {
     /** Fork (origin) slug when the repo is a fork (`slug` = upstream). Drives the
      *  fork-aware PR head qualifier and the `canPush` probe target. */
     private readonly forkSlug?: string,
+    /** Injected only so tests can drive the merge-async poll loop without real delays. */
+    private readonly sleep: (ms: number) => Promise<void> = defaultSleep,
   ) {
     this.mergeMethod = cfg.mergeMethod ?? "squash";
     this.deployWorkflow = cfg.deployWorkflow ?? null;
@@ -1616,12 +1687,139 @@ export class GithubForge implements GitForge {
     return { number: n, url };
   }
 
+  /** Land a PR. Resolving means exactly one thing: it merged. Every other outcome throws —
+   *  see {@link MergeNotCompletedError} for the ones that are not failures.
+   *
+   *  Stacked PRs (#2059) cannot go through the legacy synchronous merge at all: `PUT
+   *  /pulls/{n}/merge`, the `mergePullRequest` mutation, and `gh pr merge` on top of them all
+   *  refuse. They are routed to the async merge API instead, and only when the caller opted in. */
   async merge(prNumber: number, o: MergeInput): Promise<void> {
+    const probe = await this.probeStack(prNumber);
+    if (probe.stacked) return this.mergeStacked(prNumber, o, probe);
     const method =
       o.method === "rebase" ? "--rebase" : o.method === "merge" ? "--merge" : "--squash";
     const args = ["pr", "merge", String(prNumber), "--repo", this.slug, method];
     if (o.deleteBranch) args.push("--delete-branch");
     await this.run(args);
+  }
+
+  /** Stack membership + head SHA in one REST call, narrowed with `--jq` so the payload stays small.
+   *
+   *  FAILS OPEN. A probe error (rate limit, transient 5xx) reports "unstacked", which routes the
+   *  merge down the legacy path — i.e. precisely today's behaviour, so a probe failure can never
+   *  be a regression. The cost of the opposite choice (fail closed) would be blocking every merge
+   *  in Shepherd on one flaky REST call. */
+  private async probeStack(prNumber: number): Promise<StackProbe> {
+    try {
+      const out = await this.run([
+        "api",
+        `repos/${this.slug}/pulls/${prNumber}`,
+        "--jq",
+        "{stack: .stack, sha: .head.sha}",
+      ]);
+      const p = JSON.parse(out || "{}") as {
+        stack?: { position?: number; size?: number } | null;
+        sha?: string | null;
+      };
+      return {
+        stacked: !!p.stack,
+        position: p.stack?.position,
+        size: p.stack?.size,
+        sha: p.sha ?? undefined,
+      };
+    } catch (err) {
+      console.warn(`[github] stack probe failed for pr#${prNumber}; assuming unstacked:`, err);
+      return { stacked: false };
+    }
+  }
+
+  /** Land a stacked PR through the async merge API — the only path GitHub supports for a stack.
+   *
+   *  Merging this layer also lands EVERY unmerged layer below it, atomically, so the caller must
+   *  opt in via `allowStacked`; autonomous callers deliberately do not, and get a refusal before
+   *  anything is mutated.
+   *
+   *  `o.deleteBranch` is deliberately IGNORED here. merge-async takes no delete-branch parameter,
+   *  and deleting a merged layer's branch could pull the rug from under a layer still based on it
+   *  while GitHub's auto-restack is in flight. The remote branch therefore lingers — BranchPruner
+   *  only sweeps LOCAL `shepherd/*` branches, so nothing reaps it — which is harmless, and safer
+   *  than the alternative. */
+  private async mergeStacked(prNumber: number, o: MergeInput, probe: StackProbe): Promise<void> {
+    if (!o.allowStacked) throw new StackedMergeRefusedError(prNumber, probe.position, probe.size);
+    const body = await this.putMergeAsync(prNumber, o, probe);
+    if (this.mergeAsyncSettled(prNumber, body)) return;
+    const uuid = mergeAsyncUuid(body);
+    if (!uuid) {
+      throw new Error(
+        `merge-async for #${prNumber} returned neither a terminal status nor a uuid to poll`,
+      );
+    }
+    await this.pollMergeAsync(prNumber, uuid);
+  }
+
+  /** PUT the merge request. On a 409 ("a merge request is already in flight for this PR") the
+   *  body still carries that request's uuid — adopt it so a retry JOINS the in-flight merge
+   *  instead of racing or erroring. Any other failure with no uuid to adopt is re-thrown. */
+  private async putMergeAsync(
+    prNumber: number,
+    o: MergeInput,
+    probe: StackProbe,
+  ): Promise<MergeAsyncBody | null> {
+    const args = [
+      "api",
+      "--method",
+      "PUT",
+      `repos/${this.slug}/pulls/${prNumber}/merge-async`,
+      "-f",
+      `merge_method=${o.method}`,
+    ];
+    // Optimistic-concurrency guard: the host rejects the merge if the head moved under us.
+    if (probe.sha) args.push("-f", `sha=${probe.sha}`);
+    try {
+      return parseMergeAsyncBody(await this.run(args));
+    } catch (err) {
+      const body = parseMergeAsyncBody((err as { stdout?: unknown }).stdout);
+      if (!mergeAsyncUuid(body)) throw err;
+      return body;
+    }
+  }
+
+  /** Poll one merge request to a terminal state. Transport errors are swallowed and retried —
+   *  a mid-poll 5xx means "we don't know yet", NOT "the merge failed"; a genuine failure arrives
+   *  as `status: "failed"` in a 200 body. Exhausting the budget is non-destructive: the merge
+   *  continues host-side and the PR poller reconciles. */
+  private async pollMergeAsync(prNumber: number, uuid: string): Promise<void> {
+    const path = `repos/${this.slug}/pulls/${prNumber}/merge-async/${uuid}`;
+    for (let i = 0; i < MERGE_ASYNC_POLL_ATTEMPTS; i++) {
+      await this.sleep(MERGE_ASYNC_POLL_MS);
+      let body: MergeAsyncBody | null;
+      try {
+        body = parseMergeAsyncBody(await this.run(["api", path]));
+      } catch (err) {
+        console.warn(`[github] merge-async poll failed for pr#${prNumber}:`, err);
+        continue;
+      }
+      if (this.mergeAsyncSettled(prNumber, body)) return;
+    }
+    throw new MergePendingError(prNumber);
+  }
+
+  /** Read one merge-async body. Returns true when the PR is merged, false when still pending;
+   *  throws on the terminal non-merged outcomes. */
+  private mergeAsyncSettled(prNumber: number, body: MergeAsyncBody | null): boolean {
+    switch (body?.status) {
+      case "merged":
+        return true;
+      case "enqueued":
+        // Terminal for the merge REQUEST — stop polling — but the PR has NOT landed.
+        throw new MergeEnqueuedError(prNumber);
+      case "failed":
+        throw new Error(
+          `merge of #${prNumber} failed: ${body.details?.message ?? "no reason reported"}`,
+        );
+      default:
+        return false; // "pending", or a status this preview feature added after us
+    }
   }
 
   async closeIssue(issueNumber: number): Promise<void> {

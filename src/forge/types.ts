@@ -317,6 +317,70 @@ export class EmptyDiffError extends Error {
 export interface MergeInput {
   method: MergeMethod;
   deleteBranch: boolean;
+  /** Permit landing a PR that belongs to a GitHub stack (#2059). Merging a stack layer also
+   *  merges EVERY unmerged layer below it, atomically — layers Shepherd never gated on CI or
+   *  the critic. So the flag is opt-in per call site: operator-initiated merges (the Backlog
+   *  Merge button, the session merge endpoint) set it; autonomous ones (merge train, epic
+   *  landing/retire) leave it unset and get a {@link StackedMergeRefusedError} instead.
+   *  Absent/false ⇒ refuse. No effect on hosts without a stack concept (Gitea, Local). */
+  allowStacked?: boolean;
+}
+
+/** Base for the merge outcomes that are NOT "the PR is merged" (#2059).
+ *
+ *  `GitForge.merge` returns `Promise<void>`, so its resolution means exactly one thing: the PR
+ *  landed. GitHub's async merge API (`merge-async`, the only path that works on stacked PRs) has
+ *  outcomes that are neither success nor failure — a merge-queue handoff, a poll that outlived its
+ *  budget — and callers must treat those as "leave the session alone", not as a merge error.
+ *  Signalling them as typed throws keeps `merge()`'s contract intact and avoids widening the
+ *  return type across the ~50 test doubles that implement it as `Promise<void>`.
+ *
+ *  Every subclass means the same thing to a caller: do NOT settle/archive the session, and do
+ *  NOT count a merge failure against it. Discriminate on {@link code}, not the message. */
+export abstract class MergeNotCompletedError extends Error {
+  /** Stable discriminator, safe to surface to the client and to branch on. */
+  abstract readonly code: "stacked_refused" | "merge_enqueued" | "merge_pending";
+}
+
+/** A stacked PR reached a merge call site that did not opt in via `MergeInput.allowStacked`.
+ *  Thrown BEFORE any mutating request, so nothing was attempted on the host. */
+export class StackedMergeRefusedError extends MergeNotCompletedError {
+  readonly code = "stacked_refused" as const;
+  constructor(
+    readonly prNumber: number,
+    /** 1-based position within the stack and the stack's size, when the host reported them.
+     *  Advisory only — presence of a stack object is what makes a PR stacked. */
+    readonly position?: number,
+    readonly size?: number,
+  ) {
+    super(
+      `pull request #${prNumber} belongs to a stack${
+        position && size ? ` (layer ${position} of ${size})` : ""
+      }; merging it would also land every unmerged layer below it`,
+    );
+    this.name = "StackedMergeRefusedError";
+  }
+}
+
+/** The async merge landed the PR in a merge queue (`status: "enqueued"`). Terminal for the merge
+ *  REQUEST — polling stops — but the PR is NOT merged yet, so the caller must not settle it. The
+ *  PR poller observes the eventual merge through the normal path. */
+export class MergeEnqueuedError extends MergeNotCompletedError {
+  readonly code = "merge_enqueued" as const;
+  constructor(readonly prNumber: number) {
+    super(`pull request #${prNumber} was added to the merge queue; it has not merged yet`);
+    this.name = "MergeEnqueuedError";
+  }
+}
+
+/** The async merge was still `pending` when the poll budget ran out. Non-destructive: the merge
+ *  continues host-side and may well succeed, so this is neither a success nor a failure. */
+export class MergePendingError extends MergeNotCompletedError {
+  readonly code = "merge_pending" as const;
+  constructor(readonly prNumber: number) {
+    super(`pull request #${prNumber} is still merging; gave up waiting for the result`);
+    this.name = "MergePendingError";
+  }
 }
 
 export interface RedeployInput {

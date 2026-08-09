@@ -267,6 +267,7 @@ test("computeMerge → merge for a LocalForge-shaped ready view (proves auto-mer
     rebaseSteeredAt: null,
     busy: false,
     mergeBlocked: false,
+    stacked: false, // LocalForge has no stack concept (#2059)
     manualSteps: [],
     manualStepsAckedAt: null,
   };

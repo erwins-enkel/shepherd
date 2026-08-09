@@ -751,3 +751,13 @@ describe("pickRepoSwitchTarget", () => {
     expect(pickRepoSwitchTarget("/repos/b", sessions, {}, {}, null)).toBe("b1");
   });
 });
+
+// ── #2059: the stacked hold is an attention state with its own label ──────────
+
+it("flags stacked as attention", () => {
+  expect(mergeTrainIsAttention("stacked")).toBe(true);
+});
+
+it("returns non-empty string for stacked", () => {
+  expect(mergeTrainLabel("stacked").length).toBeGreaterThan(0);
+});

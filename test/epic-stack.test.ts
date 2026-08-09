@@ -407,77 +407,93 @@ describe("bottomMostUnmergedPr", () => {
 });
 
 describe("detectStackWedge", () => {
+  // 320 is the stack's bottom (spawned on the epic branch); 321/322 sit on a sibling's head.
   const rows = [layer(320, 10, 1), layer(321, 11, 2), layer(322, 12, 3)];
   const fact = (
     integrationMerged: boolean,
     prNumber: number | null,
-    issueClosed = false,
+    over: Partial<WedgeChildFact> = {},
   ): WedgeChildFact => ({
     integrationMerged,
-    issueClosed,
+    issueClosed: false,
     prNumber,
+    spawnBase: PRED_BRANCH,
+    ...over,
   });
   const healthy = new Map<number, WedgeChildFact>([
-    [320, fact(false, 10)],
+    [320, fact(false, 10, { spawnBase: EPIC })],
     [321, fact(false, 11)],
     [322, fact(false, 12)],
   ]);
+  const wedge = (
+    facts: Map<number, WedgeChildFact>,
+    closedPrs: ReadonlySet<number> = new Set(),
+    r = rows,
+  ) => detectStackWedge({ rows: r, facts, closedPrs, pinnedBranch: EPIC });
 
   test("a healthy stack is not a wedge", () => {
-    expect(detectStackWedge({ rows, facts: healthy, closedPrs: new Set() })).toBeNull();
+    expect(wedge(healthy)).toBeNull();
   });
 
-  test("a re-spawned middle child (new PR) wedges the layers above it", () => {
+  test("a re-spawned middle child (new PR) wedges the stack", () => {
     const facts = new Map(healthy);
     facts.set(321, fact(false, 77)); // abandoned, re-spawned, opened a fresh PR
-    expect(detectStackWedge({ rows, facts, closedPrs: new Set() })).toEqual({
-      stackNumber: 7,
-      lostChild: 321,
-      stranded: [322],
-    });
+    // #321 itself is stranded too: its NEW session was spawned on a sibling's head as well.
+    expect(wedge(facts)).toEqual({ stackNumber: 7, lostChild: 321, stranded: [321, 322] });
   });
 
   test("a closed layer PR wedges even while the child keeps that PR", () => {
-    expect(detectStackWedge({ rows, facts: healthy, closedPrs: new Set([11]) })).toEqual({
+    expect(wedge(healthy, new Set([11]))).toEqual({
       stackNumber: 7,
       lostChild: 321,
-      stranded: [322],
+      stranded: [321, 322],
     });
+  });
+
+  // The whole stack is dissolved (GitHub has no drop-one), so a layer BELOW the hole is left just
+  // as un-retirable as one above it — `epicChildBaseOk` reads the session's spawn base, which is
+  // never updated. Reachable on any chain of 4+ whose hole is at position 3 or higher.
+  test("layers BELOW the lost one are stranded too — unstack takes the whole stack", () => {
+    const deep = [layer(320, 10, 1), layer(321, 11, 2), layer(322, 12, 3), layer(323, 13, 4)];
+    const facts = new Map<number, WedgeChildFact>([
+      [320, fact(false, 10, { spawnBase: EPIC })],
+      [321, fact(false, 11)], // healthy, below the hole — and stranded by the dissolve
+      [322, fact(false, 88)], // the hole: re-spawned onto a new PR
+      [323, fact(false, 13)],
+    ]);
+    expect(wedge(facts, new Set(), deep)).toEqual({
+      stackNumber: 7,
+      lostChild: 322,
+      stranded: [321, 322, 323],
+    });
+  });
+
+  test("the bottom layer is never stranded — it still targets the epic branch", () => {
+    const facts = new Map(healthy);
+    facts.set(321, fact(false, 77));
+    expect(wedge(facts)?.stranded).not.toContain(320);
+  });
+
+  test("an abandoned layer with no live session is not stranded — it re-spawns rooted", () => {
+    const facts = new Map(healthy);
+    facts.set(321, fact(false, 77));
+    facts.set(322, fact(false, 12, { spawnBase: null }));
+    expect(wedge(facts)).toEqual({ stackNumber: 7, lostChild: 321, stranded: [321] });
   });
 
   test("an unknown (null) live PR is never evidence — a restart must not unstack anything", () => {
     const facts = new Map<number, WedgeChildFact>([
-      [320, fact(false, null)],
+      [320, fact(false, null, { spawnBase: EPIC })],
       [321, fact(false, null)],
       [322, fact(false, null)],
     ]);
-    expect(detectStackWedge({ rows, facts, closedPrs: new Set() })).toBeNull();
+    expect(wedge(facts)).toBeNull();
   });
 
   test("an integrated layer is not lost, whatever the child's live PR now says", () => {
     const facts = new Map(healthy);
-    facts.set(320, fact(true, 55)); // landed, then the issue got a new session/PR
-    expect(detectStackWedge({ rows, facts, closedPrs: new Set() })).toBeNull();
-  });
-
-  test("a dead TOP layer strands nobody", () => {
-    const facts = new Map(healthy);
-    facts.set(322, fact(false, 88));
-    expect(detectStackWedge({ rows, facts, closedPrs: new Set() })).toBeNull();
-  });
-
-  test("a dead top layer in one chain does not mask a real wedge in another", () => {
-    const twoStacks = [...rows, layer(400, 40, 1, 9), layer(401, 41, 2, 9)];
-    const facts = new Map(healthy);
-    facts.set(322, fact(false, 88)); // chain A: dead TOP layer, strands nobody
-    facts.set(400, fact(false, 40));
-    facts.set(401, fact(false, 99)); // chain B: dead layer, but nothing above it either
-    facts.set(321, fact(false, 77)); // chain A: the real wedge
-    expect(detectStackWedge({ rows: twoStacks, facts, closedPrs: new Set() })).toEqual({
-      stackNumber: 7,
-      lostChild: 321,
-      stranded: [322],
-    });
+    facts.set(320, fact(true, 55, { spawnBase: EPIC })); // landed, then a new session/PR
+    expect(wedge(facts)).toBeNull();
   });
 
   // The epic model counts a closed issue as done, but a closed issue whose layer never integrated
@@ -485,26 +501,43 @@ describe("detectStackWedge", () => {
   // no wedge here, every layer above it would hold forever, silently.
   test("a closed-but-unintegrated middle child is a lost layer", () => {
     const facts = new Map(healthy);
-    facts.set(321, fact(false, 11, true)); // issue closed, PR unchanged, never integrated
-    expect(detectStackWedge({ rows, facts, closedPrs: new Set() })).toEqual({
-      stackNumber: 7,
-      lostChild: 321,
-      stranded: [322],
-    });
+    facts.set(321, fact(false, 11, { issueClosed: true }));
+    // #321 is done in the epic's eyes, so it is not among the children needing rescue.
+    expect(wedge(facts)).toEqual({ stackNumber: 7, lostChild: 321, stranded: [322] });
   });
 
-  test("a closed-issue layer ABOVE the hole is not stranded — it needs no rescuing", () => {
+  test("a dead TOP layer strands nobody — dissolving there would only make victims", () => {
     const facts = new Map(healthy);
-    facts.set(321, fact(false, 77)); // the hole
-    facts.set(322, fact(false, 12, true)); // done in the epic's eyes
-    expect(detectStackWedge({ rows, facts, closedPrs: new Set() })).toBeNull();
+    facts.set(322, fact(false, 88));
+    expect(wedge(facts)).toBeNull();
+  });
+
+  test("a closed-issue layer ABOVE the hole does not trigger a wedge on its own", () => {
+    const facts = new Map(healthy);
+    facts.set(321, fact(false, 77));
+    facts.set(322, fact(false, 12, { issueClosed: true }));
+    expect(wedge(facts)).toBeNull();
+  });
+
+  test("a dead top layer in one chain does not mask a real wedge in another", () => {
+    const twoStacks = [...rows, layer(400, 40, 1, 9), layer(401, 41, 2, 9)];
+    const facts = new Map(healthy);
+    facts.set(322, fact(false, 88)); // chain A: dead TOP layer, strands nobody
+    facts.set(400, fact(false, 40, { spawnBase: EPIC }));
+    facts.set(401, fact(false, 99)); // chain B: dead TOP layer too
+    facts.set(321, fact(false, 77)); // chain A: the real wedge
+    expect(wedge(facts, new Set(), twoStacks)).toEqual({
+      stackNumber: 7,
+      lostChild: 321,
+      stranded: [321, 322],
+    });
   });
 
   test("stranded skips layers that already landed", () => {
     const facts = new Map(healthy);
     facts.set(321, fact(false, 77));
     facts.set(322, fact(true, 12));
-    expect(detectStackWedge({ rows, facts, closedPrs: new Set() })).toBeNull();
+    expect(wedge(facts)).toBeNull();
   });
 });
 

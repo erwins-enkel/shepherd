@@ -199,13 +199,17 @@ export interface WedgeChildFact {
   integrationMerged: boolean;
   issueClosed: boolean;
   prNumber: number | null;
+  /** The base its LIVE session was spawned on, or null when it has no live session. Decides
+   *  whether dissolving the stack leaves this layer un-retirable — see {@link detectStackWedge}. */
+  spawnBase: string | null;
 }
 
 export interface StackWedge {
   stackNumber: number;
   /** The child whose recorded layer PR is orphaned. */
   lostChild: number;
-  /** Children whose layers sit above it and have not landed — bottom → top. */
+  /** Every layer the dissolved stack leaves stuck on a sibling's branch — bottom → top. Not only
+   *  the ones above the hole: `unstack` takes the whole stack with it. */
   stranded: number[];
 }
 
@@ -227,15 +231,35 @@ export interface StackWedge {
  *  above would still drag ungated commits). Without this arm such a child holds every layer above it
  *  forever, with no wedge, no warning and nothing to clear.
  *
- *  Reports only a wedge with something above it — a dead TOP layer strands nobody. */
+ *  TRIGGER vs VICTIMS are two different questions, deliberately:
+ *
+ *  - The trigger is a live layer ABOVE the lost one. A dead TOP layer strands nobody, and dissolving
+ *    a stack that nothing is stuck behind would only manufacture victims (see below).
+ *  - The victims are every layer of that stack that cannot stand on its own once it is dissolved —
+ *    i.e. whose live session was spawned on a SIBLING's head branch. That includes the layers
+ *    BELOW the hole, which were perfectly fine while the stack existed: `unstack` dissolves the
+ *    whole thing (GitHub has no drop-one), and `epicChildBaseOk` then refuses them for the same
+ *    reason it refuses the ones above, since `Session.baseBranch` is never updated after create. It
+ *    also includes the lost child itself when its re-spawned session landed on a sibling head.
+ *
+ *  Layers spawned on the epic branch (the stack's bottom) are NOT victims: their PR still targets
+ *  the epic branch, so they retire normally once the stack is gone. */
 export function detectStackWedge(input: {
   rows: EpicStackMember[];
   facts: Map<number, WedgeChildFact>;
   closedPrs: ReadonlySet<number>;
+  pinnedBranch: string | null;
 }): StackWedge | null {
   const ordered = [...input.rows].sort((a, b) => a.position - b.position);
+  const fact = (r: EpicStackMember) => input.facts.get(r.childNumber);
+  // Done-in-epic layers need no rescuing — same resolution rule as {@link wedgeCleared}, so a wedge
+  // is never raised over children it would clear on the very next pass.
+  const live = (r: EpicStackMember) => {
+    const f = fact(r);
+    return !!f && !f.integrationMerged && !f.issueClosed;
+  };
   const lost = (r: EpicStackMember): boolean => {
-    const f = input.facts.get(r.childNumber);
+    const f = fact(r);
     if (!f || f.integrationMerged) return false;
     if (f.issueClosed) return true;
     return input.closedPrs.has(r.prNumber) || (f.prNumber !== null && f.prNumber !== r.prNumber);
@@ -243,18 +267,15 @@ export function detectStackWedge(input: {
   // Every lost row is considered, not just the lowest: an epic runs one stack per chain, and a dead
   // TOP layer in one chain must not mask a genuine wedge in another.
   for (const row of ordered.filter(lost)) {
-    const stranded = ordered
+    const inStack = ordered.filter((r) => r.stackNumber === row.stackNumber);
+    if (!inStack.some((r) => r.position > row.position && live(r))) continue; // strands nobody
+    const stranded = inStack
       .filter((r) => {
-        if (r.stackNumber !== row.stackNumber || r.position <= row.position) return false;
-        const f = input.facts.get(r.childNumber);
-        // Done-in-epic layers above the hole need no rescuing — same resolution rule as
-        // {@link wedgeCleared}, so a wedge is never raised for children it would clear immediately.
-        return !f?.integrationMerged && !f?.issueClosed;
+        const base = fact(r)?.spawnBase;
+        return live(r) && base != null && isStackedBase(base, input.pinnedBranch);
       })
       .map((r) => r.childNumber);
-    if (stranded.length > 0) {
-      return { stackNumber: row.stackNumber, lostChild: row.childNumber, stranded };
-    }
+    return { stackNumber: row.stackNumber, lostChild: row.childNumber, stranded };
   }
   return null;
 }

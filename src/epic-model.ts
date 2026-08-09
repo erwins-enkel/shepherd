@@ -241,8 +241,9 @@ function divergenceWarnings(input: AssembleInput): string[] {
  *  abandoning the stranded children (each re-spawns onto the pinned branch) and merging their PRs
  *  by hand onto the pinned branch, which the merge-teardown path records as an integration. */
 function stackWedgeWarning(w: { childNumber: number; stranded: number[] }, pinned: string): string {
-  const list = w.stranded.length ? `#${w.stranded.join(", #")}` : "the layers above it";
-  return `stacked child #${w.childNumber} lost its pull request, so the stack was dissolved (GitHub cannot drop one layer) — ${list} ${w.stranded.length === 1 ? "is" : "are"} stranded on a branch that will never land; abandon ${w.stranded.length === 1 ? "it" : "them"} to re-spawn on \`${pinned}\`, or merge ${w.stranded.length === 1 ? "its PR" : "their PRs"} onto \`${pinned}\` yourself — epic blocked until fixed`;
+  const one = w.stranded.length === 1;
+  const list = w.stranded.length ? `#${w.stranded.join(", #")}` : "the other layers";
+  return `stacked child #${w.childNumber} lost its pull request, so the whole stack was dissolved (GitHub cannot drop one layer) — ${list} ${one ? "is" : "are"} left on a sibling's branch that will never land; abandon ${one ? "it" : "them"} to re-spawn on \`${pinned}\`, or merge ${one ? "its PR" : "their PRs"} onto \`${pinned}\` yourself — epic blocked until fixed`;
 }
 
 /** (Task 2) One actionable base-mismatch warning: names the wrong base + the exact `gh pr edit`

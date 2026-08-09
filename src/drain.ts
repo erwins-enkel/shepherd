@@ -930,6 +930,7 @@ export class DrainService {
     if (this.sweepEpicStackWedges(repoPath, parent, pinned, epic)) return true;
     const rows = this.deps.store.listEpicStack(repoPath, parent);
     if (rows.length === 0) return false;
+    const spawnBases = this.epicChildSpawnBases(repoPath);
     const facts = new Map<number, WedgeChildFact>(
       epic.children.map((c) => [
         c.number,
@@ -937,10 +938,16 @@ export class DrainService {
           integrationMerged: c.integrationMerged,
           issueClosed: c.issueClosed,
           prNumber: c.prNumber,
+          spawnBase: spawnBases.get(c.number) ?? null,
         },
       ]),
     );
-    const wedge = detectStackWedge({ rows, facts, closedPrs: this.closedEpicChildPrs(repoPath) });
+    const wedge = detectStackWedge({
+      rows,
+      facts,
+      closedPrs: this.closedEpicChildPrs(repoPath),
+      pinnedBranch: pinned,
+    });
     if (!wedge) return false;
     await forge.unstack(wedge.stackNumber);
     this.deps.store.deleteEpicStack(repoPath, parent, wedge.stackNumber);

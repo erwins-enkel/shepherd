@@ -471,8 +471,10 @@ describe("mid-stack loss repair (#2070)", () => {
 
     expect(h.rec.unstacked).toEqual([STACK_NUMBER]);
     expect(layers(h)).toEqual([]); // the stack is gone; nothing may keep believing in it
+    // MIDDLE's re-spawned session sits on a sibling head too, so it is stranded alongside UPPER;
+    // LOWER was spawned on the epic branch and retires normally without the stack.
     expect(wedges(h)).toEqual([
-      { childNumber: MIDDLE, stackNumber: STACK_NUMBER, stranded: [UPPER] },
+      { childNumber: MIDDLE, stackNumber: STACK_NUMBER, stranded: [MIDDLE, UPPER] },
     ]);
     expect(h.rec.created).toEqual([]); // and the pass does NOT re-compose around the hole
   });
@@ -536,8 +538,14 @@ describe("mid-stack loss repair (#2070)", () => {
     await compose(h);
     expect(wedges(h)).toHaveLength(1);
 
-    // The operator abandons the stranded child; it will re-spawn onto the pinned branch.
+    // Abandoning ONE of them is not enough — the marker survives until every stranded child is off
+    // the dead branch.
     h.store.archive(h.sessionOf[UPPER]!);
+    t += 120_000;
+    await compose(h);
+    expect(wedges(h)).toHaveLength(1);
+
+    h.store.archive(h.sessionOf[MIDDLE]!);
     t += 120_000;
     await compose(h);
 
@@ -624,6 +632,7 @@ describe("mid-stack loss: closed issues and the opt-out (#2070)", () => {
 
     // Resolved → cleared, even with stacking off.
     h.store.archive(h.sessionOf[UPPER]!);
+    h.store.archive(h.sessionOf[MIDDLE]!);
     t += 120_000;
     await compose(h);
     expect(wedges(h)).toEqual([]);

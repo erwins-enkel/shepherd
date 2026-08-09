@@ -80,11 +80,17 @@ the stack and rebuild it.
 
 So Shepherd fails loudly rather than quietly:
 
-1. It **unstacks** the whole stack. The layers above keep their branches and their pull requests —
-   nothing is deleted.
-2. It raises a **blocking epic warning** naming the lost child and the children left stranded.
+1. It **unstacks** the whole stack. Every layer keeps its branch and its pull request — nothing is
+   deleted.
+2. It raises a **blocking epic warning** naming the lost child and every child left stranded.
 3. It **stops stacking for that epic** — no new stacks, and new children go back to waiting for
    merges — until the stranded children are resolved.
+
+**"Stranded" is not only the layers above the hole.** Dissolving the stack takes the whole thing
+with it, and *any* child that was spawned on a sibling's branch — above or below the lost layer —
+is left targeting a branch that will never land. Only the bottom layer, which was spawned on the
+epic's integration branch, retires normally afterwards. The warning names every affected child, so
+work through the list rather than assuming the layers below the hole were spared.
 
 To clear it, for each stranded child either:
 
@@ -101,4 +107,5 @@ created. The epic warning names the two remedies above for exactly this reason.
 - **Merged layer branches are not cleaned up.** GitHub's stacked-merge API takes no delete-branch
   parameter, so a landed layer's head branch stays on the remote. Nothing reaps it today.
 - **No partial repair.** Because there is no drop-one endpoint, a single lost layer dissolves the
-  whole stack, even the layers below it that were perfectly healthy.
+  whole stack — including the layers below it, which were perfectly healthy and now need the same
+  abandon-or-merge treatment. Deep stacks therefore cost more to repair; keep chains short.

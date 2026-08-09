@@ -53,6 +53,10 @@ export interface AssembleInput {
    *  epic branch (`epic_base_mismatch`, read in drain.buildEpic). Each surfaces an actionable,
    *  remedy-naming warning — the epic is BLOCKED until the operator re-targets the PR. */
   baseMismatches?: { childNumber: number; actualBase: string; prNumber: number | null }[];
+  /** #2070: stacks this epic lost a middle layer of. GitHub has no reorder or drop-one endpoint, so
+   *  the drain dissolved the stack outright; the layers above the lost one keep their branches and
+   *  are stuck until an operator acts. Each entry surfaces a BLOCKING warning. */
+  stackWedges?: { childNumber: number; stranded: number[] }[];
   /** #1757: false when the repo's forge cannot create branches (no `ensureBranch` — Gitea, local).
    *  Such an epic runs WITHOUT an integration branch: every child bases on the default branch and
    *  merges straight into it, one at a time (the epic still progresses — a merged child closes its
@@ -214,9 +218,32 @@ function divergenceWarnings(input: AssembleInput): string[] {
       `divergent epic branch \`${b}\` references epic #${input.parent.number} but is not the pinned \`${pinned}\``,
     );
   }
-  // (Task 2) base-mismatch
-  for (const mm of input.baseMismatches ?? []) out.push(baseMismatchWarning(mm, pinned));
+  // (#2070) mid-stack loss, and the children it stranded.
+  const wedges = input.stackWedges ?? [];
+  const stranded = new Set(wedges.flatMap((w) => w.stranded));
+  out.push(...wedges.map((w) => stackWedgeWarning(w, pinned)));
+  // (Task 2) base-mismatch. A stranded child ALSO trips the base gate (its session was spawned on a
+  // branch that is no longer part of any stack), but the generic remedy is wrong for it — see
+  // stackWedgeWarning — so the wedge warning replaces it rather than sitting next to it.
+  out.push(
+    ...(input.baseMismatches ?? [])
+      .filter((mm) => !stranded.has(mm.childNumber))
+      .map((mm) => baseMismatchWarning(mm, pinned)),
+  );
   return out;
+}
+
+/** (#2070) One blocking mid-stack-loss warning.
+ *
+ *  The remedy deliberately does NOT say "re-target the PR": Shepherd decides an epic child's merge
+ *  base from the SESSION's spawn base, which is never updated after create — so `gh pr edit --base`
+ *  leaves the child just as un-retirable as before. The two things that do restore progress are
+ *  abandoning the stranded children (each re-spawns onto the pinned branch) and merging their PRs
+ *  by hand onto the pinned branch, which the merge-teardown path records as an integration. */
+function stackWedgeWarning(w: { childNumber: number; stranded: number[] }, pinned: string): string {
+  const one = w.stranded.length === 1;
+  const list = w.stranded.length ? `#${w.stranded.join(", #")}` : "the other layers";
+  return `stacked child #${w.childNumber} lost its pull request, so the whole stack was dissolved (GitHub cannot drop one layer) — ${list} ${one ? "is" : "are"} left on a sibling's branch that will never land; abandon ${one ? "it" : "them"} to re-spawn on \`${pinned}\`, or merge ${one ? "its PR" : "their PRs"} onto \`${pinned}\` yourself — epic blocked until fixed`;
 }
 
 /** (Task 2) One actionable base-mismatch warning: names the wrong base + the exact `gh pr edit`

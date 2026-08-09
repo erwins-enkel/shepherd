@@ -131,6 +131,186 @@ export interface EpicStackMember {
   position: number;
 }
 
+/** Why a stacked child may not merge yet (#2070). Named so the drain can log it and the retire
+ *  gate can be asserted on it; deliberately NOT a session-level `HoldCode` — a layer waiting for the
+ *  one below it is normal, transient and correct, not an operator problem. */
+export type StackHoldReason = "stack_layer_below_unmerged";
+
+export type StackRetireGate =
+  /** Not a recorded stack member: merge exactly as before, without `allowStacked`. */
+  | { kind: "plain" }
+  /** A layer below this one has not landed yet. `belowChild` is the lowest such child. */
+  | { kind: "hold"; reason: StackHoldReason; belowChild: number }
+  /** The rows say this is the bottom-most unmerged layer — confirm against the live stack. */
+  | { kind: "confirm"; stackNumber: number };
+
+/** May this epic child's stacked PR be merged now? (#2070)
+ *
+ *  #2061 refuses any stacked merge whose caller did not pass `allowStacked`, and `retireEpicChild`
+ *  is autonomous — so without a carve-out every epic-child retire throws once children become stack
+ *  members. The carve-out is bottom-most-only, which PRESERVES #2061's rationale rather than waiving
+ *  it: merging a stack layer lands every layer beneath it, so merging the bottom-most unmerged layer
+ *  lands exactly one PR.
+ *
+ *  "Landed" means INTEGRATED, deliberately narrower than the epic model's `integrationMerged ||
+ *  issueClosed` done-ness: a closed-but-unintegrated layer never merged, so merging the layer above
+ *  it would still drag its ungated commits along. Such a layer is not this gate's problem to relax —
+ *  it is a lost layer, and {@link detectStackWedge} raises it as a wedge.
+ *
+ *  Store-only (rows + the integrated set), so a held layer costs ZERO forge calls per tick — the
+ *  drain re-derives this on every pump iteration. The `confirm` answer is deliberately not "merge":
+ *  the rows describe what Shepherd composed, and a foreign PR hand-added to the stack would not
+ *  appear in them, so the caller re-checks against the live stack before landing anything. */
+export function stackRetireGate(input: {
+  rows: EpicStackMember[];
+  childNumber: number;
+  integratedChildren: ReadonlySet<number>;
+}): StackRetireGate {
+  const mine = input.rows.find((r) => r.childNumber === input.childNumber);
+  if (!mine) return { kind: "plain" };
+  const below = input.rows
+    .filter((r) => r.stackNumber === mine.stackNumber && r.position < mine.position)
+    .sort((a, b) => a.position - b.position)
+    .find((r) => !input.integratedChildren.has(r.childNumber));
+  if (below) {
+    return { kind: "hold", reason: "stack_layer_below_unmerged", belowChild: below.childNumber };
+  }
+  return { kind: "confirm", stackNumber: mine.stackNumber };
+}
+
+/** The bottom-most pull request of a live stack that has not landed yet, or null when every layer
+ *  has. `prNumbers` is the host's own bottom→top membership and INCLUDES already-merged layers, so
+ *  "merged" is decided by `integratedPrs` (which `merge-teardown` populates for out-of-band merges
+ *  too, so an operator-merged layer does not wedge the one above it).
+ *
+ *  A stack PR that belongs to no integrated child reads as unmerged — fail closed, since the caller
+ *  compares this against its own PR to decide whether merging lands only itself. */
+export function bottomMostUnmergedPr(
+  prNumbers: number[],
+  integratedPrs: ReadonlySet<number>,
+): number | null {
+  return prNumbers.find((pr) => !integratedPrs.has(pr)) ?? null;
+}
+
+/** What the wedge detector knows about one epic child. `prNumber` is the child's LIVE pull request
+ *  (`EpicChild.prNumber`, read from the in-memory PR cache), so `null` means "unknown" — after a
+ *  restart it is null for every child — and is never evidence of anything. */
+export interface WedgeChildFact {
+  integrationMerged: boolean;
+  issueClosed: boolean;
+  prNumber: number | null;
+  /** The base its LIVE session was spawned on, or null when it has no live session. Decides
+   *  whether dissolving the stack leaves this layer un-retirable — see {@link detectStackWedge}. */
+  spawnBase: string | null;
+}
+
+export interface StackWedge {
+  stackNumber: number;
+  /** The child whose recorded layer PR is orphaned. */
+  lostChild: number;
+  /** Every layer the dissolved stack leaves stuck on a sibling's branch — bottom → top. Not only
+   *  the ones above the hole: `unstack` takes the whole stack with it. */
+  stranded: number[];
+}
+
+/** Has a stack lost a middle layer? (#2070)
+ *
+ *  Keyed on the recorded LAYER's pull request, never on child liveness: an abandon releases the
+ *  claim and pumps immediately, so the drain re-spawns the child with a fresh session and PR long
+ *  before the composition pass next runs. The child then looks perfectly healthy while the layer the
+ *  stack was built on is orphaned — child-level signals cannot see this at all.
+ *
+ *  Loss requires POSITIVE evidence: the child's ISSUE is closed without the layer ever integrating,
+ *  the layer PR was observed closed, or the child is now on a DIFFERENT pull request. An unknown
+ *  (null) live PR is never loss, or the first pass after a restart would dissolve every healthy
+ *  stack.
+ *
+ *  The issue-closed arm is load-bearing. The epic model counts a closed issue as done, but a closed
+ *  issue whose layer never integrated means that layer's PR will never land — and the retire gate
+ *  only ever treats an INTEGRATED layer as landed (rightly: nothing merged, so merging the layer
+ *  above would still drag ungated commits). Without this arm such a child holds every layer above it
+ *  forever, with no wedge, no warning and nothing to clear.
+ *
+ *  TRIGGER vs VICTIMS are two different questions, deliberately:
+ *
+ *  - The trigger is a live layer ABOVE the lost one. A dead TOP layer strands nobody, and dissolving
+ *    a stack that nothing is stuck behind would only manufacture victims (see below).
+ *  - The victims are every layer of that stack that cannot stand on its own once it is dissolved —
+ *    i.e. whose live session was spawned on a SIBLING's head branch. That includes the layers
+ *    BELOW the hole, which were perfectly fine while the stack existed: `unstack` dissolves the
+ *    whole thing (GitHub has no drop-one), and `epicChildBaseOk` then refuses them for the same
+ *    reason it refuses the ones above, since `Session.baseBranch` is never updated after create. It
+ *    also includes the lost child itself when its re-spawned session landed on a sibling head.
+ *
+ *  Layers spawned on the epic branch (the stack's bottom) are NOT victims: their PR still targets
+ *  the epic branch, so they retire normally once the stack is gone. */
+export function detectStackWedge(input: {
+  rows: EpicStackMember[];
+  facts: Map<number, WedgeChildFact>;
+  closedPrs: ReadonlySet<number>;
+  pinnedBranch: string | null;
+}): StackWedge | null {
+  const ordered = [...input.rows].sort((a, b) => a.position - b.position);
+  const fact = (r: EpicStackMember) => input.facts.get(r.childNumber);
+  // Done-in-epic layers need no rescuing — same resolution rule as {@link wedgeCleared}, so a wedge
+  // is never raised over children it would clear on the very next pass.
+  const live = (r: EpicStackMember) => {
+    const f = fact(r);
+    return !!f && !f.integrationMerged && !f.issueClosed;
+  };
+  const lost = (r: EpicStackMember): boolean => {
+    const f = fact(r);
+    if (!f || f.integrationMerged) return false;
+    if (f.issueClosed) return true;
+    return input.closedPrs.has(r.prNumber) || (f.prNumber !== null && f.prNumber !== r.prNumber);
+  };
+  // Every lost row is considered, not just the lowest: an epic runs one stack per chain, and a dead
+  // TOP layer in one chain must not mask a genuine wedge in another.
+  for (const row of ordered.filter(lost)) {
+    const inStack = ordered.filter((r) => r.stackNumber === row.stackNumber);
+    if (!inStack.some((r) => r.position > row.position && live(r))) continue; // strands nobody
+    const stranded = inStack
+      .filter((r) => {
+        const base = fact(r)?.spawnBase;
+        return live(r) && base != null && isStackedBase(base, input.pinnedBranch);
+      })
+      .map((r) => r.childNumber);
+    return { stackNumber: row.stackNumber, lostChild: row.childNumber, stranded };
+  }
+  return null;
+}
+
+/** What clearing a wedge marker looks at, per stranded child. `spawnBase` is the base its LIVE
+ *  session was spawned on, or null when it has no live session. */
+export interface StrandedChildFact {
+  integrationMerged: boolean;
+  issueClosed: boolean;
+  spawnBase: string | null;
+}
+
+/** May this wedge marker be cleared? (#2070)
+ *
+ *  Keyed on the STRANDED children, never on the lost one. A stranded child is resolved once it is
+ *  integrated, its issue is closed, or it is simply no longer sitting on the dead branch — it has no
+ *  live session (abandoned; it re-spawns onto the pinned branch) or its live session bases on the
+ *  epic branch again.
+ *
+ *  Keying on the lost child instead would clear the blocking warning while the stranded layers are
+ *  still un-retirable — and when the loss was caused BY that child's issue closing, it would clear on
+ *  the very next pass, after the rows the detector needs to re-raise it have already been deleted. */
+export function wedgeCleared(input: {
+  stranded: number[];
+  facts: Map<number, StrandedChildFact>;
+  pinnedBranch: string | null;
+}): boolean {
+  return input.stranded.every((n) => {
+    const f = input.facts.get(n);
+    if (!f) return true; // no longer a child of this epic
+    if (f.integrationMerged || f.issueClosed) return true;
+    return f.spawnBase === null || !isStackedBase(f.spawnBase, input.pinnedBranch);
+  });
+}
+
 /** One layer of a planned composition step. */
 export interface StackLayer {
   childNumber: number;

@@ -49,6 +49,7 @@ interface ForgeRec {
   added: { stackNumber: number; prNumber: number }[];
   stackReads: number[];
   reviewMetaCalls: number[];
+  unstacked: number[];
 }
 
 interface ForgeOpts {
@@ -58,6 +59,8 @@ interface ForgeOpts {
   baseRefName?: (prNumber: number) => string;
   /** Drop the whole stacked-PR surface (Gitea/Local). */
   noStacks?: boolean;
+  /** Children whose ISSUE reads closed (done in the epic's eyes). */
+  closedChildren?: number[];
 }
 
 function fakeForge(rec: ForgeRec, opts: ForgeOpts = {}): GitForge {
@@ -98,7 +101,7 @@ function fakeForge(rec: ForgeRec, opts: ForgeOpts = {}): GitForge {
             title: `child ${number}`,
             url: `u${number}`,
             body: "",
-            closed: false,
+            closed: (opts.closedChildren ?? []).includes(number),
             labels: [],
           }))
         : [],
@@ -125,6 +128,9 @@ function fakeForge(rec: ForgeRec, opts: ForgeOpts = {}): GitForge {
     f.addToStack = async (stackNumber: number, prNumber: number) => {
       rec.added.push({ stackNumber, prNumber });
     };
+    f.unstack = async (stackNumber: number) => {
+      rec.unstacked.push(stackNumber);
+    };
   }
   return f;
 }
@@ -133,6 +139,10 @@ interface Harness {
   store: SessionStore;
   drain: DrainService;
   rec: ForgeRec;
+  /** Live PR snapshot, mutable so a test can close a child's PR mid-flight. */
+  prCache: Record<string, GitState>;
+  /** child issue number → session id. */
+  sessionOf: Record<number, string>;
 }
 
 function makeHarness(
@@ -184,6 +194,7 @@ function makeHarness(
 
   // One live session per child; the ones in `withPr` also have an open PR in the cache.
   const prCache: Record<string, GitState> = {};
+  const sessionOf: Record<number, string> = {};
   const withPr = new Set(opts.withPr ?? [LOWER, MIDDLE]);
   for (const child of [LOWER, MIDDLE, UPPER]) {
     const s = store.create({
@@ -200,6 +211,7 @@ function makeHarness(
       issueNumber: child,
       epicParent: PARENT,
     });
+    sessionOf[child] = s.id;
     if (withPr.has(child)) {
       prCache[s.id] = {
         kind: "github",
@@ -211,7 +223,13 @@ function makeHarness(
     }
   }
 
-  const rec: ForgeRec = { created: [], added: [], stackReads: [], reviewMetaCalls: [] };
+  const rec: ForgeRec = {
+    created: [],
+    added: [],
+    stackReads: [],
+    reviewMetaCalls: [],
+    unstacked: [],
+  };
   const forge = fakeForge(rec, opts);
   const drain = new DrainService({
     store,
@@ -232,7 +250,7 @@ function makeHarness(
     now: opts.now,
     rebaseCap: 5,
   });
-  return { store, drain, rec };
+  return { store, drain, rec, prCache, sessionOf };
 }
 
 /** Invoke the private pass directly, so nothing else in tick() colours the assertions. */
@@ -409,5 +427,225 @@ describe("composeEpicStacksForRepo (#2069)", () => {
     await h.drain.tick();
 
     expect(h.rec.created).toEqual([[PR_OF[LOWER]!, PR_OF[MIDDLE]!]]);
+  });
+});
+
+/**
+ * #2070 — mid-stack loss. A closed or abandoned middle layer blocks every layer above it, and
+ * GitHub has no reorder or drop-one endpoint, so the only repair primitive is unstack-and-recreate.
+ * The repair runs inside the same pass as composition, which is why it lives in this file.
+ *
+ * The load-bearing detail is WHAT counts as a lost layer: an abandon releases the claim and pumps
+ * immediately, so the child is re-spawned with a fresh session and PR long before this pass next
+ * runs. The child then looks healthy while the recorded LAYER is orphaned — so the detector keys on
+ * the row's PR, never on child liveness.
+ */
+describe("mid-stack loss repair (#2070)", () => {
+  const STALE_PR = 899; // the layer PR the stack was built on, before the child was re-spawned
+
+  /** Seed a three-layer stack whose MIDDLE row names `middlePr`. */
+  function seedStack(h: Harness, middlePr: number): void {
+    const rows: [number, number, number][] = [
+      [LOWER, PR_OF[LOWER]!, 1],
+      [MIDDLE, middlePr, 2],
+      [UPPER, PR_OF[UPPER]!, 3],
+    ];
+    for (const [childNumber, prNumber, position] of rows) {
+      h.store.recordEpicStackMember(REPO, PARENT, {
+        childNumber,
+        stackNumber: STACK_NUMBER,
+        prNumber,
+        baseBranch: position === 1 ? EPIC_BRANCH : `shepherd/auto-${childNumber - 1}`,
+        position,
+      });
+    }
+  }
+
+  const wedges = (h: Harness) => h.store.listEpicStackWedges(REPO, PARENT);
+
+  test("a re-spawned middle child orphans its layer: unstack, drop the rows, record the wedge", async () => {
+    const h = makeHarness({ withPr: [LOWER, MIDDLE, UPPER] });
+    seedStack(h, STALE_PR); // the child's live PR is PR_OF[MIDDLE], not this one
+
+    await compose(h);
+
+    expect(h.rec.unstacked).toEqual([STACK_NUMBER]);
+    expect(layers(h)).toEqual([]); // the stack is gone; nothing may keep believing in it
+    // MIDDLE's re-spawned session sits on a sibling head too, so it is stranded alongside UPPER;
+    // LOWER was spawned on the epic branch and retires normally without the stack.
+    expect(wedges(h)).toEqual([
+      { childNumber: MIDDLE, stackNumber: STACK_NUMBER, stranded: [MIDDLE, UPPER] },
+    ]);
+    expect(h.rec.created).toEqual([]); // and the pass does NOT re-compose around the hole
+  });
+
+  test("a closed layer PR wedges too, even though the child still holds that PR", async () => {
+    const h = makeHarness({ withPr: [LOWER, MIDDLE, UPPER] });
+    seedStack(h, PR_OF[MIDDLE]!);
+    h.prCache[h.sessionOf[MIDDLE]!] = {
+      kind: "github",
+      state: "closed",
+      number: PR_OF[MIDDLE]!,
+      checks: "success",
+      deployConfigured: false,
+    };
+
+    await compose(h);
+
+    expect(h.rec.unstacked).toEqual([STACK_NUMBER]);
+    expect(wedges(h).map((w) => w.childNumber)).toEqual([MIDDLE]);
+  });
+
+  test("an unknown live PR is never evidence — a cold PR cache must not dissolve a stack", async () => {
+    const h = makeHarness({ withPr: [] }); // no PR observed for any child, as after a restart
+    seedStack(h, STALE_PR);
+
+    await compose(h);
+
+    expect(h.rec.unstacked).toEqual([]);
+    expect(layers(h)).toHaveLength(3);
+    expect(wedges(h)).toEqual([]);
+  });
+
+  test("a live wedge halts composition and suppresses stacked spawn bases", async () => {
+    let t = 1_000_000;
+    const h = makeHarness({ withPr: [LOWER, MIDDLE, UPPER], now: () => t });
+    seedStack(h, STALE_PR);
+    await compose(h);
+    expect(wedges(h)).toHaveLength(1);
+
+    t += 120_000; // past the pass TTL
+    await compose(h);
+
+    // No re-stacking of the surviving layers while the operator still has to act.
+    expect(h.rec.created).toEqual([]);
+    expect(h.rec.added).toEqual([]);
+    expect(h.rec.unstacked).toEqual([STACK_NUMBER]); // and no repeat unstack call
+    // Spawn bases come from buildState, INDEPENDENT of this pass — suppressing them here is what
+    // makes a wedged epic fall back to waiting for merges instead of spawning onto dead branches.
+    const { state } = await (
+      h.drain as unknown as {
+        buildState: (repoPath: string) => Promise<{ state: { epicStackBases: unknown } }>;
+      }
+    ).buildState(REPO);
+    expect(state.epicStackBases).toBeNull();
+  });
+
+  test("the wedge clears once every stranded child is off the dead branch", async () => {
+    let t = 1_000_000;
+    const h = makeHarness({ withPr: [LOWER, MIDDLE, UPPER], now: () => t });
+    seedStack(h, STALE_PR);
+    await compose(h);
+    expect(wedges(h)).toHaveLength(1);
+
+    // Abandoning ONE of them is not enough — the marker survives until every stranded child is off
+    // the dead branch.
+    h.store.archive(h.sessionOf[UPPER]!);
+    t += 120_000;
+    await compose(h);
+    expect(wedges(h)).toHaveLength(1);
+
+    h.store.archive(h.sessionOf[MIDDLE]!);
+    t += 120_000;
+    await compose(h);
+
+    expect(wedges(h)).toEqual([]);
+  });
+
+  test("the lost child's own state does not clear the wedge", async () => {
+    // The loss here IS the middle child going away; if the sweep keyed on it, the marker would
+    // clear on the next pass — after the rows the detector needs to re-raise it are already gone.
+    let t = 1_000_000;
+    const h = makeHarness({ withPr: [LOWER, MIDDLE, UPPER], now: () => t });
+    seedStack(h, STALE_PR);
+    await compose(h);
+
+    h.store.recordEpicIntegrated(
+      REPO,
+      PARENT,
+      MIDDLE,
+      { number: PR_OF[MIDDLE]!, url: "" },
+      EPIC_BRANCH,
+    );
+    t += 120_000;
+    await compose(h);
+
+    expect(wedges(h)).toHaveLength(1);
+  });
+});
+
+describe("mid-stack loss: closed issues and the opt-out (#2070)", () => {
+  const STALE_PR = 899;
+
+  function seedStack(h: Harness, middlePr = PR_OF[MIDDLE]!): void {
+    const rows: [number, number, number][] = [
+      [LOWER, PR_OF[LOWER]!, 1],
+      [MIDDLE, middlePr, 2],
+      [UPPER, PR_OF[UPPER]!, 3],
+    ];
+    for (const [childNumber, prNumber, position] of rows) {
+      h.store.recordEpicStackMember(REPO, PARENT, {
+        childNumber,
+        stackNumber: STACK_NUMBER,
+        prNumber,
+        baseBranch: position === 1 ? EPIC_BRANCH : `shepherd/auto-${childNumber - 1}`,
+        position,
+      });
+    }
+  }
+
+  const wedges = (h: Harness) => h.store.listEpicStackWedges(REPO, PARENT);
+
+  // The epic model counts a closed issue as done, but a closed issue whose layer never integrated
+  // means that PR will never land — and the retire gate only relaxes for an INTEGRATED layer. Miss
+  // this and every layer above holds forever with no wedge and nothing to clear.
+  test("a closed-but-unintegrated middle child wedges the stack", async () => {
+    const h = makeHarness({ withPr: [LOWER, MIDDLE, UPPER], closedChildren: [MIDDLE] });
+    seedStack(h);
+
+    await compose(h);
+
+    expect(h.rec.unstacked).toEqual([STACK_NUMBER]);
+    expect(wedges(h)).toEqual([
+      { childNumber: MIDDLE, stackNumber: STACK_NUMBER, stranded: [UPPER] },
+    ]);
+  });
+
+  test("opting OUT after a wedge still clears the marker once the stranded child resolves", async () => {
+    // The marker drives a blocking "epic blocked until fixed" warning and this sweep is its only
+    // clearing path — gating the sweep behind the flag would strand that warning forever.
+    let t = 1_000_000;
+    const h = makeHarness({ withPr: [LOWER, MIDDLE, UPPER], now: () => t });
+    seedStack(h, STALE_PR);
+    await compose(h);
+    expect(wedges(h)).toHaveLength(1);
+
+    h.store.setRepoConfig(REPO, {
+      ...h.store.getRepoConfig(REPO),
+      epicStacksEnabled: false,
+    });
+
+    // Still unresolved → the marker (and its warning) survive the opt-out.
+    t += 120_000;
+    await compose(h);
+    expect(wedges(h)).toHaveLength(1);
+
+    // Resolved → cleared, even with stacking off.
+    h.store.archive(h.sessionOf[UPPER]!);
+    h.store.archive(h.sessionOf[MIDDLE]!);
+    t += 120_000;
+    await compose(h);
+    expect(wedges(h)).toEqual([]);
+    expect(h.rec.created).toEqual([]); // and the opt-out never composes anything
+  });
+
+  test("opted out with no wedge: the pass does nothing at all", async () => {
+    const h = makeHarness({ epicStacks: false, withPr: [LOWER, MIDDLE, UPPER] });
+
+    await compose(h);
+
+    expect(h.rec.created).toEqual([]);
+    expect(h.rec.unstacked).toEqual([]);
+    expect(h.rec.stackReads).toEqual([]);
   });
 });

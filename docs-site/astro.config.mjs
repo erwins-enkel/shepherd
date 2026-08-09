@@ -124,6 +124,7 @@ export default defineConfig({
           label: "Reference",
           items: [
             { label: "Configuration", slug: "reference/configuration" },
+            { label: "Stacked epic children", slug: "reference/stacked-epic-children" },
             { label: "Concepts & glossary", slug: "reference/glossary" },
             { label: "Keyboard shortcuts", slug: "reference/keyboard-shortcuts" },
             { label: "Plugins", slug: "reference/plugins" },

@@ -24,16 +24,22 @@ import {
 import { selectEpicCandidates, type Epic, type EpicRun, type EpicStackContext } from "./epic-core";
 import { decomposeEpicChains } from "./epic-chains";
 import {
+  bottomMostUnmergedPr,
   buildStackSpawnPlan,
+  detectStackWedge,
   epicChildBaseOk,
   hasLiveStackedSuccessor,
   isStackedBase,
   liveChainSegment,
   planStackComposition,
+  stackRetireGate,
   stackRootedAtEpic,
+  wedgeCleared,
   type EpicStackMember,
   type StackComposition,
   type StackPredecessorFact,
+  type StrandedChildFact,
+  type WedgeChildFact,
 } from "./epic-stack";
 import { detectMigrationPaths } from "./epic-migrations";
 import {
@@ -73,6 +79,10 @@ const EPIC_BRANCH_SCAN_TTL_MS = 5 * 60_000;
  *  work to do when a child PR has just opened, so a per-tick re-read of the host's stack state
  *  would be pure overhead; each pass takes at most one step anyway. */
 const EPIC_STACK_COMPOSE_TTL_MS = 60_000;
+
+/** #2070: the "nothing is stack-held" answer, shared so every non-stacked repo's state carries the
+ *  same empty set instead of allocating one per pump iteration. */
+const EMPTY_SESSION_SET: ReadonlySet<string> = new Set<string>();
 
 /** #790: after a drain spawn for an issue fails (e.g. worktree isolation aborted), back off
  *  re-attempting that issue for this long. Without it, abort + the ~30s tick would loop
@@ -230,6 +240,10 @@ export interface DrainDeps {
     | "setEpicMigrationPaths"
     | "recordEpicStackMember"
     | "listEpicStack"
+    | "deleteEpicStack"
+    | "recordEpicStackWedge"
+    | "listEpicStackWedges"
+    | "clearEpicStackWedge"
     | "recordEpicBaseMismatch"
     | "clearEpicBaseMismatch"
     | "getEpicBaseMismatch"
@@ -286,14 +300,16 @@ export interface DrainDeps {
   notify?: (input: NotifyInput) => Promise<boolean> | void;
 }
 
-/** A forge that implements the whole stacked-PR surface (#2068). */
-type StackForge = GitForge & Required<Pick<GitForge, "stackForPr" | "createStack" | "addToStack">>;
+/** A forge that implements the whole stacked-PR surface (#2068). `unstack` is part of it because
+ *  #2070's mid-stack repair has no other primitive — GitHub cannot reorder or drop one layer. */
+type StackForge = GitForge &
+  Required<Pick<GitForge, "stackForPr" | "createStack" | "addToStack" | "unstack">>;
 
 /** Does this forge expose that surface? Branches on the METHODS, never on `kind`: Gitea/Local omit
- *  them, and a future adapter may add them. Narrows, so the composition helpers can call the three
+ *  them, and a future adapter may add them. Narrows, so the composition helpers can call the
  *  methods without re-asserting each one. */
 function forgeHasStacks(forge: GitForge | null): forge is StackForge {
-  return !!forge?.stackForPr && !!forge.createStack && !!forge.addToStack;
+  return !!forge?.stackForPr && !!forge.createStack && !!forge.addToStack && !!forge.unstack;
 }
 
 /** Everything the #2069 composition helpers need about the epic they are composing, assembled once
@@ -365,6 +381,14 @@ export class DrainService {
   // In-memory on purpose: a restart composes on the next tick and the pass is idempotent.
   private epicStackComposedAt = new Map<string, number>();
   private epicStackInFlight = new Set<string>();
+  // #2070: repoPath → sessionId → when its live-stack confirmation REFUSED at retire (a layer below
+  // it is not a landed epic child). The persisted rows cannot predict that answer, so without this
+  // the session would be re-selected and consume the pump's one retire attempt every tick, starving
+  // the repo's whole drain. Cleared when an epic child integrates, and EXPIRING as well — a layer
+  // merged out-of-band (operator, merge train) records through a path that never reaches this map,
+  // and a permanently stale hold would be a silent stall. Expiry degrades that to one re-check per
+  // window. In-memory: a restart simply re-checks.
+  private stackConfirmHeld = new Map<string, Map<string, number>>();
   private lastEpicSig = new Map<string, string>();
   // #1401: `${repoPath}#${parentIssueNumber}` → last reconcile-sweep timestamp. In-memory on
   // purpose: a restart sweeps immediately (deploy ⇒ a pre-existing stall self-heals within one
@@ -554,6 +578,9 @@ export class DrainService {
       persistedBranch,
       integratedBases,
       divergentBranches,
+      // (#2070) stacks dissolved after losing a middle layer — blocking, and it supersedes the
+      // generic base-mismatch remedy for the children it stranded.
+      stackWedges: this.deps.store.listEpicStackWedges(repoPath, run.parentIssueNumber),
       // #1757: a forge without ensureBranch (Gitea/local) cannot create the integration branch, so
       // every child of this epic degrades onto the default branch. The epic still progresses, but
       // not the way the epic model implies — surface it as a warning instead of a console.warn.
@@ -754,6 +781,7 @@ export class DrainService {
     let epicIntegrationBranch: string | null = null;
     let epicProviderSettings: DrainRepoState["epicProviderSettings"] = null;
     let epicStackBases: DrainRepoState["epicStackBases"] = null;
+    let stackHeldSessions: ReadonlySet<string> = EMPTY_SESSION_SET;
     let spawnAgentProvider = config.defaultAgentProvider;
     let builtEpic: Epic | null = null;
     if (epicActive) {
@@ -782,6 +810,7 @@ export class DrainService {
         // An absent `ctx` (flag off / no forge support / nothing stackable) ⇒ the pre-#2069 call.
         const stack = this.epicStackContext(repoPath, cfg, builtEpic);
         epicStackBases = stack.baseByChild;
+        stackHeldSessions = this.stackHeldSessions(repoPath, cfg, builtEpic);
         if (epicRun!.status === "running")
           candidates = selectEpicCandidates(builtEpic.children, stack.ctx);
         epicAttended = epicRun!.mode === "attended";
@@ -821,6 +850,7 @@ export class DrainService {
         epicIntegrationBranch,
         epicProviderSettings,
         epicStackBases,
+        stackHeldSessions,
         epicBaseUnavailable: this.freshEpicBaseFailure(repoPath),
       },
       epic: builtEpic,
@@ -834,16 +864,25 @@ export class DrainService {
    *  The guard ladder is ordered cheapest-first so an opted-out or unengaged repo costs ZERO forge
    *  calls. The whole body is wrapped: `tick()` calls its passes unguarded, and #2068's stack
    *  WRITES deliberately propagate their errors, so an unwrapped throw here would break the tick
-   *  for every later repo. */
+   *  for every later repo.
+   *
+   *  #2070: the pass ALSO runs — sweep-only — when the repo has opted back out but still carries a
+   *  live wedge marker. That marker drives a blocking "epic blocked until fixed" warning, and its
+   *  only clearing path is this sweep; gating it behind the flag would leave the warning permanently
+   *  unclearable for anyone who turned stacking off after a wedge. The extra work is one store read
+   *  per tick for an epic that never wedged. */
   private async composeEpicStacksForRepo(repoPath: string): Promise<void> {
     try {
-      const cfg = this.deps.store.getRepoConfig(repoPath);
-      if (!cfg.epicStacksEnabled) return;
       const er = this.deps.store.getEpicRun(repoPath);
       if (er?.status !== "running") return;
-      const forge = this.deps.resolveForge(repoPath);
-      if (!forgeHasStacks(forge)) return;
       const parent = er.parentIssueNumber;
+      const forge = this.deps.resolveForge(repoPath);
+      const stackForge =
+        this.deps.store.getRepoConfig(repoPath).epicStacksEnabled && forgeHasStacks(forge)
+          ? forge
+          : null;
+      const wedged = this.deps.store.listEpicStackWedges(repoPath, parent).length > 0;
+      if (!stackForge && !wedged) return;
       // READ-ONLY getter: never INSERT a title-drifted pin from a side path (see tryAutoLandEpic).
       // Unpinned ⇒ no epic child has been based on anything yet ⇒ nothing to compose.
       const pinned = this.deps.store.getEpicIntegrationBranch(repoPath, parent);
@@ -856,13 +895,120 @@ export class DrainService {
       try {
         this.epicStackComposedAt.set(key, this.now());
         const epic = await this.buildEpic(repoPath, er);
-        if (epic) await this.composeOneEpicStack(forge, repoPath, parent, pinned, epic);
+        if (!epic) return;
+        if (!stackForge) {
+          this.sweepEpicStackWedges(repoPath, parent, pinned, epic); // opted out — clearing only
+          return;
+        }
+        // #2070: repair before composing. A live wedge halts stacking for the epic entirely —
+        // composing over a dissolved stack would just rebuild the shape the operator has to fix.
+        if (await this.repairEpicStack(stackForge, repoPath, parent, pinned, epic)) return;
+        await this.composeOneEpicStack(stackForge, repoPath, parent, pinned, epic);
       } finally {
         this.epicStackInFlight.delete(key);
       }
     } catch (err) {
       console.warn(`[drain] epic stack composition failed for ${repoPath}:`, err);
     }
+  }
+
+  /** #2070: mid-stack loss. A closed or abandoned middle layer blocks every layer above it, and
+   *  GitHub has NO reorder or drop-one endpoint (`gh stack modify` is TUI-only) — so the single
+   *  repair primitive is unstack-and-recreate. Returns true when stacking is halted for this epic,
+   *  either because a wedge is still live or because this pass just raised one.
+   *
+   *  Fail-visible by design: the layers above keep their branches for an operator or a repair steer,
+   *  the blocking `assembleEpic` warning names them and the remedy, and the halt keeps the drain
+   *  from quietly re-stacking around the hole. */
+  private async repairEpicStack(
+    forge: StackForge,
+    repoPath: string,
+    parent: number,
+    pinned: string,
+    epic: Epic,
+  ): Promise<boolean> {
+    if (this.sweepEpicStackWedges(repoPath, parent, pinned, epic)) return true;
+    const rows = this.deps.store.listEpicStack(repoPath, parent);
+    if (rows.length === 0) return false;
+    const spawnBases = this.epicChildSpawnBases(repoPath);
+    const facts = new Map<number, WedgeChildFact>(
+      epic.children.map((c) => [
+        c.number,
+        {
+          integrationMerged: c.integrationMerged,
+          issueClosed: c.issueClosed,
+          prNumber: c.prNumber,
+          spawnBase: spawnBases.get(c.number) ?? null,
+        },
+      ]),
+    );
+    const wedge = detectStackWedge({
+      rows,
+      facts,
+      closedPrs: this.closedEpicChildPrs(repoPath),
+      pinnedBranch: pinned,
+    });
+    if (!wedge) return false;
+    await forge.unstack(wedge.stackNumber);
+    this.deps.store.deleteEpicStack(repoPath, parent, wedge.stackNumber);
+    this.deps.store.recordEpicStackWedge(repoPath, parent, {
+      childNumber: wedge.lostChild,
+      stackNumber: wedge.stackNumber,
+      stranded: wedge.stranded,
+      detectedAt: this.now(),
+    });
+    console.warn(
+      `[drain] epic #${parent}: stack ${wedge.stackNumber} dissolved — child #${wedge.lostChild}'s layer PR is gone, stranding #${wedge.stranded.join(", #")}`,
+    );
+    return true;
+  }
+
+  /** Drop wedge markers whose stranded children have all resolved. Returns true while any marker is
+   *  still live (stacking stays halted). Keyed on the STRANDED children, never on the lost one: a
+   *  loss caused BY an issue closing would otherwise clear itself on the very next pass, after the
+   *  rows the detector needs to re-raise it have already been deleted. */
+  private sweepEpicStackWedges(
+    repoPath: string,
+    parent: number,
+    pinned: string,
+    epic: Epic,
+  ): boolean {
+    const wedges = this.deps.store.listEpicStackWedges(repoPath, parent);
+    if (wedges.length === 0) return false;
+    const spawnBases = this.epicChildSpawnBases(repoPath);
+    const facts = new Map<number, StrandedChildFact>(
+      epic.children.map((c) => [
+        c.number,
+        {
+          integrationMerged: c.integrationMerged,
+          issueClosed: c.issueClosed,
+          spawnBase: spawnBases.get(c.number) ?? null,
+        },
+      ]),
+    );
+    let live = 0;
+    for (const w of wedges) {
+      if (wedgeCleared({ stranded: w.stranded, facts, pinnedBranch: pinned })) {
+        this.deps.store.clearEpicStackWedge(repoPath, parent, w.childNumber);
+        console.log(`[drain] epic #${parent}: stack wedge on child #${w.childNumber} cleared`);
+      } else {
+        live++;
+      }
+    }
+    return live > 0;
+  }
+
+  /** PR numbers of this repo's live auto sessions whose pull request is CLOSED (never merged) — the
+   *  other way a stack layer goes missing while its child still holds that PR. */
+  private closedEpicChildPrs(repoPath: string): ReadonlySet<number> {
+    const snap = this.deps.prCache.snapshot();
+    const closed = new Set<number>();
+    for (const s of this.deps.store.list()) {
+      if (s.repoPath !== repoPath || !s.auto || s.status === "archived") continue;
+      const git = snap[s.id];
+      if (git?.state === "closed" && git.number != null) closed.add(git.number);
+    }
+    return closed;
   }
 
   /** Plan and apply at most ONE composition step across the epic's chains. Only children still in
@@ -1005,6 +1151,32 @@ export class DrainService {
     });
   }
 
+  /** #2070: the sessions of stacked children that may NOT merge yet, because a layer below them in
+   *  the stack has not landed. Store reads only — a held layer costs zero forge calls per tick, and
+   *  the drain re-derives this on every pump iteration.
+   *
+   *  Unions the in-memory {@link stackConfirmHeld}: a live-stack confirmation that refused at retire
+   *  is a hold the rows could not predict, and without it that session would be re-selected and end
+   *  the pump every single tick — starving the whole repo, not just that layer. */
+  private stackHeldSessions(repoPath: string, cfg: RepoConfig, epic: Epic): ReadonlySet<string> {
+    const confirmHeld = this.freshStackConfirmHolds(repoPath);
+    if (!cfg.epicStacksEnabled) return confirmHeld;
+    const held = new Set<string>(confirmHeld);
+    const rows = this.deps.store.listEpicStack(repoPath, epic.parentIssueNumber);
+    if (rows.length > 0) {
+      const integratedChildren = this.deps.store.listEpicIntegrated(
+        repoPath,
+        epic.parentIssueNumber,
+      );
+      for (const c of epic.children) {
+        if (c.sessionId === null) continue;
+        const gate = stackRetireGate({ rows, childNumber: c.number, integratedChildren });
+        if (gate.kind === "hold") held.add(c.sessionId);
+      }
+    }
+    return held;
+  }
+
   /** #2069: what the drain knows about each epic child as a potential stack PREDECESSOR — the
    *  branch a successor would be based on, and whether its PR is actually open. Same session
    *  filter as buildEpic (auto, issue-linked, not archived), so a child that reads as
@@ -1029,13 +1201,21 @@ export class DrainService {
    *  the repo opted in, the forge supports stacks, AND some child is actually stackable right now.
    *
    *  Returns a struct rather than a nullable one so the caller needs no `?.`/`??` — buildState is
-   *  at its complexity cap and this must not be what pushes it over. */
+   *  at its complexity cap and this must not be what pushes it over.
+   *
+   *  #2070: a live wedge suppresses stacked bases entirely. This path is INDEPENDENT of the
+   *  composition pass, so halting composition alone would keep spawning children onto sibling
+   *  branches that nothing will ever stack — each then refused at retire. Suppressing here is what
+   *  makes a wedged epic fall back to the pre-#2069 wait-for-merge behaviour. */
   private epicStackContext(
     repoPath: string,
     cfg: RepoConfig,
     epic: Epic,
   ): { ctx?: EpicStackContext; baseByChild: Map<number, string> | null } {
     if (!cfg.epicStacksEnabled || !forgeHasStacks(this.deps.resolveForge(repoPath))) {
+      return { baseByChild: null };
+    }
+    if (this.deps.store.listEpicStackWedges(repoPath, epic.parentIssueNumber).length > 0) {
       return { baseByChild: null };
     }
     const decomposition = decomposeEpicChains(epic.children);
@@ -2685,6 +2865,81 @@ export class DrainService {
     });
   }
 
+  /** #2070: may this epic child's PR be landed right now, and does landing it need `allowStacked`?
+   *
+   *  `true` → merge with `allowStacked` (it is the bottom-most unmerged layer, so exactly one PR
+   *  lands). `false` → merge exactly as before. `null` → HOLD: do not merge, do not record, leave
+   *  the session live for the next tick.
+   *
+   *  The store answer (free) comes first, so a held layer never spends a forge call; the live-stack
+   *  read happens only at the moment of merging. It is not redundant with the rows: the rows
+   *  describe what Shepherd composed, and a foreign PR hand-added to the stack would not appear in
+   *  them — landing then would silently merge every ungated layer beneath us. Anything the live read
+   *  cannot vouch for fails closed to a hold. */
+  private async stackedMergeAllowed(
+    forge: GitForge,
+    repoPath: string,
+    parent: number,
+    s: Session,
+    decision: Extract<DrainDecision, { kind: "retire" }>,
+  ): Promise<boolean | null> {
+    if (!this.deps.store.getRepoConfig(repoPath).epicStacksEnabled) return false;
+    const gate = stackRetireGate({
+      rows: this.deps.store.listEpicStack(repoPath, parent),
+      childNumber: s.issueNumber!,
+      integratedChildren: this.deps.store.listEpicIntegrated(repoPath, parent),
+    });
+    if (gate.kind === "plain") return false;
+    if (gate.kind === "hold") {
+      // buildState marks these so retireDecision skips them; reaching here means the rows changed
+      // mid-pump. Holding is still correct — just don't merge.
+      console.log(
+        `[drain] epic child pr#${decision.prNumber} (issue #${s.issueNumber}) holds: stack layer #${gate.belowChild} below it has not landed (${gate.reason})`,
+      );
+      return null;
+    }
+    const stack = await this.readPrStack(forge, repoPath, decision.prNumber);
+    // Not stacked (or unreadable — the read fails open): merge the old way. If it IS stacked after
+    // all, #2061's own probe refuses the merge and the next tick retries; both directions are safe.
+    if (!stack) return false;
+    const integratedPrs = new Set(
+      this.deps.store
+        .listEpicIntegratedDetails(repoPath, parent)
+        .map((d) => d.prNumber)
+        .filter((n): n is number => n != null),
+    );
+    if (bottomMostUnmergedPr(stack.prNumbers, integratedPrs) === decision.prNumber) return true;
+    this.holdStackConfirm(repoPath, decision.sessionId);
+    console.warn(
+      `[drain] epic child pr#${decision.prNumber} (issue #${s.issueNumber}) is not the bottom-most unmerged layer of stack ${stack.number} — held (merging it would land the layers beneath it)`,
+    );
+    return null;
+  }
+
+  /** Remember a live-stack confirmation refusal so {@link stackHeldSessions} keeps this session out
+   *  of the retire decision. Without it the session is re-selected every tick and ends the pump
+   *  before any spawn or any other retire runs. */
+  private holdStackConfirm(repoPath: string, sessionId: string): void {
+    const held = this.stackConfirmHeld.get(repoPath) ?? new Map<string, number>();
+    held.set(sessionId, this.now());
+    this.stackConfirmHeld.set(repoPath, held);
+  }
+
+  /** Confirmation refusals still inside their window; expired ones are dropped so the layer is
+   *  re-checked (the layer below may have been merged through a path that never clears this map). */
+  private freshStackConfirmHolds(repoPath: string): ReadonlySet<string> {
+    const held = this.stackConfirmHeld.get(repoPath);
+    if (!held) return EMPTY_SESSION_SET;
+    for (const [id, at] of held) {
+      if (this.now() - at >= EPIC_STACK_COMPOSE_TTL_MS) held.delete(id);
+    }
+    if (held.size === 0) {
+      this.stackConfirmHeld.delete(repoPath);
+      return EMPTY_SESSION_SET;
+    }
+    return new Set(held.keys());
+  }
+
   /**
    * Epic-child retire (base already verified by {@link epicChildBaseBlocked}): squash-merge the PR
    * INTO its integration branch, record it as integrated so dependents unblock (no GitHub issue
@@ -2706,9 +2961,17 @@ export class DrainService {
     // that head, and deleting it makes the successor's `gh pr create --base <branch>` fail outright
     // (GitHub closes an already-open PR whose base ref disappears). `mergeStacked` ignores
     // deleteBranch for the same reason; this is the legacy path's equivalent.
+    // #2070: a stacked layer may only be landed when it is the bottom-most unmerged one. Asked
+    // FIRST so a held layer does no other work at all.
+    const stacked = await this.stackedMergeAllowed(forge, repoPath, parent, s, decision);
+    if (stacked === null) return; // held — a layer below has not landed; next tick re-checks.
     const keepBranch = await this.keepBranchForStackedSuccessor(repoPath, parent, s.issueNumber!);
     try {
-      await forge.merge(decision.prNumber, { method: "squash", deleteBranch: !keepBranch });
+      await forge.merge(decision.prNumber, {
+        method: "squash",
+        deleteBranch: !keepBranch,
+        ...(stacked ? { allowStacked: true } : {}),
+      });
     } catch (err) {
       console.warn(
         `[drain] epic child merge pr#${decision.prNumber} (issue #${s.issueNumber}) into ${s.baseBranch} failed:`,
@@ -2724,8 +2987,16 @@ export class DrainService {
         number: decision.prNumber,
         url: this.deps.prCache.snapshot()[decision.sessionId]?.url ?? "",
       },
-      s.baseBranch, // #645 (b): the branch this child actually squash-merged into
+      // #645 (b): the branch this child actually squash-merged into. A stacked layer lands on its
+      // STACK'S TRUNK — the pinned epic branch — not on `s.baseBranch`, which for any layer above
+      // the bottom is its predecessor's head branch. Recording the session base there would make
+      // divergenceWarnings (b) claim, permanently and falsely, that the child merged into a sibling.
+      stacked
+        ? this.deps.store.getEpicIntegrationBranch(repoPath, parent) || s.baseBranch
+        : s.baseBranch,
     );
+    // The answer to every other layer's gate just changed.
+    this.stackConfirmHeld.delete(repoPath);
     try {
       await this.deps.service.archive(decision.sessionId, undefined, "drain");
     } catch (err) {

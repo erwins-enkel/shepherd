@@ -456,6 +456,52 @@ test("epic_stack: layers round-trip bottom→top, upsert by child, scoped per ep
   expect(store.listEpicStack(repo, 327)[1]?.stackNumber).toBe(8);
 });
 
+// #2070: dissolving a stack drops its layers; the wedge marker outlives them.
+test("epic_stack_wedge: deleteEpicStack drops one stack, wedges round-trip and clear", () => {
+  const store = new SessionStore(":memory:");
+  const repo = "/repo/wedge";
+  const layer = (childNumber: number, stackNumber: number, position: number) =>
+    store.recordEpicStackMember(repo, 327, {
+      childNumber,
+      stackNumber,
+      prNumber: 900 + childNumber,
+      baseBranch: "epic/327-x",
+      position,
+    });
+  layer(320, 7, 1);
+  layer(321, 7, 2);
+  layer(400, 9, 1); // a sibling chain's stack in the SAME epic
+
+  store.deleteEpicStack(repo, 327, 7);
+  expect(store.listEpicStack(repo, 327).map((r) => r.childNumber)).toEqual([400]);
+
+  expect(store.listEpicStackWedges(repo, 327)).toEqual([]);
+  store.recordEpicStackWedge(repo, 327, {
+    childNumber: 321,
+    stackNumber: 7,
+    stranded: [322, 323],
+    detectedAt: 5,
+  });
+  expect(store.listEpicStackWedges(repo, 327)).toEqual([
+    { childNumber: 321, stackNumber: 7, stranded: [322, 323] },
+  ]);
+  // Another epic's wedges are separate.
+  expect(store.listEpicStackWedges(repo, 400)).toEqual([]);
+
+  // Re-detecting refreshes the stranded set in place.
+  store.recordEpicStackWedge(repo, 327, {
+    childNumber: 321,
+    stackNumber: 7,
+    stranded: [323],
+    detectedAt: 9,
+  });
+  expect(store.listEpicStackWedges(repo, 327)).toHaveLength(1);
+  expect(store.listEpicStackWedges(repo, 327)[0]?.stranded).toEqual([323]);
+
+  store.clearEpicStackWedge(repo, 327, 321);
+  expect(store.listEpicStackWedges(repo, 327)).toEqual([]);
+});
+
 test("repo_config: drain fields default off/cap-1/default-label/ceiling-80, persist round-trip", () => {
   const store = new SessionStore(":memory:");
   expect(store.getRepoConfig("/repo/d")).toMatchObject({

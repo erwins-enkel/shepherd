@@ -129,4 +129,10 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     keywords:
       "sandbox membrane, egress firewall, and accepted security residuals. r3 — in-membrane token readability (accepted) attended-mode egress coverage r4 — prompt-injection posture see also",
   },
+  {
+    title: "Stacked epic children",
+    path: "/reference/stacked-epic-children/",
+    keywords:
+      "what changes when an epic stacks its children's pull requests on each other — bottom-up merge order, how a lost middle layer is repaired, and the repository settings that quietly break stacking. what changes, and what doesn't repository settings that break stacking a ruleset that requires a status check on *all* branches ci that runs the whole workflow per layer when a middle layer is lost known gaps",
+  },
 ];

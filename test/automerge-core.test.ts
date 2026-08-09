@@ -27,6 +27,7 @@ function sess(o: Partial<MergeSessionView> = {}): MergeSessionView {
     rebaseSteeredAt: null,
     busy: false,
     mergeBlocked: false,
+    stacked: false,
     manualSteps: [],
     manualStepsAckedAt: null,
     ...o,
@@ -473,4 +474,58 @@ test("capped scan is availability-free: a dedup-suppressed session still reports
       state([sess({ mergeable: false, mergeStateStatus: "dirty", rebaseCount: 5, busy: true })]),
     ),
   ).toEqual({ kind: "hold", reason: { code: "rebase_cap", detail: "TASK-01", sessionId: "s1" } });
+});
+
+// ── #2059: stacked PRs are held, never landed by the train ───────────────────
+
+test("stacked: an otherwise-ready PR holds instead of merging", () => {
+  expect(computeMerge(state([sess({ stacked: true })]))).toEqual({
+    kind: "hold",
+    reason: { code: "stacked", detail: "TASK-01", sessionId: "s1" },
+  });
+  // Control: the identical view without the stack DOES merge — so the hold is the stack's doing.
+  expect(computeMerge(state([sess()]))).toEqual({
+    kind: "merge",
+    sessionId: "s1",
+    prNumber: 7,
+    headSha: "h1",
+  });
+});
+
+test("stacked: outranks the manual-steps hold (stacking is the terminal blocker)", () => {
+  expect(
+    computeMerge(
+      state([sess({ stacked: true, manualSteps: [{ text: "rotate the key" } as never] })]),
+    ),
+  ).toEqual({ kind: "hold", reason: { code: "stacked", detail: "TASK-01", sessionId: "s1" } });
+});
+
+test("stacked: never offered for a rebase — a stack layer restacks, it does not rebase", () => {
+  // Controls: without the stack, each of these yields a rebase / rebase_cap.
+  expect(computeMerge(state([sess({ behind: true })])).kind).toBe("rebase");
+  expect(computeMerge(state([sess({ behind: true, rebaseCount: 5 })]))).toEqual({
+    kind: "hold",
+    reason: { code: "rebase_cap", detail: "TASK-01", sessionId: "s1" },
+  });
+  // With it, neither fires. They report idle rather than a `stacked` hold because a behind PR is
+  // not "otherwise ready to land" — the hold is reserved for a PR whose ONLY blocker is the stack.
+  expect(computeMerge(state([sess({ stacked: true, behind: true })]))).toEqual({
+    kind: "hold",
+    reason: { code: "idle" },
+  });
+  expect(computeMerge(state([sess({ stacked: true, behind: true, rebaseCount: 5 })]))).toEqual({
+    kind: "hold",
+    reason: { code: "idle" },
+  });
+  // Likewise a stacked PR that is not open at all: no spurious stacked hold.
+  expect(computeMerge(state([sess({ stacked: true, state: "closed" })]))).toEqual({
+    kind: "hold",
+    reason: { code: "idle" },
+  });
+});
+
+test("stacked: a stacked PR does not starve a mergeable sibling", () => {
+  expect(
+    computeMerge(state([sess({ stacked: true }), sess({ id: "s2", desig: "TASK-02", number: 8 })])),
+  ).toEqual({ kind: "merge", sessionId: "s2", prNumber: 8, headSha: "h1" });
 });

@@ -140,7 +140,8 @@ test("POST /api/prs/merge merges the PR by number, defaulting method + deleteBra
   expect(res.status).toBe(200);
   expect(await res.json()).toEqual({ ok: true });
   expect(merged!.number).toBe(12);
-  expect(merged!.opts).toEqual({ method: "squash", deleteBranch: true });
+  // allowStacked: this endpoint is operator-initiated, so a stacked PR is landed, not refused (#2059).
+  expect(merged!.opts).toEqual({ method: "squash", deleteBranch: true, allowStacked: true });
 });
 
 test("POST /api/prs/merge refreshes the backlog for the repo so counters/headline drop the PR", async () => {

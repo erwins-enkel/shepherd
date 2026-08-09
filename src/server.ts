@@ -151,7 +151,7 @@ import type {
   PrStatus,
   WorkflowRun,
 } from "./forge/types";
-import { DEPENDABOT_REBASE_COMMAND, EmptyDiffError } from "./forge/types";
+import { DEPENDABOT_REBASE_COMMAND, EmptyDiffError, MergeNotCompletedError } from "./forge/types";
 import { buildIssueUrl } from "./forge";
 import type { GithubRateLimitPayload } from "./forge/github-rate-limit";
 import { BaseCheckoutBusyError, MergeConflictError } from "./forge/local";
@@ -3909,8 +3909,13 @@ async function forgeMerge(
     await forge.merge(cur.number, {
       method: body.method ?? forge.mergeMethod,
       deleteBranch: body.deleteBranch ?? true,
+      allowStacked: true, // operator-initiated, same as the Backlog Merge button (#2059)
     });
   } catch (err) {
+    // #2059: refused (stacked, but this path opts in so it cannot occur), enqueued, or still
+    // pending — none of which merged, so fall through WITHOUT the settle/teardown below.
+    if (err instanceof MergeNotCompletedError)
+      return json({ error: err.message, code: err.code }, 502);
     if (err instanceof MergeConflictError)
       return json({ error: "merge conflict — resolve manually before merging" }, 409);
     if (err instanceof BaseCheckoutBusyError)
@@ -6092,6 +6097,9 @@ async function handlePrMerge({ req, parts, deps }: Ctx): Promise<Response | null
     await forge.merge(body.number, {
       method: body.method ?? forge.mergeMethod,
       deleteBranch: body.deleteBranch ?? true,
+      // Operator-initiated: they clicked Merge on a PR whose stack is visible to them on the
+      // host, so a stacked PR is landed (via merge-async) rather than refused (#2059).
+      allowStacked: true,
     });
     // Evict the open-PR snapshot for this repo so the panel's silent refetch
     // (GET /api/prs, right after this 200) misses the cache and fetches fresh —
@@ -6105,6 +6113,9 @@ async function handlePrMerge({ req, parts, deps }: Ctx): Promise<Response | null
     void deps.refreshBacklog?.(dir).catch(() => {});
     return json({ ok: true });
   } catch (e) {
+    // #2059: an async merge that is still in flight host-side is not a failure — carry the stable
+    // `code` so the PRs panel can say "still merging" instead of "merge failed".
+    if (e instanceof MergeNotCompletedError) return json({ error: e.message, code: e.code }, 502);
     return json({ error: e instanceof Error ? e.message : "merge failed" }, 502);
   }
 }

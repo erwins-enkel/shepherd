@@ -1228,8 +1228,15 @@ export async function mergeBacklogPr(
 ): Promise<void> {
   const r = await fetch("/api/prs/merge", JSON_POST({ repo: repoPath, number, ...body }));
   if (!r.ok) {
-    const msg = await r.json().catch(() => ({ error: `${r.status}` }));
-    throw apiError(r.status, msg as { error?: string }, `error ${r.status}`);
+    const msg = (await r.json().catch(() => ({ error: `${r.status}` }))) as {
+      error?: string;
+      code?: string;
+    };
+    // Carry the server's `code` so the row can tell "still merging" (a stacked PR handed to
+    // GitHub's async merge API, #2059) apart from an actual merge failure.
+    const base = apiError(r.status, msg, `error ${r.status}`);
+    if (isPreviewBlocked(base)) throw base;
+    throw new ApiError(r.status, base.message, msg.code, serverAuthored(base));
   }
 }
 

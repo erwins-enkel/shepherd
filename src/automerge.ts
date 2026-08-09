@@ -1,5 +1,6 @@
 import type { SessionStore } from "./store";
 import type { GitForge, GitState } from "./forge/types";
+import { MergeNotCompletedError, StackedMergeRefusedError } from "./forge/types";
 import type { ReviewVerdict, Session, SessionArchiveReason } from "./types";
 import type { WorktreeMgr } from "./worktree";
 import {
@@ -94,6 +95,12 @@ export class AutoMergeService {
   private behindCache = new Map<string, { behind: boolean | null; ts: number }>();
   /** Per-session merge-error backoff: consecutive failures on a head + when it's blocked until. */
   private mergeFail = new Map<string, { head: string; count: number; blockedUntil: number }>();
+  /** Sessions whose PR was found to belong to a GitHub stack (#2059), keyed by the head SHA it
+   *  was observed on. The train learns this the only cheap way available — it attempts the merge
+   *  once and the forge refuses BEFORE mutating anything — then remembers, so the core skips the
+   *  PR from then on instead of re-probing every pump. Keyed by head so a new push re-tests: a PR
+   *  can leave a stack. In-memory only; a restart simply re-learns on the next attempt. */
+  private stackedHold = new Map<string, string>();
   private now: () => number;
   private behindTtlMs: number;
 
@@ -183,6 +190,7 @@ export class AutoMergeService {
       // Mirrors autopilot.tick()'s running/blocked skip, which the train otherwise lacks.
       busy: s.status === "running" || s.status === "blocked",
       mergeBlocked: this.computeMergeBlocked(s.id, pr.headSha),
+      stacked: this.stackedHold.get(s.id) === (pr.headSha ?? ""),
       manualSteps: s.manualSteps,
       manualStepsAckedAt: s.manualStepsAckedAt,
     };
@@ -312,14 +320,32 @@ export class AutoMergeService {
     if (!forge || !s) return false;
     this.deps.emitStatus(this.status(repoPath, true, "merging", s.desig, s.id));
     try {
+      // No `allowStacked`: the train must never land a stack — merging a layer also lands every
+      // unmerged layer below it, and those were never gated by our CI check or the critic (#2059).
       await forge.merge(prNumber, { method: forge.mergeMethod, deleteBranch: true });
     } catch (err) {
+      if (err instanceof StackedMergeRefusedError) {
+        // NOT a merge failure: the forge refused before mutating anything. Recording it would
+        // burn MERGE_ERROR_CAP against a PR that will never become train-mergeable, so instead
+        // remember the stack and let computeMerge report a named `stacked` hold from now on.
+        console.warn(`[automerge] pr#${prNumber} is stacked; holding ${sessionId}:`, err.message);
+        this.stackedHold.set(sessionId, headSha ?? "");
+        this.deps.emitStatus(this.status(repoPath, true, "stacked", s.desig, s.id));
+        return false;
+      }
+      if (err instanceof MergeNotCompletedError) {
+        // The merge is in flight host-side (merge queue, or a poll that outlived its budget).
+        // Neither settle the session nor count a failure — the PR poller reconciles.
+        console.warn(`[automerge] merge pr#${prNumber} not completed (${err.code}):`, err.message);
+        return false;
+      }
       console.warn(`[automerge] merge pr#${prNumber} failed for ${sessionId}:`, err);
       this.recordMergeFailure(sessionId, headSha);
       this.deps.emitStatus(this.status(repoPath, true, "merge_error", s.desig, s.id));
       return false;
     }
     this.mergeFail.delete(sessionId); // success clears any backoff
+    this.stackedHold.delete(sessionId); // a landed PR was evidently not stacked
     this.deps.noteMergedForRecap?.({ sessionId, prNumber, headSha });
     // Clear the behind-cache so sibling sessions get a fresh read now that main has moved.
     this.behindCache.clear();

@@ -35,7 +35,7 @@ import { buildLandingPrTitle, buildLandingPrBody } from "./epic-landing";
 import { parseEpicBody } from "./epic-parse";
 import { diagnoseEpic, type EpicDiagnosis } from "./epic-diagnosis";
 import { repoHasNoCiCached } from "./checks-gate";
-import { EmptyDiffError } from "./forge/types";
+import { EmptyDiffError, MergeEnqueuedError, MergePendingError } from "./forge/types";
 import { mapBounded } from "./map-bounded";
 import { config } from "./config";
 import { rebaseLandingBranch, isUnionDriverRegistered } from "./landing-rebase";
@@ -2137,6 +2137,16 @@ export class DrainService {
       this.landMergeFail.delete(key);
       this.landingRerunCount.delete(key); // terminal → drop the rerun budget entry
       this.reconcileAutoLand(repoPath, parentIssueNumber, "none", live);
+      return;
+    }
+    // #2059: an async merge that is still in flight host-side (merge queue, or a poll that
+    // outlived its budget) is NOT a failure — the merge may well land. Recording it would burn
+    // LAND_MERGE_ERROR_CAP against a non-failure, and the live re-read above already reconciles
+    // to 'merged' on the next tick once it does. A StackedMergeRefusedError deliberately falls
+    // through to the backoff instead: unlike the other two it is a DURABLE refusal, so without
+    // the cap it would re-fire forge.merge on every tick forever.
+    if (err instanceof MergeEnqueuedError || err instanceof MergePendingError) {
+      console.warn(`[drain] auto-land for ${key} still in flight (${err.code}):`, err.message);
       return;
     }
     console.warn(`[drain] auto-land merge failed for ${key}:`, err);

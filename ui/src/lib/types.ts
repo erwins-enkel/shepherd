@@ -834,7 +834,8 @@ export interface RepoConfig {
 export interface AutoMergeStatus {
   repoPath: string;
   enabled: boolean;
-  /** "merging" | "rebasing" | "merge_error" | "rebase_cap" while acting/paused; null when idle. */
+  /** "merging" | "rebasing" | "merge_error" | "rebase_cap" | "stacked" while acting/paused;
+   *  null when idle. */
   state: string | null;
   /** A desig for the operator banner, when relevant. */
   detail: string | null;

@@ -10,6 +10,16 @@ and what is worth building.
 `docs.github.com`, the `github/gh-stack` repo, live `api.github.com` probes, and Shepherd's own source
 on 2026-08-08. Implementation would be one or more follow-up issues; §6 ranks them.
 
+**Status since first draft (2026-08-09).** Two things moved and are folded in below rather than left
+stale:
+
+- **Tier 0 shipped.** #2059 → PR #2061 (merged): `GithubForge.merge` now probes for stack membership
+  and routes stacked merges through `merge-async` + uuid polling, behind an explicit
+  `MergeInput.allowStacked` opt-in with typed refusals. §4 is kept as the rationale, marked resolved.
+- **The atomicity contradiction is settled.** #2060 Step 1 → PR #2064, note
+  `docs/research/stacked-pr-partial-merge-spike-2026-08-09.md`. Result folded into §5.2.1 and §7.
+  Step 2 (shape (b)) is now #2063; a defect the spike surfaced is #2062.
+
 ---
 
 ## 1. TL;DR
@@ -19,12 +29,13 @@ on 2026-08-08. Implementation would be one or more follow-up issues; §6 ranks t
   live on our repo right now. There is a first-class REST API, read-only GraphQL fields, a new
   `pull_request.stacked` webhook action, and an **official `gh-stack` SKILL.md that installs directly
   into Claude Code**.
-- **There is a compat gap that exists independent of anything we choose to build.** `forge.merge()` is
-  `gh pr merge` (method and `--delete-branch` come from `MergeInput`; `--squash` in practice because
-  `mergeMethod` defaults to `"squash"`), and GitHub documents that the legacy synchronous merge **cannot merge a
-  stacked PR**. `--admin` bypass does not work on stacks either, and **auto-merge is unsupported
-  entirely**. The merge train and the Backlog "Merge" button therefore fail against any stacked PR — and
-  Shepherd already _renders_ stacked PRs (the `→base` chip), so the UI invites the click that breaks.
+- **There was a compat gap independent of anything we chose to build — now fixed (#2061).**
+  `forge.merge()` was `gh pr merge` (method and `--delete-branch` from `MergeInput`; `--squash` in
+  practice because `mergeMethod` defaults to `"squash"`), and GitHub documents that the legacy
+  synchronous merge **cannot merge a stacked PR**. The merge train and the Backlog "Merge" button
+  therefore failed against any stacked PR — while Shepherd already _rendered_ them (the `→base` chip),
+  so the UI invited the click that broke. Now routed through `merge-async`. Still true and still
+  constraining: **`--admin` bypass does not work on stacks, and auto-merge is unsupported entirely.**
 - **Our epic model is a hand-rolled stack, and the landing PR is where it hurts.** `selectEpicCandidates`
   only spawns a child once every blocker is `integrationMerged || issueClosed`, so dependent children run
   strictly one at a time — stacks convert that _wait_ into a _base pointer_ for the edges that fall
@@ -43,9 +54,10 @@ on 2026-08-08. Implementation would be one or more follow-up issues; §6 ranks t
   and fan-out. Stacks therefore **augment** `selectEpicCandidates` rather than replacing it — chain
   edges become base pointers, cross-chain edges keep the existing wait-gate (§5.2, §7).
 
-**Recommended:** fix the merge-path compat gap (§6 Tier 0) → real stack awareness in the PRs tab
-(Tier 1) → epic dependency chains as stacks (Tier 2) → build queue as a stack (Tier 3).
-**Recommended against for now:** replacing the `epic/` integration branch outright (§7).
+**Recommended:** ~~fix the merge-path compat gap (§6 Tier 0)~~ **done, #2061** → real stack awareness in
+the PRs tab (Tier 1) → epic dependency chains as stacks (Tier 2, now #2063) → build queue as a stack
+(Tier 3). **Recommended against for now:** replacing the `epic/` integration branch outright (§7) —
+weakened by the atomicity spike, but not to a green light.
 
 ---
 
@@ -69,17 +81,20 @@ with `position` **1-based, 1 = bottom**.
 
 ### 2.2 Merging
 
-| Behavior                               | Detail                                                                                                                                                              |
-| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Order                                  | Bottom-up only. Merging PR _n_ merges _n_ **and every unmerged PR below it**, atomically.                                                                           |
-| Mid-stack in isolation                 | **Impossible.** "the pull requests below it will always merge with it".                                                                                             |
-| Squash method                          | One squashed commit **per layer** — _n_ layers ⇒ _n_ commits on base.                                                                                               |
-| Lower layer merges                     | Remaining branches **auto-rebase**; next PR re-targets the trunk.                                                                                                   |
-| Trunk moves / lower layer gets commits | **Manual** restack required (`gh stack rebase` or the UI button).                                                                                                   |
-| Mid-stack **close**                    | **Blocks everything above it.** No auto-repair — requires unstack/modify.                                                                                           |
-| Merge API                              | Legacy `PUT /pulls/{n}/merge` and the `mergePullRequest` GraphQL mutation **do not work**. Must use `PUT /pulls/{n}/merge-async` + poll `GET …/merge-async/{uuid}`. |
-| Auto-merge                             | **Not supported at all** — neither per-layer nor whole-stack, neither direct nor via queue. Documented as "coming soon".                                            |
-| Admin / rule bypass                    | **Not supported** on stacks.                                                                                                                                        |
+| Behavior                               | Detail                                                                                                                                                                                                                                                                                                                                                                            |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Order                                  | Bottom-up only. Merging PR _n_ merges _n_ **and every unmerged PR below it**, atomically.                                                                                                                                                                                                                                                                                         |
+| Mid-stack in isolation                 | **Impossible.** "the pull requests below it will always merge with it".                                                                                                                                                                                                                                                                                                           |
+| Squash method                          | One squashed commit **per layer** — _n_ layers ⇒ _n_ commits on base.                                                                                                                                                                                                                                                                                                             |
+| Lower layer merges                     | Remaining branches **auto-rebase**; next PR re-targets the trunk.                                                                                                                                                                                                                                                                                                                 |
+| Trunk moves / lower layer gets commits | **Manual** restack required (`gh stack rebase` or the UI button).                                                                                                                                                                                                                                                                                                                 |
+| Mid-stack **close**                    | **Blocks everything above it.** No auto-repair — requires unstack/modify.                                                                                                                                                                                                                                                                                                         |
+| Merge API                              | Legacy `PUT /pulls/{n}/merge` and the `mergePullRequest` GraphQL mutation **do not work**. Must use `PUT /pulls/{n}/merge-async` + poll `GET …/merge-async/{uuid}`. Body takes `merge_action` (`default\|direct_merge\|merge_queue`) alongside `merge_method`/`sha`.                                                                                                              |
+| `merge_queue` + custom params          | **`422` at request time.** `merge_method`, `commit_title` and `commit_message` are rejected with `merge_action: merge_queue`. Worse, sending `merge_method` with **no** `merge_action` is accepted and then fails _asynchronously_ on a queue-required branch (`"Custom merge params are not supported when merging via a merge queue"`) — live-verified; ours does this (#2062). |
+| On validation failure                  | **Nothing lands** — the whole group is rejected before the base branch is touched (§5.2.1, live-verified across rule failure and merge conflict, both merge actions).                                                                                                                                                                                                             |
+| Branch cleanup                         | `merge-async` takes **no delete-branch parameter**; layer branches survive a stack merge and nothing reaps them.                                                                                                                                                                                                                                                                  |
+| Auto-merge                             | **Not supported at all** — neither per-layer nor whole-stack, neither direct nor via queue. Documented as "coming soon".                                                                                                                                                                                                                                                          |
+| Admin / rule bypass                    | **Not supported** on stacks.                                                                                                                                                                                                                                                                                                                                                      |
 
 ### 2.3 Automation surface
 
@@ -137,6 +152,14 @@ unsupported · server-side rebase commits are **unsigned** (breaks required-sign
 stacks cannot be extended · merge-queue support still rolling out · max depth not documented (REST
 create accepts up to 100 PRs) · every docs page carries "public preview and subject to change".
 
+**Undocumented, found empirically (spike §5):** a ruleset that requires a status check on **all**
+branches blocks the restack force-push outright —
+`GH013: Repository rule violations found for refs/heads/<layer>`. Branch _creation_ can be exempted
+(`do_not_enforce_on_create`), but _updates_ cannot, and a restack is an update. Such a repo cannot
+restack over `gh stack rebase` + push at all, leaving only the server-side UI button — whose commits
+are unsigned. This is a ruleset shape to avoid alongside stacks, and it is not mentioned anywhere in
+GitHub's docs.
+
 ---
 
 ## 3. Why this lands directly on Shepherd
@@ -162,9 +185,14 @@ structure as data instead of narrative.
 
 ---
 
-## 4. What breaks today, before we build anything
+## 4. What broke before we built anything — RESOLVED by #2061
 
-This is the part that is arguably urgent regardless of which proposals land.
+**Status:** fixed on `main`. `GithubForge.merge` now probes stack membership and routes stacked merges
+through `merge-async` + uuid polling, gated on an explicit `MergeInput.allowStacked` opt-in with typed
+refusals (`stacked_refused` / `merge_enqueued` / `merge_pending`). The analysis below is kept because it
+is the rationale, and because items 3 and 4 are still live.
+
+This was the part that was urgent regardless of which proposals land.
 
 1. **The merge train cannot merge a stacked PR.** `GithubForge.merge()`
    (`src/forge/github.ts:1619-1625`) shells out to `gh pr merge <n> [--squash|--merge|--rebase]
@@ -181,8 +209,13 @@ This is the part that is arguably urgent regardless of which proposals land.
 4. **`--admin` bypass and auto-merge are both unavailable on stacks**, so any future "just force it"
    recovery path is closed off by design.
 
-None of this is speculative — it is the current code meeting a feature that is already enabled on our
-repo.
+None of this was speculative — it was the current code meeting a feature already enabled on our repo.
+
+**Still open after #2061:** item 3 (`isFullAuto`) is untouched. And the spike surfaced a follow-on
+defect in the new path — `putMergeAsync` always sends `merge_method` and never `merge_action`, which a
+queue-required branch accepts and then fails asynchronously with a message about request parameters the
+operator never chose (#2062). §5.2.1's two mergeability findings also apply directly: the merge gate
+must read the whole stack, not the selected PR.
 
 ---
 
@@ -311,14 +344,44 @@ stack-merge and land". The landing PR keeps its shape, its single conventional t
 - **The migration-awareness gate.** `migrationPaths` / `migrationsAckedAt` currently gate on the landing
   PR's diff. The gate does not disappear, but it has to move to per-layer or whole-stack detection.
 
-**Unresolved and decision-relevant:** the docs conflict on partial-merge atomicity. The merging page
-says the group lands "together as a single operation", while the troubleshooting page says "Merges stop
-at the failed pull request. Successfully merged PRs land on the base branch; the failed PR and those
-above remain open." Those cannot both be true for the same path. Whether shape (a) is safe hinges on
-this — if a mid-stack failure can leave half an epic on `main`, that is exactly what `resolveSpawnBase`'s
-fail-closed comment ("Never silently base an epic child on the default branch… that child would land on
-main mid-epic") is written to prevent. **Verify empirically on a throwaway stack before betting the epic
-model on it.**
+**Settled (2026-08-09): no partial landing was observed, in any leg.** The docs appeared to conflict —
+the merging page says the group lands "together as a single operation", the troubleshooting page says
+"Merges stop at the failed pull request. Successfully merged PRs land on the base branch." The spike
+(#2060 Step 1, PR #2064, `docs/research/stacked-pr-partial-merge-spike-2026-08-09.md`) ran three
+independent 3-layer stacks on a throwaway repo with a required check failing only on the middle layer,
+plus a positive control:
+
+| Leg | Failure class                  | `merge_action` | Outcome                                         |
+| --- | ------------------------------ | -------------- | ----------------------------------------------- |
+| A   | required check fails mid-stack | `direct_merge` | nothing lands, all three stay open              |
+| B   | required check fails mid-stack | `merge_queue`  | nothing lands, nothing ever enters the queue    |
+| C   | merge-time conflict mid-stack  | `direct_merge` | nothing lands, all three stay open              |
+| D   | positive control, all green    | `direct_merge` | three squash commits, one per layer, bottom→top |
+
+Leg C is decisive: a genuine merge-time conflict (`"Merge conflict detected"`), with a bottom layer that
+was green and independently mergeable into `main`. It still did not land. Leg D confirms this section's
+per-layer-commit claim directly — one squash commit per layer from a single merge call on the top PR.
+
+**The two pages are not actually in conflict; they describe different failure classes.** GitHub
+validates and stages the whole group before mutating the base branch, so everything reachable from
+outside is all-or-nothing. The troubleshooting page's scenario is an error path _after_ the first
+layer's ref update has committed ("an unexpected conflict or an **intermittent failure**"), which is not
+forceable on demand.
+
+So the specific fear — a rule failure stranding a half-epic on `main`, exactly what `resolveSpawnBase`
+fails closed to prevent — **is disproven**. Shape (a) moves from "unsafe" to "unproven": the residual
+window is undocumented, unbounded, and unfalsifiable from outside GitHub. That is a weaker objection
+than before, but not a green light (§7).
+
+Two spike findings are direct design input for whatever lands next:
+
+- **The top layer's own state does not reveal that the stack is unmergeable.** In legs A and B the top
+  PR reported `mergeable_state: clean` while a layer beneath it was `blocked`. Stack-mergeability must
+  be derived from the **whole stack**, never from the selected PR.
+- **A conflict against the trunk is invisible until merge time.** Leg C's middle layer reported
+  `CLEAN`/`MERGEABLE` right up to the merge attempt, because layers are diffed against the layer below,
+  not against the moved trunk. Any "this stack is ready" decision from per-PR mergeability is wrong
+  whenever the trunk has moved.
 
 ### 5.3 Real stack awareness in the PRs tab
 
@@ -351,16 +414,16 @@ unattended agents will wedge on the TUI.
 
 ## 6. Ranked recommendation
 
-| Tier  | Item                                                                                                                                                                              | Why now                                                                                                  | Size |
-| ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | ---- |
-| **0** | Stack-safe merge path: `merge-async` + uuid polling behind `forge.merge`, and refuse-with-explanation rather than fail-with-retries when a stacked PR reaches the train           | Breakage exists today on an already-enabled feature; everything else depends on it                       | S–M  |
-| **1** | Real stack graph in the PRs tab (stop collapsing `baseRefName`, fill the REST-fallback gap, render position/depth)                                                                | Zero extra API cost; independently useful; precondition for the rest                                     | S    |
-| **2** | Epic dependency chains as stacks, rooted at the integration branch (§5.2.1 shape (b)) — base a child on its chain predecessor's branch; the wait-gate stays for cross-chain edges | Converts within-chain serialization into parallelism AND collapses the landing PR's drift-repair surface | M–L  |
-| **3** | Build queue steps → stack layers                                                                                                                                                  | Highest leverage on review load, but wants Tiers 0–1 in place first                                      | L    |
-| —     | Ship `gh-stack` SKILL.md to agents, with mandatory non-interactive flags                                                                                                          | Cheap, but only meaningful once something above needs agents to author stacks                            | S    |
+| Tier     | Item                                                                                                                                                                                                    | Why now                                                                                                  | Size |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | ---- |
+| **0** ✅ | **DONE (#2059 → PR #2061).** Stack-safe merge path: `merge-async` + uuid polling behind `forge.merge`, and refuse-with-explanation rather than fail-with-retries when a stacked PR reaches the train    | Breakage exists today on an already-enabled feature; everything else depends on it                       | S–M  |
+| **1**    | Real stack graph in the PRs tab (stop collapsing `baseRefName`, fill the REST-fallback gap, render position/depth)                                                                                      | Zero extra API cost; independently useful; precondition for the rest                                     | S    |
+| **2**    | **Tracked as #2063.** Epic dependency chains as stacks, rooted at the integration branch (§5.2.1 shape (b)) — base a child on its chain predecessor's branch; the wait-gate stays for cross-chain edges | Converts within-chain serialization into parallelism AND collapses the landing PR's drift-repair surface | M–L  |
+| **3**    | Build queue steps → stack layers                                                                                                                                                                        | Highest leverage on review load, but wants Tiers 0–1 in place first                                      | L    |
+| —        | Ship `gh-stack` SKILL.md to agents, with mandatory non-interactive flags                                                                                                                                | Cheap, but only meaningful once something above needs agents to author stacks                            | S    |
 
-Tier 0 is the one that plausibly deserves its own issue immediately; the rest are worth sequencing
-deliberately behind it.
+Tier 0 shipped in PR #2061; #2062 is its outstanding follow-on defect. Tier 2 is #2063, unblocked by
+the atomicity spike (§5.2.1) but not dependent on it. Tiers 1 and 3 are unfiled.
 
 ---
 
@@ -375,13 +438,17 @@ plus per-child commits on `main` instead of one squashed epic. The blockers:
    cross-chain edges still need `selectEpicCandidates`' `integrationMerged || issueClosed` gate. Stacks
    therefore cannot be the _whole_ ordering mechanism for an epic — the gate has to survive alongside
    them, which is a good reason not to demolish the structure that currently implements it.
-2. **Partial-merge atomicity is undocumented-to-contradictory** (§5.2.1). If a mid-stack failure can
-   leave half an epic on `main`, shape (a) violates the invariant `resolveSpawnBase` currently fails
-   closed to protect. Settle this empirically first — it is one throwaway stack's worth of work.
+2. **Partial-merge atomicity — weakened, not cleared** (§5.2.1). The specific fear, a rule or conflict
+   failure stranding a half-epic on `main`, is **disproven** by the spike: nothing lands, across both
+   failure classes and both merge actions. What remains is a post-commit window GitHub documents but
+   offers no lever to force — undocumented in size, unbounded, unfalsifiable from outside. Shape (a) is
+   now "unproven" rather than "unsafe", which is a real improvement and still not a green light.
 3. **A mid-stack close blocks every layer above it**, with no auto-repair. Today an abandoned epic child
    is harmless; in a stack it wedges the chain. Shepherd abandons children often enough that this needs
    a deliberate answer, and there is **no reorder API** — repair means unstack-and-recreate.
-4. **Preview churn.** Betting the epic model on a one-week-old preview feature is premature regardless
+4. **An all-branch required-check ruleset makes the CLI restack path unusable** (§2.6, `GH013`),
+   leaving only the UI button and its unsigned commits. New, found empirically; not in GitHub's docs.
+5. **Preview churn.** Betting the epic model on a one-week-old preview feature is premature regardless
    of how good the design is.
 
 Shape **(b)** — stack rooted at the integration branch — is the low-risk way to get most of the drift
@@ -405,7 +472,16 @@ GitHub auto-merge. It needs the async merge API, not the auto-merge feature.
 - **TUI wedge.** See §2.5. This is the same failure class as agents wedging on Claude Code upsell
   dialogs, and it is entirely preventable with mandatory flags.
 - **Unsigned server-side rebase commits** — irrelevant to us today, but it forecloses the UI rebase
-  path for any repo that requires signed commits.
+  path for any repo that requires signed commits. Compounding: a repo with an **all-branch** required
+  check cannot use the CLI restack path either (§2.6, `GH013`), so the two together leave such a repo
+  with no legal restack at all.
+- **Per-PR mergeability lies about a stack.** The top layer can report `clean` while a layer beneath it
+  is `blocked`, and a layer that conflicts with a moved trunk reports `CLEAN` until the merge attempt
+  (§5.2.1). Any readiness gate — the Backlog Merge button, `AutoMergeService`, a future landing gate —
+  must derive mergeability from the whole stack.
+- **Layer branches are never reaped.** `merge-async` takes no delete-branch parameter, and
+  `BranchPruner` only sweeps local `shepherd/*` branches, so a merged stack leaves its layer branches
+  behind on the remote.
 - **Worktree contention.** `gh stack` keeps lock-protected state in `.git/gh-stack` and force-pushes
   each branch non-atomically. Two agents sharing a worktree will collide (exit code 8). Driving stacks
   over REST avoids the lock entirely — a good reason to prefer the API over the CLI server-side.
@@ -416,7 +492,10 @@ GitHub auto-merge. It needs the async merge API, not the auto-merge feature.
 
 - Do we want stacks to be **agent-authored** (agent runs `gh stack`) or **server-composed** (Shepherd
   opens chained PRs and `POST /stacks` links them)? Server-composed avoids the TUI wedge, the `.git`
-  lock, and the force-push, and it works for Codex sessions, which get no skills at all.
+  lock, and the force-push, and it works for Codex sessions, which get no skills at all. _Evidence
+  since:_ the atomicity spike composed all four of its stacks over `POST /stacks` and never invoked
+  `gh stack`, citing the PTY wedge — the first real run of this leaned server-composed without
+  friction.
 - CI budget: is 5× runs on a five-layer stack acceptable on the self-hosted runner, or do we need the
   `position == size` gating from day one?
 - Does the one-PR-per-session invariant become _one stack per session_ (the honest generalization), or
@@ -445,6 +524,10 @@ GitHub auto-merge. It needs the async merge API, not the auto-merge feature.
   [skills/gh-stack/SKILL.md](https://github.com/github/gh-stack/blob/main/skills/gh-stack/SKILL.md) ·
   [gh-stack docs](https://github.github.com/gh-stack/)
 - [Community discussion #201439](https://github.com/orgs/community/discussions/201439)
+
+Companion note (empirical, this repo): `docs/research/stacked-pr-partial-merge-spike-2026-08-09.md` —
+#2060 Step 1 / PR #2064. Source of every "live-verified" claim about merge behaviour in §2.2, §2.6,
+§5.2.1 and §8.
 
 Shepherd source referenced: `src/forge/github.ts`, `src/forge/types.ts`, `src/full-auto.ts`,
 `src/automerge.ts`, `src/automerge-core.ts`, `src/drain.ts`, `src/drain-core.ts`, `src/epic-core.ts`,

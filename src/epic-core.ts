@@ -68,10 +68,39 @@ export function deriveChildState(c: EpicChild, done: Set<number>): EpicChildStat
   return c.blockedBy.every((b) => done.has(b)) ? "ready" : "blocked";
 }
 
+/** Stack facts a caller may supply to {@link selectEpicCandidates} (#2066, epic #2063) so a
+ *  child can spawn onto its chain predecessor's branch instead of waiting for it to merge. */
+export interface EpicStackContext {
+  /** child # → its chain predecessor #, from `decomposeEpicChains` (src/epic-chains.ts). */
+  predecessorOf: Map<number, number>;
+  /** Predecessor #s the CALLER has judged stack-ready (branch pushed / PR open). That
+   *  judgement needs PR/session facts this module deliberately has no access to. */
+  stackReady: Set<number>;
+}
+
+/** Is this child's dependency gate satisfied? Without `stack`, exactly today's predicate:
+ *  every blocker done-in-epic. With one, ALSO admit a child whose blockers are all done
+ *  except exactly one, where that one is its chain predecessor and the caller flagged it
+ *  stack-ready — the within-chain wait becomes a base pointer. Cross-chain edges are
+ *  untouched, so the every-blocker-done gate stays authoritative for them.
+ *
+ *  Deduped because `blockedBy` may repeat a blocker (the markdown path in `epic-model.ts`
+ *  appends edges without deduping): `.every()` doesn't care, "exactly one outstanding" does. */
+function dependenciesSatisfied(c: EpicChild, done: Set<number>, stack?: EpicStackContext): boolean {
+  const outstanding = [...new Set(c.blockedBy)].filter((b) => !done.has(b));
+  if (outstanding.length === 0) return true;
+  if (!stack || outstanding.length !== 1) return false;
+  const pred = stack.predecessorOf.get(c.number);
+  return pred !== undefined && outstanding[0] === pred && stack.stackReady.has(pred);
+}
+
 /** Dependency-gated spawn candidates (open, unclaimed, unspawned, not-integrated, all
  *  blockers done-in-epic), in epic order, shaped as drain's `Issue[]`. Pure: derives the
- *  done set (integration-merged OR issue-closed) from `children`. */
-export function selectEpicCandidates(children: EpicChild[]): Issue[] {
+ *  done set (integration-merged OR issue-closed) from `children`.
+ *
+ *  `stack` is optional and additive: omitted (every caller today) ⇒ output identical to the
+ *  pre-#2066 behaviour. See {@link dependenciesSatisfied}. */
+export function selectEpicCandidates(children: EpicChild[], stack?: EpicStackContext): Issue[] {
   const done = new Set(
     children.filter((c) => c.integrationMerged || c.issueClosed).map((c) => c.number),
   );
@@ -82,7 +111,7 @@ export function selectEpicCandidates(children: EpicChild[]): Issue[] {
         !c.issueClosed &&
         !c.claimed &&
         c.sessionId == null &&
-        c.blockedBy.every((b) => done.has(b)),
+        dependenciesSatisfied(c, done, stack),
     )
     .sort((a, b) => a.order - b.order || a.number - b.number)
     .map((c) => ({

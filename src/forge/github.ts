@@ -46,6 +46,7 @@ import type {
   RedeployInput,
   RepoCounts,
   RollupEntry,
+  StackInfo,
   SubIssueRef,
   WorkflowJob,
   WorkflowRun,
@@ -101,6 +102,21 @@ interface StackProbe {
  *  fails open to today's behaviour. */
 function isPathSafeRef(ref: string): boolean {
   return ref.length <= 255 && ref.split("/").every((seg) => /^\w[\w.-]*$/.test(seg));
+}
+
+/** `--jq` projection of one stack resource onto {@link StackInfo}'s wire shape (#2068). Narrowing
+ *  host-side keeps the payload small; `// []` keeps jq from erroring on a stack the host returned
+ *  without a membership list, which {@link stackInfoFrom} then rejects as unusable. */
+const STACK_JQ = "{number, baseRef: .base.ref, prNumbers: [(.pull_requests // [])[].number]}";
+
+/** Validate one {@link STACK_JQ} projection. Null for anything unusable — a missing stack number,
+ *  a missing trunk, or no members — so both the fail-open read and the throwing writes have one
+ *  definition of "the host did not describe a stack we can address". */
+function stackInfoFrom(raw: Partial<StackInfo> | null | undefined): StackInfo | null {
+  if (!raw || typeof raw.number !== "number" || !raw.baseRef) return null;
+  const prNumbers = (raw.prNumbers ?? []).filter((n) => typeof n === "number");
+  if (!prNumbers.length) return null;
+  return { number: raw.number, baseRef: raw.baseRef, prNumbers };
 }
 
 /** A merge-request uuid is interpolated straight into the `gh api` path, so it is validated
@@ -1716,6 +1732,81 @@ export class GithubForge implements GitForge {
     const args = ["pr", "merge", String(prNumber), "--repo", this.slug, method];
     if (o.deleteBranch) args.push("--delete-branch");
     await this.run(args);
+  }
+
+  /** The stack `prNumber` belongs to, or null when it belongs to none (#2068).
+   *
+   *  Reads the STACK resource (`GET /stacks?pull_request=`) rather than the `.stack` object
+   *  embedded in the pull request, because only the stack resource carries `pull_requests` — the
+   *  membership list is the whole point of this read. The sibling {@link probeStack} takes the
+   *  other route for the opposite reason: the merge path needs the head SHA, which lives on the
+   *  pull request and not on the stack.
+   *
+   *  FAILS OPEN to null, exactly as {@link probeStack} does — see its note. A stack whose trunk
+   *  the host did not report is also null: `baseRef` is the load-bearing field, and handing a
+   *  caller an empty ref to interpolate or compare against is worse than reporting nothing.
+   *
+   *  NEVER shells out to `gh stack`: under a PTY it opens a full-screen TUI and would wedge an
+   *  unattended agent. Every stack call in this file is a `gh api` call. */
+  async stackForPr(prNumber: number): Promise<StackInfo | null> {
+    try {
+      // Projected as an ARRAY so the unstacked case (`[]`) stays valid jq input and parses to [].
+      const out = await this.run([
+        "api",
+        `repos/${this.slug}/stacks?pull_request=${prNumber}`,
+        "--jq",
+        `[.[] | ${STACK_JQ}]`,
+      ]);
+      const stacks = JSON.parse(out || "[]") as Partial<StackInfo>[];
+      const info = stackInfoFrom(stacks[0]);
+      // Membership is re-checked locally rather than taken on trust: were the `pull_request=`
+      // filter ever dropped or ignored host-side, the endpoint would answer with SOME OTHER
+      // stack in the repo, and reporting that one as this PR's stack is the one failure mode
+      // worse than reporting nothing.
+      const at = info ? info.prNumbers.indexOf(prNumber) : -1;
+      if (!info || at < 0) return null;
+      return { ...info, position: at + 1, size: info.prNumbers.length };
+    } catch (err) {
+      console.warn(`[github] stack read failed for pr#${prNumber}; assuming unstacked:`, err);
+      return null;
+    }
+  }
+
+  /** Link `prNumbers` (BOTTOM → TOP) into a new stack. A mutation: host errors propagate, and an
+   *  unreadable response body throws rather than reporting a stack nobody can address later. */
+  async createStack(prNumbers: number[]): Promise<StackInfo> {
+    const out = await this.run([
+      "api",
+      "--method",
+      "POST",
+      `repos/${this.slug}/stacks`,
+      "--jq",
+      STACK_JQ,
+      ...prNumbers.flatMap((n) => ["-F", `pull_requests[]=${n}`]),
+    ]);
+    const info = stackInfoFrom(JSON.parse(out || "null") as Partial<StackInfo> | null);
+    if (!info) throw new Error(`create stack for #${prNumbers.join(", #")} returned no stack`);
+    return { ...info, size: info.prNumbers.length };
+  }
+
+  /** Append one pull request to the TOP of an existing stack. Mutation — errors propagate. */
+  async addToStack(stackNumber: number, prNumber: number): Promise<void> {
+    await this.run([
+      "api",
+      "--method",
+      "POST",
+      `repos/${this.slug}/stacks/${stackNumber}/add`,
+      "-F",
+      `pull_requests[]=${prNumber}`,
+    ]);
+  }
+
+  /** Dissolve a stack. Its unmerged pull requests are unlinked; merged or merge-queued ones stay
+   *  linked host-side. The only repair primitive there is — no reorder/insert/drop-one API
+   *  exists, so a stack that needs reshaping is unstacked and recreated. Mutation — errors
+   *  propagate. */
+  async unstack(stackNumber: number): Promise<void> {
+    await this.run(["api", "--method", "POST", `repos/${this.slug}/stacks/${stackNumber}/unstack`]);
   }
 
   /** Stack membership, head SHA and the stack's trunk in one REST call, narrowed with `--jq` so

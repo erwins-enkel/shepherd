@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import { SessionStore, REVIEWER_SPAWNS_DDL } from "../src/store";
+import { isEpicChild } from "../src/epic-branch";
 import type { PrReview, Recap, ReviewVerdict, SessionLaunchMetadata } from "../src/types";
 import type { SessionUsage } from "../src/usage";
 
@@ -2001,4 +2002,67 @@ test("backfillReviewerSpawnUsage fills unknown totals without touching completed
   // guarded: a second backfill can never overwrite real totals
   expect(s.backfillReviewerSpawnUsage("rev-1", usage({ total: 999, input: 999 }))).toBe(false);
   expect(s.listReviewerSpawns()[0]!.totalTokens).toBe(100);
+});
+
+test("epicParent round-trips at create and defaults to null", () => {
+  const s = mk();
+  const child = s.create({ ...base, baseBranch: "epic/9-x", epicParent: 9 });
+  expect(s.get(child.id)?.epicParent).toBe(9);
+  const plain = s.create({ ...base, herdrAgentId: "term_2", branch: "shepherd/plain" });
+  expect(s.get(plain.id)?.epicParent).toBeNull();
+});
+
+test("getEpicParentByBranch resolves the stamp by work branch, newest row first", () => {
+  const s = mk();
+  // A dead predecessor session on the same branch, spawned before the stamp existed.
+  s.create({ ...base, branch: "shepherd/child-a", baseBranch: "epic/9-x" });
+  const live = s.create({
+    ...base,
+    herdrAgentId: "term_2",
+    branch: "shepherd/child-a",
+    baseBranch: "epic/9-x",
+    epicParent: 9,
+  });
+  expect(live.epicParent).toBe(9);
+  expect(s.getEpicParentByBranch("/r", "shepherd/child-a")).toBe(9);
+  // archived rows still answer — a child's PR outlives its session
+  s.update(live.id, { status: "archived", lastState: "done" });
+  expect(s.getEpicParentByBranch("/r", "shepherd/child-a")).toBe(9);
+  // unknown branch / wrong repo → null (the caller falls back to the base-branch test)
+  expect(s.getEpicParentByBranch("/r", "shepherd/unknown")).toBeNull();
+  expect(s.getEpicParentByBranch("/other", "shepherd/child-a")).toBeNull();
+});
+
+test("session migration: a pre-epicParent row migrates to null and stays an epic child", () => {
+  const dir = mkdtempSync(join(tmpdir(), "shepherd-store-epic-parent-migrate-"));
+  const dbPath = join(dir, "test.db");
+  try {
+    // Pre-create the sessions table as it was BEFORE the epicParent column, holding an epic child
+    // mid-drain (base = the integration branch) — the row shape the deploy has to survive.
+    const raw = new Database(dbPath);
+    raw.run(`CREATE TABLE sessions (
+      id TEXT PRIMARY KEY, desig TEXT NOT NULL, name TEXT NOT NULL, prompt TEXT NOT NULL,
+      repoPath TEXT NOT NULL, baseBranch TEXT NOT NULL, branch TEXT,
+      worktreePath TEXT NOT NULL, isolated INTEGER NOT NULL,
+      herdrSession TEXT NOT NULL, herdrAgentId TEXT NOT NULL,
+      claudeSessionId TEXT NOT NULL DEFAULT '',
+      agentProvider TEXT NOT NULL DEFAULT 'claude',
+      model TEXT, effort TEXT, status TEXT NOT NULL, lastState TEXT NOT NULL,
+      auto INTEGER NOT NULL DEFAULT 0, issueNumber INTEGER,
+      createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, archivedAt INTEGER)`);
+    raw.run(
+      `INSERT INTO sessions (id, desig, name, prompt, repoPath, baseBranch, branch, worktreePath,
+        isolated, herdrSession, herdrAgentId, status, lastState, auto, issueNumber, createdAt, updatedAt)
+       VALUES ('old', 'TASK-01', 'n', 'p', '/r', 'epic/12-foo', 'shepherd/n', '/wt', 1, 'default', 't',
+        'running', 'idle', 1, 44, 1, 1)`,
+    );
+    raw.close();
+    const store = new SessionStore(dbPath);
+    const s = store.get("old")!;
+    expect(s.epicParent).toBeNull();
+    // …and the shared predicate still reads it as an epic child off its base branch.
+    expect(isEpicChild(s)).toBe(true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

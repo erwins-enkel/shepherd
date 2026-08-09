@@ -54,6 +54,9 @@ export type DrainDecision =
       kind: "spawn";
       issue: Issue;
       integrationBranch?: string;
+      /** Epic parent issue number to stamp on the spawned session (#2067). Set from the same
+       *  epic run as `integrationBranch`, so the two cannot drift; undefined for label-drain. */
+      epicParent?: number;
       epicProviderSettings?: EpicProviderSettings;
     }
   | { kind: "retire"; sessionId: string; prNumber: number }
@@ -120,6 +123,9 @@ export interface DrainRepoState {
   /** Epic mode: the active epic's integration branch — epic-child spawns base on it.
    *  null/undefined for label-drain (spawns base on the default branch). */
   epicIntegrationBranch?: string | null;
+  /** Epic mode: the active epic's PARENT issue number, stamped on each child it spawns (#2067).
+   *  Set from the same epic run as `epicIntegrationBranch`; null/undefined for label-drain. */
+  epicParent?: number | null;
   /** Epic mode: explicit provider/model/effort for child spawns. Undefined for label-drain
    *  and for epics inheriting the repo/global defaults. */
   epicProviderSettings?: EpicProviderSettings | null;
@@ -291,8 +297,9 @@ export function computeNext(state: DrainRepoState): DrainDecision {
   // 2b. Epic base unavailable (#1757): the forge's `ensureBranch` THREW for a child spawn, so the
   // integration branch could not be ensured. Basing the child on the default branch instead would
   // silently mix bases mid-epic — the merge train would land that one child on main (it is not
-  // excluded from full-auto: `isEpicIntegrationBranch(baseBranch)` is false for it) while its
-  // siblings integrate on the epic branch. So fail closed and hold. Gated on an active epic run, so
+  // excluded from full-auto: a child that did NOT get the integration branch carries no `epicParent`
+  // stamp, so `isEpicChild` is false for it) while its siblings integrate on the epic branch.
+  // So fail closed and hold. Gated on an active epic run, so
   // it can never fire in label-mode drain; while an epic runs the candidate set IS that epic's
   // children, and every sibling would fail identically, so pausing new spawns is exactly right.
   // Placed AFTER the retire gate (a ready PR still retires) and BEFORE the cap. The marker is
@@ -334,6 +341,7 @@ export function computeNext(state: DrainRepoState): DrainDecision {
     kind: "spawn",
     issue: next,
     integrationBranch: state.epicIntegrationBranch ?? undefined,
+    epicParent: state.epicParent ?? undefined,
     epicProviderSettings: state.epicProviderSettings ?? undefined,
   };
 }

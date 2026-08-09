@@ -130,3 +130,26 @@ test("isFullAuto: bare epic base (epic/9) → false too", () => {
   };
   expect(isFullAuto(epicChild, fullAutoCfg)).toBe(false);
 });
+
+test("isFullAuto: stamped epic child on a NON-epic base → false (identity, not branch name)", () => {
+  // #2067: once children stack, a child's base is its predecessor's task branch — the old
+  // `isEpicIntegrationBranch(baseBranch)` test would answer "not a child" and the merge train
+  // would land it INTO that predecessor. The persisted stamp is what keeps it excluded.
+  const stackedChild = {
+    autopilotEnabled: true as boolean | null,
+    autoMergeEnabled: true as boolean | null,
+    baseBranch: "shepherd/task-7-predecessor",
+    epicParent: 9,
+  };
+  expect(isFullAuto(stackedChild, fullAutoCfg)).toBe(false);
+});
+
+test("isFullAuto: unstamped session on the default branch → true (stamp absent ≠ epic child)", () => {
+  const plain = {
+    autopilotEnabled: true as boolean | null,
+    autoMergeEnabled: true as boolean | null,
+    baseBranch: "main",
+    epicParent: null,
+  };
+  expect(isFullAuto(plain, fullAutoCfg)).toBe(true);
+});

@@ -389,8 +389,9 @@ describe("epic-child spawns base on the integration branch", () => {
 
 // ── #1757: the two epic-base failure modes are NOT the same ─────────────────────────────────────
 //
-// A child degraded onto the default branch is NOT stuck: the base-mismatch gate needs
-// isEpicIntegrationBranch(baseBranch) (drain.ts:2220), which a degraded child fails — so it retires
+// A child degraded onto the default branch is NOT stuck: the base-mismatch gate needs the session
+// to read as an epic child (`isEpicChild`), which a degraded child fails — it carries no epicParent
+// stamp and its base is the default branch — so it retires
 // normally, the merge train lands it on main (isFullAuto uses the same predicate), its issue closes,
 // and epic done-ness (`integrationMerged || issueClosed`) counts it. The epic PROGRESSES.
 // So the two causes get opposite treatment:
@@ -528,5 +529,73 @@ describe("#1757 epic base failures", () => {
     expect(h.statuses.at(-1)!.reason).not.toBe("epic_base_unavailable"); // and NO hold
     // ...but the operator can now SEE that this epic has no integration branch.
     expect(h.epics.at(-1)!.warnings.join("\n")).toContain("WITHOUT an integration branch");
+  });
+});
+
+// ── #2067: epic-child identity is a stamped session fact, not a base-branch name ────────────────
+//
+// The stamp is what keeps the merge train off a child (isFullAuto) and routes its retire into the
+// integration branch (doRetire) once children no longer base on `epic/*`. It is written ONLY when
+// the child really got the integration branch — a degraded child behaves like an ordinary session,
+// and stamping it would silently reroute every gitea/local epic through the epic retire path.
+
+describe("#2067 epic-child identity stamped at spawn", () => {
+  const PARENT = 327;
+  const CHILD = 320;
+  const subIssues: SubIssueRef[] = [
+    { number: CHILD, title: "EFI", url: "u320", body: "spec 320", closed: false, labels: [] },
+  ];
+  const parentIssue: Issue = {
+    number: PARENT,
+    title: "EFI cluster",
+    body: "epic body",
+    url: `https://x/${PARENT}`,
+    labels: [],
+    createdAt: 0,
+    assignees: [],
+  };
+  const epicOpts = {
+    listIssuesImpl: async () => [],
+    getIssueImpl: async (n: number) => (n === PARENT ? parentIssue : null),
+    listSubIssuesImpl: async (n: number) => (n === PARENT ? subIssues : []),
+    listBlockedByImpl: async () => [],
+  };
+
+  test("child based on the integration branch is stamped with the epic parent", async () => {
+    const h = makeHarness(epicOpts);
+    h.store.setEpicRun({
+      repoPath: REPO,
+      parentIssueNumber: PARENT,
+      mode: "auto",
+      status: "running",
+    });
+
+    await h.drain.pump(REPO);
+
+    expect(h.creates).toHaveLength(1);
+    expect(h.creates[0]!.epicParent).toBe(PARENT);
+  });
+
+  test("child DEGRADED onto main (forge without ensureBranch) is NOT stamped", async () => {
+    const h = makeHarness({ ...epicOpts, noEnsureBranch: true });
+    h.store.setEpicRun({
+      repoPath: REPO,
+      parentIssueNumber: PARENT,
+      mode: "auto",
+      status: "running",
+    });
+
+    await h.drain.pump(REPO);
+
+    expect(h.creates).toHaveLength(1);
+    expect(h.creates[0]!.baseBranch).toBe("main");
+    expect(h.creates[0]!.epicParent ?? null).toBeNull();
+  });
+
+  test("label-drain spawn carries no stamp", async () => {
+    const h = makeHarness({ issues: [issue(1)] });
+    await h.drain.pump(REPO);
+    expect(h.creates).toHaveLength(1);
+    expect(h.creates[0]!.epicParent ?? null).toBeNull();
   });
 });

@@ -4,6 +4,7 @@ import {
   deriveChildState,
   selectEpicCandidates,
   type EpicChild,
+  type EpicStackContext,
 } from "../src/epic-core";
 import type { LinkedPr } from "../src/forge/types";
 
@@ -100,6 +101,102 @@ describe("integrationMerged", () => {
     const blocker = child({ number: 320, issueClosed: true });
     const dep = child({ number: 322, blockedBy: [320] });
     expect(selectEpicCandidates([blocker, dep]).map((c) => c.number)).toEqual([322]);
+  });
+});
+
+describe("selectEpicCandidates — optional stack context (#2066)", () => {
+  const stack = (predecessorOf: [number, number][], stackReady: number[]): EpicStackContext => ({
+    predecessorOf: new Map(predecessorOf),
+    stackReady: new Set(stackReady),
+  });
+  // 320 is in flight (spawned, PR open); 321 stacks on it, 322 fans in on 320 + 321.
+  const kids = () => [
+    child({ number: 320, order: 0, sessionId: "s", prNumber: 9 }),
+    child({ number: 321, order: 1, blockedBy: [320] }),
+    child({ number: 322, order: 2, blockedBy: [320, 321] }),
+  ];
+
+  test("no second argument → the dependency gate is exactly today's", () => {
+    expect(selectEpicCandidates(kids()).map((i) => i.number)).toEqual([]);
+    // …and an edged fixture whose blockers ARE done is unaffected by the new code path
+    const done = [
+      child({ number: 320, order: 0, integrationMerged: true }),
+      child({ number: 321, order: 1, blockedBy: [320] }),
+      child({ number: 322, order: 2, blockedBy: [320, 321] }),
+    ];
+    expect(selectEpicCandidates(done).map((i) => i.number)).toEqual([321]);
+  });
+
+  test("admits a child whose sole outstanding blocker is its stack-ready chain predecessor", () => {
+    const s = stack(
+      [
+        [321, 320],
+        [322, 321],
+      ],
+      [320],
+    );
+    expect(selectEpicCandidates(kids(), s).map((i) => i.number)).toEqual([321]);
+  });
+
+  test("refuses when the chain predecessor is not flagged stack-ready", () => {
+    const s = stack([[321, 320]], []);
+    expect(selectEpicCandidates(kids(), s).map((i) => i.number)).toEqual([]);
+  });
+
+  test("refuses while more than one blocker is outstanding (322 waits on 320 and 321)", () => {
+    const s = stack(
+      [
+        [321, 320],
+        [322, 321],
+      ],
+      [320, 321],
+    );
+    expect(selectEpicCandidates(kids(), s).map((i) => i.number)).toEqual([321]); // not 322
+  });
+
+  test("refuses when the sole outstanding blocker is cross-chain, not the chain predecessor", () => {
+    const cross = [
+      child({ number: 320, order: 0, integrationMerged: true }),
+      child({ number: 321, order: 1, sessionId: "s" }),
+      child({ number: 322, order: 2, blockedBy: [320, 321] }),
+    ];
+    // 322's chain predecessor is 320 (already done); its outstanding blocker 321 is cross-chain,
+    // so flagging 321 stack-ready must not admit 322.
+    expect(
+      selectEpicCandidates(cross, stack([[322, 320]], [320, 321])).map((i) => i.number),
+    ).toEqual([]);
+  });
+
+  test("a stacked admission sorts in with the rest by epic order", () => {
+    const kids2 = [...kids(), child({ number: 319, order: 3 })];
+    const s = stack([[321, 320]], [320]);
+    expect(selectEpicCandidates(kids2, s).map((i) => i.number)).toEqual([321, 319]);
+  });
+
+  test("claimed / spawned / merged children are still excluded regardless of the stack", () => {
+    const s = stack(
+      [
+        [321, 320],
+        [322, 321],
+      ],
+      [320, 321],
+    );
+    const kids2 = [
+      child({ number: 320, order: 0, sessionId: "s", prNumber: 9 }),
+      child({ number: 321, order: 1, blockedBy: [320], claimed: true }),
+      child({ number: 322, order: 2, blockedBy: [321], sessionId: "t" }),
+    ];
+    expect(selectEpicCandidates(kids2, s).map((i) => i.number)).toEqual([]);
+  });
+
+  test("a repeated blocker entry does not read as two outstanding blockers", () => {
+    const kids2 = [
+      child({ number: 320, order: 0, sessionId: "s", prNumber: 9 }),
+      child({ number: 321, order: 1, blockedBy: [320, 320] }),
+    ];
+    expect(selectEpicCandidates(kids2, stack([[321, 320]], [320])).map((i) => i.number)).toEqual([
+      321,
+    ]);
   });
 });
 

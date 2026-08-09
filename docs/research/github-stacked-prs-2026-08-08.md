@@ -466,9 +466,14 @@ GitHub auto-merge. It needs the async merge API, not the auto-merge feature.
 - **Preview feature.** Every docs page says "subject to change". Two internal doc contradictions already
   visible (min `gh` version 2.90.0 vs 2.0; "no enablement required" vs CLI exit code 9 "not enabled for
   repository"). Anything built now should be behind a repo-level flag.
-- **CI cost multiplies by stack depth.** A five-layer stack is five full CI runs, and an automatic
-  restack after a partial merge re-fires CI for the whole remainder unprompted. Shepherd runs a
-  self-hosted runner; this is a real capacity question, not a billing footnote.
+- **CI cost multiplies by stack depth — as latency, not as spend (for us).** A five-layer stack is five
+  full CI runs, and an automatic restack after a partial merge re-fires CI for the whole remainder
+  unprompted. Every workflow here is GitHub-hosted (`runs-on: ubuntu-latest` throughout
+  `.github/workflows/`), deliberately pinned rather than toggled — `ci.yml:42-46` records why: the repo
+  is public, so hosted minutes are free, and a self-hosted runner would execute fork-PR code on our
+  host. So depth costs us **wall-clock and queue contention**, not money. It costs money on any private
+  consumer repo Shepherd manages, which is where a depth cap or `position == size` gating earns its
+  keep.
 - **TUI wedge.** See §2.5. This is the same failure class as agents wedging on Claude Code upsell
   dialogs, and it is entirely preventable with mandatory flags.
 - **Unsigned server-side rebase commits** — irrelevant to us today, but it forecloses the UI rebase
@@ -496,8 +501,11 @@ GitHub auto-merge. It needs the async merge API, not the auto-merge feature.
   since:_ the atomicity spike composed all four of its stacks over `POST /stacks` and never invoked
   `gh stack`, citing the PTY wedge — the first real run of this leaned server-composed without
   friction.
-- CI budget: is 5× runs on a five-layer stack acceptable on the self-hosted runner, or do we need the
-  `position == size` gating from day one?
+- CI budget: 5× runs on a five-layer stack costs this repo **time, not minutes** — everything is
+  GitHub-hosted and the repo is public (§8). So `position == size` gating is _not_ needed from day one
+  for our own cost; the question is whether the added wall-clock on the critical path is acceptable,
+  and separately whether a managed **private** repo needs the gating from the start, where the same
+  depth is billed.
 - Does the one-PR-per-session invariant become _one stack per session_ (the honest generalization), or
   does a stack imply multiple sessions? This decides whether `reviews`/`build_queue_state`
   (`sessionId PRIMARY KEY`) need to change.

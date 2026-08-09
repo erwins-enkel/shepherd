@@ -18,7 +18,7 @@ import {
 import { assembleEpic } from "./epic-model";
 import {
   epicIntegrationBranch as epicBranchName,
-  isEpicIntegrationBranch,
+  isEpicChild,
   branchReferencesEpic,
 } from "./epic-branch";
 import { selectEpicCandidates, type Epic, type EpicRun } from "./epic-core";
@@ -2419,11 +2419,11 @@ export class DrainService {
     const s = this.deps.store.get(decision.sessionId);
     // Epic child: squash-merge the PR INTO its integration branch (not the default branch) and
     // record it so dependents unblock without a GitHub issue auto-close (the child issue stays
-    // open until the final epic→default PR lands). Detected by the integration-branch base +
-    // an active epic for the repo.
+    // open until the final epic→default PR lands). Detected by the session's persisted epic-child
+    // identity (#2067) + an active epic for the repo.
     const epicRun = this.deps.store.getEpicRun(repoPath);
     const epicActive = !!epicRun && (epicRun.status === "running" || epicRun.status === "paused");
-    if (epicActive && s?.issueNumber != null && isEpicIntegrationBranch(s.baseBranch)) {
+    if (epicActive && s?.issueNumber != null && isEpicChild(s)) {
       // #645 (Task 2): enforce the child PR's actual base against the integration branch. On
       // mismatch (or while throttled-blocked from a prior mismatch) this returns true → fail
       // closed: skip merge/record/archive/claim-drop so the child stays un-integrated and the
@@ -2473,10 +2473,10 @@ export class DrainService {
    *
    *  - `ensureBranch` THREW (GitHub; a rate-limit, 5xx, race): FAIL CLOSED — throw
    *    {@link EpicBaseUnavailableError}. Degrading this ONE child onto the default branch would mix
-   *    bases mid-epic: it would lose `epicBaseDirective`, open its PR against main, and — since
-   *    `isFullAuto` excludes only sessions whose base IS an integration branch — the merge train
-   *    would then land it on main automatically, while its siblings integrate on the epic branch.
-   *    A retry may well succeed, so doSpawn's catch backs off (cooldown) and the drain holds
+   *    bases mid-epic: it would lose `epicBaseDirective`, open its PR against main, and — since a
+   *    degraded child gets NO `epicParent` stamp, so `isFullAuto` does not exclude it — the merge
+   *    train would then land it on main automatically, while its siblings integrate on the epic
+   *    branch. A retry may well succeed, so doSpawn's catch backs off (cooldown) and the drain holds
    *    visibly (`epic_base_unavailable`) meanwhile.
    *
    *  - The forge simply LACKS `ensureBranch` (gitea/local): DEGRADE, as before. On such a forge NO
@@ -2490,7 +2490,7 @@ export class DrainService {
   private async resolveSpawnBase(
     forge: GitForge,
     decision: Extract<DrainDecision, { kind: "spawn" }>,
-  ): Promise<{ base: string; prompt: string }> {
+  ): Promise<{ base: string; prompt: string; epicParent: number | null }> {
     const { number, title } = decision.issue;
     const def = await forge.defaultBranch();
     let base = def;
@@ -2515,7 +2515,12 @@ export class DrainService {
     const usingEpicBase = !!decision.integrationBranch && base === decision.integrationBranch;
     const task = issueSpawnPrompt(number, title);
     const prompt = usingEpicBase ? `${task}\n\n${epicBaseDirective(base)}` : task;
-    return { base, prompt };
+    // Stamp epic-child identity (#2067) ONLY for a child that actually got the integration branch.
+    // A DEGRADED child (forge without `ensureBranch`) bases on the default branch and behaves like
+    // any ordinary session — the merge train carries it and it retires normally — so stamping it
+    // would silently reroute every gitea/local epic through the squash-into-integration path.
+    const epicParent = usingEpicBase ? (decision.epicParent ?? null) : null;
+    return { base, prompt, epicParent };
   }
 
   private async doSpawn(
@@ -2595,7 +2600,7 @@ export class DrainService {
     // sub-issue) session never appears until a full page reload.
     let session: Session | undefined;
     try {
-      const { base, prompt } = await this.resolveSpawnBase(forge, decision);
+      const { base, prompt, epicParent } = await this.resolveSpawnBase(forge, decision);
       const epicSettings = decision.epicProviderSettings;
       // Auto-spawns honor an explicit operator default-model — the repo override
       // wins over the global default; when both are unset ("inherit"/"auto") they
@@ -2613,6 +2618,7 @@ export class DrainService {
         images: [],
         auto: true,
         issueRef: { number, url, title, body },
+        epicParent, // persisted epic-child identity; null for a label-drain or degraded spawn
       });
       this.spawnFailures.delete(failKey); // #790: clear any prior failure cooldown on success
       // The new auto session appears in the next buildState → counts toward the

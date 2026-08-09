@@ -1106,6 +1106,12 @@ export interface Session {
   egressDegraded: boolean;
   /** Issue number that seeded this session; null when launched without an issue. */
   issueNumber: number | null;
+  /** Epic PARENT issue number this session was spawned as a child of; null/absent on non-epic
+   *  sessions and on rows written before the field existed. Server-side identity fact (it drives
+   *  merge-train exclusion and the epic retire path) mirrored here for type parity — no client
+   *  consumer today, and a raw null does NOT mean "not an epic child" (see the server's
+   *  `isEpicChild`, which falls back to the base-branch name). */
+  epicParent?: number | null;
   /** Launch-time display metadata for the task-id tooltip. Null/absent for legacy rows. */
   launchMetadata?: SessionLaunchMetadata | null;
   /** Web URL of the linked forge issue. Populated **only** by the Done-list endpoint

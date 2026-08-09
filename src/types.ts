@@ -110,6 +110,14 @@ export interface Session {
   auto: boolean;
   /** Backlog issue number this session was spawned for; null for manual/non-issue sessions. */
   issueNumber: number | null;
+  /** The epic PARENT issue number this session was spawned as a child of — the persisted answer to
+   *  "is this an epic child?", stamped at spawn and never updated. Null/absent on every non-epic
+   *  session AND on legacy rows written before the field existed, so the shared predicate
+   *  ({@link isEpicChild}) falls back to the base-branch-name test for those. Read it through that
+   *  predicate, never directly: a raw `epicParent != null` check would answer "no" for a legacy
+   *  in-flight epic child. OPTIONAL (like `autoMergeRebaseSteeredAt`) so existing Session fixtures
+   *  stay valid — absent and null are equivalent; the store always hydrates a real number|null. */
+  epicParent?: number | null;
   /** Sandbox profile actually applied at spawn; null for legacy rows spawned before the feature. */
   sandboxApplied: SandboxProfile | null;
   /** True when a sandboxed profile was requested but no backend was available → ran unconfined. */
@@ -281,6 +289,11 @@ export interface StandardCreateInput {
   autopilotEnabled?: boolean | null;
   /** Per-spawn sandbox profile override; absent → inherit repo default. */
   sandboxProfile?: SandboxProfile | null;
+  /** Epic PARENT issue number for an epic-child spawn; absent/null otherwise. Set ONLY by the
+   *  drain's epic path (and only when the child actually got the integration branch as its base) —
+   *  no HTTP route passes it, they all build this input field-by-field. Persisted verbatim as
+   *  `Session.epicParent`. */
+  epicParent?: number | null;
   /** Research task kind; absent → false. */
   research?: boolean;
   /** Epic-authoring task kind; absent → false. Attended guided shaping → EPIC draft, no code PR. */

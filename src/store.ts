@@ -365,6 +365,11 @@ function strOrNull(v: string | null | undefined): string | null {
   return v ?? null;
 }
 
+/** INTEGER counterpart of {@link strOrNull} — same reason: keep the flat builders branch-free. */
+function numOrNull(v: number | null | undefined): number | null {
+  return v ?? null;
+}
+
 /** Coerce a persisted RundownEpicItem.pausedReason to its union, or undefined for anything else. */
 function coercePauseReason(v: unknown): RundownEpicItem["pausedReason"] {
   return v === "cap" || v === "conflict" || v === "driver" ? v : undefined;
@@ -557,7 +562,7 @@ const COLS = `id, desig, name, prompt, repoPath, baseBranch, branch, worktreePat
   autopilotEnabled, autopilotStepCount, autopilotPaused, autopilotComplete, autopilotQuestion, completionRepromptCount,
   planGateEnabled, planPhase,
   autoMergeEnabled, autoMergeRebaseCount, autoMergeRebaseHead, autoMergeRebaseSteeredAt,
-  auto, issueNumber, sandboxApplied, sandboxDegraded, egressApplied, egressDegraded,
+  auto, issueNumber, epicParent, sandboxApplied, sandboxDegraded, egressApplied, egressDegraded,
   research, epicAuthoring, landingRepair, terminal, terminalTabId, terminalPaneId,
   createdAt, updatedAt, archivedAt, mergingSince, mergingTrainId, mergeTrainPrs, mergingPrNumber,
   haltReason, haltedAt, manualStepsJson, manualStepsAckedAt, experimentId, experimentRole,
@@ -600,6 +605,7 @@ type SessionRow = {
   autoMergeRebaseSteeredAt: number | null;
   auto: number;
   issueNumber: number | null;
+  epicParent: number | null;
   sandboxApplied: string | null;
   sandboxDegraded: number;
   egressApplied: number;
@@ -2276,6 +2282,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       autoMergeRebaseSteeredAt: null,
       auto: input.auto ?? false,
       issueNumber: input.issueNumber ?? null,
+      epicParent: numOrNull(input.epicParent),
       sandboxApplied: input.sandboxApplied ?? null,
       sandboxDegraded: input.sandboxDegraded ?? false,
       egressApplied: input.egressApplied ?? false,
@@ -2316,7 +2323,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       const seq = this.nextDesignationSeq();
       const s = this.buildSessionRow(input, seq, now);
       this.db.run(
-        `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [
           s.id,
           s.desig,
@@ -2350,6 +2357,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
           null, // autoMergeRebaseSteeredAt — never steered
           s.auto ? 1 : 0,
           s.issueNumber,
+          numOrNull(s.epicParent), // stamped at spawn for an epic child; null everywhere else
           s.sandboxApplied,
           s.sandboxDegraded ? 1 : 0,
           s.egressApplied ? 1 : 0,
@@ -2389,6 +2397,23 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       .query(`SELECT ${COLS} FROM sessions WHERE id = ?`)
       .get(id) as SessionRow | null;
     return r ? this.hydrate(r) : null;
+  }
+
+  /** The stamped epic parent of the session that owns `branch` as its WORK branch, or null when no
+   *  such session exists (or it carries no stamp). The single read seam for callers that hold a PR
+   *  but no session — the standalone PR critic — so they can answer epic-childness from the same
+   *  fact the session-holding sites use. Rows of ANY status (archived included) count: a child's
+   *  PR outlives its session. Newest-first so a relaunched child's row wins over a dead predecessor
+   *  that never got the stamp. */
+  getEpicParentByBranch(repoPath: string, branch: string): number | null {
+    const r = this.db
+      .query(
+        `SELECT epicParent FROM sessions
+           WHERE repoPath = ? AND branch = ? AND epicParent IS NOT NULL
+           ORDER BY createdAt DESC LIMIT 1`,
+      )
+      .get(repoPath, branch) as { epicParent: number } | null;
+    return r?.epicParent ?? null;
   }
 
   // ── Clean-terminal singleton lease ──────────────────────────────────────────
@@ -4030,6 +4055,10 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     add("autoMergeRebaseSteeredAt", `autoMergeRebaseSteeredAt INTEGER`);
     add("auto", `auto INTEGER NOT NULL DEFAULT 0`);
     add("issueNumber", `issueNumber INTEGER`);
+    // Epic-child identity (#2067): the epic parent issue number, stamped at spawn. Nullable with no
+    // default — legacy rows migrate to NULL, which the shared predicate reads as "unknown" and
+    // answers from the base-branch name instead, so in-flight epics survive the deploy.
+    add("epicParent", `epicParent INTEGER`);
     // sandbox badge/banner: applied profile (nullable for legacy rows) + degrade flag.
     add("sandboxApplied", `sandboxApplied TEXT`);
     add("sandboxDegraded", `sandboxDegraded INTEGER NOT NULL DEFAULT 0`);
@@ -5567,6 +5596,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       autoMergeRebaseSteeredAt: r.autoMergeRebaseSteeredAt,
       auto: !!r.auto,
       issueNumber: r.issueNumber ?? null,
+      epicParent: r.epicParent,
       sandboxApplied: isSandboxProfile(r.sandboxApplied) ? r.sandboxApplied : null,
       sandboxDegraded: !!r.sandboxDegraded,
       egressApplied: !!r.egressApplied,

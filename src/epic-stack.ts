@@ -152,6 +152,11 @@ export type StackRetireGate =
  *  it: merging a stack layer lands every layer beneath it, so merging the bottom-most unmerged layer
  *  lands exactly one PR.
  *
+ *  "Landed" means INTEGRATED, deliberately narrower than the epic model's `integrationMerged ||
+ *  issueClosed` done-ness: a closed-but-unintegrated layer never merged, so merging the layer above
+ *  it would still drag its ungated commits along. Such a layer is not this gate's problem to relax —
+ *  it is a lost layer, and {@link detectStackWedge} raises it as a wedge.
+ *
  *  Store-only (rows + the integrated set), so a held layer costs ZERO forge calls per tick — the
  *  drain re-derives this on every pump iteration. The `confirm` answer is deliberately not "merge":
  *  the rows describe what Shepherd composed, and a foreign PR hand-added to the stack would not
@@ -192,6 +197,7 @@ export function bottomMostUnmergedPr(
  *  restart it is null for every child — and is never evidence of anything. */
 export interface WedgeChildFact {
   integrationMerged: boolean;
+  issueClosed: boolean;
   prNumber: number | null;
 }
 
@@ -210,9 +216,16 @@ export interface StackWedge {
  *  before the composition pass next runs. The child then looks perfectly healthy while the layer the
  *  stack was built on is orphaned — child-level signals cannot see this at all.
  *
- *  Loss requires POSITIVE evidence: the layer PR was observed closed, or the child is now on a
- *  DIFFERENT pull request. An unknown (null) live PR is never loss, or the first pass after a
- *  restart would dissolve every healthy stack.
+ *  Loss requires POSITIVE evidence: the child's ISSUE is closed without the layer ever integrating,
+ *  the layer PR was observed closed, or the child is now on a DIFFERENT pull request. An unknown
+ *  (null) live PR is never loss, or the first pass after a restart would dissolve every healthy
+ *  stack.
+ *
+ *  The issue-closed arm is load-bearing. The epic model counts a closed issue as done, but a closed
+ *  issue whose layer never integrated means that layer's PR will never land — and the retire gate
+ *  only ever treats an INTEGRATED layer as landed (rightly: nothing merged, so merging the layer
+ *  above would still drag ungated commits). Without this arm such a child holds every layer above it
+ *  forever, with no wedge, no warning and nothing to clear.
  *
  *  Reports only a wedge with something above it — a dead TOP layer strands nobody. */
 export function detectStackWedge(input: {
@@ -224,18 +237,20 @@ export function detectStackWedge(input: {
   const lost = (r: EpicStackMember): boolean => {
     const f = input.facts.get(r.childNumber);
     if (!f || f.integrationMerged) return false;
+    if (f.issueClosed) return true;
     return input.closedPrs.has(r.prNumber) || (f.prNumber !== null && f.prNumber !== r.prNumber);
   };
   // Every lost row is considered, not just the lowest: an epic runs one stack per chain, and a dead
   // TOP layer in one chain must not mask a genuine wedge in another.
   for (const row of ordered.filter(lost)) {
     const stranded = ordered
-      .filter(
-        (r) =>
-          r.stackNumber === row.stackNumber &&
-          r.position > row.position &&
-          !input.facts.get(r.childNumber)?.integrationMerged,
-      )
+      .filter((r) => {
+        if (r.stackNumber !== row.stackNumber || r.position <= row.position) return false;
+        const f = input.facts.get(r.childNumber);
+        // Done-in-epic layers above the hole need no rescuing — same resolution rule as
+        // {@link wedgeCleared}, so a wedge is never raised for children it would clear immediately.
+        return !f?.integrationMerged && !f?.issueClosed;
+      })
       .map((r) => r.childNumber);
     if (stranded.length > 0) {
       return { stackNumber: row.stackNumber, lostChild: row.childNumber, stranded };

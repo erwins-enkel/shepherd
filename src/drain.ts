@@ -864,16 +864,25 @@ export class DrainService {
    *  The guard ladder is ordered cheapest-first so an opted-out or unengaged repo costs ZERO forge
    *  calls. The whole body is wrapped: `tick()` calls its passes unguarded, and #2068's stack
    *  WRITES deliberately propagate their errors, so an unwrapped throw here would break the tick
-   *  for every later repo. */
+   *  for every later repo.
+   *
+   *  #2070: the pass ALSO runs — sweep-only — when the repo has opted back out but still carries a
+   *  live wedge marker. That marker drives a blocking "epic blocked until fixed" warning, and its
+   *  only clearing path is this sweep; gating it behind the flag would leave the warning permanently
+   *  unclearable for anyone who turned stacking off after a wedge. The extra work is one store read
+   *  per tick for an epic that never wedged. */
   private async composeEpicStacksForRepo(repoPath: string): Promise<void> {
     try {
-      const cfg = this.deps.store.getRepoConfig(repoPath);
-      if (!cfg.epicStacksEnabled) return;
       const er = this.deps.store.getEpicRun(repoPath);
       if (er?.status !== "running") return;
-      const forge = this.deps.resolveForge(repoPath);
-      if (!forgeHasStacks(forge)) return;
       const parent = er.parentIssueNumber;
+      const forge = this.deps.resolveForge(repoPath);
+      const stackForge =
+        this.deps.store.getRepoConfig(repoPath).epicStacksEnabled && forgeHasStacks(forge)
+          ? forge
+          : null;
+      const wedged = this.deps.store.listEpicStackWedges(repoPath, parent).length > 0;
+      if (!stackForge && !wedged) return;
       // READ-ONLY getter: never INSERT a title-drifted pin from a side path (see tryAutoLandEpic).
       // Unpinned ⇒ no epic child has been based on anything yet ⇒ nothing to compose.
       const pinned = this.deps.store.getEpicIntegrationBranch(repoPath, parent);
@@ -887,10 +896,14 @@ export class DrainService {
         this.epicStackComposedAt.set(key, this.now());
         const epic = await this.buildEpic(repoPath, er);
         if (!epic) return;
+        if (!stackForge) {
+          this.sweepEpicStackWedges(repoPath, parent, pinned, epic); // opted out — clearing only
+          return;
+        }
         // #2070: repair before composing. A live wedge halts stacking for the epic entirely —
         // composing over a dissolved stack would just rebuild the shape the operator has to fix.
-        if (await this.repairEpicStack(forge, repoPath, parent, pinned, epic)) return;
-        await this.composeOneEpicStack(forge, repoPath, parent, pinned, epic);
+        if (await this.repairEpicStack(stackForge, repoPath, parent, pinned, epic)) return;
+        await this.composeOneEpicStack(stackForge, repoPath, parent, pinned, epic);
       } finally {
         this.epicStackInFlight.delete(key);
       }
@@ -920,7 +933,11 @@ export class DrainService {
     const facts = new Map<number, WedgeChildFact>(
       epic.children.map((c) => [
         c.number,
-        { integrationMerged: c.integrationMerged, prNumber: c.prNumber },
+        {
+          integrationMerged: c.integrationMerged,
+          issueClosed: c.issueClosed,
+          prNumber: c.prNumber,
+        },
       ]),
     );
     const wedge = detectStackWedge({ rows, facts, closedPrs: this.closedEpicChildPrs(repoPath) });

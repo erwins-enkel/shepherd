@@ -59,6 +59,8 @@ interface ForgeOpts {
   baseRefName?: (prNumber: number) => string;
   /** Drop the whole stacked-PR surface (Gitea/Local). */
   noStacks?: boolean;
+  /** Children whose ISSUE reads closed (done in the epic's eyes). */
+  closedChildren?: number[];
 }
 
 function fakeForge(rec: ForgeRec, opts: ForgeOpts = {}): GitForge {
@@ -99,7 +101,7 @@ function fakeForge(rec: ForgeRec, opts: ForgeOpts = {}): GitForge {
             title: `child ${number}`,
             url: `u${number}`,
             body: "",
-            closed: false,
+            closed: (opts.closedChildren ?? []).includes(number),
             labels: [],
           }))
         : [],
@@ -561,5 +563,80 @@ describe("mid-stack loss repair (#2070)", () => {
     await compose(h);
 
     expect(wedges(h)).toHaveLength(1);
+  });
+});
+
+describe("mid-stack loss: closed issues and the opt-out (#2070)", () => {
+  const STALE_PR = 899;
+
+  function seedStack(h: Harness, middlePr = PR_OF[MIDDLE]!): void {
+    const rows: [number, number, number][] = [
+      [LOWER, PR_OF[LOWER]!, 1],
+      [MIDDLE, middlePr, 2],
+      [UPPER, PR_OF[UPPER]!, 3],
+    ];
+    for (const [childNumber, prNumber, position] of rows) {
+      h.store.recordEpicStackMember(REPO, PARENT, {
+        childNumber,
+        stackNumber: STACK_NUMBER,
+        prNumber,
+        baseBranch: position === 1 ? EPIC_BRANCH : `shepherd/auto-${childNumber - 1}`,
+        position,
+      });
+    }
+  }
+
+  const wedges = (h: Harness) => h.store.listEpicStackWedges(REPO, PARENT);
+
+  // The epic model counts a closed issue as done, but a closed issue whose layer never integrated
+  // means that PR will never land — and the retire gate only relaxes for an INTEGRATED layer. Miss
+  // this and every layer above holds forever with no wedge and nothing to clear.
+  test("a closed-but-unintegrated middle child wedges the stack", async () => {
+    const h = makeHarness({ withPr: [LOWER, MIDDLE, UPPER], closedChildren: [MIDDLE] });
+    seedStack(h);
+
+    await compose(h);
+
+    expect(h.rec.unstacked).toEqual([STACK_NUMBER]);
+    expect(wedges(h)).toEqual([
+      { childNumber: MIDDLE, stackNumber: STACK_NUMBER, stranded: [UPPER] },
+    ]);
+  });
+
+  test("opting OUT after a wedge still clears the marker once the stranded child resolves", async () => {
+    // The marker drives a blocking "epic blocked until fixed" warning and this sweep is its only
+    // clearing path — gating the sweep behind the flag would strand that warning forever.
+    let t = 1_000_000;
+    const h = makeHarness({ withPr: [LOWER, MIDDLE, UPPER], now: () => t });
+    seedStack(h, STALE_PR);
+    await compose(h);
+    expect(wedges(h)).toHaveLength(1);
+
+    h.store.setRepoConfig(REPO, {
+      ...h.store.getRepoConfig(REPO),
+      epicStacksEnabled: false,
+    });
+
+    // Still unresolved → the marker (and its warning) survive the opt-out.
+    t += 120_000;
+    await compose(h);
+    expect(wedges(h)).toHaveLength(1);
+
+    // Resolved → cleared, even with stacking off.
+    h.store.archive(h.sessionOf[UPPER]!);
+    t += 120_000;
+    await compose(h);
+    expect(wedges(h)).toEqual([]);
+    expect(h.rec.created).toEqual([]); // and the opt-out never composes anything
+  });
+
+  test("opted out with no wedge: the pass does nothing at all", async () => {
+    const h = makeHarness({ epicStacks: false, withPr: [LOWER, MIDDLE, UPPER] });
+
+    await compose(h);
+
+    expect(h.rec.created).toEqual([]);
+    expect(h.rec.unstacked).toEqual([]);
+    expect(h.rec.stackReads).toEqual([]);
   });
 });

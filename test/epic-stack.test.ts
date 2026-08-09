@@ -408,8 +408,13 @@ describe("bottomMostUnmergedPr", () => {
 
 describe("detectStackWedge", () => {
   const rows = [layer(320, 10, 1), layer(321, 11, 2), layer(322, 12, 3)];
-  const fact = (integrationMerged: boolean, prNumber: number | null): WedgeChildFact => ({
+  const fact = (
+    integrationMerged: boolean,
+    prNumber: number | null,
+    issueClosed = false,
+  ): WedgeChildFact => ({
     integrationMerged,
+    issueClosed,
     prNumber,
   });
   const healthy = new Map<number, WedgeChildFact>([
@@ -473,6 +478,26 @@ describe("detectStackWedge", () => {
       lostChild: 321,
       stranded: [322],
     });
+  });
+
+  // The epic model counts a closed issue as done, but a closed issue whose layer never integrated
+  // means that PR will never land — and the retire gate only relaxes for an INTEGRATED layer. With
+  // no wedge here, every layer above it would hold forever, silently.
+  test("a closed-but-unintegrated middle child is a lost layer", () => {
+    const facts = new Map(healthy);
+    facts.set(321, fact(false, 11, true)); // issue closed, PR unchanged, never integrated
+    expect(detectStackWedge({ rows, facts, closedPrs: new Set() })).toEqual({
+      stackNumber: 7,
+      lostChild: 321,
+      stranded: [322],
+    });
+  });
+
+  test("a closed-issue layer ABOVE the hole is not stranded — it needs no rescuing", () => {
+    const facts = new Map(healthy);
+    facts.set(321, fact(false, 77)); // the hole
+    facts.set(322, fact(false, 12, true)); // done in the epic's eyes
+    expect(detectStackWedge({ rows, facts, closedPrs: new Set() })).toBeNull();
   });
 
   test("stranded skips layers that already landed", () => {

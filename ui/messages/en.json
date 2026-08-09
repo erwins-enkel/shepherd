@@ -2175,7 +2175,7 @@
   "automation_prewarm_epic_ci_name": "Pre-warm epic landing CI",
   "automation_prewarm_epic_ci_desc": "Opens the epic's landing PR early as a draft so each child merge re-runs the landing CI against main. Only helps if this repo's CI runs on draft PRs and re-runs on push; a red draft is visible on GitHub until the epic completes.",
   "automation_epic_stacks_name": "Stack epic children",
-  "automation_epic_stacks_desc": "Bases each epic child on its predecessor's open pull request instead of waiting for that predecessor to merge, and links the resulting pull requests into a GitHub stack rooted at the epic branch — so a dependent child starts a full review cycle earlier. GitHub only. Experimental: Shepherd cannot merge a stacked child on its own yet, so leave this off unless you are merging that epic's children by hand.",
+  "automation_epic_stacks_desc": "Bases each epic child on its predecessor's open pull request instead of waiting for that predecessor to merge, and links the resulting pull requests into a GitHub stack rooted at the epic branch — so a dependent child starts a full review cycle earlier. Shepherd lands a stack bottom-up: only the lowest layer that has not merged yet is landed, and the ones above it wait their turn. GitHub only. Experimental: if a child in the middle of a stack is abandoned or its pull request is closed, the stack is dissolved and the epic is blocked until you abandon or merge the children above it yourself.",
   "herd_owed_title": "Post-merge manual steps you still owe",
   "herd_owed_count": "{count} merged PR(s) still owe post-merge steps",
   "owed_main_hint": "Owed post-merge steps are shown in the herd panel on the left.",

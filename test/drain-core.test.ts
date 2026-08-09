@@ -411,6 +411,32 @@ describe("computeNext", () => {
     expect(d).toEqual({ kind: "retire", sessionId: "ok", prNumber: 7 });
   });
 
+  // #2070: a stacked layer waiting for the one below it must be skipped by the DECISION. Selecting
+  // it would spend the pump's single retire attempt on a no-op, so the ready session behind it
+  // (a different chain's bottom layer) would never be reached that tick.
+  test("retire: a stack-held session is skipped and the next ready one is chosen", () => {
+    const d = computeNext(
+      state({
+        autoSessions: [
+          autoSession({ id: "held", git: MERGEABLE }),
+          autoSession({ id: "ready", issueNumber: 2, git: { ...MERGEABLE, number: 8 } }),
+        ],
+        stackHeldSessions: new Set(["held"]),
+      }),
+    );
+    expect(d).toEqual({ kind: "retire", sessionId: "ready", prNumber: 8 });
+  });
+
+  test("retire: every candidate stack-held → no retire decision at all", () => {
+    const d = computeNext(
+      state({
+        autoSessions: [autoSession({ id: "held", git: MERGEABLE })],
+        stackHeldSessions: new Set(["held"]),
+      }),
+    );
+    expect(d.kind).not.toBe("retire");
+  });
+
   test("no retire when that session's critic requested changes", () => {
     const d = computeNext(
       state({

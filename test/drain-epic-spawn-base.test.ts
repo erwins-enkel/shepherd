@@ -104,6 +104,8 @@ function fakeForge(
             prNumbers,
           }),
           addToStack: async () => {},
+          // #2070: the repair primitive is part of the surface — `forgeHasStacks` requires it.
+          unstack: async () => {},
         }
       : {}),
   };

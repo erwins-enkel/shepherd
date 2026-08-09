@@ -147,6 +147,16 @@ export interface DrainRepoState {
    *  that degrades to the default branch and the epic still progresses; it surfaces as an epic
    *  warning instead of a hold. */
   epicBaseUnavailable?: string | null;
+  /** #2070: sessions whose stacked epic-child PR may not merge yet — a layer BELOW it in the stack
+   *  has not landed. Merging a stack layer lands every layer beneath it, so only the bottom-most
+   *  unmerged layer may merge; the rest wait their turn.
+   *
+   *  The wait is expressed HERE, in the decision, rather than as a no-op inside the retire action:
+   *  `pumpStep` spends the pump's single retire attempt on whatever `retireDecision` names, so a
+   *  held layer that got selected would end the pump with no spawn and no other retire that tick —
+   *  starving a later-created chain's bottom layer, which is the one thing that could unblock it.
+   *  Empty for every non-stacked repo. */
+  stackHeldSessions?: ReadonlySet<string>;
 }
 
 /** True when this session's PR is ready to be retired / handed off for a human to merge.
@@ -230,7 +240,9 @@ function usageGuardsApply(state: DrainRepoState): boolean {
 function retireDecision(state: DrainRepoState): DrainDecision | null {
   const toRetire = state.autoSessions.find(
     (s) =>
-      !s.fullAuto && readyToRetire(s, state.criticEnabled, state.draftMode, state.signoffAuthority),
+      !s.fullAuto &&
+      !state.stackHeldSessions?.has(s.id) && // #2070: a stacked layer waiting for the one below it
+      readyToRetire(s, state.criticEnabled, state.draftMode, state.signoffAuthority),
   );
   return toRetire
     ? { kind: "retire", sessionId: toRetire.id, prNumber: toRetire.git!.number! }

@@ -86,6 +86,12 @@ function safeJsonArray(raw: string | null | undefined): string[] {
   return Array.isArray(v) ? v.filter((s): s is string => typeof s === "string") : [];
 }
 
+/** Tolerantly parse a persisted JSON array-of-issue-numbers column (#2070; never throws). */
+function parseStrandedChildren(raw: string | null | undefined): number[] {
+  const v = safeJsonParse<unknown>(raw, []);
+  return Array.isArray(v) ? v.filter((n): n is number => Number.isInteger(n)) : [];
+}
+
 const PERSISTED_GIT_KINDS = new Set<unknown>(["github", "gitea", "local"]);
 const PERSISTED_PR_STATES = new Set<unknown>(["none", "open", "merged", "closed"]);
 const PERSISTED_CHECK_STATES = new Set<unknown>(["none", "pending", "success", "failure"]);
@@ -1526,6 +1532,14 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       stackNumber INTEGER NOT NULL, prNumber INTEGER NOT NULL,
       baseBranch TEXT NOT NULL, position INTEGER NOT NULL, createdAt INTEGER NOT NULL,
       PRIMARY KEY (repoPath, parentIssueNumber, childNumber))`);
+    // #2070: a stack that lost a middle layer. GitHub has no reorder/drop-one API, so the repair is
+    // unstack-and-recreate: the drain dissolves the stack, DELETES its epic_stack rows and records
+    // this marker, which halts stacking for the epic and drives the blocking assembleEpic warning.
+    // `strandedJson` is the layers above the lost one — they, not the lost child, decide the clear.
+    this.db.run(`CREATE TABLE IF NOT EXISTS epic_stack_wedge (
+      repoPath TEXT NOT NULL, parentIssueNumber INTEGER NOT NULL, childNumber INTEGER NOT NULL,
+      stackNumber INTEGER NOT NULL, strandedJson TEXT NOT NULL, detectedAt INTEGER NOT NULL,
+      PRIMARY KEY (repoPath, parentIssueNumber, childNumber))`);
     // #1944: a DISPLAY-ONLY sidecar for transient-agent spawns that were clamped to fit the OS argv
     // budget, or refused outright. Deliberately NOT `plan_gates`/`reviews`: those are GATING rows,
     // and writing a synthetic `error` verdict there would wipe the findings the planning agent is
@@ -2137,6 +2151,74 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       baseBranch: string;
       position: number;
     }[];
+  }
+
+  /** Drop every recorded layer of one stack (#2070) — called after `unstack` dissolved it. A row
+   *  means "this PR is in this LIVE stack", so leaving them would keep the composition planner and
+   *  the retire gate believing in a stack that no longer exists. */
+  deleteEpicStack(repoPath: string, parentIssueNumber: number, stackNumber: number): void {
+    this.db.run(
+      `DELETE FROM epic_stack WHERE repoPath = ? AND parentIssueNumber = ? AND stackNumber = ?`,
+      [repoPath, parentIssueNumber, stackNumber],
+    );
+  }
+
+  // ── epic stack wedges (#2070) ─────────────────────────────────────────────
+  /** Record a dissolved stack: `childNumber` is the child whose layer PR was orphaned, `stranded`
+   *  the children whose layers sat above it. Idempotent (PK upsert). */
+  recordEpicStackWedge(
+    repoPath: string,
+    parentIssueNumber: number,
+    w: { childNumber: number; stackNumber: number; stranded: number[]; detectedAt: number },
+  ): void {
+    this.db.run(
+      `INSERT INTO epic_stack_wedge (repoPath, parentIssueNumber, childNumber, stackNumber, strandedJson, detectedAt)
+       VALUES (?,?,?,?,?,?)
+       ON CONFLICT DO UPDATE SET
+         stackNumber = excluded.stackNumber,
+         strandedJson = excluded.strandedJson`,
+      [
+        repoPath,
+        parentIssueNumber,
+        w.childNumber,
+        w.stackNumber,
+        JSON.stringify(w.stranded),
+        w.detectedAt,
+      ],
+    );
+  }
+
+  /** Every live wedge for one epic — halts stacking and feeds the blocking assembleEpic warning.
+   *  A row whose `strandedJson` is unparseable degrades to an empty list rather than throwing: the
+   *  warning then names no stranded children, which is worse copy but still a visible wedge. */
+  listEpicStackWedges(
+    repoPath: string,
+    parentIssueNumber: number,
+  ): { childNumber: number; stackNumber: number; stranded: number[] }[] {
+    return (
+      this.db
+        .query(
+          `SELECT childNumber, stackNumber, strandedJson FROM epic_stack_wedge
+           WHERE repoPath = ? AND parentIssueNumber = ? ORDER BY childNumber`,
+        )
+        .all(repoPath, parentIssueNumber) as {
+        childNumber: number;
+        stackNumber: number;
+        strandedJson: string;
+      }[]
+    ).map((r) => ({
+      childNumber: r.childNumber,
+      stackNumber: r.stackNumber,
+      stranded: parseStrandedChildren(r.strandedJson),
+    }));
+  }
+
+  /** Clear a wedge marker — every child stranded by it has resolved. */
+  clearEpicStackWedge(repoPath: string, parentIssueNumber: number, childNumber: number): void {
+    this.db.run(
+      `DELETE FROM epic_stack_wedge WHERE repoPath = ? AND parentIssueNumber = ? AND childNumber = ?`,
+      [repoPath, parentIssueNumber, childNumber],
+    );
   }
 
   /** Record a completed epic (all children done-in-epic). Idempotent upsert.

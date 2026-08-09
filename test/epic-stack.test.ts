@@ -1,13 +1,19 @@
 import { test, expect, describe } from "bun:test";
 import {
+  bottomMostUnmergedPr,
   buildStackSpawnPlan,
+  detectStackWedge,
   epicChildBaseOk,
   hasLiveStackedSuccessor,
   isStackedBase,
   liveChainSegment,
   planStackComposition,
+  stackRetireGate,
   stackRootedAtEpic,
+  wedgeCleared,
   type EpicStackMember,
+  type StrandedChildFact,
+  type WedgeChildFact,
 } from "../src/epic-stack";
 import { decomposeEpicChains } from "../src/epic-chains";
 import type { EpicChild } from "../src/epic-core";
@@ -330,5 +336,228 @@ describe("planStackComposition", () => {
         existing: new Map([[321, row(321, 11, 2)]]),
       }),
     ).toEqual({ kind: "none" });
+  });
+});
+
+// ── #2070: bottom-up retire + mid-stack loss ────────────────────────────────
+
+const layer = (
+  childNumber: number,
+  prNumber: number,
+  position: number,
+  stackNumber = 7,
+): EpicStackMember => ({ childNumber, prNumber, position, stackNumber });
+
+describe("stackRetireGate", () => {
+  const rows = [layer(320, 10, 1), layer(321, 11, 2), layer(322, 12, 3)];
+
+  test("a child with no recorded layer merges the old way", () => {
+    expect(stackRetireGate({ rows, childNumber: 999, integratedChildren: new Set() })).toEqual({
+      kind: "plain",
+    });
+  });
+
+  test("the bottom layer is confirmable", () => {
+    expect(stackRetireGate({ rows, childNumber: 320, integratedChildren: new Set() })).toEqual({
+      kind: "confirm",
+      stackNumber: 7,
+    });
+  });
+
+  test("a higher layer holds, naming the LOWEST unlanded layer below it", () => {
+    expect(stackRetireGate({ rows, childNumber: 322, integratedChildren: new Set() })).toEqual({
+      kind: "hold",
+      reason: "stack_layer_below_unmerged",
+      belowChild: 320,
+    });
+  });
+
+  test("the next layer becomes confirmable as the ones below land", () => {
+    expect(stackRetireGate({ rows, childNumber: 321, integratedChildren: new Set([320]) })).toEqual(
+      {
+        kind: "confirm",
+        stackNumber: 7,
+      },
+    );
+    expect(
+      stackRetireGate({ rows, childNumber: 322, integratedChildren: new Set([320, 321]) }),
+    ).toEqual({ kind: "confirm", stackNumber: 7 });
+  });
+
+  test("layers of a SIBLING stack never gate this one", () => {
+    const twoStacks = [...rows, layer(400, 40, 1, 9), layer(401, 41, 2, 9)];
+    expect(
+      stackRetireGate({ rows: twoStacks, childNumber: 401, integratedChildren: new Set([400]) }),
+    ).toEqual({ kind: "confirm", stackNumber: 9 });
+  });
+});
+
+describe("bottomMostUnmergedPr", () => {
+  test("skips the layers that already landed", () => {
+    expect(bottomMostUnmergedPr([10, 11, 12], new Set([10]))).toBe(11);
+  });
+
+  test("null once the whole stack has landed", () => {
+    expect(bottomMostUnmergedPr([10, 11], new Set([10, 11]))).toBeNull();
+  });
+
+  test("a stack PR belonging to no integrated child reads as unmerged (fail closed)", () => {
+    expect(bottomMostUnmergedPr([99, 10, 11], new Set([10, 11]))).toBe(99);
+  });
+});
+
+describe("detectStackWedge", () => {
+  const rows = [layer(320, 10, 1), layer(321, 11, 2), layer(322, 12, 3)];
+  const fact = (integrationMerged: boolean, prNumber: number | null): WedgeChildFact => ({
+    integrationMerged,
+    prNumber,
+  });
+  const healthy = new Map<number, WedgeChildFact>([
+    [320, fact(false, 10)],
+    [321, fact(false, 11)],
+    [322, fact(false, 12)],
+  ]);
+
+  test("a healthy stack is not a wedge", () => {
+    expect(detectStackWedge({ rows, facts: healthy, closedPrs: new Set() })).toBeNull();
+  });
+
+  test("a re-spawned middle child (new PR) wedges the layers above it", () => {
+    const facts = new Map(healthy);
+    facts.set(321, fact(false, 77)); // abandoned, re-spawned, opened a fresh PR
+    expect(detectStackWedge({ rows, facts, closedPrs: new Set() })).toEqual({
+      stackNumber: 7,
+      lostChild: 321,
+      stranded: [322],
+    });
+  });
+
+  test("a closed layer PR wedges even while the child keeps that PR", () => {
+    expect(detectStackWedge({ rows, facts: healthy, closedPrs: new Set([11]) })).toEqual({
+      stackNumber: 7,
+      lostChild: 321,
+      stranded: [322],
+    });
+  });
+
+  test("an unknown (null) live PR is never evidence — a restart must not unstack anything", () => {
+    const facts = new Map<number, WedgeChildFact>([
+      [320, fact(false, null)],
+      [321, fact(false, null)],
+      [322, fact(false, null)],
+    ]);
+    expect(detectStackWedge({ rows, facts, closedPrs: new Set() })).toBeNull();
+  });
+
+  test("an integrated layer is not lost, whatever the child's live PR now says", () => {
+    const facts = new Map(healthy);
+    facts.set(320, fact(true, 55)); // landed, then the issue got a new session/PR
+    expect(detectStackWedge({ rows, facts, closedPrs: new Set() })).toBeNull();
+  });
+
+  test("a dead TOP layer strands nobody", () => {
+    const facts = new Map(healthy);
+    facts.set(322, fact(false, 88));
+    expect(detectStackWedge({ rows, facts, closedPrs: new Set() })).toBeNull();
+  });
+
+  test("a dead top layer in one chain does not mask a real wedge in another", () => {
+    const twoStacks = [...rows, layer(400, 40, 1, 9), layer(401, 41, 2, 9)];
+    const facts = new Map(healthy);
+    facts.set(322, fact(false, 88)); // chain A: dead TOP layer, strands nobody
+    facts.set(400, fact(false, 40));
+    facts.set(401, fact(false, 99)); // chain B: dead layer, but nothing above it either
+    facts.set(321, fact(false, 77)); // chain A: the real wedge
+    expect(detectStackWedge({ rows: twoStacks, facts, closedPrs: new Set() })).toEqual({
+      stackNumber: 7,
+      lostChild: 321,
+      stranded: [322],
+    });
+  });
+
+  test("stranded skips layers that already landed", () => {
+    const facts = new Map(healthy);
+    facts.set(321, fact(false, 77));
+    facts.set(322, fact(true, 12));
+    expect(detectStackWedge({ rows, facts, closedPrs: new Set() })).toBeNull();
+  });
+});
+
+describe("wedgeCleared", () => {
+  const fact = (over: Partial<StrandedChildFact> = {}): StrandedChildFact => ({
+    integrationMerged: false,
+    issueClosed: false,
+    spawnBase: PRED_BRANCH,
+    ...over,
+  });
+
+  test("stays raised while a stranded child still sits on the dead branch", () => {
+    expect(
+      wedgeCleared({
+        stranded: [322],
+        facts: new Map([[322, fact()]]),
+        pinnedBranch: EPIC,
+      }),
+    ).toBe(false);
+  });
+
+  test("an abandoned stranded child (no live session) is resolved", () => {
+    expect(
+      wedgeCleared({
+        stranded: [322],
+        facts: new Map([[322, fact({ spawnBase: null })]]),
+        pinnedBranch: EPIC,
+      }),
+    ).toBe(true);
+  });
+
+  test("a stranded child re-spawned onto the epic branch is resolved", () => {
+    expect(
+      wedgeCleared({
+        stranded: [322],
+        facts: new Map([[322, fact({ spawnBase: EPIC })]]),
+        pinnedBranch: EPIC,
+      }),
+    ).toBe(true);
+  });
+
+  test("integrated or closed stranded children are resolved", () => {
+    expect(
+      wedgeCleared({
+        stranded: [322, 323],
+        facts: new Map([
+          [322, fact({ integrationMerged: true })],
+          [323, fact({ issueClosed: true })],
+        ]),
+        pinnedBranch: EPIC,
+      }),
+    ).toBe(true);
+  });
+
+  test("ALL stranded children must resolve, not just one", () => {
+    expect(
+      wedgeCleared({
+        stranded: [322, 323],
+        facts: new Map([
+          [322, fact({ integrationMerged: true })],
+          [323, fact()],
+        ]),
+        pinnedBranch: EPIC,
+      }),
+    ).toBe(false);
+  });
+
+  test("the lost child's own state is irrelevant — an issue-closure loss stays raised", () => {
+    // The loss was caused by #321's issue closing; only #322 (stranded) decides the clear.
+    expect(
+      wedgeCleared({
+        stranded: [322],
+        facts: new Map([
+          [321, fact({ issueClosed: true })],
+          [322, fact()],
+        ]),
+        pinnedBranch: EPIC,
+      }),
+    ).toBe(false);
   });
 });

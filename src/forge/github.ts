@@ -86,6 +86,21 @@ interface StackProbe {
   size?: number;
   /** Head SHA, passed to merge-async as the optimistic-concurrency guard. */
   sha?: string;
+  /** The stack's TRUNK — `stack.base.ref`, the branch the whole stack lands on. NOT the PR's
+   *  own `base.ref`, which for any layer above the bottom is the layer below it. Merging any
+   *  layer lands the stack on the trunk, so the trunk is what carries the rules that apply. */
+  stackBase?: string;
+}
+
+/** `stackBase` is interpolated straight into a `gh api` path, so — like {@link MERGE_UUID_RE} — it
+ *  is shape-checked first: a garbled or hostile ref would otherwise retarget the request at a
+ *  different endpoint. Checked per SLASH-SEPARATED SEGMENT rather than against the whole string,
+ *  because it is a `..` segment specifically that traverses; each segment must start with a word
+ *  character, which rules out `..`, `.`, and an empty segment in one move. Deliberately narrower
+ *  than git's ref grammar — a ref this rejects is treated as "we don't know the trunk", which
+ *  fails open to today's behaviour. */
+function isPathSafeRef(ref: string): boolean {
+  return ref.length <= 255 && ref.split("/").every((seg) => /^\w[\w.-]*$/.test(seg));
 }
 
 /** A merge-request uuid is interpolated straight into the `gh api` path, so it is validated
@@ -1703,7 +1718,9 @@ export class GithubForge implements GitForge {
     await this.run(args);
   }
 
-  /** Stack membership + head SHA in one REST call, narrowed with `--jq` so the payload stays small.
+  /** Stack membership, head SHA and the stack's trunk in one REST call, narrowed with `--jq` so
+   *  the payload stays small. The trunk rides along for free: `.stack` is taken wholesale and
+   *  GitHub puts `base: { ref, sha }` on it.
    *
    *  FAILS OPEN. A probe error (rate limit, transient 5xx) reports "unstacked", which routes the
    *  merge down the legacy path — i.e. precisely today's behaviour, so a probe failure can never
@@ -1718,7 +1735,7 @@ export class GithubForge implements GitForge {
         "{stack: .stack, sha: .head.sha}",
       ]);
       const p = JSON.parse(out || "{}") as {
-        stack?: { position?: number; size?: number } | null;
+        stack?: { position?: number; size?: number; base?: { ref?: string } | null } | null;
         sha?: string | null;
       };
       return {
@@ -1726,6 +1743,7 @@ export class GithubForge implements GitForge {
         position: p.stack?.position,
         size: p.stack?.size,
         sha: p.sha ?? undefined,
+        stackBase: p.stack?.base?.ref ?? undefined,
       };
     } catch (err) {
       console.warn(`[github] stack probe failed for pr#${prNumber}; assuming unstacked:`, err);
@@ -1757,21 +1775,56 @@ export class GithubForge implements GitForge {
     await this.pollMergeAsync(prNumber, uuid);
   }
 
+  /** Does the stack's trunk require a merge queue? A `merge_queue` rule there makes
+   *  `merge_method` illegal on the merge request (#2062), so the answer decides the PUT's shape.
+   *
+   *  FAILS OPEN, for the same reason {@link probeStack} does: an unknown answer keeps today's
+   *  request shape, so a flaky rules call can never be worse than not asking at all. An unknown
+   *  trunk is NOT substituted with the PR's own base — for a layer above the bottom that is the
+   *  layer below, and asking about it would answer a different question than the one that
+   *  matters. */
+  private async requiresMergeQueue(stackBase: string | undefined): Promise<boolean> {
+    if (!stackBase) return false;
+    if (!isPathSafeRef(stackBase)) {
+      console.warn(`[github] stack base ${JSON.stringify(stackBase)} is not a probeable ref`);
+      return false;
+    }
+    try {
+      const out = await this.run([
+        "api",
+        `repos/${this.slug}/rules/branches/${stackBase}`,
+        "--jq",
+        '[.[] | select(.type == "merge_queue")] | length',
+      ]);
+      return Number(out.trim()) > 0;
+    } catch (err) {
+      console.warn(`[github] merge-queue probe failed for ${stackBase}; assuming none:`, err);
+      return false;
+    }
+  }
+
   /** PUT the merge request. On a 409 ("a merge request is already in flight for this PR") the
    *  body still carries that request's uuid — adopt it so a retry JOINS the in-flight merge
-   *  instead of racing or erroring. Any other failure with no uuid to adopt is re-thrown. */
+   *  instead of racing or erroring. Any other failure with no uuid to adopt is re-thrown.
+   *
+   *  Under a required merge queue the host rejects `merge_method` outright, so the queue case
+   *  sends an explicit `merge_action=merge_queue` and no merge params at all — the queue's own
+   *  configured method governs. Explicit rather than implicit: were the probe ever wrong about
+   *  the trunk, this fails as a 422 at request time instead of merging under a method nobody
+   *  chose. Both shapes keep the `sha` guard. */
   private async putMergeAsync(
     prNumber: number,
     o: MergeInput,
     probe: StackProbe,
   ): Promise<MergeAsyncBody | null> {
+    const queued = await this.requiresMergeQueue(probe.stackBase);
     const args = [
       "api",
       "--method",
       "PUT",
       `repos/${this.slug}/pulls/${prNumber}/merge-async`,
       "-f",
-      `merge_method=${o.method}`,
+      queued ? "merge_action=merge_queue" : `merge_method=${o.method}`,
     ];
     // Optimistic-concurrency guard: the host rejects the merge if the head moved under us.
     if (probe.sha) args.push("-f", `sha=${probe.sha}`);

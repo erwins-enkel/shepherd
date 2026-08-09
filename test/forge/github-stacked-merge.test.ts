@@ -16,6 +16,11 @@ const UUID = "11111111-2222-3333-4444-555555555555";
 const PROBE = "repos/o/r/pulls/7 --jq";
 const PUT_PATH = "repos/o/r/pulls/7/merge-async";
 const POLL_PATH = `repos/o/r/pulls/7/merge-async/${UUID}`;
+/** The stack's trunk, and the layer directly below pr#7 — deliberately different names, so
+ *  "probed the trunk" and "probed the layer below" leave different evidence (#2062). */
+const TRUNK = "main";
+const PARENT = "b2-fail";
+const RULES = "rules/branches/";
 
 const noSleep = async (): Promise<void> => {};
 
@@ -44,8 +49,26 @@ function harness(routes: [match: string, reply: () => string][]) {
 }
 
 const unstackedProbe = (): string => JSON.stringify({ stack: null, sha: HEAD_SHA });
+/** pr#7 as a realistic MIDDLE layer: 2 of 3, sitting on `b2-fail`, stack rooted at `main`.
+ *
+ *  The top-level `base` is a deliberate TRAP, not a faithful copy of the projection — the probe's
+ *  `--jq` does not select it. It is here so that a regression which starts reading the PR's own
+ *  base instead of `stack.base.ref` probes `b2-fail`, which the assertions below catch. */
 const stackedProbe = (): string =>
+  JSON.stringify({
+    stack: { id: 9, number: 3, size: 3, position: 2, base: { ref: TRUNK, sha: "0ddba110000" } },
+    sha: HEAD_SHA,
+    base: PARENT,
+  });
+/** Same middle layer, but the host reported no trunk on the stack object. */
+const trunklessProbe = (): string =>
   JSON.stringify({ stack: { id: 9, number: 3, size: 3, position: 2 }, sha: HEAD_SHA });
+
+/** The `-f` values of the merge-async PUT, which is what #2062 is about. */
+const putFields = (calls: string[][]): string[] => {
+  const put = calls.find((c) => c.includes(PUT_PATH)) ?? [];
+  return put.filter((_, i) => put[i - 1] === "-f");
+};
 
 test("merge: unstacked PR takes the legacy `gh pr merge` path, untouched (#2059)", async () => {
   const { forge, calls, joined } = harness([[PROBE, unstackedProbe]]);
@@ -321,4 +344,100 @@ test("merge: a malformed uuid is never interpolated into the API path", async ()
   expect(joined().some((c) => c.includes("pulls/1/merge"))).toBe(false);
   // The PUT is the only merge-async traffic — nothing was polled at all.
   expect(joined().filter((c) => c.includes("merge-async")).length).toBe(1);
+});
+
+// #2062 — a required merge queue rejects `merge_method`. The rule lives on the stack's TRUNK,
+// because merging any layer lands the whole stack there; the layer this PR directly targets is
+// irrelevant. `harness` matches routes by substring, so a `rules/branches/` stub answers for ANY
+// branch — these tests must therefore assert the exact path probed, not merely that one was.
+
+test("merge: a merge-queue trunk drops merge_method and enqueues (#2062)", async () => {
+  const { forge, calls, joined } = harness([
+    [PROBE, stackedProbe],
+    [RULES, () => "1"], // one `merge_queue` rule applies to the trunk
+    [PUT_PATH, () => JSON.stringify({ status: "enqueued", details: { uuid: UUID } })],
+  ]);
+
+  const err = await forge
+    .merge(7, { method: "squash", deleteBranch: true, allowStacked: true })
+    .catch((e: unknown) => e);
+
+  // The trunk was probed — NOT `b2-fail`, the layer pr#7 actually bases on.
+  expect(calls.find((c) => c.some((a) => a.includes(RULES)))?.[1]).toBe(
+    `repos/o/r/${RULES}${TRUNK}`,
+  );
+  expect(joined().some((c) => c.includes(PARENT))).toBe(false);
+  // The whole point: an explicit queue action, and no merge params for the queue to reject.
+  expect(putFields(calls)).toEqual(["merge_action=merge_queue", `sha=${HEAD_SHA}`]);
+  expect(err).toBeInstanceOf(MergeEnqueuedError);
+  expect((err as MergeEnqueuedError).code).toBe("merge_enqueued");
+});
+
+test("merge: a trunk with other rules but no merge queue keeps merge_method (#2062)", async () => {
+  const { forge, calls } = harness([
+    [PROBE, stackedProbe],
+    [RULES, () => "0"], // required_status_checks, pull_request, … — but no merge_queue
+    [POLL_PATH, () => JSON.stringify({ status: "merged" })],
+    [PUT_PATH, () => JSON.stringify({ status: "pending", details: { uuid: UUID } })],
+  ]);
+
+  await forge.merge(7, { method: "squash", deleteBranch: true, allowStacked: true });
+
+  expect(putFields(calls)).toEqual(["merge_method=squash", `sha=${HEAD_SHA}`]);
+});
+
+test("merge: a failed merge-queue probe falls open to today's request shape (#2062)", async () => {
+  const { forge, calls } = harness([
+    [PROBE, stackedProbe],
+    [
+      RULES,
+      () => {
+        throw new Error("HTTP 503: upstream unavailable");
+      },
+    ],
+    [POLL_PATH, () => JSON.stringify({ status: "merged" })],
+    [PUT_PATH, () => JSON.stringify({ status: "pending", details: { uuid: UUID } })],
+  ]);
+
+  // Fails open: the merge still happens, exactly as it does today.
+  await forge.merge(7, { method: "squash", deleteBranch: true, allowStacked: true });
+
+  expect(putFields(calls)).toEqual(["merge_method=squash", `sha=${HEAD_SHA}`]);
+});
+
+test("merge: no trunk on the stack object probes nothing — never the layer below (#2062)", async () => {
+  const { forge, calls, joined } = harness([
+    [PROBE, trunklessProbe],
+    [RULES, () => "1"], // would report a queue if anything asked
+    [POLL_PATH, () => JSON.stringify({ status: "merged" })],
+    [PUT_PATH, () => JSON.stringify({ status: "pending", details: { uuid: UUID } })],
+  ]);
+
+  await forge.merge(7, { method: "squash", deleteBranch: true, allowStacked: true });
+
+  expect(joined().some((c) => c.includes(RULES))).toBe(false);
+  expect(putFields(calls)).toEqual(["merge_method=squash", `sha=${HEAD_SHA}`]);
+});
+
+test("merge: a malformed trunk ref is never interpolated into the API path (#2062)", async () => {
+  const { forge, calls, joined } = harness([
+    [
+      PROBE,
+      () =>
+        JSON.stringify({
+          stack: { size: 3, position: 2, base: { ref: "../../pulls/1/merge" } },
+          sha: HEAD_SHA,
+        }),
+    ],
+    [RULES, () => "1"],
+    [POLL_PATH, () => JSON.stringify({ status: "merged" })],
+    [PUT_PATH, () => JSON.stringify({ status: "pending", details: { uuid: UUID } })],
+  ]);
+
+  await forge.merge(7, { method: "squash", deleteBranch: true, allowStacked: true });
+
+  // Traversal would show up as a GET on the retargeted path; the guard makes it "no trunk".
+  expect(joined().some((c) => c.includes(RULES))).toBe(false);
+  expect(joined().some((c) => c.includes("pulls/1/merge"))).toBe(false);
+  expect(putFields(calls)).toEqual(["merge_method=squash", `sha=${HEAD_SHA}`]);
 });

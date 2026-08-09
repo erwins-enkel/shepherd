@@ -148,6 +148,7 @@ test("repo config autopilotEnabled defaults off and round-trips", () => {
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
+    epicStacksEnabled: false,
     hidden: false,
   });
   expect(store.getRepoConfig("/repo").autopilotEnabled).toBe(true);

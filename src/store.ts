@@ -441,6 +441,11 @@ export interface RepoConfig {
   /** Pre-warm epic landing CI by opening the landing PR as an early draft during the drain
    *  (#1664). Default OFF — explicit opt-in. */
   preWarmEpicLandingCi: boolean;
+  /** Stack epic children onto their chain predecessor's PR branch instead of waiting for it to
+   *  merge (#2069, epic #2063). GitHub-only (the stacked-PR API is a GitHub preview). Default
+   *  OFF — an autonomous retire cannot merge a stacked PR until #2070 lands, so enabling this
+   *  before then stalls the epic. */
+  epicStacksEnabled: boolean;
   /** Hidden from the Backlog repos panel (list-only declutter; never affects sessions/drain).
    *  Default OFF. */
   hidden: boolean;
@@ -804,6 +809,7 @@ type RepoCfgRow = {
   autoOptimizeFlagged: number;
   manualStepsIssueEnabled: number;
   preWarmEpicLandingCi: number;
+  epicStacksEnabled: number;
   hidden: number;
   previewStartScript: string | null;
   previewStartCommand: string | null;
@@ -979,6 +985,7 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
       autoOptimizeFlagged: false,
       manualStepsIssueEnabled: false,
       preWarmEpicLandingCi: false,
+      epicStacksEnabled: false,
       hidden: false,
       previewStartScript: null,
       previewStartCommand: null,
@@ -1009,6 +1016,7 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
     autoOptimizeFlagged: !!r.autoOptimizeFlagged,
     manualStepsIssueEnabled: !!r.manualStepsIssueEnabled,
     preWarmEpicLandingCi: !!r.preWarmEpicLandingCi,
+    epicStacksEnabled: !!r.epicStacksEnabled,
     hidden: !!r.hidden,
     previewStartScript: r.previewStartScript ?? null,
     previewStartCommand: r.previewStartCommand ?? null,
@@ -1042,6 +1050,7 @@ function repoConfigParams(repoPath: string, cfg: RepoConfig): SQLQueryBindings[]
     Number(Boolean(cfg.autoOptimizeFlagged)),
     Number(Boolean(cfg.manualStepsIssueEnabled)),
     Number(Boolean(cfg.preWarmEpicLandingCi)),
+    Number(Boolean(cfg.epicStacksEnabled)),
     Number(Boolean(cfg.hidden)),
     cfg.previewStartScript ?? null,
     cfg.previewStartCommand ?? null,
@@ -1508,6 +1517,15 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       repoPath TEXT NOT NULL, parentIssueNumber INTEGER NOT NULL, childNumber INTEGER NOT NULL,
       actualBase TEXT NOT NULL, prNumber INTEGER, checkedAt INTEGER NOT NULL,
       PRIMARY KEY (repoPath, parentIssueNumber, childNumber))`);
+    // #2069: one row per epic child whose PR Shepherd linked into a GitHub stack — the memo that
+    // makes the composition pass idempotent across ticks and restarts. Keyed like its
+    // `epic_integrated` sibling and, like every other epic_* table, never pruned: rows are bounded
+    // by children-per-epic and there is no epic teardown path in this store to hang one off.
+    this.db.run(`CREATE TABLE IF NOT EXISTS epic_stack (
+      repoPath TEXT NOT NULL, parentIssueNumber INTEGER NOT NULL, childNumber INTEGER NOT NULL,
+      stackNumber INTEGER NOT NULL, prNumber INTEGER NOT NULL,
+      baseBranch TEXT NOT NULL, position INTEGER NOT NULL, createdAt INTEGER NOT NULL,
+      PRIMARY KEY (repoPath, parentIssueNumber, childNumber))`);
     // #1944: a DISPLAY-ONLY sidecar for transient-agent spawns that were clamped to fit the OS argv
     // budget, or refused outright. Deliberately NOT `plan_gates`/`reviews`: those are GATING rows,
     // and writing a synthetic `error` verdict there would wipe the findings the planning agent is
@@ -1672,7 +1690,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         `SELECT criticEnabled, criticAllPrs, criticSmellLensEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled, planGateEnabled,
                 autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
                 maxAuto, autoLabel, usageCeilingPct, sandboxProfile, defaultModel, defaultEffort, egressExtraHosts, repoMode,
-                autoOptimizeFlagged, manualStepsIssueEnabled, preWarmEpicLandingCi, hidden, previewStartScript, previewStartCommand, previewOpenMode
+                autoOptimizeFlagged, manualStepsIssueEnabled, preWarmEpicLandingCi, epicStacksEnabled, hidden, previewStartScript, previewStartCommand, previewOpenMode
          FROM repo_config WHERE repoPath = ?`,
       )
       .get(repoPath) as RepoCfgRow | null;
@@ -1685,8 +1703,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
          (repoPath, criticEnabled, criticAllPrs, criticSmellLensEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled, planGateEnabled,
           autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
           maxAuto, autoLabel, usageCeilingPct, sandboxProfile, defaultModel, defaultEffort, egressExtraHosts, repoMode,
-          autoOptimizeFlagged, manualStepsIssueEnabled, preWarmEpicLandingCi, hidden, previewStartScript, previewStartCommand, previewOpenMode, updatedAt)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+          autoOptimizeFlagged, manualStepsIssueEnabled, preWarmEpicLandingCi, epicStacksEnabled, hidden, previewStartScript, previewStartCommand, previewOpenMode, updatedAt)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(repoPath) DO UPDATE SET criticEnabled = excluded.criticEnabled,
          criticAllPrs = excluded.criticAllPrs,
          criticSmellLensEnabled = excluded.criticSmellLensEnabled,
@@ -1710,6 +1728,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
          autoOptimizeFlagged = excluded.autoOptimizeFlagged,
          manualStepsIssueEnabled = excluded.manualStepsIssueEnabled,
          preWarmEpicLandingCi = excluded.preWarmEpicLandingCi,
+         epicStacksEnabled = excluded.epicStacksEnabled,
          hidden = excluded.hidden,
          previewStartScript = excluded.previewStartScript,
          previewStartCommand = excluded.previewStartCommand,
@@ -2057,6 +2076,66 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       childNumber: number;
       actualBase: string;
       prNumber: number | null;
+    }[];
+  }
+
+  // ── epic stack membership (#2069) ─────────────────────────────────────────
+  /** Record that a child's PR is a member of the epic's GitHub stack. Idempotent (PK upsert) so a
+   *  re-observed composition never duplicates a layer; `createdAt` is never overwritten. */
+  recordEpicStackMember(
+    repoPath: string,
+    parentIssueNumber: number,
+    m: {
+      childNumber: number;
+      stackNumber: number;
+      prNumber: number;
+      baseBranch: string;
+      position: number;
+    },
+  ): void {
+    this.db.run(
+      `INSERT INTO epic_stack (repoPath, parentIssueNumber, childNumber, stackNumber, prNumber, baseBranch, position, createdAt)
+       VALUES (?,?,?,?,?,?,?,?)
+       ON CONFLICT DO UPDATE SET
+         stackNumber = excluded.stackNumber,
+         prNumber = excluded.prNumber,
+         baseBranch = excluded.baseBranch,
+         position = excluded.position`,
+      [
+        repoPath,
+        parentIssueNumber,
+        m.childNumber,
+        m.stackNumber,
+        m.prNumber,
+        m.baseBranch,
+        m.position,
+        Date.now(),
+      ],
+    );
+  }
+
+  /** The epic's recorded stack layers, bottom → top. */
+  listEpicStack(
+    repoPath: string,
+    parentIssueNumber: number,
+  ): {
+    childNumber: number;
+    stackNumber: number;
+    prNumber: number;
+    baseBranch: string;
+    position: number;
+  }[] {
+    return this.db
+      .query(
+        `SELECT childNumber, stackNumber, prNumber, baseBranch, position FROM epic_stack
+         WHERE repoPath = ? AND parentIssueNumber = ? ORDER BY position`,
+      )
+      .all(repoPath, parentIssueNumber) as {
+      childNumber: number;
+      stackNumber: number;
+      prNumber: number;
+      baseBranch: string;
+      position: number;
     }[];
   }
 
@@ -4190,6 +4269,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     add("manualStepsIssueEnabled", `manualStepsIssueEnabled INTEGER NOT NULL DEFAULT 0`);
     // default OFF — opt-in; pre-warm epic landing CI via an early draft landing PR (#1664)
     add("preWarmEpicLandingCi", `preWarmEpicLandingCi INTEGER NOT NULL DEFAULT 0`);
+    // default OFF — opt-in; stack epic children onto their predecessor's PR branch (#2069)
+    add("epicStacksEnabled", `epicStacksEnabled INTEGER NOT NULL DEFAULT 0`);
     // Hidden from the Backlog repos panel (list-only declutter). Default OFF.
     add("hidden", `hidden INTEGER NOT NULL DEFAULT 0`);
     // Local preview launcher metadata. Nullable: absent until first successful script setup.

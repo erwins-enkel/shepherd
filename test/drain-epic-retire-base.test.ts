@@ -8,6 +8,8 @@ import type {
   MergeMethod,
   PrReviewMeta,
   PrStatus,
+  StackInfo,
+  SubIssueRef,
 } from "../src/forge/types";
 import { EMPTY_BACKLOG_COUNTS } from "../src/forge/types";
 import type { StandardCreateInput, ReviewDecision, Session } from "../src/types";
@@ -36,12 +38,20 @@ const NO_USAGE: UsageLimitsType = {
 interface ForgeRec {
   merges: { prNumber: number; method: MergeMethod; deleteBranch: boolean }[];
   reviewMetaCalls: number;
+  /** #2069: PRs the gate asked the host to resolve a stack for. */
+  stackReads: number[];
 }
 
-function fakeForge(
-  rec: ForgeRec,
-  opts: { baseRefName?: string; withReviewMeta?: boolean } = {},
-): GitForge {
+interface ForgeOpts {
+  baseRefName?: string;
+  withReviewMeta?: boolean;
+  /** #2069: the stack the host reports for a PR (null ⇒ unstacked). Omit ⇒ no stack surface. */
+  stackForPr?: (prNumber: number) => StackInfo | null;
+  subIssues?: SubIssueRef[];
+  blockedBy?: (issueNumber: number) => number[];
+}
+
+function fakeForge(rec: ForgeRec, opts: ForgeOpts = {}): GitForge {
   const withReviewMeta = opts.withReviewMeta ?? true;
   const f: GitForge = {
     kind: "github",
@@ -75,9 +85,17 @@ function fakeForge(
             assignees: [],
           }
         : null,
-    listSubIssues: async () => [],
-    listBlockedBy: async () => [],
+    listSubIssues: async () => opts.subIssues ?? [],
+    listBlockedBy: async (n: number) => opts.blockedBy?.(n) ?? [],
   };
+  if (opts.stackForPr) {
+    f.stackForPr = async (prNumber: number) => {
+      rec.stackReads.push(prNumber);
+      return opts.stackForPr!(prNumber);
+    };
+    f.createStack = async (prNumbers: number[]) => ({ number: 7, baseRef: EPIC_BRANCH, prNumbers });
+    f.addToStack = async () => {};
+  }
   if (withReviewMeta) {
     f.prReviewMeta = async (): Promise<PrReviewMeta> => {
       rec.reviewMetaCalls++;
@@ -102,7 +120,7 @@ interface Harness {
 }
 
 function makeHarness(
-  opts: { baseRefName?: string; withReviewMeta?: boolean; now?: () => number } = {},
+  opts: ForgeOpts & { now?: () => number; epicStacksEnabled?: boolean } = {},
 ): Harness {
   const store = new SessionStore(":memory:");
   store.setRepoConfig(REPO, {
@@ -130,6 +148,7 @@ function makeHarness(
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
+    epicStacksEnabled: opts.epicStacksEnabled ?? false,
     hidden: false,
   });
   store.setEpicRun({
@@ -139,11 +158,8 @@ function makeHarness(
     status: "running",
   });
 
-  const forgeRec: ForgeRec = { merges: [], reviewMetaCalls: 0 };
-  const forge = fakeForge(forgeRec, {
-    baseRefName: opts.baseRefName,
-    withReviewMeta: opts.withReviewMeta,
-  });
+  const forgeRec: ForgeRec = { merges: [], reviewMetaCalls: 0, stackReads: [] };
+  const forge = fakeForge(forgeRec, opts);
 
   const prCache: Record<string, GitState> = {};
   const reviews: Record<string, { decision: ReviewDecision; headSha: string }> = {};
@@ -214,7 +230,11 @@ function openGreen(number: number): GitState {
   };
 }
 
-function seedReadyChild(h: Harness, baseBranch: string): Session {
+/** `epicParent` is the persisted epic-child identity (#2067). A child based on the epic branch
+ *  reads as one from the branch name alone (the legacy fallback), but a STACKED child is based on
+ *  a sibling's branch, so it only reads as an epic child via the stamp — exactly as
+ *  `resolveSpawnBase` writes it. */
+function seedReadyChild(h: Harness, baseBranch: string, epicParent?: number): Session {
   const s = h.store.create({
     name: "auto",
     prompt: "p",
@@ -227,6 +247,7 @@ function seedReadyChild(h: Harness, baseBranch: string): Session {
     herdrAgentId: "t",
     auto: true,
     issueNumber: CHILD,
+    ...(epicParent !== undefined ? { epicParent } : {}),
   });
   h.prCache[s.id] = openGreen(PR);
   h.setReview(s.id, "commented", `sha-${PR}`);
@@ -311,6 +332,181 @@ describe("epic child retire → PR base enforcement (#645 Task 2)", () => {
   });
 });
 
+// ── #2069: the base gate reads the STACK TRUNK, not the PR's direct base ────────────────────────
+//
+// Once a child can be based on a SIBLING's head branch, plain base equality stops being a safe
+// accept: an uncomposed stacked child has actual === session base === the sibling's branch, and
+// merging it would squash it into that sibling's branch. Membership in a stack rooted at the
+// pinned epic branch is the only accept for such a child — and it is also what survives GitHub's
+// auto-restack, which re-targets a layer to the trunk the moment the layer below it merges.
+
+describe("#2069 stacked epic child → base gate", () => {
+  const LOWER_BRANCH = "shepherd/auto-319";
+  const stackOn =
+    (baseRef: string): ForgeOpts["stackForPr"] =>
+    () => ({
+      number: 7,
+      baseRef,
+      prNumbers: [900, PR],
+    });
+
+  test("auto-restacked child: PR now targets the trunk, stack is rooted at the epic branch → merges", async () => {
+    const h = makeHarness({
+      epicStacksEnabled: true,
+      baseRefName: EPIC_BRANCH, // GitHub re-targeted it when the predecessor merged
+      stackForPr: stackOn(EPIC_BRANCH),
+    });
+    const s = seedReadyChild(h, LOWER_BRANCH, PARENT); // session still records the predecessor's branch
+
+    await h.drain.pump(REPO);
+
+    expect(h.forgeRec.stackReads).toEqual([PR]);
+    expect(h.forgeRec.merges).toEqual([{ prNumber: PR, method: "squash", deleteBranch: true }]);
+    expect([...h.store.listEpicIntegrated(REPO, PARENT)]).toContain(CHILD);
+    expect(h.store.getEpicBaseMismatch(REPO, PARENT, CHILD)).toBeNull();
+    expect(h.store.get(s.id)?.status).toBe("archived");
+  });
+
+  test("UNCOMPOSED stacked child fails closed — never squash-merged into its sibling's branch", async () => {
+    const h = makeHarness({
+      epicStacksEnabled: true,
+      baseRefName: LOWER_BRANCH, // matches the session base exactly — the old rule would accept
+      stackForPr: () => null, // composition refused / has not run
+    });
+    const s = seedReadyChild(h, LOWER_BRANCH, PARENT);
+
+    await h.drain.pump(REPO);
+
+    expect(h.forgeRec.merges).toHaveLength(0);
+    expect([...h.store.listEpicIntegrated(REPO, PARENT)]).not.toContain(CHILD);
+    expect(h.store.get(s.id)?.status).not.toBe("archived");
+    expect(h.store.getEpicBaseMismatch(REPO, PARENT, CHILD)?.actualBase).toBe(LOWER_BRANCH);
+  });
+
+  test("a stack rooted somewhere other than the epic branch is not an accept", async () => {
+    const h = makeHarness({
+      epicStacksEnabled: true,
+      baseRefName: LOWER_BRANCH,
+      stackForPr: stackOn("main"),
+    });
+    seedReadyChild(h, LOWER_BRANCH, PARENT);
+
+    await h.drain.pump(REPO);
+
+    expect(h.forgeRec.merges).toHaveLength(0);
+    expect(h.store.getEpicBaseMismatch(REPO, PARENT, CHILD)).not.toBeNull();
+  });
+
+  test("a genuine mismatch on an ordinary child still fails closed, with no stack read wasted", async () => {
+    const h = makeHarness({
+      epicStacksEnabled: true,
+      baseRefName: "main",
+      stackForPr: () => null,
+    });
+    seedReadyChild(h, EPIC_BRANCH);
+
+    await h.drain.pump(REPO);
+
+    expect(h.forgeRec.merges).toHaveLength(0);
+    expect(h.store.getEpicBaseMismatch(REPO, PARENT, CHILD)?.actualBase).toBe("main");
+  });
+
+  test("flag OFF: the host is never asked about stacks, and the healthy path is untouched", async () => {
+    const h = makeHarness({
+      epicStacksEnabled: false,
+      baseRefName: EPIC_BRANCH,
+      stackForPr: stackOn(EPIC_BRANCH),
+    });
+    seedReadyChild(h, EPIC_BRANCH);
+
+    await h.drain.pump(REPO);
+
+    expect(h.forgeRec.stackReads).toHaveLength(0);
+    expect(h.forgeRec.merges).toEqual([{ prNumber: PR, method: "squash", deleteBranch: true }]);
+  });
+
+  test("the healthy unstacked case reads no stack even with the flag ON", async () => {
+    const h = makeHarness({
+      epicStacksEnabled: true,
+      baseRefName: EPIC_BRANCH,
+      stackForPr: stackOn(EPIC_BRANCH),
+    });
+    seedReadyChild(h, EPIC_BRANCH);
+
+    await h.drain.pump(REPO);
+
+    expect(h.forgeRec.stackReads).toHaveLength(0);
+    expect(h.forgeRec.merges).toHaveLength(1);
+  });
+});
+
+// ── #2069: a predecessor's merge must not delete the branch its successor sits on ────────────────
+//
+// A successor that has spawned but not yet opened its PR cannot be a stack member (createStack
+// needs two PRs), so the predecessor's retire takes the ORDINARY merge path — which deletes the
+// head branch. That is the branch `gh pr create --base <branch>` needs.
+
+describe("#2069 predecessor retire keeps a live successor's base branch", () => {
+  const UPPER = CHILD + 1;
+  const subIssues: SubIssueRef[] = [
+    { number: CHILD, title: "lower", url: "u1", body: "", closed: false, labels: [] },
+    { number: UPPER, title: "upper", url: "u2", body: "", closed: false, labels: [] },
+  ];
+  const epicShape = {
+    subIssues,
+    blockedBy: (n: number) => (n === UPPER ? [CHILD] : []),
+    baseRefName: EPIC_BRANCH,
+  };
+
+  /** The successor as the drain sees it: spawned onto the predecessor's branch, no PR yet. */
+  function seedSuccessor(h: Harness): void {
+    h.store.create({
+      name: "auto",
+      prompt: "p",
+      repoPath: REPO,
+      baseBranch: `shepherd/auto-${CHILD}`,
+      branch: `shepherd/auto-${UPPER}`,
+      worktreePath: "/wt",
+      isolated: true,
+      herdrSession: "default",
+      herdrAgentId: "t",
+      auto: true,
+      issueNumber: UPPER,
+      epicParent: PARENT,
+    });
+  }
+
+  test("live stacked successor ⇒ merged WITHOUT deleteBranch", async () => {
+    const h = makeHarness({ ...epicShape, epicStacksEnabled: true });
+    seedReadyChild(h, EPIC_BRANCH);
+    seedSuccessor(h);
+
+    await h.drain.pump(REPO);
+
+    expect(h.forgeRec.merges).toEqual([{ prNumber: PR, method: "squash", deleteBranch: false }]);
+    expect([...h.store.listEpicIntegrated(REPO, PARENT)]).toContain(CHILD);
+  });
+
+  test("no successor spawned yet ⇒ ordinary post-merge branch hygiene", async () => {
+    const h = makeHarness({ ...epicShape, epicStacksEnabled: true });
+    seedReadyChild(h, EPIC_BRANCH);
+
+    await h.drain.pump(REPO);
+
+    expect(h.forgeRec.merges).toEqual([{ prNumber: PR, method: "squash", deleteBranch: true }]);
+  });
+
+  test("flag OFF ⇒ branch deleted as before, even with a live successor", async () => {
+    const h = makeHarness({ ...epicShape, epicStacksEnabled: false });
+    seedReadyChild(h, EPIC_BRANCH);
+    seedSuccessor(h);
+
+    await h.drain.pump(REPO);
+
+    expect(h.forgeRec.merges).toEqual([{ prNumber: PR, method: "squash", deleteBranch: true }]);
+  });
+});
+
 // Self-heal (#645 final review): a base-mismatch marker for a child resolved out-of-band — its PR
 // merged into the default branch (issue closed) OR shepherd-integrated — never re-enters doRetire,
 // so buildEpic must clear the now-orphaned marker (and drop its "epic blocked until fixed" warning).
@@ -339,7 +535,7 @@ describe("epic base-mismatch marker self-heal on buildEpic (#645)", () => {
       labels: [] as string[],
     });
     const forge: GitForge = {
-      ...fakeForge({ merges: [], reviewMetaCalls: 0 }),
+      ...fakeForge({ merges: [], reviewMetaCalls: 0, stackReads: [] }),
       getIssue: async (n: number): Promise<Issue | null> =>
         n === PARENT
           ? {

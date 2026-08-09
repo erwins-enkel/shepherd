@@ -1,4 +1,4 @@
-import type { SessionStore } from "./store";
+import type { RepoConfig, SessionStore } from "./store";
 import type { GitForge, GitState, Issue, PrStatus, SubIssueRef } from "./forge/types";
 import type { CreateSessionInput, Session, SessionArchiveReason } from "./types";
 import type { SessionStateChange } from "./session-snapshot";
@@ -21,7 +21,20 @@ import {
   isEpicChild,
   branchReferencesEpic,
 } from "./epic-branch";
-import { selectEpicCandidates, type Epic, type EpicRun } from "./epic-core";
+import { selectEpicCandidates, type Epic, type EpicRun, type EpicStackContext } from "./epic-core";
+import { decomposeEpicChains } from "./epic-chains";
+import {
+  buildStackSpawnPlan,
+  epicChildBaseOk,
+  hasLiveStackedSuccessor,
+  isStackedBase,
+  liveChainSegment,
+  planStackComposition,
+  stackRootedAtEpic,
+  type EpicStackMember,
+  type StackComposition,
+  type StackPredecessorFact,
+} from "./epic-stack";
 import { detectMigrationPaths } from "./epic-migrations";
 import {
   anyLiveRepairSession,
@@ -35,7 +48,12 @@ import { buildLandingPrTitle, buildLandingPrBody } from "./epic-landing";
 import { parseEpicBody } from "./epic-parse";
 import { diagnoseEpic, type EpicDiagnosis } from "./epic-diagnosis";
 import { repoHasNoCiCached } from "./checks-gate";
-import { EmptyDiffError, MergeEnqueuedError, MergePendingError } from "./forge/types";
+import {
+  EmptyDiffError,
+  MergeEnqueuedError,
+  MergePendingError,
+  type StackInfo,
+} from "./forge/types";
 import { mapBounded } from "./map-bounded";
 import { config } from "./config";
 import { rebaseLandingBranch, isUnionDriverRegistered } from "./landing-rebase";
@@ -50,6 +68,11 @@ const EPIC_BLOCKED_BY_CONCURRENCY = 8;
  *  scan is an advisory divergence warning, not gating — a 5-minute staleness is harmless and
  *  keeps `gh api matching-refs` off the per-pump hot path. */
 const EPIC_BRANCH_SCAN_TTL_MS = 5 * 60_000;
+
+/** #2069: re-run the stack-composition pass for one epic at most this often. Composition only has
+ *  work to do when a child PR has just opened, so a per-tick re-read of the host's stack state
+ *  would be pure overhead; each pass takes at most one step anyway. */
+const EPIC_STACK_COMPOSE_TTL_MS = 60_000;
 
 /** #790: after a drain spawn for an issue fails (e.g. worktree isolation aborted), back off
  *  re-attempting that issue for this long. Without it, abort + the ~30s tick would loop
@@ -140,7 +163,7 @@ import {
   type SandboxBackend,
 } from "./sandbox";
 import { detectEgressBackend, type EgressBackend } from "./egress";
-import { epicBaseDirective } from "./autopilot";
+import { epicBaseDirective, epicStackedBaseDirective } from "./autopilot";
 
 /** #1071: After this many consecutive driver-absent / driver-broken results without a successful
  *  rebase, escalate to the operator (pauseReason='driver'). Keeps a persistently-misconfigured
@@ -205,6 +228,8 @@ export interface DrainDeps {
     | "setEpicLandingRebaseState"
     | "setEpicLandingRepairCount"
     | "setEpicMigrationPaths"
+    | "recordEpicStackMember"
+    | "listEpicStack"
     | "recordEpicBaseMismatch"
     | "clearEpicBaseMismatch"
     | "getEpicBaseMismatch"
@@ -261,6 +286,29 @@ export interface DrainDeps {
   notify?: (input: NotifyInput) => Promise<boolean> | void;
 }
 
+/** A forge that implements the whole stacked-PR surface (#2068). */
+type StackForge = GitForge & Required<Pick<GitForge, "stackForPr" | "createStack" | "addToStack">>;
+
+/** Does this forge expose that surface? Branches on the METHODS, never on `kind`: Gitea/Local omit
+ *  them, and a future adapter may add them. Narrows, so the composition helpers can call the three
+ *  methods without re-asserting each one. */
+function forgeHasStacks(forge: GitForge | null): forge is StackForge {
+  return !!forge?.stackForPr && !!forge.createStack && !!forge.addToStack;
+}
+
+/** Everything the #2069 composition helpers need about the epic they are composing, assembled once
+ *  per pass so each helper stays a thin forge call + row write. */
+interface StackComposeCtx {
+  repoPath: string;
+  parent: number;
+  /** The epic's pinned integration branch — the trunk every stack of this epic must have. */
+  pinned: string;
+  /** PR number → the epic child it belongs to (live children only). */
+  childByPr: Map<number, number>;
+  /** child # → the base its session was spawned on, recorded on the stack row. */
+  baseByChild: Map<number, string>;
+}
+
 /**
  * Side-effect harness for the self-draining work queue. It assembles a
  * {@link DrainRepoState} per repo, calls the pure {@link computeNext} core, and
@@ -312,6 +360,11 @@ export class DrainService {
   // refreshed at most every EPIC_BRANCH_SCAN_TTL_MS. In-memory only (ephemeral advisory warning;
   // recomputing on restart is fine — no persisted column).
   private epicBranchScanCache = new Map<string, { at: number; divergent: string[] }>();
+  // #2069: `${repoPath}#${parentIssueNumber}` → last stack-composition pass, plus its in-flight
+  // guard (the pass is a read-modify-write across awaits, and tick() has no re-entrancy lock).
+  // In-memory on purpose: a restart composes on the next tick and the pass is idempotent.
+  private epicStackComposedAt = new Map<string, number>();
+  private epicStackInFlight = new Set<string>();
   private lastEpicSig = new Map<string, string>();
   // #1401: `${repoPath}#${parentIssueNumber}` → last reconcile-sweep timestamp. In-memory on
   // purpose: a restart sweeps immediately (deploy ⇒ a pre-existing stall self-heals within one
@@ -700,6 +753,7 @@ export class DrainService {
     let epicParent: number | null = null;
     let epicIntegrationBranch: string | null = null;
     let epicProviderSettings: DrainRepoState["epicProviderSettings"] = null;
+    let epicStackBases: DrainRepoState["epicStackBases"] = null;
     let spawnAgentProvider = config.defaultAgentProvider;
     let builtEpic: Epic | null = null;
     if (epicActive) {
@@ -723,7 +777,13 @@ export class DrainService {
           builtEpic.parentIssueNumber,
           epicBranchName(builtEpic.parentIssueNumber, builtEpic.parentTitle),
         );
-        if (epicRun!.status === "running") candidates = selectEpicCandidates(builtEpic.children);
+        // #2069: with `epicStacksEnabled`, a child whose only outstanding blocker is a chain
+        // predecessor with an OPEN PR is admitted early and based on that predecessor's branch.
+        // An absent `ctx` (flag off / no forge support / nothing stackable) ⇒ the pre-#2069 call.
+        const stack = this.epicStackContext(repoPath, cfg, builtEpic);
+        epicStackBases = stack.baseByChild;
+        if (epicRun!.status === "running")
+          candidates = selectEpicCandidates(builtEpic.children, stack.ctx);
         epicAttended = epicRun!.mode === "attended";
       }
     } else if (cfg.autoDrainEnabled) {
@@ -760,9 +820,234 @@ export class DrainService {
         epicParent,
         epicIntegrationBranch,
         epicProviderSettings,
+        epicStackBases,
         epicBaseUnavailable: this.freshEpicBaseFailure(repoPath),
       },
       epic: builtEpic,
+    };
+  }
+
+  /** #2069: link an epic's child PRs into a GitHub stack rooted at its pinned integration branch,
+   *  one step per pass. Runs from `tick()` beside the other self-guarding epic passes — NOT from
+   *  `pumpStep`, which iterates up to 100 times per pump.
+   *
+   *  The guard ladder is ordered cheapest-first so an opted-out or unengaged repo costs ZERO forge
+   *  calls. The whole body is wrapped: `tick()` calls its passes unguarded, and #2068's stack
+   *  WRITES deliberately propagate their errors, so an unwrapped throw here would break the tick
+   *  for every later repo. */
+  private async composeEpicStacksForRepo(repoPath: string): Promise<void> {
+    try {
+      const cfg = this.deps.store.getRepoConfig(repoPath);
+      if (!cfg.epicStacksEnabled) return;
+      const er = this.deps.store.getEpicRun(repoPath);
+      if (er?.status !== "running") return;
+      const forge = this.deps.resolveForge(repoPath);
+      if (!forgeHasStacks(forge)) return;
+      const parent = er.parentIssueNumber;
+      // READ-ONLY getter: never INSERT a title-drifted pin from a side path (see tryAutoLandEpic).
+      // Unpinned ⇒ no epic child has been based on anything yet ⇒ nothing to compose.
+      const pinned = this.deps.store.getEpicIntegrationBranch(repoPath, parent);
+      if (!pinned) return;
+      const key = `${repoPath}#${parent}`;
+      const last = this.epicStackComposedAt.get(key);
+      if (last !== undefined && this.now() - last < EPIC_STACK_COMPOSE_TTL_MS) return;
+      if (this.epicStackInFlight.has(key)) return;
+      this.epicStackInFlight.add(key);
+      try {
+        this.epicStackComposedAt.set(key, this.now());
+        const epic = await this.buildEpic(repoPath, er);
+        if (epic) await this.composeOneEpicStack(forge, repoPath, parent, pinned, epic);
+      } finally {
+        this.epicStackInFlight.delete(key);
+      }
+    } catch (err) {
+      console.warn(`[drain] epic stack composition failed for ${repoPath}:`, err);
+    }
+  }
+
+  /** Plan and apply at most ONE composition step across the epic's chains. Only children still in
+   *  flight take part: a done-in-epic layer is no longer something to stack onto (its successor
+   *  bases on the integration branch again), so it is dropped from the chain before planning. */
+  private async composeOneEpicStack(
+    forge: StackForge,
+    repoPath: string,
+    parent: number,
+    pinned: string,
+    epic: Epic,
+  ): Promise<void> {
+    const liveChildren = new Set(
+      epic.children.filter((c) => !c.integrationMerged && !c.issueClosed).map((c) => c.number),
+    );
+    const live = (n: number) => liveChildren.has(n);
+    const prByChild = new Map<number, number>();
+    for (const c of epic.children) {
+      if (c.prNumber != null && live(c.number)) prByChild.set(c.number, c.prNumber);
+    }
+    const existing = new Map<number, EpicStackMember>(
+      this.deps.store.listEpicStack(repoPath, parent).map((r) => [r.childNumber, r]),
+    );
+    const ctx: StackComposeCtx = {
+      repoPath,
+      parent,
+      pinned,
+      childByPr: new Map([...prByChild].map(([child, pr]) => [pr, child])),
+      baseByChild: this.epicChildSpawnBases(repoPath),
+    };
+    for (const chain of decomposeEpicChains(epic.children).chains) {
+      const plan = planStackComposition({
+        chain: liveChainSegment(chain, live),
+        prByChild,
+        existing,
+      });
+      if (plan.kind === "none") continue;
+      if (plan.kind === "create") await this.seedEpicStack(forge, ctx, plan);
+      else await this.extendEpicStack(forge, ctx, plan);
+      return; // one mutation per pass; the next tick carries the chain further
+    }
+  }
+
+  /** Session spawn base per child issue — the `baseBranch` recorded on each stack row, so the
+   *  persisted layer says what the child was actually built on. */
+  private epicChildSpawnBases(repoPath: string): Map<number, string> {
+    const out = new Map<number, string>();
+    for (const s of this.deps.store.list()) {
+      if (s.repoPath === repoPath && s.auto && s.issueNumber != null && s.status !== "archived") {
+        out.set(s.issueNumber, s.baseBranch);
+      }
+    }
+    return out;
+  }
+
+  /** Create the stack from its bottom two layers.
+   *
+   *  The bottom layer's base IS the stack's trunk, so it is verified against the pinned branch
+   *  first: children are only ADVISED to target the epic branch (that is why the retire base gate
+   *  exists), and seeding on a child that targeted `main` would root the whole stack — every layer
+   *  above it included — at `main`. An already-existing stack is adopted instead of duplicated. */
+  private async seedEpicStack(
+    forge: StackForge,
+    ctx: StackComposeCtx,
+    { bottom, next }: Extract<StackComposition, { kind: "create" }>,
+  ): Promise<void> {
+    if (await this.adoptExistingStack(forge, ctx, bottom.prNumber)) return;
+    const base = (await forge.prReviewMeta?.(bottom.prNumber))?.baseRefName;
+    if (base !== ctx.pinned) {
+      console.warn(
+        `[drain] epic #${ctx.parent}: not seeding a stack — child #${bottom.childNumber} pr#${bottom.prNumber} targets \`${base ?? "?"}\`, not the epic branch \`${ctx.pinned}\``,
+      );
+      return;
+    }
+    const stack = await forge.createStack([bottom.prNumber, next.prNumber]);
+    this.recordStackLayers(ctx, stack.number, [bottom.prNumber, next.prNumber]);
+    console.log(
+      `[drain] epic #${ctx.parent}: stack ${stack.number} created on \`${ctx.pinned}\` from pr#${bottom.prNumber} + pr#${next.prNumber}`,
+    );
+  }
+
+  /** Append one layer to the top of an existing stack. */
+  private async extendEpicStack(
+    forge: StackForge,
+    ctx: StackComposeCtx,
+    plan: Extract<StackComposition, { kind: "add" }>,
+  ): Promise<void> {
+    if (await this.adoptExistingStack(forge, ctx, plan.prNumber)) return;
+    await forge.addToStack(plan.stackNumber, plan.prNumber);
+    this.deps.store.recordEpicStackMember(ctx.repoPath, ctx.parent, {
+      childNumber: plan.childNumber,
+      stackNumber: plan.stackNumber,
+      prNumber: plan.prNumber,
+      baseBranch: ctx.baseByChild.get(plan.childNumber) ?? ctx.pinned,
+      position: plan.position,
+    });
+    console.log(
+      `[drain] epic #${ctx.parent}: pr#${plan.prNumber} added to stack ${plan.stackNumber} at position ${plan.position}`,
+    );
+  }
+
+  /** Did the host already stack this PR? Adopting what is there is what makes the pass idempotent
+   *  across a restart between the mutation and its row write, and keeps Shepherd from creating a
+   *  second stack over PRs someone stacked by hand. A stack rooted somewhere OTHER than the epic
+   *  branch is reported and left alone: GitHub has no reorder/insert API, so repair means
+   *  unstack-and-recreate — a deliberate act, not a side effect of a composition pass.
+   *
+   *  The read fails open to null (#2068), i.e. "not stacked"; a create/add then either succeeds or
+   *  throws host-side, which the caller logs. */
+  private async adoptExistingStack(
+    forge: StackForge,
+    ctx: StackComposeCtx,
+    prNumber: number,
+  ): Promise<boolean> {
+    const stack = await forge.stackForPr(prNumber);
+    if (!stack) return false;
+    if (!stackRootedAtEpic(stack, ctx.pinned)) {
+      console.warn(
+        `[drain] epic #${ctx.parent}: pr#${prNumber} is in stack ${stack.number} rooted at \`${stack.baseRef}\`, not \`${ctx.pinned}\` — leaving it alone`,
+      );
+      return true;
+    }
+    this.recordStackLayers(ctx, stack.number, stack.prNumbers);
+    return true;
+  }
+
+  /** Persist `prNumbers` (bottom → top) as this epic's stack layers. PRs that belong to no child
+   *  of this epic are skipped rather than guessed at. */
+  private recordStackLayers(ctx: StackComposeCtx, stackNumber: number, prNumbers: number[]): void {
+    prNumbers.forEach((prNumber, i) => {
+      const childNumber = ctx.childByPr.get(prNumber);
+      if (childNumber === undefined) return;
+      this.deps.store.recordEpicStackMember(ctx.repoPath, ctx.parent, {
+        childNumber,
+        stackNumber,
+        prNumber,
+        baseBranch: ctx.baseByChild.get(childNumber) ?? ctx.pinned,
+        position: i + 1,
+      });
+    });
+  }
+
+  /** #2069: what the drain knows about each epic child as a potential stack PREDECESSOR — the
+   *  branch a successor would be based on, and whether its PR is actually open. Same session
+   *  filter as buildEpic (auto, issue-linked, not archived), so a child that reads as
+   *  stack-ready here is one whose `EpicChild.prNumber` is populated there. A re-spawned issue
+   *  can map to several rows; the one with an open PR wins. */
+  private stackPredecessorFacts(repoPath: string): Map<number, StackPredecessorFact> {
+    const snap = this.deps.prCache.snapshot();
+    const facts = new Map<number, StackPredecessorFact>();
+    for (const s of this.deps.store.list()) {
+      if (s.repoPath !== repoPath || !s.auto || s.issueNumber == null) continue;
+      if (s.status === "archived") continue;
+      const git = snap[s.id];
+      const prOpen = git?.state === "open" && git.number != null;
+      if (!prOpen && facts.get(s.issueNumber)?.prOpen) continue;
+      facts.set(s.issueNumber, { headBranch: s.branch, prOpen });
+    }
+    return facts;
+  }
+
+  /** #2069: the stack facts `selectEpicCandidates` needs to admit a child early, plus the branch
+   *  each such child must be based on. Both absent — and therefore zero behaviour change — unless
+   *  the repo opted in, the forge supports stacks, AND some child is actually stackable right now.
+   *
+   *  Returns a struct rather than a nullable one so the caller needs no `?.`/`??` — buildState is
+   *  at its complexity cap and this must not be what pushes it over. */
+  private epicStackContext(
+    repoPath: string,
+    cfg: RepoConfig,
+    epic: Epic,
+  ): { ctx?: EpicStackContext; baseByChild: Map<number, string> | null } {
+    if (!cfg.epicStacksEnabled || !forgeHasStacks(this.deps.resolveForge(repoPath))) {
+      return { baseByChild: null };
+    }
+    const decomposition = decomposeEpicChains(epic.children);
+    const plan = buildStackSpawnPlan({
+      children: epic.children,
+      decomposition,
+      facts: this.stackPredecessorFacts(repoPath),
+    });
+    if (plan.baseByChild.size === 0) return { baseByChild: null };
+    return {
+      ctx: { predecessorOf: decomposition.predecessorOf, stackReady: plan.stackReady },
+      baseByChild: plan.baseByChild,
     };
   }
 
@@ -2290,6 +2575,12 @@ export class DrainService {
    * failed, or a fresh mismatch marker is throttling the recheck. `false` ⇒ base verified (or the
    * forge can't tell — Gitea has no `prReviewMeta`, so behavior is unchanged). Side effects: parks
    * / clears the `epic_base_mismatch` marker (the throttle anchor + assembleEpic warning source).
+   *
+   * #2069: the accept RULE itself lives in `epicChildBaseOk` and nothing here second-guesses it.
+   * A stacked child (based on a sibling's head, not the epic branch) is accepted ONLY as a member
+   * of a stack whose trunk is the pinned branch — plain base equality would squash-merge an
+   * uncomposed child into its SIBLING'S branch. The stack read is skipped entirely in the healthy
+   * unstacked case, so an opted-out repo pays nothing.
    */
   private async epicChildBaseBlocked(
     forge: GitForge,
@@ -2321,19 +2612,77 @@ export class DrainService {
       });
       return true;
     }
-    if (actual !== s.baseBranch) {
-      this.deps.store.recordEpicBaseMismatch(repoPath, parent, child, {
-        actualBase: actual ?? "",
-        prNumber: decision.prNumber,
-        checkedAt: this.now(),
-      });
-      console.warn(
-        `[drain] epic child pr#${decision.prNumber} (issue #${child}) targets \`${actual ?? "?"}\`, not the epic branch \`${s.baseBranch}\` — blocked until re-targeted`,
-      );
-      return true; // fail closed: child stays un-integrated; dependents stay blocked.
+    const pinned = this.deps.store.getEpicIntegrationBranch(repoPath, parent);
+    const stacked = isStackedBase(s.baseBranch, pinned);
+    // Fast path: an ordinary child on the epic branch, targeting it. No stack read at all.
+    if (!stacked && actual === s.baseBranch) {
+      this.deps.store.clearEpicBaseMismatch(repoPath, parent, child); // matched — clear stale marker.
+      return false;
     }
-    this.deps.store.clearEpicBaseMismatch(repoPath, parent, child); // matched — clear stale marker.
-    return false;
+    const stack = await this.readPrStack(forge, repoPath, decision.prNumber);
+    if (
+      epicChildBaseOk({
+        actualBase: actual ?? "",
+        sessionBase: s.baseBranch,
+        stack,
+        pinnedBranch: pinned,
+      })
+    ) {
+      this.deps.store.clearEpicBaseMismatch(repoPath, parent, child);
+      return false;
+    }
+    this.deps.store.recordEpicBaseMismatch(repoPath, parent, child, {
+      actualBase: actual ?? "",
+      prNumber: decision.prNumber,
+      checkedAt: this.now(),
+    });
+    console.warn(
+      stacked
+        ? `[drain] epic child pr#${decision.prNumber} (issue #${child}) is based on \`${s.baseBranch}\` but is not in a stack rooted at \`${pinned ?? "?"}\` — blocked (merging it would land in a sibling's branch)`
+        : `[drain] epic child pr#${decision.prNumber} (issue #${child}) targets \`${actual ?? "?"}\`, not the epic branch \`${s.baseBranch}\` — blocked until re-targeted`,
+    );
+    return true; // fail closed: child stays un-integrated; dependents stay blocked.
+  }
+
+  /** #2069: the stack a child PR belongs to, or null. Reads the host only for a repo that opted
+   *  in on a forge that supports stacks, so the flag-off path makes no call. Fails open to null
+   *  (the read itself does too), which is the conservative answer everywhere it is consumed. */
+  private async readPrStack(
+    forge: GitForge,
+    repoPath: string,
+    prNumber: number,
+  ): Promise<StackInfo | null> {
+    if (!forge.stackForPr || !this.deps.store.getRepoConfig(repoPath).epicStacksEnabled) {
+      return null;
+    }
+    try {
+      return await forge.stackForPr(prNumber);
+    } catch (err) {
+      console.warn(`[drain] stack read for pr#${prNumber} failed; treating as unstacked:`, err);
+      return null;
+    }
+  }
+
+  /** #2069: must this child's head branch survive its own merge? True when a chain successor is
+   *  already spawned and still in flight — that successor is based on this branch and may not have
+   *  opened its PR yet. Flag-gated and epic-scoped; a non-opted-in repo answers false without
+   *  touching the epic. Over-answering true only leaves a merged branch on the remote (which a
+   *  stack merge does anyway, per #2068); answering false wrongly orphans a live child. */
+  private async keepBranchForStackedSuccessor(
+    repoPath: string,
+    parent: number,
+    childNumber: number,
+  ): Promise<boolean> {
+    if (!this.deps.store.getRepoConfig(repoPath).epicStacksEnabled) return false;
+    const er = this.deps.store.getEpicRun(repoPath);
+    if (!er || er.parentIssueNumber !== parent) return false;
+    const epic = await this.buildEpic(repoPath, er); // cached structure; usually a hit this pump
+    if (!epic) return false;
+    return hasLiveStackedSuccessor({
+      children: epic.children,
+      decomposition: decomposeEpicChains(epic.children),
+      childNumber,
+    });
   }
 
   /**
@@ -2351,11 +2700,15 @@ export class DrainService {
     s: Session,
     decision: Extract<DrainDecision, { kind: "retire" }>,
   ): Promise<void> {
+    // deleteBranch removes the child's MERGED head (task) branch on origin — standard post-merge
+    // hygiene. It is the PR's head, never the integration branch (the base), so the accumulating
+    // integration branch is untouched. #2069 carves out ONE case: a stacked successor is BASED on
+    // that head, and deleting it makes the successor's `gh pr create --base <branch>` fail outright
+    // (GitHub closes an already-open PR whose base ref disappears). `mergeStacked` ignores
+    // deleteBranch for the same reason; this is the legacy path's equivalent.
+    const keepBranch = await this.keepBranchForStackedSuccessor(repoPath, parent, s.issueNumber!);
     try {
-      // deleteBranch removes the child's MERGED head (task) branch on origin — standard post-merge
-      // hygiene. It is the PR's head, never the integration branch (the base), so the accumulating
-      // integration branch is untouched.
-      await forge.merge(decision.prNumber, { method: "squash", deleteBranch: true });
+      await forge.merge(decision.prNumber, { method: "squash", deleteBranch: !keepBranch });
     } catch (err) {
       console.warn(
         `[drain] epic child merge pr#${decision.prNumber} (issue #${s.issueNumber}) into ${s.baseBranch} failed:`,
@@ -2492,6 +2845,21 @@ export class DrainService {
     decision: Extract<DrainDecision, { kind: "spawn" }>,
   ): Promise<{ base: string; prompt: string; epicParent: number | null }> {
     const { number, title } = decision.issue;
+    // #2069: a STACKED child bases on its chain predecessor's live PR head. `ensureBranch` is
+    // deliberately NOT called: the branch already exists (an open PR implies it was pushed), and
+    // "ensuring" it would create it at the default branch's tip if it had since been deleted —
+    // silently basing the child on an EMPTY predecessor. It is still an epic child, so the
+    // `epicParent` stamp is kept: it must stay off the merge train and retire into the epic.
+    if (decision.stackedBase && decision.integrationBranch) {
+      return {
+        base: decision.stackedBase,
+        prompt: `${issueSpawnPrompt(number, title)}\n\n${epicStackedBaseDirective(
+          decision.stackedBase,
+          decision.integrationBranch,
+        )}`,
+        epicParent: decision.epicParent ?? null,
+      };
+    }
     const def = await forge.defaultBranch();
     let base = def;
     if (decision.integrationBranch && forge.ensureBranch) {
@@ -2881,6 +3249,11 @@ export class DrainService {
       // child integrated earlier this tick is already in listEpicIntegratedDetails. Flag-gated +
       // running-only + GitHub-only; ~1 prStatus/tick per running flagged epic while the draft is
       // open (NOT zero — unlike the completed-row passes). UNGATED by drain, like its neighbors.
+      // #2069: link child PRs into the epic's stack. Placed AFTER reconcile (so a child integrated
+      // earlier this tick is already out of the live set) and BEFORE the pump, so a stack composed
+      // now is visible to this tick's spawn decisions. Flag-gated + running-only + throttled →
+      // zero forge calls in steady state; self-guarding like its neighbours.
+      await this.composeEpicStacksForRepo(repoPath);
       await this.ensureDraftLandingPrForRepo(repoPath);
       // UNGATED landing-PR retry: runs for EVERY repo, BEFORE the pump gate, so a completed
       // epic's PR is opened/retried even in a repo with autoDrain off and no running epic.

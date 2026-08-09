@@ -112,6 +112,7 @@ function makeHarness(opts: HarnessOpts): Harness {
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
+    epicStacksEnabled: false,
     hidden: false,
   });
   store.setEpicRun({

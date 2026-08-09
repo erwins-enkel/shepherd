@@ -80,6 +80,7 @@
   const lightweightTip = $derived(lightweight ? m.automation_lightweight_unavailable() : undefined);
   const manualStepsActive = $derived(repoConfig.manualStepsIssueOn(repoPath) && !lightweight);
   const preWarmEpicCiActive = $derived(repoConfig.preWarmEpicLandingCiOn(repoPath) && !lightweight);
+  const epicStacksActive = $derived(repoConfig.epicStacksOn(repoPath) && !lightweight);
   const autoOptimizeActive = $derived(repoConfig.autoOptimizeOn(repoPath) && flags.learnings);
   // Smell lens is a no-op without the critic (same dependency as auto-address); hoist its row state
   // out of the template so the markup stays under the Tier-1 <template> complexity bar.
@@ -494,6 +495,24 @@
     title={lightweightTip}
     aria-label={m.automation_prewarm_epic_ci_name()}
     onclick={() => repoConfig.togglePreWarmEpicLandingCi(repoPath)}
+  >
+    <span class="knob"></span>
+  </button>
+</div>
+<div class={["auto-row", { disabled: lightweight }]}>
+  <div class="auto-meta">
+    <div class="auto-name">☰ {m.automation_epic_stacks_name()}</div>
+    <div class="auto-desc">{m.automation_epic_stacks_desc()}</div>
+  </div>
+  <button
+    class={["sw", { on: epicStacksActive }]}
+    type="button"
+    role="switch"
+    aria-checked={epicStacksActive}
+    disabled={lightweight}
+    title={lightweightTip}
+    aria-label={m.automation_epic_stacks_name()}
+    onclick={() => repoConfig.toggleEpicStacks(repoPath)}
   >
     <span class="knob"></span>
   </button>

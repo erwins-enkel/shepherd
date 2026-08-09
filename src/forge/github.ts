@@ -53,9 +53,19 @@ import type {
 
 /** Poll cadence for GitHub's async merge API (#2059). Bounded by ATTEMPTS rather than wall
  *  clock so an injected no-op sleeper makes the budget-exhaustion path testable instantly.
- *  30 × 2s ≈ 60s, after which the merge is still in flight host-side — see MergePendingError. */
+ *  15 × 2s = 30s, after which the merge is still in flight host-side — see MergePendingError,
+ *  which is non-destructive: the host keeps merging and the PR poller reconciles. */
 const MERGE_ASYNC_POLL_MS = 2_000;
-const MERGE_ASYNC_POLL_ATTEMPTS = 30;
+const MERGE_ASYNC_POLL_ATTEMPTS = 15;
+
+/** Worst-case time {@link GithubForge.merge} can spend WAITING on the async merge API.
+ *
+ *  Exported because two HTTP routes can trigger that wait inside a request handler, and Bun's
+ *  10s default socket budget would sever the connection mid-merge — the browser would then see a
+ *  transport error and report "merge failed" for a merge that is in flight or has already landed.
+ *  Those routes size their own budget off THIS constant (see `slowRequestTimeoutSec`) rather than
+ *  hardcoding a second number that could silently drift out of step with it. */
+export const MERGE_ASYNC_MAX_WAIT_MS = MERGE_ASYNC_POLL_MS * MERGE_ASYNC_POLL_ATTEMPTS;
 
 const defaultSleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 

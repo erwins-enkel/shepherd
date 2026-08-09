@@ -245,7 +245,7 @@ test("merge: an exhausted poll budget reports pending, not failure", async () =>
 
   expect(err).toBeInstanceOf(MergePendingError);
   expect((err as MergePendingError).code).toBe("merge_pending");
-  expect(polled).toBe(30); // the whole budget, then gave up
+  expect(polled).toBe(15); // the whole budget, then gave up
 });
 
 test("merge: a transient poll error is retried, not mistaken for a merge failure", async () => {

@@ -153,6 +153,7 @@ import type {
 } from "./forge/types";
 import { DEPENDABOT_REBASE_COMMAND, EmptyDiffError, MergeNotCompletedError } from "./forge/types";
 import { buildIssueUrl } from "./forge";
+import { MERGE_ASYNC_MAX_WAIT_MS } from "./forge/github";
 import type { GithubRateLimitPayload } from "./forge/github-rate-limit";
 import { BaseCheckoutBusyError, MergeConflictError } from "./forge/local";
 import { recordEpicIntegrationIfChild, settleMergedSession } from "./merge-teardown";
@@ -7946,13 +7947,22 @@ export function pickTerminalBridgeKind(opts: {
  *    ceiling for both `idleTimeout` and `server.timeout`.
  *  - the upload routes carry attachments up to MAX_UPLOAD_BYTES (screen recordings) from phones
  *    over Tailscale/LTE; a network switch or backgrounded app can stall the stream past 10s and
- *    kill an otherwise-healthy upload, so they get a 120s idle budget. */
+ *    kill an otherwise-healthy upload, so they get a 120s idle budget.
+ *  - the two merge routes can land a STACKED PR (#2059), which goes through GitHub's asynchronous
+ *    merge API: the handler polls for up to MERGE_ASYNC_MAX_WAIT_MS plus a few `gh` round-trips
+ *    either side. On the 10s default Bun severs the socket mid-merge and the browser reports a
+ *    failure for a merge that is in flight — or has already landed — which is exactly the bogus
+ *    failure described for epic approve above. */
+const MERGE_ROUTE_TIMEOUT_SEC = Math.ceil(MERGE_ASYNC_MAX_WAIT_MS / 1000) + 60;
+
 export const slowRequestTimeoutSec = (req: Request, url: URL): number | null => {
   if (req.method !== "POST") return null;
   if (url.pathname === "/api/usage/refresh") return 60;
   if (/^\/api\/sessions\/[^/]+\/epic-draft\/approve$/.test(url.pathname)) return 255;
   if (url.pathname === "/api/uploads") return 120;
   if (/^\/api\/sessions\/[^/]+\/scratchpad\/upload$/.test(url.pathname)) return 120;
+  if (url.pathname === "/api/prs/merge") return MERGE_ROUTE_TIMEOUT_SEC;
+  if (/^\/api\/sessions\/[^/]+\/git\/merge$/.test(url.pathname)) return MERGE_ROUTE_TIMEOUT_SEC;
   return null;
 };
 

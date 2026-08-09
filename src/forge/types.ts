@@ -383,6 +383,27 @@ export class MergePendingError extends MergeNotCompletedError {
   }
 }
 
+/** One GitHub pull-request stack, as the stacked-PR API surface reports it (#2068).
+ *
+ *  Public preview on the host side: every stacked-PR docs page says "subject to change", so treat
+ *  a shape change as expected maintenance rather than a defect. */
+export interface StackInfo {
+  /** The stack's own number — the handle every write endpoint takes (`/stacks/{number}/…`).
+   *  NOT a pull-request number. */
+  number: number;
+  /** The stack's TRUNK: the branch the whole stack lands on. NOT the branch a given layer
+   *  directly targets, which for any layer above the bottom is the layer below it. Every layer
+   *  is evaluated against the trunk's rules, so this is the field consumers actually need. */
+  baseRef: string;
+  /** Stack membership, BOTTOM → TOP, as the host ordered it. Includes layers that have already
+   *  merged — the list describes the stack as composed, not what is left to land. */
+  prNumbers: number[];
+  /** 1-based position of the pull request the read was keyed on, and the membership count.
+   *  Advisory (message text); absent when the read was not keyed on a pull request. */
+  position?: number;
+  size?: number;
+}
+
 export interface RedeployInput {
   workflow: string;
   ref: string;
@@ -646,6 +667,29 @@ export interface GitForge {
    *  rows + headRefName-keyed poll statuses). Optional: only GitHub implements it;
    *  Gitea/Local omit it and callers fall back to listPullRequests / per-session prStatus. */
   listOpenPrSnapshot?(): Promise<OpenPrSnapshot>;
+  // Stacked pull requests (#2068). GitHub only, and a public PREVIEW there — Gitea and Local omit
+  // these entirely, so callers must branch on the method's presence, never on `kind`.
+  //
+  // Two constraints shape everything built on top of this surface:
+  //  - There is NO reorder / insert / drop-one endpoint, and `gh stack modify` is TUI-only. The
+  //    single repair primitive is {@link unstack} followed by {@link createStack}.
+  //  - The async merge API takes no delete-branch parameter, so layer branches survive a stack
+  //    merge and nothing reaps them (BranchPruner only sweeps LOCAL `shepherd/*` branches).
+  /** The stack a pull request belongs to, or null when it belongs to none.
+   *
+   *  FAILS OPEN: any error (rate limit, transient 5xx, an unreadable body) reports null, i.e.
+   *  "not stacked" — which is how every caller behaves today, so a flaky read can never be a
+   *  regression. Callers that must distinguish "no stack" from "could not tell" cannot use this. */
+  stackForPr?(prNumber: number): Promise<StackInfo | null>;
+  /** Link existing pull requests into a new stack, ordered BOTTOM → TOP. Unlike
+   *  {@link stackForPr} this is a mutation and does NOT fail open: host errors propagate, because
+   *  a swallowed failure would leave the caller believing a stack exists when it does not. */
+  createStack?(prNumbers: number[]): Promise<StackInfo>;
+  /** Append one pull request to the TOP of an existing stack. Mutation — errors propagate. */
+  addToStack?(stackNumber: number, prNumber: number): Promise<void>;
+  /** Dissolve a stack, unlinking its UNMERGED pull requests (merged or merge-queued ones stay
+   *  linked, host-side). Mutation — errors propagate. */
+  unstack?(stackNumber: number): Promise<void>;
 }
 
 /** Per-host configuration loaded from ~/.shepherd/forges.json. */

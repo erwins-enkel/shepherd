@@ -111,6 +111,7 @@ function makeHarness(
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
+    epicStacksEnabled: false,
     hidden: false,
   });
   if (opts.epicStatus) {
@@ -290,5 +291,53 @@ describe("epic child retire → squash-merge into integration branch", () => {
     expect(h.forgeRec.links).toEqual([{ prNumber: 70, issueNumber: 7 }]);
     expect(h.store.get(s.id)?.status).toBe("archived");
     expect([...h.store.listEpicIntegrated(REPO, PARENT)]).not.toContain(7);
+  });
+});
+
+// ── #2067: the retire path routes on the stamped fact, not the base-branch name ─────────────────
+
+describe("epic child retire routes on the persisted epicParent", () => {
+  test("stamped child whose base is NOT an epic branch still takes the epic retire path", async () => {
+    // The stacking shape: base is a sibling's task branch. Under the old base-name test this child
+    // fell through to the plain retire path — PR left open, never integrated, epic stalled silently.
+    const h = makeHarness({ epicStatus: "running" });
+    const s = h.store.create({
+      name: "auto",
+      prompt: "p",
+      repoPath: REPO,
+      baseBranch: "shepherd/auto-319",
+      branch: `shepherd/auto-${CHILD}`,
+      worktreePath: "/wt",
+      isolated: true,
+      herdrSession: "default",
+      herdrAgentId: "t",
+      auto: true,
+      issueNumber: CHILD,
+      epicParent: PARENT,
+    });
+    h.prCache[s.id] = openGreen(PR);
+    (h as Harness & { setReview: (id: string, d: ReviewDecision, sha: string) => void }).setReview(
+      s.id,
+      "commented",
+      `sha-${PR}`,
+    );
+
+    await h.drain.pump(REPO);
+
+    expect(h.forgeRec.merges).toEqual([{ prNumber: PR, method: "squash", deleteBranch: true }]);
+    expect([...h.store.listEpicIntegrated(REPO, PARENT)]).toContain(CHILD);
+    expect(h.forgeRec.links).toHaveLength(0); // epic path never issue-links
+    expect(h.store.get(s.id)?.status).toBe("archived");
+  });
+
+  test("legacy child (no stamp, epic/* base) is unchanged — still the epic retire path", async () => {
+    const h = makeHarness({ epicStatus: "running" });
+    const s = seedReadyChild(h, EPIC_BRANCH);
+    expect(s.epicParent).toBeNull(); // the pre-#2067 row shape
+
+    await h.drain.pump(REPO);
+
+    expect(h.forgeRec.merges).toHaveLength(1);
+    expect([...h.store.listEpicIntegrated(REPO, PARENT)]).toContain(CHILD);
   });
 });

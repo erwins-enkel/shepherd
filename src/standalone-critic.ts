@@ -26,7 +26,7 @@ import { CRITIC_REVIEW_MARKER } from "./forge/types";
 import { randomUUID } from "node:crypto";
 import { buildTransientAgentArgv } from "./transient-agent-argv";
 import type { RoleEnvironment } from "./default-model";
-import { isEpicIntegrationBranch } from "./epic-branch";
+import { isEpicChild, isEpicIntegrationBranch } from "./epic-branch";
 import { checksCleared, repoHasNoCiCached } from "./checks-gate";
 import { apiKeyFailClosed } from "./spawn-auth";
 import { readSessionUsage, type SessionUsage } from "./usage";
@@ -84,6 +84,7 @@ export interface StandalonePrCriticDeps extends MembraneSeams {
     | "recordReviewerSpawn"
     | "completeReviewerSpawn"
     | "listEpicCompleted"
+    | "getEpicParentByBranch"
   >;
   herdr: Pick<HerdrDriver, "start" | "stop" | "list" | "tabsAsync" | "closeTab">;
   worktree: Pick<WorktreeMgr, "createDetached" | "remove" | "gitCommonDir">;
@@ -410,7 +411,14 @@ export class StandalonePrCriticService {
       // eligibility carve-out above is then inert) and whenever the session critic is OFF (here it
       // is the SOLE reviewer). Same stale-tree problem: the child was never rebased onto its epic
       // integration base, so merged sibling work is absent from the checked-out tree.
-      const epic: EpicContext | null = isEpicIntegrationBranch(meta.baseRefName)
+      //
+      // Session-less by design, so the identity fact (#2067) is read by head branch: a PR with no
+      // Shepherd session (or a legacy one) resolves to null and falls back to the base-branch test
+      // inside the predicate — the answer this site gave before the fact existed.
+      const epic: EpicContext | null = isEpicChild({
+        epicParent: this.deps.store.getEpicParentByBranch(repoPath, pr.headRefName!),
+        baseBranch: meta.baseRefName,
+      })
         ? {
             base: meta.baseRefName,
             baseSha,

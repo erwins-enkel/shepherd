@@ -1949,6 +1949,20 @@ function pickOverride<T>(override: T | undefined, original: T): T {
   return override !== undefined ? override : original;
 }
 
+/** Epic-child identity (#2067) carried across a relaunch — but ONLY when the relaunch keeps both
+ *  the repo and the base branch. The fact is stamped at spawn from the drain's epic decision, which
+ *  a relaunch never re-runs, so a relaunch that re-points either one is no longer that child and
+ *  must fall back to the base-branch test (exactly what happened before the field existed). Its own
+ *  helper, not an inline conditional, so the flat field-mapping builder stays under its complexity
+ *  cap (mirrors store.ts's strOrNull/numOrNull). */
+function carriedEpicParent(
+  original: Session,
+  overrides: RelaunchOverrides | undefined,
+): number | null {
+  const repointed = overrides?.repoPath !== undefined || overrides?.baseBranch !== undefined;
+  return repointed ? null : (original.epicParent ?? null);
+}
+
 /** Resolve the relaunch model for the EFFECTIVE provider. `validateRelaunchOverrides` is
  *  session-blind, so the pairing is reconciled here: an absent override keeps the original's
  *  model, but if that carried model is incompatible with a provider switch it falls back to the
@@ -3711,6 +3725,9 @@ export class SessionService {
         effort: spawnInput.effort ?? null,
         auto: spawnInput.auto ?? false,
         issueNumber: spawnInput.issueRef?.number ?? null,
+        // Epic-child identity (#2067) — set only by the drain's epic spawn path. Passed through
+        // as-is (no `??`): the store's row builder normalizes absent to null.
+        epicParent: spawnInput.epicParent,
         // Provider-agnostic (TASK-413): Codex persists the flag too, no longer forced off.
         planGateEnabled: spawnInput.planGateEnabled ?? null,
         autopilotEnabled: spawnInput.autopilotEnabled ?? null,
@@ -3950,6 +3967,7 @@ export class SessionService {
       epicAuthoring: pickOverride(overrides?.epicAuthoring, original.epicAuthoring),
       // Carry the landing-repair flag so a relaunch keeps its push-not-PR repair directive.
       landingRepair: pickOverride(overrides?.landingRepair, original.landingRepair),
+      epicParent: carriedEpicParent(original, overrides),
       images,
       attachmentNames,
       launchUiState: overrides?.launchUiState,

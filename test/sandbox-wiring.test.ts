@@ -594,6 +594,7 @@ function defaultRepoConfig() {
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
+    epicStacksEnabled: false,
     hidden: false,
   };
 }

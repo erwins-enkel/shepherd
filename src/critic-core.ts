@@ -43,9 +43,10 @@ export interface EpicBaseDelta {
   commitsTruncated: number;
 }
 
-/** Epic-child review context. Present iff the reviewed branch's base is an epic integration branch
- *  (`isEpicIntegrationBranch`), i.e. this PR is ONE CHILD of a draining epic whose base already
- *  carries merged sibling work. `baseSha` null = the base could not be resolved to a commit (the
+/** Epic-child review context. Present iff the reviewed session is an epic child (`isEpicChild` —
+ *  the persisted `epicParent` fact, falling back to the base-branch name for legacy rows), i.e. this
+ *  PR is ONE CHILD of a draining epic whose base already carries merged sibling work.
+ *  `baseSha` null = the base could not be resolved to a commit (the
  *  fetch/rev-parse failed and there is usually no local ref for an epic branch) → the block degrades
  *  to its no-base mode: no base commands, and existence conclusions become limitations, not
  *  findings. */

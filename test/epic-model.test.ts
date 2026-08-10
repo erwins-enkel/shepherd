@@ -240,6 +240,42 @@ describe("epic-branch divergence warnings (#645)", () => {
     expect(w).toContain("gh pr edit 42 --base epic/327-epic"); // remedy retained
     expect(w).toContain("epic blocked until fixed");
   });
+  // (#2070) mid-stack loss — blocking, and it must not hand out the base-mismatch remedy, which
+  // does not work for a stranded child (the retire gate reads the SESSION's spawn base).
+  test("stack wedge → blocking warning naming the stranded children and a remedy that works", () => {
+    const e = assembleEpic(input({ stackWedges: [{ childNumber: 321, stranded: [322, 323] }] }));
+    const w = e.warnings.find((x) => x.includes("stacked child #321"))!;
+    expect(w).toBeDefined();
+    expect(w).toContain("#322, #323");
+    expect(w).toContain("abandon them");
+    expect(w).toContain("epic/327-epic"); // the pinned branch
+    expect(w).toContain("epic blocked until fixed");
+    expect(w).not.toContain("gh pr edit");
+  });
+
+  test("stack wedge suppresses the base-mismatch warning for the children it stranded", () => {
+    const e = assembleEpic(
+      input({
+        stackWedges: [{ childNumber: 321, stranded: [322] }],
+        baseMismatches: [
+          { childNumber: 322, actualBase: "shepherd/auto-321", prNumber: 42 },
+          { childNumber: 324, actualBase: "main", prNumber: 43 },
+        ],
+      }),
+    );
+    // The stranded child gets the wedge warning only — never the misleading `gh pr edit` remedy.
+    expect(e.warnings.some((w) => w.includes("gh pr edit 42"))).toBe(false);
+    // An unrelated mismatch is untouched.
+    expect(e.warnings.some((w) => w.includes("gh pr edit 43"))).toBe(true);
+  });
+
+  test("no stack wedges → NO wedge warning", () => {
+    expect(
+      assembleEpic(input({ stackWedges: [] })).warnings.some((w) => w.includes("stacked child")),
+    ).toBe(false);
+    expect(assembleEpic(input({})).warnings.some((w) => w.includes("stacked child"))).toBe(false);
+  });
+
   test("no base-mismatch entries → NO base-mismatch warning", () => {
     const e1 = assembleEpic(input({ baseMismatches: [] }));
     const e2 = assembleEpic(input({})); // undefined

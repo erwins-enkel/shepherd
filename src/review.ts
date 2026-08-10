@@ -51,7 +51,7 @@ import { scrubStaleVerdictArtifacts } from "./codex-last-message";
 // Generic secret-redactor for a bounded diagnostic string, despite the recap-flavoured name — the
 // critic's pane tail gets the same treatment before it reaches the log.
 import { sanitizeRecapFailureDetail } from "./recap";
-import { isEpicIntegrationBranch } from "./epic-branch";
+import { isEpicChild } from "./epic-branch";
 import { resolveAuxPatch, assembleAuxSpawn, type MembraneSeams } from "./spawn-membrane";
 import { spawnBudget, type SpawnAssembler } from "./spawn-budget";
 import { OversizedArgvError } from "./argv-limit";
@@ -526,7 +526,7 @@ export class ReviewService {
     // — i.e. still BEFORE the `starting` re-check below, so that re-check remains the LAST
     // await-gated step before the spawn and covers this suspension too (same reasoning as the
     // issue-body fetch above).
-    const epicBase = isEpicIntegrationBranch(session.baseBranch) ? session.baseBranch : null;
+    const epicBase = isEpicChild(session) ? session.baseBranch : null;
     const epic = await this.resolveEpicContext(epicBase, wt.worktreePath, baseSha);
 
     // forget() (session archived) may have fired during any await above (author-notes, issue-body

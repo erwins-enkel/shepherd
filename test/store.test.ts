@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import { SessionStore, REVIEWER_SPAWNS_DDL } from "../src/store";
+import { isEpicChild } from "../src/epic-branch";
 import type { PrReview, Recap, ReviewVerdict, SessionLaunchMetadata } from "../src/types";
 import type { SessionUsage } from "../src/usage";
 
@@ -257,6 +258,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
+    epicStacksEnabled: false,
     hidden: false,
     previewStartScript: null,
     previewStartCommand: null,
@@ -286,6 +288,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
+    epicStacksEnabled: false,
     hidden: false,
     previewStartScript: null,
     previewStartCommand: null,
@@ -315,6 +318,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
+    epicStacksEnabled: false,
     hidden: false,
     previewStartScript: null,
     previewStartCommand: null,
@@ -344,6 +348,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
+    epicStacksEnabled: false,
     hidden: false,
     previewStartScript: null,
     previewStartCommand: null,
@@ -373,6 +378,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
+    epicStacksEnabled: false,
     hidden: false,
     previewStartScript: null,
     previewStartCommand: null,
@@ -386,8 +392,114 @@ test("repo_config: preWarmEpicLandingCi defaults off, round-trips through set/ge
   store.setRepoConfig("/repo/prewarm", {
     ...store.getRepoConfig("/repo/prewarm"),
     preWarmEpicLandingCi: true,
+    epicStacksEnabled: false,
   });
   expect(store.getRepoConfig("/repo/prewarm").preWarmEpicLandingCi).toBe(true);
+});
+
+test("repo_config: epicStacksEnabled defaults off, round-trips through set/getRepoConfig (#2069)", () => {
+  const store = new SessionStore(":memory:");
+  expect(store.getRepoConfig("/repo/stacks").epicStacksEnabled).toBe(false);
+  store.setRepoConfig("/repo/stacks", {
+    ...store.getRepoConfig("/repo/stacks"),
+    epicStacksEnabled: true,
+  });
+  expect(store.getRepoConfig("/repo/stacks").epicStacksEnabled).toBe(true);
+});
+
+// #2069: the epic_stack memo — what makes the composition pass idempotent across ticks/restarts.
+test("epic_stack: layers round-trip bottom→top, upsert by child, scoped per epic", () => {
+  const store = new SessionStore(":memory:");
+  const repo = "/repo/stack";
+  expect(store.listEpicStack(repo, 327)).toEqual([]);
+  store.recordEpicStackMember(repo, 327, {
+    childNumber: 321,
+    stackNumber: 7,
+    prNumber: 901,
+    baseBranch: "shepherd/auto-320",
+    position: 2,
+  });
+  store.recordEpicStackMember(repo, 327, {
+    childNumber: 320,
+    stackNumber: 7,
+    prNumber: 900,
+    baseBranch: "epic/327-x",
+    position: 1,
+  });
+  // Another epic in the same repo is a separate stack.
+  store.recordEpicStackMember(repo, 400, {
+    childNumber: 401,
+    stackNumber: 9,
+    prNumber: 990,
+    baseBranch: "epic/400-y",
+    position: 1,
+  });
+
+  expect(store.listEpicStack(repo, 327).map((r) => r.childNumber)).toEqual([320, 321]);
+  expect(store.listEpicStack(repo, 327)[0]).toMatchObject({
+    stackNumber: 7,
+    prNumber: 900,
+    baseBranch: "epic/327-x",
+    position: 1,
+  });
+  expect(store.listEpicStack(repo, 400).map((r) => r.childNumber)).toEqual([401]);
+
+  // Re-observing a layer updates it in place rather than duplicating it.
+  store.recordEpicStackMember(repo, 327, {
+    childNumber: 321,
+    stackNumber: 8,
+    prNumber: 901,
+    baseBranch: "shepherd/auto-320",
+    position: 2,
+  });
+  expect(store.listEpicStack(repo, 327)).toHaveLength(2);
+  expect(store.listEpicStack(repo, 327)[1]?.stackNumber).toBe(8);
+});
+
+// #2070: dissolving a stack drops its layers; the wedge marker outlives them.
+test("epic_stack_wedge: deleteEpicStack drops one stack, wedges round-trip and clear", () => {
+  const store = new SessionStore(":memory:");
+  const repo = "/repo/wedge";
+  const layer = (childNumber: number, stackNumber: number, position: number) =>
+    store.recordEpicStackMember(repo, 327, {
+      childNumber,
+      stackNumber,
+      prNumber: 900 + childNumber,
+      baseBranch: "epic/327-x",
+      position,
+    });
+  layer(320, 7, 1);
+  layer(321, 7, 2);
+  layer(400, 9, 1); // a sibling chain's stack in the SAME epic
+
+  store.deleteEpicStack(repo, 327, 7);
+  expect(store.listEpicStack(repo, 327).map((r) => r.childNumber)).toEqual([400]);
+
+  expect(store.listEpicStackWedges(repo, 327)).toEqual([]);
+  store.recordEpicStackWedge(repo, 327, {
+    childNumber: 321,
+    stackNumber: 7,
+    stranded: [322, 323],
+    detectedAt: 5,
+  });
+  expect(store.listEpicStackWedges(repo, 327)).toEqual([
+    { childNumber: 321, stackNumber: 7, stranded: [322, 323] },
+  ]);
+  // Another epic's wedges are separate.
+  expect(store.listEpicStackWedges(repo, 400)).toEqual([]);
+
+  // Re-detecting refreshes the stranded set in place.
+  store.recordEpicStackWedge(repo, 327, {
+    childNumber: 321,
+    stackNumber: 7,
+    stranded: [323],
+    detectedAt: 9,
+  });
+  expect(store.listEpicStackWedges(repo, 327)).toHaveLength(1);
+  expect(store.listEpicStackWedges(repo, 327)[0]?.stranded).toEqual([323]);
+
+  store.clearEpicStackWedge(repo, 327, 321);
+  expect(store.listEpicStackWedges(repo, 327)).toEqual([]);
 });
 
 test("repo_config: drain fields default off/cap-1/default-label/ceiling-80, persist round-trip", () => {
@@ -425,6 +537,7 @@ test("repo_config: drain fields default off/cap-1/default-label/ceiling-80, pers
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
+    epicStacksEnabled: false,
     hidden: false,
     previewStartScript: null,
     previewStartCommand: null,
@@ -2001,4 +2114,67 @@ test("backfillReviewerSpawnUsage fills unknown totals without touching completed
   // guarded: a second backfill can never overwrite real totals
   expect(s.backfillReviewerSpawnUsage("rev-1", usage({ total: 999, input: 999 }))).toBe(false);
   expect(s.listReviewerSpawns()[0]!.totalTokens).toBe(100);
+});
+
+test("epicParent round-trips at create and defaults to null", () => {
+  const s = mk();
+  const child = s.create({ ...base, baseBranch: "epic/9-x", epicParent: 9 });
+  expect(s.get(child.id)?.epicParent).toBe(9);
+  const plain = s.create({ ...base, herdrAgentId: "term_2", branch: "shepherd/plain" });
+  expect(s.get(plain.id)?.epicParent).toBeNull();
+});
+
+test("getEpicParentByBranch resolves the stamp by work branch, newest row first", () => {
+  const s = mk();
+  // A dead predecessor session on the same branch, spawned before the stamp existed.
+  s.create({ ...base, branch: "shepherd/child-a", baseBranch: "epic/9-x" });
+  const live = s.create({
+    ...base,
+    herdrAgentId: "term_2",
+    branch: "shepherd/child-a",
+    baseBranch: "epic/9-x",
+    epicParent: 9,
+  });
+  expect(live.epicParent).toBe(9);
+  expect(s.getEpicParentByBranch("/r", "shepherd/child-a")).toBe(9);
+  // archived rows still answer — a child's PR outlives its session
+  s.update(live.id, { status: "archived", lastState: "done" });
+  expect(s.getEpicParentByBranch("/r", "shepherd/child-a")).toBe(9);
+  // unknown branch / wrong repo → null (the caller falls back to the base-branch test)
+  expect(s.getEpicParentByBranch("/r", "shepherd/unknown")).toBeNull();
+  expect(s.getEpicParentByBranch("/other", "shepherd/child-a")).toBeNull();
+});
+
+test("session migration: a pre-epicParent row migrates to null and stays an epic child", () => {
+  const dir = mkdtempSync(join(tmpdir(), "shepherd-store-epic-parent-migrate-"));
+  const dbPath = join(dir, "test.db");
+  try {
+    // Pre-create the sessions table as it was BEFORE the epicParent column, holding an epic child
+    // mid-drain (base = the integration branch) — the row shape the deploy has to survive.
+    const raw = new Database(dbPath);
+    raw.run(`CREATE TABLE sessions (
+      id TEXT PRIMARY KEY, desig TEXT NOT NULL, name TEXT NOT NULL, prompt TEXT NOT NULL,
+      repoPath TEXT NOT NULL, baseBranch TEXT NOT NULL, branch TEXT,
+      worktreePath TEXT NOT NULL, isolated INTEGER NOT NULL,
+      herdrSession TEXT NOT NULL, herdrAgentId TEXT NOT NULL,
+      claudeSessionId TEXT NOT NULL DEFAULT '',
+      agentProvider TEXT NOT NULL DEFAULT 'claude',
+      model TEXT, effort TEXT, status TEXT NOT NULL, lastState TEXT NOT NULL,
+      auto INTEGER NOT NULL DEFAULT 0, issueNumber INTEGER,
+      createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, archivedAt INTEGER)`);
+    raw.run(
+      `INSERT INTO sessions (id, desig, name, prompt, repoPath, baseBranch, branch, worktreePath,
+        isolated, herdrSession, herdrAgentId, status, lastState, auto, issueNumber, createdAt, updatedAt)
+       VALUES ('old', 'TASK-01', 'n', 'p', '/r', 'epic/12-foo', 'shepherd/n', '/wt', 1, 'default', 't',
+        'running', 'idle', 1, 44, 1, 1)`,
+    );
+    raw.close();
+    const store = new SessionStore(dbPath);
+    const s = store.get("old")!;
+    expect(s.epicParent).toBeNull();
+    // …and the shared predicate still reads it as an epic child off its base branch.
+    expect(isEpicChild(s)).toBe(true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

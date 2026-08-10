@@ -86,6 +86,9 @@ in-flight work running and resumes on its own — and only a few are **terminal*
 - **The credit ceiling** — Shepherd never keeps spending pay-as-you-go credit unattended.
 - **Epic base-branch divergence** — a child PR retargeted off the epic integration branch; the epic
   is blocked until it's pointed back at the integration branch.
+- **A stack that lost a middle layer**, if you run with
+  [stacked epic children](/reference/stacked-epic-children/) on — the layers above it can't land
+  until you abandon or merge them.
 
 ## Starting the epic
 

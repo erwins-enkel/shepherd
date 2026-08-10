@@ -60,6 +60,7 @@ function cfg(): RepoConfig & { automationConfirmed: boolean; automationRowExists
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
+    epicStacksEnabled: false,
     hidden: false,
     previewStartScript: null,
     previewStartCommand: null,

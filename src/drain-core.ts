@@ -54,6 +54,13 @@ export type DrainDecision =
       kind: "spawn";
       issue: Issue;
       integrationBranch?: string;
+      /** Epic parent issue number to stamp on the spawned session (#2067). Set from the same
+       *  epic run as `integrationBranch`, so the two cannot drift; undefined for label-drain. */
+      epicParent?: number;
+      /** #2069: this epic child stacks on its chain predecessor — base it on THIS branch (the
+       *  predecessor's live PR head) instead of `integrationBranch`, and do NOT ensure it on the
+       *  forge. Set only when `epicStacksEnabled` and the forge exposes the stacked-PR surface. */
+      stackedBase?: string;
       epicProviderSettings?: EpicProviderSettings;
     }
   | { kind: "retire"; sessionId: string; prNumber: number }
@@ -120,9 +127,16 @@ export interface DrainRepoState {
   /** Epic mode: the active epic's integration branch — epic-child spawns base on it.
    *  null/undefined for label-drain (spawns base on the default branch). */
   epicIntegrationBranch?: string | null;
+  /** Epic mode: the active epic's PARENT issue number, stamped on each child it spawns (#2067).
+   *  Set from the same epic run as `epicIntegrationBranch`; null/undefined for label-drain. */
+  epicParent?: number | null;
   /** Epic mode: explicit provider/model/effort for child spawns. Undefined for label-drain
    *  and for epics inheriting the repo/global defaults. */
   epicProviderSettings?: EpicProviderSettings | null;
+  /** #2069: child # → the chain predecessor's head branch it should be based on. Populated only
+   *  when the repo opted into `epicStacksEnabled` AND the predecessor's PR is open; absent
+   *  everywhere else, which leaves every child on the integration branch as before. */
+  epicStackBases?: Map<number, string> | null;
   /** Epic mode (#1757): the integration branch a RECENT epic-child spawn failed to ensure on the
    *  forge (`ensureBranch` threw), while that failure is still inside its cooldown window; null
    *  otherwise. Set ONLY for that specific, typed failure — never for an ordinary spawn error —
@@ -133,6 +147,16 @@ export interface DrainRepoState {
    *  that degrades to the default branch and the epic still progresses; it surfaces as an epic
    *  warning instead of a hold. */
   epicBaseUnavailable?: string | null;
+  /** #2070: sessions whose stacked epic-child PR may not merge yet — a layer BELOW it in the stack
+   *  has not landed. Merging a stack layer lands every layer beneath it, so only the bottom-most
+   *  unmerged layer may merge; the rest wait their turn.
+   *
+   *  The wait is expressed HERE, in the decision, rather than as a no-op inside the retire action:
+   *  `pumpStep` spends the pump's single retire attempt on whatever `retireDecision` names, so a
+   *  held layer that got selected would end the pump with no spawn and no other retire that tick —
+   *  starving a later-created chain's bottom layer, which is the one thing that could unblock it.
+   *  Empty for every non-stacked repo. */
+  stackHeldSessions?: ReadonlySet<string>;
 }
 
 /** True when this session's PR is ready to be retired / handed off for a human to merge.
@@ -216,7 +240,9 @@ function usageGuardsApply(state: DrainRepoState): boolean {
 function retireDecision(state: DrainRepoState): DrainDecision | null {
   const toRetire = state.autoSessions.find(
     (s) =>
-      !s.fullAuto && readyToRetire(s, state.criticEnabled, state.draftMode, state.signoffAuthority),
+      !s.fullAuto &&
+      !state.stackHeldSessions?.has(s.id) && // #2070: a stacked layer waiting for the one below it
+      readyToRetire(s, state.criticEnabled, state.draftMode, state.signoffAuthority),
   );
   return toRetire
     ? { kind: "retire", sessionId: toRetire.id, prNumber: toRetire.git!.number! }
@@ -291,8 +317,9 @@ export function computeNext(state: DrainRepoState): DrainDecision {
   // 2b. Epic base unavailable (#1757): the forge's `ensureBranch` THREW for a child spawn, so the
   // integration branch could not be ensured. Basing the child on the default branch instead would
   // silently mix bases mid-epic — the merge train would land that one child on main (it is not
-  // excluded from full-auto: `isEpicIntegrationBranch(baseBranch)` is false for it) while its
-  // siblings integrate on the epic branch. So fail closed and hold. Gated on an active epic run, so
+  // excluded from full-auto: a child that did NOT get the integration branch carries no `epicParent`
+  // stamp, so `isEpicChild` is false for it) while its siblings integrate on the epic branch.
+  // So fail closed and hold. Gated on an active epic run, so
   // it can never fire in label-mode drain; while an epic runs the candidate set IS that epic's
   // children, and every sibling would fail identically, so pausing new spawns is exactly right.
   // Placed AFTER the retire gate (a ready PR still retires) and BEFORE the cap. The marker is
@@ -334,7 +361,9 @@ export function computeNext(state: DrainRepoState): DrainDecision {
     kind: "spawn",
     issue: next,
     integrationBranch: state.epicIntegrationBranch ?? undefined,
+    epicParent: state.epicParent ?? undefined,
     epicProviderSettings: state.epicProviderSettings ?? undefined,
+    stackedBase: state.epicStackBases?.get(next.number),
   };
 }
 

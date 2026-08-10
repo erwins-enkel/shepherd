@@ -132,6 +132,9 @@ function makeDeps(
       // PRs)" count. Omitted / unparseable → childCount 0 → the count parenthetical is dropped.
       childrenJson?: string;
     }[];
+    /** #2067: stamped epic-child identity per head branch, keyed `${repo}#${branch}`. Absent →
+     *  every branch resolves to null, i.e. the predicate falls back to the PR's base-branch name. */
+    epicParentByBranch?: Record<string, number>;
   } = {},
 ) {
   const spies: Spies = {
@@ -175,6 +178,10 @@ function makeDeps(
       // shaped just enough for sweep()'s landingPrNumber != null filter + repoPath map.
       listEpicCompleted: (repoPath?: string) =>
         (opts.epicCompleted ?? []).filter((r) => repoPath === undefined || r.repoPath === repoPath),
+      // #2067: the session-less critic's only route to the persisted epic-child fact. A PR with no
+      // Shepherd session (the default here) resolves null → base-branch fallback, as before.
+      getEpicParentByBranch: (repoPath: string, branch: string) =>
+        opts.epicParentByBranch?.[`${repoPath}#${branch}`] ?? null,
     },
     herdr: new (class {
       readonly recorded = spies.stopped; // this-dependent: unbound call loses this.recorded
@@ -918,6 +925,37 @@ test("#1757 ordinary PR (base=main): no epic block", async () => {
   const svc = new StandalonePrCriticService(deps as any);
   await svc.sweep();
   expect(spies.started[0]!.argv.at(-1)!).not.toContain("EPIC CONTEXT");
+});
+
+test("#2067 epic child whose base is NOT an epic branch: the stamp still yields the EPIC block", async () => {
+  const { deps, spies } = makeDeps(
+    {
+      computePatchId: async () => ({ patchId: "p1", baseSha: "deadbeefcafe1234", files: ["x.ts"] }),
+      collectBaseDelta: async () => ({
+        paths: ["src/base-only.ts"],
+        pathsTruncated: 0,
+        commits: ["abc feat: predecessor landed"],
+        commitsTruncated: 0,
+      }),
+    },
+    {
+      criticAllPrs: true,
+      // The child's session carries the stamp, keyed by its head (work) branch.
+      epicParentByBranch: { "/r#shepherd/task-8-child": 1757 },
+    },
+  );
+  // Stacked shape: base is the PREDECESSOR's task branch, so the old base-name test says "not a
+  // child" and the critic would lose its stale-tree context. The persisted fact keeps it.
+  deps.resolveForge = () =>
+    makeForge(spies, {
+      prs: [pr({ number: 8, headRefName: "shepherd/task-8-child", headSha: "childsha" })],
+      meta: async () => ({ ...OPEN_META, baseRefName: "shepherd/task-7-predecessor" }),
+    });
+  const svc = new StandalonePrCriticService(deps as any);
+  await svc.sweep();
+  const prompt = spies.started[0]!.argv.at(-1)!;
+  expect(prompt).toContain("EPIC CONTEXT");
+  expect(prompt).toContain("shepherd/task-7-predecessor");
 });
 
 // ── #1761 epic LANDING PR (head = integration branch, base = main) ────────────────────────────────

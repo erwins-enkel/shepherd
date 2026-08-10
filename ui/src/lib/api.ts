@@ -2107,6 +2107,7 @@ export async function putRepoConfig(
       | "criticSmellLensEnabled"
       | "manualStepsIssueEnabled"
       | "preWarmEpicLandingCi"
+      | "epicStacksEnabled"
       | "hidden"
       | "previewStartScript"
       | "previewStartCommand"

@@ -820,6 +820,9 @@ export interface RepoConfig {
   /** Opens the epic's landing PR early as a draft during drain so each child merge re-runs
    *  landing CI against main (#1664). Default off — opt-in. */
   preWarmEpicLandingCi: boolean;
+  /** Stack epic children onto their chain predecessor's PR branch instead of waiting for it to
+   *  merge (#2069). GitHub-only. Default off — opt-in. */
+  epicStacksEnabled: boolean;
   /** Hidden from the Backlog repos panel (list-only declutter; sessions/drain unaffected). Default off. */
   hidden: boolean;
   /** Local, non-replicated preview start script path stored by Shepherd. */
@@ -1106,6 +1109,12 @@ export interface Session {
   egressDegraded: boolean;
   /** Issue number that seeded this session; null when launched without an issue. */
   issueNumber: number | null;
+  /** Epic PARENT issue number this session was spawned as a child of; null/absent on non-epic
+   *  sessions and on rows written before the field existed. Server-side identity fact (it drives
+   *  merge-train exclusion and the epic retire path) mirrored here for type parity — no client
+   *  consumer today, and a raw null does NOT mean "not an epic child" (see the server's
+   *  `isEpicChild`, which falls back to the base-branch name). */
+  epicParent?: number | null;
   /** Launch-time display metadata for the task-id tooltip. Null/absent for legacy rows. */
   launchMetadata?: SessionLaunchMetadata | null;
   /** Web URL of the linked forge issue. Populated **only** by the Done-list endpoint

@@ -86,6 +86,12 @@ function safeJsonArray(raw: string | null | undefined): string[] {
   return Array.isArray(v) ? v.filter((s): s is string => typeof s === "string") : [];
 }
 
+/** Tolerantly parse a persisted JSON array-of-issue-numbers column (#2070; never throws). */
+function parseStrandedChildren(raw: string | null | undefined): number[] {
+  const v = safeJsonParse<unknown>(raw, []);
+  return Array.isArray(v) ? v.filter((n): n is number => Number.isInteger(n)) : [];
+}
+
 const PERSISTED_GIT_KINDS = new Set<unknown>(["github", "gitea", "local"]);
 const PERSISTED_PR_STATES = new Set<unknown>(["none", "open", "merged", "closed"]);
 const PERSISTED_CHECK_STATES = new Set<unknown>(["none", "pending", "success", "failure"]);
@@ -365,6 +371,11 @@ function strOrNull(v: string | null | undefined): string | null {
   return v ?? null;
 }
 
+/** INTEGER counterpart of {@link strOrNull} — same reason: keep the flat builders branch-free. */
+function numOrNull(v: number | null | undefined): number | null {
+  return v ?? null;
+}
+
 /** Coerce a persisted RundownEpicItem.pausedReason to its union, or undefined for anything else. */
 function coercePauseReason(v: unknown): RundownEpicItem["pausedReason"] {
   return v === "cap" || v === "conflict" || v === "driver" ? v : undefined;
@@ -436,6 +447,11 @@ export interface RepoConfig {
   /** Pre-warm epic landing CI by opening the landing PR as an early draft during the drain
    *  (#1664). Default OFF — explicit opt-in. */
   preWarmEpicLandingCi: boolean;
+  /** Stack epic children onto their chain predecessor's PR branch instead of waiting for it to
+   *  merge (#2069, epic #2063). GitHub-only (the stacked-PR API is a GitHub preview). Default
+   *  OFF — an autonomous retire cannot merge a stacked PR until #2070 lands, so enabling this
+   *  before then stalls the epic. */
+  epicStacksEnabled: boolean;
   /** Hidden from the Backlog repos panel (list-only declutter; never affects sessions/drain).
    *  Default OFF. */
   hidden: boolean;
@@ -557,7 +573,7 @@ const COLS = `id, desig, name, prompt, repoPath, baseBranch, branch, worktreePat
   autopilotEnabled, autopilotStepCount, autopilotPaused, autopilotComplete, autopilotQuestion, completionRepromptCount,
   planGateEnabled, planPhase,
   autoMergeEnabled, autoMergeRebaseCount, autoMergeRebaseHead, autoMergeRebaseSteeredAt,
-  auto, issueNumber, sandboxApplied, sandboxDegraded, egressApplied, egressDegraded,
+  auto, issueNumber, epicParent, sandboxApplied, sandboxDegraded, egressApplied, egressDegraded,
   research, epicAuthoring, landingRepair, terminal, terminalTabId, terminalPaneId,
   createdAt, updatedAt, archivedAt, mergingSince, mergingTrainId, mergeTrainPrs, mergingPrNumber,
   haltReason, haltedAt, manualStepsJson, manualStepsAckedAt, experimentId, experimentRole,
@@ -600,6 +616,7 @@ type SessionRow = {
   autoMergeRebaseSteeredAt: number | null;
   auto: number;
   issueNumber: number | null;
+  epicParent: number | null;
   sandboxApplied: string | null;
   sandboxDegraded: number;
   egressApplied: number;
@@ -798,6 +815,7 @@ type RepoCfgRow = {
   autoOptimizeFlagged: number;
   manualStepsIssueEnabled: number;
   preWarmEpicLandingCi: number;
+  epicStacksEnabled: number;
   hidden: number;
   previewStartScript: string | null;
   previewStartCommand: string | null;
@@ -973,6 +991,7 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
       autoOptimizeFlagged: false,
       manualStepsIssueEnabled: false,
       preWarmEpicLandingCi: false,
+      epicStacksEnabled: false,
       hidden: false,
       previewStartScript: null,
       previewStartCommand: null,
@@ -1003,6 +1022,7 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
     autoOptimizeFlagged: !!r.autoOptimizeFlagged,
     manualStepsIssueEnabled: !!r.manualStepsIssueEnabled,
     preWarmEpicLandingCi: !!r.preWarmEpicLandingCi,
+    epicStacksEnabled: !!r.epicStacksEnabled,
     hidden: !!r.hidden,
     previewStartScript: r.previewStartScript ?? null,
     previewStartCommand: r.previewStartCommand ?? null,
@@ -1036,6 +1056,7 @@ function repoConfigParams(repoPath: string, cfg: RepoConfig): SQLQueryBindings[]
     Number(Boolean(cfg.autoOptimizeFlagged)),
     Number(Boolean(cfg.manualStepsIssueEnabled)),
     Number(Boolean(cfg.preWarmEpicLandingCi)),
+    Number(Boolean(cfg.epicStacksEnabled)),
     Number(Boolean(cfg.hidden)),
     cfg.previewStartScript ?? null,
     cfg.previewStartCommand ?? null,
@@ -1502,6 +1523,23 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       repoPath TEXT NOT NULL, parentIssueNumber INTEGER NOT NULL, childNumber INTEGER NOT NULL,
       actualBase TEXT NOT NULL, prNumber INTEGER, checkedAt INTEGER NOT NULL,
       PRIMARY KEY (repoPath, parentIssueNumber, childNumber))`);
+    // #2069: one row per epic child whose PR Shepherd linked into a GitHub stack — the memo that
+    // makes the composition pass idempotent across ticks and restarts. Keyed like its
+    // `epic_integrated` sibling and, like every other epic_* table, never pruned: rows are bounded
+    // by children-per-epic and there is no epic teardown path in this store to hang one off.
+    this.db.run(`CREATE TABLE IF NOT EXISTS epic_stack (
+      repoPath TEXT NOT NULL, parentIssueNumber INTEGER NOT NULL, childNumber INTEGER NOT NULL,
+      stackNumber INTEGER NOT NULL, prNumber INTEGER NOT NULL,
+      baseBranch TEXT NOT NULL, position INTEGER NOT NULL, createdAt INTEGER NOT NULL,
+      PRIMARY KEY (repoPath, parentIssueNumber, childNumber))`);
+    // #2070: a stack that lost a middle layer. GitHub has no reorder/drop-one API, so the repair is
+    // unstack-and-recreate: the drain dissolves the stack, DELETES its epic_stack rows and records
+    // this marker, which halts stacking for the epic and drives the blocking assembleEpic warning.
+    // `strandedJson` is the layers above the lost one — they, not the lost child, decide the clear.
+    this.db.run(`CREATE TABLE IF NOT EXISTS epic_stack_wedge (
+      repoPath TEXT NOT NULL, parentIssueNumber INTEGER NOT NULL, childNumber INTEGER NOT NULL,
+      stackNumber INTEGER NOT NULL, strandedJson TEXT NOT NULL, detectedAt INTEGER NOT NULL,
+      PRIMARY KEY (repoPath, parentIssueNumber, childNumber))`);
     // #1944: a DISPLAY-ONLY sidecar for transient-agent spawns that were clamped to fit the OS argv
     // budget, or refused outright. Deliberately NOT `plan_gates`/`reviews`: those are GATING rows,
     // and writing a synthetic `error` verdict there would wipe the findings the planning agent is
@@ -1666,7 +1704,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         `SELECT criticEnabled, criticAllPrs, criticSmellLensEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled, planGateEnabled,
                 autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
                 maxAuto, autoLabel, usageCeilingPct, sandboxProfile, defaultModel, defaultEffort, egressExtraHosts, repoMode,
-                autoOptimizeFlagged, manualStepsIssueEnabled, preWarmEpicLandingCi, hidden, previewStartScript, previewStartCommand, previewOpenMode
+                autoOptimizeFlagged, manualStepsIssueEnabled, preWarmEpicLandingCi, epicStacksEnabled, hidden, previewStartScript, previewStartCommand, previewOpenMode
          FROM repo_config WHERE repoPath = ?`,
       )
       .get(repoPath) as RepoCfgRow | null;
@@ -1679,8 +1717,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
          (repoPath, criticEnabled, criticAllPrs, criticSmellLensEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled, planGateEnabled,
           autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
           maxAuto, autoLabel, usageCeilingPct, sandboxProfile, defaultModel, defaultEffort, egressExtraHosts, repoMode,
-          autoOptimizeFlagged, manualStepsIssueEnabled, preWarmEpicLandingCi, hidden, previewStartScript, previewStartCommand, previewOpenMode, updatedAt)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+          autoOptimizeFlagged, manualStepsIssueEnabled, preWarmEpicLandingCi, epicStacksEnabled, hidden, previewStartScript, previewStartCommand, previewOpenMode, updatedAt)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(repoPath) DO UPDATE SET criticEnabled = excluded.criticEnabled,
          criticAllPrs = excluded.criticAllPrs,
          criticSmellLensEnabled = excluded.criticSmellLensEnabled,
@@ -1704,6 +1742,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
          autoOptimizeFlagged = excluded.autoOptimizeFlagged,
          manualStepsIssueEnabled = excluded.manualStepsIssueEnabled,
          preWarmEpicLandingCi = excluded.preWarmEpicLandingCi,
+         epicStacksEnabled = excluded.epicStacksEnabled,
          hidden = excluded.hidden,
          previewStartScript = excluded.previewStartScript,
          previewStartCommand = excluded.previewStartCommand,
@@ -2054,6 +2093,134 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     }[];
   }
 
+  // ── epic stack membership (#2069) ─────────────────────────────────────────
+  /** Record that a child's PR is a member of the epic's GitHub stack. Idempotent (PK upsert) so a
+   *  re-observed composition never duplicates a layer; `createdAt` is never overwritten. */
+  recordEpicStackMember(
+    repoPath: string,
+    parentIssueNumber: number,
+    m: {
+      childNumber: number;
+      stackNumber: number;
+      prNumber: number;
+      baseBranch: string;
+      position: number;
+    },
+  ): void {
+    this.db.run(
+      `INSERT INTO epic_stack (repoPath, parentIssueNumber, childNumber, stackNumber, prNumber, baseBranch, position, createdAt)
+       VALUES (?,?,?,?,?,?,?,?)
+       ON CONFLICT DO UPDATE SET
+         stackNumber = excluded.stackNumber,
+         prNumber = excluded.prNumber,
+         baseBranch = excluded.baseBranch,
+         position = excluded.position`,
+      [
+        repoPath,
+        parentIssueNumber,
+        m.childNumber,
+        m.stackNumber,
+        m.prNumber,
+        m.baseBranch,
+        m.position,
+        Date.now(),
+      ],
+    );
+  }
+
+  /** The epic's recorded stack layers, bottom → top. */
+  listEpicStack(
+    repoPath: string,
+    parentIssueNumber: number,
+  ): {
+    childNumber: number;
+    stackNumber: number;
+    prNumber: number;
+    baseBranch: string;
+    position: number;
+  }[] {
+    return this.db
+      .query(
+        `SELECT childNumber, stackNumber, prNumber, baseBranch, position FROM epic_stack
+         WHERE repoPath = ? AND parentIssueNumber = ? ORDER BY position`,
+      )
+      .all(repoPath, parentIssueNumber) as {
+      childNumber: number;
+      stackNumber: number;
+      prNumber: number;
+      baseBranch: string;
+      position: number;
+    }[];
+  }
+
+  /** Drop every recorded layer of one stack (#2070) — called after `unstack` dissolved it. A row
+   *  means "this PR is in this LIVE stack", so leaving them would keep the composition planner and
+   *  the retire gate believing in a stack that no longer exists. */
+  deleteEpicStack(repoPath: string, parentIssueNumber: number, stackNumber: number): void {
+    this.db.run(
+      `DELETE FROM epic_stack WHERE repoPath = ? AND parentIssueNumber = ? AND stackNumber = ?`,
+      [repoPath, parentIssueNumber, stackNumber],
+    );
+  }
+
+  // ── epic stack wedges (#2070) ─────────────────────────────────────────────
+  /** Record a dissolved stack: `childNumber` is the child whose layer PR was orphaned, `stranded`
+   *  the children whose layers sat above it. Idempotent (PK upsert). */
+  recordEpicStackWedge(
+    repoPath: string,
+    parentIssueNumber: number,
+    w: { childNumber: number; stackNumber: number; stranded: number[]; detectedAt: number },
+  ): void {
+    this.db.run(
+      `INSERT INTO epic_stack_wedge (repoPath, parentIssueNumber, childNumber, stackNumber, strandedJson, detectedAt)
+       VALUES (?,?,?,?,?,?)
+       ON CONFLICT DO UPDATE SET
+         stackNumber = excluded.stackNumber,
+         strandedJson = excluded.strandedJson`,
+      [
+        repoPath,
+        parentIssueNumber,
+        w.childNumber,
+        w.stackNumber,
+        JSON.stringify(w.stranded),
+        w.detectedAt,
+      ],
+    );
+  }
+
+  /** Every live wedge for one epic — halts stacking and feeds the blocking assembleEpic warning.
+   *  A row whose `strandedJson` is unparseable degrades to an empty list rather than throwing: the
+   *  warning then names no stranded children, which is worse copy but still a visible wedge. */
+  listEpicStackWedges(
+    repoPath: string,
+    parentIssueNumber: number,
+  ): { childNumber: number; stackNumber: number; stranded: number[] }[] {
+    return (
+      this.db
+        .query(
+          `SELECT childNumber, stackNumber, strandedJson FROM epic_stack_wedge
+           WHERE repoPath = ? AND parentIssueNumber = ? ORDER BY childNumber`,
+        )
+        .all(repoPath, parentIssueNumber) as {
+        childNumber: number;
+        stackNumber: number;
+        strandedJson: string;
+      }[]
+    ).map((r) => ({
+      childNumber: r.childNumber,
+      stackNumber: r.stackNumber,
+      stranded: parseStrandedChildren(r.strandedJson),
+    }));
+  }
+
+  /** Clear a wedge marker — every child stranded by it has resolved. */
+  clearEpicStackWedge(repoPath: string, parentIssueNumber: number, childNumber: number): void {
+    this.db.run(
+      `DELETE FROM epic_stack_wedge WHERE repoPath = ? AND parentIssueNumber = ? AND childNumber = ?`,
+      [repoPath, parentIssueNumber, childNumber],
+    );
+  }
+
   /** Record a completed epic (all children done-in-epic). Idempotent upsert.
    *  On conflict, refreshes parentTitle/completedAt/childrenJson but leaves dismissedAt untouched
    *  so a previously dismissed epic never resurrects. */
@@ -2276,6 +2443,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       autoMergeRebaseSteeredAt: null,
       auto: input.auto ?? false,
       issueNumber: input.issueNumber ?? null,
+      epicParent: numOrNull(input.epicParent),
       sandboxApplied: input.sandboxApplied ?? null,
       sandboxDegraded: input.sandboxDegraded ?? false,
       egressApplied: input.egressApplied ?? false,
@@ -2316,7 +2484,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       const seq = this.nextDesignationSeq();
       const s = this.buildSessionRow(input, seq, now);
       this.db.run(
-        `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [
           s.id,
           s.desig,
@@ -2350,6 +2518,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
           null, // autoMergeRebaseSteeredAt — never steered
           s.auto ? 1 : 0,
           s.issueNumber,
+          numOrNull(s.epicParent), // stamped at spawn for an epic child; null everywhere else
           s.sandboxApplied,
           s.sandboxDegraded ? 1 : 0,
           s.egressApplied ? 1 : 0,
@@ -2389,6 +2558,23 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       .query(`SELECT ${COLS} FROM sessions WHERE id = ?`)
       .get(id) as SessionRow | null;
     return r ? this.hydrate(r) : null;
+  }
+
+  /** The stamped epic parent of the session that owns `branch` as its WORK branch, or null when no
+   *  such session exists (or it carries no stamp). The single read seam for callers that hold a PR
+   *  but no session — the standalone PR critic — so they can answer epic-childness from the same
+   *  fact the session-holding sites use. Rows of ANY status (archived included) count: a child's
+   *  PR outlives its session. Newest-first so a relaunched child's row wins over a dead predecessor
+   *  that never got the stamp. */
+  getEpicParentByBranch(repoPath: string, branch: string): number | null {
+    const r = this.db
+      .query(
+        `SELECT epicParent FROM sessions
+           WHERE repoPath = ? AND branch = ? AND epicParent IS NOT NULL
+           ORDER BY createdAt DESC LIMIT 1`,
+      )
+      .get(repoPath, branch) as { epicParent: number } | null;
+    return r?.epicParent ?? null;
   }
 
   // ── Clean-terminal singleton lease ──────────────────────────────────────────
@@ -4030,6 +4216,10 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     add("autoMergeRebaseSteeredAt", `autoMergeRebaseSteeredAt INTEGER`);
     add("auto", `auto INTEGER NOT NULL DEFAULT 0`);
     add("issueNumber", `issueNumber INTEGER`);
+    // Epic-child identity (#2067): the epic parent issue number, stamped at spawn. Nullable with no
+    // default — legacy rows migrate to NULL, which the shared predicate reads as "unknown" and
+    // answers from the base-branch name instead, so in-flight epics survive the deploy.
+    add("epicParent", `epicParent INTEGER`);
     // sandbox badge/banner: applied profile (nullable for legacy rows) + degrade flag.
     add("sandboxApplied", `sandboxApplied TEXT`);
     add("sandboxDegraded", `sandboxDegraded INTEGER NOT NULL DEFAULT 0`);
@@ -4161,6 +4351,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     add("manualStepsIssueEnabled", `manualStepsIssueEnabled INTEGER NOT NULL DEFAULT 0`);
     // default OFF — opt-in; pre-warm epic landing CI via an early draft landing PR (#1664)
     add("preWarmEpicLandingCi", `preWarmEpicLandingCi INTEGER NOT NULL DEFAULT 0`);
+    // default OFF — opt-in; stack epic children onto their predecessor's PR branch (#2069)
+    add("epicStacksEnabled", `epicStacksEnabled INTEGER NOT NULL DEFAULT 0`);
     // Hidden from the Backlog repos panel (list-only declutter). Default OFF.
     add("hidden", `hidden INTEGER NOT NULL DEFAULT 0`);
     // Local preview launcher metadata. Nullable: absent until first successful script setup.
@@ -5567,6 +5759,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       autoMergeRebaseSteeredAt: r.autoMergeRebaseSteeredAt,
       auto: !!r.auto,
       issueNumber: r.issueNumber ?? null,
+      epicParent: r.epicParent,
       sandboxApplied: isSandboxProfile(r.sandboxApplied) ? r.sandboxApplied : null,
       sandboxDegraded: !!r.sandboxDegraded,
       egressApplied: !!r.egressApplied,

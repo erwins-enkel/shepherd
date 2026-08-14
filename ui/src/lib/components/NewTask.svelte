@@ -634,6 +634,20 @@
     if (!autopilotTouched) autopilot = autopilotDefault;
   });
 
+  // Repo-wide automation for the guard timeline's post-PR steps. Null until the config has
+  // settled — those steps are omitted rather than rendered off unloaded defaults, which
+  // would claim "full-auto merge is off" for a repo that has it on.
+  const guardRepo = $derived.by(() => {
+    if (!repoPath || !repoConfig.isConfigSettled(repoPath)) return null;
+    const f = repoConfig.flags(repoPath);
+    return {
+      critic: f.critic,
+      autoAddress: f.autoAddress,
+      autoMerge: f.autoMerge,
+      draftMode: f.draftMode,
+    };
+  });
+
   // Research and epic-authoring are non-code modes: both disable the plan-gate/autopilot
   // toggles and the autonomous sandbox.
   const modeLocked = $derived(research || epicAuthoring);
@@ -2376,6 +2390,9 @@
     {autopilotLoading}
     {planGateDefault}
     {autopilotDefault}
+    {baseBranch}
+    {repoPath}
+    {guardRepo}
     {usageLimits}
     {holdLikely}
     {fableAvailable}

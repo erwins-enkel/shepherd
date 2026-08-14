@@ -7,6 +7,8 @@
   import GlossaryText from "$lib/components/GlossaryText.svelte";
   import EngineCapacityLine from "./EngineCapacityLine.svelte";
   import InstrumentToggle from "./InstrumentToggle.svelte";
+  import GuardTimeline from "./GuardTimeline.svelte";
+  import type { GuardRepoConfig } from "$lib/guard-timeline";
   import {
     AGENT_PROVIDERS,
     type AgentProvider,
@@ -37,6 +39,9 @@
     autopilotLoading,
     planGateDefault,
     autopilotDefault,
+    baseBranch,
+    repoPath,
+    guardRepo,
     usageLimits = null,
     holdLikely,
     fableAvailable,
@@ -69,6 +74,11 @@
     autopilotLoading: boolean;
     planGateDefault: boolean;
     autopilotDefault: boolean;
+    /** Base branch of the pending task — an epic integration branch is never merge-trained. */
+    baseBranch: string;
+    repoPath: string;
+    /** Repo-wide automation for the guard timeline; null until the repo config has loaded. */
+    guardRepo: GuardRepoConfig | null;
     usageLimits?: UsageLimits | null;
     holdLikely: boolean;
     fableAvailable: boolean;
@@ -286,6 +296,21 @@
       />
     </div>
   </div>
+  <!-- Research and epic-authoring force both guards off and lock them; those modes run
+       their own directives, so a guard timeline would describe a path this task never
+       takes. The locked note above already explains why the switches are inert. -->
+  {#if !modeLocked}
+    <div use:coachTarget={"guard-timeline"}>
+      <GuardTimeline
+        {planGate}
+        {autopilot}
+        provider={agentProvider}
+        {baseBranch}
+        {repoPath}
+        repo={guardRepo}
+      />
+    </div>
+  {/if}
 </div>
 
 <style>

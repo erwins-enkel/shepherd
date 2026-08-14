@@ -9,6 +9,7 @@ import {
   normalizeTokenName,
   isExpiryPreset,
   looksLikeAccessToken,
+  parseMintRequest,
   ACCESS_TOKEN_NAME_MAX,
 } from "../src/access-tokens";
 
@@ -23,6 +24,12 @@ function harness(startAt = 1_000_000) {
 }
 
 const bearer = (token: string) => `Bearer ${token}`;
+
+/** The rejection message, asserted present — parseMintRequest returned a success otherwise. */
+function errorOf(result: ReturnType<typeof parseMintRequest>): string {
+  if (!("error" in result)) throw new Error(`expected a rejection, got ${JSON.stringify(result)}`);
+  return result.error;
+}
 
 /** First row, asserted present — keeps the assertions readable under noUncheckedIndexedAccess. */
 function only<T>(rows: T[]): T {
@@ -81,6 +88,32 @@ test("isExpiryPreset: null or one of the three presets", () => {
   expect(isExpiryPreset(1)).toBe(false);
   expect(isExpiryPreset("30")).toBe(false);
   expect(isExpiryPreset(undefined)).toBe(false);
+});
+
+test("parseMintRequest: accepts a well-formed body, defaulting an absent expiry to never", () => {
+  expect(parseMintRequest({ name: " Asyar ", expiresInDays: 90 })).toEqual({
+    name: "Asyar",
+    expiresInDays: 90,
+  });
+  expect(parseMintRequest({ name: "Asyar", expiresInDays: null })).toEqual({
+    name: "Asyar",
+    expiresInDays: null,
+  });
+  expect(parseMintRequest({ name: "Asyar" })).toEqual({ name: "Asyar", expiresInDays: null });
+});
+
+test("parseMintRequest: names each rejection so the 400 tells the operator what to fix", () => {
+  expect(parseMintRequest(null)).toEqual({ error: "invalid body" });
+  expect(parseMintRequest("nope")).toEqual({ error: "invalid body" });
+  expect(parseMintRequest([{ name: "Asyar" }])).toEqual({ error: "invalid body" });
+  expect(parseMintRequest({ name: "Asyar", scopes: ["read"] })).toEqual({
+    error: "unknown field: scopes",
+  });
+  expect(errorOf(parseMintRequest({}))).toMatch(/^name must be/);
+  expect(errorOf(parseMintRequest({ name: "  " }))).toMatch(/^name must be/);
+  expect(errorOf(parseMintRequest({ name: "Asyar", expiresInDays: 7 }))).toMatch(
+    /^expiresInDays must be/,
+  );
 });
 
 // ── at rest ────────────────────────────────────────────────────────────────

@@ -274,6 +274,24 @@ test("revoke: an unknown id is 404", async () => {
   expect(res.status).toBe(404);
 });
 
+test("routing: an unsupported shape 404s rather than admitting the route group exists", async () => {
+  // A 403 here would tell an unauthenticated caller that /api/access-tokens is a real route
+  // group. Unmatched shapes must reach the dispatch tail's 404 WITHOUT touching the session
+  // guard — so these are checked with a valid operator cookie AND without one.
+  const app = makeApp(makeDeps());
+  const shapes: [string, string][] = [
+    ["PUT", "/api/access-tokens"],
+    ["PATCH", "/api/access-tokens"],
+    ["GET", "/api/access-tokens/t1"],
+    ["POST", "/api/access-tokens/t1"],
+    ["DELETE", "/api/access-tokens/t1/extra"],
+  ];
+  for (const [method, path] of shapes) {
+    const res = await app.fetch(new Request(`http://x${path}`, { method, headers: asOperator() }));
+    expect(`${method} ${path} → ${res.status}`).toBe(`${method} ${path} → 404`);
+  }
+});
+
 test("revoke: DELETE without an id does not fall through to a mass delete", async () => {
   const app = makeApp(makeDeps());
   await app.fetch(post({ name: "keeper", expiresInDays: null }));

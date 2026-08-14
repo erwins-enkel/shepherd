@@ -64,14 +64,7 @@ import {
   verifyPassword,
   SESSION_COOKIE,
 } from "./operator-auth";
-import {
-  AccessTokenService,
-  ACCESS_TOKEN_EXPIRY_DAYS,
-  ACCESS_TOKEN_NAME_MAX,
-  isExpiryPreset,
-  looksLikeAccessToken,
-  normalizeTokenName,
-} from "./access-tokens";
+import { AccessTokenService, looksLikeAccessToken, parseMintRequest } from "./access-tokens";
 import { resolvePlanAnswers, planAnswerSteerText, type RawAnswer } from "./plan-gate";
 import { slugifyManual } from "./namer";
 import {
@@ -908,58 +901,41 @@ function handleMe({ req, parts }: Ctx): Response | null {
 // Named machine bearer tokens: minted here, verified in checkAuth. All three routes additionally
 // require an INTERACTIVE operator session, so a bearer cannot manage the token set it belongs to.
 
+async function mintAccessToken(req: Request, deps: AppDeps): Promise<Response> {
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return json({ error: "invalid json" }, 400);
+  }
+  const parsed = parseMintRequest(body);
+  if ("error" in parsed) return json({ error: parsed.error }, 400);
+  // The ONLY response that ever carries the plaintext — it is not recoverable afterwards.
+  return json(accessTokens(deps).mint(parsed.name, parsed.expiresInDays), 201);
+}
+
 async function handleAccessTokens({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (parts[0] !== "api" || parts[1] !== "access-tokens" || parts[3]) return null;
   const id = parts[2];
+  const method = req.method;
+  // List and mint are collection routes (no id); revoke needs one. Every other shape falls
+  // through to the dispatch tail's 404 — it must NOT reach the session guard and answer 403,
+  // which would tell an unauthenticated caller that this route group exists.
+  const matched = ((method === "GET" || method === "POST") && !id) || (method === "DELETE" && !!id);
+  if (!matched) return null;
 
-  if (req.method === "GET" && !id) {
-    const sessErr = requireOperatorSession(req);
-    if (sessErr) return sessErr;
-    return json({ tokens: accessTokens(deps).list() });
-  }
+  const sessErr = requireOperatorSession(req);
+  if (sessErr) return sessErr;
 
-  if (req.method === "POST" && !id) {
-    const sessErr = requireOperatorSession(req);
-    if (sessErr) return sessErr;
-    const ctErr = requireJsonContentType(req);
-    if (ctErr) return ctErr;
-    let body: unknown;
-    try {
-      body = await req.json();
-    } catch {
-      return json({ error: "invalid json" }, 400);
-    }
-    if (typeof body !== "object" || body === null || Array.isArray(body)) {
-      return json({ error: "invalid body" }, 400);
-    }
-    const raw = body as Record<string, unknown>;
-    const unknownField = Object.keys(raw).find((k) => k !== "name" && k !== "expiresInDays");
-    if (unknownField) return json({ error: `unknown field: ${unknownField}` }, 400);
-    const name = normalizeTokenName(raw.name);
-    if (name === null) {
-      return json({ error: `name must be 1-${ACCESS_TOKEN_NAME_MAX} characters` }, 400);
-    }
-    // Absent ⇒ never expires, the default the mint form starts on.
-    const expiresInDays = raw.expiresInDays === undefined ? null : raw.expiresInDays;
-    if (!isExpiryPreset(expiresInDays)) {
-      return json(
-        { error: `expiresInDays must be null or one of ${ACCESS_TOKEN_EXPIRY_DAYS.join(", ")}` },
-        400,
-      );
-    }
-    // The ONLY response that ever carries the plaintext — it is not recoverable afterwards.
-    const minted = accessTokens(deps).mint(name, expiresInDays);
-    return json(minted, 201);
-  }
-
-  if (req.method === "DELETE" && id) {
-    const sessErr = requireOperatorSession(req);
-    if (sessErr) return sessErr;
+  if (method === "GET") return json({ tokens: accessTokens(deps).list() });
+  if (method === "POST") return mintAccessToken(req, deps);
+  if (method === "DELETE" && id) {
     if (!accessTokens(deps).revoke(id)) return json({ error: "not found" }, 404);
     return json({ ok: true });
   }
-
-  return null;
+  return null; // unreachable given `matched`, but keeps the handler total
 }
 
 function handleGitSnapshot({ req, parts, deps }: Ctx): Response | null {

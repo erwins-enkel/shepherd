@@ -24,8 +24,10 @@ import type { SessionStore } from "./store";
 /** Greppable in logs, detectable by secret scanners — and lets `verify` reject non-tokens cheaply. */
 export const ACCESS_TOKEN_PREFIX = "shp_";
 
-/** The expiry presets the mint form offers. `null` (never) is accepted too, and is the default. */
-export const ACCESS_TOKEN_EXPIRY_DAYS = [30, 90, 365] as const;
+/** The expiry presets the mint form offers; `null` (never) is accepted too, and is the default.
+ *  Module-internal — `parseMintRequest` is the only gate that needs it, and the UI can't import
+ *  across packages, so `EXPIRY_DAYS` in SettingsAccessPanel.svelte mirrors it by hand. */
+const ACCESS_TOKEN_EXPIRY_DAYS = [30, 90, 365] as const;
 
 export const ACCESS_TOKEN_NAME_MAX = 64;
 
@@ -92,6 +94,34 @@ export function normalizeTokenName(raw: unknown): string | null {
 export function isExpiryPreset(raw: unknown): raw is number | null {
   if (raw === null) return true;
   return (ACCESS_TOKEN_EXPIRY_DAYS as readonly number[]).includes(raw as number);
+}
+
+/**
+ * Validate a mint request body from the wire. Returns the normalized fields, or the operator-facing
+ * message the route turns into a 400. Pure, so every rejection path is unit-testable without HTTP —
+ * and so the route stays routing + I/O.
+ *
+ * `expiresInDays` absent ⇒ never expires, the default the mint form starts on. Unknown keys are
+ * rejected, matching the house style of `validateCreate`.
+ */
+export function parseMintRequest(
+  body: unknown,
+): { name: string; expiresInDays: number | null } | { error: string } {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return { error: "invalid body" };
+  }
+  const raw = body as Record<string, unknown>;
+  const unknownField = Object.keys(raw).find((k) => k !== "name" && k !== "expiresInDays");
+  if (unknownField) return { error: `unknown field: ${unknownField}` };
+
+  const name = normalizeTokenName(raw.name);
+  if (name === null) return { error: `name must be 1-${ACCESS_TOKEN_NAME_MAX} characters` };
+
+  const expiresInDays = raw.expiresInDays === undefined ? null : raw.expiresInDays;
+  if (!isExpiryPreset(expiresInDays)) {
+    return { error: `expiresInDays must be null or one of ${ACCESS_TOKEN_EXPIRY_DAYS.join(", ")}` };
+  }
+  return { name, expiresInDays };
 }
 
 /**

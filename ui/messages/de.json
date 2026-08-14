@@ -3633,7 +3633,6 @@
   "guardtl_marker_you": "Du",
   "guardtl_marker_auto": "Auto",
   "guardtl_marker_conditional": "Bedingt",
-  "guardtl_toggle_aria": "Anzeigen, wo diese Aufgabe auf dich wartet",
   "guardtl_open_automation": "Automatisierungs-Einstellungen für dieses Repo öffnen",
   "feat_guard_timeline_title": "Sehen, wo eine Aufgabe auf dich wartet",
   "feat_guard_timeline_body": "Der Leitplanken-Block im Neue-Aufgabe-Dialog benennt jetzt die Übergabe. Eine Zeile unter den beiden Schaltern sagt, was die gewählte Kombination bedeutet; aufgeklappt steht jeder Schritt als deiner, als automatisch oder als bedingt da — bis über den PR hinaus zum Merge. Die Schritte aus der repoweiten Automatisierung öffnen das Automatisierungs-Panel direkt dort, ohne den getippten Prompt zu verlieren."

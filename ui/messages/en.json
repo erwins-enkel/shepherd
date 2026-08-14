@@ -3633,7 +3633,6 @@
   "guardtl_marker_you": "You",
   "guardtl_marker_auto": "Auto",
   "guardtl_marker_conditional": "Conditional",
-  "guardtl_toggle_aria": "Show where this task waits for you",
   "guardtl_open_automation": "Open automation settings for this repo",
   "feat_guard_timeline_title": "See where a task waits for you",
   "feat_guard_timeline_body": "The Guards block in New Task now spells out the handover. A line under the two switches names the combination you picked, and expanding it lists every step as yours, automatic, or conditional — all the way past the PR to the merge. The steps governed by repo-wide automation open the automation panel right there, without losing your typed prompt."

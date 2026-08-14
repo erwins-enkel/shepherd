@@ -73,11 +73,12 @@
 <svelte:window onpointerdown={onWindowPointerdown} />
 
 <div class="gtl" bind:this={wrapEl} onkeydowncapture={onKeydown}>
+  <!-- No aria-label: the visible line IS the answer, so it must be the button's
+       accessible name rather than being replaced by a generic one. -->
   <button
     type="button"
     class="gtl-head"
     aria-expanded={expanded}
-    aria-label={m.guardtl_toggle_aria()}
     onclick={() => (expanded = !expanded)}
   >
     <span class="gtl-head-text">{msg(timeline.headerKey)}</span>

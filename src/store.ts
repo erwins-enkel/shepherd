@@ -64,6 +64,7 @@ import { type SandboxProfile, isSandboxProfile } from "./sandbox";
 import { normalizeRepoDefaultModelSetting } from "./default-model";
 import { normalizeRepoDefaultEffortSetting } from "./default-effort";
 import { sanitizeScopeGlobs } from "./house-rules";
+import type { AccessTokenRow } from "./access-tokens";
 import type { EpicRun } from "./epic-core";
 import type { EpicLandingState } from "./completed-epic";
 import { normalizeRule } from "./learning-rule";
@@ -1587,6 +1588,13 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       catReviews: "INTEGER NOT NULL DEFAULT 1",
       catCi: "INTEGER NOT NULL DEFAULT 1",
     });
+    // Named machine bearer tokens minted from the HUD (#2082). Only the SHA-256 of the plaintext
+    // is stored — `hint` is the last 4 plaintext chars so the list can render `shp_…a9Fz`.
+    // `lastUsedAt` / `expiresAt` are NULL for "never used" / "never expires".
+    this.db.run(`CREATE TABLE IF NOT EXISTS access_tokens (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL,
+      tokenHash TEXT NOT NULL UNIQUE, hint TEXT NOT NULL,
+      createdAt INTEGER NOT NULL, lastUsedAt INTEGER, expiresAt INTEGER)`);
     this.db.run(`CREATE TABLE IF NOT EXISTS session_usage (
       sessionId      TEXT PRIMARY KEY,
       desig          TEXT NOT NULL,
@@ -1649,6 +1657,37 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
        ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
       [key, value],
     );
+  }
+
+  // ── access_tokens (named machine bearer tokens, issue #2082) ─────────────
+  // Persistence only: minting, hashing and verification live in AccessTokenService
+  // (src/access-tokens.ts), which holds the hot-path lookup map in memory.
+
+  /** Every token, newest first. Rows carry the HASH — the plaintext exists only in the mint response. */
+  listAccessTokens(): AccessTokenRow[] {
+    return this.db
+      .query(
+        `SELECT id, name, tokenHash, hint, createdAt, lastUsedAt, expiresAt
+         FROM access_tokens ORDER BY createdAt DESC`,
+      )
+      .all() as AccessTokenRow[];
+  }
+
+  insertAccessToken(row: AccessTokenRow): void {
+    this.db.run(
+      `INSERT INTO access_tokens (id, name, tokenHash, hint, createdAt, lastUsedAt, expiresAt)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [row.id, row.name, row.tokenHash, row.hint, row.createdAt, row.lastUsedAt, row.expiresAt],
+    );
+  }
+
+  /** True when a row was actually removed — the route turns a false into a 404. */
+  deleteAccessToken(id: string): boolean {
+    return this.db.run(`DELETE FROM access_tokens WHERE id = ?`, [id]).changes > 0;
+  }
+
+  touchAccessToken(id: string, at: number): void {
+    this.db.run(`UPDATE access_tokens SET lastUsedAt = ? WHERE id = ?`, [at, id]);
   }
 
   // ── plugin_state (scoped per-plugin key/value, issue #1124) ──────────────

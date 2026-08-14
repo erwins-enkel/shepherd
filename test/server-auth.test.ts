@@ -232,8 +232,8 @@ test("re-stamp: a fresh cookie (within first half) gets no Set-Cookie", async ()
 
 // ── WebSocket upgrades inherit the gate (the live-PTY fix) ───────────────────
 
-async function withServer(fn: (port: number) => Promise<void>) {
-  const server = serve(makeDeps(), 0);
+async function withServer(fn: (port: number) => Promise<void>, deps: AppDeps = makeDeps()) {
+  const server = serve(deps, 0);
   try {
     await fn(server.port!);
   } finally {
@@ -306,4 +306,101 @@ test("agent-transport: an uncredentialed hook POST is 2xx on the ingress but 401
   const main = makeApp(deps);
   const viaMain = await main.fetch(hookReq());
   expect(viaMain.status).toBe(401);
+});
+
+// ── minted access tokens (issue #2082) ──────────────────────────────────────
+// A third accepted credential alongside the cookie and SHEPHERD_TOKEN: named, individually
+// revocable, optionally expiring. Same reach as the env token by design (v1 has no scopes).
+
+/** Mint through the real route, cookie-authed — the way the HUD does it. */
+async function mintToken(
+  app: { fetch: (req: Request) => Promise<Response> },
+  name = "Asyar extension",
+  expiresInDays: number | null = null,
+): Promise<{ token: string; id: string }> {
+  const res = await app.fetch(
+    new Request("http://x/api/access-tokens", {
+      method: "POST",
+      headers: { "content-type": "application/json", ...cookieHeader(signCookie(SECRET)) },
+      body: JSON.stringify({ name, expiresInDays }),
+    }),
+  );
+  expect(res.status).toBe(201);
+  const body = (await res.json()) as { token: string; entry: { id: string } };
+  return { token: body.token, id: body.entry.id };
+}
+
+const bearer = (token: string) => ({ Authorization: `Bearer ${token}` });
+
+test("minted token: authenticates GET /api/sessions and GET /api/holds like SHEPHERD_TOKEN", async () => {
+  const app = makeApp(makeDeps());
+  const { token } = await mintToken(app);
+
+  const sessions = await app.fetch(
+    new Request("http://x/api/sessions", { headers: bearer(token) }),
+  );
+  expect(sessions.status).toBe(200);
+  const holds = await app.fetch(new Request("http://x/api/holds", { headers: bearer(token) }));
+  expect(holds.status).toBe(200);
+});
+
+test("minted token: revoking it 401s the next request — no restart", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  const { token, id } = await mintToken(app);
+  expect((await app.fetch(new Request("http://x/api/me", { headers: bearer(token) }))).status).toBe(
+    200,
+  );
+
+  const revoked = await app.fetch(
+    new Request(`http://x/api/access-tokens/${id}`, {
+      method: "DELETE",
+      headers: cookieHeader(signCookie(SECRET)),
+    }),
+  );
+  expect(revoked.status).toBe(200);
+
+  // Same app object, same process — no restart between these two lines.
+  const after = await app.fetch(new Request("http://x/api/me", { headers: bearer(token) }));
+  expect(after.status).toBe(401);
+  expect(await after.json()).toEqual({ error: "unauthorized" });
+});
+
+test("minted token: an unknown or tampered token is 401", async () => {
+  const app = makeApp(makeDeps());
+  const { token } = await mintToken(app);
+
+  const tampered = await app.fetch(
+    new Request("http://x/api/me", { headers: bearer(`${token}x`) }),
+  );
+  expect(tampered.status).toBe(401);
+  const madeUp = await app.fetch(
+    new Request("http://x/api/me", { headers: bearer("shp_not-a-real-token") }),
+  );
+  expect(madeUp.status).toBe(401);
+});
+
+test("minted token: coexists with SHEPHERD_TOKEN — both authenticate", async () => {
+  config.token = "operator-bearer";
+  const app = makeApp(makeDeps());
+  const { token } = await mintToken(app);
+
+  const viaEnv = await app.fetch(
+    new Request("http://x/api/me", { headers: bearer("operator-bearer") }),
+  );
+  expect(viaEnv.status).toBe(200);
+  const viaMinted = await app.fetch(new Request("http://x/api/me", { headers: bearer(token) }));
+  expect(viaMinted.status).toBe(200);
+});
+
+test("minted token: reaches the WS upgrade gate exactly like SHEPHERD_TOKEN does", async () => {
+  // v1 tokens are full-parity by design (per-token scopes are the filed follow-up). Locking it
+  // here so a later scope change is a deliberate edit to this expectation, not a silent drift.
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  const { token } = await mintToken(app);
+  await withServer(async (port) => {
+    const res = await fetch(`http://localhost:${port}/events`, { headers: bearer(token) });
+    expect(res.status).not.toBe(401);
+  }, deps);
 });

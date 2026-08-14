@@ -39,6 +39,7 @@ import { EventHub } from "./events";
 import { SessionService } from "./service";
 import { LearningsService } from "./learnings-service";
 import { RepoConfigService } from "./repo-config-service";
+import { AccessTokenService } from "./access-tokens";
 import { StatusPoller } from "./poller";
 import { PrPoller } from "./pr-poller";
 import { resolveDiffBase } from "./diff-base";
@@ -794,6 +795,11 @@ const service = new SessionService({
 // total accessors return these when injected via appDeps.
 const learningsSvc = new LearningsService(store, events);
 const repoConfigSvc = new RepoConfigService(store);
+
+// Minted machine bearer tokens (#2082). Constructed here so its hot-path hash map is seeded from
+// SQLite BEFORE the first request reaches checkAuth, and so the auth gate and the management
+// routes share one instance — a revocation through the routes must invalidate the gate's map.
+const accessTokenSvc = new AccessTokenService(store);
 
 // Build-queue reconciliation nudge: settled-idle backstop to the forward-fill cascade in
 // store.setBuildStepStatus. Steers a drifted, settled-idle session to post its progress.
@@ -2929,6 +2935,7 @@ const appDeps: AppDeps = {
   telemetry,
   learnings: learningsSvc,
   repoConfig: repoConfigSvc,
+  accessTokens: accessTokenSvc,
   events,
   pluginRegistry,
   pluginsDir: config.pluginsDir,

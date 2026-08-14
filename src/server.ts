@@ -64,6 +64,14 @@ import {
   verifyPassword,
   SESSION_COOKIE,
 } from "./operator-auth";
+import {
+  AccessTokenService,
+  ACCESS_TOKEN_EXPIRY_DAYS,
+  ACCESS_TOKEN_NAME_MAX,
+  isExpiryPreset,
+  looksLikeAccessToken,
+  normalizeTokenName,
+} from "./access-tokens";
 import { resolvePlanAnswers, planAnswerSteerText, type RawAnswer } from "./plan-gate";
 import { slugifyManual } from "./namer";
 import {
@@ -289,6 +297,10 @@ export interface AppDeps {
    *  `index.ts` injects explicit singletons so production shares one instance. */
   learnings?: LearningsService;
   repoConfig?: RepoConfigService;
+  /** Minted machine bearer tokens (#2082). Same memo-slot contract as the two above — the
+   *  `accessTokens(deps)` accessor lazily builds one from `store`, so `checkAuth` always has an
+   *  instance no matter which dispatch entry point the request arrived through. */
+  accessTokens?: AccessTokenService;
   /** Locates a Codex session's rollout for the transcript reads (issue #1992), with the TTL cache
    *  + miss backoff that keeps the Activity tab's 5s poll off the `$CODEX_HOME` tree. Optional for
    *  the same reason as the two above — the `codexTranscripts(deps)` accessor lazily builds one. */
@@ -685,6 +697,9 @@ function repoConfigSvc(deps: AppDeps): RepoConfigService {
 function codexTranscripts(deps: AppDeps): CodexTranscriptLocator {
   return (deps.codexTranscripts ??= new CodexTranscriptLocator());
 }
+function accessTokens(deps: AppDeps): AccessTokenService {
+  return (deps.accessTokens ??= new AccessTokenService(deps.store));
+}
 
 /**
  * Requests that pass the gate UN-credentialed (issue #1079). Scoped deliberately tight:
@@ -720,8 +735,13 @@ function isPublicRequest(req: Request): boolean {
  * gated. When NO auth is configured at all (no cookie secret AND no token — only ever the case in
  * an un-bootstrapped unit-test app) the gate is open, mirroring the prior `config.token === null`
  * contract the test suite relies on.
+ *
+ * The third credential (#2082) is a minted access token — same reach as `SHEPHERD_TOKEN`, but
+ * named, individually revocable and optionally expiring. It is checked LAST so the two cheaper
+ * paths (one HMAC, one length-guarded compare) short-circuit first, and its verification is a
+ * hash + in-memory map lookup, so this stays a no-DB-read gate.
  */
-function checkAuth(req: Request): Response | null {
+function checkAuth(req: Request, deps: AppDeps): Response | null {
   if (config.cookieSecret === null && config.token === null) return null; // un-bootstrapped (tests)
   if (isPublicRequest(req)) return null;
   if (
@@ -733,7 +753,38 @@ function checkAuth(req: Request): Response | null {
   if (config.token !== null && isAuthorized(req.headers.get("Authorization"), config.token)) {
     return null;
   }
+  const authHeader = req.headers.get("Authorization");
+  // Shape-check on the public `shp_` prefix first, so a request carrying no credential (or a
+  // cookie, or the env token) never even builds the service.
+  if (looksLikeAccessToken(authHeader)) {
+    const svc = accessTokens(deps);
+    const tokenId = svc.verify(authHeader);
+    if (tokenId !== null) {
+      svc.stampUsed(tokenId); // throttled to one write per token per minute
+      return null;
+    }
+  }
   return json({ error: "unauthorized" }, 401);
+}
+
+/**
+ * Stricter gate for the token-management routes (#2082): they require an INTERACTIVE operator
+ * session (a valid signed cookie), not merely any accepted credential. So a leaked machine token
+ * can neither mint itself successors nor revoke the operator's other tokens — the one privilege
+ * a bearer deliberately does not carry.
+ *
+ * Mirrors checkAuth's un-bootstrapped escape hatch, so unit-test apps that configure no auth at
+ * all keep reaching these routes.
+ */
+function requireOperatorSession(req: Request): Response | null {
+  if (config.cookieSecret === null && config.token === null) return null; // un-bootstrapped (tests)
+  if (
+    config.cookieSecret &&
+    verifyCookie(config.cookieSecret, parseCookie(req.headers.get("cookie"))).ok
+  ) {
+    return null;
+  }
+  return json({ error: "operator_session_required" }, 403);
 }
 
 /**
@@ -851,6 +902,64 @@ function handleMe({ req, parts }: Ctx): Response | null {
   if (req.method !== "GET" || parts[0] !== "api" || parts[1] !== "me" || parts[2]) return null;
   // Only reachable when checkAuth already passed — an unauthed /api/me 401s at the gate.
   return json({ authenticated: true });
+}
+
+// ── access tokens (issue #2082) ────────────────────────────────────────────
+// Named machine bearer tokens: minted here, verified in checkAuth. All three routes additionally
+// require an INTERACTIVE operator session, so a bearer cannot manage the token set it belongs to.
+
+async function handleAccessTokens({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (parts[0] !== "api" || parts[1] !== "access-tokens" || parts[3]) return null;
+  const id = parts[2];
+
+  if (req.method === "GET" && !id) {
+    const sessErr = requireOperatorSession(req);
+    if (sessErr) return sessErr;
+    return json({ tokens: accessTokens(deps).list() });
+  }
+
+  if (req.method === "POST" && !id) {
+    const sessErr = requireOperatorSession(req);
+    if (sessErr) return sessErr;
+    const ctErr = requireJsonContentType(req);
+    if (ctErr) return ctErr;
+    let body: unknown;
+    try {
+      body = await req.json();
+    } catch {
+      return json({ error: "invalid json" }, 400);
+    }
+    if (typeof body !== "object" || body === null || Array.isArray(body)) {
+      return json({ error: "invalid body" }, 400);
+    }
+    const raw = body as Record<string, unknown>;
+    const unknownField = Object.keys(raw).find((k) => k !== "name" && k !== "expiresInDays");
+    if (unknownField) return json({ error: `unknown field: ${unknownField}` }, 400);
+    const name = normalizeTokenName(raw.name);
+    if (name === null) {
+      return json({ error: `name must be 1-${ACCESS_TOKEN_NAME_MAX} characters` }, 400);
+    }
+    // Absent ⇒ never expires, the default the mint form starts on.
+    const expiresInDays = raw.expiresInDays === undefined ? null : raw.expiresInDays;
+    if (!isExpiryPreset(expiresInDays)) {
+      return json(
+        { error: `expiresInDays must be null or one of ${ACCESS_TOKEN_EXPIRY_DAYS.join(", ")}` },
+        400,
+      );
+    }
+    // The ONLY response that ever carries the plaintext — it is not recoverable afterwards.
+    const minted = accessTokens(deps).mint(name, expiresInDays);
+    return json(minted, 201);
+  }
+
+  if (req.method === "DELETE" && id) {
+    const sessErr = requireOperatorSession(req);
+    if (sessErr) return sessErr;
+    if (!accessTokens(deps).revoke(id)) return json({ error: "not found" }, 404);
+    return json({ ok: true });
+  }
+
+  return null;
 }
 
 function handleGitSnapshot({ req, parts, deps }: Ctx): Response | null {
@@ -4921,6 +5030,10 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       // blocking-onboarding-picker gate: true until a repo root has been picked/detected.
       firstRunPending: firstRun.pending,
       remoteControlAtStartup: config.remoteControlAtStartup,
+      // display-only (#2082): WHETHER an env-provisioned bearer is configured, never its value.
+      // Without it the Access panel's empty token list would read as "no machine access at all",
+      // even on a deployment where SHEPHERD_TOKEN has been driving Hermes all along.
+      envTokenActive: config.token !== null,
       reducedPushMode: config.reducedPushMode,
       sessionHousekeepingEnabled: config.sessionHousekeepingEnabled,
       autoReviveEnabled: config.autoReviveEnabled,
@@ -7579,6 +7692,7 @@ const ROUTE_HANDLERS = [
   handleLogin,
   handleLogout,
   handleMe,
+  handleAccessTokens,
   handlePing,
   handleHealth,
   handleTerminalTransport,
@@ -7692,7 +7806,7 @@ export function makeApp(deps: AppDeps, opts: { skipAuth?: boolean } = {}) {
   const app = {
     async fetch(req: Request): Promise<Response> {
       if (!opts.skipAuth) {
-        const authErr = checkAuth(req);
+        const authErr = checkAuth(req, deps);
         if (authErr) return authErr;
       }
 
@@ -7988,7 +8102,7 @@ export function serve(deps: AppDeps, port: number) {
     // layer, before the app-level MAX_UPLOAD_BYTES check ever runs.
     maxRequestBodySize: MAX_REQUEST_BODY_BYTES,
     fetch(req, server) {
-      const authErr = checkAuth(req);
+      const authErr = checkAuth(req, deps);
       if (authErr) return authErr;
 
       const originErr = checkOrigin(req);

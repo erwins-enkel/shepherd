@@ -84,6 +84,20 @@ export interface RepoEntry {
   realPath: string;
 }
 
+/** A minted machine access token as the server reports it (#2082) — never the plaintext value,
+ *  which exists exactly once, in the response to the mint request. */
+export interface AccessToken {
+  id: string;
+  name: string;
+  /** Last 4 characters of the plaintext, so the list can render `shp_…a9Fz`. */
+  hint: string;
+  createdAt: number;
+  /** null = never used. Stamped on use, throttled to one write per minute. */
+  lastUsedAt: number | null;
+  /** null = never expires. */
+  expiresAt: number | null;
+}
+
 export interface Settings {
   repoRoot: string;
   repoRootDisplay: string;
@@ -92,6 +106,10 @@ export interface Settings {
    *  root is persisted. */
   firstRunPending: boolean;
   remoteControlAtStartup: boolean;
+  /** Whether an env-provisioned `SHEPHERD_TOKEN` is configured — the fact only, never the value.
+   *  Drives the Access panel's status line so an empty token list can't read as "no machine
+   *  access at all" on a deployment where the env token has been serving clients all along. */
+  envTokenActive: boolean;
   /** Daily sweep that prunes old archived sessions; kill switch (default on). */
   sessionHousekeepingEnabled: boolean;
   /** Auto-revive stranded default-account sessions after a herdr daemon restart (#1630); opt-in

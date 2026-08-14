@@ -7,6 +7,7 @@ export const SETTINGS_SECTION_IDS = [
   "plugins",
   "session",
   "device",
+  "access",
   "diagnose",
 ] as const;
 export type SettingsSectionId = (typeof SETTINGS_SECTION_IDS)[number];
@@ -19,6 +20,10 @@ export const SECTION_GLYPHS: Record<SettingsSectionId, string> = {
   plugins: "✦",
   session: "⌖",
   device: "◫",
+  // NOT ⚿ (U+26BF SQUARED KEY), the obvious pick: it lives only in Noto Sans Symbols 2, which
+  // macOS and Windows don't ship — it would render as tofu, or from a different family than its
+  // siblings. ◈ has the same font coverage as ▦/◫, so the rail stays one typeface.
+  access: "◈",
   diagnose: "⚠",
 };
 
@@ -226,6 +231,12 @@ export function sectionSearchRows(ctx: {
       [m.settings_feedback_title(), m.settings_feedback_blurb()],
       [m.settings_extension_title(), m.settings_extension_blurb()],
       [m.settings_about_title(), m.settings_about_blurb()],
+    ],
+    access: [
+      [m.settings_tab_access()],
+      [m.settings_access_env_title()],
+      [m.settings_access_create_title()],
+      [m.settings_access_list_title()],
     ],
     diagnose: [[m.settings_tab_diagnose()], [m.diagnostics_title(), m.diagnostics_subtitle()]],
   };

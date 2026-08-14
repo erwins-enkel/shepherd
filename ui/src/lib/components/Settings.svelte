@@ -30,6 +30,7 @@
   import SettingsCodingCliPanel from "$lib/components/settings/SettingsCodingCliPanel.svelte";
   import SettingsSessionPanel from "$lib/components/settings/SettingsSessionPanel.svelte";
   import SettingsDevicePanel from "$lib/components/settings/SettingsDevicePanel.svelte";
+  import SettingsAccessPanel from "$lib/components/settings/SettingsAccessPanel.svelte";
   import SettingsDiagnosePanel from "$lib/components/settings/SettingsDiagnosePanel.svelte";
   import SettingsPluginsPanel from "$lib/components/settings/SettingsPluginsPanel.svelte";
   import SteersEditor from "$lib/components/SteersEditor.svelte";
@@ -323,6 +324,8 @@
         return m.settings_tab_session();
       case "device":
         return m.settings_tab_device();
+      case "access":
+        return m.settings_tab_access();
       case "diagnose":
         return m.settings_tab_diagnose();
     }
@@ -526,6 +529,16 @@
             openFeedback(kind);
           }}
         />
+      </div>
+
+      <div
+        class="panel"
+        use:panelShape={isNarrow}
+        id="settings-panel-access"
+        aria-label={m.settings_tab_access()}
+        hidden={active !== "access"}
+      >
+        <SettingsAccessPanel {payload} {query} />
       </div>
 
       <div

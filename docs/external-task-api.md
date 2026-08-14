@@ -12,6 +12,7 @@ see [What actually gates access](#what-actually-gates-access)).
 curl -X POST http://localhost:7330/api/sessions \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $SHEPHERD_TOKEN" \   # required — the server is gated by default
+                                                 # (a token minted in Settings → Access works here too)
   -d '{
         "repoPath": "~/Work/my-repo",
         "baseBranch": "main",
@@ -50,11 +51,11 @@ its hostname to `SHEPHERD_ALLOWED_HOSTS`.
 
 ## What actually gates access
 
-| Gate                 | Default                                               | What Hermes must do                                                                                                                                                                                                |
-| -------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Network bind**     | `127.0.0.1:7330` (loopback only)                      | Run on the same host, reach it over Tailscale serve, or set `SHEPHERD_HOST` to expose another NIC                                                                                                                  |
-| **Auth**             | Gated by default (operator password → session cookie) | Machine clients can't use the browser login — set `SHEPHERD_TOKEN=<random>` and send `Authorization: Bearer <token>` on every request (timing-safe compare). Without a valid cookie or bearer the request is `401` |
-| **Repo confinement** | `SHEPHERD_REPO_ROOT` = `~` (home)                     | `repoPath` must resolve **inside** the root, or the request is rejected `400`                                                                                                                                      |
+| Gate                 | Default                                               | What Hermes must do                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| -------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Network bind**     | `127.0.0.1:7330` (loopback only)                      | Run on the same host, reach it over Tailscale serve, or set `SHEPHERD_HOST` to expose another NIC                                                                                                                                                                                                                                                                                                                                          |
+| **Auth**             | Gated by default (operator password → session cookie) | Machine clients can't use the browser login, so they authenticate with a bearer: `Authorization: Bearer <token>` on every request. Two sources, both accepted at once — mint a **named token** in the HUD under Settings → Access (recommended; revocable per client, no restart), or set `SHEPHERD_TOKEN=<random>` in the server's environment (the deployment-provisioned option). Without a valid cookie or bearer the request is `401` |
+| **Repo confinement** | `SHEPHERD_REPO_ROOT` = `~` (home)                     | `repoPath` must resolve **inside** the root, or the request is rejected `400`                                                                                                                                                                                                                                                                                                                                                              |
 
 ### Recommended setup for a remote agent
 
@@ -65,9 +66,21 @@ its hostname to `SHEPHERD_ALLOWED_HOSTS`.
    `SHEPHERD_ALLOWED_HOSTS` at startup. Add a hostname manually only for a
    browser-based agent (one that sends `Origin`) reaching Shepherd through a
    **non-Tailscale** proxy or custom-DNS front.
-2. Set a shared secret: `SHEPHERD_TOKEN=<random>` and give it to Hermes. The
-   server is **gated by default**, and machine clients can't use the browser
-   password login — the bearer token is how they authenticate.
+2. Give the agent a bearer token. The server is **gated by default**, and machine
+   clients can't use the browser password login, so a bearer is how they
+   authenticate. Two ways, both accepted simultaneously:
+   - **Mint one in the HUD** — Settings → **Access** → _Create a token_. Name it
+     after the client (`"Hermes — prod"`), copy the value while it is shown (it
+     is shown **once**; only a hash is stored), and paste it into that client.
+     Revoking it later is one click and takes effect on the client's next
+     request — no restart, and no other client is disturbed. This is the
+     recommended route for anything you _install_.
+   - **`SHEPHERD_TOKEN=<random>`** in the server's environment — the right
+     mechanism when the deployment platform provisions the secret (systemd unit,
+     container env). One shared value for every client; changing it is a deploy.
+
+   Either way the request looks the same: `Authorization: Bearer <token>`.
+
 3. Keep `SHEPHERD_REPO_ROOT` tight so Hermes can only target intended repos.
 
 ## Request schema
@@ -114,7 +127,7 @@ Shepherd also archives the session on its own once the shell has exited.
 | `200`  | **Held** by the usage-aware hold gate — body `{ held: true, id, count }`; the task is queued, not spawned (see below)                                                                                                                                                                     |
 | `201`  | Created — body is the full `Session` (`id`, `desig`, `status`, `worktreePath`, …)                                                                                                                                                                                                         |
 | `400`  | Validation failed — body `{ error }`                                                                                                                                                                                                                                                      |
-| `401`  | No valid session cookie **and** no valid bearer token (the server is gated by default — machine clients must set `SHEPHERD_TOKEN` and send the bearer)                                                                                                                                    |
+| `401`  | No valid session cookie **and** no valid bearer token — the server is gated by default. Also what a **revoked or expired** minted token gets, on its very next request                                                                                                                    |
 | `403`  | Origin header present and not in `SHEPHERD_ALLOWED_HOSTS`                                                                                                                                                                                                                                 |
 | `409`  | First-run gate pending — a fresh install whose repo root hasn't been picked yet; body `{ error: "first_run_pending" }`. Pick a workspace folder in the HUD (or start the server with `SHEPHERD_REPO_ROOT` set) and retry                                                                  |
 | `409`  | Clean-terminal conflict — `{ error: "terminal_exists", existingId }` (that repo already has a terminal), `{ error: "terminal_unsupported" }` (the installed herdr has no `terminal session control`), or `{ error: "terminal_session" }` (an agent-only verb aimed at a terminal session) |

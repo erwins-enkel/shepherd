@@ -27,7 +27,12 @@ Open the extension's **options** (right-click the toolbar icon → *Options*) an
   - **Remote (Tailscale):** `https://<host>.ts.net` — saving a `ts.net` URL
     prompts the browser to grant access to that host; accept it once and captures
     file against your remote core.
-- **Token** — only if the server runs with `SHEPHERD_TOKEN` set.
+- **Token** — a bearer credential for the core. Mint one in the HUD under
+  **Settings → Access**: give it a name (e.g. _"Capture extension — work laptop"_),
+  copy the value while it is shown (it is shown once), and paste it here. You can
+  revoke that one token later without disturbing any other client. If your
+  deployment provisions `SHEPHERD_TOKEN` in the server's environment, that value
+  works here too.
 - **Repo path** — the default target repo (must resolve inside the server's
   `SHEPHERD_REPO_ROOT`).
 - **Base branch** and **Model** — optional.

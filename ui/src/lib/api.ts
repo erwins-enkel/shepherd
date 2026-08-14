@@ -79,6 +79,7 @@ import type {
   AgentProvider,
   UpNextSnapshot,
   UpNextItem,
+  AccessToken,
 } from "./types";
 import { m } from "$lib/paraglide/messages";
 import { auth } from "$lib/auth.svelte";
@@ -660,6 +661,33 @@ export const putSessionHousekeeping = (
 // Toggle auto-revive of stranded default-account sessions after a herdr daemon restart (#1630).
 export const putAutoRevive = (enabled: boolean): Promise<{ autoReviveEnabled: boolean }> =>
   patchSettings({ autoReviveEnabled: enabled });
+
+// ── access tokens (#2082) ───────────────────────────────────────────────────
+// Named machine bearer tokens. All three routes need the session cookie, which the browser
+// attaches automatically — a bearer is deliberately refused (403) on this surface.
+
+export const listAccessTokens = (): Promise<{ tokens: AccessToken[] }> =>
+  getJson("/api/access-tokens", "access tokens");
+
+/** Mint a token. The returned `token` is the only time the plaintext is ever available. */
+export async function createAccessToken(
+  name: string,
+  expiresInDays: number | null,
+): Promise<{ token: string; entry: AccessToken }> {
+  const r = await fetch("/api/access-tokens", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ name, expiresInDays }),
+  });
+  if (!r.ok) throw await failed(r, "create access token");
+  return r.json();
+}
+
+/** Revoke a token. Effective on the next request the client makes — no restart. */
+export async function revokeAccessToken(id: string): Promise<void> {
+  const r = await fetch(`/api/access-tokens/${encodeURIComponent(id)}`, { method: "DELETE" });
+  if (!r.ok) throw await failed(r, "revoke access token");
+}
 
 // Force-resume every currently-stranded session ("revive all"). Returns per-batch counts.
 export async function reviveStranded(): Promise<{ revived: number; failed: number }> {

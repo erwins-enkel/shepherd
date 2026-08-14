@@ -1007,6 +1007,8 @@ function buildSettings(): Settings {
     // The hosted demo is a seeded, always-configured environment — never first-run.
     firstRunPending: false,
     remoteControlAtStartup: false,
+    // The demo has no server, so no env-provisioned bearer either.
+    envTokenActive: false,
     autoReviveEnabled: false,
     sessionHousekeepingEnabled: true,
     defaultModel: "auto",

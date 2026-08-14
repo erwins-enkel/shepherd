@@ -424,7 +424,7 @@
         {/each}
       {/snippet}
 
-      <!-- All seven panels stay mounted and toggle via `hidden`: every
+      <!-- Every panel stays mounted and toggles via `hidden`: each
            settings-panel-* id resolves for the rail's aria-controls, and the
            steers editor keeps any in-progress draft across section switches
            instead of remounting and resyncing from the store. -->

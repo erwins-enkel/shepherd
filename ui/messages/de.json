@@ -3569,5 +3569,7 @@
   "toast_terminal_unsupported": "Clean-Terminals brauchen ein neueres herdr — herdr aktualisieren und erneut versuchen",
   "toast_broadcast_skipped_terminals": "{skipped} Terminal-Session(s) übersprungen — Terminals erhalten keine Steers",
   "feat_clean_terminal_title": "Clean-Terminal im Main-Repo",
-  "feat_clean_terminal_body": "Rechtsklick auf eine Session-Zeile oder einen Repo-Chip und „Clean-Terminal im Main-Repo“ wählen: Eine nackte Shell öffnet sich direkt im Haupt-Checkout des Repos (kein Worktree, kein Agent) — für schnelle Git- und CLI-Handgriffe. Ein Terminal pro Repo; erneutes Wählen fokussiert das bestehende. Beim Beenden der Shell archiviert sich die Session selbst."
+  "feat_clean_terminal_body": "Rechtsklick auf eine Session-Zeile oder einen Repo-Chip und „Clean-Terminal im Main-Repo“ wählen: Eine nackte Shell öffnet sich direkt im Haupt-Checkout des Repos (kein Worktree, kein Agent) — für schnelle Git- und CLI-Handgriffe. Ein Terminal pro Repo; erneutes Wählen fokussiert das bestehende. Beim Beenden der Shell archiviert sich die Session selbst.",
+  "feat_backlog_repo_icon_title": "Repo-Emoji in der Repos-Übersicht",
+  "feat_backlog_repo_icon_body": "Die Repo-Liste in der Repos-Übersicht führt jede Zeile jetzt mit dem konfigurierten Emoji des Repos an — dasselbe Erkennungszeichen, das Session-Karten, Epic-Überschriften und die Repo-Auswahl in „Neue Aufgabe“ schon nutzen. So sieht ein Repo überall gleich aus. Repos ohne Emoji zeigen die schlichte ▣-Marke; setzen lässt sie sich in der Repo-Auswahl unter „Neue Aufgabe“."
 }

@@ -146,6 +146,17 @@ const glossary: readonly GlossaryTerm[] = [
     termKey: "gloss_spawn_prompt_term",
     bodyKey: "gloss_spawn_prompt_def",
   },
+  {
+    // Internal, not external, on purpose: the definition describes a token as SHEPHERD mints it
+    // (shown once, hashed at rest, individually revocable), and German Wikipedia has no
+    // counterpart to the English "Access token" article — an external entry needs a resolving
+    // slug in BOTH locales. Keep this note inside the braces: check-glossary.mjs splits the
+    // registry on `}` followed by `{`, so a comment BETWEEN two entries silently merges them.
+    id: "access-token",
+    kind: "internal",
+    termKey: "gloss_access_token_term",
+    bodyKey: "gloss_access_token_def",
+  },
 ];
 
 export const glossaryById = new Map<string, GlossaryTerm>(glossary.map((term) => [term.id, term]));

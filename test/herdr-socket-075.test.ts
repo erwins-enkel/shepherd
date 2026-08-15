@@ -183,7 +183,9 @@ describe("SocketHerdrDriver — 0.7.5 (protocol 17) external-registration spawn"
 
     await driver.stop("term_075");
 
-    expect(rec.slice(startEnd).map((r) => r.method)).toEqual(["tab.list", "tab.close"]);
+    // Second `tab.list` = closeTab's last-tab check (#2039), which decides whether the close
+    // takes the workspace with it and one must be put back.
+    expect(rec.slice(startEnd).map((r) => r.method)).toEqual(["tab.list", "tab.list", "tab.close"]);
     expect(rec.at(-1)!.params).toEqual({ tab_id: "t_075" });
   });
 

@@ -291,8 +291,9 @@ describe("SocketHerdrDriver — socket-backed async writes (#1553, #1567)", () =
 
     await driver.stop("t1");
 
-    expect(rec.map((r) => r.method)).toEqual(["agent.list", "tab.close"]);
-    expect(rec[1]!.params).toEqual({ tab_id: "tab1" });
+    // The `tab.list` between them is closeTab's last-tab check (#2039).
+    expect(rec.map((r) => r.method)).toEqual(["agent.list", "tab.list", "tab.close"]);
+    expect(rec[2]!.params).toEqual({ tab_id: "tab1" }); // tab.close, now after the guard read
   });
 
   it("stop() is a no-op for an unknown terminal id (no tab.close)", async () => {
@@ -501,7 +502,9 @@ describe("SocketHerdrDriver — spawn-handle ledger (#1852)", () => {
 
     await driver.stop("t1");
 
-    expect(rec.slice(startEnd).map((r) => r.method)).toEqual(["tab.list", "tab.close"]);
+    // The second `tab.list` is closeTab's own last-tab check (#2039): it decides whether this
+    // close will take the workspace with it and therefore needs one put back.
+    expect(rec.slice(startEnd).map((r) => r.method)).toEqual(["tab.list", "tab.list", "tab.close"]);
     expect(rec.at(-1)!.params).toEqual({ tab_id: "tab_new" });
   });
 
@@ -517,7 +520,14 @@ describe("SocketHerdrDriver — spawn-handle ledger (#1852)", () => {
     await driver.stop("t1");
 
     const stopCalls = rec.slice(startEnd);
-    expect(stopCalls.map((r) => r.method)).toEqual(["tab.list", "agent.list", "tab.close"]);
+    // The second `tab.list` is closeTab's own last-tab check (#2039): it decides whether this
+    // close will take the workspace with it and therefore needs one put back.
+    expect(stopCalls.map((r) => r.method)).toEqual([
+      "tab.list",
+      "agent.list",
+      "tab.list",
+      "tab.close",
+    ]);
     expect(stopCalls.at(-1)!.params).toEqual({ tab_id: "tab_current" });
   });
 });

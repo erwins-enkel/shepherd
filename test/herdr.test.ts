@@ -428,6 +428,10 @@ test("closeTab is best-effort: swallows a runner error", async () => {
  */
 function tabStateDriver(tabs: { tab_id: string; workspace_id: string }[]) {
   const closed: string[] = [];
+  const created: string[] = [];
+  // herdr 0.8.0 semantics: a workspace exists while it holds at least one tab, and closing its
+  // LAST tab takes the workspace with it (#1760). Modelled so the restore path is really exercised.
+  const workspaces = [...new Set(tabs.map((t) => t.workspace_id))];
   const reply = (args: string[]): string => {
     if (args[0] === "tab" && args[1] === "list") {
       return JSON.stringify({
@@ -437,10 +441,42 @@ function tabStateDriver(tabs: { tab_id: string; workspace_id: string }[]) {
         },
       });
     }
+    if (args[0] === "pane" && args[1] === "list") {
+      return JSON.stringify({
+        result: {
+          type: "pane_list",
+          panes: tabs.map((t) => ({
+            pane_id: `${t.tab_id}:p`,
+            tab_id: t.tab_id,
+            cwd: `/wt/${t.tab_id}`,
+          })),
+        },
+      });
+    }
+    if (args[0] === "workspace" && args[1] === "list") {
+      return JSON.stringify({
+        result: {
+          type: "workspace_list",
+          workspaces: workspaces.map((w) => ({ workspace_id: w })),
+        },
+      });
+    }
+    if (args[0] === "workspace" && args[1] === "create") {
+      created.push(args[args.indexOf("--cwd") + 1]!);
+      workspaces.push(`w${workspaces.length + 1}`);
+      return "{}";
+    }
     if (args[0] === "tab" && args[1] === "close") {
       closed.push(args[2]!);
       const i = tabs.findIndex((t) => t.tab_id === args[2]);
-      if (i >= 0) tabs.splice(i, 1);
+      if (i >= 0) {
+        const ws = tabs[i]!.workspace_id;
+        tabs.splice(i, 1);
+        if (!tabs.some((t) => t.workspace_id === ws)) {
+          const wi = workspaces.indexOf(ws);
+          if (wi >= 0) workspaces.splice(wi, 1); // last tab took the workspace with it
+        }
+      }
     }
     return "{}";
   };
@@ -448,7 +484,7 @@ function tabStateDriver(tabs: { tab_id: string; workspace_id: string }[]) {
     await new Promise((r) => setTimeout(r, 0));
     return reply(args);
   });
-  return { driver, closed, tabs };
+  return { driver, closed, created, tabs, workspaces };
 }
 
 test("closeTab declines the last tab in a workspace (herdr 0.8.0 would close the workspace)", async () => {
@@ -501,6 +537,33 @@ test("closeTab({allowLastTab}) closes anyway — an operator stop must take the 
   await driver.closeTab("w1:t1", { allowLastTab: true });
 
   expect(closed).toEqual(["w1:t1"]);
+});
+
+test("closeTab({allowLastTab}) on a SOLE tab puts the workspace back — no workspace-less operator", async () => {
+  // The whole point of the bypass debate: teardown must kill the agent AND must not cost the
+  // operator their workspace. herdr 0.8.0 destroys the workspace with the last tab, so we rebuild
+  // one immediately, seeded with the closed tab's own cwd.
+  const { driver, closed, created, workspaces } = tabStateDriver([
+    { tab_id: "w1:t1", workspace_id: "w1" },
+  ]);
+
+  await driver.closeTab("w1:t1", { allowLastTab: true });
+
+  expect(closed).toEqual(["w1:t1"]); // agent went down
+  expect(workspaces).toHaveLength(1); // …and a workspace is present again
+  expect(created).toEqual(["/wt/w1:t1"]); // rebuilt from the closed tab's cwd, not a guess
+});
+
+test("closeTab({allowLastTab}) does NOT create a workspace when siblings survive the close", async () => {
+  const { driver, created, workspaces } = tabStateDriver([
+    { tab_id: "w1:t1", workspace_id: "w1" },
+    { tab_id: "w1:t2", workspace_id: "w1" },
+  ]);
+
+  await driver.closeTab("w1:t2", { allowLastTab: true });
+
+  expect(created).toEqual([]); // workspace never died — nothing to rebuild
+  expect(workspaces).toEqual(["w1"]);
 });
 
 test("stop closes the agent's tab even as its workspace's SOLE tab — a stop must stop", async () => {

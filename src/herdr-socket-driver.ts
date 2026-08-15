@@ -481,8 +481,12 @@ export class SocketHerdrDriver implements IHerdrDriver {
    *  `tabsAsync()` throw — same contract and rationale as `HerdrDriver.closeTab` (#2039). */
   async closeTab(tabId: string, opts: { allowLastTab?: boolean } = {}): Promise<void> {
     return this.serializeClose(async () => {
+      let restoreCwd: string | null = null;
       try {
-        if (!opts.allowLastTab && isLastTabInWorkspace(await this.tabsAsync(), tabId)) return;
+        if (isLastTabInWorkspace(await this.tabsAsync(), tabId)) {
+          if (!opts.allowLastTab) return;
+          restoreCwd = await this.tabCwd(tabId);
+        }
       } catch {
         /* can't tell → fail open and attempt the close */
       }
@@ -491,7 +495,18 @@ export class SocketHerdrDriver implements IHerdrDriver {
       } catch {
         /* best-effort; tab may already be gone */
       }
+      if (restoreCwd) await this.ensureWorkspace(restoreCwd).catch(() => {});
     });
+  }
+
+  /** See `HerdrDriver.tabCwd` — the cwd to rebuild a workspace with after closing its sole tab. */
+  private async tabCwd(tabId: string): Promise<string | null> {
+    try {
+      const pane = (await this.panesAsync()).find((p) => p.tabId === tabId);
+      return pane?.cwd || null;
+    } catch {
+      return null;
+    }
   }
 
   /**

@@ -2,6 +2,7 @@ import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 import {
   HerdrDriver,
   HerdrSpawnUnsupportedError,
+  TabLedger,
   deriveHerdrState,
   isHeadlessCodexExec,
   mapState,
@@ -9,6 +10,7 @@ import {
   matchAgents,
   parseAgents,
   posixShellJoin,
+  stopViaRecordedTab,
   type HerdrAgent,
 } from "../src/herdr";
 import { setDetectedHerdrVersion } from "../src/herdr-capabilities";
@@ -499,6 +501,22 @@ test("closeTab({allowLastTab}) closes anyway — an operator stop must take the 
   await driver.closeTab("w1:t1", { allowLastTab: true });
 
   expect(closed).toEqual(["w1:t1"]);
+});
+
+test("stop closes the agent's tab even as its workspace's SOLE tab — a stop must stop", async () => {
+  // Deliberate trade-off (#2039). Declining here would spare an about-to-be-empty workspace at the
+  // cost of leaving a LIVE claude running after an archive: the husk reaper spares any tab holding
+  // a non-shell process, so nothing automatic would ever clear it. Losing the workspace is
+  // recoverable — ensureWorkspace rebuilds one on the next spawn — and matches herdr 0.8.0's own
+  // TUI behaviour for closing a last tab. A leaked agent burning subscription quota is not.
+  const { driver, closed } = tabStateDriver([{ tab_id: "w1:t1", workspace_id: "w1" }]);
+  const ledger = new TabLedger();
+  ledger.record("term_a", "w1:t1", "helper w1:t1"); // label matches tabStateDriver's tab list
+
+  await stopViaRecordedTab(driver, ledger, "term_a");
+
+  expect(closed).toEqual(["w1:t1"]);
+  expect(ledger.get("term_a")).toBeNull();
 });
 
 test("startShellTab rolls back a half-created SOLE tab — the guard must not orphan it", async () => {

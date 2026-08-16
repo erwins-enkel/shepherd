@@ -9,14 +9,20 @@
 //   step 2 (review)   — plan-gate.ts applyChangesRequested(): escalates at the round cap.
 //   step 3 (release)  — plan-gate.ts applyApproved(): autopilot (or drain) releases, else
 //                       the operator's explicit Go.
+//   step 4 (to PR)    — autopilot.ts eligible(): autopilot drives the routine stops.
 //   step 5 (critic)   — review.ts runAutoAddress(): returns without steering when
 //                       auto-address is off, and holds at the cap when it is on.
 //   step 6 (merge)    — full-auto.ts isFullAuto() for the configuration, plus
 //                       automerge-core.ts readyExceptManualSteps()/hasBlockingManualSteps()
 //                       for the runtime conditions.
 //
-// INVARIANT: no step after the repo divider is ever "auto". Nothing past the PR is
-// unconditionally hands-off — see the two predicates above.
+// INVARIANTS:
+//   • No step after the repo divider is ever "auto". Nothing past the PR is unconditionally
+//     hands-off — see the two predicates above.
+//   • No step of a Codex task is ever "auto". Autopilot stands down entirely on a
+//     non-isolated Codex session (autopilot.ts eligible(), and the codexNonIsolated guard in
+//     plan-gate.ts applyApproved()), and worktree.ts create() only decides isolation at spawn
+//     time — so every autopilot-driven promise is a condition there, never a claim.
 
 import type { AgentProvider } from "./types";
 
@@ -65,9 +71,29 @@ export type GuardTimeline = {
  *  guard-timeline.test.ts, which pins the same inputs; there is no cross-package gate. */
 const EPIC_INTEGRATION_BRANCH = /^epic\/\d+(-[a-z0-9-]+)?$/;
 
-function headerKey(planGate: boolean, autopilot: boolean): string {
-  if (planGate) return autopilot ? "guardtl_head_plan_auto" : "guardtl_head_plan_manual";
-  return autopilot ? "guardtl_head_nogate_auto" : "guardtl_head_nogate_manual";
+/** True when autopilot is on AND actually applies. For Codex it only applies with an isolated
+ *  worktree, which is not known until spawn — so a Codex task never gets an unconditional
+ *  autopilot promise, in the header or in a step. */
+function autopilotIsCertain(input: GuardTimelineInput): boolean {
+  return input.autopilot && input.provider !== "codex";
+}
+
+function headerKey(input: GuardTimelineInput): string {
+  const suffix = autopilotIsCertain(input) ? "auto" : input.autopilot ? "auto_codex" : "manual";
+  return input.planGate ? `guardtl_head_plan_${suffix}` : `guardtl_head_nogate_${suffix}`;
+}
+
+/** An autopilot-driven step: the operator's when autopilot is off, Shepherd's when it is on and
+ *  certain, and conditional on the worktree isolation when the task runs on Codex. */
+function autopilotStep(
+  input: GuardTimelineInput,
+  id: string,
+  keys: { human: string; auto: string; autoCodex: string },
+): GuardStep {
+  if (!input.autopilot) return { id, kind: "human", key: keys.human, repoScoped: false };
+  return autopilotIsCertain(input)
+    ? { id, kind: "auto", key: keys.auto, repoScoped: false }
+    : { id, kind: "conditional", key: keys.autoCodex, repoScoped: false };
 }
 
 /** The critic leg: off means nobody reviews for you; on splits by whether findings are
@@ -120,16 +146,20 @@ export function buildGuardTimeline(input: GuardTimelineInput): GuardTimeline {
       repoScoped: false,
     });
     steps.push(
-      input.autopilot
-        ? { id: "release", kind: "auto", key: "guardtl_step_release_auto", repoScoped: false }
-        : { id: "release", kind: "human", key: "guardtl_step_release_you", repoScoped: false },
+      autopilotStep(input, "release", {
+        human: "guardtl_step_release_you",
+        auto: "guardtl_step_release_auto",
+        autoCodex: "guardtl_step_release_auto_codex",
+      }),
     );
   }
 
   steps.push(
-    input.autopilot
-      ? { id: "to-pr", kind: "auto", key: "guardtl_step_topr_auto", repoScoped: false }
-      : { id: "to-pr", kind: "human", key: "guardtl_step_topr_you", repoScoped: false },
+    autopilotStep(input, "to-pr", {
+      human: "guardtl_step_topr_you",
+      auto: "guardtl_step_topr_auto",
+      autoCodex: "guardtl_step_topr_auto_codex",
+    }),
   );
 
   if (input.repo) {
@@ -137,5 +167,5 @@ export function buildGuardTimeline(input: GuardTimelineInput): GuardTimeline {
     steps.push(mergeStep(input, input.repo));
   }
 
-  return { headerKey: headerKey(input.planGate, input.autopilot), steps };
+  return { headerKey: headerKey(input), steps };
 }

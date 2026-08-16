@@ -66,6 +66,22 @@ describe("buildGuardTimeline — header", () => {
       "guardtl_head_nogate_auto",
     );
   });
+
+  // The always-visible line must not claim what the steps below it qualify.
+  it("qualifies the autopilot headers for Codex", () => {
+    expect(
+      buildGuardTimeline(input({ planGate: true, autopilot: true, provider: "codex" })).headerKey,
+    ).toBe("guardtl_head_plan_auto_codex");
+    expect(
+      buildGuardTimeline(input({ planGate: false, autopilot: true, provider: "codex" })).headerKey,
+    ).toBe("guardtl_head_nogate_auto_codex");
+  });
+
+  it("leaves the autopilot-off headers alone for Codex — nothing is promised there", () => {
+    expect(
+      buildGuardTimeline(input({ planGate: true, autopilot: false, provider: "codex" })).headerKey,
+    ).toBe("guardtl_head_plan_manual");
+  });
 });
 
 describe("buildGuardTimeline — planning phase", () => {
@@ -178,8 +194,34 @@ describe("buildGuardTimeline — merge leg (full-auto.ts isFullAuto)", () => {
 });
 
 // worktree.ts create() decides isolation at spawn time, so the dialog can neither promise nor
-// deny the train for Codex — it carries the isolation as one more condition.
+// deny anything autopilot-driven for Codex — it carries the isolation as one more condition.
 describe("buildGuardTimeline — Codex isolation", () => {
+  // autopilot.ts eligible() stands down entirely on a non-isolated Codex session, and
+  // plan-gate.ts applyApproved() guards its auto-release with the same condition.
+  it("qualifies the release and the drive to the PR, never claiming them", () => {
+    const over = { autopilot: true, provider: "codex" as const };
+    expect(step(over, "release")).toMatchObject({
+      kind: "conditional",
+      key: "guardtl_step_release_auto_codex",
+    });
+    expect(step(over, "to-pr")).toMatchObject({
+      kind: "conditional",
+      key: "guardtl_step_topr_auto_codex",
+    });
+  });
+
+  it("keeps those steps unconditional for Claude under the same inputs", () => {
+    const over = { autopilot: true, provider: "claude" as const };
+    expect(step(over, "release")).toMatchObject({ kind: "auto", key: "guardtl_step_release_auto" });
+    expect(step(over, "to-pr")).toMatchObject({ kind: "auto", key: "guardtl_step_topr_auto" });
+  });
+
+  it("hands both to the operator for Codex with autopilot off", () => {
+    const over = { autopilot: false, provider: "codex" as const };
+    expect(step(over, "release")).toMatchObject({ kind: "human", key: "guardtl_step_release_you" });
+    expect(step(over, "to-pr")).toMatchObject({ kind: "human", key: "guardtl_step_topr_you" });
+  });
+
   it("adds the isolation condition when the configuration clears", () => {
     expect(step({ provider: "codex", autopilot: true, repo: REPO }, "merge")).toMatchObject({
       kind: "conditional",
@@ -215,6 +257,16 @@ describe("buildGuardTimeline — invariants across every input", () => {
       for (const s of buildGuardTimeline(i).steps) {
         if (s.repoScoped) expect(s.kind).not.toBe("auto");
       }
+    }
+  });
+
+  // The finding this invariant exists to catch: autopilot's own steps promised Shepherd would
+  // release and drive a Codex task, while autopilot.ts eligible() stands down without an
+  // isolated worktree.
+  it("never marks ANY step of a Codex task as unconditionally automatic", () => {
+    for (const i of allInputs()) {
+      if (i.provider !== "codex") continue;
+      for (const s of buildGuardTimeline(i).steps) expect(s.kind).not.toBe("auto");
     }
   });
 

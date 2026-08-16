@@ -100,6 +100,13 @@ describe("GuardTimeline — markers", () => {
     expect(lists[1]!.getAttribute("start")).toBe("5");
   });
 
+  it("renders no automatic marker at all for a Codex task", async () => {
+    await expand({ autopilot: true, provider: "codex" });
+    expect(head().textContent).toContain(m.guardtl_head_plan_auto_codex());
+    expect(document.querySelector(".gtl-marker.auto")).toBeNull();
+    expect(steps()[2]!.textContent).toContain(m.guardtl_step_release_auto_codex());
+  });
+
   it("never marks a post-PR step as unconditionally automatic", async () => {
     await expand({ autopilot: true });
     for (const btn of openBtns()) {

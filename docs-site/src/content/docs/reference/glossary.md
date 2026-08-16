@@ -22,6 +22,27 @@ Shepherd spawns a session per ready child, collects their PRs on an integration
 branch, and lands everything as one final PR. (From Agile, where an epic is a
 large body of work split into smaller stories.)
 
+### Plan gate
+
+A checkpoint before execution: the agent first researches the task, asks you what
+it needs, and writes an implementation plan that a second agent adversarially
+reviews, revising until the plan holds up or a round limit is reached. **Who
+releases the approved plan into execution depends on Autopilot** — with Autopilot
+off you give the explicit Go; with it on (or for a drain-spawned session) Shepherd
+releases it itself. On Codex that automatic release additionally requires an
+isolated worktree: a session sharing its working directory waits for your Go even
+with Autopilot on. Either way, a gated agent asks you its questions first:
+Autopilot stands down for the whole planning phase.
+
+### Autopilot
+
+Best-effort automation that drives a task through its routine stops to an open
+pull request. It never merges — landing a PR is the [merge train](#merge-train),
+which requires Autopilot **and** full-auto merge. Switched off, every step stays
+with you, and no automatic merge is possible at all. On Codex it applies only
+when Shepherd owns an isolated worktree, and stands down entirely without one —
+its resume path would otherwise target a sibling session in the shared directory.
+
 ### Critic
 
 Shepherd's isolated, read-only review agent that inspects a PR's diff once CI is

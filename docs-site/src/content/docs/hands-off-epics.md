@@ -38,8 +38,11 @@ Critic, and Auto-Address in one click, and switches the epic to **auto** mode. I
 ### Plan gate is hands-off-safe — keep it on
 
 It's a common misconception that Plan gate forces you to approve every session's plan by hand. That
-is only true for **interactive** sessions with Autopilot off. For an epic, every child is
-drain-spawned, so:
+is only true for a session meant to be driven by hand — **interactive, with Autopilot off**. A
+session that is meant to run hands-free releases itself: either because it is drain-spawned (every
+epic child is) **or** because Autopilot is on, which is why an interactive task with Autopilot on
+also needs no Go. The one exception is a **Codex** session sharing its working directory — Autopilot
+requires an isolated worktree, so that session waits for your Go regardless. For an epic:
 
 - When the adversarial plan reviewer **approves** a plan, the session is released **straight into
   execution** — no operator approval needed.

@@ -15,6 +15,7 @@ function token(over: Partial<AccessToken> = {}): AccessToken {
     createdAt: Date.now() - DAY,
     lastUsedAt: null,
     expiresAt: null,
+    scope: "full",
     ...over,
   };
 }
@@ -32,7 +33,7 @@ const jsonRes = (body: unknown, status = 200) =>
 function stubApi(opts: {
   tokens?: AccessToken[];
   listStatus?: number;
-  mint?: (body: { name: string; expiresInDays: number | null }) => {
+  mint?: (body: { name: string; expiresInDays: number | null; scope: string }) => {
     payload: unknown;
     status?: number;
   };
@@ -48,6 +49,7 @@ function stubApi(opts: {
         const body = JSON.parse(String(init?.body)) as {
           name: string;
           expiresInDays: number | null;
+          scope: string;
         };
         const mint = opts.mint ?? (() => ({ payload: {}, status: 201 }));
         const { payload: p, status = 201 } = mint(body);
@@ -154,12 +156,96 @@ describe("SettingsAccessPanel", () => {
     render(SettingsAccessPanel, { payload: payload(false) });
 
     await page.getByPlaceholder("Asyar extension — MacBook").fill("cron job");
-    await page.getByRole("combobox").selectOptions("90");
+    await page.getByLabelText("Expires").selectOptions("90");
     await page.getByRole("button", { name: "Create token" }).click();
 
     await expect.element(page.getByText("shp_x")).toBeVisible();
     const post = calls.find((c) => c.method === "POST");
-    expect(JSON.parse(post!.body)).toEqual({ name: "cron job", expiresInDays: 90 });
+    expect(JSON.parse(post!.body)).toEqual({
+      name: "cron job",
+      expiresInDays: 90,
+      scope: "read",
+    });
+  });
+
+  // ── scopes (#2083) ───────────────────────────────────────────────────────
+
+  it("mints at the narrowest scope by default — read, not full", async () => {
+    // Least privilege is what an operator gets by clicking through. The SERVER defaults an absent
+    // scope to `full` for #2082-era callers, so the form must always send its own choice.
+    const calls = stubApi({ mint: () => ({ payload: { token: "shp_x", entry: token() } }) });
+    render(SettingsAccessPanel, { payload: payload(false) });
+
+    await page.getByPlaceholder("Asyar extension — MacBook").fill("launcher");
+    await page.getByRole("button", { name: "Create token" }).click();
+
+    await expect.element(page.getByText("shp_x")).toBeVisible();
+    const post = calls.find((c) => c.method === "POST");
+    expect(JSON.parse(post!.body)).toMatchObject({ scope: "read" });
+  });
+
+  it("sends the picked scope, and describes it before minting", async () => {
+    const calls = stubApi({ mint: () => ({ payload: { token: "shp_x", entry: token() } }) });
+    render(SettingsAccessPanel, { payload: payload(false) });
+
+    // The hint tracks the selection, so the consequence is readable before the token exists.
+    await expect
+      .element(page.getByText(/Cannot start work, and cannot reach a terminal/))
+      .toBeVisible();
+    await page.getByLabelText("Scope").selectOptions("full");
+    await expect.element(page.getByText(/the live terminal included/)).toBeVisible();
+
+    await page.getByPlaceholder("Asyar extension — MacBook").fill("cron");
+    await page.getByRole("button", { name: "Create token" }).click();
+
+    await expect.element(page.getByText("shp_x")).toBeVisible();
+    expect(JSON.parse(calls.find((c) => c.method === "POST")!.body)).toMatchObject({
+      scope: "full",
+    });
+  });
+
+  it("shows each token's scope in the list, and offers no way to change it", async () => {
+    stubApi({
+      tokens: [
+        token({ id: "t1", name: "launcher", scope: "read" }),
+        token({ id: "t2", name: "capture", scope: "submit" }),
+        token({ id: "t3", name: "cron", scope: "full" }),
+      ],
+    });
+    render(SettingsAccessPanel, { payload: payload(false) });
+
+    for (const [name, label] of [
+      ["launcher", "Read"],
+      ["capture", "Submit"],
+      ["cron", "Full"],
+    ] as const) {
+      await expect.element(page.getByText(name, { exact: true })).toBeVisible();
+      // The badge is a read-only micro-label, never a control — a button here would be an
+      // editable scope, which the audit story deliberately refuses.
+      await expect.element(page.getByRole("button", { name: label })).not.toBeInTheDocument();
+    }
+    // Three rows, three badges — asserted through the class the rows share.
+    expect(document.querySelectorAll(".tokens .scope-badge")).toHaveLength(3);
+  });
+
+  it("colours a full-scope badge apart from a narrower one", async () => {
+    // Regression lock for a CSS-ordering trap: `.badge` and `.scope-badge` are both single-class
+    // selectors, so only source order separates them. With `.scope-badge` above `.badge`, every
+    // scope inherits `.badge`'s amber and the column stops distinguishing anything — while still
+    // rendering, still passing every other assertion here.
+    stubApi({
+      tokens: [
+        token({ id: "t1", name: "launcher", scope: "read" }),
+        token({ id: "t2", name: "cron", scope: "full" }),
+      ],
+    });
+    render(SettingsAccessPanel, { payload: payload(false) });
+    await expect.element(page.getByText("launcher", { exact: true })).toBeVisible();
+
+    const badges = [...document.querySelectorAll(".tokens .scope-badge")];
+    expect(badges).toHaveLength(2);
+    const colour = (el: Element) => getComputedStyle(el).color;
+    expect(colour(badges[0]!)).not.toBe(colour(badges[1]!));
   });
 
   it("surfaces a mint failure instead of a fake reveal card", async () => {

@@ -236,6 +236,9 @@ export function sectionSearchRows(ctx: {
       [m.settings_tab_access()],
       [m.settings_access_env_title()],
       [m.settings_access_create_title()],
+      // Indexed as its own row (#2083): "scope" is what an operator types after reading that
+      // tokens have one, and the section titles alone would not match it.
+      [m.settings_access_scope_label(), m.settings_access_scope_read_hint()],
       [m.settings_access_list_title()],
     ],
     diagnose: [[m.settings_tab_diagnose()], [m.diagnostics_title(), m.diagnostics_subtitle()]],

@@ -157,6 +157,15 @@ const glossary: readonly GlossaryTerm[] = [
     termKey: "gloss_access_token_term",
     bodyKey: "gloss_access_token_def",
   },
+  {
+    // Internal: "scope" is an industry term, but what the three LEVELS mean is specific to
+    // Shepherd's routes, and that is the part an operator needs at the mint form. Keep this note
+    // inside the braces — see the access-token entry above for why.
+    id: "token-scope",
+    kind: "internal",
+    termKey: "gloss_token_scope_term",
+    bodyKey: "gloss_token_scope_def",
+  },
 ];
 
 export const glossaryById = new Map<string, GlossaryTerm>(glossary.map((term) => [term.id, term]));

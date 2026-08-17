@@ -80,6 +80,7 @@ import type {
   UpNextSnapshot,
   UpNextItem,
   AccessToken,
+  TokenScope,
 } from "./types";
 import { m } from "$lib/paraglide/messages";
 import { auth } from "$lib/auth.svelte";
@@ -669,15 +670,18 @@ export const putAutoRevive = (enabled: boolean): Promise<{ autoReviveEnabled: bo
 export const listAccessTokens = (): Promise<{ tokens: AccessToken[] }> =>
   getJson("/api/access-tokens", "access tokens");
 
-/** Mint a token. The returned `token` is the only time the plaintext is ever available. */
+/** Mint a token. The returned `token` is the only time the plaintext is ever available. `scope`
+ *  is always sent explicitly (#2083) — the server would default an absent one to `full`, and the
+ *  form's least-privilege default must win over that back-compat default. */
 export async function createAccessToken(
   name: string,
   expiresInDays: number | null,
+  scope: TokenScope,
 ): Promise<{ token: string; entry: AccessToken }> {
   const r = await fetch("/api/access-tokens", {
     method: "POST",
     headers: JSON_HEADERS,
-    body: JSON.stringify({ name, expiresInDays }),
+    body: JSON.stringify({ name, expiresInDays, scope }),
   });
   if (!r.ok) throw await failed(r, "create access token");
   return r.json();

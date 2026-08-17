@@ -158,3 +158,143 @@ describe("buildWrappedArgv — disk TMPDIR redirect (#1875)", () => {
     });
   });
 });
+
+/**
+ * Guards against the two drivers' last-tab guard (#2039) diverging. The guard exists in BOTH
+ * `HerdrDriver.closeTab` and `SocketHerdrDriver.closeTab`, each with its own serializer chain, so
+ * the decision and the concurrency behaviour must be asserted against both from one place.
+ */
+describe("CLI/socket parity — last-tab guard (#2039)", () => {
+  /** A tab set both drivers read through their own transport, mutated by a close. */
+  function fixtures(tabs: { tab_id: string; label: string; workspace_id: string }[]) {
+    const drop = (id: string | undefined) => {
+      const i = tabs.findIndex((t) => t.tab_id === id);
+      if (i >= 0) tabs.splice(i, 1);
+    };
+
+    const cliClosed: string[] = [];
+    const created: string[] = [];
+    const cliReply = (args: string[]): string => {
+      if (args[0] === "tab" && args[1] === "list")
+        return JSON.stringify({ result: { type: "tab_list", tabs } });
+      if (args[0] === "pane" && args[1] === "list")
+        return JSON.stringify({
+          result: {
+            type: "pane_list",
+            panes: tabs.map((t) => ({ pane_id: `${t.tab_id}:p`, tab_id: t.tab_id, cwd: "/wt/x" })),
+          },
+        });
+      // A workspace survives only while it holds a tab (herdr 0.8.0, #1760).
+      if (args[0] === "workspace" && args[1] === "list")
+        return JSON.stringify({
+          result: {
+            type: "workspace_list",
+            workspaces: [...new Set(tabs.map((t) => t.workspace_id))].map((w) => ({
+              workspace_id: w,
+            })),
+          },
+        });
+      if (args[0] === "workspace" && args[1] === "create") created.push("cli");
+      if (args[0] === "tab" && args[1] === "close") {
+        cliClosed.push(args[2]!);
+        drop(args[2]);
+      }
+      return "{}";
+    };
+    const cli = new HerdrDriver(cliReply, async (a) => {
+      await new Promise((r) => setTimeout(r, 0));
+      return cliReply(a);
+    });
+
+    const socketClosed: string[] = [];
+    const client = {
+      request: mock(async (method: string, params: unknown) => {
+        await new Promise((r) => setTimeout(r, 0));
+        if (method === "tab.list") return { type: "tab_list", tabs };
+        if (method === "workspace.list")
+          return {
+            type: "workspace_list",
+            workspaces: [...new Set(tabs.map((t) => t.workspace_id))].map((w) => ({
+              workspace_id: w,
+            })),
+          };
+        if (method === "workspace.create") {
+          created.push("socket");
+          return { type: "workspace_created" };
+        }
+        if (method === "tab.close") {
+          const id = (params as { tab_id?: string })?.tab_id;
+          socketClosed.push(id!);
+          drop(id);
+        }
+        return { type: "ok" };
+      }),
+    } as unknown as HerdrSocketClient;
+    const socket = new SocketHerdrDriver(
+      client,
+      new HerdrDriver(cliReply, async (a) => cliReply(a)),
+    );
+
+    return { cli, socket, cliClosed, socketClosed, tabs, created };
+  }
+
+  it("both decline a workspace's last tab", async () => {
+    const a = fixtures([{ tab_id: "w1:t1", label: "solo", workspace_id: "w1" }]);
+    await a.cli.closeTab("w1:t1");
+    const b = fixtures([{ tab_id: "w1:t1", label: "solo", workspace_id: "w1" }]);
+    await b.socket.closeTab("w1:t1");
+
+    expect(a.cliClosed).toEqual([]);
+    expect(b.socketClosed).toEqual(a.cliClosed);
+  });
+
+  it("both close a tab whose workspace has siblings", async () => {
+    const pair = () => [
+      { tab_id: "w1:t1", label: "a", workspace_id: "w1" },
+      { tab_id: "w1:t2", label: "b", workspace_id: "w1" },
+    ];
+    const a = fixtures(pair());
+    await a.cli.closeTab("w1:t2");
+    const b = fixtures(pair());
+    await b.socket.closeTab("w1:t2");
+
+    expect(a.cliClosed).toEqual(["w1:t2"]);
+    expect(b.socketClosed).toEqual(a.cliClosed);
+  });
+
+  it("both survive concurrent closes on the final two tabs, closing exactly one", async () => {
+    const pair = () => [
+      { tab_id: "w1:t1", label: "a", workspace_id: "w1" },
+      { tab_id: "w1:t2", label: "b", workspace_id: "w1" },
+    ];
+    const a = fixtures(pair());
+    await Promise.all([a.cli.closeTab("w1:t1"), a.cli.closeTab("w1:t2")]);
+    const b = fixtures(pair());
+    await Promise.all([b.socket.closeTab("w1:t1"), b.socket.closeTab("w1:t2")]);
+
+    expect(a.cliClosed).toEqual(["w1:t1"]);
+    expect(b.socketClosed).toEqual(a.cliClosed);
+    expect(a.tabs).toHaveLength(1);
+    expect(b.tabs).toHaveLength(1);
+  });
+
+  it("both honour allowLastTab so an operator stop still takes the agent down", async () => {
+    const a = fixtures([{ tab_id: "w1:t1", label: "solo", workspace_id: "w1" }]);
+    await a.cli.closeTab("w1:t1", { allowLastTab: true });
+    const b = fixtures([{ tab_id: "w1:t1", label: "solo", workspace_id: "w1" }]);
+    await b.socket.closeTab("w1:t1", { allowLastTab: true });
+
+    expect(a.cliClosed).toEqual(["w1:t1"]);
+    expect(b.socketClosed).toEqual(a.cliClosed);
+  });
+
+  it("both rebuild the workspace after allowLastTab closes a sole tab", async () => {
+    const a = fixtures([{ tab_id: "w1:t1", label: "solo", workspace_id: "w1" }]);
+    await a.cli.closeTab("w1:t1", { allowLastTab: true });
+    const b = fixtures([{ tab_id: "w1:t1", label: "solo", workspace_id: "w1" }]);
+    await b.socket.closeTab("w1:t1", { allowLastTab: true });
+
+    expect(a.created).toEqual(["cli"]);
+    expect(b.created).toEqual(["socket"]); // same contract over the socket transport
+  });
+});

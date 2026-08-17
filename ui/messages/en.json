@@ -3649,5 +3649,7 @@
   "guardtl_head_plan_auto_codex": "This task: questions about the plan, then Shepherd carries on — if Codex gets an isolated worktree",
   "guardtl_head_nogate_auto_codex": "This task: Shepherd carries on without asking — if Codex gets an isolated worktree",
   "guardtl_step_release_auto_codex": "Shepherd releases it into execution, provided Codex got an isolated worktree — otherwise it waits for your Go",
-  "guardtl_step_topr_auto_codex": "Shepherd drives through routine stops to an open PR, provided Codex got an isolated worktree — otherwise every stop waits for you"
+  "guardtl_step_topr_auto_codex": "Shepherd drives through routine stops to an open PR, provided Codex got an isolated worktree — otherwise every stop waits for you",
+  "feat_herdr_080_title": "herdr 0.8.0 is supported",
+  "feat_herdr_080_body": "The in-app herdr updater no longer blocks 0.8.0 — if you were seeing an update badge next to a “not supported” refusal, that pair is resolved. Shepherd was verified against a live 0.8.0 daemon before the ceiling moved: its socket protocol (17 → 19) only adds methods and events, and the command surface Shepherd drives is unchanged. One teardown change needed handling: on 0.8.0, closing a workspace's last tab closes the whole workspace. Shepherd's background cleanup now leaves such a tab alone, and where a tab genuinely has to go — stopping an agent, archiving a terminal — it puts a workspace back afterwards."
 }

@@ -2,6 +2,7 @@ import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 import {
   HerdrDriver,
   HerdrSpawnUnsupportedError,
+  TabLedger,
   deriveHerdrState,
   isHeadlessCodexExec,
   mapState,
@@ -9,6 +10,7 @@ import {
   matchAgents,
   parseAgents,
   posixShellJoin,
+  stopViaRecordedTab,
   type HerdrAgent,
 } from "../src/herdr";
 import { setDetectedHerdrVersion } from "../src/herdr-capabilities";
@@ -137,8 +139,8 @@ function reply(args: string[], workspaceList: string): string {
   return FIXTURE;
 }
 
-test("start REFUSES on a herdr above the spawnable ceiling (>0.7.5), spawning nothing", async () => {
-  setDetectedHerdrVersion("0.7.6");
+test("start REFUSES on a herdr above the spawnable ceiling (>0.8.0), spawning nothing", async () => {
+  setDetectedHerdrVersion("0.8.1");
   try {
     const calls: string[][] = [];
     const d = mkDriver((args) => {
@@ -416,6 +418,265 @@ test("closeTab is best-effort: swallows a runner error", async () => {
     throw new Error("boom");
   });
   await expect(d.closeTab("w:9")).resolves.toBeUndefined();
+});
+
+/**
+ * Drives the last-tab guard (#2039) against a MUTABLE tab set: `tab list` is served from it and a
+ * `tab close` removes its target, so a second close sees the shrunken workspace herdr would really
+ * report. The async runner yields on a real macrotask, so two un-awaited `closeTab` calls genuinely
+ * interleave — without the driver's serializer the concurrency test below observes both closes.
+ */
+function tabStateDriver(tabs: { tab_id: string; workspace_id: string }[]) {
+  const closed: string[] = [];
+  const created: string[] = [];
+  // herdr 0.8.0 semantics: a workspace exists while it holds at least one tab, and closing its
+  // LAST tab takes the workspace with it (#1760). Modelled so the restore path is really exercised.
+  const workspaces = [...new Set(tabs.map((t) => t.workspace_id))];
+  const reply = (args: string[]): string => {
+    if (args[0] === "tab" && args[1] === "list") {
+      return JSON.stringify({
+        result: {
+          type: "tab_list",
+          tabs: tabs.map((t) => ({ ...t, label: "helper " + t.tab_id })),
+        },
+      });
+    }
+    if (args[0] === "pane" && args[1] === "list") {
+      return JSON.stringify({
+        result: {
+          type: "pane_list",
+          panes: tabs.map((t) => ({
+            pane_id: `${t.tab_id}:p`,
+            tab_id: t.tab_id,
+            cwd: `/wt/${t.tab_id}`,
+          })),
+        },
+      });
+    }
+    if (args[0] === "workspace" && args[1] === "list") {
+      return JSON.stringify({
+        result: {
+          type: "workspace_list",
+          workspaces: workspaces.map((w) => ({ workspace_id: w })),
+        },
+      });
+    }
+    if (args[0] === "workspace" && args[1] === "create") {
+      created.push(args[args.indexOf("--cwd") + 1]!);
+      workspaces.push(`w${workspaces.length + 1}`);
+      return "{}";
+    }
+    if (args[0] === "tab" && args[1] === "close") {
+      closed.push(args[2]!);
+      const i = tabs.findIndex((t) => t.tab_id === args[2]);
+      if (i >= 0) {
+        const ws = tabs[i]!.workspace_id;
+        tabs.splice(i, 1);
+        if (!tabs.some((t) => t.workspace_id === ws)) {
+          const wi = workspaces.indexOf(ws);
+          if (wi >= 0) workspaces.splice(wi, 1); // last tab took the workspace with it
+        }
+      }
+    }
+    return "{}";
+  };
+  const driver = new HerdrDriver(reply, async (args) => {
+    await new Promise((r) => setTimeout(r, 0));
+    return reply(args);
+  });
+  return { driver, closed, created, tabs, workspaces };
+}
+
+test("closeTab declines the last tab in a workspace (herdr 0.8.0 would close the workspace)", async () => {
+  const { driver, closed, tabs } = tabStateDriver([{ tab_id: "w1:t1", workspace_id: "w1" }]);
+
+  await driver.closeTab("w1:t1");
+
+  expect(closed).toEqual([]);
+  expect(tabs).toHaveLength(1);
+});
+
+test("closeTab still closes a tab whose workspace has siblings", async () => {
+  const { driver, closed } = tabStateDriver([
+    { tab_id: "w1:t1", workspace_id: "w1" },
+    { tab_id: "w1:t2", workspace_id: "w1" },
+  ]);
+
+  await driver.closeTab("w1:t2");
+
+  expect(closed).toEqual(["w1:t2"]);
+});
+
+test("closeTab counts only the target's OWN workspace, not tabs elsewhere", async () => {
+  const { driver, closed } = tabStateDriver([
+    { tab_id: "w1:t1", workspace_id: "w1" },
+    { tab_id: "w2:t1", workspace_id: "w2" },
+  ]);
+
+  await driver.closeTab("w1:t1"); // sole tab of w1, despite a second tab existing in w2
+
+  expect(closed).toEqual([]);
+});
+
+test("concurrent reapers racing a workspace's final two tabs close only one", async () => {
+  const { driver, closed, tabs } = tabStateDriver([
+    { tab_id: "w1:t1", workspace_id: "w1" },
+    { tab_id: "w1:t2", workspace_id: "w1" },
+  ]);
+
+  // Fire both WITHOUT awaiting the first — the boot reapers are launched with `void`.
+  await Promise.all([driver.closeTab("w1:t1"), driver.closeTab("w1:t2")]);
+
+  expect(closed).toEqual(["w1:t1"]); // the second call re-read and declined
+  expect(tabs).toHaveLength(1); // workspace survives
+});
+
+test("closeTab({allowLastTab}) closes anyway — an operator stop must take the agent down", async () => {
+  const { driver, closed } = tabStateDriver([{ tab_id: "w1:t1", workspace_id: "w1" }]);
+
+  await driver.closeTab("w1:t1", { allowLastTab: true });
+
+  expect(closed).toEqual(["w1:t1"]);
+});
+
+test("closeTab({allowLastTab}) on a SOLE tab puts the workspace back — no workspace-less operator", async () => {
+  // The whole point of the bypass debate: teardown must kill the agent AND must not cost the
+  // operator their workspace. herdr 0.8.0 destroys the workspace with the last tab, so we rebuild
+  // one immediately, seeded with the closed tab's own cwd.
+  const { driver, closed, created, workspaces } = tabStateDriver([
+    { tab_id: "w1:t1", workspace_id: "w1" },
+  ]);
+
+  await driver.closeTab("w1:t1", { allowLastTab: true });
+
+  expect(closed).toEqual(["w1:t1"]); // agent went down
+  expect(workspaces).toHaveLength(1); // …and a workspace is present again
+  expect(created).toEqual(["/wt/w1:t1"]); // rebuilt from the closed tab's cwd, not a guess
+});
+
+test("closeTab({allowLastTab}) rebuilds even when herdr reports the pane with NO cwd", async () => {
+  // `SuccessResponsePaneInfo.cwd` is optional/nullable in the vendored protocol, and parsePanes
+  // normalises a missing one to "". Gating the rebuild on a truthy cwd would delete the sole
+  // workspace on exactly that legal response — so the rebuild runs regardless, just unseeded.
+  const calls: string[][] = [];
+  const d = mkDriver((args) => {
+    calls.push(args);
+    if (args[0] === "tab" && args[1] === "list")
+      return JSON.stringify({
+        result: { type: "tab_list", tabs: [{ tab_id: "w1:t1", label: "x", workspace_id: "w1" }] },
+      });
+    if (args[0] === "pane" && args[1] === "list")
+      // pane present, cwd absent
+      return JSON.stringify({
+        result: { type: "pane_list", panes: [{ pane_id: "p1", tab_id: "w1:t1" }] },
+      });
+    if (args[0] === "workspace" && args[1] === "list")
+      return JSON.stringify({ result: { type: "workspace_list", workspaces: [] } });
+    return "{}";
+  });
+
+  await d.closeTab("w1:t1", { allowLastTab: true });
+
+  expect(calls).toContainEqual(["tab", "close", "w1:t1"]);
+  const create = calls.find((c) => c[0] === "workspace" && c[1] === "create");
+  expect(create).toBeDefined(); // rebuilt despite the unknown cwd
+  expect(create).not.toContain("--cwd"); // …and without a fabricated one
+});
+
+test("closeTab({allowLastTab}) still rebuilds when the tab list read FAILS", async () => {
+  // Fail-open closes the tab regardless; skipping the rebuild here would lose the workspace on a
+  // transient read error, which is precisely the guarantee this path makes.
+  const calls: string[][] = [];
+  const d = mkDriver((args) => {
+    calls.push(args);
+    if (args[0] === "tab" && args[1] === "list") throw new Error("herdr unreachable");
+    if (args[0] === "workspace" && args[1] === "list")
+      return JSON.stringify({ result: { type: "workspace_list", workspaces: [] } });
+    return "{}";
+  });
+
+  await d.closeTab("w1:t1", { allowLastTab: true });
+
+  expect(calls).toContainEqual(["tab", "close", "w1:t1"]);
+  expect(calls.some((c) => c[0] === "workspace" && c[1] === "create")).toBe(true);
+});
+
+test("closeTab (guarded) does NOT rebuild when the tab list read fails — it never closed", async () => {
+  const calls: string[][] = [];
+  const d = mkDriver((args) => {
+    calls.push(args);
+    if (args[0] === "tab" && args[1] === "list") throw new Error("herdr unreachable");
+    if (args[0] === "workspace" && args[1] === "list")
+      return JSON.stringify({ result: { type: "workspace_list", workspaces: [] } });
+    return "{}";
+  });
+
+  await d.closeTab("w1:t1"); // housekeeping: fail-open close, but no workspace claim to honour
+
+  expect(calls.some((c) => c[0] === "workspace" && c[1] === "create")).toBe(false);
+});
+
+test("closeTab({allowLastTab}) does NOT create a workspace when siblings survive the close", async () => {
+  const { driver, created, workspaces } = tabStateDriver([
+    { tab_id: "w1:t1", workspace_id: "w1" },
+    { tab_id: "w1:t2", workspace_id: "w1" },
+  ]);
+
+  await driver.closeTab("w1:t2", { allowLastTab: true });
+
+  expect(created).toEqual([]); // workspace never died — nothing to rebuild
+  expect(workspaces).toEqual(["w1"]);
+});
+
+test("stop closes the agent's tab even as its workspace's SOLE tab — a stop must stop", async () => {
+  // Deliberate trade-off (#2039). Declining here would spare an about-to-be-empty workspace at the
+  // cost of leaving a LIVE claude running after an archive: the husk reaper spares any tab holding
+  // a non-shell process, so nothing automatic would ever clear it. Losing the workspace is
+  // recoverable — ensureWorkspace rebuilds one on the next spawn — and matches herdr 0.8.0's own
+  // TUI behaviour for closing a last tab. A leaked agent burning subscription quota is not.
+  const { driver, closed } = tabStateDriver([{ tab_id: "w1:t1", workspace_id: "w1" }]);
+  const ledger = new TabLedger();
+  ledger.record("term_a", "w1:t1", "helper w1:t1"); // label matches tabStateDriver's tab list
+
+  await stopViaRecordedTab(driver, ledger, "term_a");
+
+  expect(closed).toEqual(["w1:t1"]);
+  expect(ledger.get("term_a")).toBeNull();
+});
+
+test("startShellTab rolls back a half-created SOLE tab — the guard must not orphan it", async () => {
+  // herdr returns a tab but no root pane: the create failed, and the contract is that it "leaves
+  // nothing". The rolled-back tab is its workspace's only one, so an un-exempted last-tab guard
+  // would strand it forever (no reaper can clear it either — they keep the guard).
+  const calls: string[][] = [];
+  const d = mkDriver((args) => {
+    calls.push(args);
+    if (args[0] === "workspace" && args[1] === "list") return WORKSPACE_LIST;
+    if (args[0] === "tab" && args[1] === "create")
+      return JSON.stringify({ result: { type: "tab_created", tab: { tab_id: "w1:t1" } } }); // no root_pane
+    if (args[0] === "tab" && args[1] === "list")
+      return JSON.stringify({
+        result: { type: "tab_list", tabs: [{ tab_id: "w1:t1", label: "sh", workspace_id: "w1" }] },
+      });
+    return "{}";
+  });
+
+  await expect(d.startShellTab("/wt/a", "sh")).rejects.toThrow("incomplete shell pane");
+
+  expect(calls).toContainEqual(["tab", "close", "w1:t1"]);
+});
+
+test("closeTab fails OPEN: an unreadable tab list still attempts the close", async () => {
+  const seen: string[][] = [];
+  const d = mkDriver((args) => {
+    seen.push(args);
+    if (args[0] === "tab" && args[1] === "list") throw new Error("herdr unreachable");
+    return "{}";
+  });
+
+  await d.closeTab("w1:t1");
+
+  expect(seen).toContainEqual(["tab", "close", "w1:t1"]);
 });
 
 test("relabel: renames the agent and its tab via the looked-up tabId", async () => {
@@ -1159,6 +1420,42 @@ const SQUATTER_LIST = JSON.stringify({
 function makeNameTakenError(): Error {
   return Object.assign(new Error("herdr CLI error"), { stderr: NAME_TAKEN_JSON });
 }
+
+test("start: evicts a squatter that is its workspace's SOLE tab — retry must not no-op", async () => {
+  // The last-tab guard must not disarm eviction: the squatter holds a LIVE claude whose NAME we
+  // need, and eviction is the only thing that changes state between retry attempts. Declining
+  // would make the retry a no-op loop and fail the spawn with agent_name_taken — the sticky class
+  // fixed in #751/#508. On a host where Shepherd is herdr's only client, one live tab left is a
+  // normal steady state, not an exotic one.
+  const calls: string[][] = [];
+  let agentStartAttempts = 0;
+  const runner = (args: string[]) => {
+    calls.push(args);
+    if (args[0] === "workspace" && args[1] === "list") return WORKSPACE_LIST;
+    if (args[0] === "tab" && args[1] === "create") return TAB_CREATE;
+    if (args[0] === "tab" && args[1] === "list")
+      // the squatter is the ONLY tab in w1
+      return JSON.stringify({
+        result: {
+          type: "tab_list",
+          tabs: [{ tab_id: "tab_squatter", label: "review TASK-504", workspace_id: "w1" }],
+        },
+      });
+    if (args[0] === "agent" && args[1] === "start") {
+      agentStartAttempts++;
+      if (agentStartAttempts === 1) throw makeNameTakenError();
+      return AGENT_STARTED;
+    }
+    if (args[0] === "agent" && args[1] === "list") return SQUATTER_LIST;
+    return "{}";
+  };
+
+  const agent = await mkDriver(runner).start("review TASK-504", "/wt/a", ["claude", "go"]);
+
+  expect(calls).toContainEqual(["tab", "close", "tab_squatter"]); // evicted, not declined
+  expect(agentStartAttempts).toBe(2); // the retry actually made progress
+  expect(agent.terminalId).toBe("term_started");
+});
 
 test("start: single collision then success — squatter tab closed, agent returned", async () => {
   const calls: string[][] = [];

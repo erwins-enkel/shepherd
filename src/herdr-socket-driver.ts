@@ -8,6 +8,7 @@ import {
   classifyPaneWrite,
   createSerializer,
   isHeadlessCodexExec,
+  isLastTabInWorkspace,
   isNameTakenError,
   parseAgentInfo,
   parseAgents,
@@ -45,6 +46,11 @@ export class SocketHerdrDriver implements IHerdrDriver {
   /** Serializes `start` so concurrent spawns can't race the workspace/tab orchestration
    *  across the socket round-trips' async yield points (issue #1553). */
   private serializeStart = createSerializer();
+
+  /** Serializes `closeTab` so concurrent reapers can't both clear the last-tab check and
+   *  delete the workspace between them (#2039). Separate from `serializeStart` — a spawn
+   *  rollback calls `closeTab` from inside that chain. */
+  private serializeClose = createSerializer();
 
   /** Spawn-handle registry: authoritative tabId per started terminalId (#1852). Owned
    *  here, not shared with the wrapped CLI driver — all starts/stops route through
@@ -231,7 +237,7 @@ export class SocketHerdrDriver implements IHerdrDriver {
       this.ledger.record(agent.terminalId, tabId, name);
       return agent;
     } catch (err) {
-      await this.closeTab(tabId); // roll back the orphan tab before propagating
+      await this.closeTab(tabId, { allowLastTab: true }); // roll back OUR just-created tab fully (#2039)
       throw err;
     }
   }
@@ -335,7 +341,7 @@ export class SocketHerdrDriver implements IHerdrDriver {
         // Evict squatter(s) by name — never by regex-parsing the error string — then re-run the
         // register pair against our existing pane.
         const squatters = (await this.listAsync()).filter((a) => a.name === agentName);
-        for (const sq of squatters) await this.closeTab(sq.tabId);
+        for (const sq of squatters) await this.closeTab(sq.tabId, { allowLastTab: true });
       }
     }
   }
@@ -373,14 +379,14 @@ export class SocketHerdrDriver implements IHerdrDriver {
       }
       return started;
     } catch (err) {
-      await this.closeTab(tabId); // roll back the orphan tab before propagating
+      await this.closeTab(tabId, { allowLastTab: true }); // roll back OUR just-created tab fully (#2039)
       throw err;
     }
   }
 
   /** herdr refuses `tab.create` without an active workspace; create a "shepherd" one on
    *  demand. Idempotent: skips when any workspace already exists. Mirrors the CLI path. */
-  private async ensureWorkspace(cwd: string): Promise<void> {
+  private async ensureWorkspace(cwd: string | null): Promise<void> {
     let workspaces: unknown[];
     try {
       const res = await this.client.request("workspace.list", {});
@@ -389,6 +395,8 @@ export class SocketHerdrDriver implements IHerdrDriver {
       workspaces = []; // unreachable/error reply → treat as "none", create one
     }
     if (workspaces.length === 0) {
+      // `cwd` is nullable in the protocol (`WorkspaceCreateParams`), so a null still creates —
+      // see `HerdrDriver.ensureWorkspace` for why the restore must never skip the create.
       await this.client.request("workspace.create", { cwd, label: "shepherd", focus: false });
     }
   }
@@ -422,7 +430,7 @@ export class SocketHerdrDriver implements IHerdrDriver {
         if (!isNameTakenError(err) || attempt === MAX_ATTEMPTS - 1) throw err;
         // Evict squatter(s) by name — never by regex-parsing the error string
         const squatters = (await this.listAsync()).filter((a) => a.name === name);
-        for (const sq of squatters) await this.closeTab(sq.tabId);
+        for (const sq of squatters) await this.closeTab(sq.tabId, { allowLastTab: true });
       }
     }
     // Unreachable: the final attempt either returns or throws above.
@@ -470,12 +478,39 @@ export class SocketHerdrDriver implements IHerdrDriver {
     }
   }
 
-  /** Best-effort: close a tab by id (takes its panes + any agent down with it). */
-  async closeTab(tabId: string): Promise<void> {
+  /** Best-effort: close a tab by id (takes its panes + any agent down with it), declining the close
+   *  when it would be the last tab in its workspace. Serialized on its own chain, fails open on a
+   *  `tabsAsync()` throw — same contract and rationale as `HerdrDriver.closeTab` (#2039). */
+  async closeTab(tabId: string, opts: { allowLastTab?: boolean } = {}): Promise<void> {
+    return this.serializeClose(async () => {
+      // See `HerdrDriver.closeTab`: the rebuild is unconditional, a null cwd only omits the seed.
+      let restore: { cwd: string | null } | null = null;
+      try {
+        if (isLastTabInWorkspace(await this.tabsAsync(), tabId)) {
+          if (!opts.allowLastTab) return;
+          restore = { cwd: await this.tabCwd(tabId) };
+        }
+      } catch {
+        // See `HerdrDriver.closeTab`: arm the rebuild on a read failure for bypass callers, so a
+        // transient `tab.list` error can't cost the operator their workspace.
+        if (opts.allowLastTab) restore = { cwd: null };
+      }
+      try {
+        await this.client.request("tab.close", { tab_id: tabId });
+      } catch {
+        /* best-effort; tab may already be gone */
+      }
+      if (restore) await this.ensureWorkspace(restore.cwd).catch(() => {});
+    });
+  }
+
+  /** See `HerdrDriver.tabCwd` — the cwd to rebuild a workspace with after closing its sole tab. */
+  private async tabCwd(tabId: string): Promise<string | null> {
     try {
-      await this.client.request("tab.close", { tab_id: tabId });
+      const pane = (await this.panesAsync()).find((p) => p.tabId === tabId);
+      return pane?.cwd || null;
     } catch {
-      /* best-effort; tab may already be gone */
+      return null;
     }
   }
 

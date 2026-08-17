@@ -481,6 +481,12 @@ export function parseTabs(result: unknown): HerdrTab[] {
     tabId: t.tab_id ?? "",
     label: t.label ?? "",
     agentStatus: (t.agent_status ?? "unknown") as HerdrState,
+    // The `?? ""` is a fail-SOFT the last-tab guard leans on: `isLastTabInWorkspace` groups by this
+    // field, so were herdr ever to stop sending it, every tab would collapse into one pseudo-
+    // workspace and the guard would quietly weaken to "decline only when the daemon has exactly one
+    // tab in total" — no error, no log. Probe-verified present and non-null on 0.7.5 AND 0.8.0
+    // (#2039), and `test/herdr-fixture-shape.test.ts` pins the captured shape; if a future capture
+    // drops it, treat that as a stop-and-review, not a regeneration.
     workspaceId: t.workspace_id ?? "",
   }));
 }
@@ -642,6 +648,26 @@ export function createSerializer(): <T>(fn: () => Promise<T>) => Promise<T> {
 }
 
 /**
+ * Whether `tabId` is the only tab left in its workspace — the close both drivers must DECLINE
+ * (#2039).
+ *
+ * herdr 0.8.0 (herdr #1760) changed teardown: closing a workspace's last tab now closes the
+ * WORKSPACE too, where 0.7.5 refused with `tab_close_failed`. Since `closeTab` swallows errors as
+ * best-effort, that refusal used to be a harmless no-op; on 0.8.0 the same call silently takes the
+ * operator's workspace — its label, tab arrangement and worktree-group state — with it. Shepherd's
+ * boot reconcilers (`reapTransientByLabel`) can close every Shepherd tab in a workspace at once,
+ * which is exactly the trigger. Declining here restores the 0.7.5 outcome on every version.
+ *
+ * A tab that is ABSENT from `tabs` returns false: it is already gone, so there is no workspace left
+ * to protect and the caller's close can proceed (it will simply no-op).
+ */
+export function isLastTabInWorkspace(tabs: HerdrTab[], tabId: string): boolean {
+  const target = tabs.find((t) => t.tabId === tabId);
+  if (!target) return false;
+  return tabs.filter((t) => t.workspaceId === target.workspaceId).length <= 1;
+}
+
+/**
  * Extracts the buffer text from a herdr `agent.read` reply's `result` object
  * (`""` when absent). Shared with the socket driver — see `parseAgents`.
  */
@@ -742,7 +768,10 @@ export async function stopViaRecordedTab(
       }
       if (tab.label === known.label) {
         ledger.delete(terminalId);
-        await driver.closeTab(known.tabId);
+        // `allowLastTab`: an operator-initiated stop MUST actually take the agent down. Declining
+        // here to spare a workspace would leave a live agent that ignored a stop — a worse failure
+        // than the workspace churn, which `ensureWorkspace` repairs on the next spawn (#2039).
+        await driver.closeTab(known.tabId, { allowLastTab: true });
         return;
       }
       // Label mismatch: recorded id now denotes some other tab — closing it could kill
@@ -759,7 +788,7 @@ export async function stopViaRecordedTab(
   const agent = (await driver.listAsync()).find((a) => a.terminalId === terminalId);
   if (agent?.tabId) {
     ledger.delete(terminalId);
-    await driver.closeTab(agent.tabId);
+    await driver.closeTab(agent.tabId, { allowLastTab: true }); // see above — stop must stop
     return;
   }
   console.warn(
@@ -803,7 +832,9 @@ export interface IHerdrDriver {
   readAsync(target: string, source?: "visible" | "recent", lines?: number): Promise<string>;
   stop(terminalId: string): Promise<void>;
   relabel(terminalId: string, newName: string): Promise<void>;
-  closeTab(tabId: string): Promise<void>;
+  /** Close a tab, declining when it is the last in its workspace unless `allowLastTab` —
+   *  see `HerdrDriver.closeTab` (#2039). */
+  closeTab(tabId: string, opts?: { allowLastTab?: boolean }): Promise<void>;
   /** Non-blocking sibling of `panes()` — for poller-loop consumers (clean-terminal pane
    *  liveness) that must never run `execFileSync` on Bun's loop. */
   panesAsync(): Promise<HerdrPane[]>;
@@ -827,6 +858,11 @@ export class HerdrDriver implements IHerdrDriver {
   /** Serializes `start` so concurrent spawns can't race the workspace/tab orchestration
    *  now that the writes are async (issue #1553); see `createSerializer`. */
   private serializeStart = createSerializer();
+
+  /** Serializes `closeTab` so concurrent reapers can't both clear the last-tab check and
+   *  delete the workspace between them (#2039). Separate from `serializeStart` — a spawn
+   *  rollback calls `closeTab` from inside that chain. */
+  private serializeClose = createSerializer();
 
   /** Spawn-handle registry: authoritative tabId per started terminalId (#1852). */
   private ledger = new TabLedger();
@@ -936,7 +972,7 @@ export class HerdrDriver implements IHerdrDriver {
    * has none, so the very first New Task after a herdr restart used to 500. Create a
    * "shepherd" workspace on demand. Idempotent: skips when any workspace already exists.
    */
-  private async ensureWorkspace(cwd: string): Promise<void> {
+  private async ensureWorkspace(cwd: string | null): Promise<void> {
     let workspaces: unknown[];
     try {
       workspaces =
@@ -945,15 +981,15 @@ export class HerdrDriver implements IHerdrDriver {
       workspaces = []; // unparseable/empty reply → treat as "none", create one
     }
     if (workspaces.length === 0) {
-      await this.asyncRunner([
-        "workspace",
-        "create",
-        "--cwd",
-        cwd,
-        "--label",
-        "shepherd",
-        "--no-focus",
-      ]);
+      // `--cwd` is OPTIONAL (probe-verified against a live 0.8.0 daemon: herdr falls back to the
+      // server's own cwd and the workspace is immediately usable for `tab create`). A null cwd must
+      // therefore still create — the post-teardown restore has no cwd to offer when herdr reports
+      // the closed pane without one, and skipping the create there is exactly the
+      // workspace-loss the restore exists to prevent.
+      const args = ["workspace", "create"];
+      if (cwd) args.push("--cwd", cwd);
+      args.push("--label", "shepherd", "--no-focus");
+      await this.asyncRunner(args);
     }
   }
 
@@ -994,7 +1030,7 @@ export class HerdrDriver implements IHerdrDriver {
         }
         // Evict squatter(s) by name — never by regex-parsing the error string
         const squatters = (await this.listAsync()).filter((a) => a.name === name);
-        for (const sq of squatters) await this.closeTab(sq.tabId);
+        for (const sq of squatters) await this.closeTab(sq.tabId, { allowLastTab: true });
       }
     }
     throw new Error(`herdr: agent start exhausted retries for ${name}`);
@@ -1030,7 +1066,9 @@ export class HerdrDriver implements IHerdrDriver {
     const terminalId: string | undefined = pane.terminal_id;
     if (!tabId || !paneId || !terminalId) {
       // A half-created tab must not linger — roll it back so a failed create leaves nothing.
-      if (tabId) await this.closeTab(tabId).catch(() => {});
+      // allowLastTab: undoing OUR own just-created tab, so the last-tab guard (#2039) must not
+      // turn "leaves nothing" into a permanent orphan.
+      if (tabId) await this.closeTab(tabId, { allowLastTab: true }).catch(() => {});
       throw new Error(`herdr: tab create returned an incomplete shell pane for ${label}`);
     }
     return { tabId, paneId, terminalId, cwd: pane.cwd ?? "" };
@@ -1125,7 +1163,7 @@ export class HerdrDriver implements IHerdrDriver {
       this.ledger.record(agent.terminalId, tabId, name);
       return agent;
     } catch (err) {
-      await this.closeTab(tabId); // roll back the orphan tab before propagating
+      await this.closeTab(tabId, { allowLastTab: true }); // roll back OUR just-created tab fully (#2039)
       throw err;
     }
   }
@@ -1246,7 +1284,7 @@ export class HerdrDriver implements IHerdrDriver {
         // Evict squatter(s) by name — never by regex-parsing the error string — then re-run the
         // register pair against our existing pane.
         const squatters = (await this.listAsync()).filter((a) => a.name === agentName);
-        for (const sq of squatters) await this.closeTab(sq.tabId);
+        for (const sq of squatters) await this.closeTab(sq.tabId, { allowLastTab: true });
       }
     }
   }
@@ -1291,7 +1329,7 @@ export class HerdrDriver implements IHerdrDriver {
 
       return agent;
     } catch (err) {
-      await this.closeTab(tabId); // roll back the orphan tab before propagating
+      await this.closeTab(tabId, { allowLastTab: true }); // roll back OUR just-created tab fully (#2039)
       throw err;
     }
   }
@@ -1438,12 +1476,87 @@ export class HerdrDriver implements IHerdrDriver {
     }
   }
 
-  /** Best-effort: close a tab by id (takes its panes + any agent down with it). */
-  async closeTab(tabId: string): Promise<void> {
+  /**
+   * Best-effort: close a tab by id (takes its panes + any agent down with it), DECLINING the close
+   * when it would be the last tab in its workspace — see {@link isLastTabInWorkspace}.
+   *
+   * Serialized, and that is load-bearing rather than tidiness: every reaper is launched
+   * fire-and-forget with `void` (`distiller`, `merge-suggest`, `optimizer`, `standalone-critic`), so
+   * several run concurrently at boot. On a workspace down to its final two tabs, an unserialized
+   * read-then-close lets both observers see two tabs, both conclude they are not closing the last
+   * one, and together delete the workspace. Chaining makes the check and the close atomic, so the
+   * second caller re-reads only after the first close has settled and then declines.
+   *
+   * Its OWN chain, never `serializeStart`: `startImpl`/`startImpl075`/`startShellTabImpl` call
+   * `closeTab` to roll back an orphan tab while already inside `serializeStart`, so sharing one
+   * chain would deadlock.
+   *
+   * Fails OPEN — a `tabsAsync()` throw falls through to the close. That failure means herdr is
+   * effectively unreachable (so the close fails anyway), and declining instead would leak orphans.
+   *
+   * `allowLastTab` skips the DECLINE (never the serialization). The dividing line is whether a LIVE
+   * process has to die for the caller to succeed — if it does, declining does not "play it safe",
+   * it strands that process. `tab-reaper` deliberately spares any tab holding a non-shell proc, so
+   * nothing else ever reclaims one. Three classes pass it:
+   *  - TEARDOWN that must actually tear down — `stopViaRecordedTab` (both its recorded-tab and
+   *    agent-list arms) and the clean-terminal arm of session archive.
+   *  - EVICTION of a live squatter whose NAME we need — the `agent_name_taken` retries in both
+   *    drivers, and `ReviewService.reapOrphans`, whose own comment is "free the name AND kill the
+   *    still-alive claude process". Eviction is the only thing that changes state between retry
+   *    attempts, so a declined close turns the retry into a no-op loop and the spawn fails named;
+   *    for the reviewer that is the sticky `agent_name_taken` class fixed in #751/#508.
+   *  - ROLLBACK of a tab we ourselves just created — the agent-spawn rollback in both drivers,
+   *    `startShellTabImpl`'s half-created tab, and the clean-terminal session-row rollback in
+   *    `SessionService`. Undoing our own creation must leave nothing, not a permanent orphan.
+   *
+   * None of them costs the operator their workspace: when a bypass closes a SOLE tab — the case
+   * where herdr 0.8.0 takes the workspace with it (#1760) — `ensureWorkspace` puts one straight
+   * back, so the process still dies and the operator is never left workspace-less. It is
+   * idempotent, so it no-ops on 0.7.5 (which refuses the close) and whenever a workspace survives.
+   * Two limits worth knowing: it creates only when ZERO workspaces remain, so a deleted workspace
+   * is not restored while another survives; and its create races `start`'s own `ensureWorkspace`
+   * (different serializer chains), which can yield two workspaces — benign and self-limiting.
+   *
+   * What KEEPS the guard is housekeeping of tabs holding no live process we need: the husk and
+   * transient reapers, and doc-agent's husk cleanup.
+   */
+  async closeTab(tabId: string, opts: { allowLastTab?: boolean } = {}): Promise<void> {
+    return this.serializeClose(async () => {
+      // Set once we are knowingly closing a workspace's sole tab. `cwd` may be null — herdr reports
+      // pane `cwd` as optional/nullable — but the REBUILD is unconditional: gating it on a truthy
+      // cwd would silently drop the operator's workspace on exactly the response shape the protocol
+      // permits, which is the loss this restore exists to prevent.
+      let restore: { cwd: string | null } | null = null;
+      try {
+        if (isLastTabInWorkspace(await this.tabsAsync(), tabId)) {
+          if (!opts.allowLastTab) return;
+          restore = { cwd: await this.tabCwd(tabId) };
+        }
+      } catch {
+        // Can't tell → fail open and attempt the close. A bypass caller closes either way, so ARM
+        // the rebuild rather than skip it: if that tab happened to be the sole one, skipping would
+        // lose the workspace on a transient read failure — the exact guarantee this path makes.
+        // `ensureWorkspace` only creates when zero workspaces remain, so arming it costs one list
+        // when the workspace survived.
+        if (opts.allowLastTab) restore = { cwd: null };
+      }
+      try {
+        await this.asyncRunner(["tab", "close", tabId]);
+      } catch {
+        /* best-effort; tab may already be gone */
+      }
+      if (restore) await this.ensureWorkspace(restore.cwd).catch(() => {});
+    });
+  }
+
+  /** The cwd to seed a rebuilt workspace with after closing its sole tab: the tab's own pane cwd.
+   *  Null when herdr reports no cwd for it — the rebuild still runs, just without `--cwd`. */
+  private async tabCwd(tabId: string): Promise<string | null> {
     try {
-      await this.asyncRunner(["tab", "close", tabId]);
+      const pane = (await this.panesAsync()).find((p) => p.tabId === tabId);
+      return pane?.cwd || null;
     } catch {
-      /* best-effort; tab may already be gone */
+      return null;
     }
   }
 }

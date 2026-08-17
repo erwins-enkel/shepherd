@@ -242,6 +242,10 @@ export type RequestSubscription =
       [k: string]: unknown;
     }
   | {
+      type: "workspace.reordered";
+      [k: string]: unknown;
+    }
+  | {
       type: "workspace.closed";
       [k: string]: unknown;
     }
@@ -366,7 +370,9 @@ export type RequestIntegrationTarget =
   | "hermes"
   | "qodercli"
   | "cursor"
-  | "mastracode";
+  | "mastracode"
+  | "antigravity_cli"
+  | "grok";
 /**
  * This interface was referenced by `HerdrProtocol`'s JSON-Schema
  * via the `definition` "RequestLayoutNode".
@@ -531,6 +537,13 @@ export type SuccessResponseEventData =
       [k: string]: unknown;
     }
   | {
+      before_workspace_id?: string | null;
+      type: "workspace_reordered";
+      workspace_ids: string[];
+      workspaces: SuccessResponseWorkspaceInfo[];
+      [k: string]: unknown;
+    }
+  | {
       type: "workspace_focused";
       workspace_id: string;
       [k: string]: unknown;
@@ -678,6 +691,7 @@ export type SuccessResponseEventKind =
   | "workspace_closed"
   | "workspace_renamed"
   | "workspace_moved"
+  | "workspace_reordered"
   | "workspace_focused"
   | "worktree_created"
   | "worktree_opened"
@@ -731,7 +745,9 @@ export type SuccessResponseIntegrationTarget =
   | "hermes"
   | "qodercli"
   | "cursor"
-  | "mastracode";
+  | "mastracode"
+  | "antigravity_cli"
+  | "grok";
 /**
  * This interface was referenced by `HerdrProtocol`'s JSON-Schema
  * via the `definition` "SuccessResponseLayoutNode".
@@ -1187,6 +1203,13 @@ export type EventEventData =
       [k: string]: unknown;
     }
   | {
+      before_workspace_id?: string | null;
+      type: "workspace_reordered";
+      workspace_ids: string[];
+      workspaces: EventWorkspaceInfo[];
+      [k: string]: unknown;
+    }
+  | {
       type: "workspace_focused";
       workspace_id: string;
       [k: string]: unknown;
@@ -1334,6 +1357,7 @@ export type EventEventKind =
   | "workspace_closed"
   | "workspace_renamed"
   | "workspace_moved"
+  | "workspace_reordered"
   | "workspace_focused"
   | "worktree_created"
   | "worktree_opened"
@@ -2035,6 +2059,14 @@ export interface RequestWorkspaceCreateParams {
   };
   focus?: boolean;
   label?: string | null;
+}
+/**
+ * This interface was referenced by `HerdrProtocol`'s JSON-Schema
+ * via the `definition` "RequestWorkspaceMoveBlockParams".
+ */
+export interface RequestWorkspaceMoveBlockParams {
+  before_workspace_id?: string | null;
+  workspace_ids: string[];
 }
 /**
  * This interface was referenced by `HerdrProtocol`'s JSON-Schema
@@ -2946,7 +2978,7 @@ export interface ErrorResponseErrorBody {
   [k: string]: unknown;
 }
 
-export const HERDR_PROTOCOL = 17 as const;
+export const HERDR_PROTOCOL = 19 as const;
 
 export interface HerdrParams {
   ping: RequestPingParams;
@@ -2965,6 +2997,7 @@ export interface HerdrParams {
   "workspace.focus": RequestWorkspaceTarget;
   "workspace.rename": RequestWorkspaceRenameParams;
   "workspace.move": RequestWorkspaceMoveParams;
+  "workspace.move_block": RequestWorkspaceMoveBlockParams;
   "workspace.report_metadata": RequestWorkspaceReportMetadataParams;
   "workspace.close": RequestWorkspaceTarget;
   "worktree.list": RequestWorktreeListParams;

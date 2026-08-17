@@ -183,8 +183,16 @@ describe("SocketHerdrDriver — 0.7.5 (protocol 17) external-registration spawn"
 
     await driver.stop("term_075");
 
-    expect(rec.slice(startEnd).map((r) => r.method)).toEqual(["tab.list", "tab.close"]);
-    expect(rec.at(-1)!.params).toEqual({ tab_id: "t_075" });
+    // Second `tab.list` = closeTab's last-tab check (#2039). The tab IS its workspace's sole one,
+    // so the trailing `workspace.list` is the rebuild probe; this fixture reports a surviving
+    // workspace, so no `workspace.create` follows.
+    expect(rec.slice(startEnd).map((r) => r.method)).toEqual([
+      "tab.list",
+      "tab.list",
+      "tab.close",
+      "workspace.list",
+    ]);
+    expect(rec.find((r) => r.method === "tab.close")!.params).toEqual({ tab_id: "t_075" });
   });
 
   it("send() writes literal text to the resolved pane via pane.send_text", async () => {

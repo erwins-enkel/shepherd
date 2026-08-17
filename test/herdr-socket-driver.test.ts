@@ -160,11 +160,29 @@ describe("SocketHerdrDriver — delegation to the CLI driver", () => {
  *  write surface. `recorded` captures the (method, params) sequence for assertions. */
 function writeClient(
   recorded: { method: string; params: unknown }[],
-  opts: { workspaces?: unknown[]; startResult?: unknown; onAgentStart?: () => void } = {},
+  opts: {
+    workspaces?: unknown[];
+    startResult?: unknown;
+    onAgentStart?: () => void;
+    /** Tabs `tab.list` reports — feeds the last-tab guard (#2039). */
+    tabs?: { tab_id: string; label: string; workspace_id: string }[];
+    /** Drop a closed tab from `opts.tabs`, so a later close sees the shrunken workspace. */
+    removeTabOnClose?: boolean;
+  } = {},
 ): HerdrSocketClient {
   const impl = (method: string, params: unknown): unknown => {
     recorded.push({ method, params });
     switch (method) {
+      case "tab.list":
+        return { type: "tab_list", tabs: opts.tabs ?? [] };
+      case "tab.close": {
+        const id = (params as { tab_id?: string })?.tab_id;
+        if (opts.removeTabOnClose && opts.tabs) {
+          const i = opts.tabs.findIndex((t) => t.tab_id === id);
+          if (i >= 0) opts.tabs.splice(i, 1);
+        }
+        return { type: "ok" };
+      }
       case "agent.list":
         return agentBody;
       case "workspace.list":
@@ -215,8 +233,56 @@ describe("SocketHerdrDriver — socket-backed async writes (#1553, #1567)", () =
 
     await driver.closeTab("tabX");
 
-    expect(rec).toEqual([{ method: "tab.close", params: { tab_id: "tabX" } }]);
+    // The last-tab guard (#2039) reads tab.list first; "tabX" is absent from the default
+    // (empty) list, so there is no workspace to protect and the close proceeds.
+    expect(rec).toEqual([
+      { method: "tab.list", params: {} },
+      { method: "tab.close", params: { tab_id: "tabX" } },
+    ]);
     expect(cli.closeTab).not.toHaveBeenCalled();
+  });
+
+  it("closeTab() declines the last tab in a workspace (#2039)", async () => {
+    const rec: { method: string; params: unknown }[] = [];
+    const driver = new SocketHerdrDriver(
+      writeClient(rec, { tabs: [{ tab_id: "w1:t1", label: "solo", workspace_id: "w1" }] }),
+      fakeCli() as unknown as HerdrDriver,
+    );
+
+    await driver.closeTab("w1:t1");
+
+    expect(rec.map((r) => r.method)).toEqual(["tab.list"]); // no tab.close
+  });
+
+  it("closeTab({allowLastTab}) closes the last tab anyway — stop must stop", async () => {
+    const rec: { method: string; params: unknown }[] = [];
+    const driver = new SocketHerdrDriver(
+      writeClient(rec, { tabs: [{ tab_id: "w1:t1", label: "solo", workspace_id: "w1" }] }),
+      fakeCli() as unknown as HerdrDriver,
+    );
+
+    await driver.closeTab("w1:t1", { allowLastTab: true });
+
+    expect(rec).toContainEqual({ method: "tab.close", params: { tab_id: "w1:t1" } });
+  });
+
+  it("concurrent closes on a workspace's final two tabs issue only one tab.close", async () => {
+    const rec: { method: string; params: unknown }[] = [];
+    const tabs = [
+      { tab_id: "w1:t1", label: "a", workspace_id: "w1" },
+      { tab_id: "w1:t2", label: "b", workspace_id: "w1" },
+    ];
+    const driver = new SocketHerdrDriver(
+      writeClient(rec, { tabs, removeTabOnClose: true }),
+      fakeCli() as unknown as HerdrDriver,
+    );
+
+    await Promise.all([driver.closeTab("w1:t1"), driver.closeTab("w1:t2")]);
+
+    expect(rec.filter((r) => r.method === "tab.close")).toEqual([
+      { method: "tab.close", params: { tab_id: "w1:t1" } },
+    ]);
+    expect(tabs).toHaveLength(1); // workspace survives
   });
 
   it("stop() resolves the tab from a fresh agent.list, then tab.close", async () => {
@@ -225,8 +291,9 @@ describe("SocketHerdrDriver — socket-backed async writes (#1553, #1567)", () =
 
     await driver.stop("t1");
 
-    expect(rec.map((r) => r.method)).toEqual(["agent.list", "tab.close"]);
-    expect(rec[1]!.params).toEqual({ tab_id: "tab1" });
+    // The `tab.list` between them is closeTab's last-tab check (#2039).
+    expect(rec.map((r) => r.method)).toEqual(["agent.list", "tab.list", "tab.close"]);
+    expect(rec[2]!.params).toEqual({ tab_id: "tab1" }); // tab.close, now after the guard read
   });
 
   it("stop() is a no-op for an unknown terminal id (no tab.close)", async () => {
@@ -435,8 +502,15 @@ describe("SocketHerdrDriver — spawn-handle ledger (#1852)", () => {
 
     await driver.stop("t1");
 
-    expect(rec.slice(startEnd).map((r) => r.method)).toEqual(["tab.list", "tab.close"]);
-    expect(rec.at(-1)!.params).toEqual({ tab_id: "tab_new" });
+    // The second `tab.list` is closeTab's own last-tab check (#2039): it decides whether this
+    // close will take the workspace with it and therefore needs one put back.
+    expect(rec.slice(startEnd).map((r) => r.method)).toEqual([
+      "tab.list",
+      "tab.list",
+      "tab.close",
+      "workspace.list", // sole-tab close → rebuild probe; this fixture has a surviving workspace
+    ]);
+    expect(rec.find((r) => r.method === "tab.close")!.params).toEqual({ tab_id: "tab_new" });
   });
 
   it("stop() spares a label-mismatched recorded tab and falls back to agent.list truth", async () => {
@@ -451,7 +525,14 @@ describe("SocketHerdrDriver — spawn-handle ledger (#1852)", () => {
     await driver.stop("t1");
 
     const stopCalls = rec.slice(startEnd);
-    expect(stopCalls.map((r) => r.method)).toEqual(["tab.list", "agent.list", "tab.close"]);
+    // The second `tab.list` is closeTab's own last-tab check (#2039): it decides whether this
+    // close will take the workspace with it and therefore needs one put back.
+    expect(stopCalls.map((r) => r.method)).toEqual([
+      "tab.list",
+      "agent.list",
+      "tab.list",
+      "tab.close",
+    ]);
     expect(stopCalls.at(-1)!.params).toEqual({ tab_id: "tab_current" });
   });
 });

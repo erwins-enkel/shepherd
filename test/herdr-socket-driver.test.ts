@@ -504,8 +504,13 @@ describe("SocketHerdrDriver — spawn-handle ledger (#1852)", () => {
 
     // The second `tab.list` is closeTab's own last-tab check (#2039): it decides whether this
     // close will take the workspace with it and therefore needs one put back.
-    expect(rec.slice(startEnd).map((r) => r.method)).toEqual(["tab.list", "tab.list", "tab.close"]);
-    expect(rec.at(-1)!.params).toEqual({ tab_id: "tab_new" });
+    expect(rec.slice(startEnd).map((r) => r.method)).toEqual([
+      "tab.list",
+      "tab.list",
+      "tab.close",
+      "workspace.list", // sole-tab close → rebuild probe; this fixture has a surviving workspace
+    ]);
+    expect(rec.find((r) => r.method === "tab.close")!.params).toEqual({ tab_id: "tab_new" });
   });
 
   it("stop() spares a label-mismatched recorded tab and falls back to agent.list truth", async () => {

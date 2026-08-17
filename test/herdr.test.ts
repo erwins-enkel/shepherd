@@ -554,6 +554,35 @@ test("closeTab({allowLastTab}) on a SOLE tab puts the workspace back — no work
   expect(created).toEqual(["/wt/w1:t1"]); // rebuilt from the closed tab's cwd, not a guess
 });
 
+test("closeTab({allowLastTab}) rebuilds even when herdr reports the pane with NO cwd", async () => {
+  // `SuccessResponsePaneInfo.cwd` is optional/nullable in the vendored protocol, and parsePanes
+  // normalises a missing one to "". Gating the rebuild on a truthy cwd would delete the sole
+  // workspace on exactly that legal response — so the rebuild runs regardless, just unseeded.
+  const calls: string[][] = [];
+  const d = mkDriver((args) => {
+    calls.push(args);
+    if (args[0] === "tab" && args[1] === "list")
+      return JSON.stringify({
+        result: { type: "tab_list", tabs: [{ tab_id: "w1:t1", label: "x", workspace_id: "w1" }] },
+      });
+    if (args[0] === "pane" && args[1] === "list")
+      // pane present, cwd absent
+      return JSON.stringify({
+        result: { type: "pane_list", panes: [{ pane_id: "p1", tab_id: "w1:t1" }] },
+      });
+    if (args[0] === "workspace" && args[1] === "list")
+      return JSON.stringify({ result: { type: "workspace_list", workspaces: [] } });
+    return "{}";
+  });
+
+  await d.closeTab("w1:t1", { allowLastTab: true });
+
+  expect(calls).toContainEqual(["tab", "close", "w1:t1"]);
+  const create = calls.find((c) => c[0] === "workspace" && c[1] === "create");
+  expect(create).toBeDefined(); // rebuilt despite the unknown cwd
+  expect(create).not.toContain("--cwd"); // …and without a fabricated one
+});
+
 test("closeTab({allowLastTab}) does NOT create a workspace when siblings survive the close", async () => {
   const { driver, created, workspaces } = tabStateDriver([
     { tab_id: "w1:t1", workspace_id: "w1" },
@@ -1358,6 +1387,42 @@ const SQUATTER_LIST = JSON.stringify({
 function makeNameTakenError(): Error {
   return Object.assign(new Error("herdr CLI error"), { stderr: NAME_TAKEN_JSON });
 }
+
+test("start: evicts a squatter that is its workspace's SOLE tab — retry must not no-op", async () => {
+  // The last-tab guard must not disarm eviction: the squatter holds a LIVE claude whose NAME we
+  // need, and eviction is the only thing that changes state between retry attempts. Declining
+  // would make the retry a no-op loop and fail the spawn with agent_name_taken — the sticky class
+  // fixed in #751/#508. On a host where Shepherd is herdr's only client, one live tab left is a
+  // normal steady state, not an exotic one.
+  const calls: string[][] = [];
+  let agentStartAttempts = 0;
+  const runner = (args: string[]) => {
+    calls.push(args);
+    if (args[0] === "workspace" && args[1] === "list") return WORKSPACE_LIST;
+    if (args[0] === "tab" && args[1] === "create") return TAB_CREATE;
+    if (args[0] === "tab" && args[1] === "list")
+      // the squatter is the ONLY tab in w1
+      return JSON.stringify({
+        result: {
+          type: "tab_list",
+          tabs: [{ tab_id: "tab_squatter", label: "review TASK-504", workspace_id: "w1" }],
+        },
+      });
+    if (args[0] === "agent" && args[1] === "start") {
+      agentStartAttempts++;
+      if (agentStartAttempts === 1) throw makeNameTakenError();
+      return AGENT_STARTED;
+    }
+    if (args[0] === "agent" && args[1] === "list") return SQUATTER_LIST;
+    return "{}";
+  };
+
+  const agent = await mkDriver(runner).start("review TASK-504", "/wt/a", ["claude", "go"]);
+
+  expect(calls).toContainEqual(["tab", "close", "tab_squatter"]); // evicted, not declined
+  expect(agentStartAttempts).toBe(2); // the retry actually made progress
+  expect(agent.terminalId).toBe("term_started");
+});
 
 test("start: single collision then success — squatter tab closed, agent returned", async () => {
   const calls: string[][] = [];

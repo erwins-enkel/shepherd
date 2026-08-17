@@ -1731,7 +1731,7 @@ export class ReviewService {
     // Resolve by NAME first ("review TASK-<n>"), fall back to cwd only as a safety net
     // (avoids a second list() call for the name-absent case when the session is gone).
     const squatter = this.findSquatter(s ? `review ${s.desig}` : "", row.worktreePath);
-    if (squatter) await this.deps.herdr.closeTab(squatter.tabId);
+    if (squatter) await this.deps.herdr.closeTab(squatter.tabId, { allowLastTab: true });
     // Remove the worktree AFTER freeing the name so the herdr slot is open before
     // the worktree is gone (mirrors plan-gate's ordering invariant).
     this.deps.worktree.remove(row.worktreePath);

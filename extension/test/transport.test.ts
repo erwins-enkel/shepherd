@@ -113,6 +113,21 @@ describe("spawnNow", () => {
     expect(fetchFn).toHaveBeenCalledTimes(1); // never reaches session create
   });
 
+  it("splits the two 403s: insufficient_scope is a token problem, not an origin one", async () => {
+    // Both are 403 (#2083). Reporting a too-narrow token scope as an origin rejection would send
+    // the operator to SHEPHERD_ALLOWED_HOSTS for a fault that lives in Settings → Access.
+    const fetchFn = vi.fn().mockResolvedValueOnce(jsonRes({ error: "insufficient_scope" }, 403));
+    await expect(
+      spawnNow(fetchFn, CONFIG, {
+        prompt: "p",
+        metadata: META,
+        screenshot: blob(),
+        attachScreenshot: true,
+        repoPath: "~/Work/foo",
+      }),
+    ).rejects.toMatchObject({ kind: "scope" });
+  });
+
   it("maps a network throw to 'unreachable'", async () => {
     const fetchFn = vi.fn().mockRejectedValue(new TypeError("Failed to fetch"));
     await expect(
@@ -266,6 +281,13 @@ describe("ping", () => {
   ])("maps status %i to TransportError kind %s", async (status, kind) => {
     const fetchFn = vi.fn().mockResolvedValueOnce(jsonRes({ error: "no" }, status));
     await expect(ping(fetchFn, CONFIG)).rejects.toMatchObject({ kind });
+  });
+
+  it("reports a too-narrow scope as 'scope', so the connection check names the real fault", async () => {
+    // POST /api/ping is inside the `read` scope, so this only fires for a scope narrower still —
+    // but the classification has to be right here too: this probe IS the options-page diagnosis.
+    const fetchFn = vi.fn().mockResolvedValueOnce(jsonRes({ error: "insufficient_scope" }, 403));
+    await expect(ping(fetchFn, CONFIG)).rejects.toMatchObject({ kind: "scope" });
   });
 
   it("maps a network throw to 'unreachable'", async () => {

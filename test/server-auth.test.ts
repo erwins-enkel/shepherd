@@ -5,6 +5,7 @@ import { EventHub } from "../src/events";
 import { makeApp, serve, makeAgentIngressApp, type AppDeps } from "../src/server";
 import { config } from "../src/config";
 import { signCookie, hashPassword, SESSION_COOKIE, SESSION_TTL_MS } from "../src/operator-auth";
+import type { TokenScope } from "../src/token-scopes";
 
 const SECRET = "test-cookie-signing-secret";
 const PASSWORD = "operator-password";
@@ -310,19 +311,24 @@ test("agent-transport: an uncredentialed hook POST is 2xx on the ingress but 401
 
 // ── minted access tokens (issue #2082) ──────────────────────────────────────
 // A third accepted credential alongside the cookie and SHEPHERD_TOKEN: named, individually
-// revocable, optionally expiring. Same reach as the env token by design (v1 has no scopes).
+// revocable, optionally expiring — and, since #2083, SCOPED. Unlike the cookie and the env token,
+// authenticating here does not imply reaching every route; see the scope block further down.
 
-/** Mint through the real route, cookie-authed — the way the HUD does it. */
+/** Mint through the real route, cookie-authed — the way the HUD does it. `scope` omitted mints a
+ *  `full` token, so every pre-#2083 caller of this helper keeps the reach it was written against. */
 async function mintToken(
   app: { fetch: (req: Request) => Promise<Response> },
   name = "Asyar extension",
   expiresInDays: number | null = null,
+  scope?: TokenScope,
 ): Promise<{ token: string; id: string }> {
   const res = await app.fetch(
     new Request("http://x/api/access-tokens", {
       method: "POST",
       headers: { "content-type": "application/json", ...cookieHeader(signCookie(SECRET)) },
-      body: JSON.stringify({ name, expiresInDays }),
+      body: JSON.stringify(
+        scope === undefined ? { name, expiresInDays } : { name, expiresInDays, scope },
+      ),
     }),
   );
   expect(res.status).toBe(201);
@@ -394,8 +400,9 @@ test("minted token: coexists with SHEPHERD_TOKEN — both authenticate", async (
 });
 
 test("minted token: reaches the WS upgrade gate exactly like SHEPHERD_TOKEN does", async () => {
-  // v1 tokens are full-parity by design (per-token scopes are the filed follow-up). Locking it
-  // here so a later scope change is a deliberate edit to this expectation, not a silent drift.
+  // Still true for a `full` token, which is what `mintToken` produces when no scope is named — the
+  // #2083 migration target, so this is the no-regression lock for every pre-scope client. A `read`
+  // token is refused at `/pty/:id` instead; see the scope block below.
   const deps = makeDeps();
   const app = makeApp(deps);
   const { token } = await mintToken(app);
@@ -403,4 +410,226 @@ test("minted token: reaches the WS upgrade gate exactly like SHEPHERD_TOKEN does
     const res = await fetch(`http://localhost:${port}/events`, { headers: bearer(token) });
     expect(res.status).not.toBe(401);
   }, deps);
+});
+
+// ── per-token scopes (issue #2083) ──────────────────────────────────────────
+// The acceptance criteria, end to end. The route→scope policy itself is covered exhaustively in
+// test/token-scopes.test.ts; what these lock is that `checkAuth` actually consults it — on BOTH
+// entry points, the WS upgrades included.
+
+/** The 403 body the scope gate returns, distinct from checkOrigin's 403s. */
+const INSUFFICIENT = { error: "insufficient_scope" };
+
+test("scope read: 200 on GET /api/sessions, 403 on POST /api/sessions", async () => {
+  const app = makeApp(makeDeps());
+  const { token } = await mintToken(app, "asyar launcher", null, "read");
+
+  const list = await app.fetch(new Request("http://x/api/sessions", { headers: bearer(token) }));
+  expect(list.status).toBe(200);
+
+  const spawn = await app.fetch(
+    new Request("http://x/api/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json", ...bearer(token) },
+      body: JSON.stringify({ repoPath: "/repo", baseBranch: "main", prompt: "go" }),
+    }),
+  );
+  expect(spawn.status).toBe(403);
+  expect(await spawn.json()).toEqual(INSUFFICIENT);
+});
+
+test("scope read: the rest of its surface is reachable, and nothing else is", async () => {
+  const app = makeApp(makeDeps());
+  const { token } = await mintToken(app, "asyar launcher", null, "read");
+
+  for (const path of ["/api/holds", "/api/git", "/api/me"]) {
+    const res = await app.fetch(new Request(`http://x${path}`, { headers: bearer(token) }));
+    expect(`GET ${path} → ${res.status}`).toBe(`GET ${path} → 200`);
+  }
+  const ping = await app.fetch(
+    new Request("http://x/api/ping", { method: "POST", headers: bearer(token) }),
+  );
+  expect(ping.status).toBe(200);
+
+  // A GET that is not on the read list is refused, not merely un-mutating.
+  const settings = await app.fetch(
+    new Request("http://x/api/settings", { headers: bearer(token) }),
+  );
+  expect(settings.status).toBe(403);
+  expect(await settings.json()).toEqual(INSUFFICIENT);
+});
+
+test("scope read: refused at the /pty/:id upgrade, while /events still passes", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  const { token } = await mintToken(app, "asyar launcher", null, "read");
+  const s = await deps.service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "go",
+    model: null,
+    images: [],
+  });
+
+  await withServer(async (port) => {
+    // The live terminal — the hole #2083 closes. Asserted against a REAL session id, so a 403 here
+    // cannot be a 404-for-missing-session in disguise.
+    const pty = await fetch(`http://localhost:${port}/pty/${s.id}`, { headers: bearer(token) });
+    expect(pty.status).toBe(403);
+    expect(await pty.json()).toEqual(INSUFFICIENT);
+
+    // …and the status bus a read client legitimately needs is untouched.
+    const events = await fetch(`http://localhost:${port}/events`, { headers: bearer(token) });
+    expect(events.status).not.toBe(401);
+    expect(events.status).not.toBe(403);
+  }, deps);
+});
+
+test("scope submit: reaches everything the Capture extension posts to, but no terminal", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  const { token } = await mintToken(app, "Capture extension", null, "submit");
+
+  // The four routes extension/src/lib/transport.ts calls. Asserted as "not the scope 403" rather
+  // than a specific success: these handlers reach real work (git, gh, disk) the stub deps don't
+  // provide, and what is under test is the gate, not the handler.
+  for (const [method, path] of [
+    ["POST", "/api/ping"],
+    ["POST", "/api/uploads"],
+    ["POST", "/api/sessions"],
+    ["POST", "/api/issues"],
+  ] as const) {
+    const res = await app.fetch(
+      new Request(`http://x${path}`, {
+        method,
+        headers: { "content-type": "application/json", ...bearer(token) },
+        body: JSON.stringify({}),
+      }),
+    );
+    expect(`${method} ${path} → ${res.status}`).not.toBe(`${method} ${path} → 403`);
+  }
+
+  // The held-task routes it also carries.
+  expect(
+    (await app.fetch(new Request("http://x/api/held", { headers: bearer(token) }))).status,
+  ).toBe(200);
+
+  // But driving a running session, and the terminal, stay out of reach.
+  const reply = await app.fetch(
+    new Request("http://x/api/sessions/s1/reply", {
+      method: "POST",
+      headers: { "content-type": "application/json", ...bearer(token) },
+      body: JSON.stringify({ text: "do something else" }),
+    }),
+  );
+  expect(reply.status).toBe(403);
+  expect(await reply.json()).toEqual(INSUFFICIENT);
+
+  await withServer(async (port) => {
+    const pty = await fetch(`http://localhost:${port}/pty/some-id`, { headers: bearer(token) });
+    expect(pty.status).toBe(403);
+  }, deps);
+});
+
+test("scope full: no regression — the terminal and the spawn route both still open", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  const { token } = await mintToken(app, "cron", null, "full");
+  const s = await deps.service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "go",
+    model: null,
+    images: [],
+  });
+
+  const spawn = await app.fetch(
+    new Request("http://x/api/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json", ...bearer(token) },
+      body: JSON.stringify({ repoPath: "/repo", baseBranch: "main", prompt: "go" }),
+    }),
+  );
+  expect(spawn.status).not.toBe(403);
+
+  await withServer(async (port) => {
+    const pty = await fetch(`http://localhost:${port}/pty/${s.id}`, { headers: bearer(token) });
+    expect(pty.status).not.toBe(401);
+    expect(pty.status).not.toBe(403);
+  }, deps);
+});
+
+test("SHEPHERD_TOKEN stays unscoped — the break-glass credential is untouched", async () => {
+  config.token = "operator-bearer";
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  const s = await deps.service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "go",
+    model: null,
+    images: [],
+  });
+  const env = bearer("operator-bearer");
+
+  // A route no scope below `full` reaches…
+  expect((await app.fetch(new Request("http://x/api/settings", { headers: env }))).status).toBe(
+    200,
+  );
+  // …a mutation…
+  const spawn = await app.fetch(
+    new Request("http://x/api/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json", ...env },
+      body: JSON.stringify({ repoPath: "/repo", baseBranch: "main", prompt: "go" }),
+    }),
+  );
+  expect(spawn.status).not.toBe(403);
+  // …and the terminal.
+  await withServer(async (port) => {
+    const pty = await fetch(`http://localhost:${port}/pty/${s.id}`, { headers: env });
+    expect(pty.status).not.toBe(401);
+    expect(pty.status).not.toBe(403);
+  }, deps);
+});
+
+test("a cookie-authed operator is never scope-checked", async () => {
+  // The scope branch sits inside the minted-token arm of checkAuth, so the human path cannot
+  // regress into it — including on the terminal upgrade.
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  const cookie = cookieHeader(signCookie(SECRET));
+  expect((await app.fetch(new Request("http://x/api/settings", { headers: cookie }))).status).toBe(
+    200,
+  );
+  await withServer(async (port) => {
+    const pty = await fetch(`http://localhost:${port}/pty/some-id`, {
+      headers: { Origin: "http://localhost", ...cookie },
+    });
+    expect(pty.status).not.toBe(403);
+  }, deps);
+});
+
+test("scope: a revoked read token is 401 (unauthorized), not 403 (insufficient_scope)", async () => {
+  // Order matters: a dead credential must not be reported as a live one that merely lacks a route,
+  // so authentication has to fail BEFORE the scope check is consulted. (Expiry takes the same path
+  // — `verify` returns null for both — and is covered on the clock in test/access-tokens.test.ts.)
+  const app = makeApp(makeDeps());
+  const { token } = await mintToken(app, "reader", null, "read");
+  const res = await app.fetch(new Request("http://x/api/sessions", { headers: bearer(token) }));
+  expect(res.status).toBe(200); // live, and within its scope
+
+  const listed = await app.fetch(
+    new Request("http://x/api/access-tokens", { headers: cookieHeader(signCookie(SECRET)) }),
+  );
+  const { tokens } = (await listed.json()) as { tokens: { id: string }[] };
+  await app.fetch(
+    new Request(`http://x/api/access-tokens/${tokens[0]!.id}`, {
+      method: "DELETE",
+      headers: cookieHeader(signCookie(SECRET)),
+    }),
+  );
+  const after = await app.fetch(new Request("http://x/api/sessions", { headers: bearer(token) }));
+  expect(after.status).toBe(401);
+  expect(await after.json()).toEqual({ error: "unauthorized" });
 });

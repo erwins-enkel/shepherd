@@ -6,6 +6,7 @@ import { makeApp, makeAgentIngressApp, type AppDeps } from "../src/server";
 import { config } from "../src/config";
 import { signCookie, hashPassword, SESSION_COOKIE } from "../src/operator-auth";
 import { ACCESS_TOKEN_NAME_MAX, ACCESS_TOKEN_PREFIX } from "../src/access-tokens";
+import { TOKEN_SCOPES } from "../src/token-scopes";
 
 // The /api/access-tokens routes (#2082). Distinct from server-auth.test.ts, which covers whether a
 // minted token AUTHENTICATES; this file covers minting, listing, revoking and their guards.
@@ -99,6 +100,7 @@ test("mint → list → revoke round-trip", async () => {
     name: "Asyar — MacBook",
     lastUsedAt: null,
     expiresAt: null,
+    scope: "full", // no `scope` in the body ⇒ the pre-#2083 reach
   });
   expect(minted.entry).not.toHaveProperty("tokenHash");
 
@@ -226,6 +228,62 @@ test("validation: expiresInDays must be null or a preset", async () => {
     const res = await app.fetch(post({ name: "x", expiresInDays }));
     expect(res.status).toBe(400);
   }
+});
+
+// ── scopes (#2083) ─────────────────────────────────────────────────────────
+
+test("mint: the chosen scope round-trips onto the row the list renders", async () => {
+  const app = makeApp(makeDeps());
+  for (const scope of TOKEN_SCOPES) {
+    const res = await app.fetch(post({ name: `client-${scope}`, scope }));
+    expect(res.status).toBe(201);
+    expect(((await res.json()) as Minted).entry).toMatchObject({ scope });
+  }
+  const listed = (await (
+    await app.fetch(new Request("http://x/api/access-tokens", { headers: asOperator() }))
+  ).json()) as { tokens: { name: string; scope: string }[] };
+  expect(listed.tokens.map((t) => `${t.name}:${t.scope}`).sort()).toEqual([
+    "client-full:full",
+    "client-read:read",
+    "client-submit:submit",
+  ]);
+});
+
+test("validation: scope must be one of the three levels", async () => {
+  const app = makeApp(makeDeps());
+  for (const scope of ["", "admin", "READ", "read submit", ["read"], 1, null, {}]) {
+    const res = await app.fetch(post({ name: "x", scope }));
+    expect(`scope=${JSON.stringify(scope)} → ${res.status}`).toBe(
+      `scope=${JSON.stringify(scope)} → 400`,
+    );
+    expect((await res.json()) as { error: string }).toMatchObject({
+      error: `scope must be one of ${TOKEN_SCOPES.join(", ")}`,
+    });
+  }
+});
+
+test("mint: there is no route to change a scope after the fact", async () => {
+  // The audit story depends on this: a token's reach is fixed at mint. PATCH/PUT on the collection
+  // and on a single token must not resolve to anything — they 404 as unmatched /api routes.
+  const app = makeApp(makeDeps());
+  const { entry } = (await (await app.fetch(post({ name: "reader", scope: "read" }))).json()) as {
+    entry: { id: string };
+  };
+  for (const method of ["PATCH", "PUT", "POST"] as const) {
+    const res = await app.fetch(
+      new Request(`http://x/api/access-tokens/${entry.id}`, {
+        method,
+        headers: asOperator(),
+        body: JSON.stringify({ scope: "full" }),
+      }),
+    );
+    expect(`${method} → ${res.status}`).toBe(`${method} → 404`);
+  }
+  // …and the scope is unchanged.
+  const listed = (await (
+    await app.fetch(new Request("http://x/api/access-tokens", { headers: asOperator() }))
+  ).json()) as { tokens: { scope: string }[] };
+  expect(listed.tokens[0]!.scope).toBe("read");
 });
 
 test("validation: unknown fields are rejected", async () => {

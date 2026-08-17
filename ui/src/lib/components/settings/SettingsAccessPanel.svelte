@@ -1,10 +1,9 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { listAccessTokens, createAccessToken, revokeAccessToken } from "$lib/api";
-  import type { AccessToken, Settings } from "$lib/types";
+  import type { AccessToken, Settings, TokenScope } from "$lib/types";
   import HighlightText from "./HighlightText.svelte";
   import GlossaryText from "$lib/components/GlossaryText.svelte";
-  import { REPO_URL } from "$lib/build-info";
   import "./settings-controls.css";
   import { m } from "$lib/paraglide/messages";
 
@@ -27,8 +26,24 @@
   /** Mirrors ACCESS_TOKEN_PREFIX in src/access-tokens.ts — a protocol constant, not UI copy. */
   const TOKEN_PREFIX = "shp_";
 
-  /** v1 tokens have the operator's full reach; the scope model is tracked here. */
-  const SCOPES_ISSUE_URL = `${REPO_URL}/issues/2083`;
+  /** Mirrors TOKEN_SCOPES in src/token-scopes.ts, widest last. The server owns the route policy
+   *  and rejects anything else; this list only drives the picker's order. */
+  const SCOPES: TokenScope[] = ["read", "submit", "full"];
+
+  /** One line per level, describing what the token will and will not reach. Shown for the
+   *  SELECTED scope so the operator reads the consequence before minting, not after. */
+  const scopeLabel = (s: TokenScope) =>
+    s === "read"
+      ? m.settings_access_scope_read()
+      : s === "submit"
+        ? m.settings_access_scope_submit()
+        : m.settings_access_scope_full();
+  const scopeHint = (s: TokenScope) =>
+    s === "read"
+      ? m.settings_access_scope_read_hint()
+      : s === "submit"
+        ? m.settings_access_scope_submit_hint()
+        : m.settings_access_scope_full_hint();
 
   let tokens = $state<AccessToken[]>([]);
   let loading = $state(true);
@@ -37,6 +52,10 @@
   let name = $state("");
   /** The <select> value: "never" or a preset day count as a string. */
   let expiry = $state("never");
+  /** Starts at the NARROWEST level: least privilege is what an operator gets by clicking through,
+   *  and widening is the deliberate act. (The server defaults an absent scope to `full` instead,
+   *  for #2082-era API callers — this form always sends one, so that default never applies here.) */
+  let scope = $state<TokenScope>("read");
   let creating = $state(false);
   let createError = $state("");
 
@@ -79,12 +98,14 @@
       const minted = await createAccessToken(
         name.trim(),
         expiry === "never" ? null : Number(expiry),
+        scope,
       );
       revealed = minted.token;
       copied = false;
       tokens = [minted.entry, ...tokens];
       name = "";
       expiry = "never";
+      scope = "read";
     } catch {
       createError = m.settings_access_create_failed();
     } finally {
@@ -150,6 +171,17 @@
         placeholder={m.settings_access_name_placeholder()}
       />
     </label>
+    <label class="fld scope">
+      <span class="lbl">{m.settings_access_scope_label()}</span>
+      <span class="set-select">
+        <select bind:value={scope} disabled={creating}>
+          {#each SCOPES as s (s)}
+            <option value={s}>{scopeLabel(s)}</option>
+          {/each}
+        </select>
+        <span class="set-chev" aria-hidden="true">▾</span>
+      </span>
+    </label>
     <label class="fld expiry">
       <span class="lbl">{m.settings_access_expiry_label()}</span>
       <span class="set-select">
@@ -166,15 +198,12 @@
       {creating ? m.settings_access_creating() : m.settings_access_create_button()}
     </button>
   </form>
-  <p class="hint warn-note">
-    {m.settings_access_reach_note()}
-    <a
-      class="scopes-link"
-      href={SCOPES_ISSUE_URL}
-      target="_blank"
-      rel="external noreferrer noopener"
-      >{m.settings_access_scopes_link()} <span aria-hidden="true">↗</span></a
-    >
+  <!-- Describes the SELECTED scope. Amber only for `full`, which is the one level that warrants a
+       warning; read/submit are a statement of limits, and colouring them as alarms would train the
+       operator to ignore the colour. -->
+  <p class="hint" class:warn-note={scope === "full"} aria-live="polite">
+    {scopeHint(scope)}
+    <GlossaryText text={m.settings_access_scope_fixed_note()} />
   </p>
   {#if createError}<p class="hint err" role="alert">{createError}</p>{/if}
 </div>
@@ -212,7 +241,13 @@
         <li class="tok" class:expired={isExpired(t)}>
           <div class="tok-main">
             <span class="tok-name">{t.name}</span>
-            <code class="tok-hint">{TOKEN_PREFIX}…{t.hint}</code>
+            <span class="tok-id">
+              <code class="tok-hint">{TOKEN_PREFIX}…{t.hint}</code>
+              <!-- Read-only: a token's scope is fixed at mint, so there is nothing to click. -->
+              <span class="badge scope-badge" class:full={t.scope === "full"}
+                >{scopeLabel(t.scope)}</span
+              >
+            </span>
             <span class="tok-meta">
               {m.settings_access_created({ date: formatDate(t.createdAt) })} ·
               {t.lastUsedAt === null
@@ -278,10 +313,6 @@
   .warn-note {
     color: var(--color-warn);
   }
-  .scopes-link {
-    color: var(--color-warn);
-    white-space: nowrap;
-  }
   .mint {
     display: flex;
     flex-wrap: wrap;
@@ -298,6 +329,9 @@
   }
   .fld.expiry {
     flex: 0 1 140px;
+  }
+  .fld.scope {
+    flex: 0 1 160px;
   }
   .lbl {
     font-size: var(--fs-micro);
@@ -404,6 +438,12 @@
     font-size: var(--fs-base);
     overflow-wrap: anywhere;
   }
+  .tok-id {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
   .tok-hint {
     font-family: var(--font-mono);
     font-size: var(--fs-meta);
@@ -423,6 +463,18 @@
     padding: 0 5px;
     border-radius: 2px;
   }
+  /* MUST stay after `.badge`: both are single-class selectors, so source order is what decides —
+     placed above it, `.badge`'s amber would win and every scope would read as `full`.
+     Neutral by default because `read` and `submit` are limits, not alarms; `full` is the one level
+     worth an amber edge, being the reach the operator should notice while scanning the list. */
+  .scope-badge {
+    border-color: var(--color-line-bright);
+    color: var(--color-muted);
+  }
+  .scope-badge.full {
+    border-color: var(--color-warn);
+    color: var(--color-warn);
+  }
   .confirm {
     display: flex;
     gap: 8px;
@@ -437,7 +489,8 @@
       min-height: 44px;
       font-size: var(--fs-lg);
     }
-    .fld.expiry {
+    .fld.expiry,
+    .fld.scope {
       flex: 1 1 100%;
     }
     .tok {

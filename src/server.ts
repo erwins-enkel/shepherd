@@ -65,6 +65,7 @@ import {
   SESSION_COOKIE,
 } from "./operator-auth";
 import { AccessTokenService, looksLikeAccessToken, parseMintRequest } from "./access-tokens";
+import { scopeAllows } from "./token-scopes";
 import { resolvePlanAnswers, planAnswerSteerText, type RawAnswer } from "./plan-gate";
 import { slugifyManual } from "./namer";
 import {
@@ -729,10 +730,16 @@ function isPublicRequest(req: Request): boolean {
  * an un-bootstrapped unit-test app) the gate is open, mirroring the prior `config.token === null`
  * contract the test suite relies on.
  *
- * The third credential (#2082) is a minted access token — same reach as `SHEPHERD_TOKEN`, but
- * named, individually revocable and optionally expiring. It is checked LAST so the two cheaper
- * paths (one HMAC, one length-guarded compare) short-circuit first, and its verification is a
- * hash + in-memory map lookup, so this stays a no-DB-read gate.
+ * The third credential (#2082) is a minted access token — named, individually revocable and
+ * optionally expiring. It is checked LAST so the two cheaper paths (one HMAC, one length-guarded
+ * compare) short-circuit first, and its verification is a hash + in-memory map lookup, so this
+ * stays a no-DB-read gate.
+ *
+ * A minted token is additionally SCOPED (#2083): unlike the two credentials above it, passing
+ * authentication does not mean reaching every route. The scope check sits here rather than in a
+ * seam of its own precisely because BOTH entry points already call this function, so the HTTP
+ * chain and the `/events` + `/pty/:id` upgrades are covered by one edit with nothing to forget.
+ * The policy is deny-by-default (src/token-scopes.ts): an unlisted route requires `full`.
  */
 function checkAuth(req: Request, deps: AppDeps): Response | null {
   if (config.cookieSecret === null && config.token === null) return null; // un-bootstrapped (tests)
@@ -751,9 +758,18 @@ function checkAuth(req: Request, deps: AppDeps): Response | null {
   // cookie, or the env token) never even builds the service.
   if (looksLikeAccessToken(authHeader)) {
     const svc = accessTokens(deps);
-    const tokenId = svc.verify(authHeader);
-    if (tokenId !== null) {
-      svc.stampUsed(tokenId); // throttled to one write per token per minute
+    const verified = svc.verify(authHeader);
+    if (verified !== null) {
+      // Stamped even when the scope check below refuses: the credential DID authenticate, only the
+      // route was out of its reach. A misconfigured client hammering a forbidden route should read
+      // as active in the token list — that is the attribution #2082 shipped this stamp for.
+      svc.stampUsed(verified.id); // throttled to one write per token per minute
+      if (!scopeAllows(verified.scope, req.method, new URL(req.url).pathname)) {
+        // 403, not 401: the token is valid and known — it simply does not carry this route. The
+        // body is a fixed string rather than the required level, so it diagnoses without
+        // enumerating the policy table.
+        return json({ error: "insufficient_scope" }, 403);
+      }
       return null;
     }
   }
@@ -900,6 +916,8 @@ function handleMe({ req, parts }: Ctx): Response | null {
 // ── access tokens (issue #2082) ────────────────────────────────────────────
 // Named machine bearer tokens: minted here, verified in checkAuth. All three routes additionally
 // require an INTERACTIVE operator session, so a bearer cannot manage the token set it belongs to.
+// There is deliberately no update route: a token's scope (#2083) is fixed at mint, because a scope
+// that can be widened after the fact cannot answer "what could this credential do last Tuesday".
 
 async function mintAccessToken(req: Request, deps: AppDeps): Promise<Response> {
   const ctErr = requireJsonContentType(req);
@@ -913,7 +931,7 @@ async function mintAccessToken(req: Request, deps: AppDeps): Promise<Response> {
   const parsed = parseMintRequest(body);
   if ("error" in parsed) return json({ error: parsed.error }, 400);
   // The ONLY response that ever carries the plaintext — it is not recoverable afterwards.
-  return json(accessTokens(deps).mint(parsed.name, parsed.expiresInDays), 201);
+  return json(accessTokens(deps).mint(parsed.name, parsed.expiresInDays, parsed.scope), 201);
 }
 
 async function handleAccessTokens({ req, parts, deps }: Ctx): Promise<Response | null> {

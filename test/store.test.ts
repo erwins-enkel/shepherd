@@ -2178,3 +2178,33 @@ test("session migration: a pre-epicParent row migrates to null and stays an epic
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("access_tokens migration: a token minted before per-token scopes reads as full (#2083)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "shepherd-store-token-scope-migrate-"));
+  const dbPath = join(dir, "test.db");
+  try {
+    // The #2082 table verbatim — no `scope` column.
+    const raw = new Database(dbPath);
+    raw.run(`CREATE TABLE access_tokens (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL,
+      tokenHash TEXT NOT NULL UNIQUE, hint TEXT NOT NULL,
+      createdAt INTEGER NOT NULL, lastUsedAt INTEGER, expiresAt INTEGER)`);
+    raw.run(
+      `INSERT INTO access_tokens (id, name, tokenHash, hint, createdAt, lastUsedAt, expiresAt)
+       VALUES ('t-old', 'Asyar — MacBook', 'deadbeef', 'a9Fz', 1, NULL, NULL)`,
+    );
+    raw.close();
+
+    // Opening through the store adds the column with its default, so the token keeps the full
+    // reach it was minted with rather than silently losing access on upgrade.
+    const store = new SessionStore(dbPath);
+    const row = store.listAccessTokens().find((r) => r.id === "t-old");
+    expect(row?.scope).toBe("full");
+    // The rest of the row survived the ALTER untouched.
+    expect(row?.name).toBe("Asyar — MacBook");
+    expect(row?.tokenHash).toBe("deadbeef");
+    expect(row?.expiresAt).toBeNull();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

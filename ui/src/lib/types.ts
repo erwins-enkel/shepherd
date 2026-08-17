@@ -96,7 +96,14 @@ export interface AccessToken {
   lastUsedAt: number | null;
   /** null = never expires. */
   expiresAt: number | null;
+  /** What the token may reach (#2083). Fixed at mint — there is no route to change it, so the
+   *  list renders this read-only. Tokens minted before scopes existed report `full`. */
+  scope: TokenScope;
 }
+
+/** Mirrors TOKEN_SCOPES in src/token-scopes.ts — the server rejects any other value at mint.
+ *  Duplicated by hand because `ui/` cannot import from the server package. */
+export type TokenScope = "read" | "submit" | "full";
 
 export interface Settings {
   repoRoot: string;

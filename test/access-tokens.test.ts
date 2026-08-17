@@ -1,4 +1,8 @@
 import { test, expect } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { Database } from "bun:sqlite";
 import { SessionStore } from "../src/store";
 import {
   AccessTokenService,
@@ -12,6 +16,7 @@ import {
   parseMintRequest,
   ACCESS_TOKEN_NAME_MAX,
 } from "../src/access-tokens";
+import { DEFAULT_TOKEN_SCOPE, TOKEN_SCOPES } from "../src/token-scopes";
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -94,18 +99,38 @@ test("parseMintRequest: accepts a well-formed body, defaulting an absent expiry 
   expect(parseMintRequest({ name: " Asyar ", expiresInDays: 90 })).toEqual({
     name: "Asyar",
     expiresInDays: 90,
+    scope: "full",
   });
   expect(parseMintRequest({ name: "Asyar", expiresInDays: null })).toEqual({
     name: "Asyar",
     expiresInDays: null,
+    scope: "full",
   });
-  expect(parseMintRequest({ name: "Asyar" })).toEqual({ name: "Asyar", expiresInDays: null });
+  expect(parseMintRequest({ name: "Asyar" })).toEqual({
+    name: "Asyar",
+    expiresInDays: null,
+    scope: "full",
+  });
+});
+
+test("parseMintRequest: an absent scope defaults to full — a #2082-era body is unchanged", () => {
+  // The whole back-compat story for the mint API: a caller that never heard of scopes keeps
+  // minting the full-reach token it minted before. The mint FORM always sends one explicitly.
+  for (const scope of TOKEN_SCOPES) {
+    expect(parseMintRequest({ name: "Asyar", scope })).toEqual({
+      name: "Asyar",
+      expiresInDays: null,
+      scope,
+    });
+  }
+  expect(parseMintRequest({ name: "Asyar" })).toMatchObject({ scope: DEFAULT_TOKEN_SCOPE });
 });
 
 test("parseMintRequest: names each rejection so the 400 tells the operator what to fix", () => {
   expect(parseMintRequest(null)).toEqual({ error: "invalid body" });
   expect(parseMintRequest("nope")).toEqual({ error: "invalid body" });
   expect(parseMintRequest([{ name: "Asyar" }])).toEqual({ error: "invalid body" });
+  // `scope` is singular — the plural stays an unknown field rather than silently doing nothing.
   expect(parseMintRequest({ name: "Asyar", scopes: ["read"] })).toEqual({
     error: "unknown field: scopes",
   });
@@ -114,6 +139,9 @@ test("parseMintRequest: names each rejection so the 400 tells the operator what 
   expect(errorOf(parseMintRequest({ name: "Asyar", expiresInDays: 7 }))).toMatch(
     /^expiresInDays must be/,
   );
+  for (const scope of ["", "admin", "READ", ["read"], 1, null]) {
+    expect(errorOf(parseMintRequest({ name: "Asyar", scope }))).toMatch(/^scope must be/);
+  }
 });
 
 // ── at rest ────────────────────────────────────────────────────────────────
@@ -147,10 +175,73 @@ test("list(): newest first, metadata only", () => {
 
 // ── verification ───────────────────────────────────────────────────────────
 
-test("verify: accepts the minted token and returns its id", () => {
+test("verify: accepts the minted token and returns its id and scope", () => {
   const { svc } = harness();
-  const { token, entry } = svc.mint("Asyar", null);
-  expect(svc.verify(bearer(token))).toBe(entry.id);
+  const { token, entry } = svc.mint("Asyar", null, "read");
+  expect(svc.verify(bearer(token))).toEqual({ id: entry.id, scope: "read" });
+});
+
+// ── scopes (#2083) ─────────────────────────────────────────────────────────
+
+test("mint: persists the chosen scope, and surfaces it on the summary the API returns", () => {
+  const { store, svc } = harness();
+  for (const scope of TOKEN_SCOPES) {
+    const { entry } = svc.mint(`client-${scope}`, null, scope);
+    expect(entry.scope).toBe(scope);
+    const row = store.listAccessTokens().find((r) => r.id === entry.id);
+    expect(row?.scope).toBe(scope);
+  }
+  expect(
+    svc
+      .list()
+      .map((t) => t.scope)
+      .sort(),
+  ).toEqual([...TOKEN_SCOPES].sort());
+});
+
+test("mint: an omitted scope is full — the reach a #2082 token was minted with", () => {
+  const { svc } = harness();
+  expect(svc.mint("legacy-caller", null).entry.scope).toBe(DEFAULT_TOKEN_SCOPE);
+});
+
+test("verify: a scope written straight into SQLite reaches the gate VERBATIM, not normalized", () => {
+  // The service must not launder a bad stored value into a plausible one — `scopeAllows` is the
+  // single place that decides, and it grants an unrecognized scope nothing (token-scopes.test.ts).
+  // If verify quietly coerced this to "read" or "full", that deny-by-default rule would be dead.
+  const dir = mkdtempSync(join(tmpdir(), "shepherd-token-scope-tamper-"));
+  const dbPath = join(dir, "test.db");
+  try {
+    const { token, entry } = new AccessTokenService(new SessionStore(dbPath)).mint(
+      "hand-edited",
+      null,
+      "full",
+    );
+    // Out-of-band write, the way a hand edit or a future version would do it.
+    const raw = new Database(dbPath);
+    raw.run(`UPDATE access_tokens SET scope = 'wat' WHERE id = ?`, [entry.id]);
+    raw.close();
+
+    // A fresh store + service = a restart, which is when the tampered row is read into the map.
+    const rebooted = new AccessTokenService(new SessionStore(dbPath));
+    const verified = rebooted.verify(bearer(token));
+    expect(verified?.id).toBe(entry.id);
+    // Widened deliberately: AccessTokenRow types `scope` as the union for callers' convenience, but
+    // SQLite holds TEXT. This asserts the service does not make that annotation true by coercing.
+    expect(verified?.scope as string).toBe("wat");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a service constructed over an existing store carries each token's own scope", () => {
+  const store = new SessionStore(":memory:");
+  const svc = new AccessTokenService(store);
+  const readToken = svc.mint("reader", null, "read").token;
+  const fullToken = svc.mint("driver", null, "full").token;
+
+  const rebooted = new AccessTokenService(store);
+  expect(rebooted.verify(bearer(readToken))?.scope).toBe("read");
+  expect(rebooted.verify(bearer(fullToken))?.scope).toBe("full");
 });
 
 test("verify: rejects unknown, malformed, unprefixed and missing headers", () => {

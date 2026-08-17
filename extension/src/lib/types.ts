@@ -87,9 +87,14 @@ export interface SpawnPayload {
  * (HTTP 400) covers any request the server rejected as malformed — repo-path
  * confinement is only one such case — so the popup surfaces the server's own
  * `detail`. `too_large`/`unsupported` are the upload-specific 413/415.
+ *
+ * `origin` and `scope` are BOTH HTTP 403 and are split by the response body
+ * (#2083): a minted token whose scope is too narrow must not be reported as an
+ * allowed-hosts problem, or the operator goes to `SHEPHERD_ALLOWED_HOSTS` for a
+ * fault that lives in Settings → Access.
  */
 export type TransportErrorKind =
-  "origin" | "auth" | "invalid" | "too_large" | "unsupported" | "unreachable" | "unknown";
+  "origin" | "scope" | "auth" | "invalid" | "too_large" | "unsupported" | "unreachable" | "unknown";
 
 export class TransportError extends Error {
   kind: TransportErrorKind;

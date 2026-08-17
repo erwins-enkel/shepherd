@@ -20,6 +20,7 @@
   "popup_cant_capture": "This page can't be captured (browser or store page).",
   "popup_empty_prompt": "Enter a task description first.",
   "err_origin": "Shepherd rejected the request origin. This extension's ID is allowlisted by default; you only need to act if your Shepherd core overrides SHEPHERD_ALLOWED_HOSTS — then add this extension's ID to that list.",
+  "err_scope": "This token's scope is too narrow for captures. In Shepherd under Settings → Access, create a token with the Submit scope and paste it here — Read cannot file a capture.",
   "err_auth": "Authentication failed. Check the Shepherd token in settings.",
   "err_invalid": "Shepherd rejected the request: {message}",
   "err_too_large": "The screenshot is too large to upload.",

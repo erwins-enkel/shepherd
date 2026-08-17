@@ -16,6 +16,8 @@ export function localizeError(
   switch (kind) {
     case "origin":
       return m.err_origin();
+    case "scope":
+      return m.err_scope();
     case "auth":
       return m.err_auth();
     case "invalid":

@@ -29,10 +29,15 @@ Open the extension's **options** (right-click the toolbar icon → *Options*) an
     file against your remote core.
 - **Token** — a bearer credential for the core. Mint one in the HUD under
   **Settings → Access**: give it a name (e.g. _"Capture extension — work laptop"_),
-  copy the value while it is shown (it is shown once), and paste it here. You can
-  revoke that one token later without disturbing any other client. If your
-  deployment provisions `SHEPHERD_TOKEN` in the server's environment, that value
-  works here too.
+  choose the **Submit** scope, copy the value while it is shown (it is shown once),
+  and paste it here. You can revoke that one token later without disturbing any
+  other client. If your deployment provisions `SHEPHERD_TOKEN` in the server's
+  environment, that value works here too.
+
+  **Submit is the scope this extension needs** — it covers filing an issue,
+  starting a session and attaching a screenshot, and nothing more. The narrower
+  **Read** scope cannot file captures, and **Full** would hand the extension the
+  live agent terminal it never uses.
 - **Repo path** — the default target repo (must resolve inside the server's
   `SHEPHERD_REPO_ROOT`).
 - **Base branch** and **Model** — optional.

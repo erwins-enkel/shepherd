@@ -583,6 +583,39 @@ test("closeTab({allowLastTab}) rebuilds even when herdr reports the pane with NO
   expect(create).not.toContain("--cwd"); // …and without a fabricated one
 });
 
+test("closeTab({allowLastTab}) still rebuilds when the tab list read FAILS", async () => {
+  // Fail-open closes the tab regardless; skipping the rebuild here would lose the workspace on a
+  // transient read error, which is precisely the guarantee this path makes.
+  const calls: string[][] = [];
+  const d = mkDriver((args) => {
+    calls.push(args);
+    if (args[0] === "tab" && args[1] === "list") throw new Error("herdr unreachable");
+    if (args[0] === "workspace" && args[1] === "list")
+      return JSON.stringify({ result: { type: "workspace_list", workspaces: [] } });
+    return "{}";
+  });
+
+  await d.closeTab("w1:t1", { allowLastTab: true });
+
+  expect(calls).toContainEqual(["tab", "close", "w1:t1"]);
+  expect(calls.some((c) => c[0] === "workspace" && c[1] === "create")).toBe(true);
+});
+
+test("closeTab (guarded) does NOT rebuild when the tab list read fails — it never closed", async () => {
+  const calls: string[][] = [];
+  const d = mkDriver((args) => {
+    calls.push(args);
+    if (args[0] === "tab" && args[1] === "list") throw new Error("herdr unreachable");
+    if (args[0] === "workspace" && args[1] === "list")
+      return JSON.stringify({ result: { type: "workspace_list", workspaces: [] } });
+    return "{}";
+  });
+
+  await d.closeTab("w1:t1"); // housekeeping: fail-open close, but no workspace claim to honour
+
+  expect(calls.some((c) => c[0] === "workspace" && c[1] === "create")).toBe(false);
+});
+
 test("closeTab({allowLastTab}) does NOT create a workspace when siblings survive the close", async () => {
   const { driver, created, workspaces } = tabStateDriver([
     { tab_id: "w1:t1", workspace_id: "w1" },

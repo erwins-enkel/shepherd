@@ -491,7 +491,9 @@ export class SocketHerdrDriver implements IHerdrDriver {
           restore = { cwd: await this.tabCwd(tabId) };
         }
       } catch {
-        /* can't tell → fail open and attempt the close */
+        // See `HerdrDriver.closeTab`: arm the rebuild on a read failure for bypass callers, so a
+        // transient `tab.list` error can't cost the operator their workspace.
+        if (opts.allowLastTab) restore = { cwd: null };
       }
       try {
         await this.client.request("tab.close", { tab_id: tabId });

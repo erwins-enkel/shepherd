@@ -1533,7 +1533,12 @@ export class HerdrDriver implements IHerdrDriver {
           restore = { cwd: await this.tabCwd(tabId) };
         }
       } catch {
-        /* can't tell → fail open and attempt the close */
+        // Can't tell → fail open and attempt the close. A bypass caller closes either way, so ARM
+        // the rebuild rather than skip it: if that tab happened to be the sole one, skipping would
+        // lose the workspace on a transient read failure — the exact guarantee this path makes.
+        // `ensureWorkspace` only creates when zero workspaces remain, so arming it costs one list
+        // when the workspace survived.
+        if (opts.allowLastTab) restore = { cwd: null };
       }
       try {
         await this.asyncRunner(["tab", "close", tabId]);

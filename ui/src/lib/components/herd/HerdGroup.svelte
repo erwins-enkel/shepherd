@@ -5,7 +5,8 @@
 
   export type HerdRowCtx = {
     selectedId: string | null;
-    /** Transient post-jump highlight target — see Herd's `jumpFlashId` prop. */
+    /** Transient post-jump highlight target — see Herd's `jumpFlashId` prop. Only ever
+     *  honoured on the SELECTED row (see the row's `jumpFlash` below). */
     jumpFlashId: string | null;
     nowMs: number;
     onselect: (id: string) => void;
@@ -109,10 +110,18 @@
 {/if}
 {#if !collapsible || expanded}
   {#each sessions as session (session.id)}
+    <!-- jumpFlash is ANDed with the selection on purpose: the flash is the loudest cue in
+         the rail, so it may only ever mark the row that is actually selected. The selection
+         can move out from under a running flash by several routes — a click or j/k inside
+         the ~1.5s window, or the page reassigning selectedId when a session is
+         decommissioned or its merged rows are cleared — and an outline left behind on the
+         old row would restate exactly the rail-disagrees-with-the-terminal confusion this
+         whole path exists to end. Gating here, rather than clearing the id inside one
+         selection function, holds for every one of those routes and for later ones. -->
     <UnitRow
       {session}
       selected={session.id === ctx.selectedId}
-      jumpFlash={session.id === ctx.jumpFlashId}
+      jumpFlash={session.id === ctx.jumpFlashId && session.id === ctx.selectedId}
       nowMs={ctx.nowMs}
       onselect={ctx.onselect}
       git={ctx.git[session.id]}

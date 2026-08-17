@@ -1057,4 +1057,23 @@ describe("Herd jump flash", () => {
     });
     await expect.poll(() => flashed(screen.container)).toEqual([]);
   });
+
+  it("a flash whose row is no longer selected goes dark instead of stranding an outline", async () => {
+    // The selection can move out from under a running flash: a click or j/k inside the
+    // ~1.5s window, or the page reassigning selectedId when a session is decommissioned
+    // or its merged rows are cleared. The loudest cue in the rail must not stay parked on
+    // a row the terminal is no longer showing — that IS the bug this path fixes.
+    const props = {
+      ...base,
+      sessions: [session({ id: "a" }), session({ id: "b" })],
+      git: {},
+      selectedId: "a",
+      jumpFlashId: "a",
+    };
+    const screen = await render(Herd, props);
+    await expect.poll(() => flashed(screen.container)).toEqual(["a"]);
+
+    await screen.rerender({ ...props, selectedId: "b" });
+    await expect.poll(() => flashed(screen.container)).toEqual([]);
+  });
 });

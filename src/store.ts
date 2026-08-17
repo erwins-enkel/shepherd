@@ -1591,10 +1591,16 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // Named machine bearer tokens minted from the HUD (#2082). Only the SHA-256 of the plaintext
     // is stored — `hint` is the last 4 plaintext chars so the list can render `shp_…a9Fz`.
     // `lastUsedAt` / `expiresAt` are NULL for "never used" / "never expires".
+    // `scope` is one of TOKEN_SCOPES (#2083); the route policy lives in src/token-scopes.ts.
     this.db.run(`CREATE TABLE IF NOT EXISTS access_tokens (
       id TEXT PRIMARY KEY, name TEXT NOT NULL,
       tokenHash TEXT NOT NULL UNIQUE, hint TEXT NOT NULL,
-      createdAt INTEGER NOT NULL, lastUsedAt INTEGER, expiresAt INTEGER)`);
+      createdAt INTEGER NOT NULL, lastUsedAt INTEGER, expiresAt INTEGER,
+      scope TEXT NOT NULL DEFAULT 'full')`);
+    // migrate tokens minted before per-token scopes (#2083). The column DEFAULT is the whole
+    // migration: every pre-existing token keeps the full reach it was minted with, so no client
+    // breaks on upgrade. New tokens carry whatever the mint request chose.
+    this.addMissingColumns("access_tokens", { scope: "TEXT NOT NULL DEFAULT 'full'" });
     this.db.run(`CREATE TABLE IF NOT EXISTS session_usage (
       sessionId      TEXT PRIMARY KEY,
       desig          TEXT NOT NULL,
@@ -1667,7 +1673,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   listAccessTokens(): AccessTokenRow[] {
     return this.db
       .query(
-        `SELECT id, name, tokenHash, hint, createdAt, lastUsedAt, expiresAt
+        `SELECT id, name, tokenHash, hint, createdAt, lastUsedAt, expiresAt, scope
          FROM access_tokens ORDER BY createdAt DESC`,
       )
       .all() as AccessTokenRow[];
@@ -1675,9 +1681,18 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
 
   insertAccessToken(row: AccessTokenRow): void {
     this.db.run(
-      `INSERT INTO access_tokens (id, name, tokenHash, hint, createdAt, lastUsedAt, expiresAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [row.id, row.name, row.tokenHash, row.hint, row.createdAt, row.lastUsedAt, row.expiresAt],
+      `INSERT INTO access_tokens (id, name, tokenHash, hint, createdAt, lastUsedAt, expiresAt, scope)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        row.id,
+        row.name,
+        row.tokenHash,
+        row.hint,
+        row.createdAt,
+        row.lastUsedAt,
+        row.expiresAt,
+        row.scope,
+      ],
     );
   }
 

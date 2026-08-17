@@ -2,7 +2,8 @@
  * Named machine access tokens (issue #2082). The third credential accepted by the one auth seam
  * (`checkAuth` in server.ts), alongside the operator session cookie and the env-provisioned
  * `SHEPHERD_TOKEN`. Unlike that shared env secret, a minted token has a name (attribution), an
- * optional expiry, and can be revoked on its own — without a restart.
+ * optional expiry, a scope bounding what it may reach (#2083, src/token-scopes.ts), and can be
+ * revoked on its own — without a restart.
  *
  * At rest we keep only `sha256(plaintext)` plus a 4-char `hint` for the list. The plaintext exists
  * exactly once: in the response to the mint request.
@@ -20,6 +21,7 @@
  */
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import type { SessionStore } from "./store";
+import { DEFAULT_TOKEN_SCOPE, TOKEN_SCOPES, isTokenScope, type TokenScope } from "./token-scopes";
 
 /** Greppable in logs, detectable by secret scanners — and lets `verify` reject non-tokens cheaply. */
 export const ACCESS_TOKEN_PREFIX = "shp_";
@@ -38,7 +40,11 @@ const BEARER = "Bearer ";
 /** At most one `lastUsedAt` write per token per minute — this runs on every authed request. */
 const LAST_USED_THROTTLE_MS = 60_000;
 
-/** A row as it sits in SQLite. `lastUsedAt: null` = never used; `expiresAt: null` = never expires. */
+/** A row as it sits in SQLite. `lastUsedAt: null` = never used; `expiresAt: null` = never expires.
+ *
+ *  `scope` is typed as the union for callers' convenience, but SQLite holds plain TEXT: a
+ *  hand-edited or future-version row can carry anything, and `scopeAllows` grants such a value
+ *  NOTHING rather than trusting this annotation. Never widen that to a cast-and-trust. */
 export interface AccessTokenRow {
   id: string;
   name: string;
@@ -47,6 +53,7 @@ export interface AccessTokenRow {
   createdAt: number;
   lastUsedAt: number | null;
   expiresAt: number | null;
+  scope: TokenScope;
 }
 
 /** What the API and the UI ever see — the same row minus the hash. */
@@ -61,6 +68,7 @@ function toSummary(row: AccessTokenRow): AccessTokenSummary {
     createdAt: row.createdAt,
     lastUsedAt: row.lastUsedAt,
     expiresAt: row.expiresAt,
+    scope: row.scope,
   };
 }
 
@@ -101,17 +109,20 @@ export function isExpiryPreset(raw: unknown): raw is number | null {
  * message the route turns into a 400. Pure, so every rejection path is unit-testable without HTTP —
  * and so the route stays routing + I/O.
  *
- * `expiresInDays` absent ⇒ never expires, the default the mint form starts on. Unknown keys are
- * rejected, matching the house style of `validateCreate`.
+ * `expiresInDays` absent ⇒ never expires, the default the mint form starts on. `scope` absent ⇒
+ * DEFAULT_TOKEN_SCOPE (`full`), so a caller written against #2082 mints exactly what it did before
+ * — the mint FORM always sends an explicit scope and starts on `read`. Unknown keys are rejected,
+ * matching the house style of `validateCreate`.
  */
 export function parseMintRequest(
   body: unknown,
-): { name: string; expiresInDays: number | null } | { error: string } {
+): { name: string; expiresInDays: number | null; scope: TokenScope } | { error: string } {
   if (typeof body !== "object" || body === null || Array.isArray(body)) {
     return { error: "invalid body" };
   }
   const raw = body as Record<string, unknown>;
-  const unknownField = Object.keys(raw).find((k) => k !== "name" && k !== "expiresInDays");
+  const known = ["name", "expiresInDays", "scope"];
+  const unknownField = Object.keys(raw).find((k) => !known.includes(k));
   if (unknownField) return { error: `unknown field: ${unknownField}` };
 
   const name = normalizeTokenName(raw.name);
@@ -121,7 +132,12 @@ export function parseMintRequest(
   if (!isExpiryPreset(expiresInDays)) {
     return { error: `expiresInDays must be null or one of ${ACCESS_TOKEN_EXPIRY_DAYS.join(", ")}` };
   }
-  return { name, expiresInDays };
+
+  const scope = raw.scope === undefined ? DEFAULT_TOKEN_SCOPE : raw.scope;
+  if (!isTokenScope(scope)) {
+    return { error: `scope must be one of ${TOKEN_SCOPES.join(", ")}` };
+  }
+  return { name, expiresInDays, scope };
 }
 
 /**
@@ -142,11 +158,21 @@ type Store = Pick<
   "listAccessTokens" | "insertAccessToken" | "deleteAccessToken" | "touchAccessToken"
 >;
 
+/** What `verify` hands the auth seam: who presented the token, and how far it reaches. */
+export interface VerifiedToken {
+  id: string;
+  scope: TokenScope;
+}
+
 export class AccessTokenService {
   private readonly store: Store;
   private readonly now: () => number;
-  /** hash → identity. The hot-path index; expired entries stay (verify checks) so the list stays whole. */
-  private readonly byHash = new Map<string, { id: string; expiresAt: number | null }>();
+  /** hash → identity. The hot-path index; expired entries stay (verify checks) so the list stays
+   *  whole. Carries the SCOPE so the gate never needs a DB read to authorize a route (#2083). */
+  private readonly byHash = new Map<
+    string,
+    { id: string; expiresAt: number | null; scope: TokenScope }
+  >();
   /** token id → last `lastUsedAt` write, for the throttle. */
   private readonly stampedAt = new Map<string, number>();
 
@@ -154,7 +180,11 @@ export class AccessTokenService {
     this.store = store;
     this.now = now;
     for (const row of store.listAccessTokens()) {
-      this.byHash.set(row.tokenHash, { id: row.id, expiresAt: row.expiresAt });
+      this.byHash.set(row.tokenHash, {
+        id: row.id,
+        expiresAt: row.expiresAt,
+        scope: row.scope,
+      });
     }
   }
 
@@ -165,9 +195,15 @@ export class AccessTokenService {
 
   /**
    * Mint a token. The returned `token` is the ONLY time the plaintext exists outside the client;
-   * it is not recoverable afterwards. `expiresInDays` null ⇒ never expires.
+   * it is not recoverable afterwards. `expiresInDays` null ⇒ never expires. `scope` is fixed here
+   * for the token's whole life — there is deliberately no setter (#2083): an editable scope makes
+   * "what could this credential do last Tuesday" unanswerable. Mint a new token instead.
    */
-  mint(name: string, expiresInDays: number | null): { token: string; entry: AccessTokenSummary } {
+  mint(
+    name: string,
+    expiresInDays: number | null,
+    scope: TokenScope = DEFAULT_TOKEN_SCOPE,
+  ): { token: string; entry: AccessTokenSummary } {
     const token = generateAccessToken();
     const createdAt = this.now();
     const row: AccessTokenRow = {
@@ -178,9 +214,10 @@ export class AccessTokenService {
       createdAt,
       lastUsedAt: null,
       expiresAt: expiresInDays === null ? null : createdAt + expiresInDays * DAY_MS,
+      scope,
     };
     this.store.insertAccessToken(row);
-    this.byHash.set(row.tokenHash, { id: row.id, expiresAt: row.expiresAt });
+    this.byHash.set(row.tokenHash, { id: row.id, expiresAt: row.expiresAt, scope: row.scope });
     return { token, entry: toSummary(row) };
   }
 
@@ -195,17 +232,21 @@ export class AccessTokenService {
   }
 
   /**
-   * Hot path. Returns the matching token's id, or null when the header carries no minted token,
-   * an unknown one, or an expired one. Never throws.
+   * Hot path. Returns the matching token's id AND scope, or null when the header carries no minted
+   * token, an unknown one, or an expired one. Never throws.
+   *
+   * Authentication only — it answers "whose token is this, and how far does it reach", never "may
+   * it have this route". That second question is `scopeAllows` (src/token-scopes.ts), asked once by
+   * the auth seam, so this stays a hash + Map lookup with no DB read.
    */
-  verify(authorization: string | null | undefined): string | null {
+  verify(authorization: string | null | undefined): VerifiedToken | null {
     // Cheap reject on the PUBLIC prefix, before hashing — no information about any secret.
     if (!looksLikeAccessToken(authorization)) return null;
     const presented = authorization.slice(BEARER.length);
     const entry = this.byHash.get(hashAccessToken(presented));
     if (!entry) return null;
     if (entry.expiresAt !== null && entry.expiresAt <= this.now()) return null;
-    return entry.id;
+    return { id: entry.id, scope: entry.scope };
   }
 
   /** Throttled `lastUsedAt` stamp. Called after a successful `verify` on every authed request. */

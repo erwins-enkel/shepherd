@@ -40,8 +40,12 @@ interface SpawnInput {
   repoPath: string;
 }
 
-function kindForStatus(status: number): TransportErrorKind {
-  if (status === 403) return "origin";
+/** `detail` is the server's `error` field, needed only to split the two flavours of 403. */
+function kindForStatus(status: number, detail: string): TransportErrorKind {
+  // Both 403s: the origin allowlist rejecting this host, or the token's scope not covering this
+  // route (#2083). Only the body tells them apart, and pointing the operator at the wrong one
+  // costs them a long detour through SHEPHERD_ALLOWED_HOSTS.
+  if (status === 403) return detail === "insufficient_scope" ? "scope" : "origin";
   if (status === 401) return "auth";
   if (status === 413) return "too_large";
   // 415 is overloaded server-side: uploads → unsupported image type, sessions →
@@ -71,13 +75,17 @@ async function ensureOk(res: Response): Promise<void> {
   } catch {
     /* ignore non-JSON bodies */
   }
-  throw new TransportError(kindForStatus(res.status), res.status, detail || `HTTP ${res.status}`);
+  throw new TransportError(
+    kindForStatus(res.status, detail),
+    res.status,
+    detail || `HTTP ${res.status}`,
+  );
 }
 
 /**
  * Probe POST /api/ping to verify the configured base URL + token reach a
  * Shepherd core that accepts this origin. Resolves on 2xx; otherwise the
- * response maps via the shared `kindForStatus` (403→origin, 401→auth, …) and a
+ * response maps via the shared `kindForStatus` (403→origin/scope, 401→auth, …) and a
  * network failure becomes `unreachable` — the same classification the popup
  * shows. Used by the options/popup connection-status UX.
  */

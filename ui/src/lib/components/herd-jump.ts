@@ -23,8 +23,14 @@ export type JumpDeps = {
   tick: () => Promise<void>;
   /** The page's selectUnit — default select for direct jumps. */
   select: (id: string, focusTerm?: boolean, toDetail?: boolean) => void;
-  /** The page's keyNavSelect — used by selectNextNeedsYou (scrolls the row into view). */
-  keyNavSelect: (id: string, focusTerm: boolean) => void;
+  /** The page's keyNavSelect — used by selectNextNeedsYou. Passes scroll=false: the
+   *  reveal step below owns the scroll for every jump, and keyNavSelect's own
+   *  `block: "nearest"` would otherwise land the row at a rail edge and leave it there
+   *  (the reveal would then judge it already-visible and never centre it). */
+  keyNavSelect: (id: string, focusTerm: boolean, scroll?: boolean) => void;
+  /** Scroll the now-selected row into view and flash it, so the rail can never appear
+   *  to disagree with the session the terminal is showing. The DOM half of the jump. */
+  revealRow: (id: string) => void;
 };
 
 /** Page-specific side effects each handler runs BEFORE locating the target (see the
@@ -41,12 +47,19 @@ export type JumpEffects = {
   beforeHerdrUpdateJump: () => void;
 };
 
-/** Reveal-before-select core — the single authority for expanding a collapsed group so
- *  a jump target's row is visible. Fixed order: the caller's effects already ran →
+/** Reveal-before-select core — the single authority for getting a jump target's row
+ *  on screen. Fixed order: the caller's effects already ran →
  *  (1) resolve the target's CURRENT location, (2) expand the right collapsed set
  *  (epic → always; stage → desktop only; experiment groups never collapse), (3) if
- *  something expanded, await a tick so the row mounts, (4) select. Selection is a
- *  callback so each handler picks its own select function and options. */
+ *  something expanded, await a tick so the row mounts, (4) select, (5) await a tick and
+ *  reveal. Selection is a callback so each handler picks its own select function and
+ *  options.
+ *
+ *  The trailing tick is unconditional, unlike the one in step 3: every handler's effects
+ *  mutate page state (lens, status/repo filters, the backlog overlay) BEFORE selecting,
+ *  and revealRow queries the DOM for the row — so the re-render those mutations queued
+ *  must be flushed first, or a jump out of a filtered view would silently reveal
+ *  nothing. */
 export async function revealAndSelect(
   id: string,
   deps: JumpDeps,
@@ -61,14 +74,21 @@ export async function revealAndSelect(
     deps.expandStage(loc.key);
     expanded = true;
   }
-  // Only an actual expansion needs the tick (newly-mounted row before scroll); an
-  // already-visible target selects synchronously, exactly like a rail click.
+  // Only an actual expansion needs THIS tick (the row must mount before it can be
+  // selected); an already-visible target selects synchronously, like a rail click.
   if (expanded) await deps.tick();
   select(id);
+  await deps.tick();
+  deps.revealRow(id);
 }
 
 /** Every global (outside-the-rail) session jump the page performs, built on ONE
- *  reveal-before-select core. Per-handler effects and select variants:
+ *  reveal-before-select core — so all of them scroll to and flash their target, and none
+ *  can leave the rail showing a different session than the terminal. Rail-internal
+ *  selection (a click, j/k) deliberately does NOT come through here: the operator's own
+ *  pointer or cursor walk already told them where they landed.
+ *
+ *  Per-handler effects and select variants (every one then ticks and reveals):
  *
  *  | handler               | effects before locate      | select                          |
  *  | --------------------- | -------------------------- | ------------------------------- |
@@ -80,7 +100,8 @@ export async function revealAndSelect(
  *  | navigateFromViewport  | —                          | select(id)                      |
  *  | retargetForRepoFilter | — (follows a just-set repo | select(id, false, false)        |
  *  |                       | filter; no reset)          |                                 |
- *  | selectNextNeedsYou    | — (target via nextNeedsYou)| keyNavSelect(id, focusTerm)     |
+ *  | selectNextNeedsYou    | — (target via nextNeedsYou)| keyNavSelect(id, focusTerm, no  |
+ *  |                       |                            | scroll — the reveal owns it)    |
  */
 export function createJumpHandlers(deps: JumpDeps, effects: JumpEffects) {
   return {
@@ -110,7 +131,7 @@ export function createJumpHandlers(deps: JumpDeps, effects: JumpEffects) {
     selectNextNeedsYou: async (focusTerm = true): Promise<void> => {
       const id = nextNeedsYou(deps.blockedIds(), deps.selectedId());
       if (id === null) return;
-      await revealAndSelect(id, deps, (i) => deps.keyNavSelect(i, focusTerm));
+      await revealAndSelect(id, deps, (i) => deps.keyNavSelect(i, focusTerm, false));
     },
   };
 }

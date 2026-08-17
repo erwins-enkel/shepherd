@@ -43,6 +43,7 @@
   let {
     sessions,
     selectedId,
+    jumpFlashId = null,
     nowMs,
     onselect,
     onnew,
@@ -107,6 +108,10 @@
   }: {
     sessions: Session[];
     selectedId: string | null;
+    // The session a global jump (command bar, deep link, notification) just landed on —
+    // its row flashes for ~1.5s so the operator's eye finds it after the rail scrolls.
+    // Null at rest; the page owns the timer.
+    jumpFlashId?: string | null;
     nowMs: number;
     onselect: (id: string) => void;
     onnew: () => void;
@@ -412,6 +417,7 @@
   // the parent's props/derivations.
   const rowCtx = $derived<HerdRowCtx>({
     selectedId,
+    jumpFlashId,
     nowMs,
     onselect,
     git,

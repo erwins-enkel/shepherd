@@ -1027,3 +1027,34 @@ describe("Herd stage-explainer info icon", () => {
     expect(getComputedStyle(info!).textTransform).toBe("none");
   });
 });
+
+// jumpFlashId is the page's post-jump "look here" signal. It has to survive the whole
+// prop path (Herd → rowCtx → HerdGroup → UnitRow) and land on exactly ONE row —
+// a flash on the wrong row would restate the very confusion the flash exists to end.
+describe("Herd jump flash", () => {
+  const flashed = (container: HTMLElement) =>
+    [...container.querySelectorAll("[data-unit-id]")]
+      .filter((el) => getComputedStyle(el).outlineStyle !== "none")
+      .map((el) => el.getAttribute("data-unit-id"));
+
+  it("outlines only the jumped-to row", async () => {
+    const screen = await render(Herd, {
+      ...base,
+      sessions: [session({ id: "a" }), session({ id: "b" }), session({ id: "c" })],
+      git: {},
+      selectedId: "b",
+      jumpFlashId: "b",
+    });
+    await expect.poll(() => flashed(screen.container)).toEqual(["b"]);
+  });
+
+  it("no jumpFlashId: no row is outlined, selection alone stays quiet", async () => {
+    const screen = await render(Herd, {
+      ...base,
+      sessions: [session({ id: "a" }), session({ id: "b" })],
+      git: {},
+      selectedId: "b",
+    });
+    await expect.poll(() => flashed(screen.container)).toEqual([]);
+  });
+});

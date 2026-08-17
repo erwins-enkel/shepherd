@@ -35,8 +35,11 @@ function harness(locations: Map<string, RailLocation> = new Map()) {
     select: (id, focusTerm = true, toDetail = true) => {
       log.push(`select:${focusTerm}:${toDetail} ${seen(id)}`);
     },
-    keyNavSelect: (id, focusTerm) => {
-      log.push(`keyNav:${focusTerm} ${seen(id)}`);
+    keyNavSelect: (id, focusTerm, scroll = true) => {
+      log.push(`keyNav:${focusTerm}:${scroll} ${seen(id)}`);
+    },
+    revealRow: (id) => {
+      log.push(`reveal:${id}`);
     },
   };
   const effects: JumpEffects = {
@@ -63,6 +66,8 @@ test("collapsed desktop stage: expand strictly before select, tick in between", 
     "expandStage:merged",
     "tick",
     "select:true:true stages=[] epics=[] id=x",
+    "tick",
+    "reveal:x",
   ]);
 });
 
@@ -76,26 +81,46 @@ test("collapsed epic group: only the epic set mutates", async () => {
     "expandEpic:/r#100",
     "tick",
     "select:true:true stages=[merged] epics=[] id=x",
+    "tick",
+    "reveal:x",
   ]);
 });
 
-test("experiment member: no set mutates, select fires without a tick", async () => {
+test("experiment member: no set mutates, select fires without a pre-select tick", async () => {
   const h = harness(new Map([["x", { kind: "experiment" }]]));
   h.collapsedStages.add("merged");
   await revealAndSelect("x", h.deps, (id) => h.deps.select(id));
-  expect(h.log).toEqual(["locate", "select:true:true stages=[merged] epics=[] id=x"]);
+  expect(h.log).toEqual([
+    "locate",
+    "select:true:true stages=[merged] epics=[] id=x",
+    "tick",
+    "reveal:x",
+  ]);
 });
 
-test("target in an open group (or without a location): no mutation, no tick", async () => {
+test("target in an open group (or without a location): no mutation, no pre-select tick", async () => {
   const h = harness(new Map([["x", stage("ready")]]));
   await revealAndSelect("x", h.deps, (id) => h.deps.select(id));
   await revealAndSelect("unknown", h.deps, (id) => h.deps.select(id));
   expect(h.log).toEqual([
     "locate",
     "select:true:true stages=[] epics=[] id=x",
+    "tick",
+    "reveal:x",
     "locate",
     "select:true:true stages=[] epics=[] id=unknown",
+    "tick",
+    "reveal:unknown",
   ]);
+});
+
+test("the reveal tick is unconditional: an unexpanded target still flushes before revealRow", async () => {
+  // The regression this guards: jumpToSession resets the lens/status/repo filters before
+  // selecting, so the row may only mount on the re-render those mutations queued. Reveal
+  // reads the DOM — without a tick between select and reveal it would find nothing.
+  const h = harness(new Map([["x", stage("ready")]])); // nothing collapsed → no pre-select tick
+  await revealAndSelect("x", h.deps, (id) => h.deps.select(id));
+  expect(h.log.slice(-3)).toEqual(["select:true:true stages=[] epics=[] id=x", "tick", "reveal:x"]);
 });
 
 test("mobile gating: a mobile jump never mutates collapsedStages (epic expansion still runs)", async () => {
@@ -115,10 +140,14 @@ test("mobile gating: a mobile jump never mutates collapsedStages (epic expansion
   expect(h.log).toEqual([
     "locate",
     "select:true:true stages=[merged] epics=[/r#100] id=s",
+    "tick",
+    "reveal:s",
     "locate",
     "expandEpic:/r#100",
     "tick",
     "select:true:true stages=[merged] epics=[] id=e",
+    "tick",
+    "reveal:e",
   ]);
 });
 
@@ -147,11 +176,14 @@ test("jumpToSession: effects run BEFORE locate, so a filter-hidden target become
     "expandStage:awaiting-merge",
     "tick",
     "select:true:true stages=[] epics=[] id=x",
+    "tick",
+    "reveal:x",
   ]);
 });
 
 // createJumpHandlers — per-path wiring: every handler opens a collapsed desktop stage
-// before select/scroll, with its exact effects and select variant
+// before select, then reveals its target, with its exact effects and select variant.
+// A handler added later that skips the reveal fails this table.
 
 test.each([
   ["jumpToSession", ["reset", "follow:x"], "select:true:true"],
@@ -160,7 +192,7 @@ test.each([
   ["jumpFromHerdrUpdate", ["closeUpdateModal"], "select:true:true"],
   ["navigateFromViewport", [], "select:true:true"],
   ["retargetForRepoFilter", [], "select:false:false"],
-] as const)("%s expands the collapsed stage before selecting", async (name, fx, sel) => {
+] as const)("%s expands the collapsed stage, selects, then reveals", async (name, fx, sel) => {
   const h = harness(new Map([["x", stage("merged")]]));
   h.collapsedStages.add("merged");
   const handlers = createJumpHandlers(h.deps, h.effects);
@@ -171,6 +203,8 @@ test.each([
     "expandStage:merged",
     "tick",
     `${sel} stages=[] epics=[] id=x`,
+    "tick",
+    "reveal:x",
   ]);
 });
 
@@ -181,11 +215,15 @@ test("selectNextNeedsYou: target from nextNeedsYou, expansion via the same core,
   h.deps.selectedId = () => "other";
   const handlers = createJumpHandlers(h.deps, h.effects);
   await handlers.selectNextNeedsYou();
+  // scroll=false: this is the one path whose select function scrolls on its own, and
+  // its `block: "nearest"` would beat the reveal to it and park the row at a rail edge.
   expect(h.log).toEqual([
     "locate",
     "expandStage:ci-failed",
     "tick",
-    "keyNav:true stages=[] epics=[] id=blocked1",
+    "keyNav:true:false stages=[] epics=[] id=blocked1",
+    "tick",
+    "reveal:blocked1",
   ]);
 });
 
@@ -221,6 +259,8 @@ test("handlers read locate/selectedId/blockedIds/isDesktop live, never as creati
     "locate",
     "expandStage:merged",
     "tick",
-    "keyNav:false stages=[] epics=[] id=late",
+    "keyNav:false:false stages=[] epics=[] id=late",
+    "tick",
+    "reveal:late",
   ]);
 });

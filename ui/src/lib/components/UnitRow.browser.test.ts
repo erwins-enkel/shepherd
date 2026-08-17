@@ -1389,3 +1389,55 @@ describe("UnitRow stop agent action", () => {
     );
   });
 });
+
+// The rail's job after a global jump: say unmistakably WHICH session is selected. Both
+// cues are asserted through computed style (app.css is imported above), not class names,
+// so a rule that stops applying — a renamed token, a specificity collision with the
+// attention wash — fails here rather than shipping a silently flat row.
+describe("UnitRow selection cues", () => {
+  const unit = (screen: { container: HTMLElement }, id: string) =>
+    screen.container.querySelector(`[data-unit-id="${id}"]`) as HTMLElement;
+
+  it("selected: the status rule widens to 3px (width, not hue, carries the cue)", async () => {
+    const screen = await render(UnitRow, {
+      session: session({ id: "sel-row", name: "sel row" }),
+      selected: true,
+      nowMs: Date.now(),
+      onselect: () => {},
+    });
+    await expect
+      .poll(() => getComputedStyle(unit(screen, "sel-row"), "::before").width)
+      .toBe("3px");
+  });
+
+  it("unselected: the same rule stays a 1px hairline", async () => {
+    const screen = await render(UnitRow, {
+      session: session({ id: "plain-row", name: "plain row" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+    });
+    await expect
+      .poll(() => getComputedStyle(unit(screen, "plain-row"), "::before").width)
+      .toBe("1px");
+  });
+
+  it("jumpFlash outlines the row; without it there is no outline", async () => {
+    const flashed = await render(UnitRow, {
+      session: session({ id: "flash-row", name: "flash row" }),
+      selected: true,
+      jumpFlash: true,
+      nowMs: Date.now(),
+      onselect: () => {},
+    });
+    await expect.poll(() => getComputedStyle(unit(flashed, "flash-row")).outlineWidth).toBe("2px");
+
+    const calm = await render(UnitRow, {
+      session: session({ id: "calm-row", name: "calm row" }),
+      selected: true,
+      nowMs: Date.now(),
+      onselect: () => {},
+    });
+    await expect.poll(() => getComputedStyle(unit(calm, "calm-row")).outlineStyle).toBe("none");
+  });
+});

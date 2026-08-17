@@ -5,6 +5,8 @@
 
   export type HerdRowCtx = {
     selectedId: string | null;
+    /** Transient post-jump highlight target — see Herd's `jumpFlashId` prop. */
+    jumpFlashId: string | null;
     nowMs: number;
     onselect: (id: string) => void;
     git: Record<string, GitState>;
@@ -110,6 +112,7 @@
     <UnitRow
       {session}
       selected={session.id === ctx.selectedId}
+      jumpFlash={session.id === ctx.jumpFlashId}
       nowMs={ctx.nowMs}
       onselect={ctx.onselect}
       git={ctx.git[session.id]}

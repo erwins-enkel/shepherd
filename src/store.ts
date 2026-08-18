@@ -1171,6 +1171,19 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // is sub-second, so the worst-case wait is a brief, bounded stall — not a crash. Keep equal to
     // BUSY_TIMEOUT_MS in scripts/backup.ts.
     this.db.run("PRAGMA busy_timeout = 5000");
+    // Everything below is ONE transaction. A fresh open fires 150 write statements: 43
+    // CREATE TABLE IF NOT EXISTS (41 here, REVIEWER_SPAWNS_DDL, and terminal_claims inside
+    // migrateSessionColumns), 12 index creations (11 here plus that method's partial unique
+    // index), 88 ALTER TABLE column adds behind PRAGMA table_info probes, and 3 seed INSERTs.
+    // Each one left to autocommit pays SQLite's full rollback-journal fsync cycle — 310ms per open
+    // on a fast NVMe, seconds on CI's disk, which is what times out the disk-backed migration
+    // tests in test/store.test.ts. Batched: ~9ms. It also makes migration atomic — a crash mid-boot
+    // now leaves the last consistent schema instead of a half-migrated DB.
+    // Two constraints keep this correct: `PRAGMA foreign_keys` is a no-op inside a transaction,
+    // so it MUST stay above the BEGIN (it does); and nothing in here may VACUUM or set
+    // journal_mode, neither of which can run in a transaction. Nested `this.db.transaction(...)`
+    // calls (migrateBuildQueueStepsPk) are fine — bun:sqlite runs those as SAVEPOINTs.
+    this.db.run("BEGIN");
     this.db.run(`CREATE TABLE IF NOT EXISTS sessions (
       id TEXT PRIMARY KEY, desig TEXT NOT NULL, name TEXT NOT NULL, prompt TEXT NOT NULL,
       repoPath TEXT NOT NULL, baseBranch TEXT NOT NULL, branch TEXT,
@@ -1647,6 +1660,11 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     if (!usageCols.some((c) => c.name === "claudeSessionId")) {
       this.db.run(`ALTER TABLE session_usage ADD COLUMN claudeSessionId TEXT NOT NULL DEFAULT ''`);
     }
+    // Commits the whole bootstrap (see the BEGIN above). No try/ROLLBACK: a throw here escapes the
+    // constructor, so no caller ever holds this store, and SQLite discards the open transaction
+    // when the handle is finalized. Deliberately no wrapping block — that would re-indent the
+    // ~480 lines above and collide with every branch that appends a table here.
+    this.db.run("COMMIT");
   }
 
   // ── settings (key/value) ─────────────────────────────────────────────────

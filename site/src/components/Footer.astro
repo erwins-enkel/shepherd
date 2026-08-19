@@ -58,6 +58,23 @@ const HERDR_AUTHOR_URL = "https://github.com/ogulcancelik";
       Not affiliated with Anthropic or OpenAI. Claude and Anthropic are
       trademarks of Anthropic, PBC. OpenAI and Codex are trademarks of OpenAI.
     </p>
+
+    <a
+      class="absender"
+      href={ERWINS_ENKEL_URL}
+      rel="noopener noreferrer"
+      target="_blank"
+    >
+      <svg class="signet" viewBox="0 0 32 32" fill="currentColor" aria-hidden="true">
+        <rect x="4" y="6" width="4" height="4"></rect>
+        <rect x="12" y="6" width="16" height="4"></rect>
+        <rect x="4" y="14" width="4" height="4"></rect>
+        <rect x="12" y="14" width="10" height="4"></rect>
+        <rect x="4" y="22" width="4" height="4"></rect>
+        <rect x="12" y="22" width="14" height="4"></rect>
+      </svg>
+      An undertaking by Erwins Enkel
+    </a>
   </div>
 </footer>
 
@@ -154,10 +171,43 @@ const HERDR_AUTHOR_URL = "https://github.com/ogulcancelik";
     max-width: 40rem;
   }
 
+  /* Kennzeichnung der Tochter: dasselbe Signet wie das Haus, klein und am Fuß.
+     Kein eigenes Zeichen, nie neben oder über dem Produktlogo. */
+  .absender {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55em;
+    align-self: flex-start;
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    letter-spacing: 0.04em;
+    color: var(--ink-muted);
+    transition: color 0.15s ease;
+  }
+
+  .absender:hover {
+    color: var(--ink);
+  }
+
+  .absender:focus-visible {
+    outline: 2px solid var(--green);
+    outline-offset: 3px;
+    border-radius: 2px;
+  }
+
+  /* Schutzraum ringsum ist eine Balkenhöhe (⅛ der Zeichenhöhe); die Mindestgröße
+     von 16 px hält das Zeichen auf ganzen Pixeln. */
+  .signet {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .flinks a,
     .license a,
-    .credit a {
+    .credit a,
+    .absender {
       transition: none;
     }
   }

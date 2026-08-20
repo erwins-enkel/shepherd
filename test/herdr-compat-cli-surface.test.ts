@@ -111,6 +111,7 @@ describe("SHEPHERD_HERDR_COMMANDS", () => {
       "pane report-agent-session",
       "pane send-keys",
       "pane send-text",
+      "agent attach",
       "agent list",
       "agent read",
       "agent rename",

@@ -11,9 +11,10 @@
 import type { Severity } from "./schema-diff";
 
 /** Every herdr subcommand Shepherd invokes: the CLI driver's spawn/steer/teardown surface
- *  incl. the poller's `agent read` scrape (src/herdr.ts), the web terminal's
- *  `terminal session control` stream (src/socket-pty-bridge.ts,
- *  scripts/verify-herdr-terminal.ts), the updater's `update` / `server stop`
+ *  incl. the poller's `agent read` scrape (src/herdr.ts), the browser terminal's two
+ *  transports — the node-pty fallback's `agent attach --takeover` (src/pty-attach.mjs, the
+ *  DEFAULT path) and the socket mode's `terminal session control` stream
+ *  (src/socket-pty-bridge.ts, scripts/verify-herdr-terminal.ts) — the updater's `update` / `server stop`
  *  (src/herdr-update.ts), `api schema` (scripts/gen-herdr-schema.ts) and `status` (this SOP's
  *  isolated servers + operator diagnostics). NOT herdr's `worktree` helpers — Shepherd manages worktrees itself via git
  *  (src/worktree.ts; spike docs/spikes/1074-herdr-worktree-vs-worktreemgr.md). Keep in sync
@@ -32,6 +33,7 @@ export const SHEPHERD_HERDR_COMMANDS: readonly (readonly string[])[] = [
   ["pane", "send-text"],
   ["pane", "report-agent"],
   ["pane", "report-agent-session"],
+  ["agent", "attach"],
   ["agent", "list"],
   ["agent", "read"],
   ["agent", "rename"],

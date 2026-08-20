@@ -57,12 +57,22 @@ function installExitHooks() {
           stderr: "ignore",
         });
       } catch {
-        /* best effort — the scratch dir stays for post-mortem */
+        /* fall through to the kill below */
+      }
+      // This handler runs synchronously (process "exit" / signal), so it cannot await a
+      // graceful shutdown: SIGKILL is the only termination it can CONFIRM. Either the CLI
+      // stop above already ended the child (exitCode set), or SIGKILL lands (dead), or the
+      // kill throws because the child is already reaped — in every case the daemon is down
+      // before its socket path goes away, so no server can survive unreachable.
+      try {
+        if (s.proc.exitCode === null) s.proc.kill(9);
+      } catch {
+        /* already reaped */
       }
       try {
         rmSync(s.link, { force: true });
       } catch {
-        /* ignore */
+        /* ignore — the scratch dir stays for post-mortem */
       }
     }
     live.clear();

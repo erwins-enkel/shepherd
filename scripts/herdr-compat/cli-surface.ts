@@ -11,9 +11,11 @@
 import type { Severity } from "./schema-diff";
 
 /** Every herdr subcommand Shepherd invokes: the CLI driver's spawn/steer/teardown surface
- *  (src/herdr.ts), the updater's `update` / `server stop` (src/herdr-update.ts), `api schema`
- *  (scripts/gen-herdr-schema.ts) and `status` (this SOP's isolated servers + operator
- *  diagnostics). NOT herdr's `worktree` helpers — Shepherd manages worktrees itself via git
+ *  incl. the poller's `agent read` scrape (src/herdr.ts), the web terminal's
+ *  `terminal session control` stream (src/socket-pty-bridge.ts,
+ *  scripts/verify-herdr-terminal.ts), the updater's `update` / `server stop`
+ *  (src/herdr-update.ts), `api schema` (scripts/gen-herdr-schema.ts) and `status` (this SOP's
+ *  isolated servers + operator diagnostics). NOT herdr's `worktree` helpers — Shepherd manages worktrees itself via git
  *  (src/worktree.ts; spike docs/spikes/1074-herdr-worktree-vs-worktreemgr.md). Keep in sync
  *  with the argv arrays those files pass to their runners; test/herdr-compat-cli-surface.test.ts
  *  spot-checks the known surface. */
@@ -31,10 +33,12 @@ export const SHEPHERD_HERDR_COMMANDS: readonly (readonly string[])[] = [
   ["pane", "report-agent"],
   ["pane", "report-agent-session"],
   ["agent", "list"],
+  ["agent", "read"],
   ["agent", "rename"],
   ["agent", "send"],
   ["workspace", "list"],
   ["workspace", "create"],
+  ["terminal", "session", "control"],
   ["api", "schema"],
   ["status"],
   ["server", "stop"],

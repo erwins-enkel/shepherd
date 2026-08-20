@@ -100,7 +100,7 @@ describe("diffSchemas", () => {
     expect(bySeverity(res.findings, "fail")).toEqual([]);
     const protocolFindings = res.findings.filter((f) => f.area === "protocol");
     expect(protocolFindings).toHaveLength(1);
-    expect(protocolFindings[0].severity).toBe("review");
+    expect(protocolFindings[0]?.severity).toBe("review");
   });
 
   it("an added method is info; a removed method is fail", () => {
@@ -123,8 +123,8 @@ describe("diffSchemas", () => {
     const removed = diffSchemas(grown, base).findings;
     const fails = bySeverity(removed, "fail");
     expect(fails).toHaveLength(1);
-    expect(fails[0].kind).toBe("method-removed");
-    expect(fails[0].detail).toContain("workspace.move_block");
+    expect(fails[0]?.kind).toBe("method-removed");
+    expect(fails[0]?.detail).toContain("workspace.move_block");
   });
 
   it("a removed param property is fail; an added optional one is info", () => {
@@ -140,8 +140,8 @@ describe("diffSchemas", () => {
     });
     const fails = bySeverity(diffSchemas(base, narrowed).findings, "fail");
     expect(fails).toHaveLength(1);
-    expect(fails[0].area).toBe("params:tab.create");
-    expect(fails[0].detail).toContain("label");
+    expect(fails[0]?.area).toBe("params:tab.create");
+    expect(fails[0]?.detail).toContain("label");
 
     const widened = diffSchemas(narrowed, base).findings;
     expect(bySeverity(widened, "fail")).toEqual([]);
@@ -165,8 +165,8 @@ describe("diffSchemas", () => {
     });
     const fails = bySeverity(diffSchemas(base, stricter).findings, "fail");
     expect(fails).toHaveLength(1);
-    expect(fails[0].kind).toBe("param-now-required");
-    expect(fails[0].detail).toContain("label");
+    expect(fails[0]?.kind).toBe("param-now-required");
+    expect(fails[0]?.detail).toContain("label");
   });
 
   it("a removed result-variant property is fail; a removed variant is fail", () => {
@@ -215,8 +215,8 @@ describe("diffSchemas", () => {
 
     const shrink = bySeverity(diffSchemas(widened, base).findings, "fail");
     expect(shrink).toHaveLength(1);
-    expect(shrink[0].kind).toBe("enum-narrowed");
-    expect(shrink[0].detail).toContain("paused");
+    expect(shrink[0]?.kind).toBe("enum-narrowed");
+    expect(shrink[0]?.detail).toContain("paused");
   });
 
   it("the vendored schema diffed against itself yields zero findings", () => {
@@ -247,9 +247,9 @@ describe("recordShapeGate", () => {
     const findings = recordShapeGate(makeSchema(), gone);
     const fails = bySeverity(findings, "fail");
     expect(fails).toHaveLength(1);
-    expect(fails[0].area).toBe("record:event.TabInfo");
-    expect(fails[0].kind).toBe("field-removed");
-    expect(fails[0].detail).toContain("label");
+    expect(fails[0]?.area).toBe("record:event.TabInfo");
+    expect(fails[0]?.kind).toBe("field-removed");
+    expect(fails[0]?.detail).toContain("label");
   });
 
   it("required→optional drift is fail (the #2029 bug class)", () => {
@@ -270,8 +270,8 @@ describe("recordShapeGate", () => {
     });
     const fails = bySeverity(recordShapeGate(makeSchema(), loosened), "fail");
     expect(fails).toHaveLength(1);
-    expect(fails[0].kind).toBe("required-to-optional");
-    expect(fails[0].detail).toContain("label");
+    expect(fails[0]?.kind).toBe("required-to-optional");
+    expect(fails[0]?.detail).toContain("label");
   });
 
   it("a non-nullable field turning nullable is fail", () => {
@@ -289,8 +289,8 @@ describe("recordShapeGate", () => {
     });
     const fails = bySeverity(recordShapeGate(makeSchema(), nullable), "fail");
     expect(fails).toHaveLength(1);
-    expect(fails[0].kind).toBe("nullable-added");
-    expect(fails[0].detail).toContain("label");
+    expect(fails[0]?.kind).toBe("nullable-added");
+    expect(fails[0]?.detail).toContain("label");
   });
 
   it("an added field is info", () => {
@@ -316,8 +316,8 @@ describe("recordShapeGate", () => {
     const gone = makeSchema({ eventDefs: {} });
     const fails = bySeverity(recordShapeGate(makeSchema(), gone), "fail");
     expect(fails).toHaveLength(1);
-    expect(fails[0].kind).toBe("record-removed");
-    expect(fails[0].area).toBe("record:event.TabInfo");
+    expect(fails[0]?.kind).toBe("record-removed");
+    expect(fails[0]?.area).toBe("record:event.TabInfo");
   });
 
   it("the vendored schema gated against itself is clean", () => {

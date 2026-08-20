@@ -22,6 +22,7 @@
     "gen:herdr-types": "bun run scripts/gen-herdr-types.ts",
     "gen:herdr-fixtures": "bun run scripts/gen-herdr-fixtures.ts",
     "check:herdr-types": "bun run gen:herdr-types && git diff --exit-code -- src/generated/herdr-protocol.ts",
+    "herdr:compat": "bun run scripts/herdr-compat.ts",
     "eval:stop-classifier": "bun run scripts/eval-stop-classifier.ts"
   },
   "lint-staged": {

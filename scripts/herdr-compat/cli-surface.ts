@@ -10,10 +10,13 @@
 
 import type { Severity } from "./schema-diff";
 
-/** Every herdr subcommand Shepherd invokes (src/herdr.ts, src/herdr-update.ts, src/version-probe.ts,
- *  src/preflight.ts, deploy/provision.ts, scripts/verify-herdr-terminal.ts). Keep in sync with the
- *  argv arrays those files pass to their runners; test/herdr-compat-cli-surface.test.ts spot-checks
- *  the known surface. */
+/** Every herdr subcommand Shepherd invokes: the CLI driver's spawn/steer/teardown surface
+ *  (src/herdr.ts), the updater's `update` / `server stop` (src/herdr-update.ts), `api schema`
+ *  (scripts/gen-herdr-schema.ts) and `status` (this SOP's isolated servers + operator
+ *  diagnostics). NOT herdr's `worktree` helpers — Shepherd manages worktrees itself via git
+ *  (src/worktree.ts; spike docs/spikes/1074-herdr-worktree-vs-worktreemgr.md). Keep in sync
+ *  with the argv arrays those files pass to their runners; test/herdr-compat-cli-surface.test.ts
+ *  spot-checks the known surface. */
 export const SHEPHERD_HERDR_COMMANDS: readonly (readonly string[])[] = [
   ["tab", "create"],
   ["tab", "close"],
@@ -32,10 +35,6 @@ export const SHEPHERD_HERDR_COMMANDS: readonly (readonly string[])[] = [
   ["agent", "send"],
   ["workspace", "list"],
   ["workspace", "create"],
-  ["worktree", "add"],
-  ["worktree", "list"],
-  ["worktree", "prune"],
-  ["worktree", "remove"],
   ["api", "schema"],
   ["status"],
   ["server", "stop"],

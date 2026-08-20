@@ -1027,3 +1027,53 @@ describe("Herd stage-explainer info icon", () => {
     expect(getComputedStyle(info!).textTransform).toBe("none");
   });
 });
+
+// jumpFlashId is the page's post-jump "look here" signal. It has to survive the whole
+// prop path (Herd → rowCtx → HerdGroup → UnitRow) and land on exactly ONE row —
+// a flash on the wrong row would restate the very confusion the flash exists to end.
+describe("Herd jump flash", () => {
+  const flashed = (container: HTMLElement) =>
+    [...container.querySelectorAll("[data-unit-id]")]
+      .filter((el) => getComputedStyle(el).outlineStyle !== "none")
+      .map((el) => el.getAttribute("data-unit-id"));
+
+  it("outlines only the jumped-to row", async () => {
+    const screen = await render(Herd, {
+      ...base,
+      sessions: [session({ id: "a" }), session({ id: "b" }), session({ id: "c" })],
+      git: {},
+      selectedId: "b",
+      jumpFlashId: "b",
+    });
+    await expect.poll(() => flashed(screen.container)).toEqual(["b"]);
+  });
+
+  it("no jumpFlashId: no row is outlined, selection alone stays quiet", async () => {
+    const screen = await render(Herd, {
+      ...base,
+      sessions: [session({ id: "a" }), session({ id: "b" })],
+      git: {},
+      selectedId: "b",
+    });
+    await expect.poll(() => flashed(screen.container)).toEqual([]);
+  });
+
+  it("a flash whose row is no longer selected goes dark instead of stranding an outline", async () => {
+    // The selection can move out from under a running flash: a click or j/k inside the
+    // ~1.5s window, or the page reassigning selectedId when a session is decommissioned
+    // or its merged rows are cleared. The loudest cue in the rail must not stay parked on
+    // a row the terminal is no longer showing — that IS the bug this path fixes.
+    const props = {
+      ...base,
+      sessions: [session({ id: "a" }), session({ id: "b" })],
+      git: {},
+      selectedId: "a",
+      jumpFlashId: "a",
+    };
+    const screen = await render(Herd, props);
+    await expect.poll(() => flashed(screen.container)).toEqual(["a"]);
+
+    await screen.rerender({ ...props, selectedId: "b" });
+    await expect.poll(() => flashed(screen.container)).toEqual([]);
+  });
+});

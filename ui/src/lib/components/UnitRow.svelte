@@ -59,6 +59,7 @@
   let {
     session,
     selected,
+    jumpFlash = false,
     nowMs,
     onselect,
     git,
@@ -84,6 +85,9 @@
   }: {
     session: Session;
     selected: boolean;
+    // A global jump just landed here (see herd-jump.ts): outline the row for a moment so
+    // the eye finds it after the rail scrolled. Transient — the page clears it after ~1.5s.
+    jumpFlash?: boolean;
     nowMs: number;
     onselect: (id: string) => void;
     git?: GitState;
@@ -788,6 +792,7 @@
   <div
     class="unit"
     class:sel={selected}
+    class:jump-flash={jumpFlash}
     class:has-activity={live}
     class:awaits-operator={awaitsOperator}
     class:decommissioning
@@ -1223,6 +1228,15 @@
     pointer-events: none;
   }
 
+  /* Selection accent. --sel and --hover sit a few RGB steps apart in the dark theme, so
+     the background alone loses a glance — especially against a row carrying the
+     --wash-attention tint. Widening the status rule the row already draws makes the
+     selected row win without adding a colour: the cue is WIDTH (1px → 3px), which keeps
+     it legible independently of hue (WCAG 1.4.1). */
+  .unit.sel::before {
+    width: 3px;
+  }
+
   .unit:hover {
     border-color: var(--color-line);
     background: var(--color-hover);
@@ -1237,6 +1251,17 @@
         transparent 70%
       ),
       var(--color-sel);
+  }
+
+  /* Post-jump flash: a global jump (command bar, deep link, notification) scrolled this
+     row into view, so lead the eye to it for ~1.5s. Borrows the row's own --rule status
+     colour rather than introducing a hue, and mirrors the .ow-card.focus recipe in
+     PostMergeStepsPanel. Inset so it survives the mobile flow mode, where rows are
+     full-bleed and an outset outline would be clipped at the screen edge. No transition:
+     the outline simply appears and is removed, so there is no motion to reduce. */
+  .unit.jump-flash {
+    outline: 2px solid var(--rule, var(--color-line-bright));
+    outline-offset: -2px;
   }
 
   /* bracket corners on selected */

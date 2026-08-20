@@ -107,6 +107,7 @@
     altComboKey,
   } from "$lib/components/herd-keynav";
   import { createJumpHandlers } from "$lib/components/herd-jump";
+  import { needsCentering, scrollParentOf } from "$lib/components/herd-reveal";
   import { normalizeEpicCollapse } from "$lib/components/herd-epic-collapse";
   import { isReworkRunning as isReworkRunningSession } from "$lib/components/rework-running";
   import { buildCommands } from "$lib/command-registry";
@@ -1485,7 +1486,11 @@
   // Keyboard-driven selection: route through the same selectUnit a rail click
   // uses, then keep the now-selected row visible in the rail's scroll area.
   // focusTerm = whether the remounted terminal should grab the keyboard.
-  function keyNavSelect(id: string | null, focusTerm = true) {
+  // scroll = own the scroll (true for a j/k walk, which wants the minimal nudge).
+  // selectNextNeedsYou passes false: it runs through the jump handlers, whose reveal
+  // step centres an off-screen row — and a `block: "nearest"` here would get there
+  // first and leave the row parked at a rail edge instead.
+  function keyNavSelect(id: string | null, focusTerm = true, scroll = true) {
     if (!id) return;
     // Done lens: pick the archived row (its own selection state, no terminal to focus).
     if (herdFilter === "done") {
@@ -1494,9 +1499,44 @@
     } else {
       selectUnit(id, focusTerm);
     }
-    document
-      .querySelector(`[data-unit-id="${CSS.escape(id)}"]`)
-      ?.scrollIntoView({ block: "nearest" });
+    if (scroll) rowEl(id)?.scrollIntoView({ block: "nearest" });
+  }
+
+  function rowEl(id: string): HTMLElement | null {
+    return document.querySelector(`[data-unit-id="${CSS.escape(id)}"]`);
+  }
+
+  // The rail half of a global jump (see herd-jump.ts): make the just-selected row
+  // impossible to miss, so the list can never look like it disagrees with the terminal.
+  // Scroll only when the row isn't fully visible — an operator who jumped to something
+  // already on screen shouldn't have the list yanked under them — then flash it.
+  let jumpFlashId = $state<string | null>(null);
+  let jumpFlashTimer: ReturnType<typeof setTimeout> | null = null;
+  const JUMP_FLASH_MS = 1500;
+
+  function revealRow(id: string) {
+    const el = rowEl(id);
+    if (!el) return;
+    const parent = scrollParentOf(el);
+    // No scroll parent = the page itself scrolls (the rail's mobile flow mode drops
+    // `.units` to overflow: visible), so the window is the viewport.
+    const view = parent ? parent.getBoundingClientRect() : { top: 0, bottom: window.innerHeight };
+    if (needsCentering(el.getBoundingClientRect(), view)) el.scrollIntoView({ block: "center" });
+    startJumpFlash(id);
+  }
+
+  // Jumping to the session that is ALREADY selected must still flash it — the operator
+  // asked "which one is it?" and deserves an answer either way. It does: the id drives a
+  // CSS class directly, so re-setting it either turns the class on (the previous flash had
+  // expired) or restarts the timer under a flash still running. No null-then-reset dance
+  // is needed for that, and a repeat within the window reads as one longer flash.
+  function startJumpFlash(id: string) {
+    if (jumpFlashTimer) clearTimeout(jumpFlashTimer);
+    jumpFlashId = id;
+    jumpFlashTimer = setTimeout(() => {
+      jumpFlashId = null;
+      jumpFlashTimer = null;
+    }, JUMP_FLASH_MS);
   }
 
   // Herd keyboard navigation (the rail-selection half of onShortcut):
@@ -1673,6 +1713,7 @@
       tick,
       select: selectUnit,
       keyNavSelect,
+      revealRow,
     },
     {
       resetLensAndFilters: () => {
@@ -2784,6 +2825,7 @@
             {statusFilter}
             onstatusfilter={(s) => (statusFilter = s)}
             {selectedId}
+            {jumpFlashId}
             {nowMs}
             onselect={(id) => selectUnit(id)}
             onnew={() => (showNew = true)}
@@ -2947,6 +2989,7 @@
               {statusFilter}
               onstatusfilter={(s) => (statusFilter = s)}
               {selectedId}
+              {jumpFlashId}
               {nowMs}
               onselect={(id) => selectUnit(id)}
               onnew={() => (showNew = true)}

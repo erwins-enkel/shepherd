@@ -88,7 +88,7 @@ export function renderReport(input: ReportInput): string {
     "   `HERDR_BIN=<candidate> bun run gen:herdr-schema && bun run gen:herdr-types`",
     "   (then `bun run gen:herdr-fixtures` against a live candidate server).",
     "3. Walk the bump-PR checklist in `.claude/rules/herdr-version-bump.md` and extend its",
-    "   learnings table with what this version taught us.",
+    "   bump-history table with what this version taught us.",
     "",
   );
 

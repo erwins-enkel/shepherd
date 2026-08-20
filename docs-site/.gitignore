@@ -8,6 +8,7 @@ src/content/docs/reference/rules-design-system.md
 src/content/docs/reference/rules-i18n.md
 src/content/docs/reference/rules-feature-catalog.md
 src/content/docs/reference/rules-glossary.md
+src/content/docs/reference/rules-herdr-version-bump.md
 # TypeScript API reference generated at build time by starlight-typedoc from
 # ../src (source of truth is src/; reproducible, not authored here).
 src/content/docs/api/

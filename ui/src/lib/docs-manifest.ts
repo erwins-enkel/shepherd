@@ -121,7 +121,7 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     title: "herdr version bumps",
     path: "/reference/rules-herdr-version-bump/",
     keywords:
-      "the sop for verifying a new herdr release before the support ceiling moves: bun run herdr:compat, verdict semantics, and the learnings table. non-negotiables procedure bump-pr checklist learnings (extend with every bump) opportunities file",
+      "the sop for verifying a new herdr release before the support ceiling moves: bun run herdr:compat, verdict semantics, and the committed per-version report. non-negotiables procedure bump-pr checklist bump history (extend with every bump) opportunities file",
   },
   {
     title: "Internationalization",

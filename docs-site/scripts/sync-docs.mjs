@@ -126,7 +126,7 @@ export const PAGES = [
     linkBase: GITHUB_RULES_BASE,
     title: "herdr version bumps",
     description:
-      "The SOP for verifying a new herdr release before the support ceiling moves: bun run herdr:compat, verdict semantics, and the learnings table.",
+      "The SOP for verifying a new herdr release before the support ceiling moves: bun run herdr:compat, verdict semantics, and the committed per-version report.",
   },
 ];
 

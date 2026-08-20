@@ -61,7 +61,7 @@ shipped stable).
 4. **Regenerate the vendored protocol** against the candidate:
    `HERDR_BIN=~/.cache/shepherd/herdr-compat/<version>/herdr bun run gen:herdr-schema && bun run gen:herdr-types`,
    then `bun run gen:herdr-fixtures` against a live candidate server (`check:herdr-types` gates CI).
-5. **Walk the bump-PR checklist below**, extend the learnings table, run `bun run lint` and
+5. **Walk the bump-PR checklist below**, extend the bump-history table, run `bun run lint` and
    `bun run test`, and ship — ceiling bump, verification report and behavioural fixes in one PR.
 
 ## Bump-PR checklist
@@ -79,9 +79,9 @@ Every past bump touched more than the constants. From #2056's diff:
       pages (the check-generated-docs gate fires on the source edit)
 - [ ] What's-New entry `ui/src/lib/feature-announcements/entries/v<next>-herdr-<version>.ts` + EN/DE keys (see the feature-catalog rule; the update modal blocks silently otherwise —
       the entry is where the operator learns the ceiling moved)
-- [ ] Learnings table below extended with what this version taught us
+- [ ] Bump-history table below extended with what this version taught us
 
-## Learnings (extend with every bump)
+## Bump history (extend with every bump)
 
 | Version | What broke / what we learned                                                                                              | Fix                                                                                                | Ref                       |
 | ------- | ------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------- |

@@ -118,7 +118,9 @@ Open <http://localhost:7330>. To expose it (e.g. via Tailscale), set
   than the legacy `agent start`; 0.8.0 (protocol 19) keeps that path, since
   17 → 19 only added methods and events without removing or reshaping any. Any
   newer, untested version is refused: Shepherd warns at startup, blocks the
-  in-app updater, and refuses to spawn on it.
+  in-app updater, and refuses to spawn on it. New releases are admitted through
+  the [herdr version bumps](/reference/rules-herdr-version-bump/) procedure
+  (`bun run herdr:compat`).
 - The `claude` CLI, logged in with your Max/Pro subscription
 - Node.js — for the PTY helper subprocess
 

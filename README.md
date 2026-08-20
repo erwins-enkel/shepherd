@@ -145,7 +145,10 @@ highest release Shepherd supports — verifies it reports that version, and inst
 > **Shepherd supports herdr up to 0.8.0.** herdr 0.7.5 (protocol 17) reshaped `agent start`;
 > Shepherd drives it through a CLI external-registration path, and 0.8.0 (protocol 19) keeps that
 > path — 17 → 19 only added methods and events. Shepherd warns at startup and blocks its in-app
-> herdr updater on any newer, untested version.
+> herdr updater on any newer, untested version. How a new herdr release gets verified and the
+> ceiling moves is a standing procedure: see
+> [herdr version bumps](https://docs.shepherd.run/reference/rules-herdr-version-bump/)
+> (`.claude/rules/herdr-version-bump.md`).
 
 In keeping with Shepherd's radical-transparency posture the script echoes each third-party command
 before running it. Read the script first:

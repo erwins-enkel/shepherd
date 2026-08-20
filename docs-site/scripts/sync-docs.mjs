@@ -119,6 +119,15 @@ export const PAGES = [
     title: "Glossary rules",
     description: "Registry entries, EN+DE keys, and inline markers for defined terms in UI text.",
   },
+  {
+    srcDir: ".claude/rules",
+    src: "herdr-version-bump.md",
+    dest: "reference/rules-herdr-version-bump.md",
+    linkBase: GITHUB_RULES_BASE,
+    title: "herdr version bumps",
+    description:
+      "The SOP for verifying a new herdr release before the support ceiling moves: bun run herdr:compat, verdict semantics, and the learnings table.",
+  },
 ];
 
 /**

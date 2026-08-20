@@ -1,0 +1,50 @@
+name: herdr compatibility check
+description: A new herdr release is out and above Shepherd's support ceiling — run the SOP
+title: "herdr X.Y.Z: compatibility check"
+labels: [herdr-compat]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This kicks off the standing procedure for admitting a new herdr version —
+        the full checklist, verdict semantics and learnings table live in
+        [herdr version bumps](https://docs.shepherd.run/reference/rules-herdr-version-bump/)
+        ([`.claude/rules/herdr-version-bump.md`](https://github.com/erwins-enkel/shepherd/blob/main/.claude/rules/herdr-version-bump.md)).
+        Replace `X.Y.Z` in the title with the candidate version.
+  - type: input
+    id: version
+    attributes:
+      label: Candidate herdr version
+      placeholder: "0.8.2"
+    validations:
+      required: true
+  - type: input
+    id: release-notes
+    attributes:
+      label: Release notes
+      placeholder: "https://github.com/herdrdev/herdr/releases/tag/v0.8.2"
+    validations:
+      required: true
+  - type: input
+    id: protocol
+    attributes:
+      label: Socket protocol number (if the notes mention one)
+      placeholder: "19"
+  - type: textarea
+    id: notes-flags
+    attributes:
+      label: What the release notes flag
+      description: >-
+        Anything touching tab/pane/agent/workspace lifecycle, close/teardown semantics, the
+        socket API or protocol, CLI flags, status detection, install/update/assets, or the
+        org/licence. Opportunities too — they become follow-up issues, not bump scope.
+  - type: checkboxes
+    id: phases
+    attributes:
+      label: Procedure (details in the rule — do not improvise the steps)
+      options:
+        - label: "Phase 1 — release notes read against the rule's keyword list"
+        - label: "Phase 2 — `bun run herdr:compat -- --candidate <version>` run; report produced"
+        - label: "Phase 3 — every REVIEW triaged in writing; every FAIL fixed or the version declined"
+        - label: "Phase 4 — vendored protocol regenerated (`gen:herdr-schema` / `gen:herdr-types` / `gen:herdr-fixtures`)"
+        - label: "Phase 5 — bump PR: ceiling + report + checklist walked + learnings table extended"

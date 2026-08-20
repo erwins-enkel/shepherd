@@ -35,7 +35,14 @@ export interface IsolatedServer {
   stop(): Promise<void>;
 }
 
-const live = new Set<{ bin: string; env: Record<string, string>; scratch: string; link: string }>();
+interface LiveServer {
+  bin: string;
+  env: Record<string, string>;
+  scratch: string;
+  link: string;
+  proc: ReturnType<typeof Bun.spawn>;
+}
+const live = new Set<LiveServer>();
 let hooksInstalled = false;
 
 function installExitHooks() {
@@ -93,12 +100,35 @@ export async function startIsolatedServer(bin: string, label: string): Promise<I
   delete env.HERDR_ENV;
   delete env.HERDR_SESSION;
 
-  const rec = { bin, env, scratch, link };
-  live.add(rec);
-
   const logFile = Bun.file(join(scratch, "server.log"));
   const proc = Bun.spawn([bin, "server"], { env, stdout: logFile, stderr: logFile });
   proc.unref();
+  const rec: LiveServer = { bin, env, scratch, link, proc };
+  live.add(rec);
+
+  /** Take the daemon down for sure: polite CLI stop, then SIGTERM, then SIGKILL. Returns
+   *  only once the child has actually exited — filesystem cleanup must never precede it,
+   *  or a surviving daemon ends up unreachable (socket path gone) and unregistered. */
+  const ensureDown = async (): Promise<void> => {
+    await run(["server", "stop"]).catch(() => undefined);
+    if (proc.exitCode === null) {
+      const grace = await Promise.race([
+        proc.exited.then(() => true),
+        Bun.sleep(5_000).then(() => false),
+      ]);
+      if (!grace) {
+        proc.kill();
+        const term = await Promise.race([
+          proc.exited.then(() => true),
+          Bun.sleep(3_000).then(() => false),
+        ]);
+        if (!term) {
+          proc.kill(9);
+          await proc.exited;
+        }
+      }
+    }
+  };
 
   const run = async (argv: string[], opts?: { cwd?: string }): Promise<RunResult> => {
     const p = Bun.spawn([bin, ...argv], {
@@ -121,6 +151,10 @@ export async function startIsolatedServer(bin: string, label: string): Promise<I
     const status = await run(["status", "server"]);
     if (status.exitCode === 0 && /status:\s*running/.test(status.stdout)) break;
     if (Date.now() > deadline) {
+      // The spawn happened even though readiness never arrived — take the daemon down
+      // BEFORE removing its socket path, and only then deregister. The scratch dir
+      // (server.log) deliberately stays for post-mortem.
+      await ensureDown();
       live.delete(rec);
       rmSync(link, { force: true });
       throw new Error(
@@ -150,7 +184,7 @@ export async function startIsolatedServer(bin: string, label: string): Promise<I
       }
     },
     async stop(): Promise<void> {
-      await run(["server", "stop"]).catch(() => undefined);
+      await ensureDown();
       live.delete(rec);
       rmSync(link, { force: true });
       rmSync(scratch, { recursive: true, force: true });

@@ -11,9 +11,9 @@
  * removable by hand.
  */
 
-import { mkdirSync, rmSync, symlinkSync } from "node:fs";
+import { mkdirSync, rmSync, rmdirSync, symlinkSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { COMPAT_CACHE_DIR } from "./download";
 
 export interface RunResult {
@@ -154,6 +154,14 @@ export async function startIsolatedServer(bin: string, label: string): Promise<I
       live.delete(rec);
       rmSync(link, { force: true });
       rmSync(scratch, { recursive: true, force: true });
+      // The per-run parent (run-<pid>/) too, once its last label is gone — otherwise every
+      // invocation leaves an empty dir behind. Non-empty (a crashed sibling kept for
+      // post-mortem) → rmdir refuses, which is exactly right.
+      try {
+        rmdirSync(dirname(scratch));
+      } catch {
+        /* not empty or already gone */
+      }
     },
   };
 }

@@ -137,6 +137,7 @@ import {
 } from "./learnings-lifecycle";
 import { Promoter } from "./promote";
 import { DocAgentService } from "./doc-agent";
+import { ensureRepoRootTrusted } from "./claude-trust";
 import { GitignoreAdopter } from "./gitignore-adopt";
 import { attachSignalCapture } from "./signals";
 import { HookIngest } from "./hooks-ingest";
@@ -650,6 +651,13 @@ const resolveForge = makeProductionForgeResolver(store, config.forges);
 // after ALL core services exist and just before serve() — runSpawnHooks is a safe no-op
 // until then (no spawn can be requested over HTTP before the server boots).
 const pluginRegistry = new PluginRegistry({ pluginsDir: config.pluginsDir, store, events });
+
+/** Pre-accept Claude Code's workspace-trust dialog for a reviewer-style spawn's cwd (#2112). Each
+ *  aux role runs in a fresh detached worktree, so without this Claude asks "do you trust this
+ *  folder?" on a pane no one is watching and the role hangs to its timeout. `spawn-membrane`
+ *  resolves which config file the spawn will actually read and passes it as `cfg`. NOT wired for
+ *  SessionService: an operator-facing session pane can answer the dialog, and does not raise it. */
+const trustAuxDir = (dir: string, cfg: string) => ensureRepoRootTrusted(cfg, dir);
 
 // Usage-aware model downgrade: the cheap model to force on a spawn when live usage has crossed the
 // downgrade threshold, or null (leave the configured model). Hoisted so both the main-session path
@@ -1436,6 +1444,7 @@ const docAgent = new DocAgentService({
   resolveForge,
   // Plugin onSpawn hooks fire for the doc-agent spawn too (issue #1205); no-op until loadAll.
   runSpawnHooks: (d) => pluginRegistry.runSpawnHooks(d),
+  trustDir: trustAuxDir,
   repos: () => listRepos(config.repoRoot).map((r) => r.path),
   store,
   gitState: (id) => prPoller.get(id),
@@ -1463,6 +1472,7 @@ const reviewService = new ReviewService({
   resolveForge,
   // Plugin onSpawn hooks fire for reviewer-style aux spawns too (issue #1205); no-op until loadAll.
   runSpawnHooks: (d) => pluginRegistry.runSpawnHooks(d),
+  trustDir: trustAuxDir,
   // Per-role critic environment thunk (read per spawn so a settings change applies without restart).
   env: () => roleEnv(config.criticCli, config.criticModel, config.criticEffort),
   onChange: (id, verdict) => events.emit("session:review", { id, review: verdict }),
@@ -1502,6 +1512,7 @@ const standaloneCritic = new StandalonePrCriticService({
   resolveForge,
   // Plugin onSpawn hooks fire for reviewer-style aux spawns too (issue #1205); no-op until loadAll.
   runSpawnHooks: (d) => pluginRegistry.runSpawnHooks(d),
+  trustDir: trustAuxDir,
   // Same per-role critic environment as reviewService (read per spawn → live settings).
   env: () => roleEnv(config.criticCli, config.criticModel, config.criticEffort),
   timeoutMs: config.reviewTimeoutMs,
@@ -1533,6 +1544,7 @@ const planGate = new PlanGateService({
   resolveForge,
   // Plugin onSpawn hooks fire for reviewer-style aux spawns too (issue #1205); no-op until loadAll.
   runSpawnHooks: (d) => pluginRegistry.runSpawnHooks(d),
+  trustDir: trustAuxDir,
   // Raw steer, delivered THROUGH resumeThenSteer (paneAlive/resume/deferSteer below): findings now
   // revive an exited planner before landing rather than holding the round on a dead pane. This is
   // what makes a Codex planner (which exits after its turn) actually receive the findings and revise.

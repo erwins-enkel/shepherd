@@ -572,3 +572,93 @@ describe("#1944 resolveAuxPatch + assembleAuxSpawn", () => {
     expect(assembleAuxSpawn(patch, args)).toEqual(oneShot);
   });
 });
+
+// ── #2112: workspace-trust pre-seed ────────────────────────────────────────────
+//
+// Every aux role runs in a fresh detached worktree, so Claude's "do you trust this folder?" dialog
+// fires on a pane no one is watching and the role hangs to its timeout. resolveAuxPatch pre-accepts
+// it. The seam is opt-in precisely so these tests never touch the real $HOME.
+
+describe("#2112 trustDir pre-seed", () => {
+  const seams = (extra?: Record<string, unknown>) => ({
+    detectBackend: () => "bwrap" as const,
+    membraneEnv: () => stubEnv,
+    pathExists: () => true,
+    ...extra,
+  });
+
+  const baseArgs = (over?: Record<string, unknown>) => ({
+    argv: ["claude", "-p", "PROMPT"],
+    worktreePath: "/wt/task",
+    repoPath: "/repo",
+    worktree: worktreeStub(),
+    seams: seams(),
+    descriptor: { sessionId: "s-1", kind: "review" as const },
+    ...over,
+  });
+
+  test("seeds the spawn cwd against the default config file", async () => {
+    const calls: Array<[string, string]> = [];
+    const patch = await resolveAuxPatch(
+      baseArgs({
+        seams: seams({ trustDir: async (d: string, c: string) => void calls.push([d, c]) }),
+      }),
+    );
+    if ("aborted" in patch) throw new Error("unexpected abort");
+    // stubEnv.claudeDir is NOT `${home}/.claude`, so claudeConfigPath puts the file INSIDE it.
+    expect(calls).toEqual([["/wt/task", "/stub/.claude/.claude.json"]]);
+  });
+
+  test("follows a plugin-routed credentialDir to the file that spawn will actually read", async () => {
+    // Seeding the default config here would leave the pool account's dialog unanswered — the
+    // role would still wedge, and the write would land in a file nobody reads.
+    const calls: Array<[string, string]> = [];
+    const patch = await resolveAuxPatch(
+      baseArgs({
+        seams: seams({
+          trustDir: async (d: string, c: string) => void calls.push([d, c]),
+          runSpawnHooks: async () => ({ credentialDir: "/pool/acct" }),
+        }),
+      }),
+    );
+    if ("aborted" in patch) throw new Error("unexpected abort");
+    expect(calls).toEqual([["/wt/task", "/pool/acct/.claude.json"]]);
+  });
+
+  test("a throwing seed never fails the spawn", async () => {
+    const patch = await resolveAuxPatch(
+      baseArgs({
+        seams: seams({
+          trustDir: async () => {
+            throw new Error("config unwritable");
+          },
+        }),
+      }),
+    );
+    if ("aborted" in patch) throw new Error("unexpected abort");
+    expect(patch.backend).toBe("bwrap");
+  });
+
+  test("no seam → no host writes attempted", async () => {
+    // The absent-seam default is what keeps every other test in this file off the real $HOME.
+    const patch = await resolveAuxPatch(baseArgs());
+    if ("aborted" in patch) throw new Error("unexpected abort");
+    expect(patch.backend).toBe("bwrap");
+  });
+
+  test("an aborted spawn seeds nothing", async () => {
+    let called = false;
+    const patch = await resolveAuxPatch(
+      baseArgs({
+        seams: seams({
+          trustDir: async () => void (called = true),
+          runSpawnHooks: async () => {
+            throw new PluginSpawnAborted("nope", "test-plugin");
+          },
+        }),
+      }),
+    );
+    expect("aborted" in patch).toBe(true);
+    expect(called).toBe(false);
+  });
+});

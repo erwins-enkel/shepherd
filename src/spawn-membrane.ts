@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { config } from "./config";
+import { claudeConfigPath } from "./claude-trust";
 import { apiKeyMembraneFields, apiKeyPassthroughEnv } from "./spawn-auth";
 import { PluginSpawnAborted, type SpawnDescriptor, type SpawnPatch } from "./plugins/types";
 import { toolGuardMembranePaths } from "./tool-guard-hook";
@@ -40,6 +41,18 @@ export interface MembraneSeams {
    *  validate-and-skip a plugin's patched credentialDir that does not exist on host (the
    *  wrapped membrane hard `--ro-bind`s it — bwrap would crash on a missing source). */
   pathExists?: (p: string) => boolean;
+  /** Pre-accept Claude Code's workspace-trust dialog for an aux spawn's cwd (issue #2112).
+   *
+   *  Every reviewer-style role runs in a FRESH detached worktree, so its cwd is never in
+   *  `.claude.json`'s `projects` and Claude opens "Is this a project you trust?" on a pane no one
+   *  is watching. The role then hangs to its full timeout and reports no verdict — the same
+   *  end-state as a crashed launcher, which is why it hid behind #2110. Claude only skips the
+   *  dialog in non-interactive mode (`-p` / no TTY), which a pane-hosted role cannot use, and no
+   *  flag or settings key suppresses it; pre-seeding the flag is the only unattended path (#1075).
+   *
+   *  Absent ⇒ no seeding (same convention as `runSpawnHooks`), which keeps tests off the real
+   *  `$HOME`: this is the one seam here that WRITES to host state. Wired in index.ts. */
+  trustDir?: (dir: string, configPath: string) => Promise<void>;
 }
 
 /** Backend probe: injected seam (tests) or the real cached self-test. */
@@ -245,7 +258,42 @@ export async function resolveAuxPatch(
 
   const folded = await foldAuxPatch(args, baseEnv);
   if ("aborted" in folded) return folded;
+
+  // Pre-accept the workspace-trust dialog for the spawn's cwd — see MembraneSeams.trustDir. Uses
+  // the SAME effective env as the spawn will, so a plugin-routed (or api-key mirror)
+  // CLAUDE_CONFIG_DIR is seeded in the config file Claude will actually read, not the default one.
+  // Best-effort: a failed seed costs a wedged review, but a THROWN seed would cost the spawn.
+  if (args.seams.trustDir) {
+    const env = resolveMembraneEnv(args.seams);
+    const claudeDir =
+      mergeAuxEnv(backend, baseEnv, folded.patchEnv).CLAUDE_CONFIG_DIR ?? env.claudeDir;
+    try {
+      await args.seams.trustDir(args.worktreePath, claudeConfigPath(env.home, claudeDir));
+    } catch (err) {
+      console.warn(`[spawn] could not pre-trust ${args.worktreePath}:`, err);
+    }
+  }
+
   return { backend, baseEnv, patchEnv: folded.patchEnv, extraArgs: folded.extraArgs };
+}
+
+/** The spawn's effective env. Normally patchEnv LAST so a patched CLAUDE_CONFIG_DIR wins over
+ *  apiKeyPassthroughEnv's mirror. EXCEPTION (#1213): api-key + NO backend — baseEnv is truthy ONLY
+ *  then (the credential-less mirror) and there is NO sandbox to mask creds, so a pool
+ *  CLAUDE_CONFIG_DIR (real .credentials.json on host) would reintroduce the "Use custom API key?"
+ *  prompt / misbill the pool's OAuth subscription. There the mirror WINS; credential routing onto
+ *  a pool account requires a sandbox backend (which masks creds in place).
+ *
+ *  Shared so the trust seed above and {@link assembleAuxSpawn} can never disagree about which
+ *  config dir the spawn ends up using. */
+function mergeAuxEnv(
+  backend: SandboxBackend,
+  baseEnv: Record<string, string> | undefined,
+  patchEnv: Record<string, string>,
+): Record<string, string> {
+  return backend === null && baseEnv
+    ? { ...patchEnv, ...baseEnv }
+    : { ...(baseEnv ?? {}), ...patchEnv };
 }
 
 /** SYNC half: assemble the membrane around `argv` and merge the spawn env. Pure with respect to
@@ -275,16 +323,8 @@ export function assembleAuxSpawn(
     extraEnv: patch.patchEnv,
   });
 
-  // Merge order. Normally patchEnv LAST so a patched CLAUDE_CONFIG_DIR wins over
-  // apiKeyPassthroughEnv's mirror. EXCEPTION (#1213): api-key + NO backend — baseEnv is truthy ONLY
-  // then (the credential-less mirror) and there is NO sandbox to mask creds, so a pool
-  // CLAUDE_CONFIG_DIR (real .credentials.json on host) would reintroduce the "Use custom API key?"
-  // prompt / misbill the pool's OAuth subscription. There the mirror WINS; credential routing onto
-  // a pool account requires a sandbox backend (which masks creds in place).
-  const merged =
-    patch.backend === null && patch.baseEnv
-      ? { ...patch.patchEnv, ...patch.baseEnv }
-      : { ...(patch.baseEnv ?? {}), ...patch.patchEnv };
+  // Merge order lives in mergeAuxEnv — shared with resolveAuxPatch's trust seed.
+  const merged = mergeAuxEnv(patch.backend, patch.baseEnv, patch.patchEnv);
   const spawnEnv = Object.keys(merged).length ? merged : undefined;
   return { wrapped, spawnEnv };
 }

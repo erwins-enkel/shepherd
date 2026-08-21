@@ -1695,7 +1695,7 @@ describe("buildWrappedArgv: claude auto-updater pin", () => {
   const PIN = "DISABLE_AUTOUPDATER=1";
   afterEach(() => __resetMiseClaude());
 
-  /** Latch the module memo the spawn path reads, via the real cached probe. */
+  /** Latch the module memo the spawn path reads, by running the real (uncached) probe. */
   async function pin(managed: boolean): Promise<void> {
     __resetMiseClaude();
     await refreshMiseClaude({

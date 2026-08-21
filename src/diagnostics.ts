@@ -144,8 +144,10 @@ export interface DiagnosticsDeps {
    *  config-dir-aware `.claude.json`. Injected in tests to drive the `claude_trust` check. */
   readClaudeTrusted?: () => Promise<boolean>;
   /** Mise-vs-native claude install facts for the `claude_install` row (#2052). NO functional
-   *  default: the real read is the shared TTL-cached probe wired in `index.ts`, and a default that
-   *  spawned `mise which claude` would make every existing diagnostics test touch the host.
+   *  default: the real read is `refreshMiseClaude`, wired in `index.ts`, which probes the host on
+   *  EVERY call and carries no cache of its own — `check()` promises a forced fresh run, and this
+   *  service's snapshot TTL is the only cache in the path. A ctor default would also make every
+   *  existing diagnostics test spawn `mise which claude` against the real host.
    *  Unwired (or rejecting) ⇒ the row is omitted entirely, exactly like a non-mise host. */
   readMiseClaude?: () => Promise<MiseClaudeState>;
   /** Seed `config.repoRoot`'s trust flag — the `claude_trust` code fix. Default writes the same

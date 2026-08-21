@@ -149,8 +149,9 @@ Two things happen on a host where mise owns the `claude` Shepherd spawns:
   see which one Shepherd actually spawns); when the versions agree but what runs is still the
   native copy, which mise can't advance, so the two will drift again; and when mise really does
   own what runs but a leftover native tree is sitting on disk — those builds are several hundred
-  MB each. The row is `ok` exactly when the auto-updater pin is in effect, so it never claims a
-  pin that wasn't applied.
+  MB each. The row is never `ok` unless the pin is in effect, so it can't claim a pin that
+  wasn't applied — though the reverse doesn't hold: the leftover-tree warning is a pinned state
+  too, since mise does own what runs there and it's only the old files that need clearing.
 
 Ownership is decided by comparing what `claude --version` reports against the mise-managed
 binary's own `--version`, not by inspecting paths — so a shim, a `~/.local/bin` symlink and a

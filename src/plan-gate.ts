@@ -484,7 +484,9 @@ export interface PlanGateServiceDeps extends MembraneSeams {
     | "bumpSpawnNoticeSteers"
     | "clearSpawnNotice"
   >;
-  herdr: Pick<HerdrDriver, "start" | "stop" | "list">;
+  /** `readAsync` is OPTIONAL and used on the no-verdict error path only (see `logReviewerTail`),
+   *  so a driver stub without it degrades to today's silent behaviour rather than failing. */
+  herdr: Pick<HerdrDriver, "start" | "stop" | "list"> & Partial<Pick<HerdrDriver, "readAsync">>;
   worktree: Pick<WorktreeMgr, "createDetached" | "remove" | "gitCommonDir">;
   /** Resolve the forge for a repo so begin() can fetch the originating issue's body as UNTRUSTED
    *  reviewer context. Optional + optional-chained: absence ⇒ no issue context (never blocks). */
@@ -1253,6 +1255,23 @@ export class PlanGateService {
     return this.deps.herdr.list().find((a) => a.cwd === worktreePath)?.terminalId ?? "";
   }
 
+  /** A reviewer that produced no verdict has usually been dead since its first seconds — a launcher
+   *  that exited non-zero, an auth wall, a sandbox EROFS. None of that reaches Shepherd: the verdict
+   *  file just never appears, which is indistinguishable from a review still thinking, so the run
+   *  costs a full `timeoutMs` and reports only `no-verdict`. Log the pane's tail on that path — it
+   *  names the cause, and it is the last chance to read it before `finalize`'s `finally` reaps the
+   *  terminal. Best-effort throughout: this is diagnostics, and must never derail finalize. */
+  private async logReviewerTail(f: PlanInFlight): Promise<void> {
+    if (!f.terminalId || !this.deps.herdr.readAsync) return;
+    try {
+      const tail = (await this.deps.herdr.readAsync(f.terminalId, "recent", 40)).trim();
+      if (tail)
+        console.warn(`[plan-gate] no verdict for ${f.sessionId}; reviewer pane tail:\n${tail}`);
+    } catch (err) {
+      console.warn(`[plan-gate] reviewer pane tail unavailable for ${f.sessionId}:`, err);
+    }
+  }
+
   /** A Codex role is a one-shot `codex exec`: after a brief registration grace period, a missing
    * terminal without a verdict means it has already exited. Avoid making the operator wait for the
    * full file timeout; a Herdr read failure remains inconclusive and falls back to that timeout. */
@@ -1303,7 +1322,10 @@ export class PlanGateService {
       const gate = this.buildGate(f, raw);
       if (gate.decision === "approved") await this.applyApproved(f, gate);
       else if (gate.decision === "changes_requested") await this.applyChangesRequested(f, gate);
-      else this.applyError(f, gate); // timeout / unparseable verdict
+      else {
+        this.applyError(f, gate); // timeout / unparseable verdict
+        await this.logReviewerTail(f); // ordered before the `finally` reaps the pane
+      }
       // Persist the reviewer's token total for exact cost attribution (issue #502). Best-effort:
       // a missing/half-written transcript (or a Codex exec, which writes none) completes the row
       // with zeroed totals rather than stranding finalize or leaving `completedAt` null. Safe to

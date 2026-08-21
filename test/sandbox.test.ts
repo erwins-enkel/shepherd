@@ -423,6 +423,35 @@ describe("buildMembraneFlags", () => {
     expect(targets.filter((t) => t === binDir).length).toBe(0);
   });
 
+  test("mise root gets a writable tmpfs over shims, immediately after its RO bind", () => {
+    // A mise-managed agent launcher reshims on every invocation; under the bare RO bind that write
+    // is EROFS and the agent never starts (the role then burns its whole verdict timeout in
+    // silence). bwrap applies ops in order, so the tmpfs is only effective AFTER the bind.
+    const f = buildMembraneFlags(fakeMembrane({ home: "/home/me" }), { exists: () => true });
+    const root = "/home/me/.local/share/mise";
+    const bind = f.findIndex((x, j) => x === "--ro-bind-try" && f[j + 1] === root);
+    expect(bind).toBeGreaterThanOrEqual(0);
+    expect(f.slice(bind, bind + 5)).toEqual([
+      "--ro-bind-try",
+      root,
+      root,
+      "--tmpfs",
+      `${root}/shims`,
+    ]);
+  });
+
+  test("mise installs stay read-only — only shims is punched through", () => {
+    const f = buildMembraneFlags(fakeMembrane({ home: "/home/me" }), { exists: () => true });
+    const tmpfsTargets = f.filter((x, j) => f[j - 1] === "--tmpfs" && x.includes("/mise"));
+    expect(tmpfsTargets).toEqual(["/home/me/.local/share/mise/shims"]);
+  });
+
+  test("no mise root on the host -> no scratch tmpfs at all", () => {
+    // detDeps: nothing exists and nodeBinReal is under linuxbrew, so mise is never bound.
+    const f = buildMembraneFlags(fakeMembrane(), detDeps);
+    expect(f.some((x) => x.includes("/mise"))).toBe(false);
+  });
+
   test("setenv HOME/PATH/TERM present", () => {
     const f = buildMembraneFlags(fakeMembrane(), detDeps);
     expect(hasTriple(f, "--setenv", "HOME", "/home/me")).toBe(true);

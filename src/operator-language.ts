@@ -137,7 +137,7 @@ const backtickList = (fields: readonly string[]): string =>
 /**
  * Return an instruction paragraph telling the agent, when it authors the
  * `VisualBlock[]` JSON (used by both the plan sidecar `.shepherd-plan-blocks.json`
- * and the recap `.shepherd-recap.json`), which fields to write in the operator's
+ * and the recap sidecar `.shepherd-recap-blocks.json`), which fields to write in the operator's
  * language and which to leave verbatim — or `null` for "en" (nothing to inject).
  * Positively enumerates the translatable fields and prohibits everything else,
  * plus the conditional cell-by-cell rule for `table.columns`/`table.rows`.
@@ -147,7 +147,7 @@ export function visualBlockLanguageLine(lang: OperatorLanguage): string | null {
   const name = LANGUAGE_NAMES[lang];
   return (
     `When authoring VisualBlock[] JSON (the plan sidecar .shepherd-plan-blocks.json or the recap ` +
-    `.shepherd-recap.json), write ONLY these natural-language fields in ${name}: ` +
+    `sidecar .shepherd-recap-blocks.json), write ONLY these natural-language fields in ${name}: ` +
     `${backtickList(VISUAL_BLOCK_TRANSLATE_FIELDS)}. ` +
     `Leave every other field exactly as you would in English — never translate: ` +
     `${backtickList(VISUAL_BLOCK_VERBATIM_FIELDS)}. An off-enum or reworded identifier/path/enum ` +

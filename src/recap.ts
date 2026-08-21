@@ -52,6 +52,9 @@ import {
   buildRecapPrompt,
   isSettledIdle,
   needsRecap,
+  spliceRecapSidecars,
+  RECAP_BODY_FILE,
+  RECAP_BLOCKS_FILE,
 } from "./recap-core";
 import { groundBlocks, type VisualBlock } from "./visual-blocks";
 import {
@@ -177,9 +180,42 @@ export function defaultReadVerdict(cwd: string): VerdictRead<unknown> {
   const text = readRoleResultText(cwd, RECAP_VERDICT_FILE, CODEX_LAST_MESSAGE_FILE);
   if (text === null) return { status: "absent" };
   const r = tolerantParseJson(text);
-  return r.status === "ok"
-    ? { status: "parsed", value: r.value, repaired: r.repaired }
-    : { status: "unparseable", raw: text }; // carry bytes so tick() can log WHY it failed
+  if (r.status !== "ok") return { status: "unparseable", raw: text }; // bytes → tick() logs WHY
+  // #2045: body + blocks travel as sidecar files. Splice them in from the SAME cwd; a missing
+  // sidecar is not an error (the inline field stays valid), so an older prompt, a run already in
+  // flight across a restart, and the Codex chat path all keep working unchanged. Deliberately NOT
+  // reached when the JSON is unparseable: `verdict` is a UI-switched enum that exists only in the
+  // JSON, so there is nothing to salvage the prose onto — the recap stays fail-closed.
+  const value = spliceRecapSidecars(r.value, readRecapBody(cwd), readRecapBlocks(cwd));
+  return { status: "parsed", value, repaired: r.repaired };
+}
+
+/** Read the sidecar body written beside the verdict JSON. null when absent/unreadable (mid-write) —
+ *  never throws, so a sidecar problem can only cost the body, never the whole verdict. */
+function readRecapBody(cwd: string): string | null {
+  const p = join(cwd, RECAP_BODY_FILE);
+  if (!existsSync(p)) return null;
+  try {
+    return readFileSync(p, "utf8");
+  } catch {
+    return null;
+  }
+}
+
+/** Read the sidecar `VisualBlock[]` written beside the verdict JSON. null when absent, unreadable,
+ *  OR unparseable — a mangled blocks file falls back to the inline field (normally absent → `[]`
+ *  via parseVisualBlocks) rather than failing the recap. That fallback IS the point of the file:
+ *  block prose is as quote-heavy as the body, and inline it could sink the whole verdict. Shape
+ *  validation stays downstream in parseVisualBlocks, so anything JSON-ish is passed through. */
+function readRecapBlocks(cwd: string): unknown {
+  const p = join(cwd, RECAP_BLOCKS_FILE);
+  if (!existsSync(p)) return null;
+  try {
+    const r = tolerantParseJson(readFileSync(p, "utf8"));
+    return r.status === "ok" ? r.value : null;
+  } catch {
+    return null;
+  }
 }
 
 /**

@@ -11,6 +11,9 @@ import {
   RECAP_VERDICTS,
   RECAP_HEADLINE_MAX,
   RECAP_DIGEST_MAX_CHARS,
+  RECAP_BODY_FILE,
+  RECAP_BLOCKS_FILE,
+  spliceRecapSidecars,
 } from "../src/recap-core";
 import { defaultReadVerdict } from "../src/recap";
 import { tolerantParseJson } from "../src/json-tolerant";
@@ -803,4 +806,164 @@ test("de: buildRecapPrompt carries the VisualBlock verbatim-fields rule (visualB
   for (const field of ["type", "tone", "mermaid.source"]) {
     expect(p).toContain(field);
   }
+});
+
+// ── #2045: prose sidecars (the recap half of the critic's #2042 fix) ────────────────────────────
+//
+// The recap agent hand-authors its verdict JSON, so a bare `"` immediately before `:` or `,` —
+// byte-identical to a real key/value boundary, and produced constantly by German `„…":` prose — is
+// unrecoverable even by jsonrepair. It destroyed a complete recap in production. `body` now travels
+// as markdown (no reserved characters, so no prose can break the read) and `blocks` as its own JSON
+// file (still JSON, but a mangled write can no longer sink the whole verdict).
+
+const RECAP_JSON = ".shepherd-recap.json";
+
+/** Verdict JSON in the post-#2045 shape: no inline body, no inline blocks. */
+function bareVerdict(extra: Record<string, unknown> = {}): string {
+  return JSON.stringify({ verdict: "ready", headline: "h", openItems: [], ...extra });
+}
+
+test("#2045: body sidecar becomes the recap body", () => {
+  const dir = mkdtempSync(join(tmpdir(), "recap-2045-body-"));
+  writeFileSync(join(dir, RECAP_JSON), bareVerdict());
+  writeFileSync(join(dir, ".shepherd-recap.md"), "## What changed\n\nEverything.");
+
+  const read = defaultReadVerdict(dir);
+  if (read.status !== "parsed") throw new Error("expected parsed");
+  expect(parseRecapVerdict(read.value)!.body).toBe("## What changed\n\nEverything.");
+});
+
+test("#2045: body sidecar wins over an inline body (the file is the un-mangled one)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "recap-2045-wins-"));
+  writeFileSync(join(dir, RECAP_JSON), bareVerdict({ body: "stale inline" }));
+  writeFileSync(join(dir, ".shepherd-recap.md"), "sidecar body");
+
+  const read = defaultReadVerdict(dir);
+  if (read.status !== "parsed") throw new Error("expected parsed");
+  expect(parseRecapVerdict(read.value)!.body).toBe("sidecar body");
+});
+
+test("#2045: no sidecar → inline body survives (old prompt / in-flight restart / Codex chat)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "recap-2045-inline-"));
+  writeFileSync(
+    join(dir, RECAP_JSON),
+    JSON.stringify({
+      verdict: "parked",
+      headline: "h",
+      body: "inline body",
+      openItems: ["x"],
+      blocks: [{ type: "rich-text", id: "a", markdown: "inline block" }],
+    }),
+  );
+
+  const read = defaultReadVerdict(dir);
+  if (read.status !== "parsed") throw new Error("expected parsed");
+  const parsed = parseRecapVerdict(read.value)!;
+  expect(parsed.body).toBe("inline body");
+  expect(parsed.blocks).toHaveLength(1);
+  expect(parsed.openItems).toEqual(["x"]);
+});
+
+test("#2045 regression: the unescapable German shape round-trips byte-for-byte via the sidecar", () => {
+  const dir = mkdtempSync(join(tmpdir(), "recap-2045-german-"));
+  // Inline, this exact shape is unrecoverable: the `"` before `:` reads as a key/value boundary.
+  const body = 'Das ist „so nicht mehr": drei Dinge,\nund „auch das", plus ein `"` im Code.';
+  writeFileSync(join(dir, RECAP_JSON), bareVerdict());
+  writeFileSync(join(dir, ".shepherd-recap.md"), body);
+
+  const read = defaultReadVerdict(dir);
+  if (read.status !== "parsed") throw new Error("expected parsed");
+  const parsed = parseRecapVerdict(read.value)!;
+  expect(parsed.verdict).toBe("ready");
+  expect(parsed.body).toBe(body); // byte-for-byte, not merely "contains"
+});
+
+test("#2045: blocks sidecar is parsed and replaces the (absent) inline field", () => {
+  const dir = mkdtempSync(join(tmpdir(), "recap-2045-blocks-"));
+  writeFileSync(join(dir, RECAP_JSON), bareVerdict());
+  writeFileSync(
+    join(dir, ".shepherd-recap-blocks.json"),
+    JSON.stringify([
+      { type: "rich-text", id: "a", markdown: "from the sidecar" },
+      { type: "callout", id: "b", tone: "risk", markdown: "and this" },
+    ]),
+  );
+
+  const read = defaultReadVerdict(dir);
+  if (read.status !== "parsed") throw new Error("expected parsed");
+  const parsed = parseRecapVerdict(read.value)!;
+  expect(parsed.blocks).toHaveLength(2);
+  expect(parsed.blocks[0]).toMatchObject({ type: "rich-text", markdown: "from the sidecar" });
+});
+
+test("#2045: a garbage blocks sidecar costs only the blocks — the recap still lands", () => {
+  const dir = mkdtempSync(join(tmpdir(), "recap-2045-bad-blocks-"));
+  writeFileSync(join(dir, RECAP_JSON), bareVerdict());
+  writeFileSync(join(dir, ".shepherd-recap.md"), "body survived");
+  writeFileSync(join(dir, ".shepherd-recap-blocks.json"), "   \n  "); // irreparable
+
+  const read = defaultReadVerdict(dir);
+  expect(read.status).toBe("parsed");
+  if (read.status !== "parsed") throw new Error("unreachable");
+  const parsed = parseRecapVerdict(read.value)!;
+  expect(parsed.verdict).toBe("ready");
+  expect(parsed.body).toBe("body survived");
+  expect(parsed.blocks).toEqual([]);
+});
+
+test("#2045: unparseable verdict JSON still fails closed even with a valid body sidecar", () => {
+  const dir = mkdtempSync(join(tmpdir(), "recap-2045-failclosed-"));
+  writeFileSync(join(dir, RECAP_JSON), "   \n  "); // irreparable
+  writeFileSync(join(dir, ".shepherd-recap.md"), "a perfectly good recap body");
+
+  // `verdict` is a UI-switched enum that exists ONLY in the JSON, so there is nothing to salvage
+  // the prose onto — inventing one would fake a result.
+  expect(defaultReadVerdict(dir).status).toBe("unparseable");
+});
+
+test("#2045: sidecars splice onto the jsonrepair array shape (chatty agent + sidecar)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "recap-2045-array-"));
+  // jsonrepair turns a prose-wrapped verdict into an ARRAY; the splice must still find the object.
+  writeFileSync(join(dir, RECAP_JSON), `Here is the recap:\n${bareVerdict()}\nDone.`);
+  writeFileSync(join(dir, ".shepherd-recap.md"), "spliced into the unwrapped object");
+
+  const read = defaultReadVerdict(dir);
+  if (read.status !== "parsed") throw new Error("expected parsed");
+  const parsed = parseRecapVerdict(read.value)!;
+  expect(parsed.verdict).toBe("ready");
+  expect(parsed.body).toBe("spliced into the unwrapped object");
+});
+
+test("#2045: prompt names all three files and states the md-first / json-last ordering", () => {
+  const p = buildRecapPrompt({
+    taskPrompt: "t",
+    plan: "",
+    changedFiles: [],
+    digest: "",
+    context: "",
+  });
+  expect(p).toContain(RECAP_BODY_FILE);
+  expect(p).toContain(RECAP_BLOCKS_FILE);
+  expect(p).toContain(RECAP_JSON);
+  // Ordering is load-bearing: the JSON is the completion signal, so it must be written LAST or a
+  // tick landing between the writes finalizes with an empty body.
+  expect(p).toContain(`FIRST and \`${RECAP_JSON}\` LAST`);
+  // The documented shape must no longer carry the prose fields…
+  expect(p).toContain('{"verdict": "ready" | "parked" | "needs_attention", "headline"');
+  expect(p).not.toContain('"body": "<markdown>"');
+  // …but they stay documented as the chat-only fallback (Codex writes no files at all).
+  expect(p).toContain('OMIT "body" and "blocks"');
+});
+
+test("#2045 splice helper: null means no contribution; non-object shapes pass through", () => {
+  expect(spliceRecapSidecars({ verdict: "ready", body: "keep" }, null, null)).toEqual({
+    verdict: "ready",
+    body: "keep",
+  });
+  expect(spliceRecapSidecars({ verdict: "ready", body: "keep" }, "override", null)).toEqual({
+    verdict: "ready",
+    body: "override",
+  });
+  expect(spliceRecapSidecars("not an object", "x", null)).toBe("not an object");
+  expect(spliceRecapSidecars(null, "x", null)).toBeNull();
 });

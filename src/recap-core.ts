@@ -13,6 +13,34 @@ export const RECAP_VERDICTS: readonly RecapVerdict[] = ["ready", "parked", "need
 export const RECAP_HEADLINE_MAX = 100;
 export const RECAP_DIGEST_MAX_CHARS = 4000;
 
+/** The recap `body`, written beside the verdict JSON as plain markdown.
+ *
+ *  #2045 (the recap half of #2042): the recap agent hand-authors its verdict JSON, so every `"` in
+ *  the body has to be escaped by the model. It only has to miss once. The unrecoverable shape is a
+ *  bare `"` immediately before `:` or `,` (`…nicht mehr": drei Dinge`), which is byte-identical to a
+ *  real key/value boundary — jsonrepair cannot resolve that ambiguity, and no repairer could. German
+ *  prose produces it constantly via `„…":` / `„…",`, and it has already destroyed a complete recap
+ *  in production.
+ *
+ *  Carrying the body as its own file removes the escaping obligation entirely: markdown has no
+ *  reserved characters, so no prose can break the read. What remains in the JSON (verdict, headline,
+ *  openItems) is short and structured, where the model's escaping is reliable in practice.
+ *
+ *  Unlike the critic's equivalent, this needs NO pre-seed scrub: the recap spawn's cwd is a fresh
+ *  mkdtemp directory (see defaultMakeTmpDir in recap.ts), never an untrusted PR-head checkout. */
+export const RECAP_BODY_FILE = ".shepherd-recap.md";
+
+/** The recap `blocks`, written beside the verdict JSON as a bare `VisualBlock[]` — mirroring the
+ *  plan gate's `.shepherd-plan-blocks.json` sidecar.
+ *
+ *  Blocks are still JSON, so moving them out cannot remove the escaping hazard the way the markdown
+ *  body does. What it removes is the BLAST RADIUS: `rich-text.markdown`, `callout.markdown`,
+ *  `diff.annotations[].note` and quote-dense `wireframe.html` are exactly as prose-heavy as the body
+ *  was, and inline they could sink the entire recap. In their own file a mangled write costs only
+ *  the visual cards — the verdict, headline and body still land (see readRecapBlocks in recap.ts,
+ *  which falls back rather than failing). */
+export const RECAP_BLOCKS_FILE = ".shepherd-recap-blocks.json";
+
 /** Recover the recap object from a parse that an unattended agent's chatty output mangled.
  *  jsonrepair turns prose-wrapped JSON ("Here is the recap:\n{…}" or "{…}\nDone.") into an
  *  ARRAY (e.g. `["Here is the recap:", {…}]`); pull the first recap-shaped element back out so a
@@ -26,6 +54,29 @@ function unwrapRecapObject(raw: unknown): Record<string, unknown> | null {
   }
   if (raw && typeof raw === "object") return raw as Record<string, unknown>;
   return null;
+}
+
+/** Splice the sidecar payloads (#2045) onto a freshly-parsed recap verdict.
+ *
+ *  `body` / `blocks` are `null` for "no sidecar contribution" — the inline field then survives
+ *  untouched, which is what keeps a Codex recap (answers in chat, writes no files) and any run
+ *  already in flight across a server restart working unchanged. A present sidecar WINS: it is the
+ *  format the prompt asks for whenever files are writable, and the one that cannot have been
+ *  mangled by escaping.
+ *
+ *  Goes through unwrapRecapObject so it also lands on the jsonrepair array shape
+ *  (`["Here is the recap:", {…}]`); that unwrap is idempotent with parseRecapVerdict downstream.
+ *  Returns `raw` untouched when there is nothing to splice or the shape is unrecoverable.
+ *
+ *  `blocks` is `unknown` rather than `VisualBlock[]` on purpose: shape validation belongs to
+ *  parseVisualBlocks downstream, which already tolerates anything. */
+export function spliceRecapSidecars(raw: unknown, body: string | null, blocks: unknown): unknown {
+  if (body === null && blocks === null) return raw;
+  const obj = unwrapRecapObject(raw);
+  if (!obj) return raw;
+  if (body !== null) obj.body = body;
+  if (blocks !== null) obj.blocks = blocks;
+  return obj;
 }
 
 /** Normalize a verdict to the enum, tolerating formatting variance (case, surrounding
@@ -94,8 +145,9 @@ export function buildTranscriptDigest(
 }
 
 /** The instruction prompt for the recap spawn. Tells the agent to summarize a COMPLETED
- *  coding session for an operator deciding whether to merge, and to Write a
- *  `.shepherd-recap.json` file with {verdict, headline, body, openItems}. */
+ *  coding session for an operator deciding whether to merge, and to Write the prose to
+ *  `.shepherd-recap.md`, any visual blocks to `.shepherd-recap-blocks.json`, and
+ *  `.shepherd-recap.json` LAST with {verdict, headline, openItems}. */
 export function buildRecapPrompt(input: {
   taskPrompt: string;
   plan: string; // "" when no .shepherd-plan.md
@@ -150,7 +202,7 @@ export function buildRecapPrompt(input: {
     "- body: concise markdown covering what changed, key decisions made, and merge-readiness",
     "- openItems: string[] of anything left to do or worth noting for the next session ([] if none)",
     "",
-    "Optionally, include a `blocks` array to render the recap as a scannable visual document instead",
+    "Optionally, add `blocks` to render the recap as a scannable visual document instead",
     "of plain markdown. Omit `blocks` entirely if plain `body` suffices — blocks are not required.",
     "",
     "Block types (Phase 1):",
@@ -183,11 +235,27 @@ export function buildRecapPrompt(input: {
     "- Redact secrets (API keys, tokens, passwords) in any summary/markdown/annotation — use",
     "  placeholders like `sk-•••` / `<redacted>`.",
     "",
-    `Write the result as JSON to the file \`.shepherd-recap.json\` in your CWD with EXACTLY this shape`,
-    "(the `blocks` field is optional — omit it entirely if not useful; the file must be strict, valid",
-    "JSON with no comments):",
-    `{"verdict": "ready" | "parked" | "needs_attention", "headline": "<string>", "body": "<markdown>", "openItems": ["<string>", ...], "blocks": [ ... ]}`,
-    "Write the file as your final action, then stop.",
+    "When done, write these files in your CWD:",
+    // Binds the term once: every rule above says `body` / `blocks`, and they all now resolve to
+    // these files. Cheaper and less drift-prone than restating each rule.
+    `1. \`${RECAP_BODY_FILE}\` — the \`body\`. Everywhere these instructions say "body", they mean THIS file. It is NOT JSON: write the markdown directly, escape nothing, quote however you like.`,
+    `2. \`${RECAP_BLOCKS_FILE}\` — OPTIONAL. The \`blocks\` described above as a bare JSON array (\`[ {…}, {…} ]\`, no wrapper object). Omit the file entirely when plain markdown suffices.`,
+    `3. \`.shepherd-recap.json\` — the structured verdict. It must be strict, valid JSON with no comments, with EXACTLY this shape:`,
+    `{"verdict": "ready" | "parked" | "needs_attention", "headline": "<string>", "openItems": ["<string>", ...]}`,
+    // #2045: `body` and `blocks` used to live inside this JSON. A single unescaped `"` before a `:`
+    // or `,` — which German `„…":` prose produces constantly — is indistinguishable from a real
+    // key/value boundary, so it silently destroyed complete recaps. Keeping the prose out of the
+    // JSON entirely is the only fix that cannot regress.
+    //
+    // They stay DOCUMENTED OPTIONAL fields, not removed ones: a Codex recap answers in chat and
+    // writes no files at all (its verdict is recovered from the `-o` last-message capture — see
+    // readRoleResultText and defaultReadVerdict in recap.ts). For that provider no sidecar can
+    // exist, so dropping them from the shape would produce a recap with no text in it.
+    `OMIT "body" and "blocks" from that JSON when you wrote the files above — the files always win. Include them inline ONLY if you cannot write files at all (you are answering in chat): then put the markdown in "body", the array in "blocks", and escape every \`"\` inside them as \`\\"\`.`,
+    `Escaping matters ONLY in \`.shepherd-recap.json\`, and — when you wrote the markdown file — it is short: inside "headline" and each "openItems" entry every \`"\` must be written \`\\"\`. If that feels error-prone, phrase them without quotation marks; the markdown file is where quoting is free.`,
+    // Ordering is load-bearing: the server finalizes as soon as the JSON parses, so the JSON must be
+    // written LAST — otherwise a tick landing between the writes finalizes with an empty body.
+    `Write \`${RECAP_BODY_FILE}\` (and \`${RECAP_BLOCKS_FILE}\`, if any) FIRST and \`.shepherd-recap.json\` LAST — the JSON file is the completion signal — then stop.`,
   );
 
   if (input.operatorLanguage === "de") {

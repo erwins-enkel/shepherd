@@ -2,7 +2,7 @@ import { describe, expect, it, beforeEach } from "bun:test";
 import {
   detectMiseClaude,
   formatResidueSize,
-  miseClaudeState,
+  refreshMiseClaude,
   pinFor,
   verdictFor,
   claudeSpawnPinned,
@@ -20,18 +20,19 @@ const NATIVE_DIR = `${HOME}/.local/share/claude/versions`;
 function host(over: {
   /** null ⇒ `mise which claude` fails (mise absent, or claude not a mise tool). */
   misePath?: string | null;
-  /** null ⇒ nothing named `claude` on PATH. */
-  onPath?: string | null;
+  /** Every `claude` on PATH, in PATH order. `[]` ⇒ none. */
+  onPath?: string[];
   /** What `<on-path claude> --version` prints; null ⇒ the call throws. */
   pathVersionOut?: string | null;
   /** What `<mise claude> --version` prints; null ⇒ the call throws. */
   miseVersionOut?: string | null;
-  /** realpath of the on-PATH claude; defaults to the mise binary (shim/symlink shape). */
+  /** realpath every PATH entry resolves to. Defaults to the launcher-script shape (the entry
+   *  itself), which keeps the two `--version` probes distinguishable. */
   real?: string;
   native?: { path: string; bytes: number }[];
 }): MiseClaudeDeps {
   const misePath = over.misePath === undefined ? MISE_BIN : over.misePath;
-  const onPath = over.onPath === undefined ? ON_PATH : over.onPath;
+  const onPath = over.onPath ?? [ON_PATH];
   const pathOut = over.pathVersionOut === undefined ? "2.1.237 (Claude Code)" : over.pathVersionOut;
   const miseOut = over.miseVersionOut === undefined ? "2.1.237 (Claude Code)" : over.miseVersionOut;
   return {
@@ -48,8 +49,8 @@ function host(over: {
       }
       throw new Error(`unexpected ${bin} ${args.join(" ")}`);
     },
-    resolveOnPath: async () => onPath,
-    realpath: async (p) => (p === onPath ? (over.real ?? MISE_BIN) : p),
+    listOnPath: async () => onPath,
+    realpath: async () => over.real ?? ON_PATH,
     listNative: async (dir) => (dir === NATIVE_DIR ? (over.native ?? []) : []),
   };
 }
@@ -74,7 +75,8 @@ describe("detectMiseClaude", () => {
   });
 
   it("owns a mise shim / symlink host", async () => {
-    const state = await detectMiseClaude(host({}));
+    // The PATH entry resolves straight to mise's binary, so both probes read the same file.
+    const state = await detectMiseClaude(host({ real: MISE_BIN }));
     expect(state.managed).toBe(true);
     expect(state.pathVersion).toBe("2.1.237");
     expect(state.miseVersion).toBe("2.1.237");
@@ -86,7 +88,7 @@ describe("detectMiseClaude", () => {
   it("owns a launcher-script host, which a path-shape test would miss", async () => {
     // `~/.local/bin/claude` is a regular script that execs `mise x claude` — it realpaths to
     // ITSELF, outside the mise tree, so structural ownership tests call it unmanaged.
-    const state = await detectMiseClaude(host({ real: ON_PATH }));
+    const state = await detectMiseClaude(host({}));
     expect(state.nativeOnPath).toBe(false);
     expect(verdictFor(state)).toBe("ok");
     expect(pinFor(state)).toBe(true);
@@ -172,10 +174,38 @@ describe("detectMiseClaude", () => {
   });
 
   it("stays quiet when nothing named claude is on PATH", async () => {
-    const state = await detectMiseClaude(host({ onPath: null }));
-    expect(state.pathVersion).toBeNull();
+    const state = await detectMiseClaude(host({ onPath: [] }));
+    expect(state.managed).toBe(false);
     expect(verdictFor(state)).toBe("absent");
     expect(pinFor(state)).toBe(false);
+  });
+
+  // shepherd.service is ~/.bun/bin-first, herdr.service is ~/.local/bin-first — and herdr is what
+  // actually execs the agent. When both dirs hold a DIFFERENT claude we cannot tell which one it
+  // will pick, so guessing could pin (freeze) the native copy that really runs, or call the live
+  // install safe to delete. Fail closed instead.
+  it("fails closed when PATH holds two different claudes, since herdr may pick either", async () => {
+    const state = await detectMiseClaude({
+      ...host({ onPath: [`${HOME}/.bun/bin/claude`, ON_PATH] }),
+      realpath: async (p) => p, // two distinct real targets
+    });
+    expect(state).toEqual({
+      managed: false,
+      pathVersion: null,
+      miseVersion: null,
+      nativeOnPath: false,
+      nativeResidue: null,
+    });
+    expect(pinFor(state)).toBe(false);
+  });
+
+  it("accepts several PATH entries that all resolve to the same file", async () => {
+    // The service PATH legitimately repeats dirs, and ~/.bun/bin/claude is often a symlink to the
+    // ~/.local/bin one. Order cannot matter when every entry lands on the same target.
+    const state = await detectMiseClaude(host({ onPath: [`${HOME}/.bun/bin/claude`, ON_PATH] }));
+    expect(state.managed).toBe(true);
+    expect(verdictFor(state)).toBe("ok");
+    expect(pinFor(state)).toBe(true);
   });
 
   it("survives an unreadable realpath by falling back to the PATH entry", async () => {
@@ -215,34 +245,33 @@ describe("formatResidueSize", () => {
   });
 });
 
-describe("miseClaudeState cache + spawn pin", () => {
+describe("refreshMiseClaude + the spawn pin", () => {
   beforeEach(() => __resetMiseClaude());
 
   it("reads false while cold", () => {
     expect(claudeSpawnPinned()).toBe(false);
   });
 
-  it("latches the pin from the first check and serves it from cache", async () => {
-    let calls = 0;
-    const deps: MiseClaudeDeps = {
-      ...host({}),
-      resolveOnPath: async () => {
-        calls++;
-        return ON_PATH;
-      },
-    };
-    await miseClaudeState(1000, deps);
+  it("latches the pin from the probed state", async () => {
+    const state: MiseClaudeState = await refreshMiseClaude(host({}));
+    expect(state.managed).toBe(true);
     expect(claudeSpawnPinned()).toBe(true);
-    await miseClaudeState(1000 + 60_000, deps);
-    expect(calls).toBe(1);
   });
 
-  it("re-probes past the TTL and can drop the pin again", async () => {
-    await miseClaudeState(1000, host({}));
-    expect(claudeSpawnPinned()).toBe(true);
-    const later = 1000 + 7 * 60 * 60 * 1000;
-    const state: MiseClaudeState = await miseClaudeState(later, host({ misePath: null }));
-    expect(state.managed).toBe(false);
+  it("re-probes on EVERY call — no cache of its own, so a forced diagnostics re-run is honest", async () => {
+    let calls = 0;
+    const counting = (over: Parameters<typeof host>[0]): MiseClaudeDeps => ({
+      ...host(over),
+      listOnPath: async () => {
+        calls++;
+        return [ON_PATH];
+      },
+    });
+    await refreshMiseClaude(counting({}));
+    await refreshMiseClaude(counting({}));
+    expect(calls).toBe(2);
+    // …and the pin follows the newest state, so the row and the pin never drift apart.
+    await refreshMiseClaude(counting({ misePath: null }));
     expect(claudeSpawnPinned()).toBe(false);
   });
 });

@@ -15,7 +15,9 @@ import { DIAGNOSTICS_PROBE_TIMEOUT_MS } from "./config";
  * shadows the mise-managed one, the two diverge, and `mise upgrade claude` then moves only the one
  * nothing runs. Two consumers read this module: the `claude_install` DIAGNOSE row (reports the
  * divergence, and the leftover native tree when there is none) and the spawn env pin
- * (`DISABLE_AUTOUPDATER=1`, see `buildWrappedArgv`) that stops the re-planting at the source.
+ * (`DISABLE_AUTOUPDATER=1`, see `buildWrappedArgv`) that stops the re-planting at the source. ONE
+ * probe feeds both — `refreshMiseClaude` latches the pin from the very state the row renders — so
+ * they can never disagree.
  *
  * **Ownership is decided by VERSION EQUALITY, not by path shape.** `codex-update.ts` decides
  * mise-ownership structurally — the on-PATH path sits under the mise data dir, or realpaths to the
@@ -26,11 +28,20 @@ import { DIAGNOSTICS_PROBE_TIMEOUT_MS } from "./config";
  * issue was filed from. Comparing what `claude --version` reports against the mise-managed binary's
  * own `--version` reads correctly for all three shapes — shim, `~/.local/bin` symlink, launcher.
  *
- * NOTE ON FIDELITY: the on-PATH resolution walks THIS process's `PATH`. herdr — a sibling systemd
- * user unit — is what ultimately execs the agent, so in principle it could resolve a different
- * `claude`. In practice both units are started by the same user manager with the same
- * `~/.local/bin`-first PATH, and a mismatch would only cost accuracy in the row, never safety:
- * every disagreement resolves to "not managed", i.e. no row and no pin.
+ * **WHICH claude, though?** herdr — a SIBLING systemd user unit — is what ultimately execs the
+ * agent, and its `PATH` is not ours: `deploy/shepherd.service` is `~/.bun/bin` first,
+ * `deploy/herdr.service` is `~/.local/bin` first. Same directories, different order. So "the first
+ * `claude` on OUR PATH" is not reliably the one that gets spawned, and computing a verdict or a pin
+ * against the wrong binary is exactly the failure this module exists to prevent — the pin could
+ * freeze the native copy that really runs, and the row could call the live install safe to delete.
+ *
+ * The fix does not require knowing herdr's PATH. We enumerate EVERY `claude` on our own PATH and
+ * demand they all realpath to ONE file. The two units' PATHs are permutations of the same directory
+ * set, so a single distinct target is order-independent: whatever order herdr searches in, it lands
+ * on the same file we did. Two or more distinct targets means we genuinely cannot tell which one
+ * herdr picks, and the whole module fails closed to "not managed" — no row, no pin. (A hand-rolled
+ * host whose herdr PATH carries a directory ours does not is beyond what any local probe can settle;
+ * there too the answer is silence rather than a guess.)
  *
  * `mise which claude` is the managed-or-not test, exactly as in `remediations.ts`: exit 0 + a path
  * when mise can hand us that binary right now, non-zero otherwise. `mise ls claude` exits 0 either
@@ -62,8 +73,10 @@ export type MiseClaudeVerdict = "absent" | "diverged" | "native" | "residue" | "
 export interface MiseClaudeDeps {
   /** Run a binary and return stdout; rejects on non-zero exit / missing binary / timeout. */
   run?: (bin: string, args: string[]) => Promise<string>;
-  /** First executable named `name` on `PATH`, or null. Mirrors execvp's own resolution. */
-  resolveOnPath?: (name: string) => Promise<string | null>;
+  /** EVERY executable named `name` on `PATH`, in PATH order — not just the first. The caller
+   *  requires them all to realpath to one file (see the module doc), so a partial answer would
+   *  defeat the check. */
+  listOnPath?: (name: string) => Promise<string[]>;
   realpath?: (path: string) => Promise<string>;
   /** Regular files directly under `dir`, with their sizes. Missing dir ⇒ []. */
   listNative?: (dir: string) => Promise<{ path: string; bytes: number }[]>;
@@ -71,8 +84,6 @@ export interface MiseClaudeDeps {
 }
 
 const SEMVER_RE = /(\d+\.\d+\.\d+)/;
-/** Refresh cadence for the shared probe — the same 6h the herdr/codex update checks use. */
-const MISE_CLAUDE_TTL_MS = 6 * 60 * 60 * 1000;
 /** Bound the native-tree scan. Claude Code keeps a handful of builds; a pathological dir must
  *  not turn a diagnostics refresh into thousands of stats. */
 const NATIVE_SCAN_CAP = 100;
@@ -95,18 +106,19 @@ async function defaultRun(bin: string, args: string[]): Promise<string> {
   return stdout.toString();
 }
 
-async function defaultResolveOnPath(name: string): Promise<string | null> {
+async function defaultListOnPath(name: string): Promise<string[]> {
+  const hits: string[] = [];
   for (const dir of (process.env.PATH ?? "").split(delimiter)) {
     if (!dir) continue;
     const candidate = join(dir, name);
     try {
       await access(candidate, constants.X_OK);
-      return candidate;
+      if (!hits.includes(candidate)) hits.push(candidate);
     } catch {
       // not here — keep walking PATH, exactly as execvp does.
     }
   }
-  return null;
+  return hits;
 }
 
 async function defaultListNative(dir: string): Promise<{ path: string; bytes: number }[]> {
@@ -144,7 +156,7 @@ async function probeVersion(
 /** One live read of the host's claude install shape. Never throws. */
 export async function detectMiseClaude(deps: MiseClaudeDeps = {}): Promise<MiseClaudeState> {
   const run = deps.run ?? defaultRun;
-  const resolveOnPath = deps.resolveOnPath ?? defaultResolveOnPath;
+  const listOnPath = deps.listOnPath ?? defaultListOnPath;
   const toReal = deps.realpath ?? realpath;
   const listNative = deps.listNative ?? defaultListNative;
   const home = deps.home ?? homedir();
@@ -157,15 +169,18 @@ export async function detectMiseClaude(deps: MiseClaudeDeps = {}): Promise<MiseC
   }
   if (!misePath) return NOT_MANAGED;
 
-  const onPath = await resolveOnPath("claude").catch(() => null);
   // A launcher script realpaths to itself; a shim/symlink realpaths into the mise tree; a native
   // install realpaths into `~/.local/share/claude`. Only the last one blocks the spawn pin.
-  const running = onPath ? await toReal(onPath).catch(() => onPath) : null;
+  const onPath = await listOnPath("claude").catch((): string[] => []);
+  const targets = new Set(await Promise.all(onPath.map((p) => toReal(p).catch(() => p))));
+  // Ambiguous (two different `claude`s on PATH) or absent ⇒ we cannot say what herdr spawns.
+  if (targets.size !== 1) return NOT_MANAGED;
+  const running = [...targets][0] as string;
   const nativeRoot = join(home, ".local", "share", "claude");
-  const nativeOnPath = running !== null && running.startsWith(nativeRoot + sep);
+  const nativeOnPath = running.startsWith(nativeRoot + sep);
 
   const [pathVersion, miseVersion] = await Promise.all([
-    onPath ? probeVersion(run, onPath) : Promise.resolve(null),
+    probeVersion(run, running),
     probeVersion(run, misePath),
   ]);
 
@@ -211,35 +226,27 @@ export function formatResidueSize(bytes: number): string {
   return `${Math.round(bytes / 1024)} KB`;
 }
 
-let cached: MiseClaudeState | null = null;
-let cachedAt = 0;
 let pinned = false;
 
-/** TTL-cached read shared by BOTH consumers, so the row and the spawn pin can never disagree.
- *  `index.ts` kicks it early at boot and refreshes it on the same 6h cadence as the other update
- *  checks; the DIAGNOSE row reads through the same cache. */
-export async function miseClaudeState(
-  now: number,
-  deps?: MiseClaudeDeps,
-): Promise<MiseClaudeState> {
-  if (cached && now - cachedAt < MISE_CLAUDE_TTL_MS) return cached;
+/** Probe the host and latch the spawn pin from the result. Deliberately UNCACHED: this is what the
+ *  `claude_install` row reads, and `DiagnosticsService.check()` promises a forced fresh run — a
+ *  cache of its own here would silently break that, leaving the row warning about a native tree the
+ *  operator just deleted until the TTL lapsed. The diagnostics service's own snapshot TTL is the
+ *  only cache, so the row and the pin move together on every check, forced or scheduled. */
+export async function refreshMiseClaude(deps?: MiseClaudeDeps): Promise<MiseClaudeState> {
   const state = await detectMiseClaude(deps);
-  cached = state;
-  cachedAt = now;
   pinned = pinFor(state);
   return state;
 }
 
 /** Synchronous read for the spawn path — `buildWrappedArgv` runs on the single event loop and
- *  must never probe. Cold (pre-first-check) reads `false`: worst case one more native plant,
+ *  must never probe. Latched by {@link refreshMiseClaude}; cold (pre-first-check) reads `false`: worst case one more native plant,
  *  which the row then reports. */
 export function claudeSpawnPinned(): boolean {
   return pinned;
 }
 
-/** Test-only: drop the cache so each case starts cold. */
+/** Test-only: drop the latched pin so each case starts cold. */
 export function __resetMiseClaude(): void {
-  cached = null;
-  cachedAt = 0;
   pinned = false;
 }

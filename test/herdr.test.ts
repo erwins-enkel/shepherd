@@ -15,7 +15,7 @@ import {
   type HerdrAgent,
 } from "../src/herdr";
 import { setDetectedHerdrVersion } from "../src/herdr-capabilities";
-import { miseClaudeState, __resetMiseClaude } from "../src/mise-claude";
+import { refreshMiseClaude, __resetMiseClaude } from "../src/mise-claude";
 
 // Pin compileCacheDir() to a deterministic sentinel so the `env NODE_COMPILE_CACHE=…`
 // shim that start() prepends to every agent argv is assertable. Also disable the disk-TMPDIR
@@ -1698,7 +1698,7 @@ describe("buildWrappedArgv: claude auto-updater pin", () => {
   /** Latch the module memo the spawn path reads, via the real cached probe. */
   async function pin(managed: boolean): Promise<void> {
     __resetMiseClaude();
-    await miseClaudeState(0, {
+    await refreshMiseClaude({
       home: "/home/op",
       run: async (bin, args) => {
         if (bin === "mise" && args[0] === "which") {
@@ -1707,7 +1707,7 @@ describe("buildWrappedArgv: claude auto-updater pin", () => {
         }
         return "2.1.237 (Claude Code)";
       },
-      resolveOnPath: async () => "/home/op/.local/bin/claude",
+      listOnPath: async () => ["/home/op/.local/bin/claude"],
       realpath: async (p) => p,
       listNative: async () => [],
     });

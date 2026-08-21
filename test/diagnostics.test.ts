@@ -20,6 +20,7 @@ import {
   type HostCapacityFacts,
 } from "../src/diagnostics";
 import type { HerdrAgent } from "../src/herdr";
+import type { MiseClaudeState } from "../src/mise-claude";
 import {
   DIAGNOSTICS_TTL_MS,
   DIAGNOSTICS_INTERVAL_MS,
@@ -114,6 +115,18 @@ function healthyDeps(): DiagnosticsDeps {
   };
 }
 
+/** A `claude_install` host shape; the defaults model "mise owns it, nothing left over". */
+function miseState(over: Partial<MiseClaudeState>): MiseClaudeState {
+  return {
+    managed: true,
+    pathVersion: "2.1.237",
+    miseVersion: "2.1.237",
+    nativeOnPath: false,
+    nativeResidue: null,
+    ...over,
+  };
+}
+
 function byId(checks: DiagnosticCheck[], id: string): DiagnosticCheck {
   const c = checks.find((x) => x.id === id);
   if (!c) throw new Error(`no check ${id}`);
@@ -130,6 +143,7 @@ function assertPure(check: DiagnosticCheck) {
     "state",
     "fixActionKey",
     "fixActionParams",
+    "hintParams",
   ]);
   for (const k of Object.keys(check)) expect(allowed.has(k)).toBe(true);
   expect(typeof check.id).toBe("string");
@@ -150,6 +164,21 @@ function assertPure(check: DiagnosticCheck) {
     if ("cpuQuota" in check.fixActionParams) {
       expect(check.fixActionParams.cpuQuota).toMatch(/^\d+%$/);
     }
+  }
+  // hintParams pins the same boundary for the row's OWN message (claude_install #2052): version
+  // triples, a scaled size, a count — never a path (`/`), token, or identity shape.
+  if (check.hintParams) {
+    for (const v of Object.values(check.hintParams)) {
+      expect(typeof v).toBe("string");
+      expect(v).not.toContain("/");
+    }
+    for (const k of ["running", "managed"] as const) {
+      if (k in check.hintParams) expect(check.hintParams[k]).toMatch(/^\d+\.\d+\.\d+$/);
+    }
+    if ("size" in check.hintParams) {
+      expect(check.hintParams.size).toMatch(/^\d+(\.\d+)? [KMG]B$/);
+    }
+    if ("count" in check.hintParams) expect(check.hintParams.count).toMatch(/^\d+$/);
   }
 }
 
@@ -428,6 +457,134 @@ describe("DiagnosticsService probes", () => {
     });
     const checks = (await svc.check(0)).checks;
     expect(checks.find((c) => c.id === "claude_trust")).toBeUndefined();
+  });
+
+  // ── claude_install (#2052): mise-managed claude vs the native copy ───────────
+  it("claude_install: absent when the probe is unwired — a non-mise host is unchanged", async () => {
+    const snap = await new DiagnosticsService(healthyDeps()).check(0);
+    expect(snap.checks.find((c) => c.id === "claude_install")).toBeUndefined();
+  });
+
+  it("claude_install: absent when mise does not manage claude", async () => {
+    const svc = new DiagnosticsService({
+      ...healthyDeps(),
+      readMiseClaude: async () => miseState({ managed: false }),
+    });
+    const checks = (await svc.check(0)).checks;
+    expect(checks.find((c) => c.id === "claude_install")).toBeUndefined();
+  });
+
+  it("claude_install: absent when Claude Code is not installed at all", async () => {
+    let probed = false;
+    const svc = new DiagnosticsService({
+      ...healthyDeps(),
+      runVersion: versionRunner({ ...HEALTHY_VERSIONS, claude: new Error("ENOENT") }),
+      readMiseClaude: async () => {
+        probed = true;
+        return miseState({});
+      },
+    });
+    const checks = (await svc.check(0)).checks;
+    expect(checks.find((c) => c.id === "claude_install")).toBeUndefined();
+    expect(probed).toBe(false);
+  });
+
+  it("claude_install: absent when the probe rejects — it never costs the claude/codex rows", async () => {
+    const svc = new DiagnosticsService({
+      ...healthyDeps(),
+      readMiseClaude: async () => {
+        throw new Error("mise exploded");
+      },
+    });
+    const snap = await svc.check(0);
+    expect(snap.checks.find((c) => c.id === "claude_install")).toBeUndefined();
+    expect(byId(snap.checks, "claude").state).toBe("ok");
+    expect(byId(snap.checks, "codex").state).toBe("ok");
+    expect(snap.overall).toBe("ok");
+  });
+
+  it("claude_install: ok when mise owns the running claude and nothing is left over", async () => {
+    const svc = new DiagnosticsService({
+      ...healthyDeps(),
+      readMiseClaude: async () => miseState({}),
+    });
+    const snap = await svc.check(0);
+    const c = byId(snap.checks, "claude_install");
+    expect(c.state).toBe("ok");
+    expect(c.hintKey).toBe("diagnostics_hint_claude_install_ok");
+    expect(c.hintParams).toBeUndefined();
+    assertPure(c);
+    expect(snap.overall).toBe("ok");
+  });
+
+  it("claude_install: warning naming BOTH versions when the installs diverged", async () => {
+    const svc = new DiagnosticsService({
+      ...healthyDeps(),
+      readMiseClaude: async () =>
+        miseState({ pathVersion: "2.1.226", miseVersion: "2.1.222", nativeOnPath: true }),
+    });
+    const snap = await svc.check(0);
+    const c = byId(snap.checks, "claude_install");
+    expect(c.state).toBe("warning");
+    expect(c.hintKey).toBe("diagnostics_hint_claude_install_diverged");
+    expect(c.hintParams).toEqual({ running: "2.1.226", managed: "2.1.222" });
+    assertPure(c);
+    expect(snap.overall).toBe("warning");
+  });
+
+  it("claude_install: warning naming the leftover native tree's size and build count", async () => {
+    const svc = new DiagnosticsService({
+      ...healthyDeps(),
+      readMiseClaude: async () =>
+        miseState({ nativeResidue: { count: 3, bytes: 938 * 1024 ** 2 } }),
+    });
+    const c = byId((await svc.check(0)).checks, "claude_install");
+    expect(c.state).toBe("warning");
+    expect(c.hintKey).toBe("diagnostics_hint_claude_install_native_residue");
+    expect(c.hintParams).toEqual({ size: "938 MB", count: "3" });
+    assertPure(c);
+  });
+
+  it("claude_install: warning when a native copy merely MATCHES mise's version today", async () => {
+    // No divergence yet, but what runs is the native copy mise cannot advance — and the spawn pin
+    // is off there, so an `ok` row would claim a pin that was never applied.
+    const svc = new DiagnosticsService({
+      ...healthyDeps(),
+      readMiseClaude: async () => miseState({ nativeOnPath: true }),
+    });
+    const c = byId((await svc.check(0)).checks, "claude_install");
+    expect(c.state).toBe("warning");
+    expect(c.hintKey).toBe("diagnostics_hint_claude_install_native_on_path");
+    expect(c.hintParams).toEqual({ running: "2.1.237" });
+    assertPure(c);
+  });
+
+  it("claude_install: divergence outranks residue — the native tree is then the live install", async () => {
+    const svc = new DiagnosticsService({
+      ...healthyDeps(),
+      readMiseClaude: async () =>
+        miseState({
+          pathVersion: "2.1.226",
+          miseVersion: "2.1.222",
+          nativeOnPath: true,
+          nativeResidue: { count: 3, bytes: 938 * 1024 ** 2 },
+        }),
+    });
+    const c = byId((await svc.check(0)).checks, "claude_install");
+    expect(c.hintKey).toBe("diagnostics_hint_claude_install_diverged");
+  });
+
+  it("claude_install: guidance-only — never carries a one-click fix", async () => {
+    for (const state of [
+      miseState({ pathVersion: "2.1.226", miseVersion: "2.1.222" }),
+      miseState({ nativeOnPath: true }),
+      miseState({ nativeResidue: { count: 1, bytes: 1024 ** 2 } }),
+    ]) {
+      const svc = new DiagnosticsService({ ...healthyDeps(), readMiseClaude: async () => state });
+      const c = byId((await svc.check(0)).checks, "claude_install");
+      expect(c.remediation).toBeUndefined();
+      expect(c.fixActionKey).toBeUndefined();
+    }
   });
 
   // ── gh: exit-code only, never stdout ─────────────────────────────────────────

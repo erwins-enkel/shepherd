@@ -3,6 +3,7 @@ import {
   HerdrDriver,
   HerdrSpawnUnsupportedError,
   TabLedger,
+  buildWrappedArgv,
   deriveHerdrState,
   isHeadlessCodexExec,
   mapState,
@@ -14,6 +15,7 @@ import {
   type HerdrAgent,
 } from "../src/herdr";
 import { setDetectedHerdrVersion } from "../src/herdr-capabilities";
+import { miseClaudeState, __resetMiseClaude } from "../src/mise-claude";
 
 // Pin compileCacheDir() to a deterministic sentinel so the `env NODE_COMPILE_CACHE=…`
 // shim that start() prepends to every agent argv is assertable. Also disable the disk-TMPDIR
@@ -1682,5 +1684,67 @@ describe("#1944 runner E2BIG mapping", () => {
   test("a successful call is untouched", async () => {
     expect(makeHerdrRunner(() => "ok")(["agent", "list"])).toBe("ok");
     expect(await makeHerdrAsyncRunner(async () => "ok")(["agent", "list"])).toBe("ok");
+  });
+});
+
+// ── DISABLE_AUTOUPDATER pin (#2052) ──────────────────────────────────────────
+// On a host where mise owns the claude we spawn, Claude Code's own auto-updater keeps planting a
+// native install that then shadows the mise-managed one. The pin stops that at the source; it must
+// stay OFF everywhere else so a non-mise host is never stranded on an old build.
+describe("buildWrappedArgv: claude auto-updater pin", () => {
+  const PIN = "DISABLE_AUTOUPDATER=1";
+  afterEach(() => __resetMiseClaude());
+
+  /** Latch the module memo the spawn path reads, via the real cached probe. */
+  async function pin(managed: boolean): Promise<void> {
+    __resetMiseClaude();
+    await miseClaudeState(0, {
+      home: "/home/op",
+      run: async (bin, args) => {
+        if (bin === "mise" && args[0] === "which") {
+          if (!managed) throw new Error("not a mise bin");
+          return "/home/op/.local/share/mise/installs/claude/latest/claude\n";
+        }
+        return "2.1.237 (Claude Code)";
+      },
+      resolveOnPath: async () => "/home/op/.local/bin/claude",
+      realpath: async (p) => p,
+      listNative: async () => [],
+    });
+  }
+
+  test("unpinned hosts get a byte-identical argv", async () => {
+    await pin(false);
+    expect(buildWrappedArgv(["claude", "--continue"])).toEqual([
+      "env",
+      `NODE_COMPILE_CACHE=${NCC_SENTINEL}`,
+      "CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1",
+      "claude",
+      "--continue",
+    ]);
+  });
+
+  test("a pinned host gets the token before the caller's env, and only for claude", async () => {
+    await pin(true);
+    expect(buildWrappedArgv(["claude", "--continue"], { CLAUDE_CONFIG_DIR: "/pool" })).toEqual([
+      "env",
+      `NODE_COMPILE_CACHE=${NCC_SENTINEL}`,
+      "CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1",
+      PIN,
+      "CLAUDE_CONFIG_DIR=/pool",
+      "claude",
+      "--continue",
+    ]);
+    expect(buildWrappedArgv(["codex", "exec", "go"])).not.toContain(PIN);
+  });
+
+  test("a membrane-wrapped claude is recognised behind the bwrap `--`", async () => {
+    await pin(true);
+    expect(buildWrappedArgv(["bwrap", "--ro-bind", "/x", "/x", "--", "claude", "-p"])).toContain(
+      PIN,
+    );
+    expect(
+      buildWrappedArgv(["bwrap", "--ro-bind", "/x", "/x", "--", "codex", "exec"]),
+    ).not.toContain(PIN);
   });
 });

@@ -24,6 +24,15 @@ export const DOC_LINKS: Record<string, string> = {
     "https://docs.shepherd.run/operating/#host-tuning--resource-guardrails",
   diagnostics_hint_host_capacity_pressure:
     "https://docs.shepherd.run/operating/#host-tuning--resource-guardrails",
+  // claude_install (#2052) is guidance-only on purpose — Shepherd never repoints or deletes a
+  // claude install — so every non-ok state links the operating guide's mise section instead of
+  // offering a Fix button. Anchor coupled to the heading by test/host-capacity-doc-anchor.test.ts.
+  diagnostics_hint_claude_install_diverged:
+    "https://docs.shepherd.run/operating/#the-claude-code-install-row",
+  diagnostics_hint_claude_install_native_on_path:
+    "https://docs.shepherd.run/operating/#the-claude-code-install-row",
+  diagnostics_hint_claude_install_native_residue:
+    "https://docs.shepherd.run/operating/#the-claude-code-install-row",
 };
 
 /** Per-state PWA-install help URL; undefined for `optional`/`installed`

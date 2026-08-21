@@ -131,6 +131,36 @@ either of which would install a second codex shadowing the mise-managed one.
 Claude Code has no Shepherd-side updater (it self-updates), so a mise-managed `claude` is
 upgraded by you: `mise upgrade claude`.
 
+### The Claude Code install row
+
+Claude Code self-updates by writing a **native** install into `~/.local/share/claude/versions`
+and repointing `~/.local/bin/claude` at it. On a host where mise also manages `claude`, that
+native copy **shadows** the mise-managed one: the two drift apart, and `mise upgrade claude`
+then moves only the install nothing runs.
+
+Two things happen on a host where mise owns the `claude` Shepherd spawns:
+
+- Shepherd sets `DISABLE_AUTOUPDATER=1` on agent spawns, so Claude Code stops re-planting the
+  native copy. `mise upgrade claude` is the update path from then on. This only applies when
+  mise really does own what runs — a host without mise keeps self-updating exactly as before,
+  so nothing gets stranded on an old build.
+- The **claude install** row in Settings → Diagnose reports the state. It **warns** when the
+  `claude` on `PATH` and the one mise manages report different versions (naming both, so you can
+  see which one Shepherd actually spawns); when the versions agree but what runs is still the
+  native copy, which mise can't advance, so the two will drift again; and when mise really does
+  own what runs but a leftover native tree is sitting on disk — those builds are several hundred
+  MB each. The row is `ok` exactly when the auto-updater pin is in effect, so it never claims a
+  pin that wasn't applied.
+
+Ownership is decided by comparing what `claude --version` reports against the mise-managed
+binary's own `--version`, not by inspecting paths — so a shim, a `~/.local/bin` symlink and a
+launcher script that `exec`s `mise x claude` all read correctly.
+
+The row has no **Fix** button by design: repointing `~/.local/bin/claude` would clobber a
+launcher script you may have put there on purpose, and deleting a several-hundred-MB install
+tree is your call, not Shepherd's. On a host where mise doesn't manage `claude` the row is
+absent entirely.
+
 ## Host tuning — tmpfs inodes
 
 Shepherd keeps spawned agents' Node compile cache **off** the `/tmp` tmpfs and runs

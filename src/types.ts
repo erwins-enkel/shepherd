@@ -594,6 +594,11 @@ export interface DiagnosticCheck {
    *  memoryHigh:"27G", cpuQuota:"700%"}`, host_capacity #1839). NEVER tokens, absolute paths, or
    *  identity. `undefined` for param-less code fixes (claude folder-trust). */
   fixActionParams?: Record<string, string>;
+  /** Non-secret params interpolated into the ROW's own `hintKey` message — the hint-side analogue
+   *  of `fixActionParams` (claude_install #2052: two version triples, or a size + a build count).
+   *  Same purity boundary: host facts only, never a token, absolute path, or identity. `undefined`
+   *  for every param-less hint, which simply ignores the extra argument. */
+  hintParams?: Record<string, string>;
 }
 
 /** The full diagnostics payload returned by GET /api/diagnostics and pushed on

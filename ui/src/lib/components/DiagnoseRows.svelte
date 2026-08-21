@@ -58,8 +58,10 @@
     return msg[`diagnostics_label_${id}`]?.() ?? id;
   }
 
-  function hint(hintKey: string): string {
-    return msg[hintKey]?.() ?? "";
+  // The optional params bag lets a row's own hint interpolate concrete host facts (claude_install
+  // #2052: the two versions, or a size + build count); param-less messages ignore the extra arg.
+  function hint(check: DiagnosticCheck): string {
+    return msg[check.hintKey]?.(check.hintParams) ?? "";
   }
 
   // Confirm-modal prose for a `fixActionKey` code fix, interpolating its `fixActionParams` (if any).
@@ -133,7 +135,7 @@
           >
         </div>
         {#if check.state !== "ok"}
-          <p class="hint"><GlossaryText text={hint(check.hintKey)} /></p>
+          <p class="hint"><GlossaryText text={hint(check)} /></p>
         {/if}
         {#if check.hintKey === "diagnostics_hint_herdr_unsupported" && onherdrdowngrade}
           <!-- Stranded herdr (#1898): the fix is the in-app downgrade, owned by the

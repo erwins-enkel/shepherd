@@ -1032,6 +1032,60 @@ test("timeout with no verdict → error gate, reaped, not released", async () =>
   expect(h.removed).toContain("/wt-detached");
 });
 
+test("a no-verdict finalize reads the reviewer pane tail before the pane is reaped", async () => {
+  // The pane tail is the only place a launch failure (non-zero launcher, auth wall, sandbox EROFS)
+  // is visible — the verdict file just never appears. It must be read while the pane still exists.
+  let t = 1000;
+  const reads: Array<[string, string | undefined, number | undefined]> = [];
+  let stopped = false;
+  const h = harness({
+    readVerdict: () => null,
+    now: () => t,
+    herdr: {
+      start: async () => ({ terminalId: "t1" }),
+      async stop() {
+        stopped = true;
+      },
+      list: () => [],
+      readAsync: async (target: string, source?: string, lines?: number) => {
+        reads.push([target, source, lines]);
+        expect(stopped).toBe(false); // still alive when we read
+        return "mise ERROR Read-only file system (os error 30)\n";
+      },
+    },
+  });
+  await h.svc.consider(planningSession() as any);
+  t = 1000 + 11 * 60 * 1000;
+  await h.svc.tick();
+
+  expect(reads).toEqual([["t1", "recent", 40]]);
+  expect(stopped).toBe(true);
+  expect(h.store.gate.decision).toBe("error");
+});
+
+test("a failing pane read never derails a no-verdict finalize", async () => {
+  let t = 1000;
+  const h = harness({
+    readVerdict: () => null,
+    now: () => t,
+    herdr: {
+      start: async () => ({ terminalId: "t1" }),
+      async stop() {},
+      list: () => [],
+      readAsync: async () => {
+        throw new Error("herdr gone");
+      },
+    },
+  });
+  await h.svc.consider(planningSession() as any);
+  t = 1000 + 11 * 60 * 1000;
+  await h.svc.tick();
+
+  expect(h.store.gate.decision).toBe("error");
+  expect(h.store.gate.summaryCode).toBe("no-verdict");
+  expect(h.removed).toContain("/wt-detached");
+});
+
 test("an exited codex reviewer without a verdict fails before the file timeout", async () => {
   let t = 1000;
   const h = harness({

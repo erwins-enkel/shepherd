@@ -333,13 +333,44 @@ function managerRoots(home: string): string[] {
 }
 
 /**
+ * Sub-paths of a manager root that the manager REWRITES on every invocation, and which therefore
+ * cannot sit under the read-only bind above.
+ *
+ * `mise` is the live case (same host change behind #2052). A mise-managed `claude` is reached
+ * through a launcher on PATH that re-runs `mise use`, and mise rebuilds `shims/` as part of that —
+ * under the RO bind the rebuild hits EROFS and mise exits non-zero, so the agent process NEVER
+ * STARTS. Nothing observes
+ * that directly: the role's verdict file simply never appears, the caller waits out its whole
+ * timeout (10 min for the plan gate), records a `no-verdict` error and re-spawns into the same
+ * wall. Every membrane-wrapped role — plan gate, PR critic, doc agent, standalone critic — fails
+ * this way at once.
+ *
+ * A tmpfs is the narrow fix: the rebuild succeeds against throwaway storage, the write never
+ * reaches the host, and `installs/` stays read-only — so a sandboxed role still cannot plant a
+ * binary that a later trusted session would run.
+ *
+ * NOT covered, deliberately: a manager asked for a version the host has not installed yet still
+ * needs to download into the read-only `installs/`, and will still fail. Making that writable would
+ * let an untrusted role pull and execute arbitrary tool versions, which is the opposite of what the
+ * membrane is for. Installing toolchains stays a host-side, trusted-session concern.
+ */
+function managerScratch(home: string): Record<string, string[]> {
+  return { [`${home}/.local/share/mise`]: ["shims"] };
+}
+
+/**
  * Compute the RO toolchain binds for the node binary. Always binds the binary's
  * own directory; additionally binds any known manager root that is a PREFIX of
  * nodeBinReal OR exists on the host. De-dupes so the same path isn't bound twice
  * and a child of an already-bound root is skipped.
+ *
+ * Each bound root is immediately followed by a `--tmpfs` per {@link managerScratch} entry. Order is
+ * load-bearing: bwrap applies operations in sequence, so the tmpfs must come AFTER the `--ro-bind`
+ * it punches through, never before.
  */
 function nodeToolchainFlags(inputs: MembraneInputs, exists: (p: string) => boolean): string[] {
   const binDir = dirname(inputs.nodeBinReal);
+  const scratch = managerScratch(inputs.home);
   const added: string[] = [];
   const flags: string[] = [];
   const isUnder = (p: string, root: string) => p === root || p.startsWith(root + "/");
@@ -347,6 +378,7 @@ function nodeToolchainFlags(inputs: MembraneInputs, exists: (p: string) => boole
     if (added.some((a) => a === p || isUnder(p, a))) return; // already bound or under a bound root
     added.push(p);
     flags.push("--ro-bind-try", p, p);
+    for (const sub of scratch[p] ?? []) flags.push("--tmpfs", `${p}/${sub}`);
   };
 
   // Manager roots first so a binDir under one of them is de-duped away.

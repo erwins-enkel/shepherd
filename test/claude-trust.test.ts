@@ -2,7 +2,12 @@ import { test, expect } from "bun:test";
 import { mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { claudeConfigPath, readRepoRootTrusted, trustRepoRoot } from "../src/claude-trust";
+import {
+  claudeConfigPath,
+  ensureRepoRootTrusted,
+  readRepoRootTrusted,
+  trustRepoRoot,
+} from "../src/claude-trust";
 
 async function withTmp<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "claude-trust-"));
@@ -97,5 +102,37 @@ test("trust writes compact JSON (no pretty-print reflow)", async () => {
     const raw = await readFile(cfg, "utf8");
     expect(raw).not.toContain("\n"); // compact — single line
     expect(JSON.parse(raw).projects["/repo"].hasTrustDialogAccepted).toBe(true);
+  });
+});
+
+test("ensureRepoRootTrusted seeds an untrusted dir and leaves a trusted one untouched", async () => {
+  await withTmp(async (dir) => {
+    const cfg = join(dir, ".claude.json");
+    await writeFile(cfg, JSON.stringify({ projects: {} }));
+
+    await ensureRepoRootTrusted(cfg, "/repo");
+    expect(await readRepoRootTrusted(cfg, "/repo")).toBe(true);
+
+    // Already trusted → read-gated, so the file is not rewritten. Byte-compare rather than
+    // trusting mtime: the second call is sub-ms after the first.
+    const before = await readFile(cfg, "utf8");
+    await ensureRepoRootTrusted(cfg, "/repo");
+    expect(await readFile(cfg, "utf8")).toBe(before);
+  });
+});
+
+test("ensureRepoRootTrusted preserves unrelated project state", async () => {
+  await withTmp(async (dir) => {
+    const cfg = join(dir, ".claude.json");
+    await writeFile(
+      cfg,
+      JSON.stringify({ projects: { "/other": { history: ["x"] } }, hasCompletedOnboarding: true }),
+    );
+
+    await ensureRepoRootTrusted(cfg, "/repo");
+    const j = JSON.parse(await readFile(cfg, "utf8"));
+    expect(j.projects["/other"].history).toEqual(["x"]);
+    expect(j.hasCompletedOnboarding).toBe(true);
+    expect(j.projects["/repo"].hasTrustDialogAccepted).toBe(true);
   });
 });

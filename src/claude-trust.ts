@@ -76,3 +76,12 @@ export async function trustRepoRoot(configPath: string, dir: string): Promise<vo
   await writeFile(tmp, JSON.stringify(j), "utf8");
   await rename(tmp, configPath);
 }
+
+/**
+ * Read-gated {@link trustRepoRoot}: seed the flag only when it is not already set, so a repeat
+ * spawn in an already-trusted dir costs one read and no write. The pairing is what every caller
+ * wants; having it in one place keeps the gate from drifting between them.
+ */
+export async function ensureRepoRootTrusted(configPath: string, dir: string): Promise<void> {
+  if (!(await readRepoRootTrusted(configPath, dir))) await trustRepoRoot(configPath, dir);
+}

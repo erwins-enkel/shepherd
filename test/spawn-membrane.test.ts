@@ -10,6 +10,7 @@ import {
   type MembraneEnv,
 } from "../src/spawn-membrane";
 import { PluginSpawnAborted } from "../src/plugins/types";
+import type { MembraneLaunch } from "../src/membrane-launch";
 import { config } from "../src/config";
 import { __setApiKeyConfigDirProvisionForTest } from "../src/spawn-auth";
 
@@ -21,6 +22,11 @@ const stubEnv: MembraneEnv = {
   // Active projects dir — distinct from claudeDir so #1213 redirect assertions are unambiguous.
   projectsDir: "/stub/projects",
 };
+
+/** #2111: `membraneLaunch` is PRESENCE-checked and defaults to the REAL, bwrap-spawning probe, which
+ *  throws `MembraneProbeUnwiredError` under NODE_ENV=test rather than touching the host. Every test
+ *  below that injects a `bwrap` backend AND reaches resolveAuxPatch must therefore inject this. */
+const okLaunch = async (): Promise<MembraneLaunch> => ({ state: "ok" });
 
 const MIRROR = "/tmp/shepherd-test-apikey-config";
 beforeEach(() => {
@@ -115,6 +121,7 @@ describe("resolveSpawnMembrane", () => {
       worktree: worktreeStub(),
       seams: {
         detectBackend: () => "bwrap",
+        membraneLaunch: okLaunch,
         membraneEnv: () => stubEnv,
       },
     });
@@ -172,8 +179,8 @@ describe("resolveAuxSpawn", () => {
       descriptor: { sessionId: "s-1", kind: "review" },
     });
 
-    expect("aborted" in result).toBe(false);
-    if ("aborted" in result) throw new Error("unexpected abort");
+    expect("aborted" in result || "refused" in result).toBe(false);
+    if ("aborted" in result || "refused" in result) throw new Error("unexpected abort/refusal");
     expect(result.wrapped).toEqual(argv);
     expect(result.spawnEnv).toBeUndefined();
   });
@@ -218,6 +225,7 @@ describe("resolveAuxSpawn", () => {
       worktree: worktreeStub(),
       seams: {
         detectBackend: () => "bwrap",
+        membraneLaunch: okLaunch,
         membraneEnv: () => stubEnv,
         pathExists: () => true,
         runSpawnHooks: async () => ({ credentialDir: "/pool/acct-3" }),
@@ -225,8 +233,8 @@ describe("resolveAuxSpawn", () => {
       descriptor: { sessionId: "s-1", kind: "review" },
     });
 
-    expect("aborted" in result).toBe(false);
-    if ("aborted" in result) throw new Error("unexpected abort");
+    expect("aborted" in result || "refused" in result).toBe(false);
+    if ("aborted" in result || "refused" in result) throw new Error("unexpected abort/refusal");
     const f = result.wrapped;
     expect(f[0]).toBe("bwrap");
     // The pool dir is actually BOUND (the bug: previously only --setenv, never mounted).
@@ -252,6 +260,7 @@ describe("resolveAuxSpawn", () => {
         worktree: worktreeStub(),
         seams: {
           detectBackend: () => "bwrap",
+          membraneLaunch: okLaunch,
           membraneEnv: () => stubEnv,
           pathExists: () => true,
           runSpawnHooks: async () => ({ credentialDir: "/pool/acct-5" }),
@@ -260,8 +269,8 @@ describe("resolveAuxSpawn", () => {
       }),
     );
 
-    expect("aborted" in result).toBe(false);
-    if ("aborted" in result) throw new Error("unexpected abort");
+    expect("aborted" in result || "refused" in result).toBe(false);
+    if ("aborted" in result || "refused" in result) throw new Error("unexpected abort/refusal");
     const f = result.wrapped;
     // maskCredentials path: NO whole-dir RO bind of the pool dir; masked mount point via --dir.
     expect(hasTriple(f, "--ro-bind", "/pool/acct-5", "/pool/acct-5")).toBe(false);
@@ -299,8 +308,8 @@ describe("resolveAuxSpawn", () => {
       }),
     );
 
-    expect("aborted" in result).toBe(false);
-    if ("aborted" in result) throw new Error("unexpected abort");
+    expect("aborted" in result || "refused" in result).toBe(false);
+    if ("aborted" in result || "refused" in result) throw new Error("unexpected abort/refusal");
     // The pool dir's real OAuth creds would conflict with the key — the mirror wins.
     expect(result.spawnEnv?.CLAUDE_CONFIG_DIR).toBe(MIRROR);
   });
@@ -320,6 +329,7 @@ describe("resolveAuxSpawn", () => {
         worktree: worktreeStub(),
         seams: {
           detectBackend: () => "bwrap",
+          membraneLaunch: okLaunch,
           membraneEnv: () => stubEnv,
           pathExists: () => false, // the patched dir does not exist on host
           runSpawnHooks: async () => ({ credentialDir: "/pool/missing" }),
@@ -330,8 +340,8 @@ describe("resolveAuxSpawn", () => {
       console.warn = prevWarn;
     }
 
-    expect("aborted" in result).toBe(false);
-    if ("aborted" in result) throw new Error("unexpected abort");
+    expect("aborted" in result || "refused" in result).toBe(false);
+    if ("aborted" in result || "refused" in result) throw new Error("unexpected abort/refusal");
     const f = result.wrapped;
     // NOT redirected: the missing pool dir is never referenced; the active dir is bound instead.
     expect(f.some((x) => x.includes("/pool/missing"))).toBe(false);
@@ -351,6 +361,7 @@ describe("resolveAuxSpawn", () => {
       worktree: worktreeStub(),
       seams: {
         detectBackend: () => "bwrap",
+        membraneLaunch: okLaunch,
         membraneEnv: () => stubEnv, // claudeDir "/stub/.claude", home "/stub/home"
         pathExists: () => true,
         runSpawnHooks: async () => ({ credentialDir: "/stub/home/.claude" }),
@@ -358,8 +369,8 @@ describe("resolveAuxSpawn", () => {
       descriptor: { sessionId: "s-1", kind: "review" },
     });
 
-    expect("aborted" in result).toBe(false);
-    if ("aborted" in result) throw new Error("unexpected abort");
+    expect("aborted" in result || "refused" in result).toBe(false);
+    if ("aborted" in result || "refused" in result) throw new Error("unexpected abort/refusal");
     const f = result.wrapped;
     // pool (== ~/.claude) is bound; projects source = active projects dir.
     expect(hasTriple(f, "--ro-bind", "/stub/home/.claude", "/stub/home/.claude")).toBe(true);
@@ -391,8 +402,8 @@ describe("resolveAuxSpawn", () => {
       descriptor: { sessionId: "s-1", kind: "review" },
     });
 
-    expect("aborted" in result).toBe(false);
-    if ("aborted" in result) throw new Error("unexpected abort");
+    expect("aborted" in result || "refused" in result).toBe(false);
+    if ("aborted" in result || "refused" in result) throw new Error("unexpected abort/refusal");
     expect(result.wrapped).toEqual(["claude"]);
     expect(result.spawnEnv?.CLAUDE_CONFIG_DIR).toBe("/pool/acct-7");
   });
@@ -411,8 +422,8 @@ describe("resolveAuxSpawn", () => {
       descriptor: { sessionId: "s-1", kind: "review" },
     });
 
-    expect("aborted" in result).toBe(false);
-    if ("aborted" in result) throw new Error("unexpected abort");
+    expect("aborted" in result || "refused" in result).toBe(false);
+    if ("aborted" in result || "refused" in result) throw new Error("unexpected abort/refusal");
     expect(result.wrapped).toEqual(["claude", "--mcp-config", "/x.json"]);
   });
 
@@ -451,6 +462,7 @@ describe("#1944 resolveAuxPatch + assembleAuxSpawn", () => {
     detectBackend: () => "bwrap" as const,
     membraneEnv: () => stubEnv,
     pathExists: () => true,
+    membraneLaunch: okLaunch,
     ...extra,
   });
 
@@ -476,9 +488,9 @@ describe("#1944 resolveAuxPatch + assembleAuxSpawn", () => {
     });
 
     const oneShot = await resolveAuxSpawn(args);
-    if ("aborted" in oneShot) throw new Error("unexpected abort");
+    if ("aborted" in oneShot || "refused" in oneShot) throw new Error("unexpected abort/refusal");
     const patch = await resolveAuxPatch(args);
-    if ("aborted" in patch) throw new Error("unexpected abort");
+    if ("aborted" in patch || "refused" in patch) throw new Error("unexpected abort/refusal");
     const twoStep = assembleAuxSpawn(patch, args);
 
     expect(twoStep).toEqual(oneShot);
@@ -496,7 +508,7 @@ describe("#1944 resolveAuxPatch + assembleAuxSpawn", () => {
     });
 
     const patch = await resolveAuxPatch(args);
-    if ("aborted" in patch) throw new Error("unexpected abort");
+    if ("aborted" in patch || "refused" in patch) throw new Error("unexpected abort/refusal");
     assembleAuxSpawn(patch, args);
     assembleAuxSpawn(patch, args, ["claude", "-p", ""]);
     assembleAuxSpawn(patch, args, ["claude", "-p", "other"]);
@@ -507,7 +519,7 @@ describe("#1944 resolveAuxPatch + assembleAuxSpawn", () => {
   test("assembleAuxSpawn is SYNCHRONOUS (returns a plain object, not a thenable)", async () => {
     const args = baseArgs();
     const patch = await resolveAuxPatch(args);
-    if ("aborted" in patch) throw new Error("unexpected abort");
+    if ("aborted" in patch || "refused" in patch) throw new Error("unexpected abort/refusal");
     const out = assembleAuxSpawn(patch, args);
     expect(typeof (out as { then?: unknown }).then).toBe("undefined");
     expect(Array.isArray(out.wrapped)).toBe(true);
@@ -518,7 +530,7 @@ describe("#1944 resolveAuxPatch + assembleAuxSpawn", () => {
       seams: seams({ runSpawnHooks: async () => ({ extraArgs: ["--extra", "x"] }) }),
     });
     const patch = await resolveAuxPatch(args);
-    if ("aborted" in patch) throw new Error("unexpected abort");
+    if ("aborted" in patch || "refused" in patch) throw new Error("unexpected abort/refusal");
 
     const probe = assembleAuxSpawn(patch, args, ["claude", "-p", ""]);
     expect(probe.wrapped).toContain("--extra");
@@ -533,7 +545,7 @@ describe("#1944 resolveAuxPatch + assembleAuxSpawn", () => {
       seams: seams({ runSpawnHooks: async () => ({ env: { FOO: "bar" }, extraArgs: ["--x"] }) }),
     });
     const patch = await resolveAuxPatch(args);
-    if ("aborted" in patch) throw new Error("unexpected abort");
+    if ("aborted" in patch || "refused" in patch) throw new Error("unexpected abort/refusal");
 
     const real = assembleAuxSpawn(patch, args, ["claude", "-p", "a-very-long-prompt"]);
     const probe = assembleAuxSpawn(patch, args, ["claude", "-p", ""]);
@@ -565,11 +577,111 @@ describe("#1944 resolveAuxPatch + assembleAuxSpawn", () => {
       }),
     });
     const patch = await resolveAuxPatch(args);
-    if ("aborted" in patch) throw new Error("unexpected abort");
+    if ("aborted" in patch || "refused" in patch) throw new Error("unexpected abort/refusal");
     expect(patch.patchEnv.CLAUDE_CONFIG_DIR).toBeUndefined();
     const oneShot = await resolveAuxSpawn(args);
-    if ("aborted" in oneShot) throw new Error("unexpected abort");
+    if ("aborted" in oneShot || "refused" in oneShot) throw new Error("unexpected abort/refusal");
     expect(assembleAuxSpawn(patch, args)).toEqual(oneShot);
+  });
+});
+
+// ── #2111: refuse a wrapped spawn whose agent binary can't launch in the membrane ─────────────
+
+describe("#2111 membrane-launch refusal", () => {
+  const broken = async (): Promise<MembraneLaunch> => ({ state: "broken", detail: "EROFS tail" });
+
+  const args = (over?: Record<string, unknown>) => ({
+    argv: ["claude", "-p", "PROMPT"],
+    worktreePath: "/wt/task",
+    repoPath: "/repo",
+    worktree: worktreeStub(),
+    seams: {
+      detectBackend: () => "bwrap" as const,
+      membraneEnv: () => stubEnv,
+      pathExists: () => true,
+      membraneLaunch: okLaunch,
+      ...over,
+    },
+    descriptor: { sessionId: "s-1", kind: "review" as const },
+  });
+
+  test("a broken launcher refuses, carrying the sentinel code", async () => {
+    const patch = await resolveAuxPatch(args({ membraneLaunch: broken }));
+    expect("refused" in patch).toBe(true);
+    if (!("refused" in patch)) throw new Error("expected a refusal");
+    expect(patch.refused.summaryCode).toBe("membrane-launch");
+    expect(patch.refused.reason).toContain("EROFS tail");
+  });
+
+  test("refuses BEFORE firing onSpawn hooks or seeding trust — nothing is paid for", async () => {
+    let hooks = 0;
+    let seeds = 0;
+    const patch = await resolveAuxPatch(
+      args({
+        membraneLaunch: broken,
+        runSpawnHooks: async () => {
+          hooks++;
+          return {};
+        },
+        trustDir: async () => {
+          seeds++;
+        },
+      }),
+    );
+    expect("refused" in patch).toBe(true);
+    expect(hooks).toBe(0);
+    expect(seeds).toBe(0);
+  });
+
+  test("PER-BINARY: a broken claude does not refuse a codex spawn", async () => {
+    const membraneLaunch = async (agent: "claude" | "codex"): Promise<MembraneLaunch> =>
+      agent === "claude" ? { state: "broken", detail: "x" } : { state: "ok" };
+    const claude = await resolveAuxPatch(args({ membraneLaunch }));
+    expect("refused" in claude).toBe(true);
+    const codex = await resolveAuxPatch({ ...args({ membraneLaunch }), argv: ["codex", "exec"] });
+    expect("refused" in codex).toBe(false);
+  });
+
+  test("FAIL-OPEN: an uninspectable probe proceeds — a flaky probe blocks nothing", async () => {
+    const patch = await resolveAuxPatch(
+      args({ membraneLaunch: async (): Promise<MembraneLaunch> => ({ state: "uninspectable" }) }),
+    );
+    expect("refused" in patch).toBe(false);
+  });
+
+  test("no backend → passthrough, and the probe is never consulted", async () => {
+    let probed = 0;
+    const patch = await resolveAuxPatch(
+      args({
+        detectBackend: () => null,
+        membraneLaunch: async (): Promise<MembraneLaunch> => {
+          probed++;
+          return { state: "broken", detail: "x" };
+        },
+      }),
+    );
+    expect("refused" in patch).toBe(false);
+    expect(probed).toBe(0);
+  });
+
+  test("an argv the probe cannot speak to proceeds unrefused", async () => {
+    let probed = 0;
+    const patch = await resolveAuxPatch({
+      ...args({
+        membraneLaunch: async (): Promise<MembraneLaunch> => {
+          probed++;
+          return { state: "broken", detail: "x" };
+        },
+      }),
+      argv: ["bash", "-c", "true"],
+    });
+    expect("refused" in patch).toBe(false);
+    expect(probed).toBe(0);
+  });
+
+  test("resolveAuxSpawn propagates the refusal rather than assembling a spawn", async () => {
+    const result = await resolveAuxSpawn(args({ membraneLaunch: broken }));
+    expect("refused" in result).toBe(true);
   });
 });
 
@@ -584,6 +696,7 @@ describe("#2112 trustDir pre-seed", () => {
     detectBackend: () => "bwrap" as const,
     membraneEnv: () => stubEnv,
     pathExists: () => true,
+    membraneLaunch: okLaunch,
     ...extra,
   });
 
@@ -604,7 +717,7 @@ describe("#2112 trustDir pre-seed", () => {
         seams: seams({ trustDir: async (d: string, c: string) => void calls.push([d, c]) }),
       }),
     );
-    if ("aborted" in patch) throw new Error("unexpected abort");
+    if ("aborted" in patch || "refused" in patch) throw new Error("unexpected abort/refusal");
     // stubEnv.claudeDir is NOT `${home}/.claude`, so claudeConfigPath puts the file INSIDE it.
     expect(calls).toEqual([["/wt/task", "/stub/.claude/.claude.json"]]);
   });
@@ -621,7 +734,7 @@ describe("#2112 trustDir pre-seed", () => {
         }),
       }),
     );
-    if ("aborted" in patch) throw new Error("unexpected abort");
+    if ("aborted" in patch || "refused" in patch) throw new Error("unexpected abort/refusal");
     expect(calls).toEqual([["/wt/task", "/pool/acct/.claude.json"]]);
   });
 
@@ -635,14 +748,14 @@ describe("#2112 trustDir pre-seed", () => {
         }),
       }),
     );
-    if ("aborted" in patch) throw new Error("unexpected abort");
+    if ("aborted" in patch || "refused" in patch) throw new Error("unexpected abort/refusal");
     expect(patch.backend).toBe("bwrap");
   });
 
   test("no seam → no host writes attempted", async () => {
     // The absent-seam default is what keeps every other test in this file off the real $HOME.
     const patch = await resolveAuxPatch(baseArgs());
-    if ("aborted" in patch) throw new Error("unexpected abort");
+    if ("aborted" in patch || "refused" in patch) throw new Error("unexpected abort/refusal");
     expect(patch.backend).toBe("bwrap");
   });
 

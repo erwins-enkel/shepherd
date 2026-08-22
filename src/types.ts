@@ -613,9 +613,12 @@ export interface DiagnosticsSnapshot {
 export type PlanDecision = "approved" | "changes_requested" | "error";
 
 /** Sentinel for a server-authored plan-gate summary that must render per-locale in the UI (not
- *  baked English at write time). Only `error` verdicts carry a code today ("no-verdict"); every
- *  other summary is the reviewer's own operator-language text, passed through verbatim. */
-export type PlanSummaryCode = "no-verdict";
+ *  baked English at write time). Only `error` verdicts carry one; every other summary is the
+ *  reviewer's own operator-language text, passed through verbatim.
+ *   - `no-verdict`       the reviewer ran but no usable verdict came back
+ *   - `membrane-launch`  the reviewer NEVER RAN: its agent binary does not start inside the bwrap
+ *                        membrane on this host, so the spawn was refused (issue #2111) */
+export type PlanSummaryCode = "no-verdict" | "membrane-launch";
 
 /** Resolved coding environment for one in-flight reviewer job. `provider` can be null only for
  *  legacy/restart-adopted runs whose durable spawn row predates provider persistence. */
@@ -704,9 +707,15 @@ export type ReviewDecision = "changes_requested" | "commented" | "error";
  *   - `blocked`      the pane was wedged on an interactive prompt it could never answer
  *   - `timeout`      still had no verdict file when the hard deadline fired
  *   - `exited`       the spawn ended without writing a verdict file
- *   - `unparseable`  a verdict file was written but is not parseable even after jsonrepair */
+ *   - `unparseable`  a verdict file was written but is not parseable even after jsonrepair
+ *  `membrane-launch` is the odd one out: the critic never ran at all, because its agent binary does
+ *  not start inside the bwrap membrane on this host and the spawn was refused (issue #2111). */
 export type ReviewSummaryCode =
-  "no-verdict-blocked" | "no-verdict-timeout" | "no-verdict-exited" | "no-verdict-unparseable";
+  | "no-verdict-blocked"
+  | "no-verdict-timeout"
+  | "no-verdict-exited"
+  | "no-verdict-unparseable"
+  | "membrane-launch";
 
 export interface ReviewVerdict {
   sessionId: string;

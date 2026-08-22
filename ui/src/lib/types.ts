@@ -519,7 +519,7 @@ export interface SpawnNotice {
 export type PlanDecision = "approved" | "changes_requested" | "error";
 /** Sentinel for a server-authored plan-gate summary rendered per-locale in the UI (mirrors server
  *  `PlanSummaryCode`). Only `error` verdicts carry one today. */
-export type PlanSummaryCode = "no-verdict";
+export type PlanSummaryCode = "no-verdict" | "membrane-launch";
 /** A plan-gate verdict (mirrors server `PlanGate`), keyed client-side by session id. */
 export interface PlanGate {
   sessionId: string;
@@ -779,7 +779,11 @@ export type ReviewDecision = "changes_requested" | "commented" | "error";
 /** Sentinel for a server-authored no-verdict reason, rendered per-locale in the UI (mirrors server
  *  `ReviewSummaryCode`). Only `error` verdicts carry one. */
 export type ReviewSummaryCode =
-  "no-verdict-blocked" | "no-verdict-timeout" | "no-verdict-exited" | "no-verdict-unparseable";
+  | "no-verdict-blocked"
+  | "no-verdict-timeout"
+  | "no-verdict-exited"
+  | "no-verdict-unparseable"
+  | "membrane-launch";
 
 export interface ReviewVerdict {
   sessionId: string;

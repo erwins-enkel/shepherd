@@ -14,6 +14,7 @@ import type {
   Session,
   PlanGate,
   PlanDecision,
+  PlanSummaryCode,
   AgentProvider,
   ReviewerEnv,
   SpawnNoticeKind,
@@ -998,6 +999,16 @@ export class PlanGateService {
       this.deps.worktree.remove(wt.worktreePath);
       return "skipped";
     }
+    if ("refused" in patch) {
+      // #2111: the reviewer's binary does not start inside the membrane, so it would have produced
+      // nothing. A silent "skipped" here would trade one invisible failure for another — the whole
+      // point of the issue — so persist a VISIBLE error gate instead. `reason` carries the
+      // launcher's output (host paths and all): log-only, never into the row.
+      console.warn(`[plan-gate] spawn refused for ${session.id}: ${patch.refused.reason}`);
+      this.deps.worktree.remove(wt.worktreePath);
+      this.publishSpawnRefusal(session, plan, planHash, prior, patch.refused.summaryCode);
+      return "skipped";
+    }
 
     // #1944: the LAST step before the spawn, and synchronous throughout — fit the prompt inside the
     // OS argv budget or refuse. THE PLAN IS THE ONLY CLAMPABLE BLOCK here: `task` and `issueBody`
@@ -1473,6 +1484,42 @@ export class PlanGateService {
         });
       }
     }
+  }
+
+  /**
+   * Surface a spawn REFUSED before it started (issue #2111) as a visible `error` gate.
+   *
+   * The refusal is host-global and deterministic, and `consider()` deliberately re-attempts an
+   * `error` gate (`prior.decision !== "error"`), so this runs on every sweep while the host stays
+   * broken. Churn-guarded on planHash + summaryCode: an unchanged row is neither re-put nor
+   * re-broadcast. No `addSignal` — unlike `applyError` this is one host fault, not a per-session
+   * stall, and one signal per session per sweep would bury the herd.
+   */
+  private publishSpawnRefusal(
+    session: Session,
+    plan: string,
+    planHash: string,
+    prior: PlanGate | null,
+    summaryCode: PlanSummaryCode,
+  ): void {
+    if (prior?.planHash === planHash && prior.summaryCode === summaryCode) return; // already surfaced
+    const gate: PlanGate = {
+      sessionId: session.id,
+      planHash,
+      decision: "error",
+      summary: "", // "" whenever summaryCode is set — the UI renders the code per-locale
+      summaryCode,
+      body: "",
+      findings: [],
+      round: prior?.round ?? 0,
+      cap: this.cap,
+      approved: false,
+      plan,
+      answeredQuestionKeys: prior?.answeredQuestionKeys ?? [],
+      updatedAt: this.now(),
+    };
+    this.deps.store.putPlanGate(gate);
+    this.deps.onChange(session.id, gate);
   }
 
   /** Persist the error gate + escalate, but don't steer (no real findings) and don't release. */

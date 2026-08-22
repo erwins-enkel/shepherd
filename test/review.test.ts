@@ -2839,6 +2839,8 @@ test("degrades cleanly when resolveForge returns null (no block, still spawns)",
 test("critic spawn is wrapped in bwrap when backend is present", async () => {
   const { deps: d, started } = makeDeps({
     detectBackend: () => "bwrap",
+    // #2111: membraneLaunch defaults to the REAL bwrap-spawning probe; inject so no test spawns it.
+    membraneLaunch: async () => ({ state: "ok" }) as const,
     membraneEnv: () => ({
       claudeDir: "/fake/.claude",
       home: "/fake/home",
@@ -2865,6 +2867,39 @@ test("critic spawn is wrapped in bwrap when backend is present", async () => {
   expect(argv.at(-1)).toBe(
     reviewPrompt("main", "do the thing", [], [], null, null, { round: 1, cap: 3 }),
   );
+});
+
+// #2111: a critic whose binary can't launch inside the membrane produced no verdict, which looked
+// exactly like one still thinking — so the run burned its whole timeout. Refuse fast, and say why
+// through the SENTINEL (the launcher tail carries host paths and must not reach the row).
+test("membrane can't launch the critic → no spawn, worktree reaped, REVIEW ERR with the sentinel", async () => {
+  const {
+    deps: d,
+    started,
+    removed,
+    reviews,
+  } = makeDeps({
+    detectBackend: () => "bwrap",
+    membraneLaunch: async () => ({ state: "broken", detail: "mise EROFS" }) as const,
+    membraneEnv: () => ({
+      claudeDir: "/fake/.claude",
+      home: "/fake/home",
+      nodeBinReal: "/fake/bin/node",
+    }),
+    worktree: {
+      createDetached: async () => ({ worktreePath: "/review-wt", branch: null, isolated: true }),
+      remove: (p: string) => removed.push(p),
+      gitCommonDir: () => "/fake-git-common",
+    },
+  });
+  await new ReviewService(d as any).consider(session(), OPEN_GREEN);
+  expect(started).toHaveLength(0);
+  expect(removed).toContain("/review-wt");
+  const v = reviews["s1"]!;
+  expect(v.decision).toBe("error");
+  expect(v.summaryCode).toBe("membrane-launch");
+  expect(v.summary).toBe(""); // "" whenever a code is set
+  expect(JSON.stringify(v)).not.toContain("mise EROFS");
 });
 
 test("critic spawn degrades to unwrapped when backend is null", async () => {

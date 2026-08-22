@@ -52,7 +52,14 @@ import { scrubStaleVerdictArtifacts } from "./codex-last-message";
 // critic's pane tail gets the same treatment before it reaches the log.
 import { sanitizeRecapFailureDetail } from "./recap";
 import { isEpicChild } from "./epic-branch";
-import { resolveAuxPatch, assembleAuxSpawn, type MembraneSeams } from "./spawn-membrane";
+import {
+  resolveAuxPatch,
+  assembleAuxSpawn,
+  type MembraneSeams,
+  type SpawnRefusal,
+  type AuxPatch,
+} from "./spawn-membrane";
+import type { PluginSpawnAborted } from "./plugins/types";
 import { spawnBudget, type SpawnAssembler } from "./spawn-budget";
 import { OversizedArgvError } from "./argv-limit";
 import {
@@ -133,6 +140,31 @@ const DEFAULT_FINAL_ROUND_TIMEOUT_MS = 15 * 60_000;
 export interface NoVerdictCause {
   code: ReviewSummaryCode;
   detail: string;
+}
+
+/** The spawn never started — a plugin `abortSpawn`, or a membrane that cannot launch the agent
+ *  binary (#2111). A type predicate rather than an inline `||` so the caller narrows to `AuxPatch`
+ *  on the other side of the guard. */
+function unstarted(
+  patch: AuxPatch | { aborted: PluginSpawnAborted } | { refused: SpawnRefusal },
+): patch is { aborted: PluginSpawnAborted } | { refused: SpawnRefusal } {
+  return "aborted" in patch || "refused" in patch;
+}
+
+/** Is this exact spawn-abort/refusal already on file for this head? Same decision, head, summary AND
+ *  reason code ⇒ re-publishing would only churn the row and re-broadcast. */
+function alreadySurfaced(
+  prior: ReviewVerdict | null,
+  headSha: string,
+  summary: string,
+  summaryCode: ReviewSummaryCode | null,
+): boolean {
+  return (
+    prior?.decision === "error" &&
+    prior.headSha === headSha &&
+    prior.summary === summary &&
+    (prior.summaryCode ?? null) === summaryCode
+  );
 }
 
 export function noVerdictCause(
@@ -592,14 +624,8 @@ export class ReviewService {
         model: reviewerEnv.model,
       },
     });
-    if ("aborted" in patch) {
-      console.warn(`[review] onSpawn aborted for ${session.id}: ${patch.aborted.reason}`);
-      this.deps.worktree.remove(wt.worktreePath);
-      // Surface WHY instead of failing silently: an onSpawn abort (e.g. the claude-swap pool has
-      // no usable account) becomes a visible `error` verdict carrying the reason, so the badge
-      // reads "REVIEW ERR: <reason>" rather than a generic failure or a misleading "critic did not
-      // produce a verdict". Self-heals — the next consider() that lands a real verdict overwrites it.
-      this.publishSpawnAbort(session, git, patch.aborted.reason, prior);
+    if (unstarted(patch)) {
+      this.publishUnstarted(patch, session, git, wt.worktreePath, prior);
       return;
     }
 
@@ -1602,26 +1628,53 @@ export class ReviewService {
     this.deps.worktree.remove(worktreePath);
   }
 
+  /**
+   * A spawn that never started: a plugin `abortSpawn`, or a membrane that cannot launch the agent
+   * binary (#2111). Reap the worktree and surface WHY as a visible `error` verdict instead of
+   * failing silently — the badge reads "REVIEW ERR: <reason>" rather than a generic failure or a
+   * misleading "critic did not produce a verdict". Self-heals: the next consider() that lands a
+   * real verdict overwrites it.
+   *
+   * The two differ only in who authored the reason. A plugin's is plugin DATA and rides through as
+   * prose; a refusal's is Shepherd's own, so it travels as a sentinel CODE the UI localizes, and its
+   * `reason` (the launcher's output, host paths and all) is logged rather than stored.
+   */
+  private publishUnstarted(
+    patch: { aborted: PluginSpawnAborted } | { refused: SpawnRefusal },
+    session: Session,
+    git: GitState,
+    worktreePath: string,
+    prior: ReviewVerdict | null,
+  ): void {
+    const refused = "refused" in patch;
+    const reason = refused ? patch.refused.reason : patch.aborted.reason;
+    console.warn(
+      `[review] ${refused ? "spawn refused" : "onSpawn aborted"} for ${session.id}: ${reason}`,
+    );
+    this.deps.worktree.remove(worktreePath);
+    if (refused) this.publishSpawnAbort(session, git, "", prior, patch.refused.summaryCode);
+    else this.publishSpawnAbort(session, git, reason, prior);
+  }
+
   private publishSpawnAbort(
     session: Session,
     git: GitState,
     reason: string,
     prior: ReviewVerdict | null,
+    summaryCode: ReviewSummaryCode | null = null,
   ): void {
+    // A plugin abort's `reason` is plugin-authored DATA and passes through verbatim; a
+    // Shepherd-authored refusal (#2111) instead carries a sentinel and an EMPTY summary, per the
+    // `summary`/`summaryCode` contract on ReviewVerdict.
     const summary = reason.slice(0, 100);
-    if (
-      prior?.decision === "error" &&
-      prior.headSha === git.headSha! &&
-      prior.summary === summary
-    ) {
-      return; // already surfaced for this head — no churn
-    }
+    if (alreadySurfaced(prior, git.headSha!, summary, summaryCode)) return; // no churn
     const verdict: ReviewVerdict = {
       sessionId: session.id,
       headSha: git.headSha!,
       patchId: "", // transient: a later identical head must re-attempt, not inherit this abort
       decision: "error",
       summary,
+      summaryCode,
       body: "",
       findings: [],
       addressRound: prior?.addressRound ?? 0,

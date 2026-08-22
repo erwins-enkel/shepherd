@@ -40,6 +40,7 @@ import { readTmpInodeUsePct, sweepClaudeTmp, tmpInodeBands } from "./tmp-sweep";
 import { SHELLS } from "./json-tolerant";
 import type { SessionStore } from "./store";
 import type { DiagnosticCheck, DiagnosticsSnapshot, DiagnosticState } from "./types";
+import type { MembraneLaunchFacts } from "./membrane-launch";
 
 const execFileAsync = promisify(execFile);
 
@@ -189,12 +190,39 @@ export interface DiagnosticsDeps {
    *  so a hung binary can't block the loop. Default reads live; injected in tests.
    *  Reject ⇒ the probe falls back to `optional`/uninspectable (its `onTimeout`). */
   runPreviewProbe?: () => Promise<"ok" | "unavailable" | "unsupported">;
+  /** Launch facts for the `sandbox_membrane` row (#2111): does each agent binary on PATH actually
+   *  START inside the bwrap membrane? NO functional default (like `readHerdrFleet`) — the real read
+   *  spawns bwrap, so an unwired/test run must never reach it; the fail-safe reject resolves the
+   *  probe to its `optional`/uninspectable `onTimeout`, never a false ok. Wired in `index.ts`. */
+  readMembraneLaunch?: () => Promise<MembraneLaunchFacts>;
   /** LIVE freshness of the reaper's snapshot cell — a pure read, never a spawn.
    *  `DIAGNOSTICS_PROBE_TIMEOUT_MS` (5s) exceeds the refresh bound (3s), so the
    *  standalone probe alone would report `ok` on a host whose cell is frozen by
    *  refresh timeouts; this second input catches that. Default `() => "fresh"`
    *  (linux/unwired); wired in `index.ts` to the shared `reaper.health().state`. */
   probeHealth?: () => { state: "none" | "stale" | "fresh"; driven: boolean };
+}
+
+/**
+ * The fail-safe stand-in for a dep with NO functional default — one whose real read needs wiring
+ * only `index.ts` can supply, and whose default would otherwise touch the host from a test
+ * (`readHerdrFleet` needs the store + herdr driver; `readMembraneLaunch` spawns bwrap). Unwired, the
+ * rejection resolves that probe to its `optional`/uninspectable `onTimeout` — never a false ok.
+ */
+function unwired<T>(name: string): () => Promise<T> {
+  return () => Promise.reject(new Error(`${name} unwired`));
+}
+
+/** Resolve the two no-functional-default reads in one place (same shape as `resolveTmpSweepDeps` /
+ *  `resolvePreviewProbeDeps`), keeping their fallbacks out of the constructor's complexity. */
+function resolveUnwiredReads(deps: DiagnosticsDeps): {
+  readHerdrFleet: () => Promise<HerdrFleetFacts>;
+  readMembraneLaunch: () => Promise<MembraneLaunchFacts>;
+} {
+  return {
+    readHerdrFleet: deps.readHerdrFleet ?? unwired("readHerdrFleet"),
+    readMembraneLaunch: deps.readMembraneLaunch ?? unwired("readMembraneLaunch"),
+  };
 }
 
 /** A single probe: an async fn returning ONLY `{ id, state, hintKey }`. */
@@ -223,7 +251,15 @@ function worstOf(checks: DiagnosticCheck[]): DiagnosticState {
  *  in error and would fast-poll forever. Worse, the amplification is self-inflicted: process
  *  spawning is exactly what starts failing once a tmpfs inode table is exhausted, so answering that
  *  condition with ~10 extra fork/execs a minute attacks the very resource the row is reporting. */
-const STEADY_STATE_ERROR_CHECK_IDS = new Set<string>(["host_capacity", "tmp_inodes"]);
+//
+//  `sandbox_membrane` (#2111) is steady-state for the same reason: a launcher broken under the
+//  membrane stays broken until a human repairs the toolchain, and each re-check costs a real
+//  `bwrap` + `<agent> --version` spawn. Accelerating would fast-poll that forever with no path back.
+const STEADY_STATE_ERROR_CHECK_IDS = new Set<string>([
+  "host_capacity",
+  "tmp_inodes",
+  "sandbox_membrane",
+]);
 
 /**
  * Adaptive delay until the next background diagnostics re-check, chosen from the checks just
@@ -862,6 +898,49 @@ export function classifyHerdrFleet(f: HerdrFleetFacts): DiagnosticCheck {
     : { id, state: "ok", hintKey: "diagnostics_hint_herdr_health_ok" };
 }
 
+// ── sandbox_membrane check (#2111) ───────────────────────────────────────────
+// The bwrap backend self-test proves node+git start inside the membrane. It never launches the
+// AGENT binary — so a host whose launcher dies under the membrane (a version manager rebuilding
+// shims against a read-only bind, say) reported a healthy sandbox while every wrapped role died at
+// launch. This row observes the thing that actually matters.
+
+/**
+ * The `sandbox_membrane` row (#2111): every wrapped role dies at launch if its agent binary cannot
+ * start inside the membrane, and until now nothing observed that — the backend self-test proves
+ * node+git, not the agent.
+ *
+ * `null` ⇒ push nothing, so a host with no bwrap backend (nothing is wrapped) and a host with no
+ * agent CLI at all (the `claude` / `codex` rows already say so) keep a byte-identical snapshot.
+ *
+ * GUIDANCE-ONLY, like `claude_install`: no `remediation`, no `fixActionKey`. The fix is host-side
+ * toolchain surgery — which manager owns the binary, which path it rebuilds — not something
+ * Shepherd gets to do behind a button.
+ *
+ * `hintParams` carries the AGENT NAME only. The launcher's own output is the whole diagnosis but
+ * contains absolute host paths, which this payload bans; it goes to the server log instead (see
+ * `runProbe`).
+ */
+export function classifyMembraneLaunch(f: MembraneLaunchFacts): DiagnosticCheck | null {
+  if (f.backend === null || f.agents.length === 0) return null;
+  const broken = f.agents.find((a) => a.state === "broken");
+  if (broken) {
+    return {
+      id: "sandbox_membrane",
+      state: "error",
+      hintKey: "diagnostics_hint_sandbox_membrane_broken",
+      hintParams: { agent: broken.agent },
+    };
+  }
+  if (f.agents.some((a) => a.state === "uninspectable")) {
+    return {
+      id: "sandbox_membrane",
+      state: "optional",
+      hintKey: "diagnostics_hint_sandbox_membrane_uninspectable",
+    };
+  }
+  return { id: "sandbox_membrane", state: "ok", hintKey: "diagnostics_hint_sandbox_membrane_ok" };
+}
+
 // ── tmp_inodes check (#1862) ─────────────────────────────────────────────────
 // A tmpfs caps INODES independently of bytes, so an agent that puts a worktree + dependency
 // install on it can exhaust the table while `df -h` still shows the volume mostly empty. Every
@@ -1058,6 +1137,7 @@ export class DiagnosticsService {
   private readHostResources: () => Promise<HostCapacityFacts>;
   private readHerdrFleet: () => Promise<HerdrFleetFacts>;
   private readTmpInodes: () => Promise<TmpInodeFacts>;
+  private readMembraneLaunch: () => Promise<MembraneLaunchFacts>;
   private runTmpSweep: () => Promise<void>;
   private applyHostLimits: (
     units: string[],
@@ -1121,8 +1201,9 @@ export class DiagnosticsService {
     // No functional default: `defaultReadHerdrFleet` needs the store + herdr driver, which this
     // service doesn't hold, so the real read is wired in `index.ts`. Unwired, the fail-safe reject
     // resolves the probe to its `optional`/uninspectable `onTimeout` — never a false ok/warning.
-    this.readHerdrFleet =
-      deps.readHerdrFleet ?? (() => Promise.reject(new Error("readHerdrFleet unwired")));
+    const reads = resolveUnwiredReads(deps);
+    this.readHerdrFleet = reads.readHerdrFleet;
+    this.readMembraneLaunch = reads.readMembraneLaunch;
     this.applyHostLimits = deps.applyHostLimits ?? defaultApplyHostLimits;
     const tmpSweep = resolveTmpSweepDeps(deps);
     this.readTmpInodes = tmpSweep.readTmpInodes;
@@ -1423,6 +1504,14 @@ export class DiagnosticsService {
   private tmpInodesProbe = async (): Promise<DiagnosticCheck> =>
     classifyTmpInodes(await this.readTmpInodes());
 
+  /** sandbox_membrane (#2111): does each agent binary on PATH actually start inside the membrane?
+   *  Returns null when there is nothing to say (no backend / no agent CLI), so the row is pushed
+   *  conditionally. Any read failure resolves to the probe's `onTimeout` via the `check()` wrapper. */
+  private membraneLaunchProbe = async (): Promise<DiagnosticCheck[]> => {
+    const check = await this.readMembraneLaunch().then(classifyMembraneLaunch);
+    return check ? [check] : [];
+  };
+
   /** preview_probes (#1912): does process/port detection work on this host?
    *  Classifies from BOTH the standalone backend probe AND the live snapshot-cell
    *  health (`probeHealth` is a pure read, so this adds no sync spawn). A probe
@@ -1540,14 +1629,26 @@ export class DiagnosticsService {
   /** Force a fresh run of all probes; sets the TTL cache. A probe that throws /
    *  times out resolves to its defined non-OK fallback — the batch never rejects. */
   async check(now: number): Promise<DiagnosticsSnapshot> {
-    const [checks, agentCliChecks] = await Promise.all([
+    const [checks, agentCliChecks, membraneChecks] = await Promise.all([
       Promise.all(this.probes().map(({ run, onTimeout }) => run().catch(() => onTimeout))),
       this.agentCliProbes().catch((): DiagnosticCheck[] => [
         { id: "claude", state: "error", hintKey: "diagnostics_hint_claude_missing" },
         { id: "codex", state: "error", hintKey: "diagnostics_hint_codex_missing" },
       ]),
+      // Conditional row (#2111), which is why it is not in `probes()` — that shape demands exactly
+      // one check per probe. Two distinct absences: the classifier returns null for NOT APPLICABLE
+      // (no bwrap backend / no agent CLI) and the row is omitted, while a REJECTED read — the
+      // unwired fail-safe, or a read that genuinely failed — is "tried and couldn't" and surfaces
+      // as `optional`. Never a false ok either way.
+      this.membraneLaunchProbe().catch((): DiagnosticCheck[] => [
+        {
+          id: "sandbox_membrane",
+          state: "optional",
+          hintKey: "diagnostics_hint_sandbox_membrane_uninspectable",
+        },
+      ]),
     ]);
-    checks.splice(4, 0, ...agentCliChecks);
+    checks.splice(4, 0, ...agentCliChecks, ...membraneChecks);
     // Annotate each non-ok, auto-fixable check with its verbatim Fix command. Only
     // attach the key when a command exists (guidance-only / ok stay absent), so
     // payload-purity expectations hold.

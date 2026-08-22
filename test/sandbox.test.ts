@@ -883,6 +883,35 @@ describe("detectBackend (injected run)", () => {
     expect(calls).toBeGreaterThan(after);
   });
 
+  // #2111 regression guard. The obvious-looking "fix" for that issue is to append `claude --version`
+  // to this self-test — which would be WRONG: a null backend means RUN UNCONFINED, so a broken
+  // launcher would silently strip the sandbox from around untrusted plan text. The agent binary is
+  // proven separately by probeMembraneLaunch (membrane-launch.ts). Pin both the argv and the spawn
+  // count so re-introducing it here fails loudly.
+  test("self-test never launches an agent binary, and spawns exactly twice", () => {
+    const spawns: Array<{ cmd: string; args: string[] }> = [];
+    const deps = {
+      ...depsAll(0),
+      run: (cmd: string, args: string[]) => {
+        spawns.push({ cmd, args });
+        return { status: 0 };
+      },
+    };
+    expect(detectBackend(deps)).toBe("bwrap");
+    // exactly `bwrap --version` then the one wrapped probe — no third spawn
+    expect(spawns.length).toBe(2);
+    expect(spawns[0]).toEqual({ cmd: "bwrap", args: ["--version"] });
+    const probe = spawns[1]!;
+    const shCmd = probe.args[probe.args.indexOf("-c") + 1];
+    expect(shCmd).toContain("node --version");
+    expect(shCmd).toContain("git --version");
+    // No agent binary is INVOKED. Matched as a command token, not a substring: the probe legitimately
+    // mentions `<claudeDir>/session-env` in the mkdir path.
+    expect(shCmd).not.toMatch(/(^|[\s&|;])(claude|codex)\b/);
+    // ...and the INNER argv stays /bin/sh, so nothing snuck in past the `--`.
+    expect(probe.args[probe.args.indexOf("--") + 1]).toBe("/bin/sh");
+  });
+
   test("probe argv includes session-env mkdir (exercises the carve-out)", () => {
     let probeArgs: string[] = [];
     const deps = {

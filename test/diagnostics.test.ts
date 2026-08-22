@@ -80,6 +80,16 @@ function healthyDeps(): DiagnosticsDeps {
           },
         },
       }),
+    // sandbox_membrane (#2111): a host whose bwrap membrane launches both agent binaries → ok. The
+    // dep has NO functional default (the real read spawns bwrap), so it MUST be wired here or the
+    // row degrades to `optional`/uninspectable.
+    readMembraneLaunch: async () => ({
+      backend: "bwrap" as const,
+      agents: [
+        { agent: "claude" as const, state: "ok" as const },
+        { agent: "codex" as const, state: "ok" as const },
+      ],
+    }),
     // Pin the Codex auth mode so the codex_model_auth advisory is deterministically absent here
     // (it must not depend on the test host's real ~/.codex/auth.json).
     readCodexAuthMode: () => "unknown",
@@ -188,7 +198,7 @@ describe("DiagnosticsService probes", () => {
     const snap = await svc.check(1000);
     expect(snap.overall).toBe("ok");
     expect(snap.generatedAt).toBe(1000);
-    expect(snap.checks).toHaveLength(13);
+    expect(snap.checks).toHaveLength(14);
     expect(snap.checks.map((c) => c.id).sort()).toEqual([
       "bun",
       "claude",
@@ -201,6 +211,7 @@ describe("DiagnosticsService probes", () => {
       "host_capacity",
       "node",
       "preview_probes",
+      "sandbox_membrane",
       "tailscale",
       "tmp_inodes",
     ]);
@@ -953,7 +964,7 @@ describe("DiagnosticsService git_mergetree capability check", () => {
       anyLightweightRepo: () => true,
     });
     const snap = await svc.check(0);
-    expect(snap.checks).toHaveLength(14);
+    expect(snap.checks).toHaveLength(15);
     expect(snap.checks.map((c) => c.id).sort()).toEqual([
       "bun",
       "claude",
@@ -967,6 +978,7 @@ describe("DiagnosticsService git_mergetree capability check", () => {
       "host_capacity",
       "node",
       "preview_probes",
+      "sandbox_membrane",
       "tailscale",
       "tmp_inodes",
     ]);

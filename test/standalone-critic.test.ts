@@ -789,6 +789,8 @@ test("bwrap backend present: critic spawn is wrapped + isolated, credential mask
   await withAuth("api-key", "/helper.sh", async () => {
     const { deps, spies } = makeDeps({
       detectBackend: () => "bwrap",
+      // #2111: membraneLaunch defaults to the REAL bwrap-spawning probe; inject so no test spawns it.
+      membraneLaunch: async () => ({ state: "ok" }) as const,
       membraneEnv: () => ({
         claudeDir: "/fake/.claude",
         home: "/fake/home",

@@ -514,6 +514,14 @@ export class StandalonePrCriticService {
         model: this.deps.env?.().model ?? null,
       },
     });
+    if ("refused" in patch) {
+      // #2111: the critic's binary does not start inside the membrane. Session-less, so there is no
+      // `spawn_notices` row and no badge to adorn — log-only, exactly like the argv-budget refusal
+      // below. The host-global `sandbox_membrane` DIAGNOSE row is the operator-facing surface.
+      this.log(`[pr-critic] spawn refused for ${repoPath}#${pr.number}: ${patch.refused.reason}`);
+      this.deps.worktree.remove(worktreePath);
+      return;
+    }
     if ("aborted" in patch) {
       this.log(`[pr-critic] onSpawn aborted for ${repoPath}#${pr.number}: ${patch.aborted.reason}`);
       this.deps.worktree.remove(worktreePath);

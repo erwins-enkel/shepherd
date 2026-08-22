@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Session } from "$lib/types";
+  import type { Session, PlanSummaryCode } from "$lib/types";
   import { planGates, spawnNotices } from "$lib/reviews.svelte";
   import {
     dismissQuota,
@@ -318,6 +318,15 @@
     }
   }
 
+  /** Server-authored gate summaries travel as a sentinel CODE and are localized here, so no English
+   *  is ever baked into the row. An unknown code (older UI, newer server) falls back to the generic
+   *  no-verdict copy rather than rendering nothing. */
+  function summaryForCode(code: PlanSummaryCode): string {
+    // #2111: the reviewer never launched — its agent binary does not start inside the membrane.
+    if (code === "membrane-launch") return m.planpanel_membrane_launch();
+    return m.planpanel_no_verdict();
+  }
+
   function planStatusTone(currentChip: typeof chip): "ready" | "changes" | "error" | "muted" {
     if (currentChip.kind === "ready") return "ready";
     if (currentChip.kind === "changes") return "changes";
@@ -435,7 +444,9 @@
         <section class="verdict">
           <div class="micro">{m.planpanel_verdict()}</div>
           {#if gate.summaryCode || gate.summary}
-            <p class="summary">{gate.summaryCode ? m.planpanel_no_verdict() : gate.summary}</p>
+            <p class="summary">
+              {gate.summaryCode ? summaryForCode(gate.summaryCode) : gate.summary}
+            </p>
           {/if}
           {#if bodyHtml}
             <!-- eslint-disable-next-line svelte/no-at-html-tags -- reviewer markdown, DOMPurify-sanitized above -->

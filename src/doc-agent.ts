@@ -662,6 +662,10 @@ export class DocAgentService {
       this.deps.worktree.remove(wt.worktreePath);
       return { ok: false, result: { status: "skipped", reason: "plugin aborted spawn" } };
     }
+    if (spawned === "refused") {
+      this.deps.worktree.remove(wt.worktreePath);
+      return { ok: false, result: { status: "skipped", reason: "membrane refused spawn" } };
+    }
     if (!spawned) {
       this.deps.worktree.remove(wt.worktreePath);
       return { ok: false, result: { status: "error", reason: "spawn failed" } };
@@ -754,14 +758,15 @@ export class DocAgentService {
 
   /** Build the scoped argv + membrane and spawn the agent via herdr. Returns the terminalId +
    *  the agent's forced --session-id (the reviewer_spawns PK), or null on a spawn failure (logged),
-   *  or "aborted" when a plugin onSpawn hook aborts (distinct from a spawn failure). */
+   *  "aborted" when a plugin onSpawn hook aborts, or "refused" when the membrane cannot launch the
+   *  agent binary (#2111). Both are distinct from a spawn failure: nothing ran. */
   private async spawnAgent(
     repoPath: string,
     worktreePath: string,
     agentName: string,
     base: string,
     promptCtx?: RetargetPromptCtx,
-  ): Promise<{ terminalId: string; spawnSessionId: string } | null | "aborted"> {
+  ): Promise<{ terminalId: string; spawnSessionId: string } | null | "aborted" | "refused"> {
     const env = this.deps.env?.() ?? { provider: "claude" as const, model: null };
     const { argv, sessionId } = buildTransientAgentArgv("doc", {
       provider: env.provider,
@@ -784,6 +789,13 @@ export class DocAgentService {
         model: this.deps.env?.().model ?? null,
       },
     });
+    if ("refused" in aux) {
+      // #2111: the doc agent's binary does not start inside the membrane. A skip, not an error —
+      // nothing ran, and nothing will until the host toolchain is repaired. `reason` carries the
+      // launcher's output (host paths and all), so it is logged, never returned.
+      console.warn(`[doc-agent] spawn refused for ${repoPath}: ${aux.refused.reason}`);
+      return "refused";
+    }
     if ("aborted" in aux) {
       console.warn(`[doc-agent] onSpawn aborted for ${repoPath}: ${aux.aborted.reason}`);
       return "aborted";

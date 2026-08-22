@@ -14,6 +14,12 @@ import {
   type SandboxBackend,
   type MembraneInputs,
 } from "./sandbox";
+import {
+  membraneAgentOf,
+  probeMembraneLaunch,
+  type MembraneAgent,
+  type MembraneLaunch,
+} from "./membrane-launch";
 
 export interface MembraneEnv {
   claudeDir: string;
@@ -53,6 +59,23 @@ export interface MembraneSeams {
    *  Absent ⇒ no seeding (same convention as `runSpawnHooks`), which keeps tests off the real
    *  `$HOME`: this is the one seam here that WRITES to host state. Wired in index.ts. */
   trustDir?: (dir: string, configPath: string) => Promise<void>;
+  /** "Does this agent binary actually start inside the membrane?" (issue #2111). Absent ⇒ the REAL
+   *  probe, NOT a no-op: a safety gate that has to be remembered gets forgotten. It short-circuits
+   *  when `backend` is null, so in TESTS only one that injects a `bwrap` backend reaches the real
+   *  default — and there it throws `MembraneProbeUnwiredError` (NODE_ENV=test) rather than quietly
+   *  spawning bwrap on the test host. */
+  membraneLaunch?: (agent: MembraneAgent, backend: SandboxBackend) => Promise<MembraneLaunch>;
+}
+
+/** Why a wrapped aux spawn was refused before it started (issue #2111). Deliberately NOT folded into
+ *  the plugin `abortSpawn` result: an abort is a considered skip, this is a broken host, and the
+ *  separate discriminant is what forces every caller to decide how to surface it. */
+export interface SpawnRefusal {
+  /** Sentinel rendered per-locale by the UI — the server never ships English into a row. */
+  summaryCode: "membrane-launch";
+  /** Log-only detail. Carries the launcher's own output, INCLUDING absolute host paths, so it must
+   *  never reach a diagnostics or UI payload. */
+  reason: string;
 }
 
 /** Backend probe: injected seam (tests) or the real cached self-test. */
@@ -241,6 +264,44 @@ export interface AuxSpawnArgs {
   };
 }
 
+/** Launch probe: injected seam (tests) or the real TTL-cached probe. PRESENCE-checked, not `??` —
+ *  the seam legitimately resolves to a non-ok state, which `??` could not express. */
+function resolveMembraneLaunch(
+  seams: MembraneSeams,
+  agent: MembraneAgent,
+  backend: SandboxBackend,
+): Promise<MembraneLaunch> {
+  if (seams.membraneLaunch) return seams.membraneLaunch(agent, backend);
+  const env = resolveMembraneEnv(seams);
+  return probeMembraneLaunch(agent, backend, {
+    claudeDir: env.claudeDir,
+    home: env.home,
+    nodeBinReal: env.nodeBinReal,
+  });
+}
+
+/** The refusal for this spawn's inner argv, or null to proceed.
+ *
+ *  FAIL-OPEN by construction: only a `broken` verdict (a NON-ZERO EXIT from the launcher) refuses.
+ *  No backend (nothing is wrapped), an argv this probe cannot speak to, and an `uninspectable`
+ *  probe all proceed — a flaky probe must never be able to block every reviewer role on a healthy
+ *  host. */
+async function membraneLaunchRefusal(
+  argv: readonly string[],
+  backend: SandboxBackend,
+  seams: MembraneSeams,
+): Promise<SpawnRefusal | null> {
+  if (backend === null) return null; // passthrough — no membrane to fail inside
+  const agent = membraneAgentOf(argv);
+  if (!agent) return null;
+  const launch = await resolveMembraneLaunch(seams, agent, backend);
+  if (launch.state !== "broken") return null;
+  return {
+    summaryCode: "membrane-launch",
+    reason: `${agent} does not start inside the bwrap sandbox membrane on this host: ${launch.detail}`,
+  };
+}
+
 /** ASYNC half of the reviewer-style spawn tail (issue #937/#1205): probe the backend and fire the
  *  plugin onSpawn hooks, so review / plan-gate / doc-agent / standalone critic honor onSpawn
  *  exactly like a normal session spawn. Hooks fire exactly ONCE per spawn — the sync
@@ -250,8 +311,16 @@ export interface AuxSpawnArgs {
  *  the spawn cleanly). */
 export async function resolveAuxPatch(
   args: AuxSpawnArgs,
-): Promise<AuxPatch | { aborted: PluginSpawnAborted }> {
+): Promise<AuxPatch | { aborted: PluginSpawnAborted } | { refused: SpawnRefusal }> {
   const backend = resolveBackend(args.seams);
+
+  // #2111: prove the agent binary actually STARTS inside the membrane before paying for hooks, a
+  // trust seed and a pane. A launcher that dies here produced no verdict file, which is
+  // indistinguishable from a reviewer still thinking — so the caller waited out its whole timeout
+  // and respawned into the same wall. Refuse fast and say why instead. Per-binary: a host whose
+  // `claude` launcher is broken keeps running codex-configured roles.
+  const refusal = await membraneLaunchRefusal(args.argv, backend, args.seams);
+  if (refusal) return { refused: refusal };
   // No backend → passthrough (no membrane) → apiKeyPassthroughEnv carries the credential-less
   // mirror dir; with a backend the membrane masks creds in place and this is undefined.
   const baseEnv = apiKeyPassthroughEnv(backend !== null);
@@ -336,8 +405,9 @@ export async function resolveAuxSpawn(
 ): Promise<
   | { wrapped: string[]; spawnEnv: Record<string, string> | undefined }
   | { aborted: PluginSpawnAborted }
+  | { refused: SpawnRefusal }
 > {
   const patch = await resolveAuxPatch(args);
-  if ("aborted" in patch) return patch;
+  if ("aborted" in patch || "refused" in patch) return patch;
   return assembleAuxSpawn(patch, args);
 }

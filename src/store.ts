@@ -337,10 +337,15 @@ function serializeRecapFailure(recap: Recap): string | null {
   return recap.skip || !recap.failure ? null : JSON.stringify(recap.failure);
 }
 
-/** Coerce a persisted plan-gate summary code: only the known "no-verdict" sentinel survives; any
- *  other value (legacy prose lived in `summary`, not here) → null. */
+const PLAN_SUMMARY_CODES: ReadonlySet<string> = new Set<PlanSummaryCode>([
+  "no-verdict",
+  "membrane-launch",
+]);
+
+/** Coerce a persisted plan-gate summary code: only a known sentinel survives; anything else (legacy
+ *  rows, whose prose lived in `summary`) → null, so the UI falls back to rendering `summary`. */
 function coerceSummaryCode(v: string | null): PlanSummaryCode | null {
-  return v === "no-verdict" ? "no-verdict" : null;
+  return v !== null && PLAN_SUMMARY_CODES.has(v) ? (v as PlanSummaryCode) : null;
 }
 
 const REVIEW_SUMMARY_CODES: ReadonlySet<string> = new Set<ReviewSummaryCode>([
@@ -348,6 +353,7 @@ const REVIEW_SUMMARY_CODES: ReadonlySet<string> = new Set<ReviewSummaryCode>([
   "no-verdict-timeout",
   "no-verdict-exited",
   "no-verdict-unparseable",
+  "membrane-launch",
 ]);
 
 /** Coerce a persisted critic summary code: only a known sentinel survives; anything else (legacy

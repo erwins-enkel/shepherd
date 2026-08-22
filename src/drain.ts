@@ -165,11 +165,13 @@ import {
 } from "./default-model";
 import { readCodexAuthMode } from "./codex-auth";
 import { drainSpawnEffort, resolveDefaultEffortSetting } from "./default-effort";
+import { homedir } from "node:os";
 import {
   resolveProfile,
   autoHoldReason,
   egressApplies,
   detectBackend,
+  safeRealpath,
   type SandboxBackend,
 } from "./sandbox";
 import { detectEgressBackend, type EgressBackend } from "./egress";
@@ -439,9 +441,20 @@ export class DrainService {
   }
 
   /** Sandbox backend probe: injected seam (tests) or the real cached self-test. Presence-check
-   *  (not `?? real()`) since the seam legitimately returns null. */
+   *  (not `?? real()`) since the seam legitimately returns null.
+   *
+   *  Passes the probe env, matching SessionService and resolveBackend. A bare `detectBackend()`
+   *  would resolve node via `resolveNodeBin()` with no override — which ignores SHEPHERD_NODE_BIN,
+   *  while `config.nodeBin` honours it — so on a host that sets it the self-test would run against a
+   *  different node than every real spawn. The verdict is pinned for the whole process, and `null`
+   *  means RUN UNCONFINED, so whichever caller probes first must get this right. */
   private detectBackend(): SandboxBackend {
-    return this.deps.detectBackend ? this.deps.detectBackend() : detectBackend();
+    if (this.deps.detectBackend) return this.deps.detectBackend();
+    return detectBackend({
+      home: homedir(),
+      claudeDir: config.claudeDir,
+      nodeBinReal: safeRealpath(config.nodeBin),
+    });
   }
 
   /** Egress backend probe: injected seam (tests) or the real cached self-test. Presence-check

@@ -26,6 +26,7 @@ import {
   buildMembraneFlags,
   detectBackend as realDetectBackend,
   membraneForArgv,
+  type BackendProbeDeps,
   type MembraneInputs,
   type SandboxBackend,
 } from "./sandbox";
@@ -239,8 +240,9 @@ export interface MembraneLaunchFacts {
 }
 
 export interface MembraneLaunchFactsDeps extends MembraneLaunchDeps {
-  /** Backend probe; default the real cached `detectBackend`. */
-  detectBackend?: () => SandboxBackend;
+  /** Backend probe; default the real cached `detectBackend`. Receives the probe env so the seam and
+   *  the real function have the same shape and a test can assert what is forwarded. */
+  detectBackend?: (probe: BackendProbeDeps) => SandboxBackend;
   /** PATH lookup; default Bun.which. */
   which?: (cmd: string) => string | null;
 }
@@ -263,7 +265,17 @@ export async function readMembraneLaunchFacts(
   env: MembraneLaunchEnv,
   deps: MembraneLaunchFactsDeps = {},
 ): Promise<MembraneLaunchFacts> {
-  const backend = (deps.detectBackend ?? realDetectBackend)();
+  // Forward the probe env. `detectBackend`'s no-arg default resolves node via a bare
+  // `resolveNodeBin()`, which does NOT read SHEPHERD_NODE_BIN — but `config.nodeBin` (the source of
+  // `env.nodeBinReal`) does. On a host that sets it, the bare call would self-test against a
+  // different node than every real spawn uses, and since the verdict is pinned for the whole process
+  // and this read fires 4s after boot, a false `null` here would mean RUN UNCONFINED for the life of
+  // the process. Every other caller passes the env; so does this one.
+  const backend = (deps.detectBackend ?? realDetectBackend)({
+    home: env.home,
+    claudeDir: env.claudeDir,
+    nodeBinReal: env.nodeBinReal,
+  });
   if (backend === null) return { backend, agents: [] };
 
   resetMembraneLaunchCache();

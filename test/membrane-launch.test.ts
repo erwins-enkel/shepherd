@@ -8,6 +8,7 @@ import {
   type CapturedRun,
   type MembraneLaunchEnv,
 } from "../src/membrane-launch";
+import type { BackendProbeDeps } from "../src/sandbox";
 import { classifyMembraneLaunch } from "../src/diagnostics";
 
 const ENV: MembraneLaunchEnv = {
@@ -164,6 +165,29 @@ describe("readMembraneLaunchFacts", () => {
       which: (cmd) => (cmd === "claude" ? "/bin/claude" : null),
     });
     expect(facts.agents).toEqual([{ agent: "claude", state: "ok" }]);
+  });
+
+  // A bare `detectBackend()` resolves node via `resolveNodeBin()` with no override, which ignores
+  // SHEPHERD_NODE_BIN — while `config.nodeBin`, the source of `env.nodeBinReal`, honours it. Its
+  // verdict is pinned for the process and this read fires 4s after boot, so a false `null` here
+  // would mean every sandboxed spawn runs UNCONFINED for the life of the process.
+  test("forwards the probe env to detectBackend, never the bare no-arg default", async () => {
+    const seen: BackendProbeDeps[] = [];
+    const c = capture(OK);
+    await readMembraneLaunchFacts(ENV, {
+      ...c,
+      detectBackend: (probe) => {
+        seen.push(probe);
+        return "bwrap";
+      },
+      which: () => "/bin/stub",
+    });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toEqual({
+      home: ENV.home,
+      claudeDir: ENV.claudeDir,
+      nodeBinReal: ENV.nodeBinReal,
+    });
   });
 
   // #2111 follow-up: `DiagnosticsService.check` promises a forced fresh run, so the DIAGNOSE read

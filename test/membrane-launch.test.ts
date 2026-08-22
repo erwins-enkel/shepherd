@@ -166,6 +166,37 @@ describe("readMembraneLaunchFacts", () => {
     expect(facts.agents).toEqual([{ agent: "claude", state: "ok" }]);
   });
 
+  // #2111 follow-up: `DiagnosticsService.check` promises a forced fresh run, so the DIAGNOSE read
+  // must not answer from a verdict up to a minute old — an operator who repairs the toolchain and
+  // hits Re-run has to see the row clear immediately.
+  test("forces a fresh probe, ignoring a warm TTL cache", async () => {
+    const stale = capture(EROFS);
+    expect((await probeMembraneLaunch("claude", "bwrap", ENV, stale)).state).toBe("broken");
+    const healed = capture(OK);
+    const facts = await readMembraneLaunchFacts(ENV, {
+      ...healed,
+      detectBackend: () => "bwrap",
+      which: (cmd) => (cmd === "claude" ? "/bin/claude" : null),
+    });
+    expect(facts.agents).toEqual([{ agent: "claude", state: "ok" }]);
+    expect(healed.calls).toHaveLength(1); // re-probed rather than read the cached `broken`
+  });
+
+  test("refills the cache the spawn-refusal path reads, so the two cannot disagree", async () => {
+    const stale = capture(EROFS);
+    await probeMembraneLaunch("claude", "bwrap", ENV, stale);
+    const healed = capture(OK);
+    await readMembraneLaunchFacts(ENV, {
+      ...healed,
+      detectBackend: () => "bwrap",
+      which: (cmd) => (cmd === "claude" ? "/bin/claude" : null),
+    });
+    // The spawn path now reads `ok` from the cache the DIAGNOSE read just refilled — no new spawn.
+    const after = capture(EROFS);
+    expect(await probeMembraneLaunch("claude", "bwrap", ENV, after)).toEqual({ state: "ok" });
+    expect(after.calls).toHaveLength(0);
+  });
+
   test("no backend → no agents probed at all", async () => {
     const c = capture(OK);
     const facts = await readMembraneLaunchFacts(ENV, {

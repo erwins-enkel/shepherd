@@ -135,7 +135,8 @@ interface CacheEntry {
 
 const _cache = new Map<MembraneAgent, CacheEntry>();
 
-/** Clear the TTL cache (tests, and the DIAGNOSE re-check path). */
+/** Clear the TTL cache. Called by {@link readMembraneLaunchFacts} (the DIAGNOSE read forces a fresh
+ *  probe — see there) and by tests. */
 export function resetMembraneLaunchCache(): void {
   _cache.clear();
 }
@@ -248,8 +249,15 @@ export interface MembraneLaunchFactsDeps extends MembraneLaunchDeps {
  * Read the launch facts for every agent binary on PATH. Wired into DiagnosticsService from index.ts
  * (the dep has NO functional default there, so an unwired/test run can never reach the host).
  *
- * Shares `probeMembraneLaunch`'s TTL cache with the spawn path, so the DIAGNOSE row and the refusal
- * decision cannot disagree, and a diagnostics tick costs no extra spawn while the cache is warm.
+ * DELIBERATELY BYPASSES THE TTL CACHE, same reasoning as `readMiseClaude`: `DiagnosticsService.check`
+ * promises a forced fresh run, so an operator who repairs the toolchain and hits Re-run must see the
+ * row clear immediately rather than re-reading a verdict up to a minute old. Affordable — the
+ * background sweep runs on `DIAGNOSTICS_INTERVAL_MS` (6h), accelerating to 60s only while some other
+ * check is in error, and a healthy probe costs ~0.4s for both binaries.
+ *
+ * The refill is the point of sharing the cache rather than sidestepping it: the spawn-refusal path
+ * reads the entries this write leaves behind, so a repaired host un-blocks wrapped roles as soon as
+ * the row goes green, and the row and the refusal decision can never disagree.
  */
 export async function readMembraneLaunchFacts(
   env: MembraneLaunchEnv,
@@ -257,6 +265,8 @@ export async function readMembraneLaunchFacts(
 ): Promise<MembraneLaunchFacts> {
   const backend = (deps.detectBackend ?? realDetectBackend)();
   if (backend === null) return { backend, agents: [] };
+
+  resetMembraneLaunchCache();
 
   const which = deps.which ?? ((cmd: string) => Bun.which(cmd));
   const present = MEMBRANE_AGENTS.filter((a) => which(a) !== null);

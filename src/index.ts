@@ -2837,9 +2837,10 @@ const diagnostics = new DiagnosticsService({
   // default) because it needs the store + herdr driver the service doesn't hold.
   readHerdrFleet: () => defaultReadHerdrFleet(store, herdr),
   // sandbox_membrane (#2111): does each agent binary on PATH actually START inside the membrane?
-  // Wired here (not a ctor default) so no test ever spawns bwrap against the real host. Shares
-  // `probeMembraneLaunch`'s TTL cache with the spawn-refusal path, so the row and the refusal
-  // decision can never disagree. Same host env the wrapped aux spawns resolve.
+  // Wired here (not a ctor default) so no test ever spawns bwrap against the real host. The read
+  // forces a fresh probe (see readMembraneLaunchFacts) and refills the TTL cache the spawn-refusal
+  // path reads, so the row and the refusal decision can never disagree. Same host env the wrapped
+  // aux spawns resolve.
   readMembraneLaunch: () =>
     readMembraneLaunchFacts({
       claudeDir: config.claudeDir,

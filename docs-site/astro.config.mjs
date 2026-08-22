@@ -39,6 +39,9 @@ export default defineConfig({
         // Re-render the default Head + append Vercel Web Analytics. See
         // src/components/Head.astro for why an override (vs the `head` config option).
         Head: "./src/components/Head.astro",
+        // Re-render the default Footer + append the § 5 DDG imprint link. See
+        // src/components/Footer.astro.
+        Footer: "./src/components/Footer.astro",
       },
       // Generate the TypeScript API reference from the server package (../src)
       // with TypeDoc, so it CANNOT drift from source. Like syncDocs() above, this

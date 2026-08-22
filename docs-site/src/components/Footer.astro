@@ -1,0 +1,54 @@
+---
+// Override of Starlight's `Footer` component (registered in astro.config.mjs).
+// Re-renders the default footer unchanged, then appends a legal line.
+//
+// Why an override: docs.shepherd.run is a German-operated site, so a § 5 DDG
+// legal notice has to be clearly labelled and directly reachable from every
+// page. Starlight has no footer-links config option, and `Footer` is the only
+// site-wide slot below the content — so the override follows the same
+// re-render-the-default pattern as src/components/Head.astro and
+// src/components/SiteBacklink.astro.
+//
+// The link points at the single imprint on the marketing site instead of
+// duplicating the company details here: one version, nothing to drift. Same-tab
+// (no target="_blank"), matching the header back-link to shepherd.run.
+//
+// The default renders EditLink, LastUpdated and Pagination itself, so those
+// survive untouched. `<slot />` is forwarded anyway, as Starlight's override
+// guide prescribes: @astrojs/starlight@0.41's Footer.astro drops slotted content
+// today, but forwarding keeps this override correct if that changes.
+//
+// The legal line is a SIBLING of the default's `<footer>`, not a child — the
+// default exposes no slot to nest into, and wrapping it in a second `<footer>`
+// would add a duplicate landmark to every page.
+import Default from "@astrojs/starlight/components/Footer.astro";
+
+const IMPRESSUM_URL = "https://shepherd.run/impressum";
+---
+
+<Default>
+  <slot />
+</Default>
+
+<p class="docs-legal">
+  <a href={IMPRESSUM_URL}>Imprint</a>
+</p>
+
+<style>
+  /* Theme-var only (no raw hex), matching src/styles/custom.css. Muted like the
+     rest of the footer chrome, accented on hover/focus. */
+  .docs-legal {
+    margin-top: 1.5rem;
+    font-size: var(--sl-text-sm);
+  }
+
+  .docs-legal a {
+    color: var(--sl-color-gray-3);
+    text-decoration: none;
+  }
+
+  .docs-legal a:hover,
+  .docs-legal a:focus-visible {
+    color: var(--sl-color-accent-high);
+  }
+</style>

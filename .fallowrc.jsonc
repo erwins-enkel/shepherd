@@ -67,7 +67,11 @@
     // Head overrides Starlight's `Head` slot to append Vercel Web Analytics. Loaded
     // via the `components: { Head: "./src/components/Head.astro" }` string path in
     // astro.config.mjs — same string-path-root class as SiteBacklink above.
-    "docs-site/src/components/Head.astro"
+    "docs-site/src/components/Head.astro",
+    // Footer overrides Starlight's `Footer` slot to append the § 5 DDG imprint link.
+    // Loaded via the `components: { Footer: "./src/components/Footer.astro" }` string
+    // path in astro.config.mjs — same string-path-root class as Head above.
+    "docs-site/src/components/Footer.astro"
   ],
 
   // sw.js is the service worker: never imported statically — the browser fetches

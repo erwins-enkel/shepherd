@@ -399,3 +399,56 @@ describe("herdr downgrade button (#1898)", () => {
     expect(document.querySelector("button.fix")).toBeNull();
   });
 });
+
+describe("claude_install row (#2052)", () => {
+  it("interpolates hintParams into the row's own hint", () => {
+    render(DiagnoseRows, {
+      props: {
+        onfix: vi.fn(),
+        checks: [
+          check({
+            id: "claude_install",
+            state: "warning",
+            hintKey: "diagnostics_hint_claude_install_diverged",
+            hintParams: { running: "2.1.226", managed: "2.1.222" },
+          }),
+        ],
+      },
+    });
+
+    const hint = document.querySelector(".hint")?.textContent ?? "";
+    expect(hint).toContain("2.1.226");
+    expect(hint).toContain("2.1.222");
+    expect(hint).not.toContain("{running}");
+  });
+
+  it("still renders a param-less hint, which ignores the extra argument", () => {
+    render(DiagnoseRows, {
+      props: {
+        onfix: vi.fn(),
+        checks: [check({ id: "gh", state: "error", hintKey: "diagnostics_hint_gh_missing" })],
+      },
+    });
+    expect(document.querySelector(".hint")?.textContent).toContain(m.diagnostics_hint_gh_missing());
+  });
+
+  it("is guidance-only: a doc-link, never a Fix button", () => {
+    render(DiagnoseRows, {
+      props: {
+        onfix: vi.fn(),
+        checks: [
+          check({
+            id: "claude_install",
+            state: "warning",
+            hintKey: "diagnostics_hint_claude_install_native_residue",
+            hintParams: { size: "938 MB", count: "3" },
+          }),
+        ],
+      },
+    });
+    expect(document.querySelector("button.fix")).toBeNull();
+    expect(document.querySelector<HTMLAnchorElement>("a.doc-link")?.getAttribute("href")).toBe(
+      "https://docs.shepherd.run/operating/#the-claude-code-install-row",
+    );
+  });
+});

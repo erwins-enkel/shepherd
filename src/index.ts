@@ -66,6 +66,7 @@ import { backupConfiguredMarker, lastSuccessMarker } from "./backup-paths";
 import { UpdateService } from "./update";
 import { HerdrUpdateService } from "./herdr-update";
 import { CodexUpdateService, parseCodexUpdateChannel } from "./codex-update";
+import { refreshMiseClaude } from "./mise-claude";
 import { PluginUpdateService } from "./plugin-update";
 import { RestartService } from "./restart";
 import { DiagnosticsService, defaultReadHerdrFleet, nextDiagnosticsDelay } from "./diagnostics";
@@ -2789,6 +2790,17 @@ const checkPluginUpdates = async () =>
 setTimeout(timerTask("plugin-update", checkPluginUpdates), 6_000);
 setInterval(timerTask("plugin-update", checkPluginUpdates), 30 * 60 * 1000);
 
+// Is the `claude` we spawn the one mise manages (issue #2052)? Feeds BOTH the `claude_install`
+// DIAGNOSE row and `buildWrappedArgv`'s `DISABLE_AUTOUPDATER=1` pin. ONE kick, at boot only: every
+// later refresh rides the diagnostics tick below (which owns the cadence AND the force-refresh
+// path), so a second timer here would just double-probe. This one exists because the pin is read
+// SYNCHRONOUSLY on the spawn path and reads `false` while cold — warming it 3s ahead of the first
+// diagnostics tick is what makes it effective for an early spawn.
+setTimeout(
+  timerTask("mise-claude", async () => void (await refreshMiseClaude())),
+  1_000,
+);
+
 // environment-readiness diagnostics (issue #623): fan 7 dependency probes behind
 // a TTL cache and push the snapshot to clients. Like the herdr-update check, a
 // delayed boot kick + a 6h background re-check keep the UI's health pip live with
@@ -2821,6 +2833,12 @@ const diagnostics = new DiagnosticsService({
   // herdr_health (#1835): reconcile active sessions vs the herdr fleet. Wired here (not a ctor
   // default) because it needs the store + herdr driver the service doesn't hold.
   readHerdrFleet: () => defaultReadHerdrFleet(store, herdr),
+  // claude_install (#2052): the SHARED mise-vs-native probe, so the row and the spawn-env
+  // auto-updater pin can never disagree — each read re-latches the pin from the state the row
+  // renders. Wired here (not a ctor default) so no test ever spawns `mise which claude` against
+  // the real host. Uncached on purpose: `check()` promises a forced fresh run, so an operator who
+  // deletes the native tree and hits Re-run sees the row clear immediately.
+  readMiseClaude: () => refreshMiseClaude(),
 });
 // Adaptive background re-check (NOT a fixed setInterval): each tick probes, pushes the
 // snapshot, then re-arms itself with a delay chosen from that snapshot — 60s while the

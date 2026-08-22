@@ -1733,6 +1733,9 @@ export interface DiagnosticCheck {
   /** Non-secret params interpolated into the `fixActionKey` message (host facts only — unit names +
    *  limit strings, e.g. host_capacity #1839). `undefined` for param-less code fixes. */
   fixActionParams?: Record<string, string>;
+  /** Non-secret params interpolated into the row's OWN hint message (claude_install #2052:
+   *  two version triples, or a size + a build count). `undefined` for param-less hints. */
+  hintParams?: Record<string, string>;
 }
 export interface DiagnosticsSnapshot {
   checks: DiagnosticCheck[];

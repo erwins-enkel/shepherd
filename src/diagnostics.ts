@@ -34,6 +34,7 @@ import {
   type CodexAuthMode,
 } from "./default-model";
 import { matchAgents, tabLabelMap, type IHerdrDriver } from "./herdr";
+import { formatResidueSize, verdictFor, type MiseClaudeState } from "./mise-claude";
 import { isShepherdHelperLabel } from "./tab-reaper";
 import { readTmpInodeUsePct, sweepClaudeTmp, tmpInodeBands } from "./tmp-sweep";
 import { SHELLS } from "./json-tolerant";
@@ -142,6 +143,13 @@ export interface DiagnosticsDeps {
   /** True iff Claude Code trusts `config.repoRoot` (`hasTrustDialogAccepted`). Default reads the
    *  config-dir-aware `.claude.json`. Injected in tests to drive the `claude_trust` check. */
   readClaudeTrusted?: () => Promise<boolean>;
+  /** Mise-vs-native claude install facts for the `claude_install` row (#2052). NO functional
+   *  default: the real read is `refreshMiseClaude`, wired in `index.ts`, which probes the host on
+   *  EVERY call and carries no cache of its own — `check()` promises a forced fresh run, and this
+   *  service's snapshot TTL is the only cache in the path. A ctor default would also make every
+   *  existing diagnostics test spawn `mise which claude` against the real host.
+   *  Unwired (or rejecting) ⇒ the row is omitted entirely, exactly like a non-mise host. */
+  readMiseClaude?: () => Promise<MiseClaudeState>;
   /** Seed `config.repoRoot`'s trust flag — the `claude_trust` code fix. Default writes the same
    *  `.claude.json`. Injected in tests to spy the one-click fix without touching a real config. */
   trustClaude?: () => Promise<void>;
@@ -322,6 +330,67 @@ function defaultHerdrLiveness(bin: string, timeoutMs: number): Promise<void> {
  *  the `fix()` code-fix dispatch guard so a rename can't silently break dispatch (they must agree). */
 const CLAUDE_TRUST_UNTRUSTED_HINT = "diagnostics_hint_claude_trust_untrusted";
 
+/** One agent-runtime presence row. claude and codex are interchangeable: whichever is missing is
+ *  an `error` only when NEITHER is present, else `optional`. Both rows are built from this one
+ *  shape so the branch lives in a single place. */
+function agentCliCheck(
+  id: "claude" | "codex",
+  present: boolean,
+  anyPresent: boolean,
+): DiagnosticCheck {
+  if (present) return { id, state: "ok", hintKey: `diagnostics_hint_${id}_ok` };
+  return {
+    id,
+    state: anyPresent ? "optional" : "error",
+    hintKey: anyPresent ? `diagnostics_hint_${id}_optional` : `diagnostics_hint_${id}_missing`,
+  };
+}
+
+/** The `claude_install` row (#2052) — mise-managed claude vs the native copy Claude Code's own
+ *  auto-updater plants. GUIDANCE-ONLY by design: no `remediation`, no `fixActionKey`. Repointing
+ *  `~/.local/bin/claude` would clobber an operator's mise launcher script, and deleting a
+ *  several-hundred-MB install tree is not a decision Shepherd gets to make behind a button.
+ *  `null` ⇒ push nothing, so a non-mise host's snapshot stays byte-identical to before. */
+function miseClaudeCheck(state: MiseClaudeState): DiagnosticCheck | null {
+  const { pathVersion, miseVersion, nativeResidue } = state;
+  switch (verdictFor(state)) {
+    case "diverged":
+      // verdictFor only returns this with both versions read; the guard keeps that true for TS.
+      if (!pathVersion || !miseVersion) return null;
+      return {
+        id: "claude_install",
+        state: "warning",
+        hintKey: "diagnostics_hint_claude_install_diverged",
+        hintParams: { running: pathVersion, managed: miseVersion },
+      };
+    case "native":
+      // Versions agree TODAY, but what we spawn is the native copy mise cannot advance — so the
+      // pin is off (see `pinFor`) and the two will drift the moment either side moves.
+      if (!pathVersion) return null;
+      return {
+        id: "claude_install",
+        state: "warning",
+        hintKey: "diagnostics_hint_claude_install_native_on_path",
+        hintParams: { running: pathVersion },
+      };
+    case "residue":
+      if (!nativeResidue) return null;
+      return {
+        id: "claude_install",
+        state: "warning",
+        hintKey: "diagnostics_hint_claude_install_native_residue",
+        hintParams: {
+          size: formatResidueSize(nativeResidue.bytes),
+          count: String(nativeResidue.count),
+        },
+      };
+    case "ok":
+      return { id: "claude_install", state: "ok", hintKey: "diagnostics_hint_claude_install_ok" };
+    default:
+      return null;
+  }
+}
+
 /** Resolve the claude folder-trust deps for the `claude_trust` check + code fix (#1683),
  *  applying test overrides. Kept out of the constructor so its config-dir resolution and
  *  fallbacks don't inflate the constructor's complexity. Defaults target the SAME
@@ -331,12 +400,18 @@ function resolveClaudeTrustDeps(deps: DiagnosticsDeps): {
   readClaudeTrusted: () => Promise<boolean>;
   trustClaude: () => Promise<void>;
   isApiKeyAuth: () => boolean;
+  readMiseClaude: () => Promise<MiseClaudeState>;
 } {
   const cfg = claudeConfigPath(process.env.HOME ?? "", config.claudeDir);
   return {
     readClaudeTrusted: deps.readClaudeTrusted ?? (() => readRepoRootTrusted(cfg, config.repoRoot)),
     trustClaude: deps.trustClaude ?? (() => trustRepoRoot(cfg, config.repoRoot)),
     isApiKeyAuth: deps.isApiKeyAuth ?? isApiKeyMode,
+    // Unwired ⇒ fail-safe reject, which `agentCliProbes` turns into "no claude_install row" (see
+    // the dep's doc): never a false ok, and never a host spawn from a test. Resolved HERE, not
+    // inline in the ctor, for the reason this helper exists — one more `??` there trips the gate.
+    readMiseClaude:
+      deps.readMiseClaude ?? (() => Promise.reject(new Error("readMiseClaude unwired"))),
   };
 }
 
@@ -953,7 +1028,9 @@ async function classifyOrphanPane(
  * (TTL-cached read).
  *
  * **Payload purity:** every probe returns exactly `{ id, state, hintKey }` where
- * `hintKey` is a UI message-key STRING. No raw stdout, tokens, absolute paths, or
+ * `hintKey` is a UI message-key STRING (plus, where a row's message needs concrete
+ * numbers, a `hintParams` bag of non-secret host facts — version triples, a size).
+ * No raw stdout, tokens, absolute paths, or
  * account identity ever crosses into the snapshot — the gh probe inspects exit
  * code only, the tailscale probe parses structured output into tri-state.
  *
@@ -975,6 +1052,7 @@ export class DiagnosticsService {
   private detectCodexAuthMode: () => CodexAuthMode;
   private configuredCodexModels: () => readonly (string | null)[];
   private readClaudeTrusted: () => Promise<boolean>;
+  private readMiseClaude: () => Promise<MiseClaudeState>;
   private trustClaude: () => Promise<void>;
   private isApiKeyAuth: () => boolean;
   private readHostResources: () => Promise<HostCapacityFacts>;
@@ -1036,6 +1114,7 @@ export class DiagnosticsService {
     this.configuredCodexModels = deps.configuredCodexModels ?? (() => []);
     const trust = resolveClaudeTrustDeps(deps);
     this.readClaudeTrusted = trust.readClaudeTrusted;
+    this.readMiseClaude = trust.readMiseClaude;
     this.trustClaude = trust.trustClaude;
     this.isApiKeyAuth = trust.isApiKeyAuth;
     this.readHostResources = deps.readHostResources ?? defaultReadHostResources;
@@ -1260,24 +1339,8 @@ export class DiagnosticsService {
     ]);
     const anyAgentCli = claudeOk || codexOk;
     const checks: DiagnosticCheck[] = [
-      claudeOk
-        ? { id: "claude", state: "ok", hintKey: "diagnostics_hint_claude_ok" }
-        : {
-            id: "claude",
-            state: anyAgentCli ? "optional" : "error",
-            hintKey: anyAgentCli
-              ? "diagnostics_hint_claude_optional"
-              : "diagnostics_hint_claude_missing",
-          },
-      codexOk
-        ? { id: "codex", state: "ok", hintKey: "diagnostics_hint_codex_ok" }
-        : {
-            id: "codex",
-            state: anyAgentCli ? "optional" : "error",
-            hintKey: anyAgentCli
-              ? "diagnostics_hint_codex_optional"
-              : "diagnostics_hint_codex_missing",
-          },
+      agentCliCheck("claude", claudeOk, anyAgentCli),
+      agentCliCheck("codex", codexOk, anyAgentCli),
     ];
     // Folder-trust surfacing (#1683) — ONLY under subscription auth with Claude present. In api-key
     // mode the /usage probe short-circuits (never spawns), so an untrusted path wedges nothing and
@@ -1295,7 +1358,19 @@ export class DiagnosticsService {
             },
       );
     }
+    // Mise-vs-native install surfacing (#2052) — the read is caught inside `claudeInstallCheck`,
+    // so a slow or exploding `mise` can only cost this row, never the claude/codex rows above.
+    const installCheck = claudeOk ? await this.claudeInstallCheck() : null;
+    if (installCheck) checks.push(installCheck);
     return checks;
+  };
+
+  /** The `claude_install` row (#2052), or null when there is nothing to say — mise does not manage
+   *  claude, a version was unreadable, or the probe is unwired/failing. Its own catch keeps a slow
+   *  or exploding `mise` from costing the claude/codex rows that share `agentCliProbes`. */
+  private claudeInstallCheck = async (): Promise<DiagnosticCheck | null> => {
+    const state = await this.readMiseClaude().catch(() => null);
+    return state ? miseClaudeCheck(state) : null;
   };
 
   /** tailscale: missing binary / not-logged-in (resolveNodeHost null) ⇒ error;

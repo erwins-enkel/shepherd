@@ -12,6 +12,7 @@ import { posixShellJoin, oversizedFromArgv } from "./argv-limit";
 import { maintenance } from "./maintenance";
 import { spawnCommandLine } from "./spawn-script";
 import { compileCacheDir, agentTmpDir } from "./tmp-sweep";
+import { claudeSpawnPinned } from "./mise-claude";
 import type { HerdrState, LivenessState, SessionStatus } from "./types";
 import type { RequestPaneAgentState } from "./generated/herdr-protocol";
 
@@ -589,6 +590,16 @@ export { posixShellJoin };
  * NOTE: for a membrane-wrapped (sandboxed) spawn this OUTER `env` shim is wiped by `bwrap --clearenv`
  * (identically to `NODE_COMPILE_CACHE`), so the redirect is a TRUSTED-spawn guarantee — a sandbox's
  * own ephemeral `--tmpfs /tmp` never threatens the host inode table.
+ *
+ * Pins `DISABLE_AUTOUPDATER=1` for a `claude` inner command WHEN mise owns the claude we run
+ * (issue #2052). Claude Code's own updater otherwise keeps writing a native install into
+ * `~/.local/share/claude` + `~/.local/bin/claude`, which shadows the mise-managed copy; the two then
+ * diverge and `mise upgrade claude` moves only the one nothing runs. Gated on the host fact
+ * (`claudeSpawnPinned()`, refreshed on a slow cadence) so a NON-mise host is never stranded on an
+ * old build — there the agent keeps self-updating exactly as before, and the argv stays
+ * byte-identical. Codex spawns never get the token. Sandboxed spawns don't need it: the membrane
+ * binds `~/.local/share/claude` and `~/.local/bin` read-only under a `--tmpfs $HOME`, so an
+ * in-sandbox updater cannot plant on the host in the first place.
  */
 export function buildWrappedArgv(argv: string[], env?: Record<string, string>): string[] {
   const envTokens = env
@@ -606,14 +617,22 @@ export function buildWrappedArgv(argv: string[], env?: Record<string, string>): 
   const tmpTokens = agentTmp
     ? ["-u", "CLAUDE_CODE_TMPDIR", ...(env && "TMPDIR" in env ? [] : [`TMPDIR=${agentTmp}`])]
     : [];
+  const pinAutoupdater = argv[innerCommandStart(argv)] === "claude" && claudeSpawnPinned();
   return [
     "env",
     ...tmpTokens,
     `NODE_COMPILE_CACHE=${compileCacheDir()}`,
     ...(callerSetRenderer ? [] : ["CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1"]),
+    ...(pinAutoupdater ? ["DISABLE_AUTOUPDATER=1"] : []),
     ...envTokens,
     ...argv,
   ];
+}
+
+/** Index of the actual command in a (possibly membrane-wrapped) argv: `bwrap … -- claude …`
+ *  hides it behind the `--` separator, a trusted spawn starts with it. */
+function innerCommandStart(argv: string[]): number {
+  return argv[0] === "bwrap" ? argv.indexOf("--") + 1 : 0;
 }
 
 /** A headless Codex role shares its tab's process lifetime with the initial shell pane.
@@ -621,7 +640,7 @@ export function buildWrappedArgv(argv: string[], env?: Record<string, string>): 
  * file-based result, so direct `codex exec` and membrane-wrapped `bwrap … -- codex exec` runs
  * deliberately retain it. */
 export function isHeadlessCodexExec(argv: string[]): boolean {
-  const commandStart = argv[0] === "bwrap" ? argv.indexOf("--") + 1 : 0;
+  const commandStart = innerCommandStart(argv);
   return argv[commandStart] === "codex" && argv[commandStart + 1] === "exec";
 }
 

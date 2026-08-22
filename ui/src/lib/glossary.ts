@@ -131,6 +131,12 @@ const glossary: readonly GlossaryTerm[] = [
     bodyKey: "gloss_herdr_hygiene_def",
   },
   {
+    id: "sandbox-membrane",
+    kind: "internal",
+    termKey: "gloss_sandbox_membrane_term",
+    bodyKey: "gloss_sandbox_membrane_def",
+  },
+  {
     id: "inode",
     kind: "external",
     termKey: "gloss_inode_term",

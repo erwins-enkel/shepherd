@@ -73,6 +73,19 @@ test("plan_gate: summaryCode round-trips (error → sentinel code, non-error →
   expect(s.getPlanGate("err")?.summaryCode).toBe("no-verdict");
   expect(s.getPlanGate("err")?.summary).toBe("");
   expect(s.snapshotPlanGates()["err"]?.summaryCode).toBe("no-verdict");
+  // #2111: the refusal sentinel round-trips too — a typo'd union member would silently degrade the
+  // panel to a blank summary rather than fail.
+  s.putPlanGate(
+    g({
+      sessionId: "err",
+      decision: "error",
+      summary: "",
+      summaryCode: "membrane-launch",
+      findings: [],
+      round: 0,
+    }),
+  );
+  expect(s.getPlanGate("err")?.summaryCode).toBe("membrane-launch");
   // A non-error gate carries the reviewer's own summary and no code.
   s.putPlanGate(
     g({

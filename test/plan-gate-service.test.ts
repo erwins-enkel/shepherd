@@ -1118,6 +1118,8 @@ test("approved verdict carries no summaryCode (reviewer text is the summary)", a
 test("plan-gate reviewer spawn is wrapped in bwrap when backend is present", async () => {
   const h = harness({
     detectBackend: () => "bwrap",
+    // #2111: membraneLaunch defaults to the REAL bwrap-spawning probe; inject so no test spawns it.
+    membraneLaunch: async () => ({ state: "ok" }) as const,
     membraneEnv: () => ({
       claudeDir: "/fake/.claude",
       home: "/fake/home",
@@ -1141,6 +1143,61 @@ test("plan-gate reviewer spawn is wrapped in bwrap when backend is present", asy
   expect(argv[sep + 1]).not.toBe("bwrap"); // reviewer argv directly follows
   // plan text reaches the trailing positional inside the wrapper
   expect(argv.at(-1)).toContain("PLAN TEXT");
+});
+
+// #2111: a launcher that dies inside the membrane used to burn the full 10-minute timeout and
+// report `no-verdict`. Refuse fast — and VISIBLY, since a silent "skipped" would just move the
+// invisibility rather than fix it.
+test("membrane can't launch the reviewer → no spawn, worktree reaped, visible error gate", async () => {
+  const h = harness({
+    detectBackend: () => "bwrap",
+    membraneLaunch: async () => ({ state: "broken", detail: "mise EROFS" }) as const,
+    membraneEnv: () => ({
+      claudeDir: "/fake/.claude",
+      home: "/fake/home",
+      nodeBinReal: "/fake/bin/node",
+    }),
+    worktree: {
+      createDetached: async () => ({ worktreePath: "/wt-detached", branch: "main" }),
+      remove: (p: string) => h.removed.push(p),
+      gitCommonDir: () => "/fake-git-common",
+    },
+  });
+  expect(await h.svc.consider(planningSession() as any)).toBe("skipped");
+  expect(h.started).toHaveLength(0);
+  expect(h.removed).toContain("/wt-detached");
+  const gate = (h.store as any).gate;
+  expect(gate.decision).toBe("error");
+  expect(gate.approved).toBe(false); // still fail-closed: execution stays gated
+  expect(gate.summaryCode).toBe("membrane-launch");
+  expect(gate.summary).toBe(""); // "" whenever a code is set — the UI localizes the code
+  // The launcher tail carries host paths; it belongs in the log, never in the row.
+  expect(JSON.stringify(gate)).not.toContain("mise EROFS");
+});
+
+test("refusal is churn-guarded: an unchanged row is neither re-put nor re-broadcast", async () => {
+  const prior = { planHash: "h", summaryCode: "membrane-launch", decision: "error" };
+  const changes: string[] = [];
+  const h = harness({
+    detectBackend: () => "bwrap",
+    membraneLaunch: async () => ({ state: "broken", detail: "x" }) as const,
+    membraneEnv: () => ({
+      claudeDir: "/fake/.claude",
+      home: "/fake/home",
+      nodeBinReal: "/fake/bin/node",
+    }),
+    worktree: {
+      createDetached: async () => ({ worktreePath: "/wt-detached", branch: "main" }),
+      remove: () => {},
+      gitCommonDir: () => "/fake-git-common",
+    },
+    onChange: (id: string) => changes.push(id),
+  });
+  // Same plan text ⇒ same hash as the row already on file, so the second surfacing is suppressed.
+  const planHash = await (PlanGateService as any).hashPlan("PLAN TEXT");
+  (h.store as any).getPlanGate = () => ({ ...prior, planHash });
+  await h.svc.consider(planningSession() as any);
+  expect(changes).toHaveLength(0);
 });
 
 test("plan-gate reviewer spawn degrades to unwrapped when backend is null", async () => {

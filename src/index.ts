@@ -70,6 +70,9 @@ import { refreshMiseClaude } from "./mise-claude";
 import { PluginUpdateService } from "./plugin-update";
 import { RestartService } from "./restart";
 import { DiagnosticsService, defaultReadHerdrFleet, nextDiagnosticsDelay } from "./diagnostics";
+import { homedir } from "node:os";
+import { safeRealpath } from "./sandbox";
+import { readMembraneLaunchFacts } from "./membrane-launch";
 import { TelemetryService } from "./telemetry";
 import { normalizeTelemetryConsent } from "./telemetry-consent";
 import { wirePrOpenedTelemetry } from "./pr-opened-telemetry";
@@ -2833,6 +2836,17 @@ const diagnostics = new DiagnosticsService({
   // herdr_health (#1835): reconcile active sessions vs the herdr fleet. Wired here (not a ctor
   // default) because it needs the store + herdr driver the service doesn't hold.
   readHerdrFleet: () => defaultReadHerdrFleet(store, herdr),
+  // sandbox_membrane (#2111): does each agent binary on PATH actually START inside the membrane?
+  // Wired here (not a ctor default) so no test ever spawns bwrap against the real host. The read
+  // forces a fresh probe (see readMembraneLaunchFacts) and refills the TTL cache the spawn-refusal
+  // path reads, so the row and the refusal decision can never disagree. Same host env the wrapped
+  // aux spawns resolve.
+  readMembraneLaunch: () =>
+    readMembraneLaunchFacts({
+      claudeDir: config.claudeDir,
+      home: homedir(),
+      nodeBinReal: safeRealpath(config.nodeBin),
+    }),
   // claude_install (#2052): the SHARED mise-vs-native probe, so the row and the spawn-env
   // auto-updater pin can never disagree — each read re-latches the pin from the state the row
   // renders. Wired here (not a ctor default) so no test ever spawns `mise which claude` against

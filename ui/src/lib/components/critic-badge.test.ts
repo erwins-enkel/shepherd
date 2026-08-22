@@ -124,6 +124,7 @@ describe("criticTitle", () => {
     "no-verdict-timeout",
     "no-verdict-exited",
     "no-verdict-unparseable",
+    "membrane-launch", // #2111 — the critic never launched at all
   ];
 
   it("renders a distinct, non-empty reason for every code", () => {

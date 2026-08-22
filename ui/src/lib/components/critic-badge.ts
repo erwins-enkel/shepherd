@@ -7,6 +7,9 @@ const NO_VERDICT_REASON: Record<ReviewSummaryCode, () => string> = {
   "no-verdict-timeout": () => m.criticbadge_no_verdict_timeout(),
   "no-verdict-exited": () => m.criticbadge_no_verdict_exited(),
   "no-verdict-unparseable": () => m.criticbadge_no_verdict_unparseable(),
+  // #2111: not a no-verdict at all — the critic never launched, because its agent binary does not
+  // start inside the sandbox membrane on this host.
+  "membrane-launch": () => m.criticbadge_membrane_launch(),
 };
 
 /**

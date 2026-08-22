@@ -640,6 +640,7 @@ test("reviews: summaryCode round-trips; unknown sentinels coerce to null", () =>
     "no-verdict-timeout",
     "no-verdict-exited",
     "no-verdict-unparseable",
+    "membrane-launch", // #2111 — the critic never launched at all
   ] as const) {
     store.putReview({ ...base, summaryCode: code });
     expect(store.getReview("s1")?.summaryCode).toBe(code);

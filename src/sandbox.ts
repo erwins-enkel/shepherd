@@ -114,6 +114,13 @@ export function resetBackendCache(): void {
  * `git` invocation and runs it; only an exit 0 proves a usable backend.
  *
  * Available ("bwrap") iff `bwrap --version` exits 0 AND the wrapped probe exits 0.
+ *
+ * DO NOT add `claude --version` (or codex) to this probe — issue #2111 exists because that is the
+ * obvious-looking fix and it is the wrong one. This function's `null` means RUN UNCONFINED, so a
+ * launcher fault folded in here would silently strip the sandbox from around untrusted plan text on
+ * precisely the hosts that CAN sandbox. "Does the agent binary start inside the membrane" is a
+ * separate, orthogonal question, answered by `probeMembraneLaunch` (membrane-launch.ts), whose
+ * failure blocks the wrapped spawn and lights a DIAGNOSE row without touching confinement.
  */
 export function detectBackend(deps: BackendProbeDeps = {}): SandboxBackend {
   if (_backendCache !== undefined) return _backendCache;

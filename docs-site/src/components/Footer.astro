@@ -35,15 +35,17 @@ const IMPRESSUM_URL = "https://shepherd.run/impressum";
 </p>
 
 <style>
-  /* Theme-var only (no raw hex), matching src/styles/custom.css. Muted like the
-     rest of the footer chrome, accented on hover/focus. */
+  /* Theme-var only (no raw hex), matching src/styles/custom.css. gray-2 (not the
+     gray-3 Starlight uses for its own non-interactive footer meta): on the dark
+     brand surface gray-3 lands at ~2.6:1, under the 3:1 floor for interactive
+     text. Same rung as the .site-backlink in custom.css. */
   .docs-legal {
     margin-top: 1.5rem;
     font-size: var(--sl-text-sm);
   }
 
   .docs-legal a {
-    color: var(--sl-color-gray-3);
+    color: var(--sl-color-gray-2);
     text-decoration: none;
   }
 

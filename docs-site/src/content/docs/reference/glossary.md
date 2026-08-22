@@ -100,6 +100,24 @@ An automated LLM pass Shepherd spawns alongside the main task agent — critic /
 PR-review, plan-gate, recap, rundown, or doc-agent. Its token spend is real
 overhead attributed back to the task, on top of the agent's own authoring.
 
+### Access token
+
+A named credential a machine client sends in the `Authorization` header as a
+bearer, instead of logging in with the operator password. Mint one under
+**Settings → Access**: Shepherd shows the value once and stores only a hash of
+it, so a single token can be revoked on its own — unlike the shared
+`SHEPHERD_TOKEN` environment variable, which every client presents identically.
+
+### Scope
+
+How far a minted [access token](#access-token) reaches, chosen when you create it
+and fixed for its lifetime. **Read** can list sessions, holds and git status and
+follow live updates. **Submit** adds handing work in — starting a session,
+queueing or releasing a held task, attaching a screenshot, filing an issue.
+**Full** is the access you have yourself, including typing into a running agent's
+terminal. Anything a scope doesn't cover is refused, so a client can only do what
+you granted it. `SHEPHERD_TOKEN` has no scope; it always has full reach.
+
 ### Spawn prompt
 
 The standing instructions Shepherd assembles and hands an agent the moment it

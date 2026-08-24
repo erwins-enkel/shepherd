@@ -369,3 +369,164 @@ describe("FilesPanel — Attachments overlay (#1717)", () => {
     );
   });
 });
+
+describe("FilesPanel — a blocked drop always says why", () => {
+  const ATT = "attachments";
+  const rootWithAttachments = {
+    path: "",
+    parent: null as string | null,
+    entries: [{ name: ATT, type: "dir" as const, path: ATT, attachments: true }],
+  };
+
+  // A synthetic DataTransfer SILENTLY DISCARDS dropEffect writes (the spec only honours them
+  // during a real drag), so reading the property back would always report "none" and prove
+  // nothing. Record the assignments instead — that is what the handler actually did.
+  const dragTo = (tab: HTMLElement, type: "dragover" | "drop", file?: File) => {
+    const dt = new DataTransfer();
+    if (file) dt.items.add(file);
+    const dropEffects: string[] = [];
+    Object.defineProperty(dt, "dropEffect", {
+      configurable: true,
+      get: () => dropEffects[dropEffects.length - 1] ?? "none",
+      set: (v: string) => void dropEffects.push(v),
+    });
+    const evt = new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: dt });
+    tab.dispatchEvent(evt);
+    return { evt, dt, dropEffects };
+  };
+
+  // The load-bearing invariant behind every message in this block. A synthetic DragEvent
+  // dispatched at the handler bypasses the browser's own drag bookkeeping, so it CANNOT prove a
+  // real drop would follow — asserting dropEffect here is what stops a "none" regression (which
+  // cancels the drag, so no drop event ever fires) from passing these tests silently.
+  it("keeps the drop live on dragover — preventDefault, never dropEffect none", async () => {
+    render(FilesPanel, { sessionId: "drag-live" });
+    await waitForPanel();
+    const tab = document.querySelector<HTMLDivElement>(".files")!;
+
+    const enabled = dragTo(tab, "dragover", new File(["a"], "a.eps", { type: "" }));
+    expect(enabled.evt.defaultPrevented).toBe(true);
+    expect(enabled.dropEffects).toEqual(["copy"]);
+
+    // Same guarantee where upload is impossible — otherwise the explanation is unreachable.
+    await clickWorktreeSegButton();
+    const disabled = dragTo(tab, "dragover", new File(["a"], "a.eps", { type: "" }));
+    expect(disabled.evt.defaultPrevented).toBe(true);
+    expect(disabled.dropEffects).toEqual(["copy"]);
+    // No overlay where nothing can land (poll: Svelte flushes the removal asynchronously).
+    await expect.poll(() => document.querySelector(".drop-overlay")).toBeFalsy();
+  });
+
+  it("explains a drop on the read-only Worktree tab instead of swallowing it", async () => {
+    render(FilesPanel, { sessionId: "drag-wt" });
+    await waitForPanel();
+    await clickWorktreeSegButton();
+
+    const tab = document.querySelector<HTMLDivElement>(".files")!;
+    dragTo(tab, "drop", new File(["a"], "logo.eps", { type: "" }));
+
+    await expect
+      .poll(() => document.querySelector(".upload-status.err")?.textContent?.trim())
+      .toBe(m.files_upload_readonly_worktree());
+    expect(mockUpload).not.toHaveBeenCalled();
+  });
+
+  it("explains a drop inside the read-only Attachments folder", async () => {
+    const emptySub = { path: ATT, parent: "", entries: [] as never[] };
+    mockListing.mockImplementation(async (_id: string, path?: string) =>
+      path === ATT ? emptySub : rootWithAttachments,
+    );
+    render(FilesPanel, { sessionId: "drag-att" });
+    await waitForPanel();
+
+    const folder = Array.from(document.querySelectorAll<HTMLButtonElement>("button.row")).find(
+      (b) => b.querySelector(".nm")?.textContent?.trim() === m.files_attachments_folder(),
+    );
+    folder!.click();
+    await expect.poll(() => document.querySelector("button.upload-btn")).toBeNull();
+
+    const tab = document.querySelector<HTMLDivElement>(".files")!;
+    dragTo(tab, "drop", new File(["a"], "logo.eps", { type: "" }));
+
+    await expect
+      .poll(() => document.querySelector(".upload-status.err")?.textContent?.trim())
+      .toBe(m.files_upload_readonly_attachments());
+    expect(mockUpload).not.toHaveBeenCalled();
+  });
+
+  // The classic dead end: dragging an attachment straight out of a mail client or a browser tab
+  // hands over a reference, not a file, so dataTransfer.files is empty.
+  it("explains a drop that carried no file at all", async () => {
+    render(FilesPanel, { sessionId: "drag-nofile" });
+    await waitForPanel();
+
+    const tab = document.querySelector<HTMLDivElement>(".files")!;
+    dragTo(tab, "drop");
+
+    await expect
+      .poll(() => document.querySelector(".upload-status.err")?.textContent?.trim())
+      .toBe(m.files_upload_no_files());
+    expect(mockUpload).not.toHaveBeenCalled();
+  });
+
+  // A failed listing is permanent (a blank claudeSessionId 404s forever), so "try again in a
+  // moment" would be advice that never comes good.
+  it("distinguishes a failed listing from one that is still loading", async () => {
+    mockListing.mockRejectedValue(new ApiError(404, "not found"));
+    render(FilesPanel, { sessionId: "drag-noscratch" });
+
+    // The panel settles into the error state: the button stays rendered but disabled, and its
+    // tooltip carries the same permanent reason rather than "hasn't loaded yet".
+    await expect
+      .poll(() => document.querySelector<HTMLButtonElement>("button.upload-btn")?.disabled)
+      .toBe(true);
+    expect(document.querySelector<HTMLButtonElement>("button.upload-btn")!.title).toBe(
+      m.files_upload_load_failed(),
+    );
+
+    const tab = document.querySelector<HTMLDivElement>(".files")!;
+    dragTo(tab, "drop", new File(["a"], "logo.eps", { type: "" }));
+
+    await expect
+      .poll(() => document.querySelector(".upload-status.err")?.textContent?.trim())
+      .toBe(m.files_upload_load_failed());
+    expect(mockUpload).not.toHaveBeenCalled();
+  });
+
+  // browse() only assigns `listing` on success, so a failed refresh leaves error=true with a
+  // usable stale listing — and the button, gated on `listing === null`, stays enabled. The drop
+  // must agree with it rather than claim the scratchpad is gone.
+  it("still uploads when a refresh failed but a stale listing remains", async () => {
+    mockUpload.mockResolvedValue("logo.eps");
+    mockListing.mockResolvedValueOnce(EMPTY_LISTING).mockRejectedValue(new ApiError(500, "boom"));
+
+    render(FilesPanel, { sessionId: "drag-stale" });
+    await waitForPanel();
+
+    const tab = document.querySelector<HTMLDivElement>(".files")!;
+    // First drop succeeds; its post-upload refresh is the rejection queued above.
+    dragTo(tab, "drop", new File(["a"], "logo.eps", { type: "" }));
+    await expect.poll(() => mockUpload.mock.calls.length).toBe(1);
+
+    // Second drop, now in the error-with-stale-listing state: uploads, no refusal notice.
+    dragTo(tab, "drop", new File(["b"], "logo2.eps", { type: "" }));
+    await expect.poll(() => mockUpload.mock.calls.length).toBe(2);
+    expect(document.querySelector("button.upload-btn")).not.toBeNull();
+    expect(document.body.textContent).not.toContain(m.files_upload_load_failed());
+  });
+
+  it("names the cause when the session has no scratchpad target (404)", async () => {
+    mockUpload.mockRejectedValue(new ApiError(404, "not found"));
+    render(FilesPanel, { sessionId: "drag-404" });
+    await waitForPanel();
+
+    const file = new File(["a"], "logo.eps", { type: "" });
+    const input = document.querySelector<HTMLInputElement>('input[type="file"]')!;
+    Object.defineProperty(input, "files", { value: [file], configurable: true });
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+
+    await expect
+      .poll(() => document.querySelector(".upload-status.err")?.textContent?.trim())
+      .toBe(m.files_upload_unavailable({ name: "logo.eps" }));
+  });
+});

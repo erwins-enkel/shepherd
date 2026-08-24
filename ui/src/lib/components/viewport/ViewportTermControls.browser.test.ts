@@ -16,12 +16,25 @@ const baseProps = () => ({
   enter: enterKey(),
   uploading: false,
   uploadFailed: false,
-  attachImages: () => {},
+  attachFiles: () => {},
   onsummon: () => {},
 });
 
 afterEach(() => {
   document.body.innerHTML = "";
+});
+
+describe("ViewportTermControls attach picker", () => {
+  // The picker used to carry accept="image/*,video/*", which made an EPS (and every other
+  // non-media file) unpickable with no explanation anywhere. Any type is accepted now.
+  it("puts no type filter on the file input", async () => {
+    render(ViewportTermControls, baseProps());
+    await tick();
+    const input = document.querySelector<HTMLInputElement>('input[type="file"]');
+    expect(input).not.toBeNull();
+    expect(input!.hasAttribute("accept")).toBe(false);
+    expect(input!.multiple).toBe(true);
+  });
 });
 
 const rectOf = (label: string) => {

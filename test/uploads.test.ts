@@ -13,7 +13,6 @@ import { join } from "node:path";
 import {
   extForMime,
   imageExtForMime,
-  sessionAttachExtForMime,
   MAX_UPLOAD_BYTES,
   MAX_REQUEST_BODY_BYTES,
   stagingDir,
@@ -48,14 +47,6 @@ test("imageExtForMime remains image-only for live terminal uploads", () => {
   expect(imageExtForMime("application/pdf")).toBeNull();
   expect(imageExtForMime("text/plain")).toBeNull();
   expect(imageExtForMime("video/mp4")).toBeNull();
-});
-
-test("sessionAttachExtForMime accepts images and videos, nothing else", () => {
-  expect(sessionAttachExtForMime("image/png")).toBe("png");
-  expect(sessionAttachExtForMime("video/mp4")).toBe("mp4");
-  expect(sessionAttachExtForMime("video/quicktime")).toBe("mov");
-  expect(sessionAttachExtForMime("application/pdf")).toBeNull();
-  expect(sessionAttachExtForMime("text/plain")).toBeNull();
 });
 
 test("MAX_UPLOAD_BYTES is 250 MB", () => {
@@ -273,7 +264,7 @@ test("handleUpload accepts video uploads on the ?session= path", async () => {
   }
 });
 
-test("handleUpload keeps ?session= uploads image/video-only", async () => {
+test("handleUpload takes any type on ?session= uploads, extension from the name", async () => {
   const store = new SessionStore(":memory:");
   const wt = join(root, "wt-sess");
   mkdirSync(wt);
@@ -290,9 +281,51 @@ test("handleUpload keeps ?session= uploads image/video-only", async () => {
     claudeSessionId: "00000000-0000-0000-0000-000000000000",
     model: null,
   });
-  const file = new File([new Uint8Array([1])], "x.pdf", { type: "application/pdf" });
+  // An EPS is the motivating case (#2228) and arrives BOTH ways: some browsers type it
+  // `application/postscript`, most hand over an empty type and only the name carries the truth.
+  const cases: Array<[string, string, string]> = [
+    ["logo.eps", "application/postscript", ".eps"],
+    ["logo.eps", "", ".eps"],
+    ["spec.pdf", "application/pdf", ".pdf"],
+    ["data.csv", "text/csv", ".csv"],
+  ];
+  for (const [name, type, ending] of cases) {
+    const file = new File([new Uint8Array([1])], name, { type });
+    const res = await handleUpload(uploadReq(file, `?session=${s.id}`), { store, repoRoot: root });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.path.startsWith(worktreeUploadsDir(wt) + "/")).toBe(true);
+    expect(body.path.endsWith(ending)).toBe(true);
+    expect(existsSync(body.path)).toBe(true);
+  }
+});
+
+test("handleUpload sanitizes a hostile attachment name to a safe extension", async () => {
+  const store = new SessionStore(":memory:");
+  const wt = join(root, "wt-hostile");
+  mkdirSync(wt);
+  const s = store.create({
+    name: "n",
+    prompt: "p",
+    repoPath: "/r",
+    baseBranch: "main",
+    branch: "shepherd/n",
+    worktreePath: wt,
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_a",
+    claudeSessionId: "00000000-0000-0000-0000-000000000000",
+    model: null,
+  });
+  const file = new File([new Uint8Array([1])], "../../evil.sh ell", { type: "" });
   const res = await handleUpload(uploadReq(file, `?session=${s.id}`), { store, repoRoot: root });
-  expect(res.status).toBe(415);
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  // The raw name never reaches the FS: stored under a UUID, and the unsafe extension → bin.
+  expect(body.path.startsWith(worktreeUploadsDir(wt) + "/")).toBe(true);
+  expect(body.path.endsWith(".bin")).toBe(true);
+  expect(body.path).not.toContain("evil");
+  expect(existsSync(body.path)).toBe(true);
 });
 
 test("handleUpload 404s for an unknown session", async () => {

@@ -408,9 +408,6 @@ export async function uploadFile(
   return (await r.json()).path as string;
 }
 
-/** Backward-compatible image-attach helper. Callers must keep their own image filter. */
-export const uploadImage = uploadFile;
-
 /** Detection status of the optional `voice-whisper` plugin (local Whisper transcription). */
 export interface VoiceStatus {
   available: boolean;

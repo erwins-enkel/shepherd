@@ -13,7 +13,7 @@
     enter,
     uploading,
     uploadFailed,
-    attachImages,
+    attachFiles,
     onsummon,
   }: {
     mobile: boolean;
@@ -24,7 +24,7 @@
     enter: ControlKey;
     uploading: boolean;
     uploadFailed: boolean;
-    attachImages: (files: FileList | File[]) => void;
+    attachFiles: (files: FileList | File[]) => void;
     onsummon: () => void;
   } = $props();
 
@@ -80,9 +80,9 @@
       type="button"
       class="attach"
       class:failed={uploadFailed}
-      title={uploadFailed ? m.viewport_upload_failed() : m.viewport_attach_image()}
+      title={uploadFailed ? m.viewport_upload_failed() : m.viewport_attach_file()}
       onclick={() => fileInput?.click()}
-      aria-label={m.viewport_attach_image()}
+      aria-label={m.viewport_attach_file()}
     >
       {#if uploading}
         <svg
@@ -154,15 +154,17 @@
       }}>{enter.label}</button
     >
   </div>
+  <!-- No `accept`: the attach takes any file type (an EPS logo, a CSV, a font), matching the
+       New Task and scratchpad upload paths. A filter here made unusual types unpickable with no
+       explanation anywhere. -->
   <input
     bind:this={fileInput}
     type="file"
-    accept="image/*,video/*"
     multiple
     hidden
     onchange={(e) => {
       const t = e.currentTarget;
-      if (t.files) attachImages(t.files);
+      if (t.files) attachFiles(t.files);
       t.value = "";
     }}
   />

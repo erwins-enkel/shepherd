@@ -1488,17 +1488,36 @@ test("serve() accepts a >128 MiB screen-recording upload end-to-end", async () =
   }
 });
 
-test("POST /api/uploads?session rejects a non-image for the live terminal image workflow", async () => {
-  const app = makeApp(makeDeps(["term_x"]));
-  const created = await (
-    await postSessions(app, { repoPath: validRepo, baseBranch: "main", prompt: "go" })
-  ).json();
+test("POST /api/uploads?session takes any file type for the in-session attach workflow", async () => {
+  // Seeded through the store so the session gets a REAL worktree: makeDeps' fake worktree
+  // creator hands out "/wt", and the upload now writes to disk instead of bailing on the type.
+  const deps = makeDeps(["term_x"]);
+  const app = makeApp(deps);
+  const wt = join(tmpRoot, "wt-attach");
+  mkdirSync(wt);
+  const s = deps.store.create({
+    name: "n",
+    prompt: "p",
+    repoPath: validRepo,
+    baseBranch: "main",
+    branch: "shepherd/n",
+    worktreePath: wt,
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_x",
+    claudeSessionId: "00000000-0000-0000-0000-000000000000",
+    model: null,
+  });
   const fd = new FormData();
-  fd.append("file", new File([new Uint8Array([1])], "s.pdf", { type: "application/pdf" }));
-  const res = await app.fetch(
-    new Request(`http://x/api/uploads?session=${created.id}`, { method: "POST", body: fd }),
+  fd.append(
+    "file",
+    new File([new Uint8Array([1])], "logo.eps", { type: "application/postscript" }),
   );
-  expect(res.status).toBe(415);
+  const res = await app.fetch(
+    new Request(`http://x/api/uploads?session=${s.id}`, { method: "POST", body: fd }),
+  );
+  expect(res.status).toBe(200);
+  expect((await res.json()).path.endsWith(".eps")).toBe(true);
 });
 
 test("POST /api/sessions/:id/reply types into the agent and 404s unknown ids", async () => {

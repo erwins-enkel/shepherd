@@ -105,11 +105,16 @@
   type UploadStatus = {
     id: number;
     name: string;
-    state: "uploading" | "done" | "failed" | "too_large";
+    state: "uploading" | "done" | "failed" | "too_large" | "not_found";
   };
   let uploads = $state<UploadStatus[]>([]);
   let nextUploadId = 0;
   let dragOver = $state(false);
+
+  // Why a drop did nothing. A blocked drop is about the TARGET, not a file, so it can't ride the
+  // per-file `uploads` list. Cleared whenever a new drag starts or an upload begins, so it never
+  // outlives the gesture it explains.
+  let dropNotice = $state<string | null>(null);
 
   let fileInput = $state<HTMLInputElement>();
 
@@ -133,6 +138,7 @@
     if (s === source) return;
     source = s;
     uploads = []; // upload statuses belong to the scratchpad session
+    dropNotice = null;
     listing = null; // avoid a stale-source listing flashing under the new source's labels/hrefs
     resetSort(); // each source starts at the default sort
     void browse(""); // reset to root and reload from the new source
@@ -152,6 +158,7 @@
       listing = null;
       error = false;
       uploads = [];
+      dropNotice = null;
       resetSort();
       void browse("");
     });
@@ -185,6 +192,7 @@
 
   async function uploadFiles(files: File[]) {
     if (!files.length) return;
+    dropNotice = null;
     const dirPath = listing?.path || undefined;
 
     // Add each file to the status list as "uploading"; assign stable unique ids
@@ -203,10 +211,12 @@
           await uploadScratchpadFile(sessionId, file, dirPath);
           uploads = uploads.map((u) => (u.id === uid ? { ...u, state: "done" } : u));
         } catch (e) {
-          const isTooLarge = e instanceof ApiError && e.status === 413;
-          uploads = uploads.map((u) =>
-            u.id === uid ? { ...u, state: isTooLarge ? "too_large" : "failed" } : u,
-          );
+          // 413 and 404 are the two failures with an actionable cause: too big, and "this session
+          // has no scratchpad to upload into" (a blank claudeSessionId never resolves a target).
+          const status = e instanceof ApiError ? e.status : 0;
+          const state: UploadStatus["state"] =
+            status === 413 ? "too_large" : status === 404 ? "not_found" : "failed";
+          uploads = uploads.map((u) => (u.id === uid ? { ...u, state } : u));
         }
       }),
     );
@@ -223,26 +233,45 @@
     }
   }
 
+  // preventDefault ALWAYS — including when upload is impossible. Without it the browser handles
+  // the drop itself and can navigate away from the HUD. `dropEffect` must never become "none":
+  // that cancels the drag, no `drop` event fires, and every explanation below is unreachable.
   function handleDragOver(e: DragEvent) {
-    if (uploadDisabled) return;
     e.preventDefault();
-    dragOver = true;
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+    dropNotice = null; // a fresh gesture supersedes the last explanation
+    dragOver = !uploadDisabled; // no overlay where nothing can land
   }
 
   function handleDragLeave(e: DragEvent) {
-    if (uploadDisabled) return;
     // Ignore leave events triggered by crossing into a child element — only clear on a real exit.
     if (e.relatedTarget && (e.currentTarget as Node).contains(e.relatedTarget as Node)) return;
     dragOver = false;
   }
 
+  // Every blocked case says why. A mute `return` here is what made a dropped file look like a
+  // Shepherd bug: nothing uploaded, and nothing explained the refusal.
   function handleDrop(e: DragEvent) {
-    if (uploadDisabled) return;
     e.preventDefault();
     dragOver = false;
-    if (!listing) return; // still loading
+    if (readOnly) {
+      dropNotice = m.files_upload_readonly_worktree();
+      return;
+    }
+    if (withinAttachments) {
+      dropNotice = m.files_upload_readonly_attachments();
+      return;
+    }
+    if (!listing) {
+      dropNotice = m.files_upload_loading();
+      return;
+    }
     const files = e.dataTransfer?.files;
-    if (files?.length) void uploadFiles(Array.from(files));
+    if (!files?.length) {
+      dropNotice = m.files_upload_no_files();
+      return;
+    }
+    void uploadFiles(Array.from(files));
   }
 
   function openFilePicker() {
@@ -308,6 +337,7 @@
           type="button"
           class="gbtn upload-btn"
           aria-label={m.files_upload_aria()}
+          title={listing === null ? m.files_upload_disabled_title() : undefined}
           disabled={listing === null}
           onclick={openFilePicker}
           use:coachTarget={"scratchpad-upload"}>{m.files_upload_button()}</button
@@ -325,12 +355,20 @@
       {/if}
     </div>
 
+    <!-- Why the last drop did nothing (read-only target / listing not ready / no file in the
+         payload). role=status so it is announced, not just drawn. -->
+    {#if dropNotice}
+      <div class="upload-status err" role="status">{dropNotice}</div>
+    {/if}
+
     <!-- Upload status lines -->
     {#each uploads as u (u.id)}
       {#if u.state === "uploading"}
         <div class="upload-status">{m.files_uploading({ name: u.name })}</div>
       {:else if u.state === "too_large"}
         <div class="upload-status err">{m.files_upload_too_large({ name: u.name })}</div>
+      {:else if u.state === "not_found"}
+        <div class="upload-status err">{m.files_upload_unavailable({ name: u.name })}</div>
       {:else if u.state === "failed"}
         <div class="upload-status err">{m.files_upload_failed({ name: u.name })}</div>
       {:else if u.state === "done"}

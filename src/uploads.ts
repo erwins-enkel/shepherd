@@ -39,12 +39,6 @@ const IMAGE_MIME_EXT: Record<string, string> = {
   "image/webp": "webp",
 };
 
-/** In-session attach accepts images and videos (screen recordings), nothing else. */
-const SESSION_ATTACH_MIME_EXT: Record<string, string> = {
-  ...IMAGE_MIME_EXT,
-  ...VIDEO_MIME_EXT,
-};
-
 const SAFE_EXT_RE = /^[a-z0-9]{1,16}$/;
 
 /** Extension for a supported upload MIME, or null if unsupported. */
@@ -55,11 +49,6 @@ export function extForMime(mime: string): string | null {
 /** Extension for a supported live terminal image MIME, or null if unsupported. */
 export function imageExtForMime(mime: string): string | null {
   return IMAGE_MIME_EXT[mime.toLowerCase().split(";", 1)[0] ?? ""] ?? null;
-}
-
-/** Extension for a supported in-session attachment MIME (image or video), or null. */
-export function sessionAttachExtForMime(mime: string): string | null {
-  return SESSION_ATTACH_MIME_EXT[mime.toLowerCase().split(";", 1)[0] ?? ""] ?? null;
 }
 
 function safeExt(ext: string | null | undefined): string | null {
@@ -181,17 +170,17 @@ export async function handleUpload(req: Request, deps: UploadDeps): Promise<Resp
     return j({ error: "file too large" }, 413);
 
   const sessionId = new URL(req.url).searchParams.get("session");
-  let ext: string;
+  // Both branches take ANY type: an operator hands an agent whatever the work needs (an EPS logo,
+  // a CSV, a font), so the in-session attach is no narrower than New Task staging or the scratchpad
+  // upload. `uploadExtension` is the containment: the extension is SAFE_EXT_RE-sanitized (`bin`
+  // otherwise) and the stored name is a fresh UUID, so the raw filename never reaches the FS.
+  const ext = uploadExtension(file);
   let destDir: string;
   if (sessionId) {
     const s = deps.store.get(sessionId);
     if (!s) return j({ error: "unknown session" }, 404);
-    const attachExt = sessionAttachExtForMime(file.type);
-    if (!attachExt) return j({ error: "unsupported attachment type" }, 415);
-    ext = attachExt;
     destDir = worktreeUploadsDir(s.worktreePath);
   } else {
-    ext = uploadExtension(file);
     destDir = stagingDir(deps.repoRoot);
   }
 

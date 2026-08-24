@@ -36,7 +36,7 @@
   import {
     getSessionUsage,
     getTodo,
-    uploadImage,
+    uploadFile,
     resumeSession as apiResumeSession,
     renameSession,
     getLeftovers,
@@ -1416,16 +1416,17 @@
   // wrapped in bracketed-paste markers (ESC[200~ … ESC[201~) so the TUI ingests
   // it as one atomic paste; injecting it as a fast raw-keystroke burst drops
   // characters (notably on mobile, racing with resize events).
-  async function attachImages(files: FileList | File[]) {
-    const imgs = Array.from(files).filter(
-      (f) => f.type.startsWith("image/") || f.type.startsWith("video/"),
-    );
-    if (imgs.length === 0 || !conn) return;
+  // Any file type: an operator hands the agent whatever the work needs (an EPS logo, a CSV, a
+  // font), so this is no narrower than New Task staging or the scratchpad upload. The server
+  // derives a sanitized extension from the name and stores it under a fresh UUID.
+  async function attachFiles(files: FileList | File[]) {
+    const picked = Array.from(files);
+    if (picked.length === 0 || !conn) return;
     uploading = true;
     uploadFailed = false;
     try {
-      for (const f of imgs) {
-        const path = await uploadImage(f, session.id);
+      for (const f of picked) {
+        const path = await uploadFile(f, session.id);
         // Genuine operator input: the capture-phase image-paste interceptor on `el`
         // stopImmediatePropagation()s, so xterm's textarea never sees this paste —
         // count it here or a pasted screenshot would never escalate the banner.
@@ -1443,7 +1444,7 @@
   function onTermDrop(e: DragEvent) {
     e.preventDefault();
     dragging = false;
-    if (e.dataTransfer?.files?.length) attachImages(e.dataTransfer.files);
+    if (e.dataTransfer?.files?.length) attachFiles(e.dataTransfer.files);
   }
 
   function takeover() {
@@ -1991,7 +1992,7 @@
       if (imgs.length === 0) return;
       e.preventDefault();
       e.stopImmediatePropagation();
-      attachImages(imgs);
+      attachFiles(imgs);
     };
     el.addEventListener("paste", onPaste, true);
 
@@ -3148,7 +3149,7 @@
     {enter}
     {uploading}
     {uploadFailed}
-    {attachImages}
+    {attachFiles}
     onsummon={() => {
       composeDictate = false;
       composeOpen = true;

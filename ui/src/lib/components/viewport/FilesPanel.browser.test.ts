@@ -493,6 +493,28 @@ describe("FilesPanel — a blocked drop always says why", () => {
     expect(mockUpload).not.toHaveBeenCalled();
   });
 
+  // browse() only assigns `listing` on success, so a failed refresh leaves error=true with a
+  // usable stale listing — and the button, gated on `listing === null`, stays enabled. The drop
+  // must agree with it rather than claim the scratchpad is gone.
+  it("still uploads when a refresh failed but a stale listing remains", async () => {
+    mockUpload.mockResolvedValue("logo.eps");
+    mockListing.mockResolvedValueOnce(EMPTY_LISTING).mockRejectedValue(new ApiError(500, "boom"));
+
+    render(FilesPanel, { sessionId: "drag-stale" });
+    await waitForPanel();
+
+    const tab = document.querySelector<HTMLDivElement>(".files")!;
+    // First drop succeeds; its post-upload refresh is the rejection queued above.
+    dragTo(tab, "drop", new File(["a"], "logo.eps", { type: "" }));
+    await expect.poll(() => mockUpload.mock.calls.length).toBe(1);
+
+    // Second drop, now in the error-with-stale-listing state: uploads, no refusal notice.
+    dragTo(tab, "drop", new File(["b"], "logo2.eps", { type: "" }));
+    await expect.poll(() => mockUpload.mock.calls.length).toBe(2);
+    expect(document.querySelector("button.upload-btn")).not.toBeNull();
+    expect(document.body.textContent).not.toContain(m.files_upload_load_failed());
+  });
+
   it("names the cause when the session has no scratchpad target (404)", async () => {
     mockUpload.mockRejectedValue(new ApiError(404, "not found"));
     render(FilesPanel, { sessionId: "drag-404" });

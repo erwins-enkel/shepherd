@@ -262,7 +262,11 @@
       dropNotice = m.files_upload_readonly_attachments();
       return;
     }
-    if (error) {
+    // `error && !listing`, not `error` alone: browse() only ASSIGNS listing on success, so a
+    // failed refresh (e.g. the post-upload reload) leaves error=true with a usable stale listing.
+    // Uploading into it still works — and the button, gated on `listing === null`, stays enabled —
+    // so refusing the drop there would contradict an upload that just succeeded.
+    if (error && !listing) {
       dropNotice = m.files_upload_load_failed();
       return;
     }

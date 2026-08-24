@@ -2552,6 +2552,7 @@
   "files_upload_readonly_worktree": "The worktree view is read-only. Switch to the Scratchpad tab to upload.",
   "files_upload_readonly_attachments": "Attachments is read-only. Go back to the scratchpad root to upload.",
   "files_upload_loading": "The file list is still loading — drop it again in a moment.",
+  "files_upload_load_failed": "The file list couldn't be loaded, so there is nowhere to put this. This session may have no scratchpad to upload into.",
   "files_upload_no_files": "That drop carried no file. Some apps (mail clients, browser tabs) hand over a link instead — save the file first, then drop it.",
   "files_upload_unavailable": "{name} could not be uploaded: this session has no scratchpad to upload into.",
   "files_upload_disabled_title": "The file list hasn't loaded yet.",

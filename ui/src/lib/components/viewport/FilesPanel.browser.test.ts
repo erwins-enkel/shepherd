@@ -469,6 +469,30 @@ describe("FilesPanel — a blocked drop always says why", () => {
     expect(mockUpload).not.toHaveBeenCalled();
   });
 
+  // A failed listing is permanent (a blank claudeSessionId 404s forever), so "try again in a
+  // moment" would be advice that never comes good.
+  it("distinguishes a failed listing from one that is still loading", async () => {
+    mockListing.mockRejectedValue(new ApiError(404, "not found"));
+    render(FilesPanel, { sessionId: "drag-noscratch" });
+
+    // The panel settles into the error state: the button stays rendered but disabled, and its
+    // tooltip carries the same permanent reason rather than "hasn't loaded yet".
+    await expect
+      .poll(() => document.querySelector<HTMLButtonElement>("button.upload-btn")?.disabled)
+      .toBe(true);
+    expect(document.querySelector<HTMLButtonElement>("button.upload-btn")!.title).toBe(
+      m.files_upload_load_failed(),
+    );
+
+    const tab = document.querySelector<HTMLDivElement>(".files")!;
+    dragTo(tab, "drop", new File(["a"], "logo.eps", { type: "" }));
+
+    await expect
+      .poll(() => document.querySelector(".upload-status.err")?.textContent?.trim())
+      .toBe(m.files_upload_load_failed());
+    expect(mockUpload).not.toHaveBeenCalled();
+  });
+
   it("names the cause when the session has no scratchpad target (404)", async () => {
     mockUpload.mockRejectedValue(new ApiError(404, "not found"));
     render(FilesPanel, { sessionId: "drag-404" });

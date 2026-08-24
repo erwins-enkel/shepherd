@@ -2552,6 +2552,7 @@
   "files_upload_readonly_worktree": "Die Worktree-Ansicht ist schreibgeschützt. Zum Hochladen zum Scratchpad-Tab wechseln.",
   "files_upload_readonly_attachments": "Anhänge sind schreibgeschützt. Zum Hochladen zurück zum Scratchpad-Stammordner wechseln.",
   "files_upload_loading": "Die Dateiliste wird noch geladen — gleich noch einmal ablegen.",
+  "files_upload_load_failed": "Die Dateiliste konnte nicht geladen werden — es gibt kein Ziel für den Upload. Diese Session hat möglicherweise kein Scratchpad.",
   "files_upload_no_files": "Dieser Drop enthielt keine Datei. Manche Programme (Mail-Clients, Browser-Tabs) übergeben nur einen Verweis — Datei zuerst speichern und dann ablegen.",
   "files_upload_unavailable": "{name} konnte nicht hochgeladen werden: Diese Session hat kein Scratchpad.",
   "files_upload_disabled_title": "Die Dateiliste ist noch nicht geladen.",

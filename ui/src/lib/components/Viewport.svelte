@@ -1411,14 +1411,13 @@
     await handleStopPreview();
   }
 
-  // upload image(s)/video(s) into this session's worktree, then inject their paths into
-  // the PTY — the user adds wording and presses Enter themselves. The path is
-  // wrapped in bracketed-paste markers (ESC[200~ … ESC[201~) so the TUI ingests
-  // it as one atomic paste; injecting it as a fast raw-keystroke burst drops
-  // characters (notably on mobile, racing with resize events).
-  // Any file type: an operator hands the agent whatever the work needs (an EPS logo, a CSV, a
-  // font), so this is no narrower than New Task staging or the scratchpad upload. The server
-  // derives a sanitized extension from the name and stores it under a fresh UUID.
+  // Upload file(s) of ANY type into this session's worktree, then inject their paths into
+  // the PTY — the user adds wording and presses Enter themselves. An operator hands the agent
+  // whatever the work needs (an EPS logo, a CSV, a font), so this is no narrower than New Task
+  // staging or the scratchpad upload; the server derives a sanitized extension from the name and
+  // stores it under a fresh UUID. The path is wrapped in bracketed-paste markers
+  // (ESC[200~ … ESC[201~) so the TUI ingests it as one atomic paste; injecting it as a fast
+  // raw-keystroke burst drops characters (notably on mobile, racing with resize events).
   async function attachFiles(files: FileList | File[]) {
     const picked = Array.from(files);
     if (picked.length === 0 || !conn) return;

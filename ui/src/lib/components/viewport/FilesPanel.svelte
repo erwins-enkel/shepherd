@@ -262,6 +262,10 @@
       dropNotice = m.files_upload_readonly_attachments();
       return;
     }
+    if (error) {
+      dropNotice = m.files_upload_load_failed();
+      return;
+    }
     if (!listing) {
       dropNotice = m.files_upload_loading();
       return;
@@ -337,7 +341,11 @@
           type="button"
           class="gbtn upload-btn"
           aria-label={m.files_upload_aria()}
-          title={listing === null ? m.files_upload_disabled_title() : undefined}
+          title={listing !== null
+            ? undefined
+            : error
+              ? m.files_upload_load_failed()
+              : m.files_upload_disabled_title()}
           disabled={listing === null}
           onclick={openFilePicker}
           use:coachTarget={"scratchpad-upload"}>{m.files_upload_button()}</button

@@ -286,7 +286,14 @@ posture — the accepted in-membrane token-readability gap and the prompt-inject
 posture — is documented on the [Security](/reference/security/) page.
 
 **Backend requirements:** `bwrap` installed + unprivileged user namespaces enabled.
-Shepherd self-tests at startup.
+Shepherd self-tests at startup by running `node` and `git` through the real membrane.
+
+A **second, separate** check asks whether the agent binary itself starts inside that
+membrane — a launcher that dies there (a version manager rewriting its shims against
+a read-only bind, say) leaves the self-test green while every confined helper dies at
+launch. It surfaces as the **Agent launch in sandbox** row in Settings → Diagnose and
+refuses the affected wrapped spawns up front instead of letting them hang; it never
+changes whether the membrane is applied. See [Operating Shepherd](/operating/).
 
 A few runtime toggles live in the SQLite `settings` table
 (`~/.shepherd/shepherd.db`) rather than env — e.g. `branchPruneEnabled` (hourly

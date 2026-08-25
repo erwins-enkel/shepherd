@@ -63,6 +63,29 @@ Consequences:
 To get attended network confinement, select the **autonomous** profile — per-repo
 in the repo's Settings panel, or globally via `SHEPHERD_SANDBOX_DEFAULT_PROFILE`.
 
+## Launch probe — the membrane is proven, the launcher is not (#2111)
+
+`detectBackend` (`src/sandbox.ts`) answers "can bwrap build a sandbox here" by
+running `node --version && git --version` through the real derived membrane. It
+never launches `claude`/`codex`, and must not: `null` means **run unconfined**, so
+folding a launcher fault into that verdict would strip the membrane from around
+untrusted plan text on the very hosts that can sandbox.
+
+`src/membrane-launch.ts` is the second, orthogonal signal — "does the agent binary
+actually start inside the membrane". Its failure is **loud** (a `sandbox_membrane`
+DIAGNOSE row) and **blocking** (`resolveAuxPatch` returns a `SpawnRefusal` with the
+`membrane-launch` sentinel, per binary), never a change to whether the membrane is
+applied. Fail-open by construction: only a **non-zero exit** counts as `broken`; a
+probe that throws or times out is `uninspectable` and spawns proceed. The launcher's
+output is the whole diagnosis but carries absolute host paths, so it is logged and
+never placed in a diagnostics or UI payload. The plan gate persists a visible error
+gate carrying that sentinel instead of skipping silently; the PR critic carries the
+same code.
+
+The row and the refusal share one cache, so they can never disagree; the DIAGNOSE
+read probes fresh, so a repaired toolchain un-blocks wrapped roles as soon as the row
+goes green.
+
 ## R4 — prompt-injection posture
 
 **Input-side defenses (prompt-injection-hardening pass).** Before any of the

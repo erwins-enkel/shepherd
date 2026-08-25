@@ -100,11 +100,56 @@ An automated LLM pass Shepherd spawns alongside the main task agent — critic /
 PR-review, plan-gate, recap, rundown, or doc-agent. Its token spend is real
 overhead attributed back to the task, on top of the agent's own authoring.
 
+### Host capacity
+
+Whether Shepherd's systemd service — or the slice it runs in — sets a memory or
+CPU ceiling (`MemoryHigh`, `MemoryMax`, `CPUQuota`). Without one, a burst of
+concurrent sessions can consume all the host's RAM or CPU and starve the box; the
+**Host capacity** row in Settings → Diagnose warns until a limit is set. See
+[Operating Shepherd](/operating/).
+
+### herdr runtime hygiene
+
+Shepherd reconciling herdr's panes and processes against its own session model to
+spot leftovers. It counts the panes that still hold a live process — deliberately
+not systemd's **Tasks** figure for the herdr service, which counts threads. Each
+agent process spawns many, so a Tasks count in the thousands is normal and not by
+itself a process leak.
+
+### Sandbox membrane
+
+The confined view of the filesystem Shepherd builds around an agent it starts,
+using bubblewrap. The agent sees the one worktree it is working in plus the
+programs it needs to run; everything else is hidden or read-only — so a prompt
+from an issue, a pull request or a plan cannot reach the rest of the machine. The
+residuals it deliberately does not close are listed on the
+[Security](/reference/security/) page.
+
 ### Spawn prompt
 
 The standing instructions Shepherd assembles and hands an agent the moment it
 starts — house rules, safety notices and the directive for this kind of task. It
 rides every turn of the session, so its size is paid for again and again.
+
+### Access token
+
+A named credential a machine client sends in the `Authorization` header as a
+bearer, instead of logging in with the operator password. Shepherd shows the
+value once when you mint it and stores only a hash of it, so a single token can
+be revoked on its own — unlike the shared `SHEPHERD_TOKEN` environment variable,
+which every client presents identically. How far it reaches is its
+[token scope](#token-scope).
+
+### Token scope
+
+How far a minted [access token](#access-token) reaches, chosen when you create it
+and fixed for its lifetime; the app labels it simply **scope**. **Read** can list
+sessions, holds and git status and follow live updates. **Submit** adds handing
+work in — starting a session, queueing or releasing a held task, attaching a
+file, filing an issue. **Full** is the access you have yourself, including typing
+into a running agent's terminal. Anything a scope doesn't cover is refused, so a
+client can only do what you granted it. `SHEPHERD_TOKEN` has no scope; it always
+has full reach.
 
 ## Industry terms
 
@@ -125,3 +170,10 @@ back to its developers to guide improvements. In Shepherd it is off until you op
 in, respects `DO_NOT_TRACK`, and never includes code or personal data — see
 [Configuration](/reference/configuration/#anonymous-usage-telemetry).
 ([Wikipedia](https://en.wikipedia.org/wiki/Telemetry#Software))
+
+### Inode
+
+A filesystem's record for one file or directory. A filesystem has a limited
+number of them, set when it is created — so it can run out of inodes while still
+having free space, and every new file then fails as though the disk were full.
+([Wikipedia](https://en.wikipedia.org/wiki/Inode))

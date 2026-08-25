@@ -36,7 +36,7 @@
     "@types/bun": "latest",
     "@types/node": "^26.2.0",
     "@types/web-push": "^3.6.4",
-    "eslint": "^10.8.1",
+    "eslint": "^10.9.0",
     "eslint-plugin-svelte": "^3.23.0",
     "github-slugger": "^2.0.0",
     "globals": "^17.11.0",
@@ -46,7 +46,7 @@
     "prettier": "^3.9.6",
     "prettier-plugin-svelte": "^4.1.1",
     "prettier-plugin-tailwindcss": "^0.8.1",
-    "svelte": "^5.56.9",
+    "svelte": "^5.56.10",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.67.0"
   },

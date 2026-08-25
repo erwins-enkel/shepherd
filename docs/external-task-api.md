@@ -189,8 +189,8 @@ Once a task exists, an external agent can also drive it:
   missing, non-numeric or out-of-range `limit` falls back rather than `400`ing).
 - `GET /api/sessions/:id/scratchpad[?path=]` — browse a live session's own
   scratchpad subtree, with the session's operator attachments overlaid as a
-  synthetic read-only `attachments/` folder (New Task screenshots and
-  mid-session compose-box uploads, which physically live in
+  synthetic read-only `attachments/` folder (New Task and mid-session
+  compose-box uploads, which physically live in
   `<worktree>/.shepherd-uploads`). `GET /api/sessions/:id/scratchpad/download?path=`
   streams a single file. Paths are relative to the merged root: `attachments/…`
   paths resolve against the worktree uploads dir, everything else against the

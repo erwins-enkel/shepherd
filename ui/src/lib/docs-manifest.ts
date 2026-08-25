@@ -33,7 +33,7 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     title: "Operating Shepherd",
     path: "/operating/",
     keywords:
-      "run shepherd as a systemd service, expose it over tailscale, and deploy code changes. run as a systemd user service expose it over the network deploy a code change backups & restore preview detection agent clis managed by mise the claude code install row host tuning — tmpfs inodes host tuning — resource guardrails add a limit (one click) add a limit (copy-paste)",
+      "run shepherd as a systemd service, expose it over tailscale, and deploy code changes. run as a systemd user service expose it over the network deploy a code change backups & restore preview detection agent clis managed by mise the claude code install row agent launch inside the sandbox host tuning — tmpfs inodes host tuning — resource guardrails add a limit (one click) add a limit (copy-paste)",
   },
   {
     title: "CLI reference",
@@ -81,7 +81,7 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     title: "Concepts & glossary",
     path: "/reference/glossary/",
     keywords:
-      "the shepherd-specific and industry terms used throughout the app and these docs. shepherd concepts epic plan gate autopilot critic merge train rework inferred lightweight repo trial weighted units reasoning effort satellite pass spawn prompt industry terms pr ci telemetry",
+      "the shepherd-specific and industry terms used throughout the app and these docs. shepherd concepts epic plan gate autopilot critic merge train rework inferred lightweight repo trial weighted units reasoning effort satellite pass host capacity herdr runtime hygiene sandbox membrane spawn prompt access token token scope industry terms pr ci telemetry inode",
   },
   {
     title: "Project house rules",
@@ -133,7 +133,7 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     title: "Security",
     path: "/reference/security/",
     keywords:
-      "sandbox membrane, egress firewall, and accepted security residuals. r3 — in-membrane token readability (accepted) attended-mode egress coverage r4 — prompt-injection posture see also",
+      "sandbox membrane, egress firewall, and accepted security residuals. r3 — in-membrane token readability (accepted) attended-mode egress coverage launch probe — the membrane is proven, the launcher is not (#2111) r4 — prompt-injection posture see also",
   },
   {
     title: "Stacked epic children",

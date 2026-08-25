@@ -162,6 +162,37 @@ launcher script you may have put there on purpose, and deleting a several-hundre
 tree is your call, not Shepherd's. On a host where mise doesn't manage `claude` the row is
 absent entirely.
 
+## Agent launch inside the sandbox
+
+Shepherd's startup self-test proves that **bubblewrap can build a sandbox** on this
+host — it runs `node` and `git` through the real membrane. It deliberately does not
+launch the agent binary, because a `null` verdict there means "run unconfined", and
+folding a launcher fault into it would silently strip the sandbox from exactly the
+hosts that can sandbox.
+
+A separate check answers the other question: does `claude` / `codex` actually
+**start** inside the membrane? A version manager that rebuilds its shims directory
+against a read-only bind, for instance, exits non-zero at launch — so every confined
+helper (plan reviewer, PR critic, doc agent, standalone critic) died at launch,
+waited out its whole timeout and reported no verdict, while the sandbox row stayed
+green.
+
+The **Agent launch in sandbox** row in Settings → Diagnose reports it, and a `broken`
+verdict also **blocks**: a wrapped helper spawn is refused up front with a stated
+reason instead of hanging to its timeout — per binary, so a broken `codex` doesn't
+stop `claude` roles. It is fail-open: only a **non-zero exit** counts as broken; a
+probe that throws or times out is reported as un-inspectable and spawns proceed.
+The launcher's own output holds host paths, so it goes to Shepherd's log rather than
+into the row.
+
+The row is guidance-only — no **Fix** button, because the repair is host-side
+toolchain surgery (which manager owns the binary, which path it rewrites). It is
+absent on a host with no sandbox backend (nothing is wrapped) and for an agent CLI
+that isn't on `PATH` (the `claude` / `codex` rows already say so). Hitting **Re-run**
+probes fresh rather than reading a cached verdict, and the refusal path reads the
+same result — so a repaired host un-blocks its confined helpers as soon as the row
+goes green.
+
 ## Host tuning — tmpfs inodes
 
 Shepherd keeps spawned agents' Node compile cache **off** the `/tmp` tmpfs and runs

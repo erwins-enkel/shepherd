@@ -51,6 +51,6 @@
     "marked": "^18.0.10",
     "mermaid": "^11.17.0",
     "shiki": "^4.4.3",
-    "svelte-dnd-action": "^0.9.78"
+    "svelte-dnd-action": "^0.9.79"
   }
 }

@@ -15,7 +15,7 @@
         "marked": "^18.0.10",
         "mermaid": "^11.17.0",
         "shiki": "^4.4.3",
-        "svelte-dnd-action": "^0.9.78",
+        "svelte-dnd-action": "^0.9.79",
       },
       "devDependencies": {
         "@inlang/paraglide-js": "^2.24.1",
@@ -697,7 +697,7 @@
 
     "svelte-check": ["svelte-check@4.7.6", "", { "dependencies": { "@jridgewell/trace-mapping": "^0.3.25", "@sveltejs/load-config": "^0.2.3", "chokidar": "^4.0.1", "fdir": "^6.2.0", "picocolors": "^1.0.0", "sade": "^1.7.4" }, "peerDependencies": { "svelte": "^4.0.0 || ^5.0.0-next.0", "typescript": "^5.0.0 || ^6.0.0" }, "bin": { "svelte-check": "bin/svelte-check" } }, "sha512-t2scM//ZuVbSY/T2w6FSBw1v9s2NEmh/g+sy1lqtosW5ylBV5AF4wFb1Ts9Kf3MbfPDUDJDZ9L436YT0SPTdvw=="],
 
-    "svelte-dnd-action": ["svelte-dnd-action@0.9.78", "", { "peerDependencies": { "svelte": ">=3.23.0 || ^5.0.0-next.0" } }, "sha512-qov+j3A9Umo1Ng2b2PaQ/nTDBo1sogAw19DF1KZ35Pcx/9yJtlmnKYKVHjCz9iqUH+g1sk4XuCstxPZFFPEa/Q=="],
+    "svelte-dnd-action": ["svelte-dnd-action@0.9.79", "", { "peerDependencies": { "svelte": ">=3.23.0 || ^5.0.0-next.0" } }, "sha512-zCKaG1Q9hVgfJFyZXhY+uIpo9+cjsG03CqwNz8yBlWCRBphC8U2zli9FzIcrL4rhXEs8yV+asS4rV0RHDuQqQQ=="],
 
     "tailwindcss": ["tailwindcss@4.3.3", "", {}, "sha512-gOhV3P7ufE62QDGg1zVaTgCR+EtPv92k2nIhVcVKcLmxT1sUBsQGhnZj175j+MqRt4zLF7ic+sCYjfhxMxj7YQ=="],
 

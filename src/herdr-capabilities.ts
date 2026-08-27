@@ -5,8 +5,8 @@
 // Shepherd's legacy spawn command — an `env …` shim (always) wrapped, when a bwrap backend is
 // present, in `bwrap … -- env … claude …`. Shepherd now spawns on 0.7.5 through the CLI
 // external-registration path (`tab create` → `pane run` → `report-agent`, #1890), so 0.7.5 is fully
-// supported — and 0.8.0 (protocol 19) with it, since 17 → 19 added methods/events without removing
-// or reshaping any (#2039). This module is the single source of truth for the version ceilings; callers warn
+// supported — and 0.8.2 (protocol 20) with it, since 19 → 20 added methods/params/results/enums
+// without removing or reshaping any (#2096). This module is the single source of truth for the version ceilings; callers warn
 // (preflight/diagnostics), fail spawns loudly (the driver), and block the in-app herdr-update for a
 // herdr newer than Shepherd can drive.
 import { compareSemver } from "./semver";
@@ -15,14 +15,14 @@ import { compareSemver } from "./semver";
  *  in-app updater block, and the diagnostics ceiling display. Equal to
  *  {@link HERDR_LAST_SPAWNABLE_VERSION} since #1893; a herdr newer than this is
  *  warned/blocked/refused across the capability layer AND the driver. */
-export const HERDR_LAST_SUPPORTED_VERSION = "0.8.0";
+export const HERDR_LAST_SUPPORTED_VERSION = "0.8.2";
 
-/** The newest herdr version the CLI driver can SPAWN on. 0.8.0 (protocol 19) still spawns via the
+/** The newest herdr version the CLI driver can SPAWN on. 0.8.2 (protocol 20) still spawns via the
  *  external-registration path introduced for 0.7.5 (`tab create` → `pane run` → `report-agent`,
- *  #1890): protocol 17 → 19 is purely additive (`workspace.move_block`, the `workspace.reordered`
- *  event, two new `IntegrationTarget`s), with no method, param or result shape removed or reshaped,
- *  so the 0.7.5 spawn surface carries over unchanged (#2039). */
-export const HERDR_LAST_SPAWNABLE_VERSION = "0.8.0";
+ *  #1890): protocol 19 → 20 is purely additive (`pane.input.set`, graphics-layer params/results,
+ *  right-click pane splits, and enum values), with no method, param or result shape removed or
+ *  reshaped, so the 0.7.5 spawn surface carries over unchanged (#2096). */
+export const HERDR_LAST_SPAWNABLE_VERSION = "0.8.2";
 
 /** First herdr version that requires the external-registration spawn path instead of `agent start`
  *  (protocol 17 reshaped `agent start` so the wrapped `env …`/`bwrap …` argv can no longer be
@@ -69,7 +69,7 @@ export function detectedHerdrVersion(): string | null {
 }
 
 /** Whether the installed herdr is one Shepherd can spawn agents on: the CLI driver spawns up to
- *  {@link HERDR_LAST_SPAWNABLE_VERSION} (0.7.5) via the external-registration path (#1890). Now
+ *  {@link HERDR_LAST_SPAWNABLE_VERSION} (0.8.2) via the external-registration path (#1890). Now
  *  equal to the general support ceiling {@link isHerdrVersionSupported} (#1893).
  *  null/unparseable → true (never false-alarm on an unreadable version). */
 export function herdrSpawnSupported(): boolean {

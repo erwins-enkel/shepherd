@@ -369,6 +369,7 @@ export type RequestIntegrationTarget =
   | "kilo"
   | "hermes"
   | "qodercli"
+  | "qwen"
   | "cursor"
   | "mastracode"
   | "antigravity_cli"
@@ -426,7 +427,12 @@ export type RequestPaneDirection = "left" | "right" | "up" | "down";
  * This interface was referenced by `HerdrProtocol`'s JSON-Schema
  * via the `definition` "RequestPaneGraphicsFormat".
  */
-export type RequestPaneGraphicsFormat = "png" | "rgb" | "rgba";
+export type RequestPaneGraphicsFormat = "png" | "rgb" | "rgba" | "bgra";
+/**
+ * This interface was referenced by `HerdrProtocol`'s JSON-Schema
+ * via the `definition` "RequestPaneRightClickTarget".
+ */
+export type RequestPaneRightClickTarget = "herdr" | "pane";
 /**
  * This interface was referenced by `HerdrProtocol`'s JSON-Schema
  * via the `definition` "RequestPaneMoveDestination".
@@ -744,6 +750,7 @@ export type SuccessResponseIntegrationTarget =
   | "kilo"
   | "hermes"
   | "qodercli"
+  | "qwen"
   | "cursor"
   | "mastracode"
   | "antigravity_cli"
@@ -1022,8 +1029,29 @@ export type SuccessResponseResponseResult =
       [k: string]: unknown;
     }
   | {
+      revision: number;
+      sequence: number;
+      type: "pane_graphics_frame_ack";
+      [k: string]: unknown;
+    }
+  | {
       cell_height_px: number;
       cell_width_px: number;
+      /**
+       * Accepts damage metadata while still consuming a complete canonical file.
+       */
+      file_frame_damage?: boolean;
+      file_frame_direct_max_bytes?: number | null;
+      file_frame_directory?: string | null;
+      file_frame_formats?: string[];
+      file_frame_max_bytes?: number | null;
+      file_frame_transport?: string | null;
+      max_layers_per_pane?: number;
+      /**
+       * True only when this pane is on the currently rendered terminal surface.
+       */
+      pane_visible: boolean;
+      pixel_mouse?: boolean;
       type: "pane_graphics_info";
       [k: string]: unknown;
     }
@@ -1625,6 +1653,7 @@ export interface RequestPaneFocusDirectionParams {
  * via the `definition` "RequestPaneGraphicsClearParams".
  */
 export interface RequestPaneGraphicsClearParams {
+  layer_id?: string | null;
   pane_id: string;
 }
 /**
@@ -1646,14 +1675,24 @@ export interface RequestPaneGraphicsSetParams {
   format: RequestPaneGraphicsFormat;
   image_height: number;
   image_width: number;
+  layer_id?: string | null;
   pane_id: string;
   placement?: RequestPaneGraphicsPlacementParams1;
+  z_index?: number;
 }
 export interface RequestPaneGraphicsPlacementParams1 {
   grid_cols?: number;
   grid_rows?: number;
   viewport_col?: number;
   viewport_row?: number;
+}
+/**
+ * This interface was referenced by `HerdrProtocol`'s JSON-Schema
+ * via the `definition` "RequestPaneInputSetParams".
+ */
+export interface RequestPaneInputSetParams {
+  pane_id: string;
+  right_click: RequestPaneRightClickTarget;
 }
 /**
  * This interface was referenced by `HerdrProtocol`'s JSON-Schema
@@ -1818,6 +1857,7 @@ export interface RequestPaneSplitParams {
   };
   focus?: boolean;
   ratio?: number | null;
+  right_click?: "herdr" | "pane";
   target_pane_id?: string | null;
   workspace_id?: string | null;
 }
@@ -2978,7 +3018,7 @@ export interface ErrorResponseErrorBody {
   [k: string]: unknown;
 }
 
-export const HERDR_PROTOCOL = 19 as const;
+export const HERDR_PROTOCOL = 20 as const;
 
 export interface HerdrParams {
   ping: RequestPingParams;
@@ -3040,6 +3080,7 @@ export interface HerdrParams {
   "pane.current": RequestPaneCurrentParams;
   "pane.get": RequestPaneTarget;
   "pane.focus": RequestPaneTarget;
+  "pane.input.set": RequestPaneInputSetParams;
   "pane.rename": RequestPaneRenameParams;
   "pane.send_text": RequestPaneSendTextParams;
   "pane.send_keys": RequestPaneSendKeysParams;

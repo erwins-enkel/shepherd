@@ -112,11 +112,12 @@ Open <http://localhost:7330>. To expose it (e.g. via Tailscale), set
 - [Bun](https://bun.sh) — backend runtime + package manager
 - `herdr` on `PATH` — [Can Celik](https://github.com/ogulcancelik)'s agent
   multiplexer ([herdr.dev](https://herdr.dev)); manages the interactive `claude`
-  panes (owns the PTYs). **herdr 0.8.0 is the last supported version.** herdr
+  panes (owns the PTYs). **herdr 0.8.2 is the last supported version.** herdr
   0.7.5 (protocol 17) reshaped `agent start`, so Shepherd spawns through a CLI
   external-registration path (`tab create` → `pane run` → `report-agent`) rather
-  than the legacy `agent start`; 0.8.0 (protocol 19) keeps that path, since
-  17 → 19 only added methods and events without removing or reshaping any. Any
+  than the legacy `agent start`; 0.8.2 (protocol 20) keeps that path, since
+  19 → 20 only added methods, parameters, results, and enum values without removing
+  or reshaping Shepherd's existing surface. Any
   newer, untested version is refused: Shepherd warns at startup, blocks the
   in-app updater, and refuses to spawn on it. New releases are admitted through
   the [herdr version bumps](/reference/rules-herdr-version-bump/) procedure

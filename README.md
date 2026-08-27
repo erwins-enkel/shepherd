@@ -142,9 +142,9 @@ exists. It also invokes upstream installers it does not control — specifically
 highest release Shepherd supports — verifies it reports that version, and installs it to
 `~/.local/bin`. That release binary is still third-party code fetched and executed on your machine.
 
-> **Shepherd supports herdr up to 0.8.0.** herdr 0.7.5 (protocol 17) reshaped `agent start`;
-> Shepherd drives it through a CLI external-registration path, and 0.8.0 (protocol 19) keeps that
-> path — 17 → 19 only added methods and events. Shepherd warns at startup and blocks its in-app
+> **Shepherd supports herdr up to 0.8.2.** herdr 0.7.5 (protocol 17) reshaped `agent start`;
+> Shepherd drives it through a CLI external-registration path, and 0.8.2 (protocol 20) keeps that
+> path — 19 → 20 only added methods, parameters, results, and enum values. Shepherd warns at startup and blocks its in-app
 > herdr updater on any newer, untested version. How a new herdr release gets verified and the
 > ceiling moves is a standing procedure: see
 > [herdr version bumps](https://docs.shepherd.run/reference/rules-herdr-version-bump/)

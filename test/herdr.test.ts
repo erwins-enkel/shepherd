@@ -141,8 +141,8 @@ function reply(args: string[], workspaceList: string): string {
   return FIXTURE;
 }
 
-test("start REFUSES on a herdr above the spawnable ceiling (>0.8.0), spawning nothing", async () => {
-  setDetectedHerdrVersion("0.8.1");
+test("start REFUSES on a herdr above the spawnable ceiling (>0.8.2), spawning nothing", async () => {
+  setDetectedHerdrVersion("0.8.3");
   try {
     const calls: string[][] = [];
     const d = mkDriver((args) => {

@@ -27,7 +27,7 @@ import { homedir } from "node:os";
 // changes between versions, so reproducibility is conditional on a single pinned
 // version: the script fails if the installed herdr differs. Bump deliberately (a
 // reviewed change) when upgrading herdr — the regenerated diff is the drift signal.
-const EXPECTED_HERDR_VERSION = "0.7.0";
+const EXPECTED_HERDR_VERSION = "0.8.2";
 
 // Curated allowlist of OPERATOR-facing herdr commands (epic #875 / #880, Option B).
 // Deliberately NOT auto-discovered: the herdr groups Shepherd shells out to

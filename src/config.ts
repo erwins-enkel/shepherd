@@ -82,7 +82,9 @@ export const HERDR_MIN_VERSION = "0.7.0";
 // event, two new `IntegrationTarget`s) — nothing removed or reshaped, so the p17 drive surface
 // carries over and 0.8.0 stays on the same external-registration path (#2039). 18 never shipped
 // in a stable release and is deliberately NOT admitted: this is an allowlist, not a floor.
-export const HERDR_SOCKET_SUPPORTED_PROTOCOLS = new Set([16, 17, 19]);
+// 20 = herdr 0.8.2: purely additive over 19 (`pane.input.set`, graphics-layer params/results,
+// right-click pane splits, and enum values) — the existing drive surface carries over (#2096).
+export const HERDR_SOCKET_SUPPORTED_PROTOCOLS = new Set([16, 17, 19, 20]);
 // TTL backing DiagnosticsService.current() — a request without ?refresh=1 reads
 // this cache. Matches the existing CountsService/backlog 60s TTL.
 export const DIAGNOSTICS_TTL_MS = 60_000;

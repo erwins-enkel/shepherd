@@ -15,7 +15,7 @@ import {
 
 // The service under test refreshes the PROCESS-WIDE spawn-guard version (#1887) as a side
 // effect of check()/downgrade(). bun runs every test file in one process, so a leftover
-// unsupported version (0.8.1) from a failure-path test here would make any later file that
+// unsupported version (0.8.3) from a failure-path test here would make any later file that
 // spawns via the drivers throw HerdrSpawnUnsupportedError (seen as an order-dependent CI
 // break in herdr-socket-driver.test.ts). Reset to the un-probed default after every test.
 afterEach(() => setDetectedHerdrVersion(null));
@@ -127,11 +127,11 @@ test("buildDowngradeScript: missing versions degrade to 'unknown'", () => {
 const KEY = herdrAssetKey()!; // the test host is always a supported platform
 const TARGET_URL = herdrReleaseUrl(HERDR_LAST_SUPPORTED_VERSION, KEY);
 
-/** Service primed for a stranded install (current 0.8.1 — above the ceiling), with every seam injected
+/** Service primed for a stranded install (current 0.8.3 — above the ceiling), with every seam injected
  *  so no real process spawns and no network is touched. */
 function primedDowngrade(
   opts: {
-    current?: string; // installed BEFORE the downgrade; default 0.8.1 (stranded)
+    current?: string; // installed BEFORE the downgrade; default 0.8.3 (stranded)
     installedAfter?: string; // what --version reports AFTER; default = the ceiling (success)
     manifestUrl?: string | null; // releases[<ceiling>].assets[KEY]; null = entry missing
     fetchLatest?: () => Promise<never>; // override to make the manifest fetch throw
@@ -146,7 +146,7 @@ function primedDowngrade(
   const scripts: string[] = [];
   const dones: HerdrUpdateResult[] = [];
   const begun: boolean[] = [];
-  const current = opts.current ?? "0.8.1";
+  const current = opts.current ?? "0.8.3";
   let versionCalls = 0;
   const releases: Record<string, { assets?: Record<string, string> }> = {};
   if (opts.manifestUrl !== null) {
@@ -179,12 +179,12 @@ const settle = () => new Promise((r) => setTimeout(r, 10));
 
 test("downgrade(): happy path — runs the script, reports ok, refreshes the spawn guard", async () => {
   const { svc, scripts, dones, begun } = primedDowngrade();
-  await svc.check(1); // seeds current=0.8.1 → currentUnsupported
+  await svc.check(1); // seeds current=0.8.3 → currentUnsupported
   expect(svc.downgrade()).toEqual({ started: true });
   await settle();
   expect(scripts).toHaveLength(1);
   expect(scripts[0]).toContain(TARGET_URL); // the cross-checked template URL drives the script
-  expect(dones[0]).toMatchObject({ ok: true, from: "0.8.1", to: HERDR_LAST_SUPPORTED_VERSION });
+  expect(dones[0]).toMatchObject({ ok: true, from: "0.8.3", to: HERDR_LAST_SUPPORTED_VERSION });
   expect(begun).toEqual([true, false]); // maintenance begin/end
   expect(detectedHerdrVersion()).toBe(HERDR_LAST_SUPPORTED_VERSION); // spawn-guard ceiling refreshed, no restart
   expect(svc.current()).toMatchObject({
@@ -202,7 +202,7 @@ test("downgrade(): refuses when the installed herdr is already supported", async
 });
 
 test("downgrade(): re-reads the installed version at gate time — a stale cached status does not skip a live re-check", async () => {
-  // check() sees 0.8.1 (stranded) and caches it; before downgrade() is called, the
+  // check() sees 0.8.3 (stranded) and caches it; before downgrade() is called, the
   // operator manually pins herdr back to the ceiling out-of-band (e.g. a shell `herdr
   // update` or a hand rollback). The gate must catch that on its OWN re-read rather
   // than trusting the up-to-6h-stale `this.last.current` — otherwise it would still
@@ -212,15 +212,15 @@ test("downgrade(): re-reads the installed version at gate time — a stale cache
   const svc = new HerdrUpdateService({
     versionRunner: () => {
       versionCalls++;
-      // call 1 = check() (stale 0.8.1); call 2 = downgrade()'s gate re-read (live ceiling)
-      return `herdr ${versionCalls === 1 ? "0.8.1" : HERDR_LAST_SUPPORTED_VERSION}`;
+      // call 1 = check() (stale 0.8.3); call 2 = downgrade()'s gate re-read (live ceiling)
+      return `herdr ${versionCalls === 1 ? "0.8.3" : HERDR_LAST_SUPPORTED_VERSION}`;
     },
-    fetchLatest: async () => ({ version: "0.8.1", releases: {} }),
+    fetchLatest: async () => ({ version: "0.8.3", releases: {} }),
     runDowngrade: async (script) => {
       scripts.push(script);
     },
   });
-  await svc.check(1); // seeds last.current = "0.8.1" — now stale
+  await svc.check(1); // seeds last.current = "0.8.3" — now stale
   expect(svc.downgrade()).toEqual({ started: false });
   expect(scripts).toHaveLength(0); // never reached the script — no needless restart
 });
@@ -243,13 +243,13 @@ test("downgrade(): double-launch guarded while one is in flight", async () => {
 test("downgrade(): missing manifest entry → fails BEFORE running anything", async () => {
   const { svc, scripts, dones, begun, logs } = primedDowngrade({
     manifestUrl: null,
-    installedAfter: "0.8.1", // binary untouched
+    installedAfter: "0.8.3", // binary untouched
   });
   await svc.check(1);
   svc.downgrade();
   await settle();
   expect(scripts).toHaveLength(0); // never reached the script
-  expect(dones[0]).toMatchObject({ ok: false, to: "0.8.1" });
+  expect(dones[0]).toMatchObject({ ok: false, to: "0.8.3" });
   expect(dones[0]!.error).toContain(`no ${HERDR_LAST_SUPPORTED_VERSION} asset`);
   expect(begun).toEqual([true, false]); // maintenance still cleared
   // A pre-flight refusal never runs the script, so it leaves no audit-log trace —
@@ -260,7 +260,7 @@ test("downgrade(): missing manifest entry → fails BEFORE running anything", as
 test("downgrade(): manifest URL divergence from the template → refuses", async () => {
   const { svc, scripts, dones } = primedDowngrade({
     manifestUrl: "https://evil.example.com/herdr",
-    installedAfter: "0.8.1",
+    installedAfter: "0.8.3",
   });
   await svc.check(1);
   svc.downgrade();
@@ -273,12 +273,12 @@ test("downgrade(): manifest URL divergence from the template → refuses", async
 test("downgrade(): manifest fetch throws → fails cleanly, binary untouched", async () => {
   let checked = false;
   const { svc, dones, begun } = primedDowngrade({
-    installedAfter: "0.8.1",
+    installedAfter: "0.8.3",
     fetchLatest: async () => {
       if (!checked) {
         checked = true;
         // first call (check) succeeds so the service knows it is stranded
-        return { version: "0.8.1", releases: {} } as never;
+        return { version: "0.8.3", releases: {} } as never;
       }
       throw new Error("herdr.dev unreachable");
     },
@@ -286,23 +286,23 @@ test("downgrade(): manifest fetch throws → fails cleanly, binary untouched", a
   await svc.check(1);
   svc.downgrade();
   await settle();
-  expect(dones[0]).toMatchObject({ ok: false, to: "0.8.1" });
+  expect(dones[0]).toMatchObject({ ok: false, to: "0.8.3" });
   expect(dones[0]!.error).toContain("unreachable");
   expect(begun).toEqual([true, false]);
 });
 
 test("downgrade(): version unchanged after the script → reports failure, not the target", async () => {
-  const { svc, dones } = primedDowngrade({ installedAfter: "0.8.1" });
+  const { svc, dones } = primedDowngrade({ installedAfter: "0.8.3" });
   await svc.check(1);
   svc.downgrade();
   await settle();
-  expect(dones[0]).toMatchObject({ ok: false, to: "0.8.1" });
+  expect(dones[0]).toMatchObject({ ok: false, to: "0.8.3" });
   expect(dones[0]!.error).toContain("not downgraded");
 });
 
 test("downgrade(): watchdog timeout kills a hung script and reports the actual version", async () => {
   const { svc, dones } = primedDowngrade({
-    installedAfter: "0.8.1",
+    installedAfter: "0.8.3",
     watchdogMs: 20,
     runDowngrade: (_script, _onLine, signal) =>
       new Promise<void>((resolve) => {
@@ -312,6 +312,6 @@ test("downgrade(): watchdog timeout kills a hung script and reports the actual v
   await svc.check(1);
   svc.downgrade();
   await new Promise((r) => setTimeout(r, 60));
-  expect(dones[0]).toMatchObject({ ok: false, to: "0.8.1" });
+  expect(dones[0]).toMatchObject({ ok: false, to: "0.8.3" });
   expect(dones[0]!.error).toContain("timed out");
 });

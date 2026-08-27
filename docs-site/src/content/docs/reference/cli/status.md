@@ -18,13 +18,4 @@ Commands:
 
 Options:
       --json
-
-
-Are you an AI? Use these resources ONLY IF your task specifically asks you to:
-  Help a human understand or set up Herdr for the first time:
-    https://herdr.dev/agent-guide.md
-  Debug or investigate a problem with Herdr:
-    https://herdr.dev/llms.txt
-  Control Herdr panes, agents, or workspaces:
-    SKIP if a Herdr skill is already in your context. Otherwise run: herdr --skill
 ```

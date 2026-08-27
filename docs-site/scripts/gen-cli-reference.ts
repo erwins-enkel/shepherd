@@ -15,8 +15,8 @@
 // runner (e.g. the self-hosted CI_RUNNER) to invoke `herdr --help`.
 //
 // Output is deterministic: a pinned herdr version, a non-TTY capture with fixed
-// COLUMNS / no-color / no-ANSI, the machine-variant footer stripped, and $HOME
-// normalized — so re-running against the pinned version yields byte-identical files.
+// COLUMNS / no-color / no-ANSI, machine-variant and LLM-directed footers stripped,
+// and $HOME normalized — so re-running against the pinned version yields byte-identical files.
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -93,6 +93,16 @@ function stripFooter(help: string): string {
   return lines.slice(0, cut).join("\n");
 }
 
+/** Strip upstream's LLM-directed resource block. It is not operator CLI reference
+ *  and appears on subcommand help that has no machine-variant footer. */
+function stripLlmFooter(help: string): string {
+  const lines = help.split("\n");
+  const footerStart = lines.findIndex((l) => l.startsWith("Are you an AI?"));
+  if (footerStart === -1) return help;
+  const cut = footerStart > 0 && lines[footerStart - 1].trim() === "" ? footerStart - 1 : footerStart;
+  return lines.slice(0, cut).join("\n");
+}
+
 /** Belt-and-suspenders: normalize any residual absolute home path to `~`, drop
  *  trailing whitespace per line, and force exactly one trailing newline (LF). */
 function normalize(text: string): string {
@@ -109,7 +119,7 @@ function normalize(text: string): string {
  *  fenced code block, so no MDX/Markdown expansion can run on it. */
 function page(title: string, description: string, intro: string, help: string): string {
   const fm = `---\ntitle: ${JSON.stringify(title)}\ndescription: ${JSON.stringify(description)}\n---\n`;
-  const body = `${intro}\n\n\`\`\`text\n${normalize(help)}\`\`\`\n`;
+  const body = `${intro}\n\n\`\`\`text\n${normalize(stripLlmFooter(help))}\`\`\`\n`;
   return fm + "\n" + body;
 }
 

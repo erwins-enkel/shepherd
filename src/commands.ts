@@ -148,6 +148,74 @@ function safeReaddir(dir: string): string[] {
   }
 }
 
+/** How many directory levels below `commands/` the walk descends.
+ *
+ *  It has to descend at all because Claude Code does: a subdirectory is a namespace joined with
+ *  `:` (`commands/references/handoff-template.md` → `/references:handoff-template`), and a
+ *  subdirectory holding a `SKILL.md` is a skill named after the directory (`commands/ship/SKILL.md`
+ *  → `/ship`). A flat scan silently drops both.
+ *
+ *  It is BOUNDED because entries under `~/.claude` are commonly symlinks into other trees (see
+ *  {@link skillNameFrom}) and `statSync` follows them: a symlink cycle would spin this synchronous
+ *  walk forever inside `handleCommands`, on the one Bun event loop that also pumps the live web
+ *  terminal. Three levels covers every real layout. */
+const MAX_COMMAND_DEPTH = 3;
+
+/** `"dir"` / `"file"` for a `commands/` entry, or null when it is neither or unreadable. */
+function entryKind(path: string): "dir" | "file" | null {
+  try {
+    const stats = statSync(path);
+    return stats.isDirectory() ? "dir" : stats.isFile() ? "file" : null;
+  } catch {
+    return null; // vanished or unreadable → skip, don't fail the whole listing
+  }
+}
+
+/** The command name a `commands/` file contributes, or null when it contributes none. `SKILL.md`
+ *  is excluded because it names the *directory that holds it* — {@link collectCommandSubdir}
+ *  emits that row, and reading it here too would add a bogus `<dir>:SKILL` beside the real one. */
+function commandFileBase(entry: string): string | null {
+  if (!entry.endsWith(".md") || entry === "SKILL.md") return null;
+  return entry.slice(0, -3);
+}
+
+/** One subdirectory of a `commands/` tree: its own `SKILL.md` names the directory (Claude Code
+ *  calls `commands/ship/SKILL.md` just `/ship`), and everything below it is namespaced `<dir>:`. */
+function collectCommandSubdir(
+  dir: string,
+  name: string,
+  scope: SlashCommand["scope"],
+  out: Map<string, SlashCommand>,
+  prefix: string,
+  depth: number,
+) {
+  const md = join(dir, "SKILL.md");
+  const own = existsSync(md) ? readCommand(md, name, scope, prefix, "skill") : null;
+  if (own) out.set(own.name, own);
+  collectCommandDir(dir, scope, out, `${prefix}${name}:`, depth + 1);
+}
+
+/** One level of a `commands/` tree, merging into `out` keyed by name. */
+function collectCommandDir(
+  dir: string,
+  scope: SlashCommand["scope"],
+  out: Map<string, SlashCommand>,
+  prefix: string,
+  depth: number,
+) {
+  for (const entry of safeReaddir(dir)) {
+    const path = join(dir, entry);
+    const kind = entryKind(path);
+    if (kind === "dir") {
+      if (depth < MAX_COMMAND_DEPTH) collectCommandSubdir(path, entry, scope, out, prefix, depth);
+      continue;
+    }
+    const base = kind === "file" ? commandFileBase(entry) : null;
+    const cmd = base === null ? null : readCommand(path, base, scope, prefix);
+    if (cmd) out.set(cmd.name, cmd);
+  }
+}
+
 /** Scan one `.claude`-shaped dir (a real `.claude` or a plugin install root) for
  *  skills + commands, merging into `out` keyed by name. `prefix` namespaces plugin
  *  entries (`fallow:` → `fallow:foo`) so they can't clash with bare user commands. */
@@ -164,18 +232,7 @@ function collect(
     const cmd = readCommand(md, entry, scope, prefix, "skill");
     if (cmd) out.set(cmd.name, cmd);
   }
-  const cmdsDir = join(claudeDir, "commands");
-  for (const entry of safeReaddir(cmdsDir)) {
-    if (!entry.endsWith(".md")) continue;
-    const file = join(cmdsDir, entry);
-    try {
-      if (!statSync(file).isFile()) continue;
-    } catch {
-      continue;
-    }
-    const cmd = readCommand(file, entry.slice(0, -3), scope, prefix);
-    if (cmd) out.set(cmd.name, cmd);
-  }
+  collectCommandDir(join(claudeDir, "commands"), scope, out, prefix, 0);
 }
 
 /**

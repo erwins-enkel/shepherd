@@ -182,15 +182,67 @@ function collect(
  * Curated built-in slash commands that work as an initial prompt for a spawned
  * session. Purely-interactive ones (/clear, /config, /model, /compact) are
  * excluded — they do nothing useful as a first message. Maintained by hand.
+ *
+ * WHY BY HAND, and why this list is the ONLY channel for these: the scans above read the
+ * filesystem, and Claude Code's own bundled skills are not on it — they live inside the `claude`
+ * binary. Nothing under `~/.claude` or a repo can ever surface `/design`; it reaches the picker
+ * here or not at all.
+ *
+ * Discovering them at runtime was measured and rejected: `claude` only emits the full set (its
+ * `init` message's `slash_commands`) during a real `-p --output-format stream-json` run — an empty
+ * stdin exits before it — so reading it costs an API call, and `handleCommands` in `server.ts` is a
+ * sync handler on the single Bun event loop that also pumps the live web terminal.
+ *
+ * THE COST OF THAT CHOICE, and the only guard against it: the list goes stale in both directions.
+ * It shipped `/review` and `/pr-comments` for releases after Claude Code dropped them, handing the
+ * operator a task that opens with a command nothing resolves. Re-check against reality with
+ *
+ *     claude -p --output-format stream-json --verbose hi | head -8
+ *
+ * and diff `init.slash_commands` against `listCommands()`. Note also that some bundled skills are
+ * account-gated (`verify`, `debug`, `batch`, `deep-research`, … appear only for some accounts), so
+ * only broadly-available ones belong here — a gated name would be the `/review` failure again.
  */
 const BUILTINS: ReadonlyArray<{ name: string; description: string }> = [
   { name: "init", description: "Initialize a new CLAUDE.md with codebase documentation" },
-  { name: "review", description: "Review a pull request" },
   {
     name: "security-review",
     description: "Complete a security review of the pending changes on the current branch",
   },
-  { name: "pr-comments", description: "Get comments from a GitHub pull request" },
+  {
+    name: "design",
+    description: "Create a design canvas — a multi-artboard visual design published as an Artifact",
+  },
+  {
+    name: "simplify",
+    description:
+      "Review the changed code for reuse, simplification, and efficiency, then apply the fixes",
+  },
+  { name: "run", description: "Launch and drive this project's app to see a change working" },
+  {
+    name: "dataviz",
+    description: "Design guidance for charts, dashboards, and data visualizations",
+  },
+  {
+    name: "update-config",
+    description:
+      "Configure the Claude Code harness via settings.json — hooks, permissions, env vars",
+  },
+  {
+    name: "fewer-permission-prompts",
+    description: "Scan transcripts and add a prioritized Bash/MCP allowlist to project settings",
+  },
+  {
+    name: "claude-api",
+    description:
+      "Reference for the Claude API / Anthropic SDK — model ids, pricing, params, tool use",
+  },
+  { name: "workflow-authoring", description: "Reference for writing a Workflow tool script" },
+  { name: "loop", description: "Run a prompt or slash command on a recurring interval" },
+  {
+    name: "schedule",
+    description: "Create, update, list, or run scheduled cloud agents (routines)",
+  },
 ];
 
 type CodexConfig = { skills?: { config?: Array<{ path?: unknown; enabled?: unknown }> } };

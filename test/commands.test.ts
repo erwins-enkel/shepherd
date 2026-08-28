@@ -133,9 +133,19 @@ test("missing dirs → builtins only, no throw", () => {
 
 test("curated builtins are always present and scoped builtin", () => {
   const cmds = commands(repo, userClaude);
-  const review = cmds.find((c) => c.name === "review");
-  expect(review?.scope).toBe("builtin");
+  const design = cmds.find((c) => c.name === "design");
+  expect(design?.scope).toBe("builtin");
+  expect(design?.description).not.toBe("");
+  expect(design?.invocations.claude).toBe("/design");
   expect(cmds.some((c) => c.name === "security-review" && c.scope === "builtin")).toBe(true);
+});
+
+// Claude Code dropped /review and /pr-comments; a builtin it no longer resolves opens the spawned
+// session with a dead command, so the list must not carry names that outlive the CLI.
+test("builtins Claude Code no longer ships are gone", () => {
+  const names = commands(repo, userClaude).map((c) => c.name);
+  expect(names).not.toContain("review");
+  expect(names).not.toContain("pr-comments");
 });
 
 test("front-matter argument-hint is surfaced", () => {

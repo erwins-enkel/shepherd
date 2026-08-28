@@ -78,12 +78,25 @@ Its public API is small and closed: `new Codex(options)`, `codex.startThread(opt
 `thread.started | turn.started | turn.completed | turn.failed | item.started | item.updated |
 item.completed | error`, with items
 `agent_message | reasoning | command_execution | file_change | mcp_tool_call | web_search |
-todo_list | error`, and a per-turn `Usage {input_tokens, cached_input_tokens,
-cache_write_input_tokens, output_tokens, reasoning_output_tokens}` (`dist/index.d.ts`).
+todo_list | error`, and a `Usage {input_tokens, cached_input_tokens, cache_write_input_tokens,
+output_tokens, reasoning_output_tokens}` on `turn.completed` (`dist/index.d.ts`).
 
 **There is no thread-id pinning** — `startThread()` takes no id; `thread.id` is populated only after
-the first turn starts. There is no steering of a running turn, no approval callback, no interrupt
-beyond an `AbortSignal`, no rate-limit surface, and no interactive mode.
+the first turn starts. That is not an SDK omission: `codex-rs/exec/src/cli.rs` on `main` carries no
+`--session-id`/`--thread-id` either, so the CLI can no more pin one today than 0.142.5 could when
+#1175 reached the same conclusion. There is no steering of a running turn, no approval callback, no
+interrupt beyond an `AbortSignal`, no rate-limit surface, and no interactive mode.
+
+Two sharp edges in what it does emit. **`turn.completed.usage` is cumulative since thread start, not
+the turn's delta** — despite the doc comment reading "during the turn", the JSONL writer fills it
+from `last_total_token_usage.total`, while the protocol's `ThreadTokenUsage` carries both a `total`
+and a `last` breakdown and the exec path reads `total`; a second `run()` on the same thread reports
+both turns' cost. And **the SDK does not validate what it parses** — it casts each line as
+`JSON.parse(line) as ThreadEvent`, while its TS unions are a strict subset of the Rust protocol
+(Rust's `ThreadItemDetails` has a `CollabToolCall` variant the TS `ThreadItem` lacks;
+`CommandExecutionStatus` has a fourth `Declined` value TS omits). An unmodelled event arrives as a
+well-typed lie rather than an error — an argument for parsing the stream under Shepherd's own
+validation whichever route is taken.
 
 ## 3. Why it is the wrong lever for Shepherd
 
@@ -107,12 +120,19 @@ Shepherd already spawns. Verified on the installed 0.150.1 (`codex exec --help`,
 | ------------------------ | ------------------------------------- | --------------------------------------------- |
 | typed event stream       | `--json` / `--experimental-json`      | not used — panes + rollout scraping           |
 | structured final output  | `--output-schema <FILE>`              | not used — the `-o` last-message hack         |
-| per-turn token usage     | `turn.completed.usage` in that stream | scraped from `state_N.sqlite` + rollout tails |
+| token usage (cumulative) | `turn.completed.usage` in that stream | scraped from `state_N.sqlite` + rollout tails |
 | thread classification    | `--thread-source <SOURCE>`            | not used — `source == "cli"` heuristic        |
 | config overrides         | `-c key=value`                        | used (effort only)                            |
 | working dir / extra dirs | `-C`, `--add-dir`                     | not used                                      |
 | no session files on disk | `--ephemeral`                         | not used                                      |
 | cancellation             | kill the child                        | herdr pane teardown                           |
+
+One thing that stream does **not** carry: the **5h/weekly rate-limit windows**. The exec JSONL
+processor maps `ThreadTokenUsageUpdated` into `Usage` and emits no rate-limit variant at all, and the
+upstream request to add one (`openai/codex#14728`, "emit rate_limits in exec mode JSONL output") was
+closed by a maintainer with _"This feature hasn't received any upvotes, so closing"_. So
+`src/codex-usage.ts`'s rollout + SQLite scraping has **no** replacement in the SDK or in
+`codex exec --json`; that signal exists only in the richer app-server protocol (§4).
 
 Adopting the SDK to get these means: a second `codex` binary in `node_modules` pinned to an exact
 version (`"@openai/codex": "0.150.1"`), diverging from the operator's on-PATH install that
@@ -199,9 +219,13 @@ session by id, without a PTY write and without resume-then-steer.
    `src/codex-last-message.ts` — including the per-spawn unguessable filename defending against a
    PR pre-seeding a verdict file — exists because Codex may answer in chat instead of writing the
    result file. A schema-constrained final response removes the failure mode rather than catching it.
-3. **Tag role spawns with `--thread-source`.** `SessionSource` accepts `{custom: string}`, which
-   makes the `source == "cli"` exclusion in `src/codex-session-id.ts:15-16` explicit instead of
-   incidental.
+3. **Tag role spawns with `--thread-source` — and re-verify the `source == "cli"` exclusion while
+   there.** `--thread-source` sets a _classification_ on newly created threads (explicitly not on
+   resume), so a custom value would make the role-vs-interactive split in
+   `src/codex-session-id.ts:15-16` explicit instead of incidental. Verify first: the app-server
+   `SessionSource` union generated from the installed 0.150.1 still lists `"cli"`, but the
+   `--thread-source` domain is a different set that defaults to `"user"`, and restore breaks
+   silently the day what lands in `session_meta.source` changes.
 4. **Close the role-isolation gap** with `--ignore-user-config` / `--ignore-rules` (§5).
 5. **Spike `codex app-server`** (a #1175-shaped go/no-go): can Shepherd start a thread through the
    daemon, learn its id at start, attach an interactive `codex --remote` pane to that same thread,
@@ -231,6 +255,13 @@ Primary artifacts, all verified on this host on 2026-08-28:
   `docs/research/claude-code-codex-release-parity-2026-07-29.md`,
   `docs/research/mcp-parity-across-runtimes.md`.
 
+Upstream Rust sources read on `main` for §2: `codex-rs/exec/src/cli.rs`,
+`codex-rs/exec/src/exec_events.rs`, `codex-rs/exec/src/event_processor_with_jsonl_output.rs`, and
+`openai/codex` issues #14728 (rate-limit emission, declined) and #14880 (`rate_limits` always null in
+rollouts, open). Note when checking those: this repo reports `state_reason: "completed"` on issues
+closed as duplicates and as won't-fix alike, so the API field alone does not mean a feature shipped.
+
 **Not verified here:** whether an app-server thread and a `codex --remote` TUI pane can address the
-same session (§4), and whether `xhigh`/`max`/`ultra` are accepted per model (§5). Both are named as
-spike/verify items rather than treated as established.
+same session (§4); whether `xhigh`/`max`/`ultra` are accepted per model (§5); and whether a
+0.150.1-written `session_meta.source` still reads `"cli"` for an interactive spawn (§6, step 3). All
+three are named as spike/verify items rather than treated as established.

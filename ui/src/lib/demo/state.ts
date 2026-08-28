@@ -315,6 +315,14 @@ export const demoState = {
     return git ?? { state: "open", checks: "success", deployConfigured: false };
   },
 
+  closePr(id: string): PrStatus {
+    const git = world.gitStates[id];
+    if (!git) return { state: "none", checks: "none", deployConfigured: false };
+    git.state = "closed";
+    emit({ event: "session:git", data: { id, git } });
+    return git;
+  },
+
   /** Land a merging PR (director follow-up to {@link mergePr}): flip git → merged,
    *  clear the merging latch, mark the session done, and confirm the train landed. */
   landMerge(id: string): void {

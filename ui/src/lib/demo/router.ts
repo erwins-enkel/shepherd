@@ -226,6 +226,12 @@ const sessionIdMutationRoutes: ReadonlyArray<{
     handle: (path) => json(demoState.mergePr(seg(path, 3))),
   },
   {
+    // POST /api/sessions/:id/git/close
+    method: "POST",
+    pattern: /^\/api\/sessions\/[^/]+\/git\/close$/,
+    handle: (path) => json(demoState.closePr(seg(path, 3))),
+  },
+  {
     // POST /api/sessions/:id/ready
     method: "POST",
     pattern: /^\/api\/sessions\/[^/]+\/ready$/,

@@ -440,6 +440,12 @@ export class GiteaForge implements GitForge {
     }
   }
 
+  async closePr(prNumber: number): Promise<void> {
+    await this.req("PATCH", `/api/v1/repos/${this.slug}/pulls/${prNumber}`, {
+      state: "closed",
+    });
+  }
+
   async createIssue(o: { title: string; body: string }): Promise<{ number: number; url: string }> {
     const issue = (await this.req("POST", `/api/v1/repos/${this.slug}/issues`, {
       title: o.title,

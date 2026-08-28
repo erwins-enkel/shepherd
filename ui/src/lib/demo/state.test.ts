@@ -221,6 +221,13 @@ describe("demoState mutators emit the correct WsEvent frames", () => {
     expect(demoState.sessions().find((s) => s.id === "rounding")?.mergingSince).not.toBeNull();
   });
 
+  it("closePr closes the PR and emits session:git", () => {
+    const frames = capture(() => demoState.closePr("rounding"));
+    expect(events(frames)).toEqual(["session:git"]);
+    expect(demoState.gitState("rounding")?.state).toBe("closed");
+    expect(frames[0]?.data).toMatchObject({ id: "rounding", git: { state: "closed" } });
+  });
+
   it("landMerge + landRecap: a landed session gets a recap, idempotent across repeat lands", () => {
     expect(demoState.recaps()["ogimg"]).toBeUndefined();
     demoState.landMerge("ogimg");

@@ -1480,6 +1480,10 @@ export async function mergePr(
   return gitJson(await fetch(`/api/sessions/${id}/git/merge`, JSON_POST(body ?? {})));
 }
 
+export async function closePr(id: string): Promise<PrStatus> {
+  return gitJson(await fetch(`/api/sessions/${id}/git/close`, JSON_POST()));
+}
+
 /** Rename a session. The server slugifies the name, renames the git branch, and
  *  broadcasts `session:renamed`. `branchRenamed` is false when an open PR pinned the
  *  branch (no host can carry a PR onto a renamed head branch), leaving a display-only

@@ -4155,6 +4155,18 @@ async function forgeSetDraftState(
   return json(await refreshSessionGit(forge, session, deps));
 }
 
+async function forgeClosePr(forge: GitForge, session: Session, deps: AppDeps): Promise<Response> {
+  const cur = await forge.prStatus(session.branch ?? "");
+  if (cur.state !== "open" || !cur.number) {
+    return json({ error: "no open PR" }, 409);
+  }
+  if (!forge.closePr) {
+    return json({ error: "forge does not support closing PRs" }, 400);
+  }
+  await forge.closePr(cur.number);
+  return json(await refreshSessionGit(forge, session, deps));
+}
+
 async function dispatchForgeAction(
   forge: GitForge,
   session: Session,
@@ -4166,11 +4178,16 @@ async function dispatchForgeAction(
     return null;
   }
   if (req.method === "POST") {
-    if (parts[4] === "pr") return forgeOpenPr(forge, session, req, deps);
-    if (parts[4] === "merge") return forgeMerge(forge, session, req, deps);
-    if (parts[4] === "redeploy") return forgeRedeploy(forge, session);
-    if (parts[4] === "ready") return forgeSetDraftState(forge, session, false, deps);
-    if (parts[4] === "draft") return forgeSetDraftState(forge, session, true, deps);
+    const actions = {
+      pr: () => forgeOpenPr(forge, session, req, deps),
+      merge: () => forgeMerge(forge, session, req, deps),
+      close: () => forgeClosePr(forge, session, deps),
+      redeploy: () => forgeRedeploy(forge, session),
+      ready: () => forgeSetDraftState(forge, session, false, deps),
+      draft: () => forgeSetDraftState(forge, session, true, deps),
+    };
+    const action = actions[parts[4] as keyof typeof actions];
+    if (action) return action();
   }
   return null;
 }

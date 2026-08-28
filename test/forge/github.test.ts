@@ -1623,6 +1623,13 @@ test("GithubForge.convertToDraft: invokes gh pr ready <n> --repo --undo", async 
   expect(calls[0]).toEqual(["pr", "ready", "42", "--repo", "o/r", "--undo"]);
 });
 
+test("GithubForge.closePr: invokes gh pr close with the PR number and repo", async () => {
+  const { run, calls } = fakeRunner({});
+  const forge = new GithubForge("o/r", {}, run);
+  await forge.closePr!(42);
+  expect(calls[0]).toEqual(["pr", "close", "42", "--repo", "o/r"]);
+});
+
 test("GithubForge.canPush: WRITE → true", async () => {
   const { run } = fakeRunner({
     "repo view": JSON.stringify({ viewerPermission: "WRITE" }),

@@ -1708,6 +1708,10 @@ export class GithubForge implements GitForge {
     await this.run(["pr", "ready", String(prNumber), "--repo", this.slug, "--undo"]);
   }
 
+  async closePr(prNumber: number): Promise<void> {
+    await this.run(["pr", "close", String(prNumber), "--repo", this.slug]);
+  }
+
   async createIssue(o: { title: string; body: string }): Promise<{ number: number; url: string }> {
     // `gh issue create` echoes the new issue's URL on stdout (…/issues/<n>).
     const url = (

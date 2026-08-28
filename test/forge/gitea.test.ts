@@ -647,6 +647,18 @@ test("GiteaForge.closeIssue: PATCHes the issue state to closed", async () => {
   expect(patch.body).toEqual({ state: "closed" });
 });
 
+test("GiteaForge.closePr: PATCHes the pull request state to closed", async () => {
+  const { fn, calls } = fakeFetch({
+    "PATCH /api/v1/repos/team/proj/pulls/42": { status: 200, json: {} },
+  });
+  const forge = new GiteaForge("team/proj", CFG, fn);
+  await forge.closePr!(42);
+  const patch = calls[0]!;
+  expect(patch.method).toBe("PATCH");
+  expect(patch.url).toContain("/api/v1/repos/team/proj/pulls/42");
+  expect(patch.body).toEqual({ state: "closed" });
+});
+
 test("GiteaForge.addIssueLabel: resolves the label id by name, then POSTs it", async () => {
   const { fn, calls } = fakeFetch({
     "GET /api/v1/repos/team/proj/labels?limit=100&page=1": {

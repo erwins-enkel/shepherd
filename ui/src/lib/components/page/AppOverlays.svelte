@@ -30,6 +30,7 @@
     BacklogPayload,
     DeployState,
     Issue,
+    GitState,
     Leftover,
     PluginUpdatesStatus,
     PullRequest,
@@ -55,6 +56,7 @@
   import type { HerdFilter } from "$lib/components/herd-partition";
   import RetryDialog from "$lib/components/RetryDialog.svelte";
   import DecomLeftovers from "$lib/components/page/DecomLeftovers.svelte";
+  import DecommissionPrDialog from "$lib/components/DecommissionPrDialog.svelte";
   import EpicDiagnoseEntry from "$lib/components/EpicDiagnoseEntry.svelte";
   import ClearMergedDialog from "$lib/components/ClearMergedDialog.svelte";
   import MergeTrainConfirmDialog from "$lib/components/MergeTrainConfirmDialog.svelte";
@@ -175,6 +177,9 @@
     decomLeftovers,
     ondecomleftoverclose,
     ondecomleftoverconfirm,
+    decommissionPr,
+    ondecommissionprselect,
+    ondecommissionprclose,
     showRetry,
     onretryclose,
     showEpicDiagnose,
@@ -317,6 +322,9 @@
     ondecomleftoverclose: () => void;
     /** Confirmed with the chosen leftovers to reap. */
     ondecomleftoverconfirm: (keys: string[]) => void;
+    decommissionPr: { name: string; git: GitState } | null;
+    ondecommissionprselect: (choice: "keep" | "close" | "merge") => void;
+    ondecommissionprclose: () => void;
     showRetry: boolean;
     onretryclose: () => void;
     showEpicDiagnose: boolean;
@@ -637,6 +645,15 @@
   onclose={ondecomleftoverclose}
   onconfirm={ondecomleftoverconfirm}
 />
+
+{#if decommissionPr}
+  <DecommissionPrDialog
+    name={decommissionPr.name}
+    git={decommissionPr.git}
+    onselect={ondecommissionprselect}
+    onclose={ondecommissionprclose}
+  />
+{/if}
 
 {#if showRetry}
   <RetryDialog sessions={store.sessions} onclose={onretryclose} />

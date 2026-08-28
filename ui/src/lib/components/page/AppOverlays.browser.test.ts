@@ -8,6 +8,7 @@ import type {
   AgentProvider,
   BacklogPayload,
   DiagnosticsSnapshot,
+  GitState,
   HerdrUpdateStatus,
   Session,
   Steer,
@@ -135,6 +136,9 @@ function baseProps(): Props {
     decomLeftovers: [],
     ondecomleftoverclose: vi.fn(),
     ondecomleftoverconfirm: vi.fn(),
+    decommissionPr: null,
+    ondecommissionprselect: vi.fn(),
+    ondecommissionprclose: vi.fn(),
     onretryclose: vi.fn(),
     showEpicDiagnose: false,
     onepicdiagnoseclose: vi.fn(),
@@ -367,6 +371,26 @@ describe("AppOverlays — command bar wiring", () => {
     props.decomLeftovers = [];
     render(AppOverlays, props);
     expect(page.getByText("vite").elements()).toHaveLength(0);
+  });
+
+  it("renders the open-PR decommission dialog and forwards the selected action", async () => {
+    const props = baseProps();
+    props.decommissionPr = {
+      name: "task one",
+      git: {
+        kind: "github",
+        state: "open",
+        number: 42,
+        checks: "success",
+        mergeable: true,
+        mergeStateStatus: "clean",
+        deployConfigured: false,
+      } satisfies GitState,
+    };
+    render(AppOverlays, props);
+
+    await page.getByRole("button", { name: m.decommission_pr_keep() }).click();
+    expect(props.ondecommissionprselect).toHaveBeenCalledWith("keep");
   });
 
   // The batch clear reaps without asking, so on a host that can't detect processes the

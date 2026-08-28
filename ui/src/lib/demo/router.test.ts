@@ -132,6 +132,13 @@ describe("mutation handlers call the mutator and return the caller's shape", () 
     expect(body).toHaveProperty("checks");
   });
 
+  it("POST git/close closes the PR and returns its state", async () => {
+    const r = await handleApi("POST", u("/api/sessions/rounding/git/close"), {});
+    expect(r.status).toBe(200);
+    expect(await r.json()).toMatchObject({ state: "closed", number: 512 });
+    expect(demoState.gitState("rounding")?.state).toBe("closed");
+  });
+
   it("POST /api/sessions/clear-merged with no ids clears nothing", async () => {
     const r = await handleApi("POST", u("/api/sessions/clear-merged"), { ids: [] });
     expect(r.status).toBe(200);

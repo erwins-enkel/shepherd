@@ -500,6 +500,58 @@ test("POST git/ready → 409 when there is no open PR", async () => {
   expect(res.status).toBe(409);
 });
 
+test("POST git/close closes the live open PR and publishes the closed state", async () => {
+  let state: PrStatus["state"] = "open";
+  const f = fakeForge({
+    prStatus: async () =>
+      ({ state, number: 5, checks: "success", deployConfigured: true }) as PrStatus,
+    closePr: async (n) => {
+      f.log.push(`close:${n}`);
+      state = "closed";
+    },
+  });
+  const deps = makeDeps(f);
+  const app = makeApp(deps);
+
+  const res = await app.fetch(post("/api/sessions/s1/git/close"));
+
+  expect(res.status).toBe(200);
+  expect(f.log).toContain("close:5");
+  expect(await res.json()).toMatchObject({ state: "closed", number: 5 });
+  expect(deps.snap.s1).toMatchObject({ state: "closed", number: 5 });
+  expect(deps.emitted.find((e) => e.event === "session:git")?.data).toMatchObject({
+    id: "s1",
+    git: { state: "closed", number: 5 },
+  });
+});
+
+test("POST git/close → 409 without an open PR and never calls closePr", async () => {
+  let closes = 0;
+  const f = fakeForge({
+    prStatus: async () => ({ state: "merged", number: 5, checks: "success" }) as PrStatus,
+    closePr: async () => {
+      closes++;
+    },
+  });
+  const app = makeApp(makeDeps(f));
+
+  const res = await app.fetch(post("/api/sessions/s1/git/close"));
+
+  expect(res.status).toBe(409);
+  expect(closes).toBe(0);
+});
+
+test("POST git/close → 400 when the forge cannot close PRs", async () => {
+  const deps = makeDeps(fakeForge());
+  const app = makeApp(deps);
+
+  const res = await app.fetch(post("/api/sessions/s1/git/close"));
+
+  expect(res.status).toBe(400);
+  expect(deps.cacheWrites).toEqual([]);
+  expect(deps.emitted.find((e) => e.event === "session:git")).toBeUndefined();
+});
+
 test("GET /api/git returns the prCache snapshot", async () => {
   const deps = makeDeps(fakeForge());
   const app = makeApp(deps);

@@ -551,6 +551,8 @@ export interface GitForge {
   /** Convert an open ready PR back to draft (`gh pr ready <n> --undo`). Optional,
    *  same host gating as {@link markReady}. */
   convertToDraft?(prNumber: number): Promise<void>;
+  /** Close an open PR without merging it. Optional: hosts without a PR-close API omit it. */
+  closePr?(prNumber: number): Promise<void>;
   redeploy(o: RedeployInput): Promise<void>;
   /** Post a critic review (request-changes / comment) on a PR. Returns the
    *  review's URL when the host provides one. */

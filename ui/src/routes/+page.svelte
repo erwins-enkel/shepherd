@@ -15,6 +15,7 @@
     listSessions,
     createSession,
     archiveSession,
+    closePr,
     getLeftovers,
     relaunchSession,
     restoreSession,
@@ -57,6 +58,7 @@
     listHeld,
     updateHeld,
     invokePluginRoute,
+    mergePr,
   } from "$lib/api";
   import type {
     AgentProvider,
@@ -64,6 +66,7 @@
     DeployState,
     BacklogPayload,
     HeldTask,
+    GitState,
     Issue,
     IssueRef,
     Leftover,
@@ -156,6 +159,12 @@
   // builds along with every other __DEMO__-guarded reference below.
   import { commandBarShowcase } from "$lib/demo/showcase";
   import { steersSettingsOpen } from "./steers-settings-open";
+  import {
+    createDecommissionCommit,
+    type DecommissionCommit,
+    type DecommissionPrAction,
+    type DecommissionRequest,
+  } from "$lib/decommission-commit";
 
   const store = new HerdStore();
 
@@ -2293,11 +2302,26 @@
     showNew = true;
   }
 
-  function onarchive(id: string, reap?: string[]) {
+  type PendingDecommission = DecommissionRequest & { name: string };
+  let decommissionPr = $state<{
+    id: string;
+    name: string;
+    git: GitState;
+    reap?: string[];
+  } | null>(null);
+
+  function deferDecommission(
+    request: PendingDecommission,
+    commit: DecommissionCommit = createDecommissionCommit(request, {
+      closePr,
+      mergePr,
+      archiveSession,
+    }),
+  ) {
     // Removing the worktree is irreversible, so we DEFER it: focus leaves the
     // doomed session immediately, but archiveSession only fires when the undo
     // window expires. UNDO restores focus and the server is never called.
-    const name = store.sessions.find((s) => s.id === id)?.name ?? id;
+    const { id, name } = request;
     if (selectedId === id) selectedId = store.sessions.find((s) => s.id !== id)?.id ?? null;
     toasts.undo(m.toast_decommissioned({ name }), {
       undoLabel: m.common_undo(),
@@ -2311,16 +2335,38 @@
         // (store drops the row); a failure surfaces with a Retry that re-defers
         // the same decommission, so the row never dead-ends.
         try {
-          await archiveSession(id, reap);
+          await commit.run();
         } catch {
           toasts.info(m.toast_decommission_failed({ name }), {
             sticky: true,
             alert: true,
             key: `decommission-fail:${id}`,
-            action: { label: m.common_retry(), run: () => onarchive(id, reap) },
+            action: { label: m.common_retry(), run: () => deferDecommission(request, commit) },
           });
         }
       },
+    });
+  }
+
+  function onarchive(id: string, reap?: string[]) {
+    const name = store.sessions.find((s) => s.id === id)?.name ?? id;
+    const git = store.git[id];
+    if (git?.state === "open") {
+      decommissionPr = { id, name, git, reap };
+      return;
+    }
+    deferDecommission({ id, name, reap, action: "keep" });
+  }
+
+  function finishPrDecommission(action: DecommissionPrAction) {
+    const pending = decommissionPr;
+    decommissionPr = null;
+    if (!pending) return;
+    deferDecommission({
+      id: pending.id,
+      name: pending.name,
+      reap: pending.reap,
+      action,
     });
   }
 
@@ -3369,6 +3415,9 @@
   {decomLeftovers}
   ondecomleftoverclose={() => finishCommandDecommission()}
   ondecomleftoverconfirm={(keys) => finishCommandDecommission(keys)}
+  {decommissionPr}
+  ondecommissionprselect={finishPrDecommission}
+  ondecommissionprclose={() => (decommissionPr = null)}
   {showRetry}
   onretryclose={() => (showRetry = false)}
   {showEpicDiagnose}

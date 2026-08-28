@@ -2,11 +2,12 @@
 
 **Verdict: NO — not as posed, and the question points at the wrong layer.** `@openai/codex-sdk` is a
 ~550-line wrapper that spawns `codex exec --experimental-json` as a child process and parses its
-JSONL into typed events. It adds **no capability Shepherd cannot get today by adding two flags to
-one argv builder**, while adding a second pinned `codex` binary inside `node_modules`, a new
-version-coupling constraint, and an `originator` marker on every request. Meanwhile the flags
-Shepherd is _not_ using (`--json`, `--output-schema`, `--thread-source`, `--ignore-user-config`,
-`--ephemeral`) would retire the most fragile code in the Codex integration **this week**, and the
+JSONL into typed events. It adds **no capability Shepherd cannot get from the CLI it already
+spawns**, while adding a second pinned `codex` binary inside `node_modules`, a new version-coupling
+constraint, and an `originator` marker on every request. Meanwhile the flags Shepherd is _not_ using
+(`--json`, `--output-schema`, `--thread-source`, `--ignore-user-config`, `--ephemeral`) would retire
+most of the fragile parsing in the Codex integration — one of them, `--json`, needs a stdout
+delivery path first (§3.2) — and the
 capability tier that would actually change Shepherd's architecture — `codex app-server`, a typed
 JSON-RPC daemon with first-class thread ids, steering, status and usage — is something the SDK
 **does not use at all**.
@@ -127,6 +128,15 @@ Shepherd already spawns. Verified on the installed 0.150.1 (`codex exec --help`,
 | no session files on disk | `--ephemeral`                         | not used                                      |
 | cancellation             | kill the child                        | herdr pane teardown                           |
 
+One caveat governs that whole first column: **`--json` prints to stdout, and Shepherd never reads a
+role's stdout.** Roles are launched into a herdr pane with their argv wrapped as `env … <argv>` — no
+shell, so no redirection and no pipe (`src/herdr.ts:604-630`) — and the read path polls for a _file_
+in the spawn's cwd (`readRoleResultText`; the rundown's launch/poll shape is
+`src/herd-digest.ts:384-397`). Consuming the event stream therefore costs a delivery path, not just
+a flag: either a wrapper that redirects stdout to a file the poller tails, or spawning roles directly
+instead of into a pane — which is precisely how the SDK gets the stream (`child.stdout` of its own
+`spawn`), and precisely what costs the pane and its `terminalId`.
+
 One thing that stream does **not** carry: the **5h/weekly rate-limit windows**. The exec JSONL
 processor maps `ThreadTokenUsageUpdated` into `Usage` and emits no rate-limit variant at all, and the
 upstream request to add one (`openai/codex#14728`, "emit rate_limits in exec mode JSONL output") was
@@ -200,9 +210,13 @@ session by id, without a PTY write and without resume-then-steer.
   `ModelReasoningEffort` as `"minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra"`.
   Worth re-verifying per model before trusting either.
 - **Role isolation parity.** Codex roles get only `--sandbox workspace-write` and otherwise inherit
-  the operator's full user config, while Claude roles get `disableAllHooks` +
-  `--disable-slash-commands` + `--safe-mode` (`src/transient-agent-argv.ts:222-260`). 0.150.1 offers
-  `--ignore-user-config`, `--ignore-rules` and `--dangerously-bypass-hook-trust` to close that gap.
+  the operator's full user config. Every Claude role, by contrast, gets `disableAllHooks`,
+  `tui:"default"`, `--disable-slash-commands`, a per-kind `--allowedTools` allowlist and
+  `--permission-mode dontAsk` (`src/transient-agent-argv.ts:244-263`). `--safe-mode` is **not**
+  universal on the Claude side: it is emitted only for the `mcpIsolated` presets — `reviewer` and
+  `doc` — coupled to `enableAllProjectMcpServers` so the two cannot drift apart
+  (`src/transient-agent-argv.ts:170-173,245,258`). 0.150.1 offers `--ignore-user-config`,
+  `--ignore-rules` and `--dangerously-bypass-hook-trust` to close the Codex side of the gap.
 - **Codex is growing its own remote control.** `codex remote-control {start,stop,pair}` with
   pairing codes, plus `codex --remote ws://…`, is first-party remote driving of local sessions. Not
   a threat to Shepherd's orchestration, but it is adjacent enough to be worth watching.
@@ -211,14 +225,21 @@ session by id, without a PTY write and without resume-then-steer.
 
 **Do not adopt `@openai/codex-sdk`.** Instead, in this order:
 
-1. **Consume the event stream Shepherd already pays for.** Add `--json` to `codexRoleArgv`
-   (`src/codex-role-argv.ts:31-45`) and parse `turn.completed` / `item.completed` with the existing
-   `eachJsonlObject`. This gives Codex roles the token totals and live tool-use surfacing that the
-   header comment currently concedes "degrade to null" (`src/codex-role-argv.ts:23`).
-2. **Replace the `-o` last-message hack with `--output-schema`.** The entire mechanism in
-   `src/codex-last-message.ts` — including the per-spawn unguessable filename defending against a
-   PR pre-seeding a verdict file — exists because Codex may answer in chat instead of writing the
-   result file. A schema-constrained final response removes the failure mode rather than catching it.
+1. **Choose a delivery path for the event stream, then consume it.** `--json` on `codexRoleArgv`
+   (`src/codex-role-argv.ts:31-45`) emits the typed events on stdout, which a herdr-launched pane
+   does not hand back (§3.2). So this is two decisions, not one flag: pick the transport (redirect
+   stdout to a file the role poller tails, or spawn roles off-pane and accept losing the pane), then
+   parse `turn.completed` / `item.completed` with the existing `eachJsonlObject`. The payoff is the
+   token totals and live tool-use surfacing the header comment currently concedes "degrade to null"
+   (`src/codex-role-argv.ts:23`) — but the transport is the part to price.
+2. **Keep `-o` as the transport; add `--output-schema` to fix what lands in it.** `-o <FILE>` is the
+   only reason a role's final message reaches a file at all, so it stays until step 1 supplies
+   another path — `--output-schema` constrains the _shape_ of the final response, never its
+   destination, and dropping `-o` for it would leave the read path with nothing to read. What it
+   does buy: the fallback stops being "whatever prose the model emitted, which then fails the
+   caller's validation" and becomes schema-conforming JSON, which is the actual failure mode behind
+   `src/codex-last-message.ts:6-13`. The per-spawn unguessable filename stays load-bearing exactly
+   as long as `-o` does (`src/codex-last-message.ts:18-25`).
 3. **Tag role spawns with `--thread-source` — and re-verify the `source == "cli"` exclusion while
    there.** `--thread-source` sets a _classification_ on newly created threads (explicitly not on
    resume), so a custom value would make the role-vs-interactive split in
@@ -233,8 +254,8 @@ session by id, without a PTY write and without resume-then-steer.
    rollout scrapers, unblocks non-isolated restore (#1476) and `/fork` staleness at once — and does
    so _without_ leaving the interactive-session substrate. A no costs one spike.
 
-Steps 1-4 are small, independent, and each deletes code that exists only to work around a missing
-flag. Step 5 is the one worth a plan.
+Steps 2-4 are small and independent. Step 1 is small only once its transport is settled, and step 5
+is the one worth a plan.
 
 ---
 

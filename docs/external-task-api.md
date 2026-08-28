@@ -226,7 +226,8 @@ Once a task exists, an external agent can also drive it:
   subdir must already exist. The same realpath-containment rules apply. Returns
   `{ "path": "<relpath>" }` (a colliding name is given a numeric suffix rather
   than overwriting). `400` on a missing `file` field, `413` when the file
-  exceeds the upload size limit (10 MiB), and `404` on a missing/archived
+  exceeds the upload size limit (250 MiB — `MAX_UPLOAD_BYTES` in
+  `src/uploads.ts`, uniform across every upload endpoint), and `404` on a missing/archived
   session or an out-of-root `path`.
 
 All of these honor the same auth/origin rules as task creation.

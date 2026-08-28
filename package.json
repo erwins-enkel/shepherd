@@ -34,9 +34,9 @@
     "@commitlint/config-conventional": "^21.2.2",
     "@eslint/js": "^10.0.1",
     "@types/bun": "latest",
-    "@types/node": "^26.2.0",
+    "@types/node": "^26.3.0",
     "@types/web-push": "^3.6.4",
-    "eslint": "^10.9.0",
+    "eslint": "^10.9.1",
     "eslint-plugin-svelte": "^3.23.0",
     "github-slugger": "^2.0.0",
     "globals": "^17.11.0",
@@ -48,7 +48,7 @@
     "prettier-plugin-tailwindcss": "^0.8.1",
     "svelte": "^5.56.10",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.67.0"
+    "typescript-eslint": "^8.68.0"
   },
   "dependencies": {
     "jsonrepair": "^3.15",

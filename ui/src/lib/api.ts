@@ -1181,6 +1181,12 @@ export async function listIssues(repoPath: string): Promise<{
    *  rate-limited forge): the empty issues[] is a failure, not a genuine zero.
    *  Lets the UI distinguish "couldn't load" from "no open issues". */
   error?: string | null;
+  /** True when the repo runs in lightweight (local-only) mode: the empty issues[]
+   *  and null slug are DELIBERATE, not a missing upstream. Without it the UI blames
+   *  GitHub for a mode the operator switched on in Shepherd. Optional to mirror
+   *  `GitForge.isLightweight` — absent ⇒ falsy ⇒ not lightweight — so callers must
+   *  test it as `=== true`. The server always sends an explicit boolean. */
+  lightweight?: boolean;
 }> {
   const r = await fetch(`/api/issues?repo=${encodeURIComponent(repoPath)}`);
   if (!r.ok) throw await failed(r, "issues");

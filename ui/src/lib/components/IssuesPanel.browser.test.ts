@@ -131,6 +131,90 @@ describe("IssuesPanel empty vs fetch-failed", () => {
       m.common_no_open_issues(),
     );
   });
+
+  it("names lightweight mode instead of reporting a missing git host", async () => {
+    // LocalForge reports a null slug too, so without the flag this lands on the
+    // "no git host configured" branch — a GitHub problem the operator does not have.
+    mockListIssues.mockResolvedValue({
+      slug: null,
+      webUrl: null,
+      issues: [],
+      viewer: null,
+      lightweight: true,
+    });
+    mockGetEpics.mockResolvedValue({ epics: [], subIssues: [] });
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+
+    await expect
+      .poll(() => document.querySelector(".issues-list")?.textContent)
+      .toContain(m.common_issues_lightweight());
+    const list = document.querySelector(".issues-list")?.textContent;
+    expect(list).not.toContain(m.issuespanel_no_host());
+    expect(list).not.toContain(m.common_issues_load_failed());
+  });
+
+  it("offers an inline retry from the load-failed state that re-fetches in place", async () => {
+    mockListIssues
+      .mockResolvedValueOnce({
+        slug: "owner/repo",
+        webUrl: null,
+        issues: [],
+        viewer: null,
+        error: "fetch_failed",
+      })
+      .mockResolvedValueOnce({
+        slug: "owner/repo",
+        webUrl: null,
+        issues: [
+          {
+            number: 42,
+            title: "Recovered issue",
+            body: "",
+            url: "https://example.com/issues/42",
+            labels: [],
+            createdAt: 0,
+            assignees: [],
+          },
+        ],
+        viewer: null,
+      });
+    mockGetEpics.mockResolvedValue({ epics: [], subIssues: [] });
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+
+    await expect
+      .poll(() => document.querySelector(".issues-list .retry-link")?.textContent)
+      .toBe(m.common_retry());
+    (document.querySelector(".issues-list .retry-link") as HTMLButtonElement).click();
+
+    await expect
+      .poll(() => document.querySelector(".issues-list")?.textContent)
+      .toContain("Recovered issue");
+    expect(document.querySelector(".issues-list")?.textContent).not.toContain(
+      m.common_issues_load_failed(),
+    );
+    expect(mockListIssues).toHaveBeenCalledTimes(2);
+  });
+
+  it("a retry that fails again keeps the failure banner instead of an eternal skeleton", async () => {
+    mockListIssues.mockResolvedValue({
+      slug: "owner/repo",
+      webUrl: null,
+      issues: [],
+      viewer: null,
+      error: "fetch_failed",
+    });
+    mockGetEpics.mockResolvedValue({ epics: [], subIssues: [] });
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+
+    await expect.poll(() => document.querySelector(".issues-list .retry-link")).toBeTruthy();
+    (document.querySelector(".issues-list .retry-link") as HTMLButtonElement).click();
+
+    await expect.poll(() => mockListIssues.mock.calls.length).toBe(2);
+    await expect
+      .poll(() => document.querySelector(".issues-list")?.textContent)
+      .toContain(m.common_issues_load_failed());
+    expect(document.querySelector(".issues-list")?.textContent).not.toContain(m.common_loading());
+  });
 });
 
 describe("IssuesPanel compact issue rows", () => {

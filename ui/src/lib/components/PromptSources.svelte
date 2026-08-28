@@ -207,6 +207,7 @@
   const slug = $derived(issueData.slug);
   const viewer = $derived(issueData.viewer);
   const loadError = $derived(issueData.loadError);
+  const lightweight = $derived(issueData.lightweight);
   let commandsLoading = $state(false);
   // Collapsed by default: the first 3 rows + a "N more" expander (mock's bounded panel).
   let expanded = $state(false);
@@ -476,7 +477,19 @@
       {#if issueData.loading}
         <div class="muted">{m.common_loading()}</div>
       {:else if loadError}
-        <div class="muted">{m.common_issues_load_failed()}</div>
+        <!-- The failure is often transient (one exhausted gh budget), so offer the retry
+             right here rather than telling the operator to wait and close the modal. -->
+        <div class="muted">
+          {m.common_issues_load_failed()}
+          <button type="button" class="retry-link" onclick={() => issueData.load(repoPath)}
+            >{m.common_retry()}</button
+          >
+        </div>
+      {:else if lightweight}
+        <!-- MUST precede the slug===null branch: LocalForge reports a null slug too, so
+             that branch would otherwise swallow the deliberate lightweight state and
+             blame a missing GitHub upstream the operator never configured away. -->
+        <div class="muted">{m.common_issues_lightweight()}</div>
       {:else if slug === null}
         <div class="muted">{m.promptsources_no_github()}</div>
       {:else if issues.length === 0}
@@ -652,6 +665,19 @@
     font-size: var(--fs-meta);
     color: var(--color-faint);
     padding: 6px 10px;
+  }
+
+  /* Text-link recipe (same as PrsPanel's toolbar link): a transparent button so it
+     stays keyboard-reachable and announces as an action, styled as inline text. */
+  .retry-link {
+    background: transparent;
+    border: 0;
+    padding: 0;
+    color: var(--color-amber);
+    cursor: pointer;
+    font-family: var(--font-mono);
+    font-size: var(--fs-meta);
+    text-decoration: underline;
   }
 
   .row {

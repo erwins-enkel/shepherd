@@ -36,8 +36,10 @@ self.addEventListener("push", (event) => {
         tag: tag ?? sessionId,
         renotify: true,
         data: { sessionId, kind },
-        icon: "/icons/icon-192.png",
-        badge: "/icons/badge-96.png",
+        // The MASKABLE variant, not the `any` one: the shade may crop this to a circle, and the
+        // `any` art has transparent corners that would expose the platform's white ground.
+        icon: "/icons/v2/icon-maskable-192.png",
+        badge: "/icons/v2/badge-96.png",
       };
       try {
         await self.registration.showNotification(title, opts);

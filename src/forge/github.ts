@@ -757,29 +757,23 @@ export class GithubForge implements GitForge {
     };
   }
 
-  async listIssues(): Promise<Issue[]> {
-    if (graphRateLimit.blocked()) return this.listIssuesRest();
-    let out: string;
-    try {
-      out = await this.run([
-        "issue",
-        "list",
-        "--repo",
-        this.slug,
-        "--state",
-        "open",
-        "--json",
-        "number,title,body,url,labels,createdAt,assignees,author",
-        // Cap matches listPullRequests; the count source (GraphQL totalCount) is
-        // unbounded, so a repo with >200 open issues lists a truncated set under a
-        // larger count. Raise this or paginate if such repos appear.
-        "--limit",
-        "200",
-      ]);
-    } catch (err) {
-      if (isRateLimitError(err)) return this.listIssuesRest();
-      throw err;
-    }
+  /** `gh issue list` — the GraphQL-bucket transport for {@link listIssues}. */
+  private async listIssuesCli(): Promise<Issue[]> {
+    const out = await this.run([
+      "issue",
+      "list",
+      "--repo",
+      this.slug,
+      "--state",
+      "open",
+      "--json",
+      "number,title,body,url,labels,createdAt,assignees,author",
+      // Cap matches listPullRequests; the count source (GraphQL totalCount) is
+      // unbounded, so a repo with >200 open issues lists a truncated set under a
+      // larger count. Raise this or paginate if such repos appear.
+      "--limit",
+      "200",
+    ]);
     const raw = JSON.parse(out || "[]") as Array<{
       number: number;
       title: string;
@@ -805,6 +799,45 @@ export class GithubForge implements GitForge {
         author: i.author?.login,
       };
     });
+  }
+
+  /**
+   * Open issues over whichever transport answers.
+   *
+   * `gh issue list` (GraphQL bucket) and `gh api` (REST bucket) draw on two
+   * INDEPENDENT GitHub budgets, so either can be exhausted while the other is
+   * healthy. `gh api rate_limit` does not settle it either — that endpoint is
+   * itself limit-exempt and happily reports a full REST budget while every real
+   * REST call 403s. So a failure on the preferred transport always tries the
+   * other one before giving up.
+   *
+   * Two deliberate widenings over the previous one-way (GraphQL→REST) fallback:
+   *  - ANY error retries on the other transport, not only `isRateLimitError`.
+   *    The old narrowing left a REST 403 raised *during* a GraphQL backoff with
+   *    no recovery at all: the operator saw "couldn't load issues" while
+   *    `gh issue list` would have answered. The cost is one extra doomed call on
+   *    a genuinely broken setup (gh missing, repo unresolvable) — error path only.
+   *  - The REST→CLI direction knowingly issues a GraphQL call inside an active
+   *    backoff window. REST has just proved unusable, the backoff is only a
+   *    heuristic, and a real GraphQL rate-limit error re-extends the window by
+   *    itself (the default runner calls `graphRateLimit.noteLimitError`).
+   *
+   * Both failing rethrows the PREFERRED transport's error — it describes the path
+   * we expected to work, so it is the more useful diagnosis.
+   */
+  async listIssues(): Promise<Issue[]> {
+    const restFirst = graphRateLimit.blocked();
+    const preferred = restFirst ? () => this.listIssuesRest() : () => this.listIssuesCli();
+    const fallback = restFirst ? () => this.listIssuesCli() : () => this.listIssuesRest();
+    try {
+      return await preferred();
+    } catch (err) {
+      try {
+        return await fallback();
+      } catch {
+        throw err;
+      }
+    }
   }
 
   async getIssue(issueNumber: number): Promise<Issue | null> {

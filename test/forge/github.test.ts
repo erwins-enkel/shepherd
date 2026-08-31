@@ -284,6 +284,63 @@ test("GithubForge.listIssues: REST fallback maps label color into labelColors (n
   }
 });
 
+// `gh issue list` (GraphQL bucket) and `gh api` (REST bucket) draw on two independent
+// GitHub budgets, so listIssues() tries BOTH before reporting a failure — in whichever
+// order the GraphQL backoff prefers. The three tests below pin each direction and the
+// double failure.
+test("GithubForge.listIssues: a non-rate-limit CLI failure still falls back to REST", async () => {
+  const calls: string[][] = [];
+  const run = async (args: string[]): Promise<string> => {
+    calls.push(args);
+    if (args[0] === "issue") throw new Error("gh: server error (HTTP 502)");
+    if (args.includes("repos/o/r/issues"))
+      return JSON.stringify([
+        {
+          number: 7,
+          title: "From REST",
+          html_url: "https://github.com/o/r/issues/7",
+          created_at: ISSUE_CREATED_AT,
+        },
+      ]);
+    return "[]";
+  };
+  unblockGraphql();
+  const issues = await new GithubForge("o/r", {}, run).listIssues();
+  expect(issues.map((i) => i.number)).toEqual([7]);
+  // CLI first (no backoff engaged), REST only after it threw.
+  expect(calls[0]![0]).toBe("issue");
+  expect(calls.some((c) => c[0] === "api")).toBe(true);
+});
+
+test("GithubForge.listIssues: during a GraphQL backoff, a failing REST path falls back to the CLI", async () => {
+  const calls: string[][] = [];
+  const run = async (args: string[]): Promise<string> => {
+    calls.push(args);
+    // The real shape this fixes: REST 403s while the GraphQL bucket is fine, and
+    // `gh api rate_limit` (itself limit-exempt) reports a full REST budget.
+    if (args[0] === "api") throw new Error("gh: API rate limit exceeded (HTTP 403)");
+    if (args[0] === "issue") return ISSUES_JSON;
+    return "";
+  };
+  blockGraphql();
+  try {
+    const issues = await new GithubForge("o/r", {}, run).listIssues();
+    expect(issues.map((i) => i.number)).toEqual([1, 2]);
+    expect(calls[0]![0]).toBe("api");
+    expect(calls.some((c) => c[0] === "issue")).toBe(true);
+  } finally {
+    unblockGraphql();
+  }
+});
+
+test("GithubForge.listIssues: both transports failing rethrows the preferred path's error", async () => {
+  const run = async (args: string[]): Promise<string> => {
+    throw new Error(args[0] === "issue" ? "cli boom" : "rest boom");
+  };
+  unblockGraphql();
+  await expect(new GithubForge("o/r", {}, run).listIssues()).rejects.toThrow("cli boom");
+});
+
 test("GithubForge.listIssues: requests the assignees field from gh (#824)", async () => {
   const { run, calls } = fakeRunner({ "issue list": ISSUES_JSON });
   const forge = new GithubForge("o/r", { deployWorkflow: "deploy.yml" }, run);

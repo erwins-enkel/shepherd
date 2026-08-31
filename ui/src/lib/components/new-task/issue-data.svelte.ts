@@ -23,6 +23,10 @@ export class IssueData {
   loading = $state(false);
   /** True when the fetch failed OR a partial success carried an error alongside issues. */
   loadError = $state(false);
+  /** True when the repo runs in lightweight (local-only) mode — the empty issues[]
+   *  and null slug are deliberate, so the UI names the mode instead of blaming a
+   *  missing GitHub upstream. False whenever the fetch didn't settle cleanly. */
+  lightweight = $state(false);
 
   #generation = 0;
 
@@ -32,6 +36,7 @@ export class IssueData {
     this.slug = null;
     this.viewer = null;
     this.loadError = false;
+    this.lightweight = false;
     if (!repoPath) {
       this.loading = false;
       return;
@@ -45,6 +50,7 @@ export class IssueData {
         this.viewer = r.viewer;
         viewerCache.set(repoPath, r.viewer);
         this.loadError = r.error != null;
+        this.lightweight = r.lightweight === true;
         this.loading = false;
       })
       .catch(() => {
@@ -53,6 +59,7 @@ export class IssueData {
         this.issues = [];
         this.viewer = null;
         this.loadError = true;
+        this.lightweight = false;
         this.loading = false;
       });
   }

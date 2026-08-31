@@ -191,6 +191,71 @@ describe("PromptSources filter bar (popover + sticky coverage)", () => {
     );
   });
 
+  it("Issues tab: a lightweight repo names the mode instead of blaming a missing upstream", async () => {
+    // LocalForge reports a null slug too, so without the flag this lands on the
+    // "no GitHub upstream" branch and sends the operator hunting on GitHub for a
+    // mode they switched on in Shepherd.
+    mockListIssues.mockResolvedValue({
+      slug: null,
+      webUrl: null,
+      issues: [],
+      viewer: null,
+      lightweight: true,
+    });
+
+    render(PromptSources, {
+      repoPath: "/repo",
+      issueData: makeIssueData("/repo"),
+      onpick: noop,
+      onpickissue: noop,
+    });
+
+    await expect
+      .poll(() => document.querySelector(".ps-body")?.textContent)
+      .toContain(m.common_issues_lightweight());
+    const body = document.querySelector(".ps-body")?.textContent;
+    expect(body).not.toContain(m.promptsources_no_github());
+    expect(body).not.toContain(m.common_issues_load_failed());
+  });
+
+  it("Issues tab: the load-failed state offers an inline retry that re-fetches in place", async () => {
+    mockListIssues
+      .mockResolvedValueOnce({
+        slug: "owner/repo",
+        webUrl: null,
+        issues: [],
+        viewer: null,
+        error: "fetch_failed",
+      })
+      .mockResolvedValueOnce({
+        slug: "owner/repo",
+        webUrl: null,
+        issues: [issue(1)],
+        viewer: null,
+      });
+
+    render(PromptSources, {
+      repoPath: "/repo",
+      issueData: makeIssueData("/repo"),
+      onpick: noop,
+      onpickissue: noop,
+    });
+
+    await expect
+      .poll(() => document.querySelector(".ps-body .retry-link")?.textContent)
+      .toBe(m.common_retry());
+    (document.querySelector(".ps-body .retry-link") as HTMLButtonElement).click();
+
+    // The retry resolves into the SAME panel — no reopen, no navigation.
+    await expect
+      .poll(() => document.querySelector(".ps-body")?.textContent)
+      .toContain(issue(1).title);
+    expect(document.querySelector(".ps-body")?.textContent).not.toContain(
+      m.common_issues_load_failed(),
+    );
+    expect(mockListIssues).toHaveBeenCalledTimes(2);
+  });
+
   it("Commands tab: search-input bar covers the rows behind it", async () => {
     mockListIssues.mockResolvedValue({
       slug: "owner/repo",

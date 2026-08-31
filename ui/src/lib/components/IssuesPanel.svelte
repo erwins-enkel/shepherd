@@ -78,6 +78,10 @@
   // the empty issues[] is a fetch failure, not a genuine zero. Mirrors
   // PromptSources — distinguishes "couldn't load" from "no open issues".
   let loadError = $state(false);
+  // True when the repo runs in lightweight (local-only) mode — the empty issues[] and
+  // null slug are deliberate. Mirrors PromptSources: without it the panel blames a
+  // missing git host for a mode the operator switched on in Shepherd.
+  let lightweight = $state(false);
   let filter = $state("");
   // Repo-scoped author + label filters. Selection is local (not the global issuesFilter
   // store) because the option sets are repo-specific; reset on repo change and pruned on
@@ -217,6 +221,7 @@
     const rp = repoPath;
     loading = true;
     loadError = false;
+    lightweight = false;
     filter = "";
     selectedAuthor = null;
     selectedLabels.clear();
@@ -239,6 +244,7 @@
         viewer = r.viewer;
         viewerCache.set(rp, r.viewer);
         loadError = r.error != null;
+        lightweight = r.lightweight === true;
         loading = false;
       })
       .catch(() => {
@@ -286,6 +292,16 @@
     untrack(() => softRefresh(repoPath));
   });
 
+  // Manual retry from the load-failed state. Reuses softRefresh (the only re-fetch in
+  // this component already guarded against out-of-order settles) and re-arms `loading`
+  // so a repeated failure can stamp the banner again — softRefresh only reports a
+  // failure while a load is outstanding, and deliberately keeps stale data otherwise.
+  function retryIssues() {
+    loading = true;
+    loadError = false;
+    softRefresh(repoPath);
+  }
+
   function softRefresh(rp: string) {
     const issuesTicket = ++issuesSeq;
     listIssues(rp)
@@ -308,6 +324,7 @@
         viewer = r.viewer;
         viewerCache.set(rp, r.viewer);
         loadError = false;
+        lightweight = r.lightweight === true;
         // This result is now the newest state — display it even if the (superseded)
         // mount fetch never settled; otherwise fresh data hides behind the skeleton.
         loading = false;
@@ -505,7 +522,17 @@
     {#if loading}
       <div class="muted">{m.common_loading()}</div>
     {:else if loadError}
-      <div class="muted">{m.common_issues_load_failed()}</div>
+      <!-- The failure is often transient (one exhausted gh budget), so offer the retry
+           right here rather than asking the operator to wait. -->
+      <div class="muted">
+        {m.common_issues_load_failed()}
+        <button type="button" class="retry-link" onclick={retryIssues}>{m.common_retry()}</button>
+      </div>
+    {:else if lightweight}
+      <!-- MUST precede the slug===null branch: LocalForge reports a null slug too, so
+           that branch would otherwise swallow the deliberate lightweight state and
+           report a missing git host the operator never configured away. -->
+      <div class="muted">{m.common_issues_lightweight()}</div>
     {:else if slug === null}
       <div class="muted">{m.issuespanel_no_host()}</div>
     {:else if issues.length === 0}
@@ -650,6 +677,19 @@
     font-size: var(--fs-base);
     color: var(--color-faint);
     padding: 4px 0;
+  }
+
+  /* Text-link recipe (same as PrsPanel's toolbar link): a transparent button so it
+     stays keyboard-reachable and announces as an action, styled as inline text. */
+  .retry-link {
+    background: transparent;
+    border: 0;
+    padding: 0;
+    color: var(--color-amber);
+    cursor: pointer;
+    font-family: var(--font-mono);
+    font-size: var(--fs-base);
+    text-decoration: underline;
   }
 
   @media (max-width: 768px) {

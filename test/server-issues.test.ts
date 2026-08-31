@@ -100,7 +100,13 @@ test("GET /api/issues with no forge for repo → {slug:null, issues:[]}", async 
   const app = makeApp(makeDeps(() => null));
   const res = await app.fetch(req(repoDir));
   expect(res.status).toBe(200);
-  expect(await res.json()).toEqual({ slug: null, webUrl: null, issues: [], viewer: null });
+  expect(await res.json()).toEqual({
+    slug: null,
+    webUrl: null,
+    issues: [],
+    viewer: null,
+    lightweight: false,
+  });
 });
 
 test("GET /api/issues flags forge errors → {slug, issues:[], error}", async () => {
@@ -123,7 +129,47 @@ test("GET /api/issues flags forge errors → {slug, issues:[], error}", async ()
     issues: [],
     viewer: null,
     error: "fetch_failed",
+    lightweight: false,
   });
+});
+
+// A lightweight repo's empty list and null slug are DELIBERATE. Without this flag the UI
+// cannot tell them from a forge repo missing an upstream, and blames GitHub for a mode
+// the operator switched on in Shepherd.
+test("GET /api/issues reports lightweight:true for a local-only forge", async () => {
+  const app = makeApp(
+    makeDeps(() =>
+      fakeForge({ kind: "local", slug: null, isLightweight: true, listIssues: async () => [] }),
+    ),
+  );
+  const res = await app.fetch(req(repoDir));
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.lightweight).toBe(true);
+  expect(body.slug).toBeNull();
+  expect(body.issues).toEqual([]);
+});
+
+test("GET /api/issues reports lightweight:true on the failure branch too", async () => {
+  // The mode is a property of the repo, not of the request that just failed — so a
+  // lightweight repo whose listing throws must still be named as lightweight.
+  const app = makeApp(
+    makeDeps(() =>
+      fakeForge({
+        kind: "local",
+        slug: null,
+        isLightweight: true,
+        listIssues: async () => {
+          throw new Error("boom");
+        },
+      }),
+    ),
+  );
+  const res = await app.fetch(req(repoDir));
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.error).toBe("fetch_failed");
+  expect(body.lightweight).toBe(true);
 });
 
 test("GET /api/issues includes the operator login as viewer (#824)", async () => {

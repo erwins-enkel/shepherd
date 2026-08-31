@@ -120,6 +120,59 @@ describe("IssueData error semantics", () => {
   });
 });
 
+describe("IssueData lightweight mode", () => {
+  it("carries the server's lightweight flag through a successful load", async () => {
+    listIssuesMock.mockResolvedValueOnce(ok({ slug: null, issues: [], lightweight: true }));
+    const d = new IssueData();
+    d.load("A");
+    await Promise.resolve();
+    expect(d.lightweight).toBe(true);
+    expect(d.loadError).toBe(false);
+  });
+
+  it("clears the flag when the next repo is forge-backed", async () => {
+    listIssuesMock
+      .mockResolvedValueOnce(ok({ slug: null, issues: [], lightweight: true }))
+      .mockResolvedValueOnce(ok());
+    const d = new IssueData();
+    d.load("A");
+    await Promise.resolve();
+    expect(d.lightweight).toBe(true);
+    d.load("B");
+    expect(d.lightweight).toBe(false); // reset synchronously, before the response lands
+    await Promise.resolve();
+    expect(d.lightweight).toBe(false);
+  });
+
+  it("is false after a failed fetch — an error is not a mode", async () => {
+    listIssuesMock.mockResolvedValueOnce(ok({ lightweight: true }));
+    const d = new IssueData();
+    d.load("A");
+    await Promise.resolve();
+    expect(d.lightweight).toBe(true);
+
+    listIssuesMock.mockRejectedValueOnce(new Error("boom"));
+    d.load("A");
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(d.loadError).toBe(true);
+    expect(d.lightweight).toBe(false);
+  });
+
+  it("treats an absent flag as not lightweight", async () => {
+    listIssuesMock.mockResolvedValueOnce({
+      slug: "o/r",
+      issues: [issue(1)],
+      viewer: "kai",
+      error: null,
+    } as ListIssuesResult);
+    const d = new IssueData();
+    d.load("A");
+    await Promise.resolve();
+    expect(d.lightweight).toBe(false);
+  });
+});
+
 describe("IssueData warm viewerCache semantics", () => {
   it("populates the cache on success and keeps it warm on a failed reload", async () => {
     listIssuesMock.mockResolvedValueOnce(ok({ viewer: "kai" }));

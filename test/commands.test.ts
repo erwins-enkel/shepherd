@@ -133,9 +133,59 @@ test("missing dirs → builtins only, no throw", () => {
 
 test("curated builtins are always present and scoped builtin", () => {
   const cmds = commands(repo, userClaude);
-  const review = cmds.find((c) => c.name === "review");
-  expect(review?.scope).toBe("builtin");
+  const design = cmds.find((c) => c.name === "design");
+  expect(design?.scope).toBe("builtin");
+  expect(design?.description).not.toBe("");
+  expect(design?.invocations.claude).toBe("/design");
   expect(cmds.some((c) => c.name === "security-review" && c.scope === "builtin")).toBe(true);
+});
+
+// Claude Code dropped /review and /pr-comments; a builtin it no longer resolves opens the spawned
+// session with a dead command, so the list must not carry names that outlive the CLI.
+test("builtins Claude Code no longer ships are gone", () => {
+  const names = commands(repo, userClaude).map((c) => c.name);
+  expect(names).not.toContain("review");
+  expect(names).not.toContain("pr-comments");
+});
+
+// Claude Code walks `commands/` recursively: a subdirectory is a `:`-joined namespace, and one
+// holding a SKILL.md is a skill named after the directory. A flat scan drops both silently.
+test("a commands/ subdirectory namespaces its files with a colon", () => {
+  mkdirSync(join(userClaude, "commands", "references"), { recursive: true });
+  writeFileSync(
+    join(userClaude, "commands", "references", "handoff-template.md"),
+    "---\ndescription: handoff shape\n---\nprompt",
+  );
+  const cmd = commands(null, userClaude).find((c) => c.name === "references:handoff-template");
+  expect(cmd?.scope).toBe("user");
+  expect(cmd?.kind).toBe("command");
+  expect(cmd?.description).toBe("handoff shape");
+  expect(cmd?.invocations.claude).toBe("/references:handoff-template");
+});
+
+test("a commands/ subdirectory holding SKILL.md is one skill named after the directory", () => {
+  mkdirSync(join(userClaude, "commands", "ship"), { recursive: true });
+  writeFileSync(
+    join(userClaude, "commands", "ship", "SKILL.md"),
+    "---\nname: ship\ndescription: one-shot shipping workflow\n---\nbody",
+  );
+  const cmds = commands(null, userClaude);
+  expect(cmds.find((c) => c.name === "ship")?.kind).toBe("skill");
+  // the dir's own identity, not a nested command
+  expect(cmds.map((c) => c.name)).not.toContain("ship:SKILL");
+});
+
+test("the commands/ walk is depth-bounded", () => {
+  const deep = join(userClaude, "commands", "a", "b", "c", "d");
+  mkdirSync(deep, { recursive: true });
+  writeFileSync(join(deep, "toodeep.md"), "---\ndescription: past the budget\n---\n");
+  writeFileSync(
+    join(userClaude, "commands", "a", "b", "c", "reached.md"),
+    "---\ndescription: within the budget\n---\n",
+  );
+  const names = commands(null, userClaude).map((c) => c.name);
+  expect(names).toContain("a:b:c:reached");
+  expect(names).not.toContain("a:b:c:d:toodeep");
 });
 
 test("front-matter argument-hint is surfaced", () => {

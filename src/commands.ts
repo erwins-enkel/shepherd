@@ -148,6 +148,74 @@ function safeReaddir(dir: string): string[] {
   }
 }
 
+/** How many directory levels below `commands/` the walk descends.
+ *
+ *  It has to descend at all because Claude Code does: a subdirectory is a namespace joined with
+ *  `:` (`commands/references/handoff-template.md` → `/references:handoff-template`), and a
+ *  subdirectory holding a `SKILL.md` is a skill named after the directory (`commands/ship/SKILL.md`
+ *  → `/ship`). A flat scan silently drops both.
+ *
+ *  It is BOUNDED because entries under `~/.claude` are commonly symlinks into other trees (see
+ *  {@link skillNameFrom}) and `statSync` follows them: a symlink cycle would spin this synchronous
+ *  walk forever inside `handleCommands`, on the one Bun event loop that also pumps the live web
+ *  terminal. Three levels covers every real layout. */
+const MAX_COMMAND_DEPTH = 3;
+
+/** `"dir"` / `"file"` for a `commands/` entry, or null when it is neither or unreadable. */
+function entryKind(path: string): "dir" | "file" | null {
+  try {
+    const stats = statSync(path);
+    return stats.isDirectory() ? "dir" : stats.isFile() ? "file" : null;
+  } catch {
+    return null; // vanished or unreadable → skip, don't fail the whole listing
+  }
+}
+
+/** The command name a `commands/` file contributes, or null when it contributes none. `SKILL.md`
+ *  is excluded because it names the *directory that holds it* — {@link collectCommandSubdir}
+ *  emits that row, and reading it here too would add a bogus `<dir>:SKILL` beside the real one. */
+function commandFileBase(entry: string): string | null {
+  if (!entry.endsWith(".md") || entry === "SKILL.md") return null;
+  return entry.slice(0, -3);
+}
+
+/** One subdirectory of a `commands/` tree: its own `SKILL.md` names the directory (Claude Code
+ *  calls `commands/ship/SKILL.md` just `/ship`), and everything below it is namespaced `<dir>:`. */
+function collectCommandSubdir(
+  dir: string,
+  name: string,
+  scope: SlashCommand["scope"],
+  out: Map<string, SlashCommand>,
+  prefix: string,
+  depth: number,
+) {
+  const md = join(dir, "SKILL.md");
+  const own = existsSync(md) ? readCommand(md, name, scope, prefix, "skill") : null;
+  if (own) out.set(own.name, own);
+  collectCommandDir(dir, scope, out, `${prefix}${name}:`, depth + 1);
+}
+
+/** One level of a `commands/` tree, merging into `out` keyed by name. */
+function collectCommandDir(
+  dir: string,
+  scope: SlashCommand["scope"],
+  out: Map<string, SlashCommand>,
+  prefix: string,
+  depth: number,
+) {
+  for (const entry of safeReaddir(dir)) {
+    const path = join(dir, entry);
+    const kind = entryKind(path);
+    if (kind === "dir") {
+      if (depth < MAX_COMMAND_DEPTH) collectCommandSubdir(path, entry, scope, out, prefix, depth);
+      continue;
+    }
+    const base = kind === "file" ? commandFileBase(entry) : null;
+    const cmd = base === null ? null : readCommand(path, base, scope, prefix);
+    if (cmd) out.set(cmd.name, cmd);
+  }
+}
+
 /** Scan one `.claude`-shaped dir (a real `.claude` or a plugin install root) for
  *  skills + commands, merging into `out` keyed by name. `prefix` namespaces plugin
  *  entries (`fallow:` → `fallow:foo`) so they can't clash with bare user commands. */
@@ -164,33 +232,74 @@ function collect(
     const cmd = readCommand(md, entry, scope, prefix, "skill");
     if (cmd) out.set(cmd.name, cmd);
   }
-  const cmdsDir = join(claudeDir, "commands");
-  for (const entry of safeReaddir(cmdsDir)) {
-    if (!entry.endsWith(".md")) continue;
-    const file = join(cmdsDir, entry);
-    try {
-      if (!statSync(file).isFile()) continue;
-    } catch {
-      continue;
-    }
-    const cmd = readCommand(file, entry.slice(0, -3), scope, prefix);
-    if (cmd) out.set(cmd.name, cmd);
-  }
+  collectCommandDir(join(claudeDir, "commands"), scope, out, prefix, 0);
 }
 
 /**
  * Curated built-in slash commands that work as an initial prompt for a spawned
  * session. Purely-interactive ones (/clear, /config, /model, /compact) are
  * excluded — they do nothing useful as a first message. Maintained by hand.
+ *
+ * WHY BY HAND, and why this list is the ONLY channel for these: the scans above read the
+ * filesystem, and Claude Code's own bundled skills are not on it — they live inside the `claude`
+ * binary. Nothing under `~/.claude` or a repo can ever surface `/design`; it reaches the picker
+ * here or not at all.
+ *
+ * Discovering them at runtime was measured and rejected: `claude` only emits the full set (its
+ * `init` message's `slash_commands`) during a real `-p --output-format stream-json` run — an empty
+ * stdin exits before it — so reading it costs an API call, and `handleCommands` in `server.ts` is a
+ * sync handler on the single Bun event loop that also pumps the live web terminal.
+ *
+ * THE COST OF THAT CHOICE, and the only guard against it: the list goes stale in both directions.
+ * It shipped `/review` and `/pr-comments` for releases after Claude Code dropped them, handing the
+ * operator a task that opens with a command nothing resolves. Re-check against reality with
+ *
+ *     claude -p --output-format stream-json --verbose hi | head -8
+ *
+ * and diff `init.slash_commands` against `listCommands()`. Note also that some bundled skills are
+ * account-gated (`verify`, `debug`, `batch`, `deep-research`, … appear only for some accounts), so
+ * only broadly-available ones belong here — a gated name would be the `/review` failure again.
  */
 const BUILTINS: ReadonlyArray<{ name: string; description: string }> = [
   { name: "init", description: "Initialize a new CLAUDE.md with codebase documentation" },
-  { name: "review", description: "Review a pull request" },
   {
     name: "security-review",
     description: "Complete a security review of the pending changes on the current branch",
   },
-  { name: "pr-comments", description: "Get comments from a GitHub pull request" },
+  {
+    name: "design",
+    description: "Create a design canvas — a multi-artboard visual design published as an Artifact",
+  },
+  {
+    name: "simplify",
+    description:
+      "Review the changed code for reuse, simplification, and efficiency, then apply the fixes",
+  },
+  { name: "run", description: "Launch and drive this project's app to see a change working" },
+  {
+    name: "dataviz",
+    description: "Design guidance for charts, dashboards, and data visualizations",
+  },
+  {
+    name: "update-config",
+    description:
+      "Configure the Claude Code harness via settings.json — hooks, permissions, env vars",
+  },
+  {
+    name: "fewer-permission-prompts",
+    description: "Scan transcripts and add a prioritized Bash/MCP allowlist to project settings",
+  },
+  {
+    name: "claude-api",
+    description:
+      "Reference for the Claude API / Anthropic SDK — model ids, pricing, params, tool use",
+  },
+  { name: "workflow-authoring", description: "Reference for writing a Workflow tool script" },
+  { name: "loop", description: "Run a prompt or slash command on a recurring interval" },
+  {
+    name: "schedule",
+    description: "Create, update, list, or run scheduled cloud agents (routines)",
+  },
 ];
 
 type CodexConfig = { skills?: { config?: Array<{ path?: unknown; enabled?: unknown }> } };

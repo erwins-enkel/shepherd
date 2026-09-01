@@ -127,7 +127,8 @@ Usage lenses in the UI, `scripts/usage-report.ts`) — and **zero delivery metri
 first-pass/merge-rate/lead-time/DORA hits only prose in `docs/research/`. The raw material already
 exists and is never aggregated: `reviewer_spawns` rows per task session (reset-proof review
 tally — the `reviews` streak counters themselves zero on every clean verdict, so only the spawn
-log preserves history), `plan_gates.round` (plan rework), `local_prs.createdAt/mergedAt`,
+log preserves history — likewise for plan rework, since `plan_gates.round` resets on
+resume/dismiss), `local_prs.createdAt/mergedAt`,
 `signals` (60-day retention).
 Nothing computes first-pass merge rate, rework cycles per task, time-to-first-review, or
 time-to-merge, and no UI shows them.
@@ -149,7 +150,7 @@ history must come from the append-only `reviewer_spawns` log (one row per critic
 | ------------------------------ | -------------------------------------------------------------------- |
 | First-pass success rate        | one `reviewer_spawns` review row + clean verdict at merge            |
 | Rework cycles per change       | count of `reviewer_spawns` review rows per task session              |
-| Plan rework                    | `plan_gates.round`                                                   |
+| Plan rework                    | count of `reviewer_spawns` plan_gate rows per task session           |
 | Time to first review           | `reviewer_spawns.spawnedAt` − PR opened                              |
 | Lead time (task → merge)       | session createdAt → `local_prs.mergedAt` / GitHub mergedAt           |
 | Repeat incidents of same class | `signals` grouped by kind                                            |

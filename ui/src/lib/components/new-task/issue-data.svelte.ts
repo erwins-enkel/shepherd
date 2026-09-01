@@ -1,5 +1,5 @@
 import { listIssues } from "$lib/api";
-import type { Issue } from "$lib/types";
+import type { Issue, IssueFetchAttempt } from "$lib/types";
 import { viewerCache } from "$lib/viewer-cache.svelte";
 
 /**
@@ -27,6 +27,10 @@ export class IssueData {
    *  and null slug are deliberate, so the UI names the mode instead of blaming a
    *  missing GitHub upstream. False whenever the fetch didn't settle cleanly. */
   lightweight = $state(false);
+  /** The gh transports that ran and failed, in the order they ran (GitHub repos only).
+   *  Empty when the server sent none — including when the request itself failed, where
+   *  the server never got to say anything. */
+  attempts = $state<IssueFetchAttempt[]>([]);
 
   #generation = 0;
 
@@ -37,6 +41,7 @@ export class IssueData {
     this.viewer = null;
     this.loadError = false;
     this.lightweight = false;
+    this.attempts = [];
     if (!repoPath) {
       this.loading = false;
       return;
@@ -51,6 +56,7 @@ export class IssueData {
         viewerCache.set(repoPath, r.viewer);
         this.loadError = r.error != null;
         this.lightweight = r.lightweight === true;
+        this.attempts = r.attempts ?? [];
         this.loading = false;
       })
       .catch(() => {
@@ -60,6 +66,7 @@ export class IssueData {
         this.viewer = null;
         this.loadError = true;
         this.lightweight = false;
+        this.attempts = [];
         this.loading = false;
       });
   }

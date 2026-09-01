@@ -256,6 +256,100 @@ describe("PromptSources filter bar (popover + sticky coverage)", () => {
     expect(mockListIssues).toHaveBeenCalledTimes(2);
   });
 
+  // "Couldn't load" alone leaves the operator guessing at a rate limit when the real
+  // cause may be an expired login — so name the gh transports that actually ran.
+  it("Issues tab: the load-failed state names each gh transport that failed", async () => {
+    mockListIssues.mockResolvedValue({
+      slug: "owner/repo",
+      webUrl: null,
+      issues: [],
+      viewer: null,
+      error: "fetch_failed",
+      attempts: [
+        {
+          transport: "cli",
+          reason: "rate_limit",
+          status: 403,
+          detail: "gh: API rate limit exceeded (HTTP 403)",
+        },
+        { transport: "rest", reason: "http", status: 502, detail: "gh: Server Error (HTTP 502)" },
+      ],
+    });
+
+    render(PromptSources, {
+      repoPath: "/repo",
+      issueData: makeIssueData("/repo"),
+      onpick: noop,
+      onpickissue: noop,
+    });
+
+    await expect
+      .poll(() => document.querySelector(".ps-body")?.textContent)
+      .toContain(m.issues_attempts_label());
+    const lines = Array.from(document.querySelectorAll(".ps-body .attempt")).map(
+      (el) => el.textContent?.replace(/\s+/g, " ").trim() ?? "",
+    );
+    // Preferred transport first: the order is the diagnosis.
+    expect(lines).toEqual([
+      `${m.issues_transport_cli()} → ${m.issues_attempt_rate_limit()}`,
+      `${m.issues_transport_rest()} → ${m.issues_attempt_http({ status: 502 })}`,
+    ]);
+    // The raw gh message rides along for AT and for hover, without polluting the DOM text.
+    expect(document.querySelector(".ps-body .attempt")?.getAttribute("aria-description")).toBe(
+      "gh: API rate limit exceeded (HTTP 403)",
+    );
+  });
+
+  it("Issues tab: a single executed transport is reported as one line, not a truncated pair", async () => {
+    mockListIssues.mockResolvedValue({
+      slug: "owner/repo",
+      webUrl: null,
+      issues: [],
+      viewer: null,
+      error: "fetch_failed",
+      attempts: [{ transport: "cli", reason: "gh_missing", detail: "spawn gh ENOENT" }],
+    });
+
+    render(PromptSources, {
+      repoPath: "/repo",
+      issueData: makeIssueData("/repo"),
+      onpick: noop,
+      onpickissue: noop,
+    });
+
+    await expect.poll(() => document.querySelectorAll(".ps-body .attempt").length).toBe(1);
+    expect(document.querySelector(".ps-body .attempt")?.textContent).toContain(
+      m.issues_attempt_gh_missing(),
+    );
+  });
+
+  it("Issues tab: a failure without a transport trail reads exactly as before", async () => {
+    // Gitea/local forges and client-side rejections carry no trail — the failure
+    // sentence and the retry must still stand alone.
+    mockListIssues.mockResolvedValue({
+      slug: "owner/repo",
+      webUrl: null,
+      issues: [],
+      viewer: null,
+      error: "fetch_failed",
+    });
+
+    render(PromptSources, {
+      repoPath: "/repo",
+      issueData: makeIssueData("/repo"),
+      onpick: noop,
+      onpickissue: noop,
+    });
+
+    await expect
+      .poll(() => document.querySelector(".ps-body")?.textContent)
+      .toContain(m.common_issues_load_failed());
+    expect(document.querySelector(".ps-body")?.textContent).not.toContain(
+      m.issues_attempts_label(),
+    );
+    expect(document.querySelectorAll(".ps-body .attempt")).toHaveLength(0);
+  });
+
   it("Commands tab: search-input bar covers the rows behind it", async () => {
     mockListIssues.mockResolvedValue({
       slug: "owner/repo",

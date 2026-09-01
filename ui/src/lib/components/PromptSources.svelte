@@ -32,6 +32,7 @@
   import { repos } from "$lib/repos.svelte";
   import { steerAppliesToRepo } from "$lib/steer-scope";
   import IssueLabelChips from "./IssueLabelChips.svelte";
+  import IssueLoadAttempts from "./IssueLoadAttempts.svelte";
 
   let {
     repoPath,
@@ -484,6 +485,9 @@
           <button type="button" class="retry-link" onclick={() => issueData.load(repoPath)}
             >{m.common_retry()}</button
           >
+          <!-- Which gh transport gave up, and why — so a retry isn't a blind coin flip
+               between waiting for a budget and fixing a login. -->
+          <IssueLoadAttempts attempts={issueData.attempts} still />
         </div>
       {:else if lightweight}
         <!-- MUST precede the slug===null branch: LocalForge reports a null slug too, so

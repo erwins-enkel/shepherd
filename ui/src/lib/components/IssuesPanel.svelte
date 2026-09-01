@@ -3,7 +3,7 @@
   import { steers } from "$lib/steers.svelte";
   import { repos } from "$lib/repos.svelte";
   import { steerAppliesToRepo } from "$lib/steer-scope";
-  import type { Issue, Steer, EpicSummary, Epic, DrainStatus } from "$lib/types";
+  import type { Issue, IssueFetchAttempt, Steer, EpicSummary, Epic, DrainStatus } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import {
     filterIssues,
@@ -24,6 +24,7 @@
   import IssueRow from "./issues-panel/IssueRow.svelte";
   import IssueFilterPopover from "./IssueFilterPopover.svelte";
   import RepoLink from "./RepoLink.svelte";
+  import IssueLoadAttempts from "./IssueLoadAttempts.svelte";
   import { SvelteSet, SvelteMap } from "svelte/reactivity";
   import { tick, untrack } from "svelte";
 
@@ -78,6 +79,9 @@
   // the empty issues[] is a fetch failure, not a genuine zero. Mirrors
   // PromptSources — distinguishes "couldn't load" from "no open issues".
   let loadError = $state(false);
+  /** The gh transports that ran and failed behind `loadError` (GitHub repos only).
+   *  Set wherever loadError is, so a stale trail can never outlive its failure. */
+  let loadAttempts = $state<IssueFetchAttempt[]>([]);
   // True when the repo runs in lightweight (local-only) mode — the empty issues[] and
   // null slug are deliberate. Mirrors PromptSources: without it the panel blames a
   // missing git host for a mode the operator switched on in Shepherd.
@@ -221,6 +225,7 @@
     const rp = repoPath;
     loading = true;
     loadError = false;
+    loadAttempts = [];
     lightweight = false;
     filter = "";
     selectedAuthor = null;
@@ -244,6 +249,7 @@
         viewer = r.viewer;
         viewerCache.set(rp, r.viewer);
         loadError = r.error != null;
+        loadAttempts = r.attempts ?? [];
         lightweight = r.lightweight === true;
         loading = false;
       })
@@ -253,6 +259,7 @@
         // sticky load-failed banner onto the data now showing.
         if (rp !== repoPath || issuesTicket !== issuesSeq) return;
         loadError = true;
+        loadAttempts = [];
         loading = false;
       });
     const epicsTicket = ++epicsSeq;
@@ -299,6 +306,7 @@
   function retryIssues() {
     loading = true;
     loadError = false;
+    loadAttempts = [];
     softRefresh(repoPath);
   }
 
@@ -314,6 +322,7 @@
         if (r.error != null) {
           if (loading) {
             loadError = true;
+            loadAttempts = r.attempts ?? [];
             loading = false;
           }
           return;
@@ -324,6 +333,7 @@
         viewer = r.viewer;
         viewerCache.set(rp, r.viewer);
         loadError = false;
+        loadAttempts = [];
         lightweight = r.lightweight === true;
         // This result is now the newest state — display it even if the (superseded)
         // mount fetch never settled; otherwise fresh data hides behind the skeleton.
@@ -333,6 +343,7 @@
         if (rp !== repoPath || issuesTicket !== issuesSeq) return;
         if (loading) {
           loadError = true;
+          loadAttempts = [];
           loading = false;
         }
       });
@@ -527,6 +538,9 @@
       <div class="muted">
         {m.common_issues_load_failed()}
         <button type="button" class="retry-link" onclick={retryIssues}>{m.common_retry()}</button>
+        <!-- Which gh transport gave up, and why — so a retry isn't a blind coin flip
+             between waiting for a budget and fixing a login. -->
+        <IssueLoadAttempts attempts={loadAttempts} />
       </div>
     {:else if lightweight}
       <!-- MUST precede the slug===null branch: LocalForge reports a null slug too, so

@@ -157,6 +157,7 @@ import type {
 import { DEPENDABOT_REBASE_COMMAND, EmptyDiffError, MergeNotCompletedError } from "./forge/types";
 import { buildIssueUrl } from "./forge";
 import { MERGE_ASYNC_MAX_WAIT_MS } from "./forge/github";
+import { attemptsOf } from "./forge/gh-attempt";
 import type { GithubRateLimitPayload } from "./forge/github-rate-limit";
 import { BaseCheckoutBusyError, MergeConflictError } from "./forge/local";
 import { recordEpicIntegrationIfChild, settleMergedSession } from "./merge-teardown";
@@ -5940,6 +5941,50 @@ async function handleRepoInitEmptyCommit({ req, parts }: Ctx): Promise<Response 
   }
 }
 
+/** The GET /api/issues body for a resolved forge: the open listing, or an empty list
+ *  flagged as a failure. Split out of the route so the handler stays a router. */
+async function issuesResponse(forge: GitForge): Promise<Response> {
+  // A lightweight repo answers with an empty list and a null slug BY DESIGN — the
+  // operator turned the mode on themselves. Without this flag the UI can't tell that
+  // apart from a forge repo missing an upstream, and sends them hunting on GitHub for
+  // a state Shepherd is holding. Reported on the failure branch too: the mode is a
+  // property of the repo, not of the request that just failed.
+  const lightweight = forge.isLightweight === true;
+  try {
+    const issues = await listIssuesWithBlockers(forge);
+    return json({
+      slug: forge.slug,
+      webUrl: forge.webUrl ?? null,
+      issues,
+      // The operator's own login, so the UI's "mine & unassigned" filter (#824)
+      // knows who "me" is. Cached in the forge, so no per-request gh cost after
+      // the first call. null when the host can't resolve it (fail open → show all).
+      viewer: (await forge.currentUser?.()) ?? null,
+      lightweight,
+    });
+  } catch (err) {
+    // missing/un-authed CLI, network error, or a rate-limited forge (both gh
+    // transports exhausted — listIssues already tries GraphQL and REST) → empty
+    // list, but flag it as a fetch failure so the UI can say "couldn't load"
+    // instead of the indistinguishable "no open issues".
+    //
+    // `attempts` names the gh transports that actually ran and how each one gave
+    // up, so the retry state can say *which* path failed. Present only when the
+    // error carries a trail (GithubForge listings) — a Gitea/local failure, or one
+    // raised outside listIssues, keeps the response exactly as it was.
+    const attempts = attemptsOf(err);
+    return json({
+      slug: forge.slug,
+      webUrl: forge.webUrl ?? null,
+      issues: [],
+      viewer: null,
+      error: "fetch_failed",
+      lightweight,
+      ...(attempts ? { attempts } : {}),
+    });
+  }
+}
+
 async function handleIssues({ req, parts, url, deps }: Ctx): Promise<Response | null> {
   if (req.method === "GET" && parts[0] === "api" && parts[1] === "issues" && !parts[2]) {
     const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
@@ -5947,38 +5992,7 @@ async function handleIssues({ req, parts, url, deps }: Ctx): Promise<Response | 
     const forge = deps.resolveForge?.(dir) ?? null;
     if (!forge)
       return json({ slug: null, webUrl: null, issues: [], viewer: null, lightweight: false });
-    // A lightweight repo answers with an empty list and a null slug BY DESIGN — the
-    // operator turned the mode on themselves. Without this flag the UI can't tell that
-    // apart from a forge repo missing an upstream, and sends them hunting on GitHub for
-    // a state Shepherd is holding. Reported on the failure branch too: the mode is a
-    // property of the repo, not of the request that just failed.
-    const lightweight = forge.isLightweight === true;
-    try {
-      const issues = await listIssuesWithBlockers(forge);
-      return json({
-        slug: forge.slug,
-        webUrl: forge.webUrl ?? null,
-        issues,
-        // The operator's own login, so the UI's "mine & unassigned" filter (#824)
-        // knows who "me" is. Cached in the forge, so no per-request gh cost after
-        // the first call. null when the host can't resolve it (fail open → show all).
-        viewer: (await forge.currentUser?.()) ?? null,
-        lightweight,
-      });
-    } catch {
-      // missing/un-authed CLI, network error, or a rate-limited forge (both gh
-      // transports exhausted — listIssues already tries GraphQL and REST) → empty
-      // list, but flag it as a fetch failure so the UI can say "couldn't load"
-      // instead of the indistinguishable "no open issues".
-      return json({
-        slug: forge.slug,
-        webUrl: forge.webUrl ?? null,
-        issues: [],
-        viewer: null,
-        error: "fetch_failed",
-        lightweight,
-      });
-    }
+    return issuesResponse(forge);
   }
   return null;
 }

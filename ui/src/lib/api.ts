@@ -5,6 +5,7 @@ import type {
   HeldResult,
   RepoEntry,
   Issue,
+  IssueFetchAttempt,
   PullRequest,
   ActivityEntry,
   SessionUsage,
@@ -1195,6 +1196,10 @@ export async function listIssues(repoPath: string): Promise<{
    *  `GitForge.isLightweight` — absent ⇒ falsy ⇒ not lightweight — so callers must
    *  test it as `=== true`. The server always sends an explicit boolean. */
   lightweight?: boolean;
+  /** The gh transports that ran and failed, in the order they ran — so the retry
+   *  state can name the path that gave up instead of guessing at a rate limit.
+   *  GitHub listings only, and only alongside `error`; absent everywhere else. */
+  attempts?: IssueFetchAttempt[];
 }> {
   const r = await fetch(`/api/issues?repo=${encodeURIComponent(repoPath)}`);
   if (!r.ok) throw await failed(r, "issues");

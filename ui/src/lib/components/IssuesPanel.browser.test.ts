@@ -215,6 +215,80 @@ describe("IssuesPanel empty vs fetch-failed", () => {
       .toContain(m.common_issues_load_failed());
     expect(document.querySelector(".issues-list")?.textContent).not.toContain(m.common_loading());
   });
+
+  // The two gh transports draw on independent budgets, so "couldn't load" alone
+  // doesn't say whether to wait for a reset or fix a login. Name what actually ran.
+  it("names each gh transport that failed, in the order it ran", async () => {
+    mockListIssues.mockResolvedValue({
+      slug: "owner/repo",
+      webUrl: null,
+      issues: [],
+      viewer: null,
+      error: "fetch_failed",
+      attempts: [
+        {
+          transport: "rest",
+          reason: "rate_limit",
+          status: 403,
+          detail: "gh: rate limit (HTTP 403)",
+        },
+        { transport: "cli", reason: "auth", status: 401, detail: "gh: Bad credentials (HTTP 401)" },
+      ],
+    });
+    mockGetEpics.mockResolvedValue({ epics: [], subIssues: [] });
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+
+    await expect
+      .poll(() => document.querySelector(".issues-list")?.textContent)
+      .toContain(m.issues_attempts_label());
+    const lines = Array.from(document.querySelectorAll(".issues-list .attempt")).map(
+      (el) => el.textContent?.replace(/\s+/g, " ").trim() ?? "",
+    );
+    expect(lines).toEqual([
+      `${m.issues_transport_rest()} → ${m.issues_attempt_rate_limit()}`,
+      `${m.issues_transport_cli()} → ${m.issues_attempt_auth()}`,
+    ]);
+  });
+
+  it("drops the transport trail once a retry succeeds", async () => {
+    // The trail explains one failed fetch; leaving it up over recovered data would
+    // report a state that no longer exists.
+    mockListIssues
+      .mockResolvedValueOnce({
+        slug: "owner/repo",
+        webUrl: null,
+        issues: [],
+        viewer: null,
+        error: "fetch_failed",
+        attempts: [{ transport: "cli", reason: "network", detail: "ECONNREFUSED" }],
+      })
+      .mockResolvedValueOnce({
+        slug: "owner/repo",
+        webUrl: null,
+        issues: [
+          {
+            number: 42,
+            title: "Recovered issue",
+            body: "",
+            url: "https://example.com/issues/42",
+            labels: [],
+            createdAt: 0,
+            assignees: [],
+          },
+        ],
+        viewer: null,
+      });
+    mockGetEpics.mockResolvedValue({ epics: [], subIssues: [] });
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+
+    await expect.poll(() => document.querySelectorAll(".issues-list .attempt").length).toBe(1);
+    (document.querySelector(".issues-list .retry-link") as HTMLButtonElement).click();
+
+    await expect
+      .poll(() => document.querySelector(".issues-list")?.textContent)
+      .toContain("Recovered issue");
+    expect(document.querySelectorAll(".issues-list .attempt")).toHaveLength(0);
+  });
 });
 
 describe("IssuesPanel compact issue rows", () => {

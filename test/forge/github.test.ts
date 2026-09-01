@@ -1,6 +1,7 @@
 import { test, expect } from "bun:test";
 import { GithubForge, reviewerStatesFromReviews } from "../../src/forge/github";
 import { graphRateLimit } from "../../src/forge/rate-limit";
+import { attemptsOf } from "../../src/forge/gh-attempt";
 import { CRITIC_REVIEW_MARKER, EmptyDiffError } from "../../src/forge/types";
 import type { PullRequest, PrReviewerState, PrStatus } from "../../src/forge/types";
 import type { GhReview } from "../../src/forge/github";
@@ -339,6 +340,56 @@ test("GithubForge.listIssues: both transports failing rethrows the preferred pat
   };
   unblockGraphql();
   await expect(new GithubForge("o/r", {}, run).listIssues()).rejects.toThrow("cli boom");
+});
+
+// The trail is what /api/issues reports to the operator's retry state, so it must
+// name the transports that ACTUALLY ran, in the order they ran — the rethrown error
+// only ever describes one of them.
+test("GithubForge.listIssues: the rethrown error carries both failed transports in order", async () => {
+  const run = async (args: string[]): Promise<string> => {
+    throw new Error(
+      args[0] === "issue" ? "gh: Bad credentials (HTTP 401)" : "gh: Not Found (HTTP 404)",
+    );
+  };
+  unblockGraphql();
+  const err = await new GithubForge("o/r", {}, run).listIssues().catch((e: unknown) => e);
+  expect(attemptsOf(err)).toEqual([
+    { transport: "cli", reason: "auth", status: 401, detail: "gh: Bad credentials (HTTP 401)" },
+    { transport: "rest", reason: "not_found", status: 404, detail: "gh: Not Found (HTTP 404)" },
+  ]);
+});
+
+test("GithubForge.listIssues: during a GraphQL backoff the trail leads with REST", async () => {
+  const run = async (args: string[]): Promise<string> => {
+    throw new Error(args[0] === "issue" ? "cli boom" : "gh: API rate limit exceeded (HTTP 403)");
+  };
+  blockGraphql();
+  try {
+    const err = await new GithubForge("o/r", {}, run).listIssues().catch((e: unknown) => e);
+    expect((err as Error).message).toBe("gh: API rate limit exceeded (HTTP 403)");
+    expect(attemptsOf(err)?.map((a) => [a.transport, a.reason])).toEqual([
+      ["rest", "rate_limit"],
+      ["cli", "unknown"],
+    ]);
+  } finally {
+    unblockGraphql();
+  }
+});
+
+test("GithubForge.listIssues: a transport that answers leaves no trail behind", async () => {
+  // Only a failure carries a trail: when the fallback answers there is nothing to
+  // explain, and the successful path must not look like an error to any caller.
+  const run = async (args: string[]): Promise<string> => {
+    if (args[0] === "issue") throw new Error("cli boom");
+    if (args.includes("repos/o/r/issues"))
+      return JSON.stringify([
+        { number: 7, title: "From REST", html_url: "u7", created_at: ISSUE_CREATED_AT },
+      ]);
+    return "[]";
+  };
+  unblockGraphql();
+  const issues = await new GithubForge("o/r", {}, run).listIssues();
+  expect(issues.map((i) => i.number)).toEqual([7]);
 });
 
 test("GithubForge.listIssues: requests the assignees field from gh (#824)", async () => {

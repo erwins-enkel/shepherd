@@ -293,6 +293,20 @@ export interface Issue {
   blockedBy?: number[];
 }
 
+/** One `gh` transport that ran and failed while listing issues, as reported by
+ *  /api/issues. Mirrors the server `GhFetchAttempt` (`src/forge/gh-attempt.ts`).
+ *  GitHub lists issues over two independent budgets (`gh issue list` on GraphQL,
+ *  `gh api` on REST) and falls back between them; the trail names the paths that
+ *  were really tried, in the order they were tried. */
+export interface IssueFetchAttempt {
+  transport: "cli" | "rest";
+  reason: "rate_limit" | "auth" | "not_found" | "gh_missing" | "network" | "http" | "unknown";
+  /** HTTP status when gh reported one; absent otherwise. */
+  status?: number;
+  /** Sanitized gh output for the hover tooltip. May be empty. */
+  detail: string;
+}
+
 /** Subset of an Issue attached to a task by reference (body rides out-of-band). */
 export interface IssueRef {
   number: number;

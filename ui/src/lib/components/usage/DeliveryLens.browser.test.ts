@@ -1,12 +1,14 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
+import { page } from "@vitest/browser/context";
 import "../../../app.css";
 import type { DeliveryMetrics, DeliverySample, DeliveryStats } from "$lib/types";
 
 const { default: DeliveryLens } = await import("./DeliveryLens.svelte");
 
-afterEach(() => {
+afterEach(async () => {
   document.body.innerHTML = "";
+  await page.viewport(1280, 900);
 });
 
 const s = (value: number | null, n = value == null ? 0 : 4): DeliverySample => ({ value, n });
@@ -95,6 +97,19 @@ describe("DeliveryLens", () => {
     // The uninstrumented state replaces the whole lens — no tiles, no repo table.
     expect(document.querySelectorAll(".tile").length).toBe(0);
     expect(document.querySelector(".muted")).not.toBeNull();
+  });
+
+  it("keeps the incident row's two-column grid on narrow screens", async () => {
+    // A media query adds NO specificity, so a bare `.row` override inside one would beat
+    // `.incident-row` on source order and squeeze the count into the repo grid's 3rem track.
+    await page.viewport(390, 800);
+    render(DeliveryLens, { metrics: metrics() });
+    const incident = document.querySelector<HTMLElement>(".incident-row")!;
+    const cols = getComputedStyle(incident).gridTemplateColumns.split(" ");
+    expect(cols.length).toBe(2);
+    // The count cell must keep its intrinsic width, not collapse into a 3rem track.
+    const count = incident.lastElementChild as HTMLElement;
+    expect(count.getBoundingClientRect().width).toBeGreaterThan(48);
   });
 
   it("lists repos and surfaces critic errors when there are any", async () => {

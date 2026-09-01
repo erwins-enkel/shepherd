@@ -294,12 +294,14 @@
     font-variant-numeric: tabular-nums;
   }
 
+  /* Narrow screens drop the lead-time column from the REPO rows only. Both overrides carry the
+     :not(.incident-row) guard: a media query adds no specificity, so a bare `.row` here would
+     beat `.incident-row` above on source order alone and squeeze the incident count into the
+     repo grid's 3rem track. */
   @media (max-width: 480px) {
-    .row {
+    .row:not(.incident-row) {
       grid-template-columns: 1fr 3rem 3.5rem 3.5rem;
     }
-    /* Drop the lead-time column on narrow screens — but ONLY on the repo rows; the incident
-       row's last cell IS its content. */
     .row:not(.incident-row) > :last-child {
       display: none;
     }

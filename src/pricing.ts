@@ -33,11 +33,27 @@ const TABLE: { match: RegExp; w: ModelWeights }[] = [
     w: { input: 1, output: 5, cacheRead: 0.1, cacheWrite5m: 1.25, cacheWrite1h: 2 },
   },
   {
-    // Fable 5 — list price $10 in / $50 out per Mtok (cache derived at the same
-    // 0.1× / 1.25× / 2× ratios as the other tiers). Appended at the end (after
-    // haiku) so the DEFAULT index (TABLE[1]) below stays sonnet-like.
-    match: /fable/i,
+    // Fable 5 — the RETIRED-price row, matched by the `-5` suffix ANCHORED so it
+    // cannot swallow `claude-fable-5-1`. Covers the pinned id `claude-fable-5`
+    // (plus its bedrock/mantle-prefixed forms, which also end in `-5`) at its own
+    // list price: $10/$50 with cache read at the usual 0.1× ratio. Records from
+    // Fable 5 sessions must keep costing what they cost, so this row exists
+    // separately from the row below instead of being repriced with it.
+    match: /fable-5$/i,
     w: { input: 10, output: 50, cacheRead: 1, cacheWrite5m: 12.5, cacheWrite1h: 20 },
+  },
+  {
+    // Fable, CURRENT generation — $10 in / $50 out per Mtok with cache read at
+    // $0.25 (Fable 5.1 cheapened cache reads from the 0.1× ratio Fable 5 used;
+    // cache WRITES kept the 1.25× / 2× ratios). Covers the pinned id
+    // `claude-fable-5-1` and the floating alias `fable`, which resolves to
+    // whatever the installed CLI calls the latest Fable — 5.1 today. An
+    // unrecognised future id (`claude-fable-6`) lands here rather than on the
+    // retired prices above; give it its own row when its price is known.
+    // Both fable rows sit after haiku so the DEFAULT index (TABLE[1]) below
+    // stays sonnet-like.
+    match: /fable/i,
+    w: { input: 10, output: 50, cacheRead: 0.25, cacheWrite5m: 12.5, cacheWrite1h: 20 },
   },
 ];
 

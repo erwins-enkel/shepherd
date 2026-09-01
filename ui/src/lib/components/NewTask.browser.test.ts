@@ -1730,6 +1730,30 @@ describe("NewTask fableAvailable prop", () => {
     expect(modelSelect().value).not.toBe("fable");
   });
 
+  it("hides the PINNED Fable option too when fableAvailable=false", async () => {
+    render(NewTask, { props: base({ fableAvailable: false }) });
+
+    const options = Array.from(modelSelect().options).map((o) => o.value);
+    expect(options).not.toContain("claude-fable-5-1");
+    // Non-Fable pinned entries are unaffected by the flag.
+    expect(options).toContain("claude-opus-5");
+  });
+
+  it("offers the pinned Fable option when fableAvailable=true", async () => {
+    render(NewTask, { props: base({ fableAvailable: true }) });
+
+    const options = Array.from(modelSelect().options).map((o) => o.value);
+    expect(options).toContain("claude-fable-5-1");
+  });
+
+  it("falls back from a pinned Fable initialModel to default when fableAvailable=false", async () => {
+    render(NewTask, {
+      props: base({ initialModel: "claude-fable-5-1", fableAvailable: false }),
+    });
+
+    expect(modelSelect().value).toBe("default");
+  });
+
   it("shows the fable option when fableAvailable=true (default)", async () => {
     render(NewTask, { props: base({ fableAvailable: true }) });
 

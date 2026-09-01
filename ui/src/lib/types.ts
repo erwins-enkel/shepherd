@@ -2132,6 +2132,7 @@ export interface HeldResult {
  *  CLAUDE_MODELS — keep both lists identical (see the note there). */
 const CLAUDE_MODELS = [
   "fable",
+  "claude-fable-5-1",
   "opus",
   "opus[1m]",
   "claude-opus-5",
@@ -2178,6 +2179,7 @@ export const MODELS_BY_PROVIDER: Record<AgentProvider, readonly string[]> = {
  *  cost case the warning exists for, so sonnet[1m] is premium even though plain sonnet is not. */
 export const PREMIUM_MODELS: readonly string[] = [
   "fable",
+  "claude-fable-5-1",
   "opus",
   "opus[1m]",
   "claude-opus-5",

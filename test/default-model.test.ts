@@ -15,6 +15,7 @@ import {
   normalizeRoleModelToken,
   drainSpawnModel,
   spawnModelForAvailability,
+  isFableModel,
   normalizeFableAvailable,
   modelCompatibleWithProvider,
   modelForProviderOrDefault,
@@ -131,7 +132,13 @@ describe("drainSpawnModel", () => {
     // the bracketed 1M aliases so an operator can set 1M Opus/Sonnet as an unattended
     // default, and the pinned full model names so an unattended default can be locked
     // to an exact Opus version. Fails on pre-fix code (not in MODELS/SETTING_VALUES).
-    for (const alias of ["opus[1m]", "sonnet[1m]", "claude-opus-5", "claude-opus-5[1m]"]) {
+    for (const alias of [
+      "opus[1m]",
+      "sonnet[1m]",
+      "claude-opus-5",
+      "claude-opus-5[1m]",
+      "claude-fable-5-1",
+    ]) {
       expect(normalizeDefaultModelSetting(alias)).toBe(alias);
       expect(drainSpawnModel(alias)).toBe(alias);
     }
@@ -150,7 +157,10 @@ describe("modelCompatibleWithProvider", () => {
     expect(CODEX_MODEL_RE.test("claude-opus-5")).toBe(true);
     expect(modelCompatibleWithProvider("claude-opus-5", "codex")).toBe(false);
     expect(modelCompatibleWithProvider("claude-opus-5[1m]", "codex")).toBe(false);
+    expect(modelCompatibleWithProvider("claude-fable-5-1", "codex")).toBe(false);
+    expect(modelCompatibleWithProvider("claude-fable-5-1", "claude")).toBe(true);
     expect(modelForProviderOrDefault("claude-opus-5", "codex")).toBeNull();
+    expect(modelForProviderOrDefault("claude-fable-5-1", "codex")).toBeNull();
   });
 
   test("Codex accepts curated aliases and safe future aliases", () => {
@@ -389,6 +399,27 @@ describe("spawnModelForAvailability", () => {
 
   test("opus[1m] unaffected when fable unavailable", () => {
     expect(spawnModelForAvailability("opus[1m]", false)).toBe("opus[1m]");
+  });
+
+  test("a PINNED fable id reroutes exactly like the alias", () => {
+    // The guard keys off the family: a deliberately pinned Fable is just as
+    // unspawnable as the alias while Fable is globally unavailable.
+    expect(spawnModelForAvailability("claude-fable-5-1", false)).toBe("opus[1m]");
+    expect(spawnModelForAvailability("claude-fable-5-1", true)).toBe("claude-fable-5-1");
+  });
+});
+
+describe("isFableModel", () => {
+  test("matches the floating alias and pinned Fable ids", () => {
+    expect(isFableModel("fable")).toBe(true);
+    expect(isFableModel("claude-fable-5-1")).toBe(true);
+  });
+
+  test("does not match other tiers, null or undefined", () => {
+    expect(isFableModel("opus")).toBe(false);
+    expect(isFableModel("claude-opus-5")).toBe(false);
+    expect(isFableModel(null)).toBe(false);
+    expect(isFableModel(undefined)).toBe(false);
   });
 });
 

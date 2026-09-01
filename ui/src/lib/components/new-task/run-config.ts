@@ -1,10 +1,11 @@
 import type { AgentProvider, ProviderTokenConstraint } from "$lib/types";
 import { promoDefaultModel } from "$lib/fable-promo";
-import { modelAvailableForProvider } from "$lib/provider-models";
+import { isFableModel, modelAvailableForProvider } from "$lib/provider-models";
 import { effortAvailableForProvider } from "$lib/effort-guidance";
 
 /** Picker preselect for a model SETTING ("auto" | "default" | <alias>): explicit setting wins,
- *  else the fresh-client promo (Claude) / "default" (Codex); fable falls back when unavailable. */
+ *  else the fresh-client promo (Claude) / "default" (Codex); any Fable entry (alias or pinned id)
+ *  falls back when unavailable. */
 export function preselectModel(
   configured: string | undefined,
   provider: AgentProvider,
@@ -16,7 +17,7 @@ export function preselectModel(
       : provider === "claude"
         ? promoDefaultModel()
         : "default";
-  return pick === "fable" && !fableAvailable ? "default" : pick;
+  return isFableModel(pick) && !fableAvailable ? "default" : pick;
 }
 
 /** Effort SETTING ("default" | "inherit" | <tier>) → picker value. */

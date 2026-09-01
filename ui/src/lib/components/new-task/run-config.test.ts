@@ -51,6 +51,11 @@ describe("preselect", () => {
     expect(preselectModel("auto", "codex", true)).toBe("default");
   });
 
+  it("a PINNED Fable setting falls back too when Fable is unavailable", () => {
+    expect(preselectModel("claude-fable-5-1", "claude", false)).toBe("default");
+    expect(preselectModel("claude-fable-5-1", "claude", true)).toBe("claude-fable-5-1");
+  });
+
   it("effort maps default/inherit/absent to the no-flag value", () => {
     expect(preselectEffort("high")).toBe("high");
     expect(preselectEffort("default")).toBe("default");
@@ -113,6 +118,17 @@ describe("normalizeRunConfig (validity correction, touched or not)", () => {
     expect(out.model).toBe("default");
   });
 
+  it("a pinned Fable id snaps to default when fableAvailable flips false", () => {
+    const out = normalizeRunConfig(
+      normalizeInput({
+        model: "claude-fable-5-1",
+        fableAvailable: false,
+        claudeModelSetting: "auto",
+      }),
+    );
+    expect(out.model).toBe("default");
+  });
+
   it("an unsupported effort tier snaps to default on Codex (xhigh)", () => {
     const out = normalizeRunConfig(normalizeInput({ provider: "codex", effort: "xhigh" }));
     expect(out.effort).toBe("default");
@@ -131,5 +147,6 @@ describe("modelForManualProviderChange (today's unconditional reset, preserved)"
 
   it("falls back to 'default' when the setting resolves to an unavailable model", () => {
     expect(modelForManualProviderChange("claude", "fable", false)).toBe("default");
+    expect(modelForManualProviderChange("claude", "claude-fable-5-1", false)).toBe("default");
   });
 });

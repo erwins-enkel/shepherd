@@ -1,4 +1,5 @@
 import { configuredModelLabel } from "$lib/model-label";
+import { isFableModel } from "$lib/provider-models";
 import { m } from "$lib/paraglide/messages";
 import type { AgentProvider } from "$lib/types";
 
@@ -92,6 +93,10 @@ function claudeGuidance(model: string): {
   switch (model) {
     case "fable":
       return { costTier: "premium", tag: "max", detail: m.model_guidance_claude_fable() };
+    // Pinned Fable 5.1 mirrors the tier/fit of the floating alias it pins — same model,
+    // same price; only the version-drift guarantee differs.
+    case "claude-fable-5-1":
+      return { costTier: "premium", tag: "max", detail: m.model_guidance_claude_fable_5_1() };
     case "opus":
       return { costTier: "high", tag: "strong", detail: m.model_guidance_claude_opus() };
     case "opus[1m]":
@@ -190,7 +195,7 @@ export function modelGuidance(
 }
 
 export function modelGuidanceAlias(model: string, fableAvailable: boolean): string {
-  return model === "fable" && !fableAvailable ? "opus[1m]" : model;
+  return isFableModel(model) && !fableAvailable ? "opus[1m]" : model;
 }
 
 /** Picker option row: label · fit · cost. Uses the CONFIGURED label (an option is a

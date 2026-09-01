@@ -1,39 +1,49 @@
 # Spike #2135 — Is Codex app-server the control plane for interactive sessions?
 
-**Phase-0 go/no-go.** Shepherd needs a first-party, structured way to identify, observe, and steer
+**Phase-0 go/no-go.** Shepherd needs a first-party, structured way to identify and observe
 interactive Codex sessions before more telemetry is built on the legacy rollout format. The
 load-bearing question is whether a real human TUI and an independent app-server client can address
-the same thread.
+the same thread; the spike also tested whether app-server's direct steering surfaces fit Shepherd's
+PTY-only control constraint.
 
-## Decision: **GO, with operational constraints** ✅
+## Decision: **GO for observation; NO-GO for direct steering** ⚠️
 
 Yes. In Codex CLI **0.150.1**, Shepherd can create a thread through app-server, receive its UUID at
 start, attach a real interactive TUI to that exact thread, and observe the human's turns through a
 second JSON-RPC connection. The observer received typed status, item, command result, token usage,
-rate-limit, approval, and turn-completion events. It could CAS-steer the active turn, while
-`codex queue` created a distinct subsequent turn.
+rate-limit, approval, and turn-completion events. The experiment also proved that app-server can
+CAS-steer an active turn and that `codex queue` creates a distinct subsequent turn.
 
-This preserves the interactive-session substrate required by [PRD.md](../../PRD.md): the user still
-works in a genuine Codex TUI in a herdr PTY. App-server is an additional control connection, not a
-replacement with a headless SDK session.
+Under [PRD.md](../../PRD.md), only the identity and observation half of that capability may ship.
+Shepherd's hard design default requires steering by typing through `herdr agent send` into a real
+PTY. `turn/steer`, `codex queue`, and direct `turn/start` input mutate the conversation outside that
+PTY, so they cannot become Shepherd's operative steering path without an explicit PRD change.
+App-server preserves the interactive-session substrate only as a read-only structured sidecar to a
+genuine Codex TUI, not as a replacement input channel.
 
 The constraints are material:
 
 1. A newly started empty thread is not resumable until its first user message materializes history.
-   Shepherd must start/materialize the thread through app-server before launching
-   `codex resume <thread-id> --remote <address>`.
+   The tested app-server-first bootstrap therefore required direct `turn/start` input before
+   `codex resume <thread-id> --remote <address>` could attach. Shepherd cannot adopt that launch
+   flow under the current PTY-only constraint. It first needs a verified PTY-first launch that
+   exposes the thread ID, or an explicit change to the PRD.
 2. The app-server process needs supervision. Remote clients do not reconnect automatically; after a
    crash Shepherd must restart/ensure the daemon, reconnect, initialize, and resume each known ID.
-3. The observer must remain passive for approvals. Approval requests are visible to both clients,
+3. All production conversational input must continue through the live herdr PTY. The direct steer,
+   queue, and new-turn APIs below are capability findings, not adoption recommendations.
+4. The observer must remain passive for approvals. Approval requests are visible to both clients,
    and the human TUI must be the sole responder.
-4. Rate-limit notifications are sparse and account/model-limit dependent. Seed from
+5. Rate-limit notifications are sparse and account/model-limit dependent. Seed from
    `account/rateLimits/read`, retain data by `limitId`, then merge updates or refetch.
-5. The protocol and Unix-WebSocket transport are experimental. Pin behavior to the installed Codex
+6. The protocol and Unix-WebSocket transport are experimental. Pin behavior to the installed Codex
    version, generate its schema, gate compatibility, and retain the rollout path as a migration
    fallback until the adapter is proven in production.
 
-This is a GO for making app-server the structured control plane for **Shepherd-owned interactive
-Codex sessions**. It is not authorization to delete the existing rollout readers in this spike.
+This is a GO for app-server as the structured **identity and observation plane** for interactive
+Codex sessions once a PTY-compatible bootstrap is proven. It is a NO-GO for app-server as the full
+control plane or as a replacement for PTY typing. It is not authorization to delete the existing
+rollout readers in this spike.
 
 ## Environment and evidence
 
@@ -63,20 +73,21 @@ that setting in its version compatibility probe rather than assuming generic Web
 
 ## Results against the issue questions
 
-| Question                                                                 | Result                                       | Finding                                                                                                                                                                                                                                                                                                           |
-| ------------------------------------------------------------------------ | -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Start through the daemon and learn a stable ID at start                  | **VERIFIED**                                 | `thread/start` returned a Codex-generated UUIDv7 immediately. `thread/read`, `thread/resume`, TUI attachment, idle restart, and crash recovery all returned the same ID. Empty-thread materialization is the caveat below.                                                                                        |
-| Attach a human-usable TUI to that thread                                 | **VERIFIED**                                 | `codex resume <id> --remote unix://… --no-alt-screen` showed the prior history and a working composer. Human input produced a turn on the original ID; no fork or replacement thread was created.                                                                                                                 |
-| Receive status, token, rate-limit, and tool events while the human types | **VERIFIED / PARTIAL for window population** | The passive observer saw active/idle status, typed item lifecycle, command status and exit code, total/last token usage, turn completion, and rate-limit updates. The authenticated snapshot contained both 5-hour and weekly windows for one limit family, but only a weekly window for the main `codex` family. |
-| Steer or queue the interactive session                                   | **VERIFIED**                                 | Valid `turn/steer.expectedTurnId` added input to the same active turn; stale and idle requests failed deterministically. `codex queue` added pending input that became a separate next turn.                                                                                                                      |
-| Understand lifecycle and failure behavior                                | **VERIFIED with constraints**                | One daemon hosted threads for different working directories and is scoped by Codex home, not repository. TUI exit left the thread alive. SIGINT initiated graceful drain; a hard crash disconnected both clients, required explicit reconnect/resume, and persisted the active turn as `interrupted`.             |
-| Preserve human approval ownership with two clients                       | **VERIFIED with a client rule**              | Both clients received the approval request and `waitingOnApproval` state. The observer sent no response; the TUI displayed the prompt, the human-side response approved it, and the observer then received `serverRequest/resolved`.                                                                              |
+| Question                                                                 | Result                                             | Finding                                                                                                                                                                                                                                                                                                           |
+| ------------------------------------------------------------------------ | -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Start through the daemon and learn a stable ID at start                  | **TECHNICALLY VERIFIED / NOT SHIPPABLE AS TESTED** | `thread/start` returned a Codex-generated UUIDv7 immediately, but the empty thread required direct `turn/start` input before TUI attachment. A PTY-first way to expose that ID was not tested.                                                                                                                    |
+| Attach a human-usable TUI to that thread                                 | **VERIFIED**                                       | `codex resume <id> --remote unix://… --no-alt-screen` showed the prior history and a working composer. Human input produced a turn on the original ID; no fork or replacement thread was created.                                                                                                                 |
+| Receive status, token, rate-limit, and tool events while the human types | **VERIFIED / PARTIAL for window population**       | The passive observer saw active/idle status, typed item lifecycle, command status and exit code, total/last token usage, turn completion, and rate-limit updates. The authenticated snapshot contained both 5-hour and weekly windows for one limit family, but only a weekly window for the main `codex` family. |
+| Steer or queue the interactive session                                   | **CAPABILITY VERIFIED / NO-GO FOR ADOPTION**       | Valid `turn/steer.expectedTurnId` added input to the same active turn, and `codex queue` added pending input that became a separate next turn. Both bypass the live PTY and therefore conflict with the current PRD control constraint.                                                                           |
+| Understand lifecycle and failure behavior                                | **VERIFIED with constraints**                      | One daemon hosted threads for different working directories and is scoped by Codex home, not repository. TUI exit left the thread alive. SIGINT initiated graceful drain; a hard crash disconnected both clients, required explicit reconnect/resume, and persisted the active turn as `interrupted`.             |
+| Preserve human approval ownership with two clients                       | **VERIFIED with a client rule**                    | Both clients received the approval request and `waitingOnApproval` state. The observer sent no response; the TUI displayed the prompt, the human-side response approved it, and the observer then received `serverRequest/resolved`.                                                                              |
 
 ## Executed protocol
 
-The commands below are the sanitized form of the live experiment. `CODEX_01501` resolved to the
-absolute cached 0.150.1 executable, `SOCKET` was a unique path in a disposable sibling directory,
-and `THREAD_ID` was copied only from `thread/start`'s response.
+The commands below are the sanitized form of the live capability experiment, not a proposed
+production input flow. `CODEX_01501` resolved to the absolute cached 0.150.1 executable, `SOCKET`
+was a unique path in a disposable sibling directory, and `THREAD_ID` was copied only from
+`thread/start`'s response.
 
 ```sh
 "$CODEX_01501" app-server --listen "unix://$SOCKET"
@@ -137,10 +148,11 @@ The live sequence exposed one important bootstrap rule:
 4. A short `turn/start` materialized the thread. Reads, resume, remote TUI attachment, and later
    daemon restarts then preserved the same ID.
 
-Therefore Shepherd can know and persist the ID at creation time, but the spawn handshake must not
-advertise the pane as attachable until the initial message has started the thread. This is still a
-strict improvement over cwd-scanning: the ID is known before attribution can race with another
-session.
+Therefore app-server can return and persist the ID at creation time, but the tested spawn handshake
+cannot be adopted as-is: its materializing user message bypasses the PTY. Shepherd needs to prove
+that a PTY-created thread emits a stable ID to the observer before replacing cwd-scanning, or change
+the PRD deliberately. Until then this is a technical identity capability, not a shippable managed
+launch flow.
 
 The created thread reported `source: "vscode"`, not `"cli"`, even though `threadSource: "user"` was
 requested. The current `source == "cli"` rollout filter is therefore not portable to this topology.
@@ -228,10 +240,11 @@ accepted the message while another TUI turn was active. After that turn complete
 pending next-turn input; it does not mutate the active turn. This experiment did not separately
 test whether an unstarted queue entry survives a hard daemon crash.
 
-This invalidates the central premise in `resumeThenSteer()` that Codex necessarily exits after its
-turn. Under app-server the daemon owns the thread after the TUI exits. Active-turn input uses
-CAS-guarded `turn/steer`; idle delivery uses the queue or a new `turn/start`. Relaunching a pane and
-bracket-pasting is a presentation recovery path, not the control plane.
+This invalidates the central premise in `resumeThenSteer()` that the Codex thread necessarily dies
+when its TUI exits: app-server retains the thread. It does **not** invalidate the PRD's input rule.
+Shepherd must still relaunch or retain the pane and deliver active or idle input through
+`herdr agent send`. CAS-steer, queue, and new-turn delivery remain tested upstream capabilities that
+may be reconsidered only after an explicit change to the PTY-only constraint.
 
 ## Lifecycle and recovery
 
@@ -252,7 +265,8 @@ uses WebSocket upgrade over the Unix socket rather than herdr's framing.
 - `/exit` closed only the TUI. The observer immediately read the same thread and complete history;
   daemon ownership continued without a pane.
 - With no TUI connected, `codex queue` immediately started and completed a new turn whose fixed
-  marker was visible to the observer. A queued turn therefore does not require a pane.
+  marker was visible to the observer. A queued turn therefore does not require a pane; for exactly
+  that reason, Shepherd must not use it as a production input path under the current PRD.
 - With no TUI connected, an escalated command entered `waitingOnApproval` and remained there with no
   further event for five seconds. Nothing auto-approved it. The observer then sent an explicit
   `cancel` response for cleanup; the command completed as `declined` and the turn as `interrupted`.
@@ -292,20 +306,23 @@ Shepherd must treat in-flight turns as uncertain until the resumed history says 
 
 ## Consequences for Shepherd
 
-| Current seam                                      | App-server consequence                                                                                                                                        |
-| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `findCodexRollout()` / `findCodexSessionId()`     | Capture `ThreadStartResponse.thread.id` synchronously. This removes cwd/source attribution for managed sessions and unblocks correct non-isolated restore.    |
-| `CodexUsageProvider`                              | Seed account limits, merge sparse per-`limitId` updates, and retain `ThreadTokenUsage.total/last`; keep the legacy provider as fallback during migration.     |
-| `parseCodexActivity()` / `CodexTranscriptLocator` | Consume typed status, turn, item, command, diff, and plan events live; define reconnect reconciliation before removing persisted transcript fallback.         |
-| `resumeThenSteer()`                               | Replace resume-and-paste as the normal control path with `turn/steer` for active turns and queue/new-turn delivery for idle threads.                          |
-| Non-isolated restore (#1476)                      | The daemon-returned ID is independent of cwd uniqueness, removing spike #1175's attribution blocker.                                                          |
-| `/fork` session-ID staleness                      | `thread/fork` returns the new thread and `thread/started` reports it; update `providerSessionId` from the response/event rather than populate-once discovery. |
-| Rate-limit windows                                | App-server is the only tested typed surface that exposes the account windows absent from `codex exec --json`; population must remain account/limit aware.     |
+| Current seam                                      | App-server consequence                                                                                                                                                          |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `findCodexRollout()` / `findCodexSessionId()`     | Replace cwd/source attribution only after a PTY-first launch is shown to expose its stable ID. The tested direct-materialization bootstrap is not yet an adoptable replacement. |
+| `CodexUsageProvider`                              | Seed account limits, merge sparse per-`limitId` updates, and retain `ThreadTokenUsage.total/last`; keep the legacy provider as fallback during migration.                       |
+| `parseCodexActivity()` / `CodexTranscriptLocator` | Consume typed status, turn, item, command, diff, and plan events read-only; define reconnect reconciliation before removing persisted transcript fallback.                      |
+| `resumeThenSteer()`                               | Keep resume/relaunch plus `herdr agent send` as the operative input path. App-server status can inform recovery, but must not deliver the prompt directly.                      |
+| Non-isolated restore (#1476)                      | The daemon ID removes cwd ambiguity only if Shepherd can learn it from a PTY-first session; that prerequisite remains unverified.                                               |
+| `/fork` session-ID staleness                      | Observe the new ID from events caused by a TUI-driven `/fork`; do not invoke direct `thread/fork` as the normal control path.                                                   |
+| Rate-limit windows                                | App-server is the only tested typed surface that exposes the account windows absent from `codex exec --json`; population must remain account/limit aware.                       |
 
-The recommended adoption is staged: add a version-gated app-server session controller, keep the TUI
-in herdr, persist the returned ID immediately, and dual-run/fallback to existing readers until
-reconnect and event reconciliation have production coverage. The rollout adapter in #1816 should be
-a compatibility bridge for unmanaged/older sessions, not the new primary contract.
+The recommended adoption is staged: add a version-gated, read-only app-server observer, keep the
+TUI in herdr, and keep every prompt and command delivery on `herdr agent send`. Before app-server
+owns managed-session launch, prove that a PTY-first thread reports its stable ID without a direct
+first turn; otherwise changing that launch flow requires an explicit PRD decision. Dual-run and
+fall back to existing readers until bootstrap, reconnect, and event reconciliation have production
+coverage. The rollout adapter in #1816 remains necessary for unmanaged, older, and not-yet-
+attributable sessions.
 
 ## Rollout-format conclusion
 
@@ -316,7 +333,8 @@ abstracts that store; it does not magically migrate the underlying history in th
 
 There is no published removal deadline. Therefore:
 
-- build new managed-session features against the typed control plane;
+- build new managed-session observation features against the typed read-only plane while retaining
+  PTY typing for control;
 - keep rollout readers as a bounded fallback until app-server compatibility and reconnect behavior
   are shipped and measured;
 - do not assume the legacy files remain stable merely because 0.150.1 app-server currently uses

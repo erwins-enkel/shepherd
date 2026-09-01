@@ -2877,8 +2877,8 @@ export class SessionService {
       console.info(
         `model: usage downgrade active — spawning on ${spawnModel} instead of ${model ?? "provider default"}`,
       );
-    } else if (model === "fable" && spawnModel !== "fable") {
-      console.info(`model: fable unavailable — spawning on ${spawnModel} instead`);
+    } else if (spawnModel !== requested) {
+      console.info(`model: fable unavailable — spawning on ${spawnModel} instead of ${requested}`);
     }
     if (spawnModel) argv.push("--model", spawnModel);
   }

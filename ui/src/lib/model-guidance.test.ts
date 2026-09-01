@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { modelGuidance, modelGuidanceAlias, modelOptionLabel } from "./model-guidance";
 import { configuredModelLabel, modelLabel } from "./model-label";
+import { isFableModel, modelAvailableForProvider } from "./provider-models";
 
 describe("modelGuidance", () => {
   it("marks Haiku as the cheap classifier fit", () => {
@@ -35,6 +36,18 @@ describe("modelGuidance", () => {
     );
   });
 
+  it("gives pinned Fable 5.1 the same tier and fit as the floating alias it pins", () => {
+    expect(modelGuidance("claude", "claude-fable-5-1").costTier).toBe(
+      modelGuidance("claude", "fable").costTier,
+    );
+    expect(modelGuidance("claude", "claude-fable-5-1").tag).toBe(
+      modelGuidance("claude", "fable").tag,
+    );
+    expect(modelGuidance("claude", "claude-fable-5-1").detail).not.toBe(
+      modelGuidance("claude", "nope").detail,
+    );
+  });
+
   it("adds fit and cost markers to option labels", () => {
     expect(modelOptionLabel("codex", "gpt-5.6-sol")).toBe("gpt-5.6-sol · max · $$$$");
     expect(modelOptionLabel("codex", "gpt-5.6-terra")).toBe("gpt-5.6-terra · balanced · $$$");
@@ -42,6 +55,14 @@ describe("modelGuidance", () => {
     expect(modelOptionLabel("codex", "gpt-5.3-codex")).toBe("gpt-5.3-codex · balanced · $$");
     expect(modelOptionLabel("claude", "opus[1m]")).toBe(
       "Opus (latest, 1M context) · long context · $$$$",
+    );
+  });
+
+  it("distinguishes the floating and pinned Fable rows in the picker", () => {
+    expect(modelOptionLabel("claude", "fable")).toBe("Fable (latest) · max · $$$$");
+    expect(modelOptionLabel("claude", "claude-fable-5-1")).toBe("Fable 5.1 · max · $$$$");
+    expect(modelOptionLabel("claude", "fable")).not.toBe(
+      modelOptionLabel("claude", "claude-fable-5-1"),
     );
   });
 
@@ -62,6 +83,29 @@ describe("modelGuidance", () => {
     expect(modelGuidanceAlias("fable", false)).toBe("opus[1m]");
     expect(modelGuidanceAlias("fable", true)).toBe("fable");
     expect(modelGuidanceAlias("default", false)).toBe("default");
+    // The guard keys off the FAMILY, so the pinned id follows the alias.
+    expect(modelGuidanceAlias("claude-fable-5-1", false)).toBe("opus[1m]");
+    expect(modelGuidanceAlias("claude-fable-5-1", true)).toBe("claude-fable-5-1");
+  });
+});
+
+describe("Fable availability guard", () => {
+  it("recognises the alias and every pinned Fable id as the Fable family", () => {
+    expect(isFableModel("fable")).toBe(true);
+    expect(isFableModel("claude-fable-5-1")).toBe(true);
+    expect(isFableModel("opus")).toBe(false);
+    expect(isFableModel("claude-opus-5")).toBe(false);
+    expect(isFableModel(undefined)).toBe(false);
+  });
+
+  it("hides both Fable rows when Fable is globally unavailable", () => {
+    for (const value of ["fable", "claude-fable-5-1"]) {
+      expect(modelAvailableForProvider("claude", value, false)).toBe(false);
+      expect(modelAvailableForProvider("claude", value, true)).toBe(true);
+    }
+    // Non-Fable Claude entries and the provider default are untouched by the flag.
+    expect(modelAvailableForProvider("claude", "claude-opus-5", false)).toBe(true);
+    expect(modelAvailableForProvider("claude", "default", false)).toBe(true);
   });
 });
 
@@ -73,21 +117,24 @@ describe("record vs configured labels", () => {
   it("keeps floating aliases bare on record surfaces and dated on configured ones", () => {
     expect(modelLabel("opus")).toBe("opus");
     expect(configuredModelLabel("opus")).toBe("Opus (latest)");
+    expect(modelLabel("fable")).toBe("fable");
+    expect(configuredModelLabel("fable")).toBe("Fable (latest)");
     expect(modelLabel("opus[1m]")).toBe("Opus (1M context)");
     expect(configuredModelLabel("opus[1m]")).toBe("Opus (latest, 1M context)");
   });
 
   it("labels pinned models identically on both surfaces", () => {
     // A pinned name means the same model forever, so there is no tense to disambiguate.
-    for (const alias of ["claude-opus-5", "claude-opus-5[1m]"]) {
+    for (const alias of ["claude-opus-5", "claude-opus-5[1m]", "claude-fable-5-1"]) {
       expect(configuredModelLabel(alias)).toBe(modelLabel(alias));
     }
     expect(modelLabel("claude-opus-5")).toBe("Opus 5");
     expect(modelLabel("claude-opus-5[1m]")).toBe("Opus 5 (1M context)");
+    expect(modelLabel("claude-fable-5-1")).toBe("Fable 5.1");
   });
 
   it("leaves every other alias untouched on both surfaces", () => {
-    for (const alias of ["fable", "sonnet", "sonnet[1m]", "haiku"]) {
+    for (const alias of ["sonnet", "sonnet[1m]", "haiku"]) {
       expect(configuredModelLabel(alias)).toBe(modelLabel(alias));
     }
   });

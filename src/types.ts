@@ -348,15 +348,17 @@ export interface RelaunchOverrides {
  *  Two KINDS of entry live here, and the difference is the point:
  *    - FLOATING aliases ("fable"/"opus"/"sonnet"/"haiku") resolve to whatever the
  *      installed CLI calls the latest model of that tier — `--model opus` reaches
- *      the API as `claude-opus-5` today.
- *    - PINNED full model names ("claude-opus-5") lock the exact version, so a
- *      future Opus release can't silently change a task's model. The short form
- *      `opus-5` is NOT a valid CLI value (it errors) — only the full name is.
+ *      the API as `claude-opus-5` today, `--model fable` as `claude-fable-5-1`.
+ *    - PINNED full model names ("claude-opus-5", "claude-fable-5-1") lock the exact
+ *      version, so a future Opus or Fable release can't silently change a task's
+ *      model. The short form `opus-5` is NOT a valid CLI value (it errors) — only
+ *      the full name is.
  *  Both forms were probed against the pinned CLI: `claude-opus-5[1m]` sends wire
  *  model `claude-opus-5` with a beta set byte-identical to `opus[1m]`'s, i.e. it
  *  really does carry `context-1m-2025-08-07`. */
 const CLAUDE_MODELS = [
   "fable",
+  "claude-fable-5-1",
   "opus",
   "opus[1m]",
   "claude-opus-5",

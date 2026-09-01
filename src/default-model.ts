@@ -59,8 +59,18 @@ export function drainSpawnModel(setting: string): string | null {
 }
 
 /**
- * Spawn-time fallback: when fable is globally unavailable, an explicit
- * `fable` request runs Opus with 1M context instead. Capability-faithful
+ * Whether a model value selects the Fable family — the floating alias `fable` or
+ * any pinned Fable model id (`claude-fable-5-1`). The fable-availability guard
+ * keys off the FAMILY, not the literal alias: a pinned id is just as unspawnable
+ * as the alias when Fable is globally unavailable.
+ */
+export function isFableModel(model: string | null | undefined): boolean {
+  return model === "fable" || (typeof model === "string" && model.startsWith("claude-fable-"));
+}
+
+/**
+ * Spawn-time fallback: when fable is globally unavailable, any Fable request
+ * (alias or pinned id) runs Opus with 1M context instead. Capability-faithful
  * substitute (fable is for the longest-horizon work; plain opus caps at 200K).
  * Pure — callers do the logging.
  */
@@ -68,7 +78,7 @@ export function spawnModelForAvailability(
   model: string | null,
   fableAvailable: boolean,
 ): string | null {
-  return model === "fable" && !fableAvailable ? "opus[1m]" : model;
+  return isFableModel(model) && !fableAvailable ? "opus[1m]" : model;
 }
 
 /** True when `model` is a valid explicit model alias for `provider`.

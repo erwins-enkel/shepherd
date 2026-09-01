@@ -24,6 +24,8 @@ import { m } from "$lib/paraglide/messages";
  */
 export function modelLabel(alias: string): string {
   switch (alias) {
+    case "claude-fable-5-1":
+      return m.model_label_fable_5_1();
     case "opus[1m]":
       return m.model_label_opus_1m();
     case "sonnet[1m]":
@@ -56,6 +58,8 @@ export function modelLabel(alias: string): string {
  */
 export function configuredModelLabel(alias: string): string {
   switch (alias) {
+    case "fable":
+      return m.model_configured_fable_latest();
     case "opus":
       return m.model_configured_opus_latest();
     case "opus[1m]":

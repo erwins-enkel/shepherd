@@ -215,7 +215,7 @@
     <select id="mcp-model" bind:value={model}>
       <option value="default">{m.newtask_model_default()}</option>
       {#each provModels as mdl (mdl)}
-        {#if agentProvider !== "claude" || mdl !== "fable" || fableAvailable}
+        {#if modelAvailableForProvider(agentProvider, mdl, fableAvailable)}
           <option value={mdl}>{modelOptionLabel(agentProvider, mdl)}</option>
         {/if}
       {/each}

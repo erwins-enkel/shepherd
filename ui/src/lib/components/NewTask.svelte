@@ -36,6 +36,7 @@
     commandProviders,
   } from "$lib/slash";
   import { matchIssueTrigger } from "$lib/issue-trigger";
+  import { isFableModel } from "$lib/provider-models";
   import RepoSelect from "./RepoSelect.svelte";
   import PromptSources from "./PromptSources.svelte";
   import SlashCommandMenu from "./SlashCommandMenu.svelte";
@@ -210,7 +211,7 @@
   // reads initialModel/fableAvailable once to compute the picker's seed; intentionally
   // non-reactive — a one-shot value, not tracked
   // svelte-ignore state_referenced_locally
-  const safeInitial = initialModel === "fable" && !fableAvailable ? "default" : initialModel;
+  const safeInitial = isFableModel(initialModel) && !fableAvailable ? "default" : initialModel;
   // seeds the model picker once; the reseed $effect below re-derives it from the
   // repo/global default until the user picks one (modelTouched)
   // svelte-ignore state_referenced_locally

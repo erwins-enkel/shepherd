@@ -1018,6 +1018,12 @@ export const DONE_LENS_WINDOW_MS = 48 * 60 * 60 * 1000; // 48h
 const REVIEWER_SPAWN_RETENTION_DAYS = 90; // module-local; only the _MS form is consumed
 export const REVIEWER_SPAWN_RETENTION_MS = REVIEWER_SPAWN_RETENTION_DAYS * 24 * 60 * 60 * 1000;
 
+// delivery_facts (#2151 R1) are read TOGETHER with reviewer_spawns — a fact row whose review
+// spawns have been pruned yields a task with no measurable rework, and a fact pruned before its
+// spawns silently drops a merged task. Keep the two windows equal; changing one without the other
+// skews every indicator.
+export const DELIVERY_FACT_RETENTION_MS = REVIEWER_SPAWN_RETENTION_MS;
+
 // usage_caps_history / usage_credit_history: append-only per-scrape timeline for the Limits
 // trend (issue #973). 90 days matches reviewer_spawns — long enough for meaningful monthly credit
 // cycles and weekly cap patterns, bounded enough to stay cheap.

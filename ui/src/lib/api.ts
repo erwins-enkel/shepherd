@@ -12,6 +12,7 @@ import type {
   UsageLimitsResponse,
   UsageBreakdown,
   UsageTimeline,
+  DeliveryMetrics,
   UsageRange,
   PromptBudgetRecord,
   GithubRateLimit,
@@ -964,6 +965,13 @@ export async function getPromptBudgets(): Promise<PromptBudgetRecord[]> {
   if (!r.ok) throw await failed(r, "prompt budget");
   const body = (await r.json()) as { records?: PromptBudgetRecord[] };
   return body.records ?? [];
+}
+
+/** Delivery metrics for a window (#2151 R1) — the Delivery lens's data. */
+export async function getDeliveryMetrics(range: UsageRange): Promise<DeliveryMetrics> {
+  const r = await fetch(`/api/usage/delivery?range=${range}`);
+  if (!r.ok) throw await failed(r, "delivery");
+  return r.json();
 }
 
 export async function getUsageTimeline(range: UsageRange): Promise<UsageTimeline> {

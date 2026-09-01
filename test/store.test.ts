@@ -1551,6 +1551,7 @@ test("recordReviewerSpawn then listReviewerSpawns returns the row with NULL toke
     cacheWriteTokens: null,
     totalTokens: null,
     providerSessionId: null,
+    outcome: null,
   });
 });
 
@@ -1565,6 +1566,8 @@ test("reviewer_spawns FRESH schema (DDL alone, no migration) already has provide
   );
   raw.close();
   expect(cols).toContain("providerSessionId");
+  // #2151 R1: same invariant for the delivery-metrics outcome column.
+  expect(cols).toContain("outcome");
 });
 
 test("reviewer_spawns migration: an old table without providerSessionId gains a NULL column", () => {

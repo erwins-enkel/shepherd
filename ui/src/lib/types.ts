@@ -1451,6 +1451,81 @@ export interface PromptBudgetRecord {
   createdAt: number; // ms epoch
 }
 
+// ── Delivery metrics (#2151 R1) ──────────────────────────────────────────────
+// Mirror of the Delivery* contract in src/types.ts — keep in sync.
+
+/** A metric with the sample size it was computed over. `value` is null when nothing qualified —
+ *  render an em dash, NEVER a zero: an unmeasured window must not read as a measured one. */
+export interface DeliverySample {
+  value: number | null;
+  n: number;
+}
+
+/** The delivery indicators for one scope (a repo, or the global total). */
+export interface DeliveryStats {
+  mergedTasks: number;
+  firstPassRate: DeliverySample; // 0..1
+  unreviewed: number; // merged tasks with no verdict-bearing review, excluded from firstPassRate
+  reworkCyclesMedian: DeliverySample;
+  reworkCyclesMean: DeliverySample;
+  criticErrors: number; // critic runs that produced no verdict — never counted as rework
+  planRoundsMedian: DeliverySample;
+  planReworkRate: DeliverySample; // 0..1, over gated tasks only
+  timeToFirstReviewMs: DeliverySample;
+  leadTimeMs: DeliverySample;
+}
+
+export interface DeliveryRepoRow extends DeliveryStats {
+  repoPath: string;
+  repo: string; // basename — display only
+}
+
+/** One merged task, newest-merged first. `firstPass` is null when never reviewed. */
+export interface DeliveryTaskRow {
+  sessionId: string;
+  desig: string;
+  repo: string;
+  issueNumber: number | null;
+  prNumber: number | null;
+  reviewRounds: number;
+  planRounds: number;
+  firstPass: boolean | null;
+  timeToFirstReviewMs: number | null;
+  leadTimeMs: number | null;
+  mergedAt: number;
+}
+
+/** One UTC day of the trend line. */
+export interface DeliveryBucket {
+  dayKey: string; // YYYY-MM-DD
+  mergedTasks: number;
+  firstPassRate: number | null;
+  leadTimeMedianMs: number | null;
+}
+
+/** In-window signals grouped by kind. `sessions` counts distinct sessions, separating one
+ *  thrashing task from a recurring class of problem. */
+export interface DeliveryIncidentRow {
+  kind: string; // SignalKind — data, never translated
+  occurrences: number;
+  sessions: number;
+}
+
+/** GET /api/usage/delivery response. `measuringSince` is the earliest instrumented session:
+ *  delivery instrumentation is forward-only, so an empty window means young instrumentation,
+ *  not a delivery drought. Null when nothing has been recorded yet. */
+export interface DeliveryMetrics {
+  range: UsageRange;
+  generatedAt: number;
+  since: number; // 0 for range "all"
+  measuringSince: number | null;
+  totals: DeliveryStats;
+  repos: DeliveryRepoRow[];
+  incidents: DeliveryIncidentRow[];
+  trend: DeliveryBucket[];
+  tasks: DeliveryTaskRow[];
+}
+
 /** One hour of weighted-unit consumption (mirrors server UsageTimelineHour). */
 export interface UsageTimelineHour {
   hourStart: number; // ms epoch, floored to the hour (UTC boundary); never 0 (timeless rows excluded)

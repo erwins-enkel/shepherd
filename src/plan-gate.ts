@@ -478,6 +478,7 @@ export interface PlanGateServiceDeps extends MembraneSeams {
     | "get"
     | "recordReviewerSpawn"
     | "completeReviewerSpawn"
+    | "setReviewerSpawnOutcome"
     | "setReviewerSpawnProviderSessionId"
     | "listReviewerSpawns"
     | "putSpawnNotice"
@@ -1331,6 +1332,20 @@ export class PlanGateService {
     // (a store/steer/release failure must not strand them).
     try {
       const gate = this.buildGate(f, raw);
+      // Terminal outcome for the delivery metrics' plan-rework indicator (#2151 R1). Best-effort:
+      // an accounting write must never strand finalize.
+      try {
+        this.deps.store.setReviewerSpawnOutcome(
+          f.reviewerSessionId,
+          gate.decision === "approved"
+            ? "approved"
+            : gate.decision === "changes_requested"
+              ? "rework"
+              : "error",
+        );
+      } catch (err) {
+        console.warn(`[plan-gate] outcome accounting failed for ${f.sessionId}:`, err);
+      }
       if (gate.decision === "approved") await this.applyApproved(f, gate);
       else if (gate.decision === "changes_requested") await this.applyChangesRequested(f, gate);
       else {

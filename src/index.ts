@@ -6,6 +6,7 @@ import {
   SESSION_RETENTION_MS,
   SESSION_RETENTION_KEEP,
   REVIEWER_SPAWN_RETENTION_MS,
+  DELIVERY_FACT_RETENTION_MS,
   USAGE_HISTORY_RETENTION_MS,
   clampCap,
   PR_REVIEW_CYCLES_MIN,
@@ -182,6 +183,7 @@ import { EgressWatcher } from "./egress-watch";
 import { detectEgressHostLoopback } from "./egress";
 import { RecapService, type LandedWorkEvidence } from "./recap";
 import { PostMergeStepsService } from "./post-merge-steps";
+import { DeliveryFactsService } from "./delivery";
 import { BuildQueueReminderService } from "./build-queue-reminder";
 import { HerdDigestService } from "./herd-digest";
 import { readSnapshot, isStalled, DEFAULT_STALL } from "./stall";
@@ -1815,6 +1817,12 @@ onSessionGit(({ id, git }) => {
     .onMerged(s, git.number ?? null, git.title ?? "")
     .catch((err) => console.warn("[post-merge-steps] onMerged failed:", err));
 });
+// Delivery metrics (#2151 R1): record the PR-opened timestamp (and an out-of-band observed merge)
+// for every PR-bearing session. `mergedAt` for a train/drain/manual merge is stamped by
+// store.archive(id, "merged") instead — that path emits no session:git at all. Internally guarded
+// and write-free in the steady state, so it can ride this per-poll event.
+const deliveryFacts = new DeliveryFactsService({ store });
+onSessionGit(({ id, git }) => deliveryFacts.onGit(id, git));
 deferredStarts.push(() => {
   setInterval(() => {
     if (maintenance.active) return;
@@ -1868,6 +1876,7 @@ deferredStarts.push(() => {
 events.subscribe((event, data) => {
   if (event === "session:archived") {
     const id = (data as { id: string }).id;
+    deliveryFacts.forget(id);
     reviewService.forget(id);
     planGate.forget(id);
     recapService.onArchived(id);
@@ -2561,6 +2570,8 @@ const runDailySweep = (opts?: { skipTmpSweep?: boolean }) => {
   // Cost-attribution records (issue #502); pruned on their own 90-day window, independent of
   // session housekeeping, so they survive an archived task's removal for later usage reports.
   store.pruneReviewerSpawns(Date.now() - REVIEWER_SPAWN_RETENTION_MS);
+  // Delivery facts (#2151 R1); same window as reviewer_spawns above — they are read together.
+  store.pruneDeliveryFacts(Date.now() - DELIVERY_FACT_RETENTION_MS);
   // Scrape timeline history; pruned on a 90-day window matching the caps/credit tables.
   store.pruneUsageHistory(Date.now() - USAGE_HISTORY_RETENTION_MS);
   // #1794: permanently prune stale proposed learnings (3-day default retention). Runs

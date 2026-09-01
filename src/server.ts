@@ -105,6 +105,7 @@ import { resolveDiffBase } from "./diff-base";
 import { readSessionUsage, jsonlPathFor, type SessionUsageRollup } from "./usage";
 import { CodexTranscriptLocator, codexSessionActivity } from "./codex-activity";
 import { buildUsageBreakdown } from "./usage-breakdown";
+import { buildDeliveryMetrics } from "./delivery-metrics";
 import { buildUsageTimeline } from "./usage-timeline";
 import { isApiKeyMode } from "./spawn-auth";
 import { detectDevCommand } from "./preview";
@@ -4378,6 +4379,22 @@ async function handleUsageBreakdown({ req, parts, url, deps }: Ctx): Promise<Res
   return json(breakdown);
 }
 
+/** Delivery metrics (#2151 R1): GET /api/usage/delivery[?range=]. Read-only; the aggregation lives
+ *  entirely in `buildDeliveryMetrics`, so this handler only validates the range. */
+function handleUsageDelivery({ req, parts, url, deps }: Ctx): Response | null {
+  if (!(
+    req.method === "GET" &&
+    parts[0] === "api" &&
+    parts[1] === "usage" &&
+    parts[2] === "delivery"
+  ))
+    return null;
+  const raw = url.searchParams.get("range") ?? "7d";
+  if (raw !== "24h" && raw !== "7d" && raw !== "30d" && raw !== "all")
+    return json({ error: "invalid range" }, 400);
+  return json(buildDeliveryMetrics({ store: deps.store, range: raw, now: Date.now() }));
+}
+
 async function handleUsageTimeline({ req, parts, url, deps }: Ctx): Promise<Response | null> {
   if (!(
     req.method === "GET" &&
@@ -7766,6 +7783,7 @@ const ROUTE_HANDLERS = [
   handleSessionGit,
   handleUsageLimits,
   handleUsageBreakdown,
+  handleUsageDelivery,
   handleUsageTimeline,
   handlePromptBudget,
   handleUpdate,

@@ -144,9 +144,9 @@ names is derivable from existing tables — no new instrumentation needed:
 | First-pass success rate        | `reviews.addressRound == 0` at merge; CI green on first push |
 | Rework cycles per change       | `reviews.addressRound`, `streakReviews`, `errorRound`        |
 | Plan rework                    | `plan_gates.round`                                           |
-| Time to first review           | review row createdAt − PR opened                             |
+| Time to first review           | `reviewer_spawns.spawnedAt` − PR opened                      |
 | Lead time (task → merge)       | session createdAt → `local_prs.mergedAt` / GitHub mergedAt   |
-| Repeat incidents of same class | `signals` grouped by tone/key                                |
+| Repeat incidents of same class | `signals` grouped by kind                                    |
 
 Ship it as a Usage-style lens (per repo, trend over time) plus a `scripts/` report. Beyond parity
 with the playbook, this is the missing substrate for several other recommendations (R3's plan-match

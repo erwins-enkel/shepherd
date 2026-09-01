@@ -32,12 +32,31 @@ export interface GhFetchAttempt {
 /** Cap on `detail`: enough for a full `gh` error line, short of pasting a stack. */
 const DETAIL_MAX = 300;
 
-/** Token shapes `gh` could echo back (`gh auth token` output pasted into an env,
- *  a PAT in a remote URL). This text is newly leaving the server for the browser,
- *  so redact before it travels rather than trusting `gh` to keep quiet. */
-const TOKEN_PATTERNS: RegExp[] = [
-  /\bgh[pousr]_[A-Za-z0-9]{16,}/g,
-  /\bgithub_pat_[A-Za-z0-9_]{16,}/g,
+/**
+ * Credential shapes that can ride along in `gh`/git diagnostics. This text is newly
+ * leaving the server for the browser, so redact before it travels rather than
+ * trusting `gh` to keep quiet about what it echoes.
+ *
+ * The label-preserving rules come first: a header or a remote URL keeps its shape
+ * (so the message still reads as a diagnosis) while its secret half goes. Token
+ * literals are matched last, catching anything the shaped rules didn't frame.
+ *
+ * Deliberately NOT matched: a bare 40-hex string. That is the shape of a legacy
+ * OAuth token AND of every git SHA in the output — redacting it would gut the
+ * diagnosis to cover a token type GitHub deprecated in 2021.
+ */
+const REDACTIONS: Array<[RegExp, string]> = [
+  // `Authorization: token …` / `Bearer …` — gh prints request headers under GH_DEBUG=api.
+  [/\b(authorization\s*:\s*)[^\s,;]+(?:\s+[^\s,;]+)?/gi, "$1<redacted>"],
+  // Credentials in a remote URL: https://user:pat@github.com/… (also x-access-token:…).
+  [/\b([a-z][a-z0-9+.-]*:\/\/)[^/\s@]+@/gi, "$1<redacted>@"],
+  // Token-carrying env assignments echoed back in an error line.
+  [/\b((?:GH|GITHUB)(?:_ENTERPRISE)?_TOKEN\s*=\s*)[^\s]+/g, "$1<redacted>"],
+  // GitHub App / installation JWTs (header.payload.signature).
+  [/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g, "<redacted>"],
+  // gh token literals: ghp_/gho_/ghu_/ghs_/ghr_ and fine-grained PATs.
+  [/\bgh[pousr]_[A-Za-z0-9]{16,}/g, "<redacted>"],
+  [/\bgithub_pat_[A-Za-z0-9_]{16,}/g, "<redacted>"],
 ];
 
 // eslint-disable-next-line no-control-regex -- stripping ANSI SGR sequences requires \x1b
@@ -52,10 +71,11 @@ function errorText(err: unknown): string {
   return stderr.trim() || message.trim() || String(err ?? "").trim();
 }
 
-/** ANSI-free, single-line, length-capped, token-redacted view of a `gh` failure. */
+/** ANSI-free, single-line, credential-redacted, length-capped view of a `gh` failure.
+ *  Redaction runs BEFORE the cap so a secret can never survive as a truncated head. */
 export function sanitizeDetail(raw: string): string {
   let out = raw.replace(ANSI, "").replace(/\s+/g, " ").trim();
-  for (const p of TOKEN_PATTERNS) out = out.replace(p, "<redacted>");
+  for (const [pattern, replacement] of REDACTIONS) out = out.replace(pattern, replacement);
   return out.length > DETAIL_MAX ? `${out.slice(0, DETAIL_MAX - 1)}…` : out;
 }
 

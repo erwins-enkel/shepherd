@@ -72,11 +72,57 @@ test("sanitizeDetail: strips ANSI, collapses whitespace, caps at 300 chars", () 
   expect(long.endsWith("…")).toBe(true);
 });
 
-test("sanitizeDetail: redacts token shapes before they reach the browser", () => {
+test("sanitizeDetail: redacts token literals before they reach the browser", () => {
   const out = sanitizeDetail(
     "gh: bad credentials for ghp_abcdefghijklmnopqrstuvwxyz0123 and github_pat_ABCDEFGHIJKLMNOPQRSTUV",
   );
   expect(out).toBe("gh: bad credentials for <redacted> and <redacted>");
+  // The other four prefixes are credentials too, not just ghp_.
+  expect(sanitizeDetail("gho_ABCDEFGHIJKLMNOPQRSTUV ghs_ABCDEFGHIJKLMNOPQRSTUV")).toBe(
+    "<redacted> <redacted>",
+  );
+});
+
+test("sanitizeDetail: redacts the secret half of a header, URL or env assignment", () => {
+  // gh prints request headers under GH_DEBUG=api — the label survives, the value does not.
+  expect(sanitizeDetail("> Authorization: token ghp_abcdefghijklmnopqrstuvwxyz0123")).toBe(
+    "> Authorization: <redacted>",
+  );
+  expect(sanitizeDetail("Authorization: Bearer a-token-with-no-known-prefix")).toBe(
+    "Authorization: <redacted>",
+  );
+  // Credentials embedded in a remote URL, including the Actions x-access-token form.
+  expect(sanitizeDetail("fatal: could not read https://kai:hunter2@github.com/o/r.git")).toBe(
+    "fatal: could not read https://<redacted>@github.com/o/r.git",
+  );
+  expect(sanitizeDetail("https://x-access-token:ghs_ABCDEFGHIJKLMNOPQRSTUV@github.com/o/r")).toBe(
+    "https://<redacted>@github.com/o/r",
+  );
+  expect(sanitizeDetail("GH_TOKEN=sekrit is not valid; GITHUB_TOKEN=other too")).toBe(
+    "GH_TOKEN=<redacted> is not valid; GITHUB_TOKEN=<redacted> too",
+  );
+  // GitHub App / installation JWT.
+  expect(
+    sanitizeDetail("jwt eyJhbGciOiJSUzI1NiJ9.eyJpc3MiOiIxMjM0NTYifQ.c2lnbmF0dXJlLWhlcmU"),
+  ).toBe("jwt <redacted>");
+});
+
+test("sanitizeDetail: leaves an ordinary diagnosis — URLs and SHAs — readable", () => {
+  // A credential-free URL must survive intact, or the tooltip stops being a diagnosis.
+  expect(sanitizeDetail("gh: Not Found (https://api.github.com/repos/o/r/issues)")).toBe(
+    "gh: Not Found (https://api.github.com/repos/o/r/issues)",
+  );
+  // 40-hex is a git SHA far more often than a legacy token; redacting it would gut
+  // the message. Pinned so a future widening has to argue with this test.
+  const sha = "0123456789abcdef0123456789abcdef01234567";
+  expect(sanitizeDetail(`gh: commit ${sha} not found`)).toBe(`gh: commit ${sha} not found`);
+});
+
+test("sanitizeDetail: a secret cannot survive the length cap as a truncated head", () => {
+  // Redaction runs before truncation: the cap must never slice a token in half and
+  // ship the front of it.
+  const out = sanitizeDetail(`${"x".repeat(290)} ghp_abcdefghijklmnopqrstuvwxyz0123`);
+  expect(out).not.toContain("ghp_");
 });
 
 test("attachAttempts/attemptsOf: round-trips without touching enumerable properties", () => {

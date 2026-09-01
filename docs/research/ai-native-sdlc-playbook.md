@@ -125,8 +125,10 @@ defer).
 Shepherd has a rich token/cost stack (`session_usage`, `reviewer_spawns`, ~15 `usage-*` modules,
 Usage lenses in the UI, `scripts/usage-report.ts`) — and **zero delivery metrics**. Grepping for
 first-pass/merge-rate/lead-time/DORA hits only prose in `docs/research/`. The raw material already
-exists and is never aggregated: `reviews.addressRound`/`errorRound` (rework rounds),
-`plan_gates.round` (plan rework), `local_prs.createdAt/mergedAt`, `signals` (60-day retention).
+exists and is never aggregated: `reviewer_spawns` rows per task session (reset-proof review
+tally — the `reviews` streak counters themselves zero on every clean verdict, so only the spawn
+log preserves history), `plan_gates.round` (plan rework), `local_prs.createdAt/mergedAt`,
+`signals` (60-day retention).
 Nothing computes first-pass merge rate, rework cycles per task, time-to-first-review, or
 time-to-merge, and no UI shows them.
 
@@ -137,16 +139,21 @@ time-to-merge, and no UI shows them.
 ### R1 — Delivery-metrics lens: compute the playbook's indicators from data Shepherd already has
 
 The highest-leverage, lowest-risk adoption. Nearly every leading/lagging indicator the playbook
-names is derivable from existing tables — no new instrumentation needed:
+names is derivable from existing tables. One caveat: the `reviews` streak counters
+(`addressRound`, `streakReviews`) are live streak state that resets to 0 on every clean verdict —
+at merge a three-round rework session reads exactly like a first-pass-clean one — so review-round
+history must come from the append-only `reviewer_spawns` log (one row per critic spawn,
+`kind = 'review'`, keyed by `taskSessionId`), the same reset-proof trick the plan gate uses:
 
-| Playbook indicator             | Shepherd source                                              |
-| ------------------------------ | ------------------------------------------------------------ |
-| First-pass success rate        | `reviews.addressRound == 0` at merge; CI green on first push |
-| Rework cycles per change       | `reviews.addressRound`, `streakReviews`, `errorRound`        |
-| Plan rework                    | `plan_gates.round`                                           |
-| Time to first review           | `reviewer_spawns.spawnedAt` − PR opened                      |
-| Lead time (task → merge)       | session createdAt → `local_prs.mergedAt` / GitHub mergedAt   |
-| Repeat incidents of same class | `signals` grouped by kind                                    |
+| Playbook indicator             | Shepherd source                                                      |
+| ------------------------------ | -------------------------------------------------------------------- |
+| First-pass success rate        | one `reviewer_spawns` review row + clean verdict at merge            |
+| Rework cycles per change       | count of `reviewer_spawns` review rows per task session              |
+| Plan rework                    | `plan_gates.round`                                                   |
+| Time to first review           | `reviewer_spawns.spawnedAt` − PR opened                              |
+| Lead time (task → merge)       | session createdAt → `local_prs.mergedAt` / GitHub mergedAt           |
+| Repeat incidents of same class | `signals` grouped by kind                                            |
+| First-push CI green rate       | **needs new instrumentation** — no per-push check result is retained |
 
 Ship it as a Usage-style lens (per repo, trend over time) plus a `scripts/` report. Beyond parity
 with the playbook, this is the missing substrate for several other recommendations (R3's plan-match

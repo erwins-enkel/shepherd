@@ -11,21 +11,27 @@ The egress firewall (slirp4netns + nftables + dnsmasq, shipped in **PR #601**,
 closed **#551** — `src/egress.ts`) confines outbound traffic to
 `api.anthropic.com` + `statsig.anthropic.com` + the GitHub hosts, and watches
 for DNS drops. Egress is keyed to the **autonomous profile**, not to
-attendedness (`src/sandbox.ts` `egressApplies`, ~L707).
+attendedness (`src/sandbox.ts` `egressApplies`).
 
 This note records two residuals the operator has **accepted** after the audit.
 
 ## R3 — in-membrane token readability (accepted)
 
-The membrane keeps two token surfaces readable to any in-membrane tool call:
+The membrane keeps two token surfaces readable to any in-membrane tool call
+(`buildMembraneFlags`, `src/sandbox.ts`):
 
 - `~/.claude/.credentials.json` — bound **RW** so OAuth refresh writes back
-  (`src/sandbox.ts:458-460`, `--bind-try`); the whole `~/.claude` dir is
-  `--ro-bind`ed at `src/sandbox.ts:451-453`.
+  (`--bind-try`); the whole `~/.claude` dir is `--ro-bind`ed. **In api-key mode**
+  (`maskCredentials`) this is different: the config dir is mounted with a `--dir`
+  mount point plus per-child RO binds that omit `.credentials.json`
+  (`maskedClaudeDirBinds`), and there is no credential bind of any kind — the
+  OAuth token is **genuinely absent** inside the membrane, not an empty overlay.
+  The api-key helper script is instead bound RO at its own path so the
+  `apiKeyHelper` settings entry resolves inside the sandbox.
 - `~/.config/gh` — bound **RO** (the gh token, needed to `git push` /
-  `gh pr create`) at `src/sandbox.ts:561`.
+  `gh pr create`).
 
-`--clearenv` (`src/sandbox.ts:589`) strips **all** inherited env
+`--clearenv` strips **all** inherited env
 (`ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, `GH_TOKEN`, `SHEPHERD_TOKEN`,
 …), re-setting only HOME/PATH/TERM + non-secret locale vars — so these two
 **bound files** are the only token surfaces left inside the membrane.
@@ -50,8 +56,8 @@ secrets out of the membrane entirely.
 ## Attended-mode egress coverage
 
 Egress confinement is keyed to the autonomous **profile**, not to whether a human
-is watching (`willEgressConfine`, `src/sandbox.ts:718-723`; applied at
-`src/service.ts:2545`): the wrap applies iff the autonomous profile resolves
+is watching (`willEgressConfine`, `src/sandbox.ts`; applied in
+`src/service.ts`): the wrap applies iff the autonomous profile resolves
 **and** the fs + egress backends are present, independent of `ctx.auto`.
 Consequences:
 
@@ -136,7 +142,7 @@ still stand.
   a guard missing inside the sandbox would leave that session with neither.
 - **Autonomous task agents** run `--dangerously-skip-permissions`, but behind
   **both** the filesystem and the egress membrane. `standard` auto-spawns are
-  refused outright (`src/sandbox.ts` `autoHoldReason`, ~L648).
+  refused outright (`src/sandbox.ts` `autoHoldReason`).
 - **Unattended reviewers** (PR critic + plan-gate) run **read-only**, not
   skip-permissions: `--safe-mode --disable-slash-commands --allowedTools Read
 Grep Glob Bash(git diff *) Bash(git log *) Bash(git show *) Bash(git status)
@@ -144,7 +150,7 @@ Write --permission-mode dontAsk` (`src/transient-agent-argv.ts`,
   `buildTransientAgentArgv("reviewer", …)`).
 - **Research is the deliberately egress-UNCONFINED surface.** A research session
   that would resolve to `autonomous` is **downgraded to `standard`**
-  (`src/service.ts` `researchSafeProfileOverride`, ~L3267, warns once),
+  (`src/service.ts` `researchSafeProfileOverride`, warns once),
   because research needs **open** web egress (search/fetch + sub-agents) that the
   autonomous firewall would block. The same downgrade applies to an
   **epic-authoring** session (`input.epicAuthoring`, #1507), which likewise needs
@@ -153,14 +159,14 @@ Write --permission-mode dontAsk` (`src/transient-agent-argv.ts`,
   route materializes the draft. It is operator-_created_ (cannot be
   auto-drained — `standard` refuses auto-spawn) but **autopilot-steerable, so it
   runs unattended in practice** (`RESEARCH_PROCEED_STEER`,
-  `src/autopilot.ts:42-47`, dispatched at L335). It ingests **untrusted web**
+  `src/autopilot.ts`, dispatched from the steer loop). It ingests **untrusted web**
   content on `trusted`/`standard` with the **network open**, and can
   `gh pr create` / open issues via the bound gh token — so a hijacked research
   agent has **both** readable tokens **and** open egress.
 
   **Compensating factors:** the downgrade is explicit and warns once; research
   delivers a **report PR or GitHub issue only, never a code PR**
-  (`src/autopilot.ts:40-45`). The residual is **accepted**.
+  (`RESEARCH_PROCEED_STEER`, `src/autopilot.ts`). The residual is **accepted**.
 
 ## See also
 

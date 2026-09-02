@@ -53,15 +53,23 @@ describe("StatusPip tip mode (statusTip action)", () => {
     expect(document.querySelector(".status-tip")?.getAttribute("role")).toBe("tooltip");
     // Most specs in this suite drive *real* clicks, and the cursor they leave behind
     // persists across files sharing a worker's page — so a real pointer can be resting
-    // on this chip. As the panel settles into its anchored position the browser
-    // re-hit-tests and fires a **trusted** pointerenter, which reopens the tooltip and
-    // cancels the pending close: right for a pointer that genuinely is there, but it
-    // strands the synthetic leave below forever (no real pointer ever leaves again).
-    // Re-issue the leave on those so the assertion measures the close path rather than
-    // the harness's stray cursor. Synthetic events cannot trigger this handler.
-    pipEl().addEventListener("pointerenter", (e) => {
-      if (e.isTrusted) leave();
-    });
+    // over this component. The panel is body-appended and only positioned after show()
+    // (floating-anchor's computePosition is async, and .status-tip is inset:auto), so as
+    // it settles the browser re-hit-tests and delivers a **trusted** pointerenter — to
+    // the chip (show() → cancelClose) or to the panel, its own larger target (a bare
+    // cancelClose). Either cancels the pending close with nothing left to re-schedule
+    // it, which is right for a pointer that genuinely is there but strands the synthetic
+    // leave below forever, since no real pointer ever leaves again.
+    //
+    // Release both by re-issuing the leave, so the assertion measures the close path
+    // rather than the harness's stray cursor. Synthetic events never re-enter this.
+    const releaseTrusted = (el: Element) =>
+      el.addEventListener("pointerenter", (e) => {
+        if (!e.isTrusted) return;
+        el.dispatchEvent(new PointerEvent("pointerleave", { pointerType: "mouse", bubbles: true }));
+      });
+    releaseTrusted(pipEl());
+    releaseTrusted(document.querySelector(".status-tip")!);
     leave();
     await vi.waitFor(() => expect(tooltipOpen()).toBe(false));
   });

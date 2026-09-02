@@ -51,6 +51,17 @@ describe("StatusPip tip mode (statusTip action)", () => {
     enter();
     await vi.waitFor(() => expect(tooltipOpen()).toBe(true));
     expect(document.querySelector(".status-tip")?.getAttribute("role")).toBe("tooltip");
+    // Most specs in this suite drive *real* clicks, and the cursor they leave behind
+    // persists across files sharing a worker's page — so a real pointer can be resting
+    // on this chip. As the panel settles into its anchored position the browser
+    // re-hit-tests and fires a **trusted** pointerenter, which reopens the tooltip and
+    // cancels the pending close: right for a pointer that genuinely is there, but it
+    // strands the synthetic leave below forever (no real pointer ever leaves again).
+    // Re-issue the leave on those so the assertion measures the close path rather than
+    // the harness's stray cursor. Synthetic events cannot trigger this handler.
+    pipEl().addEventListener("pointerenter", (e) => {
+      if (e.isTrusted) leave();
+    });
     leave();
     await vi.waitFor(() => expect(tooltipOpen()).toBe(false));
   });

@@ -42,6 +42,7 @@ import {
   normalizePlanDrift,
   normalizePlanDriftNote,
   shouldSkipForPatchId,
+  headSuperseded,
   captureUsage,
   reapRun,
   VERDICT_FILE,
@@ -502,6 +503,13 @@ export class ReviewService {
     // Claim the slot synchronously, BEFORE begin()'s await, so a concurrent consider bails.
     this.starting.add(session.id);
     try {
+      // #2175: `git` is the poller's CACHED snapshot (up to a full idle sweep old), so a push can
+      // have landed since it was taken — the critic would then review superseded code and steer a
+      // findings round the author has already fixed. Re-read the live head and decline; the next
+      // poll picks the new head up normally (and that push reset CI to pending anyway, so the
+      // green-checks precondition has genuinely lapsed too). Deliberately INSIDE the claim: this
+      // await must not open a window for a second consider()/forceReview() to reach begin().
+      if (await this.headMoved(session, git.headSha!)) return "skipped";
       await this.begin(session, git, force);
     } finally {
       this.starting.delete(session.id);
@@ -512,6 +520,26 @@ export class ReviewService {
     // this return, so the non-force churn-skip "error" is irrelevant there; it's authoritative
     // only for the manual/force path.
     return this.inflight.has(session.id) ? "started" : "error";
+  }
+
+  /** Is the head we are about to review already superseded on the forge? One `prStatus` round-trip,
+   *  trivial next to the critic run it guards, and only reached once every cheap gate has passed.
+   *  Fails OPEN (see {@link headSuperseded}): no forge, or a forge that throws, spawns as before. */
+  private async headMoved(session: Session, headSha: string): Promise<boolean> {
+    const forge = this.deps.resolveForge(session.repoPath);
+    if (!forge) return false;
+    let live: PrStatus | undefined;
+    try {
+      live = await forge.prStatus(session.branch!);
+    } catch (err) {
+      console.warn(`[review] pre-spawn head recheck failed for ${session.id}:`, err);
+      return false;
+    }
+    if (!headSuperseded(headSha, live)) return false;
+    console.warn(
+      `[review] skipping ${session.id}: head moved ${headSha} → ${live!.headSha} before the spawn`,
+    );
+    return true;
   }
 
   private async begin(session: Session, git: GitState, force: boolean): Promise<void> {
@@ -1260,68 +1288,23 @@ export class ReviewService {
     // (a forge/store/steer failure must not strand them).
     try {
       const verdict = this.buildVerdict(f, raw, cause ?? null);
-      // Stamp the spawn's terminal outcome for the delivery metrics (#2151 R1). Deliberately
-      // BEFORE the moot-verdict branch below: the critic did run and did conclude, so the spawn
-      // row must say so even when the verdict isn't persisted as session state. `findings` — not
-      // `decision` — is what drives rework here, mirroring the auto-address loop, so a
-      // findings-free "comment" verdict is a clean first pass. Best-effort: an accounting write
-      // must never strand finalize.
-      try {
-        this.deps.store.setReviewerSpawnOutcome(
-          f.criticSessionId,
-          verdict.decision === "error"
-            ? "error"
-            : verdict.findings.length === 0
-              ? "clean"
-              : "changes_requested",
-          // #2155: the durable copy. The `reviews` row this verdict also lands on is deleted by
-          // archive(), and every task the delivery metrics count is an archived one.
-          verdict.planDrift,
+      // ONE live PR read for this finalize, shared by the supersession check below and by the
+      // publish/error arms (which each used to fetch their own — mutually exclusive, so this is
+      // still a single round-trip). One snapshot ⇒ head and state can never disagree.
+      const live = await this.livePr(f);
+      // #2175: a push landed while the critic ran, so this verdict was computed against superseded
+      // code. Drop it whole — persisting it would post a review and steer a findings round the
+      // author has already fixed, and charge that round against the cap. Nothing is written (not
+      // even the spawn's outcome, which would otherwise count as rework in the delivery metrics):
+      // the prior verdict row still stands, and the next poll reviews the new head normally.
+      // captureUsage + the finally-reap below still run, so the spawn's cost is attributed and its
+      // terminal/worktree reaped.
+      if (headSuperseded(f.headSha, live)) {
+        console.warn(
+          `[review] verdict discarded for ${f.sessionId}: head moved ${f.headSha} → ${live!.headSha} during the review (superseded)`,
         );
-      } catch (err) {
-        console.warn(`[review] outcome accounting failed for ${f.sessionId}:`, err);
-      }
-      // A verdict for a PR that's no longer open is moot. The real branch handles that inside
-      // publishVerdict(); the error branch needs its own gate (finalizeErrorVerdict) since it
-      // never reaches publishVerdict. When persist is false we skip persisting the verdict as
-      // session review state — see below.
-      let persist = true;
-      if (verdict.decision === "error") {
-        persist = await this.finalizeErrorVerdict(f, verdict);
       } else {
-        // Per-streak review accounting — independent of publish/steer outcome and of
-        // autoAddressEnabled (review token spend happens whether or not findings are steered).
-        // A clean verdict (findings:[]) resets the streak; any findings-bearing verdict
-        // increments it and appends this run's patch-id (deduped) to the churn-skip set.
-        if (verdict.findings.length === 0) {
-          verdict.streakReviews = 0;
-          verdict.reviewedPatchIds = [];
-        } else {
-          verdict.streakReviews = f.priorStreakReviews + 1;
-          verdict.reviewedPatchIds = [...new Set([...f.priorReviewedPatchIds, f.patchId])];
-          // Escalate once, when the streak first reaches the ceiling (2*cap). `>=` with a
-          // crossing guard (priorStreakReviews < ceiling) so a cap lowered between runs still
-          // fires rather than being stepped over, while reviews past the ceiling don't
-          // re-signal every tick (consider() bails before re-spawning anyway). Mirrors the
-          // errorRound crossing-guard pattern below in the error path.
-          const ceiling = 2 * this.cap;
-          if (verdict.streakReviews >= ceiling && f.priorStreakReviews < ceiling) {
-            this.deps.store.addSignal({
-              repoPath: f.repoPath,
-              sessionId: f.sessionId,
-              kind: "stall",
-              payload: `critic reviewed this PR ${verdict.streakReviews} times without reaching clean — auto-review paused; needs human attention`,
-            });
-          }
-        }
-        await this.publishVerdict(f, verdict);
-      }
-      // Skipped only for a moot post-merge error verdict (persist=false above): it must not
-      // become the session's review state. captureUsage + the finally-reap below still run, so
-      // the critic spawn's token cost is attributed and its terminal/worktree are reaped.
-      if (persist) {
-        this.deps.store.putReview(verdict);
-        this.deps.onChange(f.sessionId, verdict);
+        await this.settleVerdict(f, verdict, live);
       }
       // Persist the critic's token total for exact cost attribution (issue #502). Best-effort:
       // a missing/half-written transcript leaves the spawn row's totals null rather than
@@ -1345,6 +1328,82 @@ export class ReviewService {
   }
 
   /**
+   * Everything a NON-superseded verdict does: stamp the spawn outcome, run the streak/error
+   * accounting, publish (or suppress) its outward effects, and persist it as the session's review
+   * state. `live` is finalize()'s single PR-state read, threaded in so both arms see one snapshot.
+   */
+  private async settleVerdict(
+    f: InFlight,
+    verdict: ReviewVerdict,
+    live: PrStatus | undefined,
+  ): Promise<void> {
+    // Stamp the spawn's terminal outcome for the delivery metrics (#2151 R1). Deliberately
+    // BEFORE the moot-verdict branch below: the critic did run and did conclude, so the spawn
+    // row must say so even when the verdict isn't persisted as session state. (A SUPERSEDED run
+    // never reaches here at all — finalize() drops it before this, so it stays out of the metrics.)
+    // `findings` — not `decision` — is what drives rework here, mirroring the auto-address loop, so
+    // a findings-free "comment" verdict is a clean first pass. Best-effort: an accounting write
+    // must never strand finalize.
+    try {
+      this.deps.store.setReviewerSpawnOutcome(
+        f.criticSessionId,
+        verdict.decision === "error"
+          ? "error"
+          : verdict.findings.length === 0
+            ? "clean"
+            : "changes_requested",
+        // #2155: the durable copy. The `reviews` row this verdict also lands on is deleted by
+        // archive(), and every task the delivery metrics count is an archived one.
+        verdict.planDrift,
+      );
+    } catch (err) {
+      console.warn(`[review] outcome accounting failed for ${f.sessionId}:`, err);
+    }
+    // A verdict for a PR that's no longer open is moot. The real branch handles that inside
+    // publishVerdict(); the error branch needs its own gate (finalizeErrorVerdict) since it
+    // never reaches publishVerdict. When persist is false we skip persisting the verdict as
+    // session review state — see below.
+    let persist = true;
+    if (verdict.decision === "error") {
+      persist = await this.finalizeErrorVerdict(f, verdict, live);
+    } else {
+      // Per-streak review accounting — independent of publish/steer outcome and of
+      // autoAddressEnabled (review token spend happens whether or not findings are steered).
+      // A clean verdict (findings:[]) resets the streak; any findings-bearing verdict
+      // increments it and appends this run's patch-id (deduped) to the churn-skip set.
+      if (verdict.findings.length === 0) {
+        verdict.streakReviews = 0;
+        verdict.reviewedPatchIds = [];
+      } else {
+        verdict.streakReviews = f.priorStreakReviews + 1;
+        verdict.reviewedPatchIds = [...new Set([...f.priorReviewedPatchIds, f.patchId])];
+        // Escalate once, when the streak first reaches the ceiling (2*cap). `>=` with a
+        // crossing guard (priorStreakReviews < ceiling) so a cap lowered between runs still
+        // fires rather than being stepped over, while reviews past the ceiling don't
+        // re-signal every tick (consider() bails before re-spawning anyway). Mirrors the
+        // errorRound crossing-guard pattern below in the error path.
+        const ceiling = 2 * this.cap;
+        if (verdict.streakReviews >= ceiling && f.priorStreakReviews < ceiling) {
+          this.deps.store.addSignal({
+            repoPath: f.repoPath,
+            sessionId: f.sessionId,
+            kind: "stall",
+            payload: `critic reviewed this PR ${verdict.streakReviews} times without reaching clean — auto-review paused; needs human attention`,
+          });
+        }
+      }
+      await this.publishVerdict(f, verdict, live);
+    }
+    // Skipped only for a moot post-merge error verdict (persist=false above): it must not
+    // become the session's review state. captureUsage + the finally-reap below still run, so
+    // the critic spawn's token cost is attributed and its terminal/worktree are reaped.
+    if (persist) {
+      this.deps.store.putReview(verdict);
+      this.deps.onChange(f.sessionId, verdict);
+    }
+  }
+
+  /**
    * Bookkeeping for a transient critic *error* verdict (timeout / unparseable). Returns whether
    * the verdict should be persisted as session review state.
    *
@@ -1357,15 +1416,19 @@ export class ReviewService {
    * transient REVIEW ERR if the PR did merge but the recheck couldn't see it (logged so the field
    * cause is distinguishable; self-clears at archive).
    */
-  private async finalizeErrorVerdict(f: InFlight, verdict: ReviewVerdict): Promise<boolean> {
-    const live = await this.livePrState(f);
-    if (live === "merged" || live === "closed") {
+  private async finalizeErrorVerdict(
+    f: InFlight,
+    verdict: ReviewVerdict,
+    live: PrStatus | undefined,
+  ): Promise<boolean> {
+    const state = live?.state;
+    if (state === "merged" || state === "closed") {
       console.warn(
-        `[review] error verdict suppressed for ${f.sessionId}: PR ${live} before finalize (moot)`,
+        `[review] error verdict suppressed for ${f.sessionId}: PR ${state} before finalize (moot)`,
       );
       return false;
     }
-    if (live === undefined)
+    if (state === undefined)
       console.warn(
         `[review] error verdict kept for ${f.sessionId}: live PR state unconfirmable (fail-open) — may surface a transient REVIEW ERR if the PR already merged`,
       );
@@ -1401,16 +1464,17 @@ export class ReviewService {
   }
 
   /**
-   * Live PR state for the at-finalize recheck. `undefined` when it can't be confirmed (no forge,
-   * or the forge throws) — callers treat that as "unconfirmable" and decide their own fail mode.
-   * Mirrors the fetch publishVerdict() does for real verdicts; the error branch uses it too so a
-   * transient critic error finishing AFTER the merge isn't persisted as a stale REVIEW ERR.
+   * Live PR status for the at-finalize rechecks — both the state (merged/closed ⇒ the verdict is
+   * moot) and the head (moved ⇒ the verdict is superseded, #2175). `undefined` when it can't be
+   * confirmed (no forge, or the forge throws) — callers treat that as "unconfirmable" and decide
+   * their own fail mode. Fetched ONCE per finalize and threaded into both arms, so the state and
+   * the head a single verdict is judged against always come from the same snapshot.
    */
-  private async livePrState(f: InFlight): Promise<PrStatus["state"] | undefined> {
+  private async livePr(f: InFlight): Promise<PrStatus | undefined> {
     const forge = this.deps.resolveForge(f.repoPath);
     if (!forge) return undefined;
     try {
-      return (await forge.prStatus(f.branch))?.state;
+      return await forge.prStatus(f.branch);
     } catch (err) {
       console.warn(`[review] PR-state recheck failed for ${f.sessionId}:`, err);
       return undefined;
@@ -1420,7 +1484,8 @@ export class ReviewService {
   /**
    * Emit a real verdict's outward effects, branching on the PR's LIVE state. Critic spawn and
    * PR merge both fire on CI-green, so they race by construction: the critic can finish AFTER
-   * the PR merged/closed. Live fetch (not the cached snapshot — the 120s poll can lag the merge).
+   * the PR merged/closed. `live` is finalize()'s live read (not the poller's cached snapshot, which
+   * can lag the merge by a full sweep).
    *  - open   → full effects: post the review, steer findings to the agent, record the critic
    *             signal, set finalRoundPending. (Unchanged.)
    *  - merged → the critic lost the race. We can't request-changes on a merged PR, so when there
@@ -1431,14 +1496,13 @@ export class ReviewService {
    * Fail-closed: if we can't confirm the state (no forge / forge throws / unexpected state) we
    * emit nothing. The verdict row itself is still persisted by the caller.
    */
-  private async publishVerdict(f: InFlight, verdict: ReviewVerdict): Promise<void> {
+  private async publishVerdict(
+    f: InFlight,
+    verdict: ReviewVerdict,
+    live: PrStatus | undefined,
+  ): Promise<void> {
     const forge = this.deps.resolveForge(f.repoPath);
-    let state: PrStatus["state"] | undefined;
-    try {
-      state = (await forge?.prStatus(f.branch))?.state;
-    } catch (err) {
-      console.warn(`[review] PR-state recheck failed for ${f.sessionId}:`, err);
-    }
+    const state = live?.state;
     if (!forge) return; // no forge → can't confirm anything, emit nothing
     if (state === "merged") {
       // Critic finished after the PR merged: record findings (if any) as a post-merge comment so

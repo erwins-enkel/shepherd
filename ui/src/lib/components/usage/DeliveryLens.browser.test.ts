@@ -26,6 +26,7 @@ const stats = (over: Partial<DeliveryStats> = {}): DeliveryStats => ({
   planDriftMajor: 0,
   timeToFirstReviewMs: s(600_000),
   leadTimeMs: s(23_400_000),
+  firstPushGreenRate: s(0.75),
   ...over,
 });
 
@@ -55,8 +56,8 @@ describe("DeliveryLens", () => {
   it("renders every indicator with its sample size", async () => {
     render(DeliveryLens, { metrics: metrics() });
 
-    // first-pass, rework, plan rework, plan drift, ttfr, lead time, merged
-    expect(tileValues()).toEqual(["50%", "1.5", "—", "—", "10m", "6h 30m", "4"]);
+    // first-pass, first-push green, rework, plan rework, plan drift, ttfr, lead time, merged
+    expect(tileValues()).toEqual(["50%", "75%", "1.5", "—", "—", "10m", "6h 30m", "4"]);
     expect(document.body.textContent).toContain("n = 4");
   });
 
@@ -82,8 +83,8 @@ describe("DeliveryLens", () => {
     });
     const values = tileValues();
     expect(values[0]).toBe("—");
-    expect(values[4]).toBe("—");
     expect(values[5]).toBe("—");
+    expect(values[6]).toBe("—");
     expect(values).not.toContain("0%");
   });
 
@@ -118,7 +119,7 @@ describe("DeliveryLens", () => {
     render(DeliveryLens, {
       metrics: metrics({ totals: stats({ planDriftRate: s(0.25, 8), planDriftMajor: 1 }) }),
     });
-    expect(tileValues()[3]).toBe("25%");
+    expect(tileValues()[4]).toBe("25%");
     expect(document.body.textContent).toContain("n = 8");
     // The major count is called out only when there is one — a rate alone hides how bad the drift is.
     expect(document.body.textContent).toContain("approach");
@@ -127,6 +128,22 @@ describe("DeliveryLens", () => {
   it("omits the major-divergence note when nothing drifted that far", async () => {
     render(DeliveryLens, { metrics: metrics({ totals: stats({ planDriftRate: s(0.25, 8) }) }) });
     expect(document.body.textContent).not.toContain("approach");
+  });
+
+  it("renders the first-push CI green rate with its sample size (#2159)", async () => {
+    render(DeliveryLens, {
+      metrics: metrics({ totals: stats({ firstPushGreenRate: s(0.4, 15) }) }),
+    });
+    expect(tileValues()[1]).toBe("40%");
+    expect(document.body.textContent).toContain("n = 15");
+  });
+
+  it("shows an em dash for a first-push rate nothing qualified for", async () => {
+    // A window where no task's CI was observed must not read as 0% — that would be a claim.
+    render(DeliveryLens, {
+      metrics: metrics({ totals: stats({ firstPushGreenRate: s(null) }) }),
+    });
+    expect(tileValues()[1]).toBe("—");
   });
 
   it("lists repos and surfaces critic errors when there are any", async () => {

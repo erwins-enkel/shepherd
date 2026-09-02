@@ -32,6 +32,7 @@ import type {
   ReviewerSpawnRow,
   ReviewerSpawnOutcome,
   PlanDrift,
+  CiConclusion,
   DeliveryFact,
   AgentProvider,
   PrReview,
@@ -1305,7 +1306,10 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       createdAt   INTEGER NOT NULL,
       prOpenedAt  INTEGER,
       mergedAt    INTEGER,
+      firstCiHeadSha    TEXT,
+      firstCiConclusion TEXT,
       updatedAt   INTEGER NOT NULL)`);
+    this.migrateDeliveryFactColumns();
     this.db.run(`CREATE INDEX IF NOT EXISTS delivery_facts_merged ON delivery_facts (mergedAt)`);
     this.db.run(`CREATE TABLE IF NOT EXISTS reviews (
       sessionId TEXT PRIMARY KEY, headSha TEXT NOT NULL, patchId TEXT NOT NULL DEFAULT '',
@@ -4255,17 +4259,26 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     createdAt: number;
     prOpenedAt?: number | null;
     mergedAt?: number | null;
+    firstCiHeadSha?: string | null;
+    firstCiConclusion?: CiConclusion | null;
     now: number;
   }): void {
     this.db.run(
       `INSERT INTO delivery_facts
-         (sessionId, repoPath, desig, issueNumber, prNumber, createdAt, prOpenedAt, mergedAt, updatedAt)
-       VALUES (?,?,?,?,?,?,?,?,?)
+         (sessionId, repoPath, desig, issueNumber, prNumber, createdAt, prOpenedAt, mergedAt,
+          firstCiHeadSha, firstCiConclusion, updatedAt)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(sessionId) DO UPDATE SET
          issueNumber = COALESCE(delivery_facts.issueNumber, excluded.issueNumber),
          prNumber    = COALESCE(delivery_facts.prNumber, excluded.prNumber),
          prOpenedAt  = COALESCE(delivery_facts.prOpenedAt, excluded.prOpenedAt),
          mergedAt    = COALESCE(delivery_facts.mergedAt, excluded.mergedAt),
+         -- The retained CI conclusion and the head it belongs to move as ONE unit: both take the
+         -- existing value whenever a conclusion is already stored, so a later observation can
+         -- never leave the sha of push #2 next to the conclusion of push #1.
+         firstCiHeadSha = CASE WHEN delivery_facts.firstCiConclusion IS NULL
+                               THEN excluded.firstCiHeadSha ELSE delivery_facts.firstCiHeadSha END,
+         firstCiConclusion = COALESCE(delivery_facts.firstCiConclusion, excluded.firstCiConclusion),
          updatedAt   = excluded.updatedAt`,
       [
         f.sessionId,
@@ -4276,6 +4289,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         f.createdAt,
         f.prOpenedAt ?? null,
         f.mergedAt ?? null,
+        f.firstCiHeadSha ?? null,
+        f.firstCiConclusion ?? null,
         f.now,
       ],
     );
@@ -4687,6 +4702,19 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // nullable-TEXT handling.
     add("landingRepairCount", `landingRepairCount INTEGER NOT NULL DEFAULT 0`);
     add("landingRepairHead", `landingRepairHead TEXT`);
+  }
+
+  /** Retained first-push CI columns (#2159) for a DB created before they existed. Both are
+   *  nullable with no default: instrumentation is forward-only, so an old row reads "never
+   *  observed" and is excluded from the rate's denominator rather than counted as a pass. */
+  private migrateDeliveryFactColumns(): void {
+    const cols = this.db.query(`PRAGMA table_info(delivery_facts)`).all() as { name: string }[];
+    const add = (name: string, ddl: string) => {
+      if (!cols.some((c) => c.name === name))
+        this.db.run(`ALTER TABLE delivery_facts ADD COLUMN ${ddl}`);
+    };
+    add("firstCiHeadSha", `firstCiHeadSha TEXT`);
+    add("firstCiConclusion", `firstCiConclusion TEXT`);
   }
 
   private migrateReviewColumns(): void {

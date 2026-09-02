@@ -156,6 +156,9 @@ function statsFor(tasks: TaskView[]): DeliveryStats {
   // Only tasks the critic actually measured — one with no plan (or no verdict) is excluded, never
   // silently counted as `none`, which would flatter the rate.
   const drifted = tasks.filter((t) => t.rounds.planDrift != null);
+  // Only tasks whose CI Shepherd actually observed reach a conclusion (#2159) — a task in a repo
+  // with no CI, or one whose rollup was never seen terminal, is excluded rather than scored red.
+  const ciSeen = tasks.filter((t) => t.fact.firstCiConclusion != null);
   const ttfr = tasks.map((t) => t.timeToFirstReviewMs).filter((v): v is number => v != null);
   const lead = tasks.map((t) => t.leadTimeMs).filter((v): v is number => v != null);
   return {
@@ -174,6 +177,10 @@ function statsFor(tasks: TaskView[]): DeliveryStats {
     planDriftMajor: drifted.filter((t) => t.rounds.planDrift === "major").length,
     timeToFirstReviewMs: sample(ttfr, median),
     leadTimeMs: sample(lead, median),
+    firstPushGreenRate: rate(
+      ciSeen.filter((t) => t.fact.firstCiConclusion === "success").length,
+      ciSeen.length,
+    ),
   };
 }
 

@@ -171,3 +171,109 @@ test("pruneDeliveryFacts drops rows by session age", () => {
   expect(store.pruneDeliveryFacts(1_500)).toBe(1);
   expect(store.listMergedDeliveryFacts(0)).toEqual([]);
 });
+
+// ── first-push CI green (#2159) ─────────────────────────────────────────────
+
+/** The fact row for a session, read back through the only public list accessor. Every case here
+ *  ends on a merged observation, which is also what the metric requires to count the task. */
+function factFor(store: SessionStore, id: string) {
+  return store.listMergedDeliveryFacts(0).find((f) => f.sessionId === id);
+}
+
+test("a terminal rollup stamps the conclusion and the head it belongs to", () => {
+  const { store, svc } = harness();
+  const s = store.create(base);
+  svc.onGit(s.id, git({ createdAt: 100, headSha: "aaa", checks: "success" }));
+  svc.onGit(s.id, git({ state: "merged", createdAt: 100, headSha: "aaa", checks: "success" }));
+  const fact = factFor(store, s.id);
+  expect(fact!.firstCiConclusion).toBe("success");
+  expect(fact!.firstCiHeadSha).toBe("aaa");
+});
+
+test("a red first push is retained even after a later head goes green", () => {
+  const { store, svc } = harness();
+  const s = store.create(base);
+  svc.onGit(s.id, git({ createdAt: 100, headSha: "red", checks: "failure" }));
+  svc.onGit(s.id, git({ createdAt: 100, headSha: "green", checks: "success" }));
+  svc.onGit(s.id, git({ state: "merged", createdAt: 100, headSha: "green", checks: "success" }));
+  const fact = factFor(store, s.id);
+  expect(fact!.firstCiConclusion).toBe("failure");
+  expect(fact!.firstCiHeadSha).toBe("red"); // the sha stays pinned to the retained conclusion
+});
+
+test("a re-run turning the SAME head green does not overwrite the conclusion", () => {
+  const { store, svc } = harness();
+  const s = store.create(base);
+  svc.onGit(s.id, git({ createdAt: 100, headSha: "aaa", checks: "failure" }));
+  svc.forget(s.id); // a restart drops the in-memory guard; the store must still hold the line
+  svc.onGit(s.id, git({ state: "merged", createdAt: 100, headSha: "aaa", checks: "success" }));
+  expect(factFor(store, s.id)!.firstCiConclusion).toBe("failure");
+});
+
+test("the store freezes the conclusion even when the service is out of the picture", () => {
+  const store = new SessionStore(":memory:");
+  const row = {
+    sessionId: "s1",
+    repoPath: "/r",
+    desig: "TASK-01",
+    issueNumber: null,
+    createdAt: 1_000,
+    mergedAt: 2_000,
+    now: 2_000,
+  };
+  store.upsertDeliveryFact({ ...row, firstCiHeadSha: "red", firstCiConclusion: "failure" });
+  store.upsertDeliveryFact({ ...row, firstCiHeadSha: "green", firstCiConclusion: "success" });
+  const fact = factFor(store, "s1");
+  expect(fact!.firstCiConclusion).toBe("failure");
+  expect(fact!.firstCiHeadSha).toBe("red");
+});
+
+test("a non-terminal or CI-less rollup stamps nothing", () => {
+  for (const checks of ["pending", "none"] as const) {
+    const { store, svc } = harness();
+    const s = store.create(base);
+    svc.onGit(s.id, git({ state: "merged", createdAt: 100, headSha: "aaa", checks }));
+    const fact = factFor(store, s.id);
+    expect(fact!.firstCiConclusion).toBeNull();
+    expect(fact!.firstCiHeadSha).toBeNull();
+  }
+});
+
+test("a terminal rollup with no headSha stamps nothing", () => {
+  const { store, svc } = harness();
+  const s = store.create(base);
+  svc.onGit(s.id, git({ state: "merged", createdAt: 100, checks: "success" }));
+  expect(factFor(store, s.id)!.firstCiConclusion).toBeNull();
+});
+
+test("a CI conclusion alone records a fact for a PR-less-looking payload", () => {
+  // `createdAt` can be absent on a payload that predates the field while headSha + checks are
+  // present. The conclusion is still new information, so it must not be dropped.
+  const { store, svc } = harness();
+  const s = store.create(base);
+  svc.onGit(s.id, git({ state: "merged", createdAt: undefined, headSha: "aaa" }));
+  expect(factFor(store, s.id)!.firstCiConclusion).toBe("success");
+});
+
+test("steady-state polling writes nothing once the conclusion is stamped", () => {
+  const store = new SessionStore(":memory:");
+  let writes = 0;
+  const svc = new DeliveryFactsService({
+    store: {
+      get: (id: string) => store.get(id),
+      upsertDeliveryFact: (f) => {
+        writes += 1;
+        store.upsertDeliveryFact(f);
+      },
+    },
+    now: () => 5_000,
+  });
+  const s = store.create(base);
+  const observed = git({ createdAt: 100, headSha: "aaa", checks: "success" });
+  for (let i = 0; i < 10; i++) svc.onGit(s.id, observed);
+  expect(writes).toBe(1);
+  // A later push whose CI also goes terminal is NOT new information — the conclusion is retained.
+  for (let i = 0; i < 10; i++)
+    svc.onGit(s.id, git({ createdAt: 100, headSha: "bbb", checks: "failure" }));
+  expect(writes).toBe(1);
+});

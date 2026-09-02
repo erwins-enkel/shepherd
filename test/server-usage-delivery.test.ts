@@ -26,6 +26,8 @@ function seedMerged(store: SessionStore, id: string): void {
     createdAt: NOW - 7_200_000,
     prOpenedAt: NOW - 3_600_000,
     mergedAt: NOW - 600_000,
+    firstCiHeadSha: "abc123",
+    firstCiConclusion: "success",
     now: NOW,
   });
   store.recordReviewerSpawn({
@@ -57,6 +59,8 @@ test("GET /api/usage/delivery?range=7d → 200 with the full indicator set", asy
   // #2155: the drift measurement travels with the rest of the indicator set.
   expect(body.totals.planDriftRate).toEqual({ value: 1, n: 1 });
   expect(body.totals.planDriftMajor).toBe(0);
+  // #2159: the retained first-push CI conclusion travels with it.
+  expect(body.totals.firstPushGreenRate).toEqual({ value: 1, n: 1 });
   expect(body.repos[0].repo).toBe("alpha");
   expect(body.tasks[0].desig).toBe("TASK-01");
   expect(Array.isArray(body.incidents)).toBe(true);
@@ -92,4 +96,5 @@ test("empty install returns nulls, not zeros", async () => {
   expect(body.totals.firstPassRate.value).toBeNull();
   expect(body.totals.leadTimeMs.value).toBeNull();
   expect(body.totals.planDriftRate.value).toBeNull();
+  expect(body.totals.firstPushGreenRate.value).toBeNull();
 });

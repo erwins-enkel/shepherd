@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test";
 import { SessionStore } from "../src/store";
 import { buildDeliveryMetrics } from "../src/delivery-metrics";
-import type { PlanDrift, ReviewerSpawnOutcome } from "../src/types";
+import type { CiConclusion, PlanDrift, ReviewerSpawnOutcome } from "../src/types";
 
 const DAY = 86_400_000;
 const NOW = 1_800_000_000_000;
@@ -21,6 +21,7 @@ function seedTask(
     mergedAt: number;
     reviews?: { outcome: ReviewerSpawnOutcome | null; spawnedAt: number; planDrift?: PlanDrift }[];
     planRounds?: (ReviewerSpawnOutcome | null)[];
+    firstCiConclusion?: CiConclusion;
   },
 ): void {
   store.upsertDeliveryFact({
@@ -32,6 +33,8 @@ function seedTask(
     createdAt: opts.createdAt,
     prOpenedAt: opts.prOpenedAt ?? null,
     mergedAt: opts.mergedAt,
+    firstCiHeadSha: opts.firstCiConclusion ? `${opts.id}-head` : null,
+    firstCiConclusion: opts.firstCiConclusion ?? null,
     now: opts.mergedAt,
   });
   (opts.reviews ?? []).forEach((r, i) => {
@@ -68,6 +71,7 @@ test("empty store yields null metrics, not zeros", () => {
   const m = build(mk());
   expect(m.totals.planDriftRate.value).toBeNull();
   expect(m.totals.planDriftMajor).toBe(0);
+  expect(m.totals.firstPushGreenRate).toEqual({ value: null, n: 0 });
   expect(m.totals.mergedTasks).toBe(0);
   expect(m.totals.firstPassRate.value).toBeNull();
   expect(m.totals.firstPassRate.n).toBe(0);
@@ -351,4 +355,79 @@ test("plan drift is reported per repo as well as in the totals", () => {
   expect(byRepo["alpha"]!.planDriftRate.value).toBe(1);
   expect(byRepo["beta"]!.planDriftRate.value).toBe(0);
   expect(m.totals.planDriftRate.value).toBe(0.5);
+});
+
+// ── first-push CI green rate (#2159) ────────────────────────────────────────
+
+test("first-push green rate counts the retained conclusion per merged task", () => {
+  const store = mk();
+  seedTask(store, {
+    id: "a",
+    createdAt: NOW - DAY,
+    mergedAt: NOW - DAY / 2,
+    firstCiConclusion: "success",
+  });
+  seedTask(store, {
+    id: "b",
+    createdAt: NOW - DAY,
+    mergedAt: NOW - DAY / 2,
+    firstCiConclusion: "failure",
+  });
+  const m = build(store);
+  expect(m.totals.firstPushGreenRate).toEqual({ value: 0.5, n: 2 });
+});
+
+test("a task whose CI was never observed is excluded, not scored red", () => {
+  const store = mk();
+  seedTask(store, {
+    id: "a",
+    createdAt: NOW - DAY,
+    mergedAt: NOW - DAY / 2,
+    firstCiConclusion: "success",
+  });
+  seedTask(store, { id: "b", createdAt: NOW - DAY, mergedAt: NOW - DAY / 2 }); // no CI observed
+  const m = build(store);
+  expect(m.totals.firstPushGreenRate).toEqual({ value: 1, n: 1 });
+  expect(m.totals.mergedTasks).toBe(2); // still a merged task for every other indicator
+});
+
+test("first-push green rate splits per repo from the same fold as the totals", () => {
+  const store = mk();
+  seedTask(store, {
+    id: "a",
+    repoPath: "/repos/alpha",
+    createdAt: NOW - DAY,
+    mergedAt: NOW - DAY / 2,
+    firstCiConclusion: "success",
+  });
+  seedTask(store, {
+    id: "b",
+    repoPath: "/repos/beta",
+    createdAt: NOW - DAY,
+    mergedAt: NOW - DAY / 2,
+    firstCiConclusion: "failure",
+  });
+  const m = build(store);
+  const byRepo = Object.fromEntries(m.repos.map((r) => [r.repo, r]));
+  expect(byRepo["alpha"]!.firstPushGreenRate.value).toBe(1);
+  expect(byRepo["beta"]!.firstPushGreenRate.value).toBe(0);
+  expect(m.totals.firstPushGreenRate.value).toBe(0.5);
+});
+
+test("a conclusion outside the window does not leak into the rate", () => {
+  const store = mk();
+  seedTask(store, {
+    id: "old",
+    createdAt: NOW - 30 * DAY,
+    mergedAt: NOW - 20 * DAY,
+    firstCiConclusion: "failure",
+  });
+  seedTask(store, {
+    id: "new",
+    createdAt: NOW - DAY,
+    mergedAt: NOW - DAY / 2,
+    firstCiConclusion: "success",
+  });
+  expect(build(store, "7d").totals.firstPushGreenRate).toEqual({ value: 1, n: 1 });
+  expect(build(store, "all").totals.firstPushGreenRate).toEqual({ value: 0.5, n: 2 });
 });

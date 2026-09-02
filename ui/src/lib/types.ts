@@ -1498,6 +1498,9 @@ export interface DeliveryStats {
   planDriftMajor: number; // of those, how many reported `major`
   timeToFirstReviewMs: DeliverySample;
   leadTimeMs: DeliverySample;
+  // 0..1, over merged tasks whose first CI conclusion Shepherd observed (#2159); a task with no
+  // observed conclusion — including every task in a repo without CI — is excluded, not scored red.
+  firstPushGreenRate: DeliverySample;
 }
 
 export interface DeliveryRepoRow extends DeliveryStats {

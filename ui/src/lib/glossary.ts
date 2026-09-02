@@ -85,6 +85,12 @@ const glossary: readonly GlossaryTerm[] = [
     bodyKey: "gloss_first_pass_rate_def",
   },
   {
+    id: "first-push-green",
+    kind: "internal",
+    termKey: "gloss_first_push_green_term",
+    bodyKey: "gloss_first_push_green_def",
+  },
+  {
     id: "plan-drift",
     kind: "internal",
     termKey: "gloss_plan_drift_term",

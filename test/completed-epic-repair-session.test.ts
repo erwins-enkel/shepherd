@@ -115,7 +115,7 @@ describe("isLiveRepairSession", () => {
 });
 
 // ── anyLiveRepairSession ──────────────────────────────────────────────────────
-// The shared fence/surface predicate used verbatim by the drain pass, the rundown, and
+// The shared fence/surface predicate used verbatim by the drain pass and
 // GET /api/epics/completed. Owns the repoPath + baseBranch filtering (previously duplicated).
 describe("anyLiveRepairSession", () => {
   it("true when a live repair session matches repoPath AND baseBranch", () => {

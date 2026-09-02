@@ -32,7 +32,6 @@ import type {
   Recap,
   ReviewVerdict,
   PlanGate,
-  HerdDigest,
   UpNextSnapshot,
   UpNextItem,
   BacklogPayload,
@@ -785,30 +784,6 @@ function buildPlanGates(): Record<string, PlanGate> {
       plan: "1. Add a refresh_tokens table (hashed, family id)\n2. Issue short-lived access + rotating refresh on login\n3. Rotate on refresh; revoke the family on reuse\n4. Migrate existing sessions on next login",
       updatedAt: NOW - 8 * MIN,
     },
-  };
-}
-
-function buildHerdDigest(): HerdDigest {
-  return {
-    dayKey: "2026-06-30",
-    state: "ready",
-    overnight:
-      "The Cart-refactor epic landed. Checkout v2 is mid-drain across three tasks, and the API is picking up an auth-store rework plus a Neon migration.",
-    decisions: [{ label: "Approved the auth-session-store plan", sessionId: "authstore" }],
-    ciRework: [],
-    train: "OG-images PR #508 is in the merge train.",
-    focusNext: [
-      { label: "Answer the Neon seeding question", sessionId: "neon" },
-      { label: "Merge the cart-rounding fix", sessionId: "rounding", pr: 512 },
-    ],
-    epicsToLand: [],
-    attentionFingerprint: { neon: ["autopilot-paused"], authstore: ["plan-approved"] },
-    spawnSessionId: "digest-1",
-    cwd: STOREFRONT,
-    model: "opus",
-    spawnedAt: NOW - 6 * HOUR,
-    generatedAt: NOW - 6 * HOUR,
-    updatedAt: NOW - 6 * HOUR,
   };
 }
 
@@ -1745,7 +1720,6 @@ export function buildSeed(): DemoWorld {
     recaps: buildRecaps(),
     reviews: buildReviews(),
     planGates: buildPlanGates(),
-    herdDigest: buildHerdDigest(),
     upNext: buildUpNext(),
     steers: buildSteers(),
     projectIcons: buildProjectIcons(),

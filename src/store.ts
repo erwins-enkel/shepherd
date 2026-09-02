@@ -36,11 +36,8 @@ import type {
   DeliveryFact,
   AgentProvider,
   PrReview,
-  HerdDigest,
   PostMergeStep,
   PostMergeSteps,
-  RundownItem,
-  RundownEpicItem,
   HeldTask,
   StandardCreateInput,
   SessionUsageRow,
@@ -393,11 +390,6 @@ function numOrNull(v: number | null | undefined): number | null {
   return v ?? null;
 }
 
-/** Coerce a persisted RundownEpicItem.pausedReason to its union, or undefined for anything else. */
-function coercePauseReason(v: unknown): RundownEpicItem["pausedReason"] {
-  return v === "cap" || v === "conflict" || v === "driver" ? v : undefined;
-}
-
 /** Designation prefix for task sessions, e.g. "TASK-07". Single source for the prefix + its SUBSTR offset. */
 const DESIG_PREFIX = "TASK-";
 
@@ -734,25 +726,6 @@ type RecapRow = {
   generatedAt: number | null;
   updatedAt: number;
   pendingDiff?: string;
-};
-
-/** SQLite row shape for the herd_digests table. */
-type HerdDigestRow = {
-  dayKey: string;
-  state: string;
-  overnight: string | null;
-  decisions: string;
-  ciRework: string;
-  train: string | null;
-  focusNext: string;
-  attentionFingerprint: string;
-  epicsToLand: string;
-  spawnSessionId: string | null;
-  cwd: string | null;
-  model: string | null;
-  spawnedAt: number;
-  generatedAt: number | null;
-  updatedAt: number;
 };
 
 /** SQLite row shape for the learnings table. */
@@ -1413,28 +1386,10 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     this.db.run(
       `CREATE INDEX IF NOT EXISTS post_merge_steps_cleared ON post_merge_steps (clearedAt)`,
     );
-    // Herd Rundown: one synthesized cross-session attention digest per calendar day.
-    // Same lifecycle as recaps (generating → ready/failed); verdict columns empty until ready.
-    this.db.run(`CREATE TABLE IF NOT EXISTS herd_digests (
-      dayKey TEXT PRIMARY KEY,
-      state TEXT NOT NULL,
-      overnight TEXT NOT NULL DEFAULT '',
-      decisions TEXT NOT NULL DEFAULT '[]',
-      ciRework TEXT NOT NULL DEFAULT '[]',
-      train TEXT NOT NULL DEFAULT '',
-      focusNext TEXT NOT NULL DEFAULT '[]',
-      attentionFingerprint TEXT NOT NULL DEFAULT '{}',
-      epicsToLand TEXT NOT NULL DEFAULT '[]',
-      spawnSessionId TEXT NOT NULL DEFAULT '',
-      cwd TEXT NOT NULL DEFAULT '',
-      model TEXT,
-      spawnedAt INTEGER NOT NULL,
-      generatedAt INTEGER,
-      updatedAt INTEGER NOT NULL)`);
-    // migrate herd_digests rows that predate the epicsToLand column (#1045) (legacy rows default []).
-    const herdCols = this.db.query(`PRAGMA table_info(herd_digests)`).all() as { name: string }[];
-    if (!herdCols.some((c) => c.name === "epicsToLand"))
-      this.db.run(`ALTER TABLE herd_digests ADD COLUMN epicsToLand TEXT NOT NULL DEFAULT '[]'`);
+    // The Herd Rundown feature was removed; drop its per-day digest table. Historical
+    // `rundown` rows in `reviewer_spawns` are deliberately KEPT — they carry real token
+    // spend the usage breakdown still attributes.
+    this.db.run(`DROP TABLE IF EXISTS herd_digests`);
     // Exact reviewer-cost attribution. Keyed by the *reviewer's* forced --session-id (which
     // locates its transcript), NOT the task — and deliberately carries NO foreign key to
     // `sessions`. `reviews`/`plan_gates` are keyed by the task sessionId and get deleted on
@@ -3859,164 +3814,6 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     );
   }
 
-  // ── herd rundown (cross-session attention digest, per calendar day) ───────────
-  private hydrateItems(raw: unknown): RundownItem[] {
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(typeof raw === "string" ? raw : "[]");
-    } catch {
-      return [];
-    }
-    if (!Array.isArray(parsed)) return [];
-    const out: RundownItem[] = [];
-    for (const x of parsed) {
-      if (!x || typeof x !== "object") continue;
-      const o = x as Record<string, unknown>;
-      if (typeof o.label !== "string") continue;
-      const item: RundownItem = { label: o.label };
-      if (typeof o.sessionId === "string") item.sessionId = o.sessionId;
-      if (typeof o.pr === "number") item.pr = o.pr;
-      out.push(item);
-    }
-    return out;
-  }
-
-  private hydrateEpics(raw: unknown): RundownEpicItem[] {
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(typeof raw === "string" ? raw : "[]");
-    } catch {
-      return [];
-    }
-    if (!Array.isArray(parsed)) return [];
-    const out: RundownEpicItem[] = [];
-    for (const x of parsed) {
-      if (!x || typeof x !== "object") continue;
-      const o = x as Record<string, unknown>;
-      if (typeof o.repo !== "string" || typeof o.parent !== "number") continue;
-      out.push({
-        repo: o.repo,
-        parent: o.parent,
-        title: typeof o.title === "string" ? o.title : "",
-        landingPr: typeof o.landingPr === "number" ? o.landingPr : null,
-        stranded: o.stranded === true,
-        ciFailing: o.ciFailing === true,
-        pausedReason: coercePauseReason(o.pausedReason),
-      });
-    }
-    return out;
-  }
-
-  private hydrateHerdDigest(r: HerdDigestRow): HerdDigest {
-    let fingerprint: Record<string, string[]> = {};
-    try {
-      const parsed = JSON.parse(r.attentionFingerprint);
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        for (const [k, v] of Object.entries(parsed)) {
-          if (Array.isArray(v))
-            fingerprint[k] = v.filter((x): x is string => typeof x === "string");
-        }
-      }
-    } catch {
-      fingerprint = {};
-    }
-    return {
-      dayKey: r.dayKey,
-      state: r.state,
-      overnight: r.overnight ?? "",
-      decisions: this.hydrateItems(r.decisions),
-      ciRework: this.hydrateItems(r.ciRework),
-      train: r.train ?? "",
-      focusNext: this.hydrateItems(r.focusNext),
-      epicsToLand: this.hydrateEpics(r.epicsToLand),
-      attentionFingerprint: fingerprint,
-      spawnSessionId: r.spawnSessionId ?? "",
-      cwd: r.cwd ?? "",
-      model: r.model ?? null,
-      spawnedAt: r.spawnedAt,
-      generatedAt: r.generatedAt ?? null,
-      updatedAt: r.updatedAt,
-    } as HerdDigest;
-  }
-
-  private readonly HERD_COLS = `dayKey, state, overnight, decisions, ciRework, train, focusNext,
-    attentionFingerprint, epicsToLand, spawnSessionId, cwd, model, spawnedAt, generatedAt, updatedAt`;
-
-  getHerdDigest(dayKey: string): HerdDigest | null {
-    const r = this.db
-      .query(`SELECT ${this.HERD_COLS} FROM herd_digests WHERE dayKey = ?`)
-      .get(dayKey) as HerdDigestRow | null;
-    return r ? this.hydrateHerdDigest(r) : null;
-  }
-
-  getLatestHerdDigest(): HerdDigest | null {
-    const r = this.db
-      .query(`SELECT ${this.HERD_COLS} FROM herd_digests ORDER BY spawnedAt DESC LIMIT 1`)
-      .get() as HerdDigestRow | null;
-    return r ? this.hydrateHerdDigest(r) : null;
-  }
-
-  putHerdDigest(d: HerdDigest): void {
-    this.db.run(
-      `INSERT INTO herd_digests (dayKey, state, overnight, decisions, ciRework, train, focusNext,
-         attentionFingerprint, epicsToLand, spawnSessionId, cwd, model, spawnedAt, generatedAt, updatedAt)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-       ON CONFLICT(dayKey) DO UPDATE SET state=excluded.state, overnight=excluded.overnight,
-         decisions=excluded.decisions, ciRework=excluded.ciRework, train=excluded.train,
-         focusNext=excluded.focusNext, attentionFingerprint=excluded.attentionFingerprint,
-         epicsToLand=excluded.epicsToLand, spawnSessionId=excluded.spawnSessionId, cwd=excluded.cwd,
-         model=excluded.model, spawnedAt=excluded.spawnedAt, generatedAt=excluded.generatedAt,
-         updatedAt=excluded.updatedAt`,
-      [
-        d.dayKey,
-        d.state,
-        d.overnight ?? "",
-        JSON.stringify(d.decisions ?? []),
-        JSON.stringify(d.ciRework ?? []),
-        d.train ?? "",
-        JSON.stringify(d.focusNext ?? []),
-        JSON.stringify(d.attentionFingerprint ?? {}),
-        JSON.stringify(d.epicsToLand ?? []),
-        d.spawnSessionId ?? "",
-        d.cwd ?? "",
-        d.model ?? null,
-        d.spawnedAt,
-        d.generatedAt ?? null,
-        d.updatedAt,
-      ],
-    );
-  }
-
-  /** Rows currently in-flight — used by the service's finalize loop (restart-safe). */
-  generatingHerdDigests(): HerdDigest[] {
-    const rows = this.db
-      .query(`SELECT ${this.HERD_COLS} FROM herd_digests WHERE state = 'generating'`)
-      .all() as HerdDigestRow[];
-    return rows.map((r) => this.hydrateHerdDigest(r));
-  }
-
-  /** Overnight delta since `sinceTs`: PRs merged (from issue_log `merged:<pr>` stamps) and
-   *  sessions archived after that instant. Feeds the rundown's "while you were away" summary. */
-  overnightDelta(sinceTs: number): {
-    mergedPrs: number[];
-    archivedSessions: { id: string; desig: string }[];
-  } {
-    const mergedRows = this.db
-      .query(`SELECT key FROM issue_log WHERE key LIKE 'merged:%' AND createdAt > ?`)
-      .all(sinceTs) as { key: string }[];
-    const mergedPrs: number[] = [];
-    for (const row of mergedRows) {
-      const n = Number(row.key.slice("merged:".length));
-      if (Number.isFinite(n)) mergedPrs.push(n);
-    }
-    const archived = this.db
-      .query(
-        `SELECT id, desig FROM sessions WHERE archivedAt IS NOT NULL AND archivedAt > ? ORDER BY archivedAt`,
-      )
-      .all(sinceTs) as { id: string; desig: string }[];
-    return { mergedPrs, archivedSessions: archived };
-  }
-
   setPlanPhase(id: string, phase: Session["planPhase"]): void {
     this.db.run(`UPDATE sessions SET planPhase = ?, updatedAt = ? WHERE id = ?`, [
       phase,
@@ -4090,7 +3887,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   recordReviewerSpawn(r: {
     reviewerSessionId: string;
     taskSessionId: string;
-    kind: "review" | "plan_gate" | "recap" | "rundown" | "doc_agent";
+    kind: "review" | "plan_gate" | "recap" | "doc_agent";
     worktreePath: string;
     reviewerProvider?: AgentProvider | null;
     model: string | null;
@@ -4226,7 +4023,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   /** Stamp a reviewer run's terminal outcome (#2151 R1) and, for a review that was shown an
    *  approved plan, its non-blocking plan-drift measurement (#2155). Separate from
    *  `completeReviewerSpawn` on purpose: that one is called through the shared `captureUsage` helper
-   *  by recap, rundown and the doc agent too, none of which have a verdict to report. No-op on an
+   *  by recap and the doc agent too, neither of which has a verdict to report. No-op on an
    *  unknown id. `planDrift` is written on every call, so a caller with no measurement (the plan
    *  gate, a plan-less review) leaves the column NULL = not measured. */
   setReviewerSpawnOutcome(

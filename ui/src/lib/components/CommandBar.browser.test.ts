@@ -202,12 +202,12 @@ describe("CommandBar — grouping & recency", () => {
 
   it("filters fuzzily across sessions, repos and lenses", async () => {
     renderBar();
-    // "rundown" surfaces the rundown lens; no seeded session/repo carries that text, so the
+    // "owed" surfaces the Owed lens; no seeded session/repo carries that text, so the
     // Sessions and Repositories groups drop out entirely. (Docs match by keyword and are out
     // of scope here — asserted separately in the Docs group tests.)
-    await page.getByRole("combobox").fill("rundown");
+    await page.getByRole("combobox").fill("owed");
     await expect
-      .element(page.getByRole("option", { name: new RegExp(m.herd_seg_rundown()) }))
+      .element(page.getByRole("option", { name: new RegExp(m.herd_seg_owed()) }))
       .toBeVisible();
     expect(page.getByText(m.commandbar_group_sessions()).elements()).toHaveLength(0);
     expect(page.getByText(m.commandbar_group_repos()).elements()).toHaveLength(0);
@@ -594,9 +594,9 @@ describe("CommandBar — All lens", () => {
 });
 
 describe("CommandBar — Alt+digit quick-jump", () => {
-  // Seeded open state = eleven selectable rows; only the first ten (oid 0–9) get a digit badge:
+  // Seeded open state = ten selectable rows, each of which gets a digit badge (oid 0–9):
   //   0 s2 "newer" · 1 s1 "older" · 2 beta · 3 alpha · 4 gamma · 5 all · 6 next · 7 ready ·
-  //   8 done · 9 rundown · (10 owed — beyond the tenth, no badge)
+  //   8 done · 9 owed
   it("reveals digit hints on the first ten rows only while Alt is held", async () => {
     renderBar();
     await page.getByRole("combobox").click();
@@ -636,11 +636,11 @@ describe("CommandBar — Alt+digit quick-jump", () => {
     expect(onselectsession).not.toHaveBeenCalled();
   });
 
-  it("Alt+0 jumps to the tenth row (rundown lens) via onselectlens", async () => {
+  it("Alt+0 jumps to the tenth row (owed lens) via onselectlens", async () => {
     const { onselectlens } = renderBar();
     await page.getByRole("combobox").click();
     await userEvent.keyboard("{Alt>}0{/Alt}");
-    expect(onselectlens).toHaveBeenCalledWith("rundown");
+    expect(onselectlens).toHaveBeenCalledWith("owed");
   });
 
   it("jumps regardless of focused element — e.g. Alt+1 from the ✕ button", async () => {
@@ -682,9 +682,22 @@ describe("CommandBar — Alt+digit quick-jump", () => {
   });
 
   it("exposes each shortcut to assistive tech via aria-keyshortcuts", async () => {
+    // The five lenses leave the default seed at exactly ten rows, so seed a fourth repo here
+    // to push an eleventh row past the badge cap — this test exists to assert that boundary.
+    repos.entries = [
+      ...seedRepos(),
+      {
+        name: "delta",
+        path: "/repos/delta",
+        display: "~/repos/delta",
+        realPath: "/repos/delta",
+        lastUsedAt: 10,
+      },
+    ];
     renderBar();
     await expect.element(page.getByRole("option").first()).toBeVisible();
     const rows = [...document.querySelectorAll(".cb-row")];
+    expect(rows).toHaveLength(11);
     expect(rows[0].getAttribute("aria-keyshortcuts")).toBe("Alt+1");
     expect(rows[9].getAttribute("aria-keyshortcuts")).toBe("Alt+0");
     // The eleventh row is past the tenth — no shortcut, no badge.

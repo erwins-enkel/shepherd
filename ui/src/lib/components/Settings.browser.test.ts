@@ -82,9 +82,6 @@ function settings(over: Partial<SettingsPayload> = {}): SettingsPayload {
     recapCli: "claude",
     recapModel: "sonnet",
     recapEffort: "low",
-    rundownCli: "claude",
-    rundownModel: "sonnet",
-    rundownEffort: "low",
     docAgentCli: "inherit",
     docAgentModel: "default",
     docAgentEffort: "low",
@@ -324,12 +321,12 @@ describe("Settings Coding CLI sections", () => {
 });
 
 describe("Settings default coding environment", () => {
-  it("shows the saved Herd Rundown CLI, model, and effort", async () => {
+  it("shows the saved Recap CLI, model, and effort", async () => {
     await mountCodingAgents();
     const { disclosure } = requiredCodingSectionButton(m.settings_role_models_title());
     await disclosure.click();
 
-    const role = "Herd Rundown";
+    const role = "Recap";
     await expect.element(page.getByText(role, { exact: true })).toBeInTheDocument();
     await expect
       .element(page.getByRole("combobox", { name: m.settings_role_cli_label({ role }) }))

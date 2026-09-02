@@ -306,7 +306,6 @@
     "ui/src/lib/components/QueueStrip.svelte:31-37|ui/src/lib/components/QueueStrip.svelte:39-44",
     "ui/src/lib/components/QueueStrip.svelte:128-138|ui/src/lib/components/repo-switcher/RepoChipTelemetry.svelte:152-162",
     "ui/src/lib/components/RecommendDialog.svelte:254-277|ui/src/lib/components/new-task/ModelCliPicker.svelte:414-436",
-    "ui/src/lib/components/RundownPanel.svelte:82-88|ui/src/lib/components/RundownPanel.svelte:93-100",
     "ui/src/lib/components/SessionRecap.svelte:41-52|ui/src/lib/components/herd/HerdDoneList.svelte:17-31",
     "ui/src/lib/components/SessionRecap.svelte:84-91|ui/src/lib/components/SessionRecap.svelte:93-100",
     "ui/src/lib/components/SteerMenu.svelte:43-49|ui/src/lib/components/TaskIdMenu.svelte:38-44",

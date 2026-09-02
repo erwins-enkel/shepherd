@@ -22,17 +22,13 @@ export type ReapableHerdr = Pick<
  *
  *  **Scope filter, not a safety gate.** This function is a first-pass scope filter; the
  *  caller's process-liveness check (a live agent in `herdr list`) is the actual safety gate.
- *  This matters for the one exact match with no space — `"rundown"` — which IS a producible
- *  user slug. It is safe only because `reapOrphanTabs` never reaps a tab that has a live
- *  backing agent; a running user "rundown" session is therefore never touched.
  *
  *  **Collision-proof markers** (space-prefix or underscore): {@link PROBE_NAME},
  *  {@link DISTILL_LABEL} and {@link OPTIMIZE_LABEL} contain underscores; every other helper uses a space-prefixed
  *  label ({@link NAMER_LABEL}, {@link AUTOPILOT_LABEL}, and the still-inline `"review "`,
  *  `"plan-review "`, `"pr-critic "`, `"recap "`) or a multi-word exact phrase
  *  ({@link VERIFY_KEY_LABEL}). User sessions use prompt-derived `[a-z0-9-]` slugs — no spaces,
- *  no underscores — so none of these labels is reachable by a slug. Exception: `"rundown"`
- *  (exact, no space) relies on the liveness gate instead.
+ *  no underscores — so none of these labels is reachable by a slug.
  *
  *  Labels are named by CONSTANT wherever one exists, never spelled out as a string here: a
  *  renamed label would otherwise leave this comment describing a dead value — the same
@@ -60,7 +56,6 @@ export type ReapableHerdr = Pick<
  *  - `recap <desig>`     — recap generator (recap.ts)
  *  - {@link RECOMMEND_LABEL}`<desig>` — prompt recommender (prompt-recommend.ts, #1852)
  *  - {@link DOC_AGENT_LABEL}`<hex>`  — doc agent (doc-agent.ts, #2029)
- *  - `rundown`           — herd-digest rundown (herd-digest.ts) — liveness-gated
  *
  *  **Read this against the TAB label, not a pane or agent label** (#2029). herdr 0.7.5 emits
  *  `label` on neither husk panes nor agent records; `tab.list` is the only surface that still
@@ -73,7 +68,6 @@ export function isShepherdHelperLabel(label: string): boolean {
     label.startsWith(DOC_AGENT_LABEL) ||
     label.startsWith(OPTIMIZE_LABEL) ||
     label.startsWith(MERGE_LABEL) ||
-    label === "rundown" ||
     label === VERIFY_KEY_LABEL ||
     label.startsWith("review ") ||
     label.startsWith(NAMER_LABEL) ||

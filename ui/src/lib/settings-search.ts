@@ -52,7 +52,6 @@ export const ROLE_BASES = [
   "critic",
   "docAgent",
   "recap",
-  "rundown",
   "distiller",
   "optimizer",
   "mergeSuggest",
@@ -71,8 +70,6 @@ export function roleTitle(role: RoleBase): string {
       return m.settings_role_model_docagent_title();
     case "recap":
       return m.settings_role_model_recap_title();
-    case "rundown":
-      return m.settings_role_model_rundown_title();
     case "namer":
       return m.settings_role_model_namer_title();
     case "autopilot":
@@ -96,8 +93,6 @@ export function roleHint(role: RoleBase): string {
       return m.settings_role_model_docagent_hint();
     case "recap":
       return m.settings_role_model_recap_hint();
-    case "rundown":
-      return m.settings_role_model_rundown_hint();
     case "namer":
       return m.settings_role_model_namer_hint();
     case "autopilot":

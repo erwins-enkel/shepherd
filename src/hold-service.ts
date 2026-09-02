@@ -3,7 +3,7 @@ import type { GitState } from "./forge/types";
 import type { ReviewVerdict, PlanGate, Recap } from "./types";
 import type { BlockReason } from "./blocked";
 import type { EventHub } from "./events";
-import { explainHold } from "./rundown-core";
+import { explainHold } from "./attention-core";
 
 // ── types ─────────────────────────────────────────────────────────────────────
 

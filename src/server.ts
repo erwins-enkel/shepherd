@@ -239,7 +239,6 @@ import {
   SandboxAutoRefused,
 } from "./sandbox";
 import { validateHookEvent, type HookEvent, type SubagentEntry } from "./hooks-ingest";
-import { fingerprintDiffCount } from "./rundown-core";
 import { quotaBlockReason, type BlockReason } from "./blocked";
 import { upstreamStatus } from "./upstream-status";
 import { shouldHold } from "./usage-hold";
@@ -459,16 +458,6 @@ export interface AppDeps {
   recap?: { regenerate(session: Session): Promise<"started" | "empty" | "error"> };
   /** Live hold-reason snapshot keyed by session id; absent in tests that skip it. */
   holds?: { snapshot(): Record<string, import("./types").HoldReason> };
-  /** Herd Rundown digest — the daily cross-session attention synthesis. Absent in tests
-   *  that don't exercise it. `snapshot` is the latest stored digest (null when none yet);
-   *  `currentFingerprint` re-derives the herd's live attention surface so the GET route can
-   *  compute `staleCount` (drift since the digest was generated); `regenerate` forces a
-   *  fresh spawn. */
-  herdDigest?: {
-    snapshot(): import("./types").HerdDigest | null;
-    currentFingerprint(): Record<string, string[]>;
-    regenerate(): Promise<"started" | "in-flight" | "empty" | "error">;
-  };
   /** Up Next (#1169) cross-repo ranked queue of un-started work. `snapshot` is the cached
    *  in-memory snapshot (null until the first compute); `refresh` forces a single-flight
    *  recompute. Absent in tests/environments that don't wire it. */
@@ -1136,31 +1125,6 @@ async function handleManualSteps({ req, parts, deps }: Ctx): Promise<Response | 
   if (parts[3] === "steps" && parts[4] && !parts[5])
     return manualStepDone(req, deps, sessionId, parts[4]);
   if (parts[3] === "dismiss" && !parts[4]) return manualStepsDismiss(deps, sessionId);
-  return null;
-}
-
-// GET /api/herd/digest — the latest Herd Rundown digest, with a route-computed `staleCount`
-// (how many attention-bearing sessions' signal sets changed since it was generated). null when
-// no digest exists yet (mirrors the recap empty pattern). staleCount is cheap: it re-derives the
-// CURRENT fingerprint from the in-memory caches (pure classification, no spawn) and diffs it
-// against the stored one.
-// POST /api/herd/digest/regenerate — force a fresh daily digest; 202 with {status}.
-async function handleHerdDigest({ req, parts, deps }: Ctx): Promise<Response | null> {
-  if (!(parts[0] === "api" && parts[1] === "herd" && parts[2] === "digest")) return null;
-
-  if (req.method === "POST" && parts[3] === "regenerate") {
-    const status = (await deps.herdDigest?.regenerate()) ?? "error";
-    return json({ ok: true, status }, 202);
-  }
-
-  if (req.method === "GET" && !parts[3]) {
-    const digest = deps.herdDigest?.snapshot() ?? null;
-    if (!digest) return json(null);
-    const current = deps.herdDigest?.currentFingerprint() ?? {};
-    const staleCount = fingerprintDiffCount(digest.attentionFingerprint, current);
-    return json({ ...digest, staleCount });
-  }
-
   return null;
 }
 
@@ -5098,9 +5062,6 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       recapCli: config.recapCli,
       recapModel: config.recapModel,
       recapEffort: config.recapEffort,
-      rundownCli: config.rundownCli,
-      rundownModel: config.rundownModel,
-      rundownEffort: config.rundownEffort,
       docAgentCli: config.docAgentCli,
       docAgentModel: config.docAgentModel,
       docAgentEffort: config.docAgentEffort,
@@ -5195,9 +5156,6 @@ const SETTING_PATCHES: [string, (value: unknown, deps: Ctx["deps"]) => Response]
   ["recapCli", makeRoleCliPatch("recap")],
   ["recapModel", makeRoleModelPatch("recap")],
   ["recapEffort", makeRoleEffortPatch("recap")],
-  ["rundownCli", makeRoleCliPatch("rundown")],
-  ["rundownModel", makeRoleModelPatch("rundown")],
-  ["rundownEffort", makeRoleEffortPatch("rundown")],
   ["docAgentCli", makeRoleCliPatch("docAgent")],
   ["docAgentModel", makeRoleModelPatch("docAgent")],
   ["docAgentEffort", makeRoleEffortPatch("docAgent")],
@@ -5336,7 +5294,6 @@ type RoleKey =
   | "critic"
   | "planner"
   | "recap"
-  | "rundown"
   | "docAgent"
   | "namer"
   | "autopilot"
@@ -7536,8 +7493,7 @@ async function handleEpicsCompletedList({ req, parts, url, deps }: Ctx): Promise
   });
 
   // Enrich open-landing rows with live gate signals (best-effort, fail-safe — forge/network
-  // errors must NOT 500 this route; just omit the live fields for that row). Shared helper so the
-  // rundown's landing-ready accessor (#1045) computes readiness identically.
+  // errors must NOT 500 this route; just omit the live fields for that row).
   const nowMs = Date.now();
   await enrichLandingEpics(baseRows, {
     getEpicIntegrationBranch: (repoPath, parent) =>
@@ -7764,7 +7720,6 @@ const ROUTE_HANDLERS = [
   handlePlanGates,
   handleSpawnNotices,
   handleRecaps,
-  handleHerdDigest,
   handleUpNext,
   handleDrain,
   handleAutoMerge,

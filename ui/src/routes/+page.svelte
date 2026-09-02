@@ -86,7 +86,6 @@
   import { reviews, planGates, spawnNotices, repoConfig } from "$lib/reviews.svelte";
   import { openPreviewInNewTab } from "$lib/previewOpen";
   import { recaps } from "$lib/recaps.svelte";
-  import { herdDigest } from "$lib/herd-digest.svelte";
   import { upNext } from "$lib/up-next.svelte";
   import { claudeUsageHoldLikely } from "$lib/provider-capacity";
   import { doneSessions } from "$lib/done.svelte";
@@ -1360,31 +1359,6 @@
     void jumpHandlers.jumpToSession(id);
   }
 
-  // Deep-link a Rundown item to its live session: leave the panel-only Rundown lens
-  // (back to the full list so the session row is visible) and select it via the same
-  // selectUnit a rail click uses.
-  function selectRundownItem(id: string) {
-    void jumpHandlers.selectRundownItem(id);
-  }
-
-  // Deep-link a Rundown epics-to-land item (#1045) to its row in the IntegratedEpicsBand: leave the
-  // panel-only Rundown lens (the band is hidden there) and hand the band a focus target so it
-  // expands + scrolls/opens that epic's row with its Land CTA. Cleared first so re-clicking the same
-  // epic re-triggers the scroll/highlight (the focus effect keys on the value changing).
-  let focusEpic = $state<{ repo: string; parent: number } | null>(null);
-  let focusEpicToken = 0;
-  function selectRundownEpic(repo: string, parent: number) {
-    herdFilter = "all";
-    focusEpic = null;
-    const token = ++focusEpicToken;
-    queueMicrotask(() => (focusEpic = { repo, parent }));
-    // Clear once the row's highlight (~1.6s) has settled so a later band remount doesn't re-expand
-    // and re-flash a stale target. Token-guarded so a rapid re-click to another epic isn't cleared.
-    setTimeout(() => {
-      if (focusEpicToken === token) focusEpic = null;
-    }, 2000);
-  }
-
   // true when focus sits in something that consumes typing — a form field or the
   // PTY terminal (xterm holds focus in a hidden <textarea>, so the TEXTAREA check
   // covers it). Single-key shortcuts must stay silent there so they never eat a
@@ -1406,18 +1380,10 @@
   let owedFocusSnapshot = $state<OwedFocusSnapshot | null>(null);
   let owedFocusNonce = $state(0);
   let owedFocusHandledNonce = $state(0);
-  // Panel-only lenses (rundown + owed, #1061): the rail swaps in a dedicated panel and the main
+  // Panel-only lenses (owed, #1061 + up next): the rail swaps in a dedicated panel and the main
   // area shows a neutral pointer. One derived keeps the template's branch count flat as lenses grow.
-  const panelOnlyLens = $derived(
-    herdFilter === "rundown" || herdFilter === "owed" || herdFilter === "next",
-  );
-  const panelMainHint = $derived(
-    herdFilter === "next"
-      ? m.upnext_main_hint()
-      : herdFilter === "owed"
-        ? m.owed_main_hint()
-        : m.rundown_main_hint(),
-  );
+  const panelOnlyLens = $derived(herdFilter === "owed" || herdFilter === "next");
+  const panelMainHint = $derived(herdFilter === "next" ? m.upnext_main_hint() : m.owed_main_hint());
 
   // Done lens: separate selection state. selectedId resolves against store.sessions
   // (the live list), which has EVICTED archived sessions — so reusing it for a done
@@ -1734,9 +1700,6 @@
         const repoPath = store.sessions.find((s) => s.id === id)?.repoPath;
         if (repoPath) followFilterToRepo(repoPath);
       },
-      leaveRundown: () => {
-        herdFilter = "all";
-      },
       beforeHerdrUpdateJump: () => {
         showHerdrUpdate = false;
         herdrUpdating = false;
@@ -1839,7 +1802,6 @@
     planGates.load();
     spawnNotices.load();
     recaps.load();
-    herdDigest.load();
     // App-load paints the CACHED Up Next snapshot only (peek) — no cross-repo gh recompute for a
     // session that never opens the lens. Lens-open + the 15-min loop keep it fresh.
     upNext.load({ peek: true });
@@ -2917,9 +2879,6 @@
               doneSelectedId = id;
               mobileScreen = "detail";
             }}
-            onrundownitem={selectRundownItem}
-            onrundownepic={selectRundownEpic}
-            {focusEpic}
             onackmigrationsepic={onAckEpicMigrations}
             onackmanualsteps={onAckManualSteps}
             onshowowed={onShowOwed}
@@ -3082,9 +3041,6 @@
               doneList={shownDoneSessions}
               {doneSelectedId}
               ondoneselect={(id) => (doneSelectedId = id)}
-              onrundownitem={selectRundownItem}
-              onrundownepic={selectRundownEpic}
-              {focusEpic}
               onackmigrationsepic={onAckEpicMigrations}
               onackmanualsteps={onAckManualSteps}
               onshowowed={onShowOwed}
@@ -3115,7 +3071,7 @@
           </div>
         {/if}
         {#if panelOnlyLens}
-          <!-- Rundown + Owed lenses render their panel inside the rail (left); the main area
+          <!-- Owed + Up Next lenses render their panel inside the rail (left); the main area
                shows a neutral pointer (panelMainHint) so the right pane never reads as empty. -->
           <div class="empty">{panelMainHint}</div>
         {:else if herdFilter === "done"}

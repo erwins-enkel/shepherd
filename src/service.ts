@@ -5444,8 +5444,7 @@ export class SessionService {
 
   /** The PR numbers currently scoped by any live merge train (the union of every live
    *  train's `prNumbers`), deduped + sorted. Empty when no train is live. Cheap + sync —
-   *  reads only the in-memory `#liveTrains` map, no forge round-trip. The Herd Rundown
-   *  folds this in as the train's queued set. */
+   *  reads only the in-memory `#liveTrains` map, no forge round-trip. */
   liveTrainPrs(): number[] {
     const prs = new Set<number>();
     for (const t of this.#liveTrains.values()) for (const n of t.prNumbers) prs.add(n);

@@ -22,7 +22,7 @@
  * caller passes the exact fallback filename, and reviewer-kind spawns use a PER-SPAWN UNGUESSABLE name
  * keyed on the spawn's session id ({@link codexLastMessageFile}) — a name a PR author cannot know at
  * authoring time, so a committed copy can never match the name the real run writes and reads. The
- * disposable-tmpdir roles (recap, autopilot, rundown, distiller, optimizer, merge-suggest) run in a
+ * disposable-tmpdir roles (recap, autopilot, distiller, optimizer, merge-suggest) run in a
  * fresh empty dir nothing else can write, so they use the fixed {@link CODEX_LAST_MESSAGE_FILE} — safe
  * there because there is no untrusted checkout to pre-seed.
  *
@@ -40,7 +40,7 @@ import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
 /** The FIXED last-message filename, used ONLY by the disposable-tmpdir roles (recap, autopilot,
- *  rundown, distiller, optimizer, merge-suggest) whose cwd is a fresh empty dir no untrusted party
+ *  distiller, optimizer, merge-suggest) whose cwd is a fresh empty dir no untrusted party
  *  can write. Reviewer-kind spawns MUST NOT use this — they use {@link codexLastMessageFile}. */
 export const CODEX_LAST_MESSAGE_FILE = ".shepherd-last-message.txt";
 

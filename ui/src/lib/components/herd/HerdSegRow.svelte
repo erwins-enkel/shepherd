@@ -75,17 +75,6 @@
   <button
     type="button"
     class="seg-btn"
-    class:seg-active={statusFilter == null && filter === "rundown"}
-    title={m.herd_rundown_title()}
-    aria-pressed={statusFilter == null && filter === "rundown"}
-    onclick={() => {
-      filter = "rundown";
-      onstatusfilter?.(null);
-    }}>{m.herd_seg_rundown()}</button
-  >
-  <button
-    type="button"
-    class="seg-btn"
     class:seg-active={statusFilter == null && filter === "owed"}
     title={m.herd_owed_title()}
     aria-pressed={statusFilter == null && filter === "owed"}

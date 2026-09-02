@@ -200,7 +200,7 @@ test("multi-question form with only one answered still counts (partial → pendi
 });
 
 test("planQuestionsUnanswered matches the shared parity fixtures (client ↔ server drift lock)", () => {
-  // Same fixtures asserted by the server's test/rundown-core.test.ts against its implementation;
+  // Same fixtures asserted by the server's test/attention-core.test.ts against its implementation;
   // any drift between the two predicates fails one suite. Mirrors the MERGE_MARK_BACKSTOP_MS lock.
   const cases = JSON.parse(
     readFileSync(

@@ -1123,7 +1123,7 @@ input, select, textarea {
         <button class="seg-btn-demo" aria-pressed="false">Ready</button>
         <button class="seg-btn-demo" aria-pressed="false">Research</button>
         <button class="seg-btn-demo" aria-pressed="false">Done</button>
-        <button class="seg-btn-demo" aria-pressed="false">Rundown</button>
+        <button class="seg-btn-demo" aria-pressed="false">Owed</button>
       </div>
     </div>
     <pre><code>{segCtrlMarkup}</code></pre>

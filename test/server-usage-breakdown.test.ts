@@ -170,7 +170,8 @@ test("GET /api/usage/breakdown → satelliteByKind groups all kinds incl. unattr
     inputTokens: 2000,
     completedAt: NOW - 2_000,
   });
-  // Herd-wide rundown (taskSessionId "") — unattributed today; must still be counted.
+  // Herd-wide rundown (taskSessionId "") — the feature is gone, but its historical rows carry
+  // real spend and are unattributed, so the per-kind tally must still surface them.
   seedSpawn(store, {
     id: "rd-1",
     taskSessionId: "",

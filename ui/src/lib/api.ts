@@ -73,7 +73,6 @@ import type {
   EpicDiagnosis,
   Recap,
   CompletedEpic,
-  HerdDigest,
   DistillerHealth,
   RawAnswer,
   DocAgentRun,
@@ -741,7 +740,6 @@ export type RoleBase =
   | "critic"
   | "planner"
   | "recap"
-  | "rundown"
   | "docAgent"
   | "namer"
   | "autopilot"
@@ -1957,16 +1955,6 @@ export async function getRecaps(): Promise<Record<string, Recap>> {
 /** Sessions archived within the Done-lens window (last 48h), newest-first. */
 export async function getDoneSessions(): Promise<Session[]> {
   return getJson("/api/sessions/done", "done sessions");
-}
-
-/** Latest Herd Rundown digest (with route-computed `staleCount`), or `null` if none. */
-export async function getHerdDigest(): Promise<HerdDigest | null> {
-  return getJson("/api/herd/digest", "herd digest");
-}
-
-/** Trigger a fresh Herd Rundown digest. Returns `{ok, status}` from the server. */
-export async function regenerateHerdDigest(): Promise<{ ok: boolean; status: string }> {
-  return postJson("/api/herd/digest/regenerate", {}, "regenerate herd digest");
 }
 
 /** Up Next snapshot. By default (lens-open) the server also kicks a background recompute;

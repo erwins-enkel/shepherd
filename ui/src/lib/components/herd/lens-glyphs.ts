@@ -10,6 +10,5 @@ export const lensGlyph: Record<HerdFilter, string> = {
   next: "↑",
   ready: "▤",
   done: "✓",
-  rundown: "☰",
   owed: "☑",
 };

@@ -110,21 +110,6 @@
   </button>
   <button
     type="button"
-    class="lens"
-    class:on={statusFilter == null && filter === "rundown"}
-    title={m.herd_rundown_title()}
-    aria-pressed={statusFilter == null && filter === "rundown"}
-    use:coachTarget={"herd-rundown"}
-    onclick={() => {
-      filter = "rundown";
-      onstatusfilter?.(null);
-    }}
-  >
-    <span class="ic" aria-hidden="true">{lensGlyph.rundown}</span>
-    <span class="lb">{m.herd_seg_rundown()}</span>
-  </button>
-  <button
-    type="button"
     class="lens lens-owed"
     class:on={statusFilter == null && filter === "owed"}
     title={owedCount > 0 ? m.herd_owed_count({ count: owedCount }) : m.herd_owed_title()}

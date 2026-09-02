@@ -3,7 +3,7 @@
 // Intentional delta vs the UI: `merged` is also excluded from isReadyForNotify (terminal ≠ your turn).
 import type { Session, SessionStatus } from "./types";
 import type { GitState } from "./forge/types";
-import { isMerging } from "./rundown-core";
+import { isMerging } from "./attention-core";
 import { checksCleared } from "./checks-gate";
 
 /** Display-side session status — port of ui/src/lib/display-status.ts.

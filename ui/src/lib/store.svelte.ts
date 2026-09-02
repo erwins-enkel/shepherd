@@ -33,7 +33,6 @@ import type { BlockState } from "./triage";
 import { projectIcons } from "./projectIcons.svelte";
 import { reviews, planGates, spawnNotices } from "./reviews.svelte";
 import { recaps } from "./recaps.svelte";
-import { herdDigest } from "./herd-digest.svelte";
 import { upNext } from "./up-next.svelte";
 import { learnings } from "./learnings.svelte";
 import { toasts } from "./toasts.svelte";
@@ -871,9 +870,6 @@ export class HerdStore {
         break;
       case "learnings:update":
         learnings.apply(ev.data);
-        break;
-      case "herd:digest":
-        herdDigest.apply(ev.data);
         break;
       case "upnext:snapshot":
         upNext.apply(ev.data);

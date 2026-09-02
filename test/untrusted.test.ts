@@ -13,6 +13,7 @@ import { recommenderPrompt } from "../src/prompt-recommend";
 import { buildRecapPrompt } from "../src/recap-core";
 import { prReviewPrompt, reviewPrompt } from "../src/critic-core";
 import { planReviewPrompt } from "../src/plan-gate";
+import { buildDiagnosisPrompt } from "../src/maintain-core";
 
 describe("isTrustedAssociation", () => {
   it("trusts OWNER/MEMBER/COLLABORATOR", () => {
@@ -121,6 +122,25 @@ describe("#2002 fence ⇒ directive invariant", () => {
     ["reviewPrompt", reviewPrompt("origin/main", "task", [], [], "issue text")],
     ["prReviewPrompt", prReviewPrompt("origin/main", "title", "body")],
     ["planReviewPrompt", planReviewPrompt("task", "plan text", [], "issue text")],
+    [
+      "buildDiagnosisPrompt",
+      buildDiagnosisPrompt({
+        reading: {
+          key: "incident_spike:stall",
+          bandId: "incident_spike",
+          repoPath: null,
+          subject: "stall",
+          tier: 2,
+          value: 30,
+          sampleN: 6,
+          belowMinSample: false,
+          evaluatedAt: 0,
+        },
+        evidence: [{ kind: "stall", repo: "shepherd", ts: 0, payload: "agent tail" }],
+        windowDays: 7,
+        thresholdNote: "t1 10/3, t2 25/5",
+      }),
+    ],
   ];
 
   for (const [name, prompt] of prompts) {

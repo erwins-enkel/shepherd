@@ -36,7 +36,7 @@ export interface SpawnDescriptor {
    *  (create/drain/resume); the others are the reviewer-style auto-process spawns that also
    *  fire onSpawn so a plugin can route their quota (e.g. onto a pool account) — see
    *  {@link SpawnPatch.credentialDir} for how a returned credentialDir is bound (#1213). */
-  kind: "session" | "review" | "plan-gate" | "doc";
+  kind: "session" | "review" | "plan-gate" | "doc" | "maintain";
   /** For an aux spawn tied to a managed session (review, plan-gate): that session's id, so a
    *  plugin can keep the aux spawn on the parent session's account. Undefined for a normal
    *  session (it IS the parent) and for session-less aux spawns (doc-agent, standalone critic). */

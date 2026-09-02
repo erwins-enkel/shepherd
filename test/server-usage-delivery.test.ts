@@ -3,13 +3,17 @@ import { makeApp, type AppDeps } from "../src/server";
 import { SessionStore } from "../src/store";
 import { EventHub } from "../src/events";
 
-function harness(): { app: ReturnType<typeof makeApp>; store: SessionStore } {
+function harness(over: Partial<AppDeps> = {}): {
+  app: ReturnType<typeof makeApp>;
+  store: SessionStore;
+} {
   const store = new SessionStore(":memory:");
   const deps: AppDeps = {
     store,
     service: {} as any,
     events: new EventHub(),
     usageLimits: { limits: () => ({}) } as any,
+    ...over,
   };
   return { app: makeApp(deps), store };
 }
@@ -97,4 +101,53 @@ test("empty install returns nulls, not zeros", async () => {
   expect(body.totals.leadTimeMs.value).toBeNull();
   expect(body.totals.planDriftRate.value).toBeNull();
   expect(body.totals.firstPushGreenRate.value).toBeNull();
+});
+
+// ── maintain loop block (#2157) ──────────────────────────────────────────────
+
+const READING = {
+  key: "critic_error_rate",
+  bandId: "critic_error_rate" as const,
+  repoPath: null,
+  subject: null,
+  tier: 2 as const,
+  value: 0.4,
+  sampleN: 20,
+  belowMinSample: false,
+  evaluatedAt: NOW,
+};
+
+test("the delivery payload always carries a maintain block", async () => {
+  // SHEPHERD_MAINTAIN_LOOP is off in tests, so this is the default-off contract the lens renders.
+  const { app } = harness();
+  const res = await app.fetch(new Request("http://x/api/usage/delivery"));
+  const body = await res.json();
+  expect(body.maintain).toEqual({ enabled: false, act: false, readings: [], recentRuns: [] });
+});
+
+test("a wired maintain service surfaces its readings on the delivery payload", async () => {
+  const { app } = harness({
+    maintain: { sweep: async () => {}, snapshot: () => ({ readings: [READING], recentRuns: [] }) },
+  });
+  const res = await app.fetch(new Request("http://x/api/usage/delivery"));
+  const body = await res.json();
+  expect(body.maintain.readings).toHaveLength(1);
+  expect(body.maintain.readings[0].key).toBe("critic_error_rate");
+  // The block is additive — the R1 indicators are untouched beside it.
+  expect(body.totals).toBeDefined();
+});
+
+test("POST /api/maintain/sweep 404s while the feature flag is off", async () => {
+  let swept = false;
+  const { app } = harness({
+    maintain: {
+      sweep: async () => {
+        swept = true;
+      },
+      snapshot: () => ({ readings: [], recentRuns: [] }),
+    },
+  });
+  const res = await app.fetch(new Request("http://x/api/maintain/sweep", { method: "POST" }));
+  expect(res.status).toBe(404);
+  expect(swept).toBe(false);
 });

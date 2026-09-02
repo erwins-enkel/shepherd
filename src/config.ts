@@ -13,6 +13,7 @@ import { normalizeAuthModeSetting } from "./auth-mode";
 import { normalizeAgentProvider } from "./agent-provider";
 import { normalizeTelemetryConsent } from "./telemetry-consent";
 import { normalizeOperatorLanguage } from "./operator-language";
+import { thresholdsFromEnv } from "./maintain-core";
 import { type SandboxProfile, isSandboxProfile } from "./sandbox";
 import { applyHerdrSocket } from "./herdr-session";
 import { HOUSE_RULES_DEFAULT_BUDGET_CHARS } from "./house-rules";
@@ -736,6 +737,24 @@ export const config = {
   // repo (issue #904). Once/day/repo, and only spawns when the default branch advanced since the last
   // run; default 3 (≈03:00 local). Invalid values fall back to 3.
   docAgentNightlyHour: parseHour(process.env.SHEPHERD_DOC_AGENT_NIGHTLY_HOUR, 3),
+  // Maintain loop (#2157, from #2151 R5). Two-phase like the doc agent above: this flag arms band
+  // evaluation, Tier-1 logging and the Tier-2 read-only diagnosis spawn, but the drafted issue is
+  // only LOGGED until `maintainLoopAct` is also set. Default off; fully inert when off.
+  maintainLoopEnabled: process.env.SHEPHERD_MAINTAIN_LOOP === "1",
+  // Phase-1 escalation; meaningful only with `maintainLoopEnabled`. When off, finalize logs the
+  // issue it WOULD file and calls createIssue never.
+  maintainLoopAct: process.env.SHEPHERD_MAINTAIN_ACT === "1",
+  // Local hour (0–23) at/after which the once-a-day band sweep may run. Default 4 (≈04:00 local),
+  // an hour after the doc agent's so the two nightly spawns don't land together.
+  maintainLoopHour: parseHour(process.env.SHEPHERD_MAINTAIN_HOUR, 4),
+  // Per-role ENVIRONMENT for the diagnosis spawn, same shape as every other transient role.
+  maintainCli: normalizeRoleCli(process.env.SHEPHERD_MAINTAIN_CLI) ?? "inherit",
+  maintainModel: normalizeRoleModelToken(process.env.SHEPHERD_MAINTAIN_MODEL) ?? "default",
+  maintainEffort: normalizeDefaultEffortSetting(process.env.SHEPHERD_MAINTAIN_EFFORT) ?? "default",
+  // Operator override for the band thresholds, as a JSON object deep-merged over the code defaults
+  // (see maintain-core.ts). Parsed field-by-field and fail-soft: a typo falls back to the default
+  // rather than disarming a band. Lets a recalibration ship without a deploy.
+  maintainThresholds: thresholdsFromEnv(process.env.SHEPHERD_MAINTAIN_THRESHOLDS),
   // Context trim for auto-spawned (drain) agents (issues #499, #2001): a per-spawn settings
   // overlay disabling every operator-enabled plugin (drops plugin hook injections, skills,
   // and MCP), Claude Code's bundled skills, and the operator's personal ~/.claude/skills —

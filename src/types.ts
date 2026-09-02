@@ -877,7 +877,7 @@ export interface ReviewerSpawnRow {
   taskSessionId: string;
   /** `rundown` is READ-ONLY history: the Herd Rundown was removed and nothing writes that
    *  kind any more, but its past rows carry real token spend the usage breakdown attributes. */
-  kind: "review" | "plan_gate" | "recap" | "rundown" | "doc_agent";
+  kind: "review" | "plan_gate" | "recap" | "rundown" | "doc_agent" | "maintain";
   worktreePath: string;
   reviewerProvider: AgentProvider | null;
   model: string | null;
@@ -904,8 +904,8 @@ export interface ReviewerSpawnRow {
 }
 
 /** Terminal state of one reviewer run. `review` kinds resolve to clean/changes_requested/error;
- *  `plan_gate` kinds to approved/rework/error. The other spawn kinds (recap, doc_agent, and the
- *  retired rundown) are never stamped — they have no verdict a delivery metric reads. */
+ *  `plan_gate` kinds to approved/rework/error. The other spawn kinds (recap, doc_agent, maintain,
+ *  and the retired rundown) are never stamped — they have no verdict a delivery metric reads. */
 export type ReviewerSpawnOutcome = "clean" | "changes_requested" | "approved" | "rework" | "error";
 
 /** How far a merged diff departed from the APPROVED PLAN the critic was shown (#2155). Reported by
@@ -1049,6 +1049,70 @@ export interface DeliveryMetrics {
   incidents: DeliveryIncidentRow[];
   trend: DeliveryBucket[];
   tasks: DeliveryTaskRow[];
+}
+
+// ── maintain loop (#2157) ────────────────────────────────────────────────────
+
+/** The three bands v1 evaluates over Shepherd's OWN health data (#2151 R5). */
+export type BandId = "critic_error_rate" | "incident_spike" | "first_pass_collapse";
+
+/** 0 = clear (or below the band's minimum sample), 1 = log, 2 = diagnose. Tier 3 (open a PR for a
+ *  pre-approved fix class) is deliberately not implemented — see the follow-up issue. */
+export type MaintainTier = 0 | 1 | 2;
+
+/** One band evaluated once. `key` is the stable identity a run and a cooldown are keyed by:
+ *  `critic_error_rate`, `incident_spike:<signal kind>`, `first_pass_collapse:<repoPath>`. */
+export interface BandReading {
+  key: string;
+  bandId: BandId;
+  /** Set for repo-scoped bands (`first_pass_collapse`); null for the global ones. */
+  repoPath: string | null;
+  /** Set for `incident_spike` — the signal kind this row is about; null otherwise. */
+  subject: string | null;
+  tier: MaintainTier;
+  /** The measured quantity. A rate in 0..1 for the two rate bands, an occurrence count for
+   *  `incident_spike`. */
+  value: number;
+  /** Sample size behind `value` — review spawns, merged tasks, or distinct sessions. A band below
+   *  its minimum sample reports tier 0 and is shown as such rather than as "clear". */
+  sampleN: number;
+  /** True when `sampleN` fell under the band's minimum, i.e. `tier` is 0 for want of data rather
+   *  than because the metric is healthy. */
+  belowMinSample: boolean;
+  evaluatedAt: number;
+}
+
+/** Terminal state of a Tier-2 diagnosis run. `skipped` covers a run that produced a draft the
+ *  server chose not to file (act off), which is the expected observe-mode outcome. */
+export type MaintainOutcome = "filed" | "skipped" | "error";
+
+/** One Tier-2 diagnosis spawn. Append-only: this is both the audit trail and — critically — the
+ *  cooldown anchor, so a row is written for EVERY run including the ones that file nothing. */
+export interface MaintainRun {
+  id: string;
+  bandKey: string;
+  bandId: BandId;
+  tier: MaintainTier;
+  value: number;
+  worktreePath: string;
+  agentName: string;
+  spawnSessionId: string;
+  spawnedAt: number;
+  completedAt: number | null;
+  outcome: MaintainOutcome | null;
+  issueNumber: number | null;
+  issueUrl: string | null;
+}
+
+/** The `maintain` block riding the GET /api/usage/delivery payload. Mirror of the contract in
+ *  ui/src/lib/types.ts — keep in sync. */
+export interface MaintainBlock {
+  /** SHEPHERD_MAINTAIN_LOOP — evaluation, logging and the diagnosis spawn are armed. */
+  enabled: boolean;
+  /** SHEPHERD_MAINTAIN_ACT — a drafted issue is actually filed. Meaningless without `enabled`. */
+  act: boolean;
+  readings: BandReading[];
+  recentRuns: MaintainRun[];
 }
 
 // ── autopilot mode ──────────────────────────────────────────────────────────
@@ -1429,7 +1493,7 @@ export interface UsageRepoBreakdown {
 // per-task `satelliteUnits` attribution (different filter axis + includes unattributed
 // buckets like doc_agent/standalone-critic) — see buildUsageBreakdown.
 export interface UsageKindUnits {
-  kind: string; // "review" | "plan_gate" | "recap" | "doc_agent" (+ historical "rundown") — data, not translated
+  kind: string; // "review" | "plan_gate" | "recap" | "doc_agent" | "maintain" (+ historical "rundown") — data, not translated
   units: number; // weighted units for that kind, in range
   count: number; // number of completed passes of that kind, in range
 }

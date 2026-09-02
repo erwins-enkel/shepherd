@@ -2,7 +2,13 @@
   // Delivery metrics (#2151 R1) — the OUTCOME counterpart to the cost lenses. Spend/Overhead say
   // what a task cost; this says whether the process is getting better: how often work lands
   // first try, how many rework rounds it takes, and how long it takes to get there.
-  import type { DeliveryMetrics, DeliverySample, DeliveryStats } from "$lib/types";
+  import type {
+    BandReading,
+    DeliveryMetrics,
+    DeliverySample,
+    DeliveryStats,
+    MaintainRun,
+  } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import GlossaryText from "$lib/components/GlossaryText.svelte";
   import Sparkline from "./Sparkline.svelte";
@@ -111,6 +117,48 @@
   /** Nothing instrumented yet is a DIFFERENT state from "nothing merged in this window", and the
    *  two must not render the same — one is young instrumentation, the other is a quiet week. */
   const uninstrumented = $derived(metrics.measuringSince == null);
+
+  // ── maintain loop (#2157) ──────────────────────────────────────────────────
+  // Every band is shown, breached or not: the thresholds shipped as calibrated guesses, so the
+  // operator recalibrates them from the live values here rather than from a breach alone.
+
+  const maintain = $derived(metrics.maintain);
+
+  /** Newest run for a band, so a row can link to the issue its own band produced. `recentRuns` is
+   *  newest-first and capped server-side, so a scan is cheaper than a keyed structure. */
+  function latestRun(bandKey: string): MaintainRun | undefined {
+    return maintain?.recentRuns.find((r) => r.bandKey === bandKey);
+  }
+
+  function bandLabel(r: BandReading): string {
+    if (r.bandId === "critic_error_rate") return m.usage_maintain_band_critic_errors();
+    if (r.bandId === "incident_spike")
+      return m.usage_maintain_band_incidents({ kind: r.subject ?? "?" });
+    return m.usage_maintain_band_first_pass({ repo: r.subject ?? "?" });
+  }
+
+  /** The measured quantity in the band's own units — a rate for the two rate bands, a raw count
+   *  for the incident band. */
+  function bandValue(r: BandReading): string {
+    if (r.belowMinSample) return EMPTY;
+    return r.bandId === "incident_spike" ? String(r.value) : formatPct(r.value);
+  }
+
+  function bandSample(r: BandReading): string {
+    return m.usage_maintain_sample({ n: r.sampleN });
+  }
+
+  function bandState(r: BandReading): string {
+    if (r.belowMinSample) return m.usage_maintain_state_no_data();
+    if (r.tier === 2) return m.usage_maintain_state_diagnose();
+    if (r.tier === 1) return m.usage_maintain_state_log();
+    return m.usage_maintain_state_clear();
+  }
+
+  function stateClass(r: BandReading): string {
+    if (r.belowMinSample) return "chip";
+    return r.tier === 2 ? "chip chip-bad" : r.tier === 1 ? "chip chip-warn" : "chip chip-ok";
+  }
 </script>
 
 <div class="delivery-lens">
@@ -208,6 +256,50 @@
         <p class="caption">{m.usage_delivery_incidents_caption()}</p>
       </section>
     {/if}
+
+    {#if maintain}
+      <section class="panel delivery-section">
+        <h2 class="section-heading">{m.usage_maintain_heading()}</h2>
+        <p class="caption">
+          {#if !maintain.enabled}
+            {m.usage_maintain_disabled()}
+          {:else if !maintain.act}
+            {m.usage_maintain_observe()}
+          {:else}
+            {m.usage_maintain_armed()}
+          {/if}
+        </p>
+        {#if maintain.readings.length > 0}
+          <div class="rows">
+            <div class="row band-row row-head">
+              <span>{m.usage_maintain_col_band()}</span>
+              <span class="numeric">{m.usage_maintain_col_value()}</span>
+              <span class="numeric">{m.usage_maintain_col_sample()}</span>
+              <span class="numeric">{m.usage_maintain_col_state()}</span>
+            </div>
+            {#each maintain.readings as reading (reading.key)}
+              {@const run = latestRun(reading.key)}
+              <div class="row band-row">
+                <span class="repo-name">{bandLabel(reading)}</span>
+                <span class="numeric">{bandValue(reading)}</span>
+                <span class="numeric">{bandSample(reading)}</span>
+                <span class="numeric">
+                  <span class={stateClass(reading)}>{bandState(reading)}</span>
+                  {#if run?.issueUrl}
+                    <!-- eslint-disable svelte/no-navigation-without-resolve -- external forge URL -->
+                    <a class="issue-link" href={run.issueUrl} target="_blank" rel="noreferrer"
+                      >#{run.issueNumber}</a
+                    >
+                  {/if}
+                </span>
+              </div>
+            {/each}
+          </div>
+        {:else}
+          <p class="muted">{m.usage_maintain_empty()}</p>
+        {/if}
+      </section>
+    {/if}
   {/if}
 </div>
 
@@ -296,6 +388,37 @@
     grid-template-columns: 1fr auto;
   }
 
+  .band-row {
+    grid-template-columns: 1fr 4.5rem 4rem auto;
+  }
+
+  .chip {
+    display: inline-block;
+    padding: 0 0.375rem;
+    border-radius: 0.25rem;
+    font-size: var(--fs-micro);
+    background: var(--color-inset);
+    color: var(--color-muted);
+  }
+
+  .chip-ok {
+    color: var(--color-green);
+  }
+
+  .chip-warn {
+    color: var(--color-amber);
+  }
+
+  .chip-bad {
+    color: var(--color-red);
+  }
+
+  .issue-link {
+    margin-left: 0.375rem;
+    font-size: var(--fs-micro);
+    color: var(--color-blue);
+  }
+
   .row-head {
     color: var(--color-muted);
     font-size: var(--fs-micro);
@@ -317,10 +440,18 @@
      beat `.incident-row` above on source order alone and squeeze the incident count into the
      repo grid's 3rem track. */
   @media (max-width: 480px) {
-    .row:not(.incident-row) {
+    .row:not(.incident-row, .band-row) {
       grid-template-columns: 1fr 3rem 3.5rem 3.5rem;
     }
-    .row:not(.incident-row) > :last-child {
+    .row:not(.incident-row, .band-row) > :last-child {
+      display: none;
+    }
+    .band-row {
+      grid-template-columns: 1fr 3.5rem auto;
+    }
+    /* Sample size is the first thing to go on a narrow screen — the value and the tier state are
+       what the card is read for. */
+    .band-row > :nth-child(3) {
       display: none;
     }
   }

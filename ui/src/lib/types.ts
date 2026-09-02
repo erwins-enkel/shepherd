@@ -1378,7 +1378,7 @@ export interface UsageRepoBreakdown {
 
 /** One satellite-pass kind's global, spawn-timestamp-filtered tally (Overhead lens). */
 export interface UsageKindUnits {
-  kind: string; // "review" | "plan_gate" | "recap" | "doc_agent" (+ historical "rundown") — data, not translated
+  kind: string; // "review" | "plan_gate" | "recap" | "doc_agent" | "maintain" (+ historical "rundown") — data, not translated
   units: number; // weighted units for that kind, in range
   count: number; // number of completed passes of that kind, in range
 }
@@ -1505,6 +1505,55 @@ export interface DeliveryMetrics {
   incidents: DeliveryIncidentRow[];
   trend: DeliveryBucket[];
   tasks: DeliveryTaskRow[];
+  /** Maintain-loop band state (#2157). Additive: absent on an older server, so the lens must
+   *  tolerate `undefined` rather than assume the block. */
+  maintain?: MaintainBlock;
+}
+
+// ── maintain loop (#2157) — mirror of the server contract in src/types.ts ────
+
+export type BandId = "critic_error_rate" | "incident_spike" | "first_pass_collapse";
+
+/** 0 = clear (or below the band's minimum sample), 1 = log, 2 = diagnose. */
+export type MaintainTier = 0 | 1 | 2;
+
+export interface BandReading {
+  key: string;
+  bandId: BandId;
+  repoPath: string | null;
+  /** Signal kind for `incident_spike`, repo basename for `first_pass_collapse`, else null. */
+  subject: string | null;
+  tier: MaintainTier;
+  value: number;
+  sampleN: number;
+  /** tier is 0 for want of data, NOT because the metric is healthy — rendered differently. */
+  belowMinSample: boolean;
+  evaluatedAt: number;
+}
+
+export type MaintainOutcome = "filed" | "skipped" | "error";
+
+export interface MaintainRun {
+  id: string;
+  bandKey: string;
+  bandId: BandId;
+  tier: MaintainTier;
+  value: number;
+  worktreePath: string;
+  agentName: string;
+  spawnSessionId: string;
+  spawnedAt: number;
+  completedAt: number | null;
+  outcome: MaintainOutcome | null;
+  issueNumber: number | null;
+  issueUrl: string | null;
+}
+
+export interface MaintainBlock {
+  enabled: boolean;
+  act: boolean;
+  readings: BandReading[];
+  recentRuns: MaintainRun[];
 }
 
 /** One hour of weighted-unit consumption (mirrors server UsageTimelineHour). */

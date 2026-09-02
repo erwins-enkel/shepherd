@@ -97,6 +97,18 @@ const glossary: readonly GlossaryTerm[] = [
     bodyKey: "gloss_plan_drift_def",
   },
   {
+    id: "maintain-loop",
+    kind: "internal",
+    termKey: "gloss_maintain_loop_term",
+    bodyKey: "gloss_maintain_loop_def",
+  },
+  {
+    id: "band",
+    kind: "internal",
+    termKey: "gloss_band_term",
+    bodyKey: "gloss_band_def",
+  },
+  {
     id: "lead-time",
     kind: "external",
     termKey: "gloss_lead_time_term",

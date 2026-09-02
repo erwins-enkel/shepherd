@@ -34,6 +34,9 @@ import type {
   PlanDrift,
   CiConclusion,
   DeliveryFact,
+  BandReading,
+  MaintainRun,
+  MaintainOutcome,
   AgentProvider,
   PrReview,
   PostMergeStep,
@@ -1413,6 +1416,25 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       id TEXT PRIMARY KEY, repoPath TEXT NOT NULL, sessionId TEXT,
       kind TEXT NOT NULL, payload TEXT NOT NULL, ts INTEGER NOT NULL)`);
     this.db.run(`CREATE INDEX IF NOT EXISTS signals_repo_ts ON signals (repoPath, ts)`);
+    // Maintain loop (#2157). Readings are UPSERTED per band key — one row per band, bounded by the
+    // band count, so they need no retention sweep. They deliberately do NOT live in `signals`: the
+    // `incident_spike` band counts `signals` BY KIND, so a breach written there would feed the very
+    // band that emitted it and amplify itself every sweep.
+    this.db.run(`CREATE TABLE IF NOT EXISTS maintain_readings (
+      bandKey TEXT PRIMARY KEY, bandId TEXT NOT NULL, repoPath TEXT, subject TEXT,
+      tier INTEGER NOT NULL, value REAL NOT NULL, sampleN INTEGER NOT NULL,
+      belowMinSample INTEGER NOT NULL, evaluatedAt INTEGER NOT NULL)`);
+    // Append-only diagnosis-run log. This is the COOLDOWN ANCHOR, not just an audit trail: a row is
+    // written for every run including the ones that file nothing (observe mode), which is what
+    // bounds spend to one diagnosis per band per cooldown in EVERY configuration.
+    this.db.run(`CREATE TABLE IF NOT EXISTS maintain_runs (
+      id TEXT PRIMARY KEY, bandKey TEXT NOT NULL, bandId TEXT NOT NULL,
+      tier INTEGER NOT NULL, value REAL NOT NULL, worktreePath TEXT NOT NULL,
+      agentName TEXT NOT NULL, spawnSessionId TEXT NOT NULL, spawnedAt INTEGER NOT NULL,
+      completedAt INTEGER, outcome TEXT, issueNumber INTEGER, issueUrl TEXT)`);
+    this.db.run(
+      `CREATE INDEX IF NOT EXISTS maintain_runs_band ON maintain_runs (bandKey, spawnedAt)`,
+    );
     this.db.run(`CREATE TABLE IF NOT EXISTS learnings (
   id TEXT PRIMARY KEY, repoPath TEXT NOT NULL, rule TEXT NOT NULL,
   rationale TEXT NOT NULL DEFAULT '', evidence TEXT NOT NULL DEFAULT '[]',
@@ -3887,7 +3909,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   recordReviewerSpawn(r: {
     reviewerSessionId: string;
     taskSessionId: string;
-    kind: "review" | "plan_gate" | "recap" | "doc_agent";
+    kind: "review" | "plan_gate" | "recap" | "doc_agent" | "maintain";
     worktreePath: string;
     reviewerProvider?: AgentProvider | null;
     model: string | null;
@@ -3998,6 +4020,28 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
          WHERE reviewerSessionId = ? AND providerSessionId IS NULL`,
       [providerSessionId, reviewerSessionId],
     );
+  }
+
+  /**
+   * Review-spawn outcomes in a window, for the `critic_error_rate` band (#2157).
+   *
+   * Read straight off `reviewer_spawns` rather than off `DeliveryStats.criticErrors`: that field
+   * counts only spawns belonging to tasks whose merge SETTLED in the window, which biases the rate
+   * downward exactly when review errors are what's blocking merges.
+   *
+   * A NULL `outcome` is a legacy row or a spawn that never finalized — UNKNOWN, so it counts as
+   * neither an error nor a verdict, matching how `applyReviewSpawn` treats it in delivery-metrics.
+   */
+  countReviewOutcomes(since: number): { verdicts: number; errors: number } {
+    const row = this.db
+      .query(
+        `SELECT
+           SUM(CASE WHEN outcome IN ('clean','changes_requested') THEN 1 ELSE 0 END) AS verdicts,
+           SUM(CASE WHEN outcome = 'error' THEN 1 ELSE 0 END) AS errors
+         FROM reviewer_spawns WHERE kind = 'review' AND spawnedAt >= ?`,
+      )
+      .get(since) as { verdicts: number | null; errors: number | null };
+    return { verdicts: row.verdicts ?? 0, errors: row.errors ?? 0 };
   }
 
   /** All reviewer-spawn rows, oldest-spawned first. Column names already match the
@@ -4173,11 +4217,152 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       .all(since) as { kind: SignalKind; occurrences: number; sessions: number }[];
   }
 
+  /** Recent signals of ONE kind across EVERY repo, newest first (#2157 evidence).
+   *
+   *  Global on purpose: the `incident_spike` band is scored by `countSignalsByKind`, which has no
+   *  repo dimension. Fetching evidence per-repo instead would hand the diagnosis agent an empty
+   *  evidence block for a band breached by signals in some other repo — the exact case it exists
+   *  to explain. `limit` bounds the read; the prompt builder caps what it actually embeds. */
+  listSignalsByKind(kind: SignalKind, sinceTs: number, limit: number): Signal[] {
+    return this.db
+      .query(
+        `SELECT id, repoPath, sessionId, kind, payload, ts FROM signals
+         WHERE kind = ? AND ts >= ? ORDER BY ts DESC LIMIT ?`,
+      )
+      .all(kind, sinceTs, limit) as Signal[];
+  }
+
   pruneSignals(beforeTs: number): number {
     const n = (
       this.db.query(`SELECT COUNT(*) AS c FROM signals WHERE ts < ?`).get(beforeTs) as { c: number }
     ).c;
     this.db.run(`DELETE FROM signals WHERE ts < ?`, [beforeTs]);
+    return n;
+  }
+
+  // ── maintain loop (#2157) ────────────────────────────────────────────────────
+
+  /** Record this sweep's reading for a band, replacing the previous one. One row per band key, so
+   *  the table is bounded by the band count and needs no retention sweep. */
+  upsertMaintainReading(r: BandReading): void {
+    this.db.run(
+      `INSERT INTO maintain_readings
+         (bandKey, bandId, repoPath, subject, tier, value, sampleN, belowMinSample, evaluatedAt)
+       VALUES (?,?,?,?,?,?,?,?,?)
+       ON CONFLICT(bandKey) DO UPDATE SET
+         bandId = excluded.bandId, repoPath = excluded.repoPath, subject = excluded.subject,
+         tier = excluded.tier, value = excluded.value, sampleN = excluded.sampleN,
+         belowMinSample = excluded.belowMinSample, evaluatedAt = excluded.evaluatedAt`,
+      [
+        r.key,
+        r.bandId,
+        r.repoPath,
+        r.subject,
+        r.tier,
+        r.value,
+        r.sampleN,
+        r.belowMinSample ? 1 : 0,
+        r.evaluatedAt,
+      ],
+    );
+  }
+
+  /** Every band's latest reading, most severe first then most recent. */
+  listMaintainReadings(): BandReading[] {
+    const rows = this.db
+      .query(
+        `SELECT bandKey, bandId, repoPath, subject, tier, value, sampleN, belowMinSample, evaluatedAt
+         FROM maintain_readings ORDER BY tier DESC, evaluatedAt DESC, bandKey ASC`,
+      )
+      .all() as Array<
+      Omit<BandReading, "key" | "belowMinSample"> & {
+        bandKey: string;
+        belowMinSample: number;
+      }
+    >;
+    return rows.map(({ bandKey, belowMinSample, ...rest }) => ({
+      ...rest,
+      key: bandKey,
+      belowMinSample: belowMinSample === 1,
+    }));
+  }
+
+  insertMaintainRun(run: MaintainRun): void {
+    this.db.run(
+      `INSERT INTO maintain_runs
+         (id, bandKey, bandId, tier, value, worktreePath, agentName, spawnSessionId,
+          spawnedAt, completedAt, outcome, issueNumber, issueUrl)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [
+        run.id,
+        run.bandKey,
+        run.bandId,
+        run.tier,
+        run.value,
+        run.worktreePath,
+        run.agentName,
+        run.spawnSessionId,
+        run.spawnedAt,
+        run.completedAt,
+        run.outcome,
+        run.issueNumber,
+        run.issueUrl,
+      ],
+    );
+  }
+
+  /** Close out a run. Guarded on `completedAt IS NULL` so a late finalize can never overwrite an
+   *  outcome an earlier one already settled (the restart-adoption path can race its own timeout). */
+  finishMaintainRun(
+    id: string,
+    o: { outcome: MaintainOutcome; completedAt: number; issueNumber?: number; issueUrl?: string },
+  ): void {
+    this.db.run(
+      `UPDATE maintain_runs SET outcome = ?, completedAt = ?, issueNumber = ?, issueUrl = ?
+         WHERE id = ? AND completedAt IS NULL`,
+      [o.outcome, o.completedAt, o.issueNumber ?? null, o.issueUrl ?? null, id],
+    );
+  }
+
+  /** Runs that never completed — the restart-adoption set. */
+  listInflightMaintainRuns(): MaintainRun[] {
+    return this.db
+      .query(`SELECT * FROM maintain_runs WHERE completedAt IS NULL ORDER BY spawnedAt`)
+      .all() as MaintainRun[];
+  }
+
+  /** Most recent COMPLETED run for a band, whatever its outcome and whether or not it filed. This
+   *  is the cooldown anchor: observe mode files nothing, so anchoring on a filed issue would leave
+   *  a persistent breach with no anchor and re-spawn a diagnosis every sweep. */
+  lastCompletedMaintainRun(bandKey: string): MaintainRun | null {
+    return (this.db
+      .query(
+        `SELECT * FROM maintain_runs WHERE bandKey = ? AND completedAt IS NOT NULL
+         ORDER BY completedAt DESC LIMIT 1`,
+      )
+      .get(bandKey) ?? null) as MaintainRun | null;
+  }
+
+  /** Newest runs, for the Delivery lens's band card. */
+  listMaintainRuns(limit: number): MaintainRun[] {
+    return this.db
+      .query(`SELECT * FROM maintain_runs ORDER BY spawnedAt DESC LIMIT ?`)
+      .all(limit) as MaintainRun[];
+  }
+
+  /** Drop diagnosis-run rows older than `beforeTs`. Its own retention sweep, like reviewer_spawns.
+   *  In-flight rows (completedAt IS NULL) are never dropped — they are the adoption set. */
+  pruneMaintainRuns(beforeTs: number): number {
+    const n = (
+      this.db
+        .query(
+          `SELECT COUNT(*) AS c FROM maintain_runs WHERE spawnedAt < ? AND completedAt IS NOT NULL`,
+        )
+        .get(beforeTs) as { c: number }
+    ).c;
+    this.db.run(`DELETE FROM maintain_runs WHERE spawnedAt < ? AND completedAt IS NOT NULL`, [
+      beforeTs,
+    ]);
     return n;
   }
 

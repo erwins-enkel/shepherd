@@ -12,7 +12,7 @@ import {
 import { WorktreeMissingBaseError, WorktreeRestoreError } from "./worktree";
 import { LearningsService } from "./learnings-service";
 import { RepoConfigService } from "./repo-config-service";
-import type { StandardCreateInput } from "./types";
+import type { MaintainBlock, StandardCreateInput } from "./types";
 import type { EventHub } from "./events";
 import { PtyBridge } from "./pty-bridge";
 import { SocketPtyBridge } from "./socket-pty-bridge";
@@ -530,6 +530,16 @@ export interface AppDeps {
   docAgent?: {
     consider: (repoPath: string) => Promise<import("./doc-agent").DocAgentResult>;
     isRunning: (repoPath: string) => boolean;
+  };
+  /** Maintain loop (#2157). Optional + flag-gated (config.maintainLoopEnabled): the manual sweep
+   *  route 404s when the flag is off or the service is unwired, and the `maintain` block on the
+   *  delivery payload reports `enabled: false`. Wired to MaintainService in index.ts. */
+  maintain?: {
+    sweep: (opts?: { force?: boolean }) => Promise<void>;
+    snapshot: () => {
+      readings: import("./types").BandReading[];
+      recentRuns: import("./types").MaintainRun[];
+    };
   };
   /** Open a PR adding Shepherd's managed `.shepherd-*` ignore block to a repo's `.gitignore`. */
   gitignoreAdopter?: {
@@ -4369,7 +4379,30 @@ function handleUsageDelivery({ req, parts, url, deps }: Ctx): Response | null {
   const raw = url.searchParams.get("range") ?? "7d";
   if (raw !== "24h" && raw !== "7d" && raw !== "30d" && raw !== "all")
     return json({ error: "invalid range" }, 400);
-  return json(buildDeliveryMetrics({ store: deps.store, range: raw, now: Date.now() }));
+  const metrics = buildDeliveryMetrics({ store: deps.store, range: raw, now: Date.now() });
+  // The maintain loop's band card rides this payload rather than a second endpoint: it is read on
+  // the same lens, from the same numbers. Band readings are range-INDEPENDENT (each band has its
+  // own fixed window), so they do not vary with `range`.
+  const snap = deps.maintain?.snapshot();
+  const maintain: MaintainBlock = {
+    enabled: config.maintainLoopEnabled,
+    act: config.maintainLoopAct,
+    readings: snap?.readings ?? [],
+    recentRuns: snap?.recentRuns ?? [],
+  };
+  return json({ ...metrics, maintain });
+}
+
+// POST /api/maintain/sweep — manually run a band evaluation (#2157). Same unadvertised-404 contract
+// as POST /api/doc-agent when the feature is off. `force` skips the hour/presence/day-key cadence
+// gates so the path is exercisable on demand; it does NOT skip suppression, which is the spend bound.
+async function handleMaintainSweep({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(parts[0] === "api" && parts[1] === "maintain" && parts[2] === "sweep" && !parts[3]))
+    return null;
+  if (req.method !== "POST") return null;
+  if (!config.maintainLoopEnabled || !deps.maintain) return json({ error: "not found" }, 404);
+  await deps.maintain.sweep({ force: true });
+  return json({ ok: true, ...deps.maintain.snapshot() });
 }
 
 async function handleUsageTimeline({ req, parts, url, deps }: Ctx): Promise<Response | null> {
@@ -7828,6 +7861,7 @@ const ROUTE_HANDLERS = [
   handleUsageLimits,
   handleUsageBreakdown,
   handleUsageDelivery,
+  handleMaintainSweep,
   handleUsageTimeline,
   handlePromptBudget,
   handleUpdate,

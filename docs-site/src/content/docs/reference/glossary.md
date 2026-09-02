@@ -82,6 +82,19 @@ reported by the PR critic: none, minor or major. It never affects the review's
 verdict — departing from a plan is legitimate. It is measured because a repo that
 drifts constantly is usually writing vague plans, not writing bad code.
 
+### Maintain loop
+
+A daily check of Shepherd's own health signals against declared thresholds. A
+mild breach is logged; a sustained one spawns a read-only agent that drafts a
+backlog issue for you to triage. It watches Shepherd itself — never a production
+system.
+
+### Band
+
+One health signal plus the thresholds that decide what happens when it is
+crossed: tier 1 logs a reading, tier 2 spawns a diagnosis. A band below its
+minimum sample size reports nothing rather than a misleading number.
+
 ### Inferred
 
 Derived by the recap model from the code — not verified against the real diff.

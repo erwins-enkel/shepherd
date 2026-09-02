@@ -1069,3 +1069,47 @@ test("no comment or doc claims an eval count that disagrees with CASES", () => {
   }
   expect(wrong).toEqual([]);
 });
+
+test("every workflow leg's spend ceiling clears what that leg is expected to cost", () => {
+  // A ceiling BELOW the expected total is worse than no ceiling: the run stops, discards its
+  // partial results and returns CANNOT_RUN, which the workflow maps to a warning and a green job —
+  // so it spends money, measures nothing, and green-skips every time. That shipped twice (the
+  // weekly leg at $5 against a ~$11 run, then the PR leg at $1 against a ~$3 critic smoke), both
+  // times found in review rather than by anything automatic. This is the automatic part.
+  //
+  // Per-trial rates are the ones measured in this session and recorded in docs/eval-harness.md.
+  const USD_PER_TRIAL: Record<string, number> = {
+    critic: 0.27,
+    "plan-gate": 0.08,
+    "stop-classifier": 0.01,
+  };
+  const gatingCount: Record<string, number> = {
+    critic: CRITIC_SPEC.fixtures.filter((f) => f.gating).length,
+    "plan-gate": PLAN_GATE_SPEC.fixtures.filter((f) => f.gating).length,
+    "stop-classifier": CLASSIFIER_SPEC.fixtures.filter((f) => f.gating).length,
+  };
+
+  const workflow = readFileSync(
+    new URL("../.github/workflows/eval-prompts.yml", import.meta.url),
+    "utf8",
+  );
+  // Each leg assembles its own flags line; pull the trials/ceiling pair out of each.
+  const legs = [...workflow.matchAll(/flags="\$flags ([^"]*--max-spend \d+(?:\.\d+)?)"/g)].map(
+    (m) => m[1]!,
+  );
+  expect(legs.length).toBeGreaterThanOrEqual(2);
+
+  for (const leg of legs) {
+    const ceiling = Number(/--max-spend (\d+(?:\.\d+)?)/.exec(leg)![1]);
+    const trials = Number(/--trials (\d+)/.exec(leg)?.[1] ?? 5);
+    // The costliest single eval that leg can run — the ceiling is per eval, not per job.
+    const worst = Math.max(
+      ...Object.keys(USD_PER_TRIAL).map((n) => gatingCount[n]! * trials * USD_PER_TRIAL[n]!),
+    );
+    expect(`${leg} -> ceiling ${ceiling} vs expected ${worst.toFixed(2)}`).toBe(
+      ceiling > worst
+        ? `${leg} -> ceiling ${ceiling} vs expected ${worst.toFixed(2)}`
+        : `CEILING TOO LOW: ${leg} expects up to $${worst.toFixed(2)}`,
+    );
+  }
+});

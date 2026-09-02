@@ -167,16 +167,21 @@ jobs:
           fi
           if [ "$EVENT" = "pull_request" ]; then
             # The PR leg is a SMOKE gate, not the measurement. It answers "does this prompt still
-            # produce a well-formed, sanely-directed verdict", and the weekly run does the
-            # statistics at full depth. Sized after a PR run cost $10.08: the fixture sets are
-            # large, the critic is multi-turn, and until this file exists on main EVERY push
-            # selects every eval. One trial per fixture and a $1 ceiling each bounds a whole-set
-            # push to a few dollars worst case, and typically far less.
+            # produce a well-formed, sanely-directed verdict"; the weekly run does the statistics.
+            #
             # --smoke: gate on well-formedness, not on correctness. At one trial per fixture a
             # majority is a single sample — gate-commit-now's own baseline is `gate:4 finished:1`,
             # so a correctness gate here would red about one run in five on model noise. --trials
             # also CAPS per-fixture overrides in smoke mode, so a T=9 fixture really runs once.
-            flags="$flags --gating-only --smoke --trials 1 --max-spend 1"
+            #
+            # The ceiling has to sit ABOVE the expected total or the run stops, discards its
+            # partial results and green-skips — spending money to measure nothing, every time, and
+            # silently skipping a gating eval once OBSERVATIONAL is flipped off. Measured per-trial
+            # costs: critic ~$0.27, plan-gate ~$0.08, classifier pennies. One trial across each
+            # gating set is therefore ~$3.00 / ~$0.90 / ~$0.02. $6 clears the largest with room
+            # while still stopping a genuine runaway (a prompt that burns its full turn budget on
+            # every fixture costs several times that).
+            flags="$flags --gating-only --smoke --trials 1 --max-spend 6"
           elif [ "${GATING_ONLY:-false}" = "true" ]; then
             flags="$flags --gating-only"
           fi

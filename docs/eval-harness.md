@@ -270,11 +270,17 @@ otherwise edits inside that block move no hash and its eval never fires.
   run in five on model noise. Well-formedness is noise-free, and is what broke in every harness
   failure this project has had. `--smoke` also makes `--trials` CAP per-fixture overrides, so a
   `T=9` abstain fixture really does run once here; outside smoke mode the override still wins and
-  those buckets keep their depth. The weekly run does the statistics at full depth. Sized after a PR run cost **$10.08**: the sets are large, the
-  critic is multi-turn, and until `eval-fingerprints.json` exists on the default branch EVERY push
-  selects every eval. One trial per fixture with a $1 ceiling each bounds a whole-set push
-  to a few dollars worst case, and usually far less. A prompt change is a handful of PRs a year, not
-  25 a month.
+  those buckets keep their depth. The weekly run does the statistics at full depth.
+
+  Sized after a PR run cost **$10.08**: the sets are large, the critic is multi-turn, and until
+  `eval-fingerprints.json` exists on the default branch EVERY push selects every eval. One trial
+  across each gating set costs about **$3.00** (critic), **$0.90** (plan-gate) and **$0.02**
+  (classifier) at measured per-trial rates, so a push touching all three is ~$4 and the usual case —
+  one prompt changed — is far less. The `--max-spend 6` ceiling sits above the largest of those on
+  purpose: a ceiling BELOW the expected total is worse than none, because the run stops, discards
+  its partial results and green-skips, spending money to measure nothing every time. A prompt change
+  is a handful of PRs a year, not 25 a month.
+
 - **Nightly** for the classifier (`eval-stop-classifier.yml`, haiku, ~54 calls ≈ pennies).
 - **Weekly** for the two sonnet evals over the full fixture sets (`eval-prompts.yml`, Mondays
   06:00 UTC) at `--trials 3 --max-spend 15`. This is the leg that MEASURES, so it has to be able to

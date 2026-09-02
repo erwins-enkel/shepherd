@@ -171,11 +171,10 @@ sees is byte-identical).
 - **Before (German fixtures, operator-language OFF)** — the #1626 baseline already recorded it:
   `de-gate` 4/5, `de-question` 5/5, `de-finished` 5/5 (English prompt against a German tail). Re-run
   it exactly with `--operator-language-off`.
-- **After (German directive live)** — **PENDING capture.** Run both legs (locally with a key, or via
-  the workflow) and transcribe the `--json` here. The gate: every German gating fixture stays
-  majority-correct at `T=9`, gating accuracy ≥ floor, and `de-ambiguous-unknown` holds `unknown`
-  majority. This eval is **manual/nightly, never a per-PR gate** (paid, keyed, nondeterministic), so
-  the PR declares the after-run as a manual step and must not merge until it is green.
+- **After (German directive live)** — captured under **[#2169](#german-abstain-bucket-rewrite-2169)**,
+  which also rewrote the directive being measured. Every German gating fixture is majority-correct at
+  `T=9` and gating accuracy is `27/27 = 100%` across two runs. This eval is **manual/nightly, never a
+  per-PR gate** (paid, keyed, nondeterministic).
 
 ### Noise band (react to signal, not model noise)
 
@@ -183,6 +182,14 @@ At `temperature = 1.0` a single-run `T=5` majority can flip on one trial of samp
 German gating fixtures run at **`T=9`**, and a shift between legs counts as **signal** only when it
 **crosses the majority boundary** OR moves by **≥2 trials**, AND survives a **confirmation re-run**. A
 lone ±1-trial wobble is noise — never reword the directive in response to it.
+
+> **#2169 amendment — this band is too narrow for `T=9`.** `de-ambiguous-unknown` produced `9, 7, 4,
+6, 8, 8` out of 9 on the _same_ prompt, so a "≥2-trial move surviving a confirmation run" is
+> reachable by sampling alone: the #2169 criterion was met in the bad direction by a fixture whose
+> pooled rate turned out to be ordinary. Treat a single `T=9` run as a coarse filter only. To
+> compare two prompt variants, **pool ≥27 trials per condition** (a fixture's pinned `trials`
+> overrides `--trials`, so pool repeated runs rather than raising the flag) and measure both
+> conditions in the same session — model-side drift between sessions is not controlled for.
 
 ### Verification split — what the eval does and does NOT cover
 
@@ -201,6 +208,105 @@ If the after-run shows a promoted German fixture below majority (past the noise 
 to baseline **only** with an explicit justification recorded as a known gap — exactly the treatment
 `gate-spec-first` received. Re-pin `GATING_ACCURACY_FLOOR` only if the adjustment rule
 (`round_down(observed − 0.15)` to 0.05) requires, with a commit note.
+
+## German abstain-bucket rewrite (#2169)
+
+`de-ambiguous-unknown` lost its `unknown` majority (`unknown:9` → `gate:2 unknown:7` →
+`gate:5 unknown:4`) while its English twin held 9/9, and was filed as #2169. All numbers below are
+`claude-haiku-4-5`, temperature `1.0`, 2026-09-02, with **zero** `no-tool` / `parse-fail` anywhere —
+every `unknown` is a genuine verdict, never a masked mechanical miss.
+
+### The prompt had already drifted under the baseline
+
+The 9/9 datum was measured **before** commit `561e577c` (#2002), which hoisted
+`UNTRUSTED_CONTENT_DIRECTIVE` out of `fenceUntrusted`: the tail fence went from carrying ~250 chars
+of in-band prose to label + nonce only. That is the **only** edit to `classifierPrompt` between the
+#1626/#1627 baseline and the eroded runs, and it lands directly on Anchor A — the splice point of
+the German input-robustness line. So "the classifier prompt was not touched" is true of #2156's
+harness work, but **not** of the interval between the two measurements. English lost the same prose
+and did not collapse, so this is context for reading the baseline, not the cause.
+
+### Diagnostic: was the German directive the cure or the cause?
+
+`--filter ambiguous --trials 9`, both A/B legs, on the unmodified prompt:
+
+| leg                             | `ambiguous-unknown` (en) | `de-ambiguous-unknown`   |
+| ------------------------------- | ------------------------ | ------------------------ |
+| OFF (`--operator-language-off`) | `unknown:9` — 9/9        | `unknown:8 gate:1` — 8/9 |
+| ON (German directive live)      | `unknown:9` — 9/9        | `unknown:6 gate:3` — 6/9 |
+
+Pooled to 27 trials per condition (3 × `T=9`, because a fixture's pinned `trials` overrides
+`--trials` — the flag cannot thicken these fixtures):
+
+| condition                              | `de-ambiguous-unknown` | runs      |
+| -------------------------------------- | ---------------------- | --------- |
+| OFF — no German lines at all           | **24/27** (89%)        | 8 / 7 / 9 |
+| V0 — the directive as #1627 shipped it | **22/27** (81%)        | 6 / 8 / 8 |
+| `ambiguous-unknown` (en), same session | 25/27 (93%)            | 9 / 9 / 7 |
+
+**Two conclusions, and the second corrects the issue's premise.**
+
+1. The directive as written was doing nothing useful — 22/27 with it, 24/27 without it. A line added
+   to _protect_ the abstain bucket did not measurably protect it.
+2. **The English twin is not rock-solid either.** It posted `gate:1 question:1 unknown:7` in the same
+   session — its first sub-9/9 result on record. Pooled today, `en` 25/27 vs `de` 22/27 is well
+   inside noise. The fixture's `9 → 7 → 4` history is the tail of a wide distribution, not a clean
+   language-specific signal, and the `4/9` that triggered the issue was its extreme.
+
+### What changed and why
+
+The directive's original closing clause — _"never upgrade an uncertain read to a confident `gate` or
+`question` just to avoid abstaining"_ — is an abstract instruction about the model's own confidence,
+and it names `gate` twice inside a negation. It was replaced with a **positive, checkable test**
+applied to the tail itself: `gate` and `question` both presuppose that the agent RAISED something, so
+a tail that only narrates progress can be neither.
+
+The closing clause (_"if such a tail also does not clearly report finished or delivered work"_) is
+load-bearing. Without it the rule collapses to "raises no question → `unknown`", which would swallow
+the legitimately question-free `finished` and `complete` tails — `de-finished-pr` asks nothing either.
+That would trade the `finished` bucket for the `unknown` one: the same erosion, inverted.
+`test/autopilot-llm.test.ts` pins the clause so it cannot be silently shortened.
+
+### Results
+
+Screen on `de-ambiguous-unknown`, 3 × `T=9`: **27/27** (9 / 9 / 9). Since nothing can beat a perfect
+screen, the remaining candidates (anchor-move-only, and removing the line entirely) were not run.
+
+Validation — the full German set, twice, `--filter de- --trials 5`:
+
+| id                     | seg      | expected | T   | run A              | run B                     |
+| ---------------------- | -------- | -------- | --- | ------------------ | ------------------------- |
+| `de-gate-commit`       | gating   | gate     | 9   | `gate:9` — 9/9     | `gate:9` — 9/9            |
+| `de-question-approach` | gating   | question | 9   | `question:9` — 9/9 | `question:9` — 9/9        |
+| `de-ambiguous-unknown` | gating   | unknown  | 9   | `unknown:9` — 9/9  | `unknown:9` — 9/9         |
+| `de-gate-spec`         | baseline | gate     | 5   | `gate:5` — 5/5     | `gate:2 question:3` — 2/5 |
+| `de-finished-pr`       | baseline | finished | 5   | `finished:5` — 5/5 | `finished:5` — 5/5        |
+
+- **Gating accuracy `27/27 = 100%` in both runs; `RESULT: PASS`.** `GATING_ACCURACY_FLOOR` is
+  unchanged at `0.80` — the adjustment rule (`round_down(observed − 0.15)` to 0.05) would allow
+  `0.85`, but one fixture set measured twice is a thin basis for tightening a catastrophe-catcher,
+  and raising it buys nothing this PR needs.
+- **`de-ambiguous-unknown`: 45/45 `unknown`** across screen + both validation runs, against 22/27
+  for the shipped directive. This is the datum the issue asked for.
+- **No bucket trading.** `de-finished-pr` held `finished:5` in both runs — the specific risk the
+  scoping clause exists to prevent did not materialize.
+- **`de-gate-spec` is unchanged, not regressed.** Four runs under the new wording: 5/5, 2/5, 4/5,
+  2/5 = **13/20**, straddling its own 4/5 baseline and the 2/5 its English twin `gate-spec-first`
+  posts. It remains the recorded known gap, still non-gating, and no claim is made that this change
+  moved it either way.
+
+### Deliberate limits of this change
+
+- **The rule is not German-specific, but ships only on the `de` path.** "A tail that raises nothing
+  is not a `gate`" would arguably help English too. It is not applied there: the `en` prompt must
+  stay byte-identical so the English gating baseline survives by construction, and the English twin
+  is at 25/27 with nothing to fix. The `de` and `en` prompts are therefore now semantically
+  divergent, not merely translated — recorded here deliberately.
+- **`en` byte-identity is verified, not assumed.** The shipped prompt was diffed against its
+  pre-change form at `HEAD` for both the default and explicit `"en"` calls (nonce normalized);
+  both identical. `test/autopilot-llm.test.ts` pins it going forward.
+- **Only `kind` is measured.** As elsewhere in this doc, nothing here verifies that `summary`
+  actually renders in German.
 
 ## Fidelity caveats
 

@@ -93,9 +93,20 @@ test("classifierPrompt de injects the summary→German + verbatim-kind-pin + inp
   expect(p).toContain("Write the `summary` field in German");
   // kind is pinned to the exact English enum — a translated kind collapses to unknown via normalize.
   expect(p).toContain("never translate it");
-  // input-robustness: a German/mixed tail must not erode the unknown abstain bucket.
+  // input-robustness: a German/mixed tail must not erode the unknown abstain bucket. Re-pinned in
+  // #2169 — the old sentinel ("avoid abstaining") belonged to the abstract confidence phrasing that
+  // measured no better than injecting nothing; the rule is now a positive no-ask test.
   expect(p).toContain("The terminal tail above may be written in German");
-  expect(p).toContain("avoid abstaining");
+  expect(p).toContain("require the agent to have actually RAISED something");
+});
+
+test("classifierPrompt de scopes the no-ask rule to gate/question — finished/complete keep their bucket", () => {
+  // #2169 REGRESSION GUARD, not a prose check. The no-ask rule must never be shortened to
+  // "raises no question -> unknown": `finished` and `complete` tails legitimately ask nothing
+  // either (`de-finished-pr` is exactly such a tail), so dropping this clause would trade the
+  // finished bucket for the unknown one — the same erosion the rule exists to prevent, inverted.
+  const p = classifierPrompt(["Mit dem ersten Teil fertig. Ich mache weiter."], "task", "de");
+  expect(p).toContain("does not clearly report finished or delivered work");
 });
 
 test("classifierPrompt de places the kind-pin BEFORE the terminal 'then stop' line (not post-stop chrome)", () => {

@@ -8,7 +8,7 @@ import type { HerdrDriver } from "./herdr";
  * it was deduped here. The OTHER consumers reconcile via a different lifecycle, and forcing them
  * onto this label-prefix scan would be wrong where they already have it —
  *   - persisted `reviewer_spawns` rows → adoptOrphans/reapOrphans (plan-gate / review / doc-agent);
- *   - store `generating` state → reapGenerating (recap / herd-digest).
+ *   - store `generating` state → reapGenerating (recap).
  * #1093 delivers the argv consolidation across all 10 plus this reaper dedup; a universal
  * "reap every kind" base remains out of scope.
  *

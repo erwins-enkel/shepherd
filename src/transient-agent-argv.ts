@@ -161,7 +161,7 @@ interface KindPreset {
  *                .mcp.json, so the MCP gate never arises.
  *  - `writer-only` MIXED trust — do NOT assume untrusted input here. Some callers pass the operator's
  *                OWN text (namer: the task prompt; verify-key: a fixed sentinel), others pass untrusted
- *                text (autopilot: agent-stop tail; recap / herd-digest: session transcript). Bare
+ *                text (autopilot: agent-stop tail; recap: session transcript). Bare
  *                `Write` is acceptable across all of them because of the SANDBOX SHAPE — a disposable
  *                temp dir, dontAsk, and no exec/Edit/network on the allowlist — which holds regardless
  *                of input trust, NOT because the input is untrusted.

@@ -27,3 +27,5 @@ Server-only, internal-plumbing, or mislabeled-`feat` changes that ship **no** us
 - `scripts/check-announcement-versions.mjs` — fails an added fragment whose `sinceVersion` is `<=` the last released version, or whose filename prefix disagrees with the field. Fix by running `bun run next-version` and using that value for both.
 
 Both assert presence, not content quality — an accurate, well-written entry is on you and review.
+
+Unrelated to this catalog but easy to trip over from the same PRs: **editing a committed docs page can make a generated file stale.** `ui/scripts/gen-docs-manifest.ts` derives the command bar's Docs-group keywords from each page's frontmatter `description` + its H2/H3 headings into the committed `ui/src/lib/docs-manifest.ts`, and `docs-site/scripts/sync-docs.mjs` publishes `CLAUDE.md` and every `.claude/rules/*.md` as such a page alongside the docs-site content. Add or rename a heading (or change a `description`) in any of them and `check:docs-manifest` fails in `verify` until someone runs `bun run gen:docs` from `ui/` and commits the result — so commit it together with the page edit.

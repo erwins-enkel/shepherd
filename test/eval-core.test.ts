@@ -6,6 +6,7 @@ import {
   buildRequestBody,
   captureFrom,
   decide,
+  formatReport,
   isCannotRun,
   isVerdictWrite,
   majority,
@@ -759,4 +760,73 @@ test("a filter that matches nothing is a HARNESS failure, not a silent skip", as
 
 test("the four exit codes stay distinct — the workflow branches on them", () => {
   expect(new Set(Object.values(EXIT)).size).toBe(4);
+});
+
+test("a cannot-run failure INSIDE the pool aborts the run, not just at the preflight", async () => {
+  // The preflight is not the only place an account can stop accepting calls. Recording a usage
+  // limit as a mechanical miss would exit GATE_FAIL and red the PR on a billing state — the exact
+  // outcome the exit-code contract exists to prevent.
+  let calls = 0;
+  const send: Send = async () => {
+    calls++;
+    if (calls === 1) return write("verdict.json", '{"label":"ok"}');
+    throw new Error(
+      'Anthropic API 400: {"error":{"message":"You have reached your specified workspace API usage limits."}}',
+    );
+  };
+  const spec = testSpec({ fixtures: [FIXTURE, { ...FIXTURE, id: "t2" }] });
+  expect(await runEval(spec, ["--trials", "4", "--concurrency", "2"], send)).toBe(EXIT.CANNOT_RUN);
+});
+
+test("a NON-cannot-run failure inside the pool still becomes a mechanical miss", async () => {
+  // The fail-open above must not swallow genuine faults: a 500 is still a data point.
+  let calls = 0;
+  const send: Send = async () => {
+    calls++;
+    if (calls === 1) return write("verdict.json", '{"label":"ok"}');
+    throw new Error("Anthropic API 500: internal server error");
+  };
+  const spec = testSpec({ fixtures: [FIXTURE] });
+  expect(await runEval(spec, ["--trials", "2", "--threshold", "1"], send)).toBe(EXIT.GATE_FAIL);
+});
+
+test("an observational eval reports a miss but does not fail the caller", async () => {
+  const send: Send = async () => write("verdict.json", '{"label":"bad"}');
+  const gating = testSpec({ fixtures: [FIXTURE] });
+  const observational = testSpec({ fixtures: [FIXTURE], observational: true });
+  // Same wrong verdict, two outcomes: the eval with a pinned floor gates, the unmeasured one does
+  // not — gating a PR on a floor nobody has observed would be theatre.
+  expect(await runEval(gating, ["--trials", "3"], send)).toBe(EXIT.GATE_FAIL);
+  expect(await runEval(observational, ["--trials", "3"], send)).toBe(EXIT.PASS);
+});
+
+test("an observational eval says so in its report, so green is never read as a passed gate", () => {
+  const spec = testSpec({ fixtures: [FIXTURE], observational: true });
+  const results = [aggregate(FIXTURE, [outcome("bad", false)], spec.labels)];
+  const out = formatReport(spec, results, decide(results, spec.floor), parseArgs(spec, []));
+  expect(out).toContain("OBSERVATIONAL");
+  expect(out).toContain("does NOT gate");
+  expect(out).toContain("(observational — not gating)");
+});
+
+test("the two evals with no measured baseline are observational; the two with one gate", () => {
+  // Flip these in the SAME commit that pins the floor from a real run.
+  expect(PLAN_GATE_SPEC.observational).toBe(true);
+  expect(CRITIC_SPEC.observational).toBe(true);
+  expect(CLASSIFIER_SPEC.observational).toBeUndefined();
+  expect(RUNDOWN_SPEC.observational).toBeUndefined();
+});
+
+test("AGENT_SYSTEM_PROMPT carries no guidance about HOW to review", () => {
+  // It may establish tool-driven operation and disclose the harness's turn limit. It may not tell
+  // the model what to look for, how much to inspect, or when it has seen enough — those shape the
+  // judgement the eval exists to measure, and production carries none of them.
+  expect(AGENT_SYSTEM_PROMPT).not.toMatch(/finding|verdict|approve|request-changes|severity/i);
+  expect(AGENT_SYSTEM_PROMPT).not.toMatch(
+    /inspect only|as soon as you can decide|stop inspecting/i,
+  );
+  expect(AGENT_SYSTEM_PROMPT).not.toMatch(/only what you (actually )?need/i);
+  // What it DOES say: act through tools, and your turns are finite.
+  expect(AGENT_SYSTEM_PROMPT).toMatch(/ONLY through the provided tools/);
+  expect(AGENT_SYSTEM_PROMPT).toMatch(/turns is limited/);
 });

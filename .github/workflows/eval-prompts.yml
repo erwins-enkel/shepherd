@@ -154,6 +154,10 @@ jobs:
           # Exit codes (see EXIT in scripts/eval-core.ts):
           #   0 pass · 1 the eval RAN and the prompt missed · 2 it COULD NOT RUN · 3 the harness broke
           #
+          # An eval with no measured baseline reports but never returns 1 (see `observational` in
+          # scripts/eval-core.ts): plan-gate and critic are in that state today, so they run and
+          # report here without being able to block a PR on an unpinned floor.
+          #
           # 2 does NOT fail the job. An exhausted API usage limit, a dead key or a rate limit that
           # survived its retry means nothing was measured — that says nothing about the prompt, and
           # failing on it would block every unrelated PR until someone tops up the account. It is

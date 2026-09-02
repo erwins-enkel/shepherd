@@ -73,11 +73,18 @@ the interactive `claude` CLI, whose own system prompt establishes that the model
 tools. A bare Messages call has none of that, and the first live run showed the cost: asked to
 review a PR, the model answered the way a chat model does — in prose — and never called `Write`.
 `no-tool` on **55/55** critic and **50/55** plan-gate trials, with zero transport errors. So
-`AGENT_SYSTEM_PROMPT` frames the model as an agent acting through the provided tools. It is
-**mode-setting only** — it says nothing about how to review, what to look for, or what to decide,
-because that would contaminate the judgement being measured. The classifier and rundown do NOT
-carry it: both obtained verdicts on every trial without one, and adding it would invalidate
-measurements already paid for.
+`AGENT_SYSTEM_PROMPT` frames the model as an agent acting through the provided tools.
+
+It does two things, and the second is a real (small) divergence from production, recorded as
+caveat F below: it establishes tool-driven operation, and it **discloses that turns are finite**.
+Production has no turn cap; the harness does, so the model is told about the harness's own
+constraint rather than left to exhaust it silently. An earlier draft went further and told the
+model to inspect only what it needed and to stop as soon as it could decide — that is an
+inspection-budget instruction, i.e. guidance about _how_ to review, and it was removed for exactly
+that reason. What remains says nothing about findings, severity, or what any verdict should be.
+
+The classifier and rundown do NOT carry it: both obtained verdicts on every trial without one, and
+adding it would invalidate measurements already paid for.
 
 **A broken harness fails in seconds, not in a full run.** The preflight trial runs alone and guards
 two things: a dead key, and a harness that cannot obtain a verdict at all. Two consecutive
@@ -186,17 +193,24 @@ already unit-tested, so putting it in front would test the assembler rather than
 
 ## Baselines
 
-> **PENDING CAPTURE for plan-gate and critic.** Their floors below are provisional pins. The runs so
-> far did not measure their prompts: the first hit the prose-instead-of-tools mode failure, the
-> second exhausted the turn budget. Re-capture with `bun run eval:<name> --json` (or a
-> `workflow_dispatch` of `eval-prompts.yml`), then transcribe the per-fixture distributions here and
-> pin each floor via the adjustment rule.
+> **PENDING CAPTURE for plan-gate and critic — and until then they DO NOT GATE.** No run has yet
+> scored either prompt: the first hit the prose-instead-of-tools mode failure, the second exhausted
+> the turn budget, and the third could not run at all (workspace API usage limit, resets
+> 2026-10-01). Their floors below are therefore unobserved guesses, and blocking a PR on a number
+> nobody has measured would be theatre. Both ship with `observational: true` — they run, score and
+> report on every trigger, and their report says `OBSERVATIONAL … does NOT gate` in its header and
+> `(observational — not gating)` on its RESULT line, so a green result can never be mistaken for a
+> passed gate.
+>
+> To close this: capture with `bun run eval:<name> --json` (or a `workflow_dispatch` of
+> `eval-prompts.yml`), transcribe the per-fixture distributions here, pin each floor via the
+> adjustment rule, and flip `OBSERVATIONAL` to `false` **in the same commit**.
 
-| Eval        | Model             | Trials | Gating accuracy  | Pinned floor         |
-| ----------- | ----------------- | ------ | ---------------- | -------------------- |
-| `plan-gate` | `claude-sonnet-5` | 5      | _pending_        | `0.75` (provisional) |
-| `critic`    | `claude-sonnet-5` | 5      | _pending_        | `0.75` (provisional) |
-| `rundown`   | `claude-sonnet-5` | 5      | **100% (45/45)** | `0.85`               |
+| Eval        | Model             | Trials | Gating accuracy  | Floor                         |
+| ----------- | ----------------- | ------ | ---------------- | ----------------------------- |
+| `plan-gate` | `claude-sonnet-5` | 5      | _never measured_ | `0.75` — unpinned, not gating |
+| `critic`    | `claude-sonnet-5` | 5      | _never measured_ | `0.75` — unpinned, not gating |
+| `rundown`   | `claude-sonnet-5` | 5      | **100% (45/45)** | `0.85` — pinned, gating       |
 
 ### rundown — first live baseline
 
@@ -322,5 +336,10 @@ numbers as absolute production accuracy, which they are not.
   carries, and unmodelled shell commands answer empty. A reviewer that goes looking for something a
   fixture does not carry finds nothing — the same answer a real tree without that file would give,
   but the surrounding context is thinner than a real checkout's.
+- **F — the harness discloses a turn limit production does not have.** `AGENT_SYSTEM_PROMPT` tells
+  the model its turns are finite and announces its final turn, because the harness caps turns and
+  production does not. This is disclosure of a harness constraint, not review guidance — but it is
+  a divergence, and a reviewer that would have inspected further in production may write its verdict
+  sooner here.
 - **E — bounded coverage.** `T` trials over a curated set. This is a stable measuring stick for
   prompt edits, not a coverage guarantee over real-world inputs.

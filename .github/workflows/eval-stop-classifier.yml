@@ -2,13 +2,16 @@ name: Eval — autopilot stop-classifier
 
 # Live-model eval for the autopilot stop-classifier (issue #1626).
 #
-# workflow_dispatch ONLY — a manual, opt-in, PAID run (one Haiku call per trial, ~54 per
-# run). It is deliberately NOT part of any PR/gated CI: `bun test ./test` stays hermetic and
-# free (it covers only the harness's pure logic, in test/eval-stop-classifier.test.ts). This
-# job exists so anyone with dispatch rights can capture/refresh the baseline reproducibly on
+# NIGHTLY schedule + workflow_dispatch — a PAID run (one Haiku call per trial, ~54 per run).
+# `bun test ./test` stays hermetic and free (it covers only the harness's pure logic, in
+# test/eval-stop-classifier.test.ts). This job exists so the classifier prompt has standing drift
+# detection, and so anyone with dispatch rights can capture/refresh the baseline reproducibly on
 # ubuntu-latest using the repo's existing ANTHROPIC_API_KEY secret (the same secret the
 # issue-triage workflow uses). Its run log — especially the --json block — is the source the
 # baseline numbers in docs/eval-stop-classifier.md are transcribed from.
+#
+# The PER-PR gate for this prompt lives in .github/workflows/eval-prompts.yml (#2156), which runs
+# it only when the rendered classifier prompt actually changes.
 #
 # The NIGHTLY schedule is on (#2156). It costs pennies — one Haiku call per trial, ~54 per run
 # over the full fixture set — and it is what turns this from an instrument you have to remember to

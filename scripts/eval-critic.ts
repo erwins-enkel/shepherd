@@ -53,6 +53,14 @@ const DEFAULT_TEMPERATURE = 1.0;
  */
 const GATING_ACCURACY_FLOOR = 0.75;
 
+/** OBSERVATIONAL until a measured run exists. No run has yet scored this eval's PROMPT: the first
+ *  hit the prose-instead-of-tools mode failure, the second exhausted the turn budget, and the third
+ *  could not run at all (workspace usage limit, resets 2026-10-01). The floor above is therefore an
+ *  unobserved guess, and gating a PR on a number nobody has measured would be theatre. The fixtures
+ *  still run, score and report on every trigger. Flip this to `false` in the same commit that pins
+ *  the floor from a real run — see the baselines section of docs/eval-harness.md. */
+const OBSERVATIONAL = true;
+
 const LABELS = [
   "changes_requested",
   "commented",
@@ -116,6 +124,7 @@ export const SPEC: EvalSpec<CriticFixture> = {
   defaultTrials: DEFAULT_TRIALS,
   defaultTemperature: DEFAULT_TEMPERATURE,
   floor: GATING_ACCURACY_FLOOR,
+  observational: OBSERVATIONAL,
   fixtures: CRITIC_FIXTURES,
   labels: LABELS,
   tools: [WRITE_TOOL, ...READONLY_TOOLS],

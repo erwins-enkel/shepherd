@@ -124,8 +124,17 @@ export const READONLY_TOOLS: ToolDef[] = [BASH_TOOL, READ_TOOL, GREP_TOOL];
  * on 55/55 critic trials and 50/55 plan-gate trials, with zero transport errors. This is the
  * documented CLI-wrapper gap (caveat A/C), narrowed.
  *
- * It is deliberately MODE-SETTING ONLY. It says nothing about how to review, what to look for, or
- * what to decide — anything of that kind would contaminate the very judgement the eval measures.
+ * IT DOES TWO THINGS, and the second is a real (small) divergence from production:
+ *   1. Establishes tool-driven operation — the CLI's job, reproduced.
+ *   2. Discloses that turns are FINITE. Production has no turn cap; the harness does, so the model
+ *      is told about the harness's own constraint rather than being allowed to exhaust it silently.
+ *      An earlier draft went further and told the model to "inspect only what you need" and to stop
+ *      as soon as it could decide — that is an inspection-budget instruction, i.e. guidance about
+ *      HOW to review, and it was removed for exactly that reason. What remains states the limit and
+ *      the required final action, and nothing about what to look for or how to judge it.
+ *
+ * It still says nothing about findings, severity, or what any verdict should be. Recorded as
+ * caveat F in `docs/eval-harness.md`.
  *
  * The two single-tool evals do NOT carry it: the classifier scored 95.1% and the rundown produced a
  * parseable verdict on every single trial without it, so adding it would only invalidate
@@ -138,9 +147,8 @@ export const AGENT_SYSTEM_PROMPT = [
   "nothing and ends your turn. Carry out the task below exactly as written, and finish by writing",
   "the file or files it names.",
   "",
-  "Inspect only what you actually need. This worktree is small: when a command returns nothing, or",
-  "a path is not there, that is the answer — repeating the search will not produce more. Your turns",
-  "are limited, so stop inspecting as soon as you can decide, and write the file the task names.",
+  "Your number of turns is limited, and the harness will tell you when you are on your last one.",
+  "Write the file the task names before your turns run out.",
 ].join("\n");
 
 // ---------------------------------------------------------------------------
@@ -202,6 +210,13 @@ export interface EvalSpec<F extends EvalFixtureBase> {
   /** Operating-mode system prompt. Set for the evals whose prompts assume a tool-driven agent
    *  harness; omitted where the eval already obtains verdicts without one. */
   system?: string;
+  /**
+   * OBSERVATIONAL: run, score and report, but never fail the caller. For an eval whose fixtures
+   * have no measured baseline yet — its floor is a guess, so failing a PR against it would gate on
+   * a number nobody has observed. Reported loudly in the header so a green result is never mistaken
+   * for a passed gate. Flip to `false` in the same commit that pins the floor from a real run.
+   */
+  observational?: boolean;
   maxTokens: number;
   /** Extra header lines for the human-readable report (run-configuration provenance). */
   headerLines?: (run: RunOptions) => string[];
@@ -524,6 +539,12 @@ export function formatReport<F extends EvalFixtureBase>(
 ): string {
   const lines: string[] = [];
   lines.push(`${spec.name} eval — model=${run.model}`);
+  if (spec.observational === true) {
+    lines.push(
+      "OBSERVATIONAL — this eval reports but does NOT gate: its floor has never been pinned from a",
+      "measured run. Read the numbers; do not read a green result as a passed gate.",
+    );
+  }
   lines.push(...(spec.headerLines?.(run) ?? []));
   lines.push(
     `fixtures=${results.length} (gating=${results.filter((r) => r.fixture.gating).length}, ` +
@@ -567,7 +588,10 @@ export function formatReport<F extends EvalFixtureBase>(
         "non-gating baseline and record it as a known gap.",
     );
   }
-  lines.push(`RESULT: ${decision.pass ? "PASS" : "FAIL"}`);
+  lines.push(
+    `RESULT: ${decision.pass ? "PASS" : "FAIL"}` +
+      (spec.observational === true ? " (observational — not gating)" : ""),
+  );
   return lines.join("\n");
 }
 
@@ -805,8 +829,15 @@ export async function runEval<F extends EvalFixtureBase>(
   }
 
   let next = 1;
+  // Set when a trial fails twice with an error meaning the account cannot make calls. The pool
+  // then stops taking work and the run reports CANNOT_RUN. Without this the SAME billing state
+  // that aborts cleanly at the preflight becomes a pile of mechanical misses one trial later, and
+  // the run exits GATE_FAIL — reddening a PR on an account condition, which is exactly what the
+  // exit-code contract exists to prevent.
+  let cannotRun: string | null = null;
   const worker = async (): Promise<void> => {
     for (;;) {
+      if (cannotRun !== null) return;
       const task = tasks[next++];
       if (!task) return;
       let capture: TrialCapture | null = null;
@@ -823,6 +854,10 @@ export async function runEval<F extends EvalFixtureBase>(
             await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
             continue;
           }
+          if (isCannotRun(msg)) {
+            cannotRun = msg;
+            return;
+          }
           console.error(`${tag} ${task.fixture.id} trial ${task.trial + 1} failed twice: ${msg}`);
         }
       }
@@ -836,6 +871,14 @@ export async function runEval<F extends EvalFixtureBase>(
   await Promise.all(
     Array.from({ length: Math.min(run.concurrency, Math.max(tasks.length - 1, 1)) }, worker),
   );
+
+  if (cannotRun !== null) {
+    console.error(
+      `${tag} CANNOT RUN — the account stopped accepting calls part-way through, so the run is ` +
+        `INCOMPLETE and its partial results are discarded: ${cannotRun}`,
+    );
+    return EXIT.CANNOT_RUN;
+  }
 
   const results: FixtureResult<F>[] = fixtures.map((fixture, i) =>
     aggregate(fixture, outcomes[i]!, spec.labels),
@@ -851,6 +894,15 @@ export async function runEval<F extends EvalFixtureBase>(
       ? JSON.stringify(jsonReport(spec, results, decision, run), null, 2)
       : formatReport(spec, results, decision, run),
   );
+  // An observational eval never gates: its floor is unpinned, so a failure here is a number to
+  // read, not a verdict to block on. The report says so in its header and its RESULT line.
+  if (!decision.pass && spec.observational === true) {
+    console.error(
+      `${tag} the above miss does NOT fail the gate — this eval is observational until its floor ` +
+        `is pinned from a measured run.`,
+    );
+    return EXIT.PASS;
+  }
   return decision.pass ? EXIT.PASS : EXIT.GATE_FAIL;
 }
 

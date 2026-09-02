@@ -714,6 +714,27 @@ export function anthropicSend(apiKey: string): Send {
 }
 
 /**
+ * An observational eval REPORTS but never fails the caller. Called at every point that would
+ * otherwise return a failing code, so the guarantee is unconditional rather than depending on which
+ * internal failure mode happened to fire — the first version of this only covered a scoring miss
+ * and let a verdict-less preflight red the PR anyway.
+ *
+ * Returns null for a gating eval, so the caller falls through to its real exit code.
+ */
+function observationalPass<F extends EvalFixtureBase>(
+  spec: EvalSpec<F>,
+  tag: string,
+  what: string,
+): typeof EXIT.PASS | null {
+  if (spec.observational !== true) return null;
+  console.error(
+    `${tag} the above does NOT fail the gate (${what}) — this eval is observational until its ` +
+      `floor is pinned from a measured run.`,
+  );
+  return EXIT.PASS;
+}
+
+/**
  * Exit codes, split so a CALLER can tell the three outcomes apart. The distinction is the whole
  * point: a gate that reds because billing is exhausted says nothing about the prompt, and would
  * block every unrelated PR until someone tops up.
@@ -767,6 +788,9 @@ export async function runEval<F extends EvalFixtureBase>(
 
   const fixtures = selectFixtures(spec, run);
   if (fixtures.length === 0) {
+    // Deliberately NOT suppressed for an observational eval: this is CLI misuse (a filter that
+    // matches nothing), not an outcome of running the eval, and silently answering PASS would hide
+    // a typo that ran zero trials.
     console.error(`${tag} no fixtures selected (--filter ${run.filter ?? "—"})`);
     return EXIT.HARNESS_FAIL;
   }
@@ -823,7 +847,12 @@ export async function runEval<F extends EvalFixtureBase>(
           `stop_reason=${preflight.stopReason ?? "?"}\n` +
           `${tag}   model said instead: ${preflight.text || "(nothing)"}`,
       );
-      return EXIT.HARNESS_FAIL;
+      // An observational eval cannot fail the caller — INCLUDING here. A verdict-less preflight is
+      // exactly the state plan-gate and critic have ended in twice, and it is the eval not working
+      // yet rather than a prompt regression; blocking every PR in the repo on an eval we have
+      // explicitly marked "not ready" would be the same mistake as gating on an unpinned floor.
+      // The diagnosis above is still printed in full, and the workflow still surfaces it.
+      return observationalPass(spec, tag, "its harness obtained no verdict") ?? EXIT.HARNESS_FAIL;
     }
     outcomes[first.index]!.push(outcomeFrom(spec, first.fixture, preflight));
   }
@@ -894,16 +923,9 @@ export async function runEval<F extends EvalFixtureBase>(
       ? JSON.stringify(jsonReport(spec, results, decision, run), null, 2)
       : formatReport(spec, results, decision, run),
   );
-  // An observational eval never gates: its floor is unpinned, so a failure here is a number to
-  // read, not a verdict to block on. The report says so in its header and its RESULT line.
-  if (!decision.pass && spec.observational === true) {
-    console.error(
-      `${tag} the above miss does NOT fail the gate — this eval is observational until its floor ` +
-        `is pinned from a measured run.`,
-    );
-    return EXIT.PASS;
-  }
-  return decision.pass ? EXIT.PASS : EXIT.GATE_FAIL;
+  if (decision.pass) return EXIT.PASS;
+  // A miss on an unpinned floor is a number to read, not a verdict to block on.
+  return observationalPass(spec, tag, "the floor is unpinned") ?? EXIT.GATE_FAIL;
 }
 
 /** CLI entry: run and exit. Kept separate from `runEval` so tests never call `process.exit`. */

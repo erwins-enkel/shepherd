@@ -129,7 +129,9 @@ export const SPEC: EvalSpec<CriticFixture> = {
   labels: LABELS,
   tools: [WRITE_TOOL, ...READONLY_TOOLS],
   // Without this the model answers a review prompt in prose and never writes a verdict — see
-  // AGENT_SYSTEM_PROMPT for the live evidence. Mode-setting only; it says nothing about judgement.
+  // AGENT_SYSTEM_PROMPT for the live evidence and for what it does say: tool-driven operation plus
+  // disclosure of the harness's turn limit, which production does not have (fidelity caveat F in
+  // docs/eval-harness.md). It carries no guidance about what to look for or how to judge it.
   system: AGENT_SYSTEM_PROMPT,
   // The completion signal, not the first write — see the two-writes note above.
   verdictFile: VERDICT_FILE,

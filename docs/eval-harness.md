@@ -200,7 +200,11 @@ already unit-tested, so putting it in front would test the assembler rather than
 > nobody has measured would be theatre. Both ship with `observational: true` — they run, score and
 > report on every trigger, and their report says `OBSERVATIONAL … does NOT gate` in its header and
 > `(observational — not gating)` on its RESULT line, so a green result can never be mistaken for a
-> passed gate.
+> passed gate. The guarantee is unconditional: an observational eval cannot return a failing code
+> for ANY eval outcome — a scoring miss or a verdict-less harness alike — because the state it is in
+> is precisely "this eval does not work yet", and blocking every PR in the repo on that would be the
+> same mistake as gating on an unpinned floor. CLI misuse (a `--filter` matching nothing) still
+> fails, since that is not an outcome of running the eval.
 >
 > To close this: capture with `bun run eval:<name> --json` (or a `workflow_dispatch` of
 > `eval-prompts.yml`), transcribe the per-fixture distributions here, pin each floor via the

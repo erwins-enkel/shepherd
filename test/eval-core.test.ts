@@ -790,6 +790,28 @@ test("a NON-cannot-run failure inside the pool still becomes a mechanical miss",
   expect(await runEval(spec, ["--trials", "2", "--threshold", "1"], send)).toBe(EXIT.GATE_FAIL);
 });
 
+test("an observational eval does not fail the caller on a VERDICT-LESS run either", async () => {
+  // The state plan-gate and critic have ended in twice. The guarantee has to cover every failure
+  // mode, not just the scoring one — an eval marked "not ready" must not red every PR in the repo
+  // for still being not ready.
+  const send: Send = async () => ({
+    content: [{ type: "text", text: "prose instead of a tool call" }],
+    stop_reason: "end_turn",
+  });
+  const gating = testSpec({ fixtures: [FIXTURE] });
+  const observational = testSpec({ fixtures: [FIXTURE], observational: true });
+  expect(await runEval(gating, ["--trials", "3"], send)).toBe(EXIT.HARNESS_FAIL);
+  expect(await runEval(observational, ["--trials", "3"], send)).toBe(EXIT.PASS);
+});
+
+test("an observational eval still fails on CLI misuse — a filter matching nothing", async () => {
+  // Not an outcome of running the eval: answering PASS would hide a typo that ran zero trials.
+  const observational = testSpec({ fixtures: [FIXTURE], observational: true });
+  expect(await runEval(observational, ["--filter", "nope"], async () => ({}))).toBe(
+    EXIT.HARNESS_FAIL,
+  );
+});
+
 test("an observational eval reports a miss but does not fail the caller", async () => {
   const send: Send = async () => write("verdict.json", '{"label":"bad"}');
   const gating = testSpec({ fixtures: [FIXTURE] });
@@ -815,6 +837,18 @@ test("the two evals with no measured baseline are observational; the two with on
   expect(CRITIC_SPEC.observational).toBe(true);
   expect(CLASSIFIER_SPEC.observational).toBeUndefined();
   expect(RUNDOWN_SPEC.observational).toBeUndefined();
+});
+
+test("no comment still claims AGENT_SYSTEM_PROMPT is mode-setting only", () => {
+  // The claim was corrected in eval-core.ts and the docs but left stale at both spec sites. A
+  // description of what the harness injects has to stay true everywhere it is written down.
+  const sources = [
+    readFileSync(new URL("../scripts/eval-core.ts", import.meta.url), "utf8"),
+    readFileSync(new URL("../scripts/eval-critic.ts", import.meta.url), "utf8"),
+    readFileSync(new URL("../scripts/eval-plan-gate.ts", import.meta.url), "utf8"),
+    readFileSync(new URL("../docs/eval-harness.md", import.meta.url), "utf8"),
+  ];
+  for (const src of sources) expect(src).not.toMatch(/mode-setting only/i);
 });
 
 test("AGENT_SYSTEM_PROMPT carries no guidance about HOW to review", () => {

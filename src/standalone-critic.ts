@@ -176,9 +176,12 @@ export class StandalonePrCriticService {
       deps.houseRulesBudgetChars ?? (() => HOUSE_RULES_DEFAULT_BUDGET_CHARS);
   }
 
-  /** The `<shepherd-house-rules>` block for `repoPath` — the SAME block Shepherd hands the agents
-   *  that write code in this repo — scoped to the files this PR touches (#2154 slice 2). null when
-   *  the repo has learnings off or there is nothing to inject.
+  /** The `<shepherd-house-rules>` block of the repo's standing rules, scoped to the files this PR
+   *  touches (#2154 slice 2). null when the repo has learnings off or there is nothing to inject.
+   *
+   *  This critic sweeps PRs Shepherd did not author — third-party and fork PRs included — so the
+   *  rules reach it as the REPO's standard and nothing more; `prReviewPrompt` withholds the
+   *  author-facing framing accordingly (see reviewerHouseRulesBlock).
    *
    *  Deliberately does NOT call `recordInjectedLearnings`; see ReviewService.repoHouseRules for why
    *  (the reward that balances `injectedCount` is only ever paid by an author session). There is no
@@ -519,8 +522,8 @@ export class StandalonePrCriticService {
     }
     const env = this.deps.env?.() ?? { provider: "claude" as const, model: null };
     // #2154: repo policy from the BASE COMMIT (never the checked-out PR head — this is the site
-    // where the head may be a fork nobody vetted), plus the house-rules block the author was given,
-    // scoped by the diff's changed files. Both null ⇒ the composed prompt is unchanged.
+    // where the head may be a fork nobody vetted), plus the repo's standing house rules, scoped by
+    // the diff's changed files. Both null ⇒ the composed prompt is unchanged.
     const reviewPolicy = fp.baseSha ? await this.readReviewPolicy(worktreePath, fp.baseSha) : null;
     const houseRules = this.repoHouseRules(repoPath, fp.files);
     // ONE pinned id for every argv this spawn builds (#1944): buildTransientAgentArgv falls back to

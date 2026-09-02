@@ -76,10 +76,17 @@ place.
 ## House rules reach the reviewer
 
 Shepherd injects a repository's curated **house rules** into the system prompt of every agent that
-works in it. Those same rules are now shown to the critic, so a rule the author was handed and
-ignored is something review can actually catch. They are scoped to the files the pull request
-touches, and they follow the repository's existing **Learnings** setting — with learnings off, no
-rules are injected anywhere.
+works in it. The critic is now shown that same body of rules as the repository's standard, so it can
+judge a pull request against the conventions the repo actually holds itself to. They are scoped to
+the files the pull request touches, and they follow the repository's existing **Learnings**
+setting — with learnings off, no rules are injected anywhere.
+
+The set the critic sees is **planned fresh for that review**, from the rules active at the time and
+the files the diff touches. It is not a replay of what any particular agent was given, and it is not
+limited to pull requests Shepherd wrote: a third-party or fork pull request is reviewed against the
+same repository standard. Where Shepherd's own session critic reviews a PR one of its agents wrote,
+the critic is additionally told so — a rule the author was handed and ignored is worth catching —
+but the rules apply either way.
 
 House rules are distilled from past sessions, so they are treated as guidance rather than law: a
 **clear, unambiguous** violation is a blocking finding; anything softer is reported as a

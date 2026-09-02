@@ -1408,10 +1408,12 @@ test("#2154 the review policy reaches the standalone PR critic too (repo policy,
 
 // ── #2154 slice 2: house rules injected into the reviewer ───────────────────────────────────────
 
+const HOUSE_RULES_2154 =
+  "<shepherd-house-rules>\n- Never call execFileSync on the server loop.\n</shepherd-house-rules>";
+
 test("#2154 the house-rules block routes clear violations to findings and judgement calls to a body section", () => {
   const p = reviewPrompt("BASE", "do the thing", [], [], null, null, {
-    houseRules:
-      "<shepherd-house-rules>\n- Never call execFileSync on the server loop.\n</shepherd-house-rules>",
+    houseRules: HOUSE_RULES_2154,
   });
   expect(p).toContain("REPO HOUSE RULES");
   expect(p).toContain("Never call execFileSync on the server loop.");
@@ -1422,6 +1424,32 @@ test("#2154 the house-rules block routes clear violations to findings and judgem
   expect(p).toContain("can be stale or simply wrong");
   // same placement contract as the policy block
   expect(p.indexOf("REPO HOUSE RULES")).toBeLessThan(p.indexOf("FINDINGS ROUTING"));
+});
+
+test("#2154 the standalone critic is NOT told an agent authored the diff under these rules", () => {
+  // The standalone critic sweeps third-party and fork PRs (learningsEnabled defaults ON), where no
+  // Shepherd agent wrote the diff and nothing was injected into its author. Claiming otherwise would
+  // be a false premise — and it is the premise the blocking license would rest on. The rules still
+  // apply, as the REPO's standard.
+  const p = prReviewPrompt("BASE", "My PR", "body", null, null, { houseRules: HOUSE_RULES_2154 });
+  expect(p).toContain("REPO HOUSE RULES");
+  expect(p).toContain("curated standing rules");
+  expect(p).toContain("Never call execFileSync on the server loop.");
+  expect(p).not.toContain("A Shepherd agent wrote this diff");
+  expect(p).not.toContain("the author was handed and ignored");
+  // the repo standard still licenses a blocking finding on a clear violation
+  expect(p).toContain("CLEAR, UNAMBIGUOUS violation");
+});
+
+test("#2154 the session critic IS told, and does not claim the set reproduces what the author saw", () => {
+  const p = reviewPrompt("BASE", "do the thing", [], [], null, null, {
+    houseRules: HOUSE_RULES_2154,
+  });
+  expect(p).toContain("A Shepherd agent wrote this diff");
+  // ...but truthfully: the set is re-planned at review time (current rules, review-time scoping and
+  // recency decay), so it is NOT a reproduction of the cut the author received.
+  expect(p).toContain("re-planned for this review");
+  expect(p).not.toContain("reproduced verbatim");
 });
 
 test("#2154 both blocks are absent by default — every existing prompt stays byte-identical", () => {

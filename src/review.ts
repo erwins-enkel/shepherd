@@ -620,9 +620,9 @@ export class ReviewService {
     // #1824 finding C: per-repo POSSIBLE-SMELLS lens flag (default OFF). Read here (not cached from
     // the criticEnabled gate above) so a toggle mid-session takes effect on the next review round.
     const smellLens = this.deps.store.getRepoConfig(session.repoPath).criticSmellLensEnabled;
-    // #2154 slice 2: the same house-rules block the AUTHOR of this diff was given, scoped by the
-    // files the diff actually touches. Synchronous store read, resolved here (not cached from the
-    // criticEnabled gate) so a learnings toggle takes effect on the next review round.
+    // #2154 slice 2: the repo's standing house rules, planned fresh for THIS review and scoped by
+    // the files the diff actually touches. Synchronous store read, resolved here (not cached from
+    // the criticEnabled gate) so a learnings toggle takes effect on the next review round.
     const houseRules = this.repoHouseRules(session.repoPath, files);
     // #1948: the rework round the critic is briefed with.
     const round = this.briefedRound(prior);
@@ -945,13 +945,17 @@ export class ReviewService {
     return baseSha ? await this.readReviewPolicy(worktreePath, baseSha) : null;
   }
 
-  /** The `<shepherd-house-rules>` block for `repoPath` — the SAME block the author of this diff was
-   *  given — scoped to the files the diff actually touches (#2154 slice 2). null when the repo has
-   *  learnings off or there is nothing to inject.
+  /** The `<shepherd-house-rules>` block of the repo's standing rules, scoped to the files the diff
+   *  actually touches (#2154 slice 2). null when the repo has learnings off or there is nothing to
+   *  inject.
    *
-   *  `files` is strictly better scope input than the author side gets: `recordInjectedHouseRules`
-   *  has to guess the target paths by scraping the task text BEFORE the session runs, whereas by
-   *  review time the changed-file set is known exactly.
+   *  NOT a reproduction of what the authoring agent received, and the prompt must not claim it is
+   *  (see reviewerHouseRulesBlock): this is a FRESH plan over the CURRENT active rules, with a
+   *  recency decay evaluated at `now()` and scoping from the diff — so it can differ from the cut
+   *  the author saw at spawn, in either direction. That is the right trade: `files` is strictly
+   *  better scope input than the author side gets, since `recordInjectedHouseRules` has to guess the
+   *  target paths by scraping the task text BEFORE the session runs, whereas by review time the
+   *  changed-file set is known exactly.
    *
    *  Deliberately does NOT call `recordInjectedLearnings`. `injectedCount` is the denominator of the
    *  Wilson lower bound that auto-retires a rule (learnings-lifecycle), and the numerator is only

@@ -224,7 +224,7 @@ export function reviewPrompt(
     planClamped?: boolean;
     /** #2154: the repo's `REVIEW.md` as committed on the base commit, or null/absent for none. */
     reviewPolicy?: string | null;
-    /** #2154: the rendered `<shepherd-house-rules>` block the AUTHOR of this diff was given. */
+    /** #2154: the rendered `<shepherd-house-rules>` block of the repo's standing rules. */
     houseRules?: string | null;
   } = {},
 ): string {
@@ -321,9 +321,13 @@ export function reviewPrompt(
         scopeCreep: true,
         smellLens: opts.smellLens,
         planClamped,
-        // #2154: repo policy + the author's own house rules. Both absent ⇒ tail unchanged.
+        // #2154: repo policy + the repo's standing house rules. Both absent ⇒ tail unchanged.
+        // `houseRulesAuthored`: this critic reviews a SHEPHERD SESSION's own PR, so an agent really
+        // did write the diff under these rules. prReviewPrompt never sets it — see
+        // reviewerHouseRulesBlock for why that distinction is load-bearing.
         reviewPolicy: opts.reviewPolicy,
         houseRules: opts.houseRules,
+        houseRulesAuthored: true,
       },
     ),
   );
@@ -372,7 +376,9 @@ export function prReviewPrompt(
       "Judge the diff ONLY for bugs, security issues, and clear quality problems. Use the stated intent above to understand what the change is for — do NOT raise a finding merely because the diff seems incomplete versus that intent. Tests and lint are handled by CI — do not run them.",
       epic,
       // #2154: the standalone critic gets the same repo policy + house rules as the session critic
-      // — the policy is a property of the REPO, not of who opened the PR. Both absent ⇒ unchanged.
+      // — both are a property of the REPO, not of who opened the PR. `houseRulesAuthored` is
+      // deliberately NOT set: this critic sweeps third-party and fork PRs, where no Shepherd agent
+      // wrote the diff and nothing was injected into its author. Both absent ⇒ unchanged.
       { landing, reviewPolicy: opts.reviewPolicy, houseRules: opts.houseRules },
     ),
   );
@@ -693,12 +699,23 @@ function reviewPolicyBlock(policy: string | null | undefined): string[] {
 }
 
 /**
- * The REPO HOUSE RULES block (#2154 slice 2) — the SAME `<shepherd-house-rules>` block Shepherd
- * injected into the system prompt of the agent that wrote this diff, reproduced verbatim.
+ * The REPO HOUSE RULES block (#2154 slice 2) — the repository's curated standing rules, the set
+ * Shepherd injects into the system prompt of every agent it runs in this repo.
  *
- * It is reproduced rather than re-rendered on purpose: the critic is being shown exactly what the
- * author was told, so "the author was given this rule and ignored it" is a claim it can actually
- * make. (The block's own intro line therefore addresses the AUTHOR — the framing below says so.)
+ * WHAT IT IS NOT, and why the wording is careful about it. An earlier version of this block told the
+ * critic these rules were "injected into the agent that wrote this diff, reproduced verbatim", and
+ * rested the license to BLOCK on that premise. It is false twice over:
+ *   1. `prReviewPrompt` carries this block for every PR the standalone critic sweeps — third-party
+ *      and fork PRs included — where no Shepherd agent authored the diff and nothing was injected
+ *      into anything. `learningsEnabled` defaults ON, so that is the common case, not a corner.
+ *   2. Even at the session critic it is not a reproduction: the set is re-planned at review time
+ *      from the CURRENT active rules, scoped by the files the diff touches and ranked by a
+ *      recency decay evaluated NOW (see ReviewService.repoHouseRules) — so it can differ from what
+ *      the author actually received at spawn, in either direction.
+ * The block therefore claims only what is true everywhere — these are the repo's standing rules —
+ * and `authored` adds the author-facing framing ONLY where a Shepherd agent really did write the
+ * diff under a (possibly different) cut of these rules. The blocking license rests on the rules
+ * being the REPO's standard, which holds for any PR against it.
  *
  * ROUTING splits on how clear-cut the violation is, for the same reason the scope-creep / smells /
  * latent lenses split: ANY entry in `findings` advances the streak (buildVerdict), is auto-addressed
@@ -707,10 +724,18 @@ function reviewPolicyBlock(policy: string | null | undefined): string[] {
  * paused it. Rules are distilled from past sessions by an LLM and curated, not proven, so only an
  * unambiguous violation may block; everything softer goes to a non-blocking body section.
  */
-function reviewerHouseRulesBlock(houseRules: string | null | undefined): string[] {
+function reviewerHouseRulesBlock(
+  houseRules: string | null | undefined,
+  authored: boolean | undefined,
+): string[] {
   if (!houseRules || !houseRules.trim()) return [];
   return [
-    "REPO HOUSE RULES — the standing guidance Shepherd injected into the SYSTEM PROMPT of the agent that wrote this diff, reproduced verbatim below. Its intro addresses that AUTHOR, not you; your job is to check the diff against it. These are Shepherd-curated repo rules, not diff content. A rule the author was handed and ignored is exactly what review exists to catch:",
+    "REPO HOUSE RULES — this repository's curated standing rules, supplied by Shepherd. They are the same body of guidance Shepherd puts in the system prompt of every agent it runs in this repo, so the block below is written to address an agent DOING the work rather than reviewing it; your job is to judge the diff against it. Shepherd-supplied repo standard, NOT content from the diff:",
+    ...(authored
+      ? [
+          "- A Shepherd agent wrote this diff, and was given this same standing guidance when it started. (The exact set is re-planned for this review from the current rules and the files this diff touches, so it may differ in detail from the cut that agent saw — judge the diff against the rules shown here.) A rule the author was handed and ignored is exactly what review exists to catch.",
+        ]
+      : []),
     '- A CLEAR, UNAMBIGUOUS violation of a stated rule by a change IN THE DIFF is a finding: put it in "findings", name the rule you are applying, and block it per the usual rules.',
     '- Anything short of that — a rule that only arguably applies, one whose intent the diff meets by other means, or a stylistic reading of it — is a JUDGEMENT CALL. Report it in a SINGLE "body" section headed exactly `House rules (non-blocking):`, ONE LINE PER DISTINCT ITEM, do NOT put it in "findings", and it NEVER makes the decision "request-changes".',
     "- These rules are distilled from past sessions and can be stale or simply wrong for this change. They are never a reason to raise something you cannot see in the diff, and every item must concern a file in the diff per the SCOPE rule above.",
@@ -730,6 +755,9 @@ function scopeAndOutputTail(
     planClamped?: boolean;
     reviewPolicy?: string | null;
     houseRules?: string | null;
+    /** True only where a Shepherd agent authored the diff under this repo's rules — see
+     *  {@link reviewerHouseRulesBlock}. The standalone critic never sets it. */
+    houseRulesAuthored?: boolean;
   } = {},
 ): string[] {
   return [
@@ -843,7 +871,7 @@ function scopeAndOutputTail(
     // last thing read and the two blocks can only ADD to it. Both are empty by default, keeping
     // every existing prompt byte-identical.
     ...reviewPolicyBlock(opts.reviewPolicy),
-    ...reviewerHouseRulesBlock(opts.houseRules),
+    ...reviewerHouseRulesBlock(opts.houseRules, opts.houseRulesAuthored),
     // FINDINGS ROUTING (#1948). The tail used to mandate the exact opposite — "A non-blocking nit
     // STILL goes in findings" — which contradicted the three lenses above and their stated reason:
     // ANY entry in `findings` advances the streak (buildVerdict), is auto-addressed (runAutoAddress

@@ -4750,6 +4750,8 @@ describe("NewTask shape round", () => {
     await expect.poll(() => mockShapeTask.mock.calls.length).toBe(1);
     expect(mockShapeTask.mock.calls[0]![0]).toBe("/repo");
     expect(mockShapeTask.mock.calls[0]![1]).toBe("stop the leak");
+    // The picker's literal "default" must never reach the CLI as `--model default`.
+    expect(mockShapeTask.mock.calls[0]![3]).not.toBe("default");
 
     const radios = () => document.querySelectorAll<HTMLInputElement>('.shape input[type="radio"]');
     await expect.poll(() => radios().length).toBe(2);

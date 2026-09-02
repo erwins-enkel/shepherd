@@ -21,38 +21,58 @@
 import type { ResolvedAnswer } from "./plan-gate";
 import type { PlanQuestion } from "./visual-blocks";
 
-/** One section of the intent shape: the heading both artifacts render, and the prompt-side hint
- *  that tells a human (issue template) or an agent (shaping prompt) what belongs under it. */
-export interface IntentSection {
+/** One section of the intent shape: the `key` every artifact addresses it by (and the shaping
+ *  helper's JSON field name), the heading they render, and the hint that tells a human (issue
+ *  template) or an agent (shaping prompt) what belongs under it. */
+interface IntentSection {
+  key: string;
   heading: string;
   hint: string;
 }
 
-/** The intent shape, in order. Edit HERE — every artifact below is derived from it. */
-export const INTENT_SECTIONS: readonly IntentSection[] = [
+/** The intent shape, in order. Edit HERE — the brief's headings, the issue template and the shaping
+ *  prompt's field guidance are all derived from this list, so a section cannot exist in one artifact
+ *  and not another. */
+export const INTENT_SECTIONS = [
   {
+    key: "problem",
     heading: "Problem",
     hint: "What is wrong or missing today, and who it hurts. Not a proposed solution.",
   },
   {
+    key: "outcome",
     heading: "Outcome",
     hint: "What is observably true once this lands — the result, not the implementation.",
   },
   {
+    key: "constraints",
     heading: "Constraints",
     hint: "What the change must respect: existing behaviour, compatibility, budgets, prior decisions.",
   },
   {
+    key: "nonGoals",
     heading: "Non-goals",
     hint: "What this deliberately does NOT do, so scope cannot drift mid-session.",
   },
   {
+    key: "openQuestions",
     heading: "Open questions",
     hint: "What is still undecided and needs an answer before or during the work.",
   },
-] as const;
+] as const satisfies readonly IntentSection[];
 
-/** The four sections the shaping helper drafts; "Open questions" is filled from the round itself. */
+type IntentSectionKey = (typeof INTENT_SECTIONS)[number]["key"];
+
+/** key → heading, so the composer never restates a heading the list already owns. */
+const HEADINGS = Object.fromEntries(INTENT_SECTIONS.map((s) => [s.key, s.heading])) as Record<
+  IntentSectionKey,
+  string
+>;
+
+/** The sections the shaping helper DRAFTS: every intent section except `openQuestions`, which the
+ *  round itself produces (a question the operator left unanswered). Keys match INTENT_SECTIONS. */
+export const DRAFT_SECTIONS = INTENT_SECTIONS.filter((s) => s.key !== "openQuestions");
+
 export interface TaskBriefDraft {
   problem: string;
   outcome: string;
@@ -103,12 +123,13 @@ export function composeTaskBrief(
 
   return (
     [
-      section("Problem", draft.problem),
-      section("Outcome", draft.outcome),
-      section("Constraints", bullets(draft.constraints)),
-      section("Non-goals", bullets(draft.nonGoals)),
+      section(HEADINGS.problem, draft.problem),
+      section(HEADINGS.outcome, draft.outcome),
+      section(HEADINGS.constraints, bullets(draft.constraints)),
+      section(HEADINGS.nonGoals, bullets(draft.nonGoals)),
+      // Not an intent section: the round's own record of what the operator settled.
       section("Clarifications", clarifications),
-      section("Open questions", bullets(unanswered)),
+      section(HEADINGS.openQuestions, bullets(unanswered)),
     ]
       .filter(Boolean)
       .join("\n\n") + "\n"

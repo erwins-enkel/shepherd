@@ -60,7 +60,9 @@ export interface ReadinessReport {
   checks: GuardrailCheck[];
   /** Whether the repo already ships agent house-rules (CLAUDE.md/AGENTS.md). */
   hasAgentInstructions: boolean;
-  /** Whether the repo already ships issue templates (so the prescription says merge, not create). */
+  /** Whether the repo already ships issue templates. Present ⇒ the guardrail is satisfied, so the
+   *  adopt task leaves the repo's templates alone and {@link ReadinessReport.issueTemplate} is
+   *  reference-only (the panel says so); absent ⇒ the prescription tells the agent to create it. */
   hasIssueTemplates: boolean;
   /** Generated, stack-tailored house-rules snippet. Verbatim artifact — exempt from i18n. */
   claudeMd: string;

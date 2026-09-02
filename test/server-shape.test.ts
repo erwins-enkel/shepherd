@@ -29,7 +29,7 @@ const round: ShapeResult = {
 };
 
 function harness(shapeTask?: AppDeps["shapeTask"]) {
-  const calls: { repoPath: string; prompt: string; provider: string; model: string }[] = [];
+  const calls: { repoPath: string; prompt: string; provider: string; model: string | null }[] = [];
   const wrapped: AppDeps["shapeTask"] = shapeTask
     ? async (repoPath, prompt, provider, model) => {
         calls.push({ repoPath, prompt, provider, model });
@@ -82,12 +82,27 @@ test("POST /api/shape rejects a repo outside the configured root before any spaw
   expect(calls).toHaveLength(0);
 });
 
+test('POST /api/shape maps an absent model to null — never the picker\'s "default" string', async () => {
+  const { app, calls } = harness(async () => round);
+  // The New Task picker's "default" option is normalised client-side; the route must accept the
+  // resulting null rather than forcing a literal through to `--model`.
+  const res = await app.fetch(
+    post("/api/shape", { repoPath: repoDir, prompt: "x", provider: "claude", model: null }),
+  );
+  expect(res.status).toBe(200);
+  expect(calls[0]?.model).toBeNull();
+
+  await app.fetch(post("/api/shape", { repoPath: repoDir, prompt: "x", provider: "claude" }));
+  expect(calls[1]?.model).toBeNull();
+});
+
 test("POST /api/shape validates the body and 503s when the helper is unwired", async () => {
   const { app } = harness(async () => round);
   for (const body of [
     { repoPath: repoDir, prompt: 1, provider: "claude", model: "opus" },
     { repoPath: repoDir, prompt: "x", provider: "gemini", model: "opus" },
     { repoPath: repoDir, prompt: "x", provider: "claude", model: "" },
+    { repoPath: repoDir, prompt: "x", provider: "claude", model: 7 },
   ]) {
     expect((await app.fetch(post("/api/shape", body))).status).toBe(400);
   }

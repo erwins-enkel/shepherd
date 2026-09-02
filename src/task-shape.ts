@@ -24,7 +24,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { HerdrDriver } from "./herdr";
-import type { TaskBriefDraft } from "./intent-shape";
+import { DRAFT_SECTIONS, type TaskBriefDraft } from "./intent-shape";
 import type { OperatorLanguage } from "./operator-language";
 import { apiKeyFailClosed, apiKeyPassthroughEnv } from "./spawn-auth";
 import {
@@ -87,8 +87,9 @@ export interface ShapeArgs {
   /** Absolute path of the repo the task would run in; handed to the agent via `--add-dir`. */
   repoPath: string;
   provider: AgentProvider;
-  /** Model alias passed straight to the CLI (`opus`, `gpt-5.5`, …). */
-  model: string;
+  /** Model alias passed straight to the CLI (`opus`, `gpt-5.5`, …), or null to inherit the spawn
+   *  default. Never the picker's literal "default" — the route normalises that to null. */
+  model: string | null;
   /** herdr terminal label for the transient agent. */
   label: string;
   /** Live operator-language setting — the questions are read by a human. */
@@ -132,8 +133,11 @@ export function shaperPrompt(
     '{"draft":{"problem":"…","outcome":"…","constraints":["…"],"nonGoals":["…"]},',
     ' "questions":[{"id":"q1","prompt":"…","kind":"single","options":["…","…"]},',
     '              {"id":"q2","prompt":"…","kind":"freeform"}]}',
-    "- `draft` is what you understood from the ask, in the operator's terms: the problem it solves,",
-    "  the observable outcome, the constraints the change must respect, and what it is NOT.",
+    "- `draft` is what you understood from the ask, in the operator's terms. Its fields, and what",
+    "  belongs in each:",
+    // Derived from INTENT_SECTIONS (src/intent-shape.ts) rather than restated here, so the shape
+    // the helper drafts cannot drift from the one the brief renders and the issue template ships.
+    ...DRAFT_SECTIONS.map((sec) => `  - \`${sec.key}\`: ${sec.hint}`),
     `- \`questions\`: 2 to ${MAX_QUESTIONS} of them, each a real product/scope decision only the`,
     '  operator can settle. `kind` is "single" (pick one), "multi" (pick any) or "freeform"',
     "  (type an answer); single/multi MUST carry concrete `options` — offer the actual alternatives",

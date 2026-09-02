@@ -1,5 +1,6 @@
 import { test, expect } from "bun:test";
 import {
+  DRAFT_SECTIONS,
   INTENT_ISSUE_TEMPLATE,
   INTENT_SECTIONS,
   composeTaskBrief,
@@ -96,6 +97,28 @@ test("the issue template carries every intent section as a fillable skeleton", (
     expect(INTENT_ISSUE_TEMPLATE).toContain(`<!-- ${s.hint} -->`);
   }
   expect(INTENT_ISSUE_TEMPLATE.startsWith("---\nname: Task\n")).toBe(true);
+});
+
+test("a heading edit in INTENT_SECTIONS reaches the brief, not just the template", () => {
+  // The point of the shared list: the composer must not carry its own copy of the headings.
+  for (const sec of INTENT_SECTIONS) {
+    const brief = composeTaskBrief(
+      { problem: "p", outcome: "o", constraints: ["c"], nonGoals: ["n"] },
+      questions,
+      [],
+    );
+    expect(brief).toContain(`## ${sec.heading}`);
+  }
+});
+
+test("DRAFT_SECTIONS is the intent shape minus the round's own output", () => {
+  expect(DRAFT_SECTIONS.map((s) => s.key)).toEqual([
+    "problem",
+    "outcome",
+    "constraints",
+    "nonGoals",
+  ]);
+  expect(INTENT_SECTIONS.map((s) => s.key)).toContain("openQuestions");
 });
 
 test("brief headings and template headings come from the same section list", () => {

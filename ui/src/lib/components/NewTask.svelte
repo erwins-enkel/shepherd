@@ -848,7 +848,14 @@
     const seq = ++shapeSeq;
     shapeStatus = "running";
     shapeRound = null;
-    const res = await apiShapeTask(repoPath, prompt, agentProvider, model);
+    // `model` is the PICKER's value, which includes the literal "default" — normalise it the way
+    // every other spawn path does (buildSpawnInput below) so the CLI never sees `--model default`.
+    const res = await apiShapeTask(
+      repoPath,
+      prompt,
+      agentProvider,
+      model !== "default" ? model : null,
+    );
     // Dismissed, or superseded by a later round, while the agent was thinking.
     if (seq !== shapeSeq) return;
     if ("round" in res) {

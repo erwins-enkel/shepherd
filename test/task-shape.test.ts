@@ -123,6 +123,13 @@ test("claude path: the repo rides --add-dir, dontAsk sits before the prompt, rou
   expect(calls.cleaned).toBe(true);
 });
 
+test("a null model emits no --model flag (the spawn default applies)", async () => {
+  const { deps, calls } = makeDeps({ readRound: () => round });
+  await shapeTask(args({ model: null }), deps);
+  expect(calls.started?.argv).not.toContain("--model");
+  expect(calls.started?.argv).not.toContain("default");
+});
+
 test("codex path: codex argv, no --add-dir, no claude env", async () => {
   const { deps, calls } = makeDeps({ readRound: () => round });
   const r = await shapeTask(args({ provider: "codex", model: "gpt-5.5" }), deps);

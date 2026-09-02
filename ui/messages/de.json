@@ -3763,7 +3763,7 @@
   "readiness_g_issue_templates_title": "Issue-Vorlagen",
   "readiness_g_issue_templates_removes": "Ohne sie erreicht ein Issue den Agenten als Einzeiler, und die Session verbrennt ihre ersten Züge mit Rückfragen.",
   "readiness_template_heading": "Empfohlene Issue-Vorlage",
-  "readiness_template_present_note": "Dieses Repository hat bereits Issue-Vorlagen; die Aufgabe legt diese zusätzlich an.",
+  "readiness_template_present_note": "Dieses Repository hat bereits Issue-Vorlagen, die Installationsaufgabe rührt sie daher nicht an — diese hier ist zum Kopieren da, falls du die Intent-Struktur zusätzlich möchtest.",
   "readiness_adopt_template_intro": "Verwende exakt diese Issue-Vorlage, wortwörtlich:",
   "feat_shape_task_title": "Aufgaben vor dem Start schärfen",
   "feat_shape_task_body": "„Neue Aufgabe“ hat jetzt einen optionalen Schärfen-Button. Ein kurzlebiger Agent liest deinen groben Prompt und das Repository und stellt genau die Fragen, die nur du beantworten kannst — aus deinen Antworten wird ein Briefing mit Problem, Ergebnis, Randbedingungen und Nicht-Zielen. Bis du auf Start drückst, läuft keine Session: Eine unterspezifizierte Aufgabe kostet damit eine Rückfragerunde statt einer verbrannten Session. Einfach tippen und starten funktioniert unverändert. Der Reiter „Readiness“ empfiehlt zusätzlich eine passende Issue-Vorlage, damit gedrainte Backlog-Issues in derselben Form ankommen."

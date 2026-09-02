@@ -3763,7 +3763,7 @@
   "readiness_g_issue_templates_title": "Issue templates",
   "readiness_g_issue_templates_removes": "Without them, an issue reaches the agent as a one-liner and the session burns its first turns asking what you meant.",
   "readiness_template_heading": "Prescribed issue template",
-  "readiness_template_present_note": "This repo already ships issue templates; the task will add this one alongside them.",
+  "readiness_template_present_note": "This repo already ships issue templates, so the install task leaves them alone — this one is here to copy from if you want the intent shape too.",
   "readiness_adopt_template_intro": "Use exactly this issue template, verbatim:",
   "feat_shape_task_title": "Shape a task before you start it",
   "feat_shape_task_body": "New Task has an optional Shape button. It runs a short agent over your rough prompt and the repo, then asks you the few questions only you can settle — and turns your answers into a brief with problem, outcome, constraints and non-goals. No session is started until you press Start, so an under-specified ask costs a clarifying round instead of a burnt session. Typing a prompt and starting it still works exactly as before. The Readiness tab now also prescribes a matching issue template, so drained backlog issues arrive in the same shape."

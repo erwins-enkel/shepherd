@@ -1053,7 +1053,8 @@ export async function shapeTask(
   repoPath: string,
   prompt: string,
   provider: AgentProvider,
-  model: string,
+  /** `null` = let the spawn default apply. Callers must map the picker's literal "default" here. */
+  model: string | null,
 ): Promise<ShapeResult> {
   const r = await fetch("/api/shape", {
     method: "POST",

@@ -383,6 +383,18 @@ test("the prescribed template is the intent shape, and rides the generated house
   expect(r.claudeMd).toContain(".github/ISSUE_TEMPLATE/task.md");
 });
 
+test("the artifact ships whether or not the repo has templates; only the prescription differs", () => {
+  // hasIssueTemplates gates the ADOPT prescription (and the panel note), never the artifact — the
+  // template stays visible to copy from either way.
+  pkg({ name: "x" });
+  write(".github/ISSUE_TEMPLATE/existing.md", "## Anything");
+  const r = analyzeReadiness(dir);
+  expect(r.hasIssueTemplates).toBe(true);
+  expect(r.issueTemplate).toContain("## Problem");
+  // Guardrail satisfied ⇒ the adopt list no longer names the file to create.
+  expect(r.claudeMd).not.toContain(".github/ISSUE_TEMPLATE/task.md");
+});
+
 test("a not-applicable repo reports no template rather than a stray artifact", () => {
   const r = analyzeReadiness(dir); // no package.json / Cargo.toml written
   expect(r.applicable).toBe(false);

@@ -23,7 +23,7 @@
     oncollapse?: () => void;
   } = $props();
 
-  // Bound the badge width so a large count can't perturb the fixed 6-lens single-row grid.
+  // Bound the badge width so a large count can't perturb the fixed 5-lens single-row grid.
   const owedBadge = $derived(owedCount > 99 ? "99+" : String(owedCount));
 </script>
 
@@ -33,7 +33,7 @@
      glyph is aria-hidden, so each segment's accessible name is its label alone. The strip
      sets its OWN container (container-type: inline-size) — the `herd` container lives on the
      sibling .units subtree and is unreachable here — so a @container query can shrink the
-     label font at narrow widths and keep all six lenses on one row down to the 300px floor.
+     label font at narrow widths, keeping full labels legible below the 300px floor.
      The status chip (top-bar tally) and the touch-wide collapse control, which the old
      inline row carried, are rehomed to thin rows below / above the strip. -->
 {#if collapsible}
@@ -172,8 +172,8 @@
        container is on the sibling .units subtree, unreachable from here) */
     container-type: inline-size;
     display: grid;
-    /* six lenses on one row down to the 300px sidebar floor (6×44=264 ≤ inner width);
-       wraps only at the narrowest compact widths (<264) */
+    /* five lenses on one row down to the 300px sidebar floor (5×44=220 ≤ inner width);
+       wraps only well below that floor (<220) */
     grid-template-columns: repeat(auto-fit, minmax(44px, 1fr));
     border-bottom: 1px solid var(--color-line);
   }
@@ -236,7 +236,7 @@
     box-shadow: inset 0 0 0 1px var(--color-amber);
   }
   /* Anchor for the absolutely-positioned owed count badge so it overlays the segment's
-     top-right corner without consuming column width (keeps the 6-lens single-row grid intact). */
+     top-right corner without consuming column width (keeps the 5-lens single-row grid intact). */
   .lens-owed {
     position: relative;
   }
@@ -260,7 +260,10 @@
     background: color-mix(in oklab, var(--status-warn) 14%, var(--color-panel));
   }
   /* Shrink the label when the strip itself is narrow so the longest DE label ("Nächstes")
-     stays on one line and all six lenses keep to a single row at the 300px sidebar floor. */
+     stays on one line. Headroom, not load-bearing at the 300px floor: five lenses leave ~60px
+     per segment there and the DE labels already fit unshrunk (verified by disabling this
+     query — the browser test's no-clip assertion still passed). It earns its place only
+     below that floor, so keep it when retuning the minmax() track. */
   @container (max-width: 336px) {
     .lens .lb {
       font-size: 9px;

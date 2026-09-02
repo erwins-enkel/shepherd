@@ -1799,7 +1799,8 @@ export type GuardrailId =
   | "dead_code_audit"
   | "ci"
   | "dependency_automation"
-  | "agent_instructions";
+  | "agent_instructions"
+  | "issue_templates";
 export interface GuardrailCheck {
   id: GuardrailId;
   present: boolean;
@@ -1819,8 +1820,28 @@ export interface ReadinessReport {
   score: number;
   checks: GuardrailCheck[];
   hasAgentInstructions: boolean;
+  /** Whether the repo already ships issue templates (prescription says merge, not create). */
+  hasIssueTemplates: boolean;
   /** Generated house-rules snippet — verbatim artifact, exempt from i18n. */
   claudeMd: string;
+  /** The prescribed intent-shaped issue template (#2158) — same sections as a shaped task brief.
+   *  Verbatim artifact, exempt from i18n; "" on the not-applicable path. */
+  issueTemplate: string;
+}
+
+// ── New Task "shape this" round (issue #2158) ───────────────────────────────
+/** The four sections the shaping helper drafts; mirrors the server's TaskBriefDraft. */
+export interface TaskBriefDraft {
+  problem: string;
+  outcome: string;
+  constraints: string[];
+  nonGoals: string[];
+}
+
+/** A shaped round: what the helper understood, plus the questions only the operator can settle. */
+export interface ShapeRound {
+  draft: TaskBriefDraft;
+  block: Extract<VisualBlock, { type: "question-form" }>;
 }
 
 // ── environment-readiness diagnostics (issue #623) ──────────────────────────

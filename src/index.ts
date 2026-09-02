@@ -1,6 +1,7 @@
 import { mkdirSync, existsSync, readdirSync, statSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { randomUUID } from "node:crypto";
 import {
   config,
   SESSION_RETENTION_MS,
@@ -105,6 +106,7 @@ import { isFullAuto } from "./full-auto";
 import { classifyStop } from "./autopilot-llm";
 import { tailLines } from "./blocked";
 import { recommendPrompt, RECOMMEND_LABEL } from "./prompt-recommend";
+import { shapeTask, SHAPE_LABEL } from "./task-shape";
 import { CountsService } from "./backlog";
 import { OpenPrSnapshotService } from "./open-pr-snapshot";
 import { BacklogPoller } from "./backlog-poller";
@@ -2500,6 +2502,7 @@ deferredStarts.push(() => {
   void reapTransientByLabel(herdr, AUTOPILOT_LABEL, new Set(), "[autopilot]");
   void reapTransientByLabel(herdr, VERIFY_KEY_LABEL, new Set(), "[verify-key]");
   void reapTransientByLabel(herdr, RECOMMEND_LABEL, new Set(), "[recommend]");
+  void reapTransientByLabel(herdr, SHAPE_LABEL, new Set(), "[shape]");
 });
 const gitignoreAdopter = new GitignoreAdopter({ worktree, resolveForge });
 // Daily: prune archived sessions, prune old signals, then consider a distill per repo
@@ -3144,6 +3147,22 @@ const appDeps: AppDeps = {
       { herdr },
     );
   },
+  // The New Task shaping round (#2158). No session exists yet — there is no desig to label with,
+  // so the label carries a short random suffix (unique per round, and the tab reaper knows the
+  // prefix). `repoPath` arrives containment-checked by the route; it reaches the agent as
+  // `--add-dir`, which is the only thing that grants it repo access.
+  shapeTask: (repoPath, prompt, provider, model) =>
+    shapeTask(
+      {
+        prompt,
+        repoPath,
+        provider,
+        model,
+        label: `${SHAPE_LABEL}${randomUUID().slice(0, 8)}`,
+        operatorLanguage: config.operatorLanguage,
+      },
+      { herdr },
+    ),
 };
 
 // Load server-side plugins ONCE, now that every core service exists — and before the

@@ -8,6 +8,7 @@ import { MERGE_LABEL } from "./merge-suggest";
 import { AUTOPILOT_LABEL } from "./autopilot";
 import { NAMER_LABEL } from "./namer";
 import { RECOMMEND_LABEL } from "./prompt-recommend";
+import { SHAPE_LABEL } from "./task-shape";
 import { VERIFY_KEY_LABEL } from "./verify-key";
 import { SHELLS } from "./json-tolerant";
 
@@ -59,6 +60,7 @@ export type ReapableHerdr = Pick<
  *  - `pr-critic <repo>#<n>` — standalone PR critic (standalone-critic.ts)
  *  - `recap <desig>`     — recap generator (recap.ts)
  *  - {@link RECOMMEND_LABEL}`<desig>` — prompt recommender (prompt-recommend.ts, #1852)
+ *  - {@link SHAPE_LABEL}`<n>`        — New Task shaping round (task-shape.ts, #2158)
  *  - {@link DOC_AGENT_LABEL}`<hex>`  — doc agent (doc-agent.ts, #2029)
  *  - `rundown`           — herd-digest rundown (herd-digest.ts) — liveness-gated
  *
@@ -81,6 +83,7 @@ export function isShepherdHelperLabel(label: string): boolean {
     label.startsWith("pr-critic ") ||
     label.startsWith("recap ") ||
     label.startsWith(RECOMMEND_LABEL) ||
+    label.startsWith(SHAPE_LABEL) ||
     label.startsWith(AUTOPILOT_LABEL)
   );
 }

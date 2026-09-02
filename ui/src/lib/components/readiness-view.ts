@@ -28,7 +28,19 @@ export function haveList(report: ReadinessReport): GuardrailCheck[] {
  * sentence followed by the verbatim generated house-rules snippet (which already
  * enumerates the tooling to adopt). The agent installs the guardrails + the
  * CLAUDE.md, opening a PR — the prescription never auto-commits.
+ *
+ * `template` (#2158) is appended when the repo lacks issue templates: the house-rules snippet names
+ * the FILE to create, this carries the CONTENT, so the agent transcribes a fixed artifact instead of
+ * improvising the intake shape. Its `intro` is i18n'd by the caller like the outer one; omit the
+ * argument (or pass a blank body) to leave the section out.
  */
-export function buildAdoptPrompt(intro: string, claudeMd: string): string {
-  return `${intro}\n\n${claudeMd}`;
+export function buildAdoptPrompt(
+  intro: string,
+  claudeMd: string,
+  template?: { intro: string; body: string },
+): string {
+  const base = `${intro}\n\n${claudeMd}`;
+  return template && template.body.trim()
+    ? `${base}\n\n${template.intro}\n\n${template.body}`
+    : base;
 }

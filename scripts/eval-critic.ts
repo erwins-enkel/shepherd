@@ -30,8 +30,12 @@ import { READONLY_TOOLS, WRITE_TOOL, main, type EvalSpec, type Score } from "./e
 /** `claude-sonnet-5` is the API snapshot standing in for the operator's critic role model
  *  (`criticModel`, "default" ⇒ the operator default). Overridable via `--model`. */
 const DEFAULT_MODEL = "claude-sonnet-5";
-/** The critic writes a full markdown review before its verdict; both pass through this budget. */
-const MAX_TOKENS = 8192;
+/** The critic writes a FULL markdown review as a tool input before its verdict, and both pass
+ *  through this budget. Set high deliberately: a run truncated at `max_tokens` mid-`tool_use` hands
+ *  back a partial argument object, which scores as a parse failure and quietly pollutes the
+ *  baseline with a mechanical miss. `max_tokens` is a cap, not a reservation — output is billed on
+ *  what is actually generated, so the headroom is free. */
+const MAX_TOKENS = 16384;
 const DEFAULT_TRIALS = 5;
 const DEFAULT_TEMPERATURE = 1.0;
 

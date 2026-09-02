@@ -19,8 +19,10 @@ import { READONLY_TOOLS, WRITE_TOOL, main, type EvalSpec, type Score } from "./e
 /** `claude-sonnet-5` is the API snapshot standing in for the operator's plan-reviewer role model
  *  (`reviewerModel`, "default" ⇒ the operator default). Overridable via `--model`. */
 const DEFAULT_MODEL = "claude-sonnet-5";
-/** The verdict carries a full markdown `body` alongside the findings list. */
-const MAX_TOKENS = 8192;
+/** The verdict carries a full markdown `body` alongside the findings list, inside the same
+ *  `tool_use` argument. Same reasoning as the critic's budget: truncation mid-argument scores as a
+ *  parse failure, and unused headroom is free. */
+const MAX_TOKENS = 16384;
 const DEFAULT_TRIALS = 5;
 const DEFAULT_TEMPERATURE = 1.0;
 

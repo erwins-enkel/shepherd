@@ -245,6 +245,54 @@ one (a per-repo in-flight guard means at most one run per repo at a time):
 | `SHEPHERD_DOC_AGENT_EFFORT` | `low` | Reasoning-effort tier for the doc-agent spawn: `default` follows the CLI's own effort, or pin a tier (`low` / `medium` / `high` / `xhigh` / `max`). Seeds a fresh DB; persisted + UI-configurable |
 | `SHEPHERD_DOC_AGENT_NIGHTLY_HOUR` | `3` | Local hour (0–23) at/after which the nightly sweep evaluates each repo; invalid values fall back to `3` |
 
+## Maintain loop (self-health bands)
+
+Opt-in, default-off, and fully inert when off. Once per local day Shepherd scores three
+**bands** over its **own** health data and escalates by tier: **tier 1** logs the reading,
+**tier 2** spawns a read-only diagnosis agent that drafts a backlog issue which the trusted
+server files **against Shepherd's own repo** — never a managed repo, so nothing lands in
+someone else's backlog. The agent itself never touches a forge: it writes a JSON draft in a
+disposable worktree and nothing else. There is no tier 3 (no automatic fix PR).
+
+| Band | Measures | Window | Tier 1 | Tier 2 |
+| --- | --- | --- | --- | --- |
+| `critic_error_rate` | Share of outcome-bearing review spawns that errored (produced no verdict) | 7 days, min sample 10 | ≥ `0.15` | ≥ `0.30` |
+| `incident_spike` | `signals` per kind — needs **both** an occurrence count and a distinct-session count, so one thrashing task can't trip it. The `reply` kind is excluded (operator corrections are high-volume by design) | 7 days | ≥ 10 occurrences **and** ≥ 3 sessions | ≥ 25 occurrences **and** ≥ 5 sessions |
+| `first_pass_collapse` | Per-repo first-pass review rate — direction is **inverted**, a lower rate is worse | 30 days, min sample 8 | ≤ `0.60` | ≤ `0.40` |
+
+A band below its minimum sample reports "below min sample" rather than a misleading number.
+Every band's live value is persisted and surfaced on the **Delivery lens** whether or not it
+breached — the starting thresholds are calibrated guesses, and observed values are what let
+you retune them.
+
+**Spend bounds.** At most **one** tier-2 diagnosis spawn per sweep (the rest wait for the next
+day), and after a diagnosis run **completes** — filed, skipped or errored — its band is
+suppressed for **14 days**. The cooldown anchors on the run, not on a filed issue, precisely
+so observe mode (which files nothing) still suppresses.
+
+**Phased soak (`observe → act`)**, mirroring the doc agent:
+
+1. **Observe** — `SHEPHERD_MAINTAIN_LOOP=1` alone. Bands are evaluated, readings persisted,
+   breaches logged and the tier-2 diagnosis spawns, but finalize is **log-only**: it logs
+   `[maintain] <band>: would file issue "<title>" (act is off)` and calls the forge never.
+2. **Act** — additionally set `SHEPHERD_MAINTAIN_ACT=1` to escalate finalize to actually
+   opening the labelled issue. Meaningful only when `SHEPHERD_MAINTAIN_LOOP` is also on.
+
+`POST /api/maintain/sweep` runs an evaluation on demand (it `404`s when the flag is off, the
+same unadvertised contract as the doc-agent route). It skips the hour/presence/once-a-day
+cadence gates but **not** suppression. A diagnosis run interrupted by a restart is settled and
+its worktree reclaimed by the boot reconcile; the breach is re-diagnosed on the next cadence.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `SHEPHERD_MAINTAIN_LOOP` | `0` (off) | Set `1` to arm the loop (**observe**): band evaluation, tier-1 logging, and the tier-2 read-only diagnosis spawn. The drafted issue is only **logged** until `SHEPHERD_MAINTAIN_ACT` is also set |
+| `SHEPHERD_MAINTAIN_ACT` | `0` (off) | **Act.** Set `1` to escalate finalize to actually filing the labelled issue against Shepherd's own repo. Meaningful only when `SHEPHERD_MAINTAIN_LOOP` is also on |
+| `SHEPHERD_MAINTAIN_HOUR` | `4` | Local hour (0–23) at/after which the once-a-day band sweep may run — an hour after the doc agent's nightly so the two spawns don't land together. Invalid values fall back to `4` |
+| `SHEPHERD_MAINTAIN_CLI` | `inherit` | Agent CLI for the diagnosis spawn: `inherit` follows the global default provider, or pin `claude` / `codex`. Env-only (not persisted or UI-configurable) |
+| `SHEPHERD_MAINTAIN_MODEL` | `default` | Model for the diagnosis spawn: `default` follows the global default model, or pin a `<model alias>`. Env-only |
+| `SHEPHERD_MAINTAIN_EFFORT` | `default` | Reasoning-effort tier for the diagnosis spawn: `default` follows the CLI's own effort, or pin a tier (`low` / `medium` / `high` / `xhigh` / `max`). Env-only |
+| `SHEPHERD_MAINTAIN_THRESHOLDS` | _(unset)_ | JSON object deep-merged over the threshold table above, so a recalibration ships without a deploy. Parsed field-by-field and **fail-soft**: an unparseable value or a typo in one number falls back to that default rather than disarming a band. E.g. `{"critic_error_rate":{"tier1":0.2}}` |
+
 ## Anonymous usage telemetry
 
 Off until you opt in. Shepherd can emit **anonymous, privacy-first** usage

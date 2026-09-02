@@ -157,7 +157,11 @@ jobs:
             # large, the critic is multi-turn, and until this file exists on main EVERY push
             # selects all four evals. One trial per fixture and a $1 ceiling each bounds a full
             # four-eval push to a few dollars worst case, and typically far less.
-            flags="$flags --gating-only --trials 1 --max-spend 1"
+            # --smoke: gate on well-formedness, not on correctness. At one trial per fixture a
+            # majority is a single sample — gate-commit-now's own baseline is `gate:4 finished:1`,
+            # so a correctness gate here would red about one run in five on model noise. --trials
+            # also CAPS per-fixture overrides in smoke mode, so a T=9 fixture really runs once.
+            flags="$flags --gating-only --smoke --trials 1 --max-spend 1"
           elif [ "${GATING_ONLY:-false}" = "true" ]; then
             flags="$flags --gating-only"
           fi

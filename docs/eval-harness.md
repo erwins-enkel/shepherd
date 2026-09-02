@@ -305,9 +305,15 @@ otherwise edits inside that block move no hash and its eval never fires.
 
 - **Never in the hermetic gate.** `bun test ./test` stays free and offline; it covers the harness's
   pure logic only.
-- **Per-PR: a SMOKE gate, not the measurement.** `--gating-only --trials 1 --max-spend 1`. It
-  answers "does this prompt still produce a well-formed, sanely-directed verdict"; the weekly run
-  does the statistics at full depth. Sized after a PR run cost **$10.08**: the sets are large, the
+- **Per-PR: a SMOKE gate, not the measurement.** `--gating-only --smoke --trials 1 --max-spend 1`.
+  It gates on **well-formedness only** — every trial must obtain a parseable verdict — and reports
+  accuracy without gating on it. That split is forced by the arithmetic: the per-fixture rule is
+  majority-correct, which needs an odd `T > 1` to mean anything, and `gate-commit-now`'s own
+  recorded baseline is `gate:4 finished:1`, so a correctness gate at one sample would red about one
+  run in five on model noise. Well-formedness is noise-free, and is what broke in every harness
+  failure this project has had. `--smoke` also makes `--trials` CAP per-fixture overrides, so a
+  `T=9` abstain fixture really does run once here; outside smoke mode the override still wins and
+  those buckets keep their depth. The weekly run does the statistics at full depth. Sized after a PR run cost **$10.08**: the sets are large, the
   critic is multi-turn, and until `eval-fingerprints.json` exists on the default branch EVERY push
   selects all four evals. One trial per fixture with a $1 ceiling each bounds a full four-eval push
   to a few dollars worst case, and usually far less. A prompt change is a handful of PRs a year, not

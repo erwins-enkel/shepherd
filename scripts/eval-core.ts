@@ -561,6 +561,27 @@ export interface Decision {
   failures: string[];
 }
 
+/** How many trials a fixture gets. A per-fixture `trials` override normally wins — it exists so an
+ *  abstain-critical bucket can run thicker. In SMOKE mode `--trials` CAPS it instead: the leg is
+ *  bounded by cost, and an override would otherwise run 9 trials against a flag asking for 1. */
+export function trialsFor<F extends EvalFixtureBase>(fixture: F, run: RunOptions): number {
+  const own = fixture.trials ?? run.trials;
+  return run.smoke ? Math.min(own, run.trials) : own;
+}
+
+/** SMOKE verdict: did every trial produce a verdict the parser could read? PURE. A fixture with a
+ *  `no-tool` or `parse-fail` trial is a MECHANICAL failure — the prompt stopped producing a
+ *  well-formed verdict — which is a real regression and blocks, unlike a wrong-but-well-formed one
+ *  at a sample size too small to judge. */
+export function smokeDecide<F extends EvalFixtureBase>(
+  results: FixtureResult<F>[],
+): { pass: boolean; malformed: string[] } {
+  const malformed = results
+    .filter((r) => r.noTool > 0 || r.parseFail > 0)
+    .map((r) => `${r.fixture.id}(no-tool:${r.noTool} parse-fail:${r.parseFail})`);
+  return { pass: malformed.length === 0, malformed };
+}
+
 /** Overall pass = every gating fixture is majority-correct AND gating trial-accuracy >= floor.
  *  Non-gating (baseline) fixtures are reported but never gate. PURE. */
 export function decide<F extends EvalFixtureBase>(
@@ -598,6 +619,12 @@ export function formatReport<F extends EvalFixtureBase>(
 ): string {
   const lines: string[] = [];
   lines.push(`${spec.name} eval — model=${run.model}`);
+  if (run.smoke) {
+    lines.push(
+      "SMOKE — gates on WELL-FORMEDNESS only: every trial must obtain a parseable verdict.",
+      "Accuracy below is reported, NOT gated: at this trial count a majority is a coin flip.",
+    );
+  }
   if (spec.observational === true) {
     lines.push(
       "OBSERVATIONAL — this eval reports but does NOT gate: its floor has never been pinned from a",
@@ -641,7 +668,10 @@ export function formatReport<F extends EvalFixtureBase>(
       `(${decision.gatingCorrect}/${decision.gatingTrials}); floor = ${(decision.floor * 100).toFixed(0)}%`,
   );
   if (decision.failures.length > 0) {
-    lines.push(`gating fixtures below majority: ${decision.failures.join(", ")}`);
+    lines.push(
+      `gating fixtures below majority: ${decision.failures.join(", ")}` +
+        (run.smoke ? "  (reported only — smoke mode gates on well-formedness)" : ""),
+    );
     lines.push(
       "→ contingency (see docs/eval-harness.md): revise the fixture, or demote it to " +
         "non-gating baseline and record it as a known gap.",
@@ -705,6 +735,17 @@ export interface RunOptions {
    *  conversation, so running them one at a time makes a full set take hours — far too slow for a
    *  PR gate. Bounded to stay well inside the API's rate limits. */
   concurrency: number;
+  /**
+   * SMOKE mode: assert the prompt still produces a WELL-FORMED verdict, and nothing statistical.
+   *
+   * The per-fixture rule is majority-correct, which needs an odd T > 1 to mean anything. The PR leg
+   * runs T=1 to stay cheap, and at one sample "majority" is a coin flip: `gate-commit-now`'s own
+   * recorded baseline is `gate:4 finished:1`, so a correctness gate at T=1 would red roughly one
+   * run in five on model noise alone. The smoke leg therefore gates on the MECHANICAL fact — every
+   * trial obtained a parseable verdict — which is noise-free, and is exactly what broke in every
+   * harness failure so far. Accuracy is still computed and reported; it just does not decide.
+   */
+  smoke: boolean;
   /** The raw flags, so an eval can read its own switches without re-parsing argv. */
   argv: string[];
 }
@@ -735,6 +776,7 @@ export function parseArgs<F extends EvalFixtureBase>(
     gatingOnly: argv.includes("--gating-only"),
     concurrency: Math.max(1, num("--concurrency", DEFAULT_CONCURRENCY)),
     maxSpend: Math.max(0, num("--max-spend", DEFAULT_MAX_SPEND_USD)),
+    smoke: argv.includes("--smoke"),
     argv,
   };
 }
@@ -892,7 +934,7 @@ async function runEvalInner<F extends EvalFixtureBase>(
   const tasks: Task[] = [];
   for (const [index, fixture] of fixtures.entries()) {
     const prompt = spec.buildPrompt(fixture, run);
-    const n = fixture.trials ?? run.trials;
+    const n = trialsFor(fixture, run);
     for (let trial = 0; trial < n; trial++) tasks.push({ fixture, index, prompt, trial });
   }
 
@@ -1018,6 +1060,10 @@ async function runEvalInner<F extends EvalFixtureBase>(
   );
 
   const decision = decide(results, run.threshold);
+  // In smoke mode the RESULT line must reflect what actually gates, or a green run would read as a
+  // passed correctness gate.
+  const smoke = run.smoke ? smokeDecide(results) : null;
+  if (smoke) decision.pass = smoke.pass;
   // `--json` emits BOTH: the human report on stderr, the JSON block on stdout. A caller that wants
   // both (the workflows do — the report for the log, the JSON for the doc's baseline tables) must
   // never have to run the eval twice, which would double a paid run's spend.
@@ -1034,6 +1080,14 @@ async function runEvalInner<F extends EvalFixtureBase>(
         )
       : formatReport(spec, results, decision, run),
   );
+  if (smoke) {
+    if (smoke.pass) return EXIT.PASS;
+    console.error(
+      `${tag} SMOKE FAIL — these fixtures produced a malformed or missing verdict: ` +
+        `${smoke.malformed.join(", ")}. That is a mechanical failure, not a close call.`,
+    );
+    return observationalPass(spec, tag, "the eval is unmeasured") ?? EXIT.GATE_FAIL;
+  }
   if (decision.pass) return EXIT.PASS;
   // A miss on an unpinned floor is a number to read, not a verdict to block on.
   return observationalPass(spec, tag, "the floor is unpinned") ?? EXIT.GATE_FAIL;

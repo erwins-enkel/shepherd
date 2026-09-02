@@ -18,7 +18,9 @@ import {
   runEval,
   runTrial,
   selectFixtures,
+  smokeDecide,
   spendUsd,
+  trialsFor,
   type AnthropicResponse,
   type EvalFixtureBase,
   type EvalSpec,
@@ -995,4 +997,63 @@ test("CASES actually meets the coverage invariant it states", () => {
   covers("rundown", "merge driver unavailable");
   // renderHold rewrites a held session into a `why` line.
   covers("rundown", '"why"');
+});
+
+// ---------------------------------------------------------------------------
+// Smoke mode — the PR leg's contract
+// ---------------------------------------------------------------------------
+
+test("smoke mode does NOT fail on a wrong-but-well-formed verdict", async () => {
+  // The flake this exists to prevent: at T=1 a majority is one sample, and gate-commit-now's own
+  // recorded baseline is `gate:4 finished:1` — a correctness gate there reds ~1 run in 5 on noise.
+  const send: Send = async () => write("verdict.json", '{"label":"bad"}');
+  const spec = testSpec({ fixtures: [FIXTURE] });
+  expect(await runEval(spec, ["--trials", "1"], send)).toBe(EXIT.GATE_FAIL);
+  expect(await runEval(spec, ["--trials", "1", "--smoke"], send)).toBe(EXIT.PASS);
+});
+
+test("smoke mode DOES fail on a malformed or missing verdict", async () => {
+  // The mechanical failure is noise-free, and is what broke in every harness failure so far.
+  const prose: Send = async () => ({
+    content: [{ type: "text", text: "no tool call" }],
+    stop_reason: "end_turn",
+  });
+  const garbage: Send = async () => write("verdict.json", "not json at all");
+  const spec = testSpec({ fixtures: [FIXTURE] });
+  // A verdict-less preflight is a harness failure before smoke scoring is reached.
+  expect(await runEval(spec, ["--trials", "1", "--smoke"], prose)).toBe(EXIT.HARNESS_FAIL);
+  expect(await runEval(spec, ["--trials", "1", "--smoke"], garbage)).toBe(EXIT.GATE_FAIL);
+});
+
+test("smoke mode CAPS per-fixture trial overrides, which --trials alone does not", () => {
+  // `fixture.trials ?? run.trials` means an override wins — so `--trials 1` left the T=9 fixtures
+  // running nine times, and the cost bound the PR leg claimed was not real.
+  const thick = { ...FIXTURE, trials: 9 };
+  const normal = parseArgs(testSpec(), ["--trials", "1"]);
+  const smoke = parseArgs(testSpec(), ["--trials", "1", "--smoke"]);
+  expect(trialsFor(thick, normal)).toBe(9);
+  expect(trialsFor(thick, smoke)).toBe(1);
+  // Outside smoke mode the override still wins, so the thick abstain buckets keep their depth.
+  expect(trialsFor(thick, parseArgs(testSpec(), []))).toBe(9);
+});
+
+test("smokeDecide names every fixture with a mechanical failure", () => {
+  const ok = aggregate(FIXTURE, [outcome("ok", true)], ["ok"]);
+  const noTool = aggregate({ ...FIXTURE, id: "nt" }, [outcome("ok", true, false, false)], ["ok"]);
+  const parseFail = aggregate({ ...FIXTURE, id: "pf" }, [outcome("ok", true, true, false)], ["ok"]);
+  expect(smokeDecide([ok]).pass).toBe(true);
+  const bad = smokeDecide([ok, noTool, parseFail]);
+  expect(bad.pass).toBe(false);
+  expect(bad.malformed.join(" ")).toContain("nt");
+  expect(bad.malformed.join(" ")).toContain("pf");
+});
+
+test("a smoke report says what it gates on, so green is not read as a passed correctness gate", () => {
+  const spec = testSpec({ fixtures: [FIXTURE] });
+  const results = [aggregate(FIXTURE, [outcome("bad", false)], spec.labels)];
+  const run = parseArgs(spec, ["--trials", "1", "--smoke"]);
+  const out = formatReport(spec, results, decide(results, spec.floor), run);
+  expect(out).toContain("SMOKE");
+  expect(out).toContain("WELL-FORMEDNESS only");
+  expect(out).toContain("NOT gated");
 });

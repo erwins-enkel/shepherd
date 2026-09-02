@@ -8,6 +8,7 @@ import {
   outcomeFrom,
   parseArgs,
   parseVerdict,
+  runEval,
   runTrial,
   selectFixtures,
   type AnthropicResponse,
@@ -576,4 +577,81 @@ test("both prompt-driven evals cover their contract in both directions", () => {
   const rundownGating = RUNDOWN_SPEC.fixtures.filter((f) => f.gating);
   expect(rundownGating.some((f) => (f.expect.mustSurface ?? []).length > 0)).toBe(true);
   expect(rundownGating.some((f) => (f.expect.empty ?? []).length > 0)).toBe(true);
+});
+
+// ---------------------------------------------------------------------------
+// runEval: preflight, concurrency, retry
+// ---------------------------------------------------------------------------
+
+test("runEval aborts on a failing FIRST call rather than burning the rest of the spend", async () => {
+  let calls = 0;
+  const send: Send = async () => {
+    calls++;
+    throw new Error("401 invalid x-api-key");
+  };
+  const spec = testSpec({ fixtures: [FIXTURE, { ...FIXTURE, id: "t2" }] });
+  expect(await runEval(spec, ["--trials", "3"], send)).toBe(2);
+  // Exactly one attempt: no retry on the preflight, and no worker ever started.
+  expect(calls).toBe(1);
+});
+
+test("runEval retries a transport failure once before recording a mechanical miss", async () => {
+  let calls = 0;
+  let injected = false;
+  const send: Send = async () => {
+    calls++;
+    // Let the preflight through, then fail exactly one later attempt: its retry must recover it,
+    // so a 429 never becomes a data point in the measurement.
+    if (calls > 1 && !injected) {
+      injected = true;
+      throw new Error("429 rate_limit_error");
+    }
+    return write("verdict.json", '{"label":"ok"}');
+  };
+  const spec = testSpec({ fixtures: [FIXTURE] });
+  expect(await runEval(spec, ["--trials", "3", "--threshold", "1"], send)).toBe(0);
+  expect(injected).toBe(true);
+});
+
+test("runEval records a mechanical miss when both attempts fail, without aborting", async () => {
+  let calls = 0;
+  const send: Send = async () => {
+    calls++;
+    if (calls === 1) return write("verdict.json", '{"label":"ok"}');
+    throw new Error("503 overloaded");
+  };
+  const spec = testSpec({ fixtures: [FIXTURE] });
+  // The second trial misses, so 1/2 correct is below a floor of 1 → exit 1, not the abort code 2.
+  expect(await runEval(spec, ["--trials", "2", "--threshold", "1", "--json"], send)).toBe(1);
+});
+
+test("runEval runs trials concurrently and still groups outcomes by fixture", async () => {
+  let inFlight = 0;
+  let peak = 0;
+  const send: Send = async (body) => {
+    inFlight++;
+    peak = Math.max(peak, inFlight);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    inFlight--;
+    // Echo the fixture back via the prompt so we can assert outcomes are not cross-assigned.
+    const prompt = (body.messages as { content: string }[])[0]!.content;
+    return write("verdict.json", JSON.stringify({ label: prompt }));
+  };
+  const specs = testSpec({
+    fixtures: [
+      { ...FIXTURE, id: "a", expected: "prompt-a" },
+      { ...FIXTURE, id: "b", expected: "prompt-b" },
+    ],
+    buildPrompt: (fixture) => `prompt-${fixture.id}`,
+  });
+  // Every trial scores correct only if its outcome landed on the fixture whose prompt produced it.
+  expect(
+    await runEval(specs, ["--trials", "4", "--threshold", "1", "--concurrency", "4"], send),
+  ).toBe(0);
+  expect(peak).toBeGreaterThan(1);
+});
+
+test("--concurrency is clamped to at least 1", () => {
+  expect(parseArgs(testSpec(), ["--concurrency", "0"]).concurrency).toBe(1);
+  expect(parseArgs(testSpec(), ["--concurrency", "8"]).concurrency).toBe(8);
 });

@@ -546,6 +546,10 @@ export interface RunOptions {
   json: boolean;
   /** Run only the gating fixtures — what the PR gate uses; the schedule runs the full set. */
   gatingOnly: boolean;
+  /** Trials in flight at once. Trials are independent, and a critic trial is a multi-turn
+   *  conversation, so running them one at a time makes a full set take hours — far too slow for a
+   *  PR gate. Bounded to stay well inside the API's rate limits. */
+  concurrency: number;
   /** The raw flags, so an eval can read its own switches without re-parsing argv. */
   argv: string[];
 }
@@ -574,6 +578,7 @@ export function parseArgs<F extends EvalFixtureBase>(
     filter: get("--filter"),
     json: argv.includes("--json"),
     gatingOnly: argv.includes("--gating-only"),
+    concurrency: Math.max(1, num("--concurrency", DEFAULT_CONCURRENCY)),
     argv,
   };
 }
@@ -585,6 +590,14 @@ export function selectFixtures<F extends EvalFixtureBase>(spec: EvalSpec<F>, run
   if (run.filter) fixtures = fixtures.filter((f) => f.id.includes(run.filter as string));
   return fixtures;
 }
+
+/** Default trials in flight. Modest on purpose: enough to turn an hours-long sequential run into
+ *  minutes, low enough not to trip API rate limits on a small account. Override: `--concurrency`. */
+const DEFAULT_CONCURRENCY = 4;
+/** One retry per trial on a TRANSPORT failure, after this pause. A 429 or a dropped connection is
+ *  not a verdict: without a retry it would be recorded as a mechanical miss and silently corrupt
+ *  the measurement the eval exists to produce. */
+const RETRY_DELAY_MS = 2_000;
 
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_VERSION = "2023-06-01";
@@ -639,39 +652,69 @@ export async function runEval<F extends EvalFixtureBase>(
     return 2;
   }
 
-  const results: FixtureResult<F>[] = [];
-  let firstCall = true;
-  for (const fixture of fixtures) {
-    const n = fixture.trials ?? run.trials;
+  // One task per trial, flattened across fixtures, so the pool below keeps every worker busy even
+  // when fixtures have different trial counts.
+  type Task = { fixture: F; index: number; prompt: string; trial: number };
+  const tasks: Task[] = [];
+  for (const [index, fixture] of fixtures.entries()) {
     const prompt = spec.buildPrompt(fixture, run);
-    const outcomes: TrialOutcome[] = [];
-    for (let t = 0; t < n; t++) {
-      try {
-        const capture = await runTrial(
-          transport,
-          spec,
-          fixture,
-          prompt,
-          run.model,
-          run.temperature,
-        );
-        firstCall = false;
-        outcomes.push(outcomeFrom(spec, fixture, capture));
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        if (firstCall) {
-          // Preflight: a dead key / transport failure on the very first call aborts immediately
-          // rather than burning the rest of the run's spend.
-          console.error(`${tag} first call failed — aborting before spending on the rest: ${msg}`);
-          return 2;
-        }
-        // A later transient failure: record a mechanical no-tool miss and continue.
-        console.error(`${tag} ${fixture.id} trial ${t + 1} error: ${msg}`);
-        outcomes.push(outcomeFrom(spec, fixture, { toolUsed: false, content: null, turns: 0 }));
-      }
-    }
-    results.push(aggregate(fixture, outcomes, spec.labels));
+    const n = fixture.trials ?? run.trials;
+    for (let trial = 0; trial < n; trial++) tasks.push({ fixture, index, prompt, trial });
   }
+
+  const outcomes: TrialOutcome[][] = fixtures.map(() => []);
+  const attempt = (task: Task): Promise<TrialCapture> =>
+    runTrial(transport, spec, task.fixture, task.prompt, run.model, run.temperature);
+
+  // PREFLIGHT, deliberately alone and before the pool: a dead key or a broken transport must abort
+  // the run rather than burn the rest of its spend across N workers.
+  const first = tasks[0];
+  if (first) {
+    try {
+      outcomes[first.index]!.push(outcomeFrom(spec, first.fixture, await attempt(first)));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`${tag} first call failed — aborting before spending on the rest: ${msg}`);
+      return 2;
+    }
+  }
+
+  let next = 1;
+  const worker = async (): Promise<void> => {
+    for (;;) {
+      const task = tasks[next++];
+      if (!task) return;
+      let capture: TrialCapture | null = null;
+      for (let tryNo = 1; tryNo <= 2 && capture === null; tryNo++) {
+        try {
+          capture = await attempt(task);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          if (tryNo === 1) {
+            // Transport failure, not a verdict — retry once before letting it become a data point.
+            console.error(
+              `${tag} ${task.fixture.id} trial ${task.trial + 1} error (retrying): ${msg}`,
+            );
+            await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
+            continue;
+          }
+          console.error(`${tag} ${task.fixture.id} trial ${task.trial + 1} failed twice: ${msg}`);
+        }
+      }
+      outcomes[task.index]!.push(
+        capture === null
+          ? outcomeFrom(spec, task.fixture, { toolUsed: false, content: null, turns: 0 })
+          : outcomeFrom(spec, task.fixture, capture),
+      );
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(run.concurrency, Math.max(tasks.length - 1, 1)) }, worker),
+  );
+
+  const results: FixtureResult<F>[] = fixtures.map((fixture, i) =>
+    aggregate(fixture, outcomes[i]!, spec.labels),
+  );
 
   const decision = decide(results, run.threshold);
   // `--json` emits BOTH: the human report on stderr, the JSON block on stdout. A caller that wants

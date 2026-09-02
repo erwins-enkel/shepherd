@@ -29,7 +29,7 @@ ANTHROPIC_API_KEY=… bun run eval:critic --json
 ANTHROPIC_API_KEY=… bun run eval:rundown --gating-only
 
 # Flags (all four evals): --trials N  --model <id>  --temperature <t>  --threshold <0..1>
-#                         --filter <id-substring>  --gating-only  --json
+#                         --filter <id-substring>  --gating-only  --concurrency N  --json
 ```
 
 Or dispatch **`.github/workflows/eval-prompts.yml`** (`evals`, `trials`, `gating_only` inputs).
@@ -67,6 +67,13 @@ classifier leaves `verdictFile` unset (first write wins), matching its single-wr
 Three facts are tracked per trial — `toolUsed`, `parseOk` and the scored label — so a mechanical
 failure (no verdict written, unparseable content, turn budget exhausted) never masquerades as a
 genuine wrong verdict.
+
+**Trials run concurrently** (`--concurrency`, default 4). They are independent, and a critic trial
+is a multi-turn conversation, so running them one at a time takes hours — too slow to gate a PR.
+The very first trial runs alone as a preflight: a dead key or broken transport aborts before the
+rest of the spend. After that, a transport failure is **retried once** before it is allowed to
+become a data point — a 429 is not a verdict, and recording it as a mechanical miss would corrupt
+the measurement the eval exists to produce.
 
 ### Pass/fail
 

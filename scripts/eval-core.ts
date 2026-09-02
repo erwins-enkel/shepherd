@@ -137,6 +137,10 @@ export const AGENT_SYSTEM_PROMPT = [
   "Write to produce files. Do not reply in prose — a reply that is not a tool call accomplishes",
   "nothing and ends your turn. Carry out the task below exactly as written, and finish by writing",
   "the file or files it names.",
+  "",
+  "Inspect only what you actually need. This worktree is small: when a command returns nothing, or",
+  "a path is not there, that is the answer — repeating the search will not produce more. Your turns",
+  "are limited, so stop inspecting as soon as you can decide, and write the file the task names.",
 ].join("\n");
 
 // ---------------------------------------------------------------------------
@@ -378,6 +382,15 @@ export async function runTrial<F extends EvalFixtureBase>(
       return { toolUsed: content !== null, content, turns: turn };
     }
 
+    // On the LAST turn the model will get, say so. Production has no turn cap — this is a harness
+    // artifact, so the harness is the right place to compensate for it. Without the nudge a
+    // thorough reviewer explores until the budget runs out and the trial is scored `no-tool`,
+    // which is a measurement of the cap, not of the prompt.
+    const lastTurn = turn === spec.maxTurns - 1 && spec.verdictFile !== undefined;
+    const nudge = lastTurn
+      ? `\n\n[harness] This is your FINAL turn. Write \`${spec.verdictFile}\` now, then stop.`
+      : "";
+
     // No verdict yet: answer everything the model asked for and let it continue. A non-verdict
     // WRITE (the critic's `.shepherd-review.md`) is acknowledged as a successful write — the
     // fixture environment never stores it, because nothing scores against it.
@@ -387,9 +400,10 @@ export async function runTrial<F extends EvalFixtureBase>(
       content: uses.map((block) => ({
         type: "tool_result",
         tool_use_id: block.id ?? "",
-        content: isWrite(block)
-          ? "File written successfully."
-          : (spec.respond?.(fixture, block.name ?? "", inputOf(block)) ?? ""),
+        content:
+          (isWrite(block)
+            ? "File written successfully."
+            : (spec.respond?.(fixture, block.name ?? "", inputOf(block)) ?? "(no output)")) + nudge,
       })),
     });
   }

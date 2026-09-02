@@ -240,10 +240,15 @@ export const FIXTURES: Fixture[] = [
     taskPrompt: "Refactor the report generator for readability.",
     tail: ["Mit dem ersten Teil fertig. Ich mache weiter.", ""],
     expectedKind: "unknown",
-    // GATING (#1627 HEADLINE): the abstain bucket under German input — the exact erosion the
-    // input-robustness line defends against. No prior fixture covered German→unknown. T=9, the
-    // thick-confidence count the English `ambiguous-unknown` also uses for the most-eroded bucket.
-    gating: true,
+    // DEMOTED to non-gating baseline (#2156), per the contingency rule in
+    // docs/eval-stop-classifier.md. #1627 gated this as the headline German abstain datum and it
+    // held then; two runs on 2026-09-02 recorded 7/9 and then 4/9 unknown (the second majority-gate),
+    // which is the doc's own noise band satisfied in the bad direction: a >=2-trial move that
+    // crosses the majority boundary AND survives a confirmation run. The fixture is faithful to its
+    // intent — its English twin `ambiguous-unknown` scores 9/9 on the same runs — so this is a real
+    // language-specific erosion of the abstain bucket, not a mislabel. Demoted and recorded rather
+    // than revised or papered over with a lower floor; tracked as a follow-up.
+    gating: false,
     trials: 9,
     lang: "de",
     note: "Genuinely ambiguous German tail — the classifier MUST abstain to unknown, not guess.",

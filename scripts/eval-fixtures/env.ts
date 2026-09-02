@@ -97,9 +97,12 @@ function bash(env: FixtureEnv, command: unknown): string {
   if (typeof command !== "string") return "Error: command must be a string.";
   // Only the read-only git verbs the prompts actually name are modelled. Everything else answers
   // empty, which is what an unrecognised command's stdout would look like to the reader anyway.
-  if (/\bgit\s+diff\b/.test(command)) return env.diff ?? "";
-  if (/\bgit\s+(log|show|status)\b/.test(command)) return "";
-  if (/^\s*(ls|find)\b/.test(command)) return Object.keys(env.files ?? {}).join("\n");
+  if (/\bgit\s+diff\b/.test(command)) return env.diff ?? "(no changes)";
+  if (/\bgit\s+(log|show|status)\b/.test(command)) return "(no output)";
+  if (/^\s*(ls|find)\b/.test(command)) {
+    const paths = Object.keys(env.files ?? {});
+    return paths.length > 0 ? paths.join("\n") : "(no output)";
+  }
   if (/\b(rg|grep)\b/.test(command)) {
     // `rg <pattern> [path]`, `grep -r <pattern> [path]`, `git grep '<pattern>' [path]`. Tokenized
     // quote-aware: a quoted multi-word pattern must survive as ONE argument, or its tail would be
@@ -110,7 +113,9 @@ function bash(env: FixtureEnv, command: unknown): string {
     );
     return grep(env, args[0], args[1]);
   }
-  return "";
+  // Anything not modelled: an EMPTY tool_result reads as a malfunction and invites the model to try
+  // again a different way, burning the turn budget. Say what a shell says when a command is quiet.
+  return "(no output)";
 }
 
 /** Answer one tool call from the fixture environment. Unknown tools answer empty. */

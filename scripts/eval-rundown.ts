@@ -30,9 +30,13 @@ const DEFAULT_TEMPERATURE = 1.0;
  * PINNED overall-accuracy floor for the gating fixture set — a LITERAL, never "observed − margin"
  * computed at runtime (that would make the gate vacuous). Adjustment rule:
  * `FLOOR = round_down(observed − 0.15)` to the nearest 0.05, changed only by a deliberate,
- * commit-noted edit. Pinned from the first live baseline; see `docs/eval-harness.md`.
+ * commit-noted edit.
+ *
+ * Pinned from the first live baseline (claude-sonnet-5, T=5, temperature 1.0, 2026-09-02):
+ * gating accuracy 45/45 = 1.000 → `round_down(1.000 - 0.15)` to the nearest 0.05 = 0.85.
+ * See docs/eval-harness.md for the per-fixture distributions.
  */
-const GATING_ACCURACY_FLOOR = 0.75;
+const GATING_ACCURACY_FLOOR = 0.85;
 
 /** `ok` plus one label per predicate CLASS, so the report's distribution says how a fixture failed
  *  rather than only that it did. */

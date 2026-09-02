@@ -105,7 +105,7 @@ export const SPEC: EvalSpec<PlanGateFixture> = {
   verdictFile: PLAN_VERDICT_FILE,
   // The prompt invites optional inspection before the single verdict write, so the budget has to
   // admit a few look-around turns without letting a confused run spend indefinitely.
-  maxTurns: 8,
+  maxTurns: 14,
   maxTokens: MAX_TOKENS,
   expectedLabel: (fixture) => fixture.expectedDecision,
   buildPrompt: (fixture) =>

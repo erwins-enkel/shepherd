@@ -323,7 +323,10 @@ test("the environment answers git diff, Read and Grep, and admits absence honest
   expect(tokenize("git grep 'const a' src")).toEqual(["git", "grep", "const a", "src"]);
   // An invalid regex must not throw into the loop.
   expect(respondFromEnv(env, "Grep", { pattern: "([" })).toContain("invalid regular expression");
-  expect(respondFromEnv({}, "Bash", { command: "git diff" })).toBe("");
+  // Never an EMPTY tool_result: an empty string reads as a malfunction and invites the model to
+  // retry a different way, burning the turn budget the eval bounds it with.
+  expect(respondFromEnv({}, "Bash", { command: "git diff" })).toBe("(no changes)");
+  expect(respondFromEnv({}, "Bash", { command: "make build" })).toBe("(no output)");
 });
 
 // ---------------------------------------------------------------------------

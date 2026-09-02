@@ -126,7 +126,7 @@ export const SPEC: EvalSpec<CriticFixture> = {
   verdictFile: VERDICT_FILE,
   // Budget: the diff read, a handful of greps/reads, then BOTH writes. Generous enough that a
   // thorough review is not truncated, bounded enough that a confused run cannot spend indefinitely.
-  maxTurns: 12,
+  maxTurns: 18,
   maxTokens: MAX_TOKENS,
   expectedLabel: (fixture) => fixture.expectedDecision,
   buildPrompt: buildCriticPrompt,

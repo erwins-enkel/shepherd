@@ -186,24 +186,47 @@ already unit-tested, so putting it in front would test the assembler rather than
 
 ## Baselines
 
-> **PENDING CAPTURE for the three new evals.** Their floors below are provisional pins. The first
-> live run (2026-09-02) is not usable as their baseline: it was taken before the agent framing and
-> the `focusNext` predicate fix above, so its plan-gate/critic numbers measure the harness, not the
-> prompts. Re-capture with `bun run eval:<name> --json` (or a `workflow_dispatch` of
-> `eval-prompts.yml`), then transcribe the per-fixture distributions here and re-pin each floor via
-> the adjustment rule.
->
-> The **stop-classifier** leg of that run IS valid — it is unaffected by both bugs — and confirms
-> the refactor onto the shared harness preserved its behaviour: gating accuracy **95.1% (58/61)**
-> against its pinned floor of 0.80, with `ambiguous-unknown` holding 9/9 and `de-gate-commit` /
-> `de-question-approach` at 9/9. See [`eval-stop-classifier.md`](./eval-stop-classifier.md) for its
-> recorded baseline.
+> **PENDING CAPTURE for plan-gate and critic.** Their floors below are provisional pins. The runs so
+> far did not measure their prompts: the first hit the prose-instead-of-tools mode failure, the
+> second exhausted the turn budget. Re-capture with `bun run eval:<name> --json` (or a
+> `workflow_dispatch` of `eval-prompts.yml`), then transcribe the per-fixture distributions here and
+> pin each floor via the adjustment rule.
 
-| Eval        | Model             | Trials | Gating accuracy | Pinned floor |
-| ----------- | ----------------- | ------ | --------------- | ------------ |
-| `plan-gate` | `claude-sonnet-5` | 5      | _pending_       | `0.75`       |
-| `critic`    | `claude-sonnet-5` | 5      | _pending_       | `0.75`       |
-| `rundown`   | `claude-sonnet-5` | 5      | _pending_       | `0.75`       |
+| Eval        | Model             | Trials | Gating accuracy  | Pinned floor         |
+| ----------- | ----------------- | ------ | ---------------- | -------------------- |
+| `plan-gate` | `claude-sonnet-5` | 5      | _pending_        | `0.75` (provisional) |
+| `critic`    | `claude-sonnet-5` | 5      | _pending_        | `0.75` (provisional) |
+| `rundown`   | `claude-sonnet-5` | 5      | **100% (45/45)** | `0.85`               |
+
+### rundown — first live baseline
+
+`claude-sonnet-5`, temperature `1.0`, `--gating-only`, 2026-09-02. No mechanical failures anywhere
+(`no-tool` / `parse-fail` all 0), so every result below is a genuine verdict.
+
+| id                                 | T   | distribution | majority | correct |
+| ---------------------------------- | --- | ------------ | -------- | ------- |
+| `tier1-blocked-decision`           | 5   | ok:5         | ok       | 5/5     |
+| `tier1-ci-red`                     | 5   | ok:5         | ok       | 5/5     |
+| `tier1-plan-question`              | 5   | ok:5         | ok       | 5/5     |
+| `critic-rework-over-budget`        | 5   | ok:5         | ok       | 5/5     |
+| `quiet-herd-no-manufacture`        | 5   | ok:5         | ok       | 5/5     |
+| `epics-not-echoed`                 | 5   | ok:5         | ok       | 5/5     |
+| `truncated-tier2-no-all-clear`     | 5   | ok:5         | ok       | 5/5     |
+| `overnight-delta-reported`         | 5   | ok:5         | ok       | 5/5     |
+| `de-tier1-machine-fields-verbatim` | 5   | ok:5         | ok       | 5/5     |
+
+Gating accuracy **45/45 = 100%** → floor pinned at `round_down(1.000 − 0.15)` to the nearest 0.05 =
+**0.85**. A clean sweep on the first capture is a weak signal about difficulty: it says these
+contracts are currently held comfortably, not that the set is hard. The value is regression
+detection, and `backlog-rank-never-outranks-tier1` stays baseline-only because the prompt states
+that ordering as a preference rather than a contract.
+
+### stop-classifier — confirmed on the shared harness
+
+The classifier ran twice on 2026-09-02 (`--gating-only`), confirming the refactor preserved its
+behaviour: **95.1% (58/61)** then **91.8% (56/61)** against its pinned floor of `0.80`, with
+`ambiguous-unknown` at 9/9 both times. The second run demoted one fixture — see
+[`eval-stop-classifier.md`](./eval-stop-classifier.md#known-current-classifier-gaps-contingency-rule).
 
 ## The PR gate — rendered-prompt fingerprints
 

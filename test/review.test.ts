@@ -192,6 +192,7 @@ function makeDeps(
   const started: { name: string; cwd: string; argv: string[]; env?: Record<string, string> }[] = [];
   const stopped: string[] = [];
   const removed: string[] = [];
+  const created: string[] = []; // head SHAs passed to worktree.createDetached (probe allocations)
   const bumped: { id: string; headSha: string }[] = []; // bumpReviewHead calls (rebase-skip)
   const steers: { id: string; text: string }[] = [];
   const signals: { kind: string; payload: string }[] = [];
@@ -201,6 +202,11 @@ function makeDeps(
   const completedSpawns: any[] = []; // completeReviewerSpawn calls
   const spawnOutcomes: { id: string; outcome: string; planDrift: string | null }[] = []; // #2151/#2155
   const rec: { event?: string; body?: string } = {};
+  // The forge's LIVE head, as the staleness guards read it. Defaults to OPEN_GREEN's, and `atHead`
+  // moves it in step with the poller snapshot a test considers — so snapshot and live head agree by
+  // construction, and only a test that MEANS to diverge them (a push landing mid-review) does. A
+  // fixed live sha here would read as "head moved" for every test considering a non-"abc" head.
+  const live = { head: OPEN_GREEN.headSha! };
   const notices = new Map<string, any>();
   const noticeEvents: string[] = [];
   const base = {
@@ -288,7 +294,10 @@ function makeDeps(
     })(),
     worktree: new (class {
       readonly recorded = removed; // this-dependent: unbound call loses this.recorded
-      createDetached = async () => ({ worktreePath: "/review-wt", branch: null, isolated: true });
+      createDetached = async (_repo: string, _branch: string, sha: string) => {
+        created.push(sha);
+        return { worktreePath: "/review-wt", branch: null, isolated: true };
+      };
       remove(p: string) {
         this.recorded.push(p); // this.recorded → throws TypeError if called unbound
       }
@@ -301,7 +310,7 @@ function makeDeps(
         rec,
         opts.comments ?? [],
         commentCalls,
-        opts.prStatus,
+        opts.prStatus ?? (async () => ({ ...OPEN_GREEN, headSha: live.head }) as PrStatus),
         opts.noCommentApi ? undefined : postedComments,
       ),
     onChange: () => {},
@@ -330,6 +339,7 @@ function makeDeps(
     started,
     stopped,
     removed,
+    created,
     bumped,
     steers,
     signals,
@@ -342,6 +352,12 @@ function makeDeps(
     noticeEvents,
     paneReads,
     rec,
+    live,
+    /** Poller snapshot at `sha`, with the forge's live head moved to match. */
+    atHead: (sha: string): GitState => {
+      live.head = sha;
+      return { ...OPEN_GREEN, headSha: sha };
+    },
   };
 }
 
@@ -1572,6 +1588,7 @@ test("rebase with identical diff: skips the critic, re-points head, preserves th
     started,
     removed,
     bumped,
+    atHead,
   } = makeDeps({
     computePatchId: async () => ({ patchId: "pid-same", baseSha: "base-pid-same", files: ["f"] }),
   });
@@ -1579,7 +1596,7 @@ test("rebase with identical diff: skips the critic, re-points head, preserves th
   // but its diff is identical → same patch-id.
   reviews["s1"] = priorReview({ patchId: "pid-same", headSha: "old" });
   const svc = new ReviewService(d as any);
-  await svc.consider(session(), { ...OPEN_GREEN, headSha: "newsha" });
+  await svc.consider(session(), atHead("newsha"));
   expect(started).toHaveLength(0); // no critic spawned
   expect(removed).toEqual(["/review-wt"]); // the probe worktree is reaped
   expect(bumped).toEqual([{ id: "s1", headSha: "newsha" }]); // head re-pointed
@@ -1594,12 +1611,13 @@ test("new commit (different diff): reviews and records the new fingerprint", asy
     reviews,
     started,
     bumped,
+    atHead,
   } = makeDeps({
     computePatchId: async () => ({ patchId: "pid-new", baseSha: "base-pid-new", files: ["f"] }),
   });
   reviews["s1"] = priorReview({ patchId: "pid-old", headSha: "old" });
   const svc = new ReviewService(d as any);
-  await svc.consider(session(), { ...OPEN_GREEN, headSha: "newsha" });
+  await svc.consider(session(), atHead("newsha"));
   expect(bumped).toHaveLength(0); // not a skip
   expect(started).toHaveLength(1); // critic spawned
   await svc.tick();
@@ -1627,11 +1645,12 @@ test("unresolvable fingerprint never skips: reviews even with a prior verdict", 
     reviews,
     started,
     bumped,
+    atHead,
   } = makeDeps({ computePatchId: async () => ({ patchId: null, baseSha: null, files: [] }) });
   // prior has a real patch-id, but this run can't fingerprint (git failed / empty diff)
   reviews["s1"] = priorReview({ patchId: "pid-old", headSha: "old" });
   const svc = new ReviewService(d as any);
-  await svc.consider(session(), { ...OPEN_GREEN, headSha: "newsha" });
+  await svc.consider(session(), atHead("newsha"));
   expect(bumped).toHaveLength(0); // safety default → do not skip
   expect(started).toHaveLength(1); // reviewed
 });
@@ -1642,13 +1661,14 @@ test("prior error verdict never rebase-skips (retries the transient failure)", a
     reviews,
     started,
     bumped,
+    atHead,
   } = makeDeps({
     computePatchId: async () => ({ patchId: "pid-same", baseSha: "base-pid-same", files: ["f"] }),
   });
   // an errored prior that (legacy row / defensive) still carries a matching fingerprint
   reviews["s1"] = priorReview({ decision: "error", patchId: "pid-same", headSha: "old" });
   const svc = new ReviewService(d as any);
-  await svc.consider(session(), { ...OPEN_GREEN, headSha: "newsha" });
+  await svc.consider(session(), atHead("newsha"));
   expect(bumped).toHaveLength(0); // not skipped despite identical fingerprint
   expect(started).toHaveLength(1); // re-reviewed instead of inheriting the stale error
 });
@@ -1665,12 +1685,13 @@ test("error verdict records no fingerprint (so a later head always re-reviews)",
   expect(reviews["s1"]?.patchId).toBe(""); // no fingerprint persisted on a failed run
 });
 
-test("rebase-skip short-circuits before any forge call (no author-notes fetch)", async () => {
+test("rebase-skip short-circuits before the author-notes fetch", async () => {
   const {
     deps: d,
     reviews,
     started,
     commentCalls,
+    atHead,
   } = makeDeps(
     {
       computePatchId: async () => ({ patchId: "pid-same", baseSha: "base-pid-same", files: ["f"] }),
@@ -1679,9 +1700,187 @@ test("rebase-skip short-circuits before any forge call (no author-notes fetch)",
   );
   reviews["s1"] = priorReview({ patchId: "pid-same", headSha: "old" }); // has findings
   const svc = new ReviewService(d as any);
-  await svc.consider(session(), { ...OPEN_GREEN, headSha: "newsha" });
+  await svc.consider(session(), atHead("newsha"));
   expect(started).toHaveLength(0); // skipped
   expect(commentCalls).toEqual([]); // skip happened before fetchAuthorNotes
+  // (the pre-spawn head recheck DOES call the forge first — it runs ahead of rebase-skip)
+});
+
+// ── stale head: pre-spawn re-validation (#2175) ───────────────────────────────
+
+test("head moved since the poller snapshot: declines the spawn entirely", async () => {
+  const { deps: d, started, created, reviews, live } = makeDeps({});
+  live.head = "pushed-since"; // a push landed after the snapshot the poller handed us
+  const svc = new ReviewService(d as any);
+  expect(await svc.consider(session(), OPEN_GREEN)).toBe("skipped");
+  expect(started).toHaveLength(0); // no critic
+  expect(created).toEqual([]); // …and not even the probe worktree
+  expect(reviews["s1"]).toBeUndefined(); // nothing persisted: the next poll reviews the new head
+});
+
+test("live head matching the snapshot spawns normally", async () => {
+  const { deps: d, started, created } = makeDeps({});
+  expect(await new ReviewService(d as any).consider(session(), OPEN_GREEN)).toBe("started");
+  expect(started).toHaveLength(1);
+  expect(created).toEqual(["abc"]);
+});
+
+test("pre-spawn recheck fails OPEN: a throwing forge still spawns", async () => {
+  const { deps: d, started } = makeDeps(
+    {},
+    {
+      prStatus: async () => {
+        throw new Error("gh unavailable");
+      },
+    },
+  );
+  await new ReviewService(d as any).consider(session(), OPEN_GREEN);
+  expect(started).toHaveLength(1); // a forge blip must never suppress review
+});
+
+test("pre-spawn recheck fails OPEN: a payload without headSha still spawns", async () => {
+  const { deps: d, started } = makeDeps(
+    {},
+    { prStatus: async () => ({ ...OPEN_GREEN, headSha: undefined }) as any },
+  );
+  await new ReviewService(d as any).consider(session(), OPEN_GREEN);
+  expect(started).toHaveLength(1);
+});
+
+test("forceReview also declines a moved head (but its hygiene reset still stands)", async () => {
+  const { deps: d, started, reviews, live } = makeDeps({});
+  reviews["s1"] = priorReview({ headSha: "old", errorRound: 2, streakReviews: 4 });
+  live.head = "pushed-since";
+  expect(await new ReviewService(d as any).forceReview(session(), OPEN_GREEN)).toBe("skipped");
+  expect(started).toHaveLength(0);
+  expect(reviews["s1"]!.errorRound).toBe(0); // reset persisted BEFORE consider() — it stays
+  expect(reviews["s1"]!.streakReviews).toBe(0);
+});
+
+test("the recheck runs UNDER the starting claim: a concurrent consider can't double-spawn", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((r) => {
+    release = r;
+  });
+  let calls = 0;
+  const {
+    deps: d,
+    started,
+    created,
+  } = makeDeps(
+    {},
+    {
+      prStatus: async () => {
+        // Suspend only the FIRST recheck; a second consider() must bail on the claim, not queue here.
+        if (++calls === 1) await gate;
+        return OPEN_GREEN as PrStatus;
+      },
+    },
+  );
+  const svc = new ReviewService(d as any);
+  const first = svc.consider(session(), OPEN_GREEN);
+  expect(await svc.consider(session(), OPEN_GREEN)).toBe("skipped"); // claim held across the await
+  release();
+  await first;
+  expect(calls).toBe(1); // the second call never reached the recheck
+  expect(started).toHaveLength(1);
+  expect(created).toEqual(["abc"]);
+});
+
+// ── stale head: at-finalize supersession discard (#2175) ──────────────────────
+
+/** prStatus that answers the pre-spawn recheck with `spawn`, then every later call with `finalize`
+ *  — i.e. a push that lands AFTER the critic started. */
+const headMovesDuringReview = (spawn: string, finalize: string) => {
+  let call = 0;
+  return async () => ({ ...OPEN_GREEN, headSha: ++call === 1 ? spawn : finalize }) as PrStatus;
+};
+
+test("head moved during the review: verdict is dropped, not persisted or steered", async () => {
+  const {
+    deps: d,
+    reviews,
+    steers,
+    signals,
+    rec,
+    spawnOutcomes,
+    completedSpawns,
+    stopped,
+    removed,
+  } = makeDeps(
+    {
+      readVerdict: () => ({
+        decision: "request-changes",
+        summary: "x",
+        body: "b",
+        findings: ["fix x"],
+      }),
+    },
+    { autoAddressEnabled: true, prStatus: headMovesDuringReview("abc", "def") },
+  );
+  reviews["s1"] = priorReview({ headSha: "old", addressRound: 1, streakReviews: 1 });
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  await svc.tick(); // finalize: the live head is no longer the one we reviewed
+  expect(rec.event).toBeUndefined(); // nothing posted to the PR
+  expect(steers).toHaveLength(0); // nothing steered at the author
+  expect(signals).toHaveLength(0); // no critic/stall signal
+  expect(spawnOutcomes).toHaveLength(0); // unstamped → stays out of the delivery metrics
+  // the prior verdict row stands untouched — no round, streak or findings churn
+  expect(reviews["s1"]!.headSha).toBe("old");
+  expect(reviews["s1"]!.addressRound).toBe(1);
+  expect(reviews["s1"]!.streakReviews).toBe(1);
+  // …but the run is still fully cleaned up and its cost attributed
+  expect(stopped).toContain("rt");
+  expect(removed).toContain("/review-wt");
+  expect(completedSpawns).toHaveLength(1);
+});
+
+test("head moved during the review: an ERROR verdict is dropped without bumping errorRound", async () => {
+  const {
+    deps: d,
+    reviews,
+    signals,
+    spawnOutcomes,
+  } = makeDeps(
+    { readVerdict: () => null }, // critic produced no verdict
+    { prStatus: headMovesDuringReview("abc", "def") },
+  );
+  reviews["s1"] = priorReview({ headSha: "old", errorRound: 2 });
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  await svc.tick();
+  expect(reviews["s1"]!.decision).toBe("changes_requested"); // no REVIEW ERR row
+  expect(reviews["s1"]!.errorRound).toBe(2); // a superseded run earns no error progress
+  expect(signals).toHaveLength(0);
+  expect(spawnOutcomes).toHaveLength(0);
+});
+
+test("head unchanged at finalize: the verdict lands exactly as before", async () => {
+  const {
+    deps: d,
+    reviews,
+    steers,
+    rec,
+    spawnOutcomes,
+  } = makeDeps(
+    {
+      readVerdict: () => ({
+        decision: "request-changes",
+        summary: "x",
+        body: "b",
+        findings: ["fix x"],
+      }),
+    },
+    { autoAddressEnabled: true },
+  );
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  await svc.tick();
+  expect(rec.event).toBe("REQUEST_CHANGES");
+  expect(steers).toHaveLength(1);
+  expect(reviews["s1"]!.headSha).toBe("abc");
+  expect(spawnOutcomes[0]!.outcome).toBe("changes_requested");
 });
 
 // ── auto-address loop ─────────────────────────────────────────────────────────
@@ -2472,6 +2671,7 @@ test("forget() during the getIssue await aborts the spawn and reaps the worktree
   } = makeDeps({
     resolveForge: () =>
       ({
+        prStatus: async () => OPEN_GREEN,
         getIssue: async () => {
           await gate;
           return { body: "ISSUE_BODY_XYZ" };
@@ -2641,6 +2841,7 @@ test("ceiling reached: does NOT spawn (no worktree allocated, no re-signal)", as
     started,
     removed,
     signals,
+    atHead,
   } = makeDeps(
     { computePatchId: async () => ({ patchId: "pid-new", baseSha: "base-pid-new", files: ["f"] }) },
     { autoAddressEnabled: true },
@@ -2648,7 +2849,7 @@ test("ceiling reached: does NOT spawn (no worktree allocated, no re-signal)", as
   // cap default 3 → ceiling 6; a streak already AT the ceiling with outstanding findings.
   reviews["s1"] = priorReview({ streakReviews: 6, headSha: "old" });
   const svc = new ReviewService(d as any);
-  await svc.consider(session(), { ...OPEN_GREEN, headSha: "newsha" });
+  await svc.consider(session(), atHead("newsha"));
   expect(started).toHaveLength(0); // critic not spawned
   expect(removed).toEqual([]); // bailed BEFORE allocating the probe worktree
   // the stall signal fired on crossing (in finalize), not here on the blocked tick
@@ -2660,6 +2861,7 @@ test("ceiling crossing emits exactly one stall signal", async () => {
     deps: d,
     reviews,
     signals,
+    atHead,
   } = makeDeps(
     {
       computePatchId: async () => ({
@@ -2679,7 +2881,7 @@ test("ceiling crossing emits exactly one stall signal", async () => {
   // one review short of the ceiling (6); this run finalizes the 6th → crosses.
   reviews["s1"] = priorReview({ streakReviews: 5, headSha: "old" });
   const svc = new ReviewService(d as any);
-  await svc.consider(session(), { ...OPEN_GREEN, headSha: "newsha" });
+  await svc.consider(session(), atHead("newsha"));
   await svc.tick();
   expect(reviews["s1"]?.streakReviews).toBe(6); // reached the ceiling
   const paused = signals.filter(
@@ -2699,6 +2901,7 @@ test("a higher live cap raises the ceiling: a streak at 6 still spawns + the sig
     reviews,
     started,
     signals,
+    atHead,
   } = makeDeps(
     {
       cap: 4, // ceiling = 8
@@ -2714,7 +2917,7 @@ test("a higher live cap raises the ceiling: a streak at 6 still spawns + the sig
   );
   reviews["s1"] = priorReview({ streakReviews: 7, headSha: "old" }); // one short of 8
   const svc = new ReviewService(d as any);
-  await svc.consider(session(), { ...OPEN_GREEN, headSha: "newsha" });
+  await svc.consider(session(), atHead("newsha"));
   expect(started).toHaveLength(1); // under the raised ceiling → spawns
   await svc.tick();
   expect(reviews["s1"]?.streakReviews).toBe(8); // crosses the raised ceiling
@@ -2727,13 +2930,14 @@ test("under the ceiling still spawns normally", async () => {
     deps: d,
     reviews,
     started,
+    atHead,
   } = makeDeps(
     { computePatchId: async () => ({ patchId: "pid-new", baseSha: "base-pid-new", files: ["f"] }) },
     { autoAddressEnabled: true },
   );
   reviews["s1"] = priorReview({ streakReviews: 3, headSha: "old" }); // well under 6
   const svc = new ReviewService(d as any);
-  await svc.consider(session(), { ...OPEN_GREEN, headSha: "newsha" });
+  await svc.consider(session(), atHead("newsha"));
   expect(started).toHaveLength(1); // budget remains → critic spawns
 });
 
@@ -2749,6 +2953,7 @@ test("ceiling is strict for findings reviews but NOT total spawns: an error verd
     deps: d,
     reviews,
     started,
+    atHead,
   } = makeDeps(
     { computePatchId: async () => ({ patchId: "pid-new", baseSha: "base-pid-new", files: ["f"] }) },
     { autoAddressEnabled: true },
@@ -2760,12 +2965,16 @@ test("ceiling is strict for findings reviews but NOT total spawns: an error verd
     headSha: "old",
   });
   const svc = new ReviewService(d as any);
-  await svc.consider(session(), { ...OPEN_GREEN, headSha: "newsha" });
+  await svc.consider(session(), atHead("newsha"));
   expect(started).toHaveLength(1); // not blocked by the findings-review ceiling
 });
 
 test("clean verdict resets streakReviews and reviewedPatchIds (un-suppresses)", async () => {
-  const { deps: d, reviews } = makeDeps(
+  const {
+    deps: d,
+    reviews,
+    atHead,
+  } = makeDeps(
     {
       computePatchId: async () => ({
         patchId: "pid-clean-run",
@@ -2782,7 +2991,7 @@ test("clean verdict resets streakReviews and reviewedPatchIds (un-suppresses)", 
     headSha: "old",
   });
   const svc = new ReviewService(d as any);
-  await svc.consider(session(), { ...OPEN_GREEN, headSha: "newsha" });
+  await svc.consider(session(), atHead("newsha"));
   await svc.tick();
   expect(reviews["s1"]?.streakReviews).toBe(0); // streak reset
   expect(reviews["s1"]?.reviewedPatchIds).toEqual([]); // churn set cleared
@@ -2796,6 +3005,7 @@ test("revert to an earlier (not immediately-prior) reviewed patch-id skips", asy
     reviews,
     started,
     bumped,
+    atHead,
   } = makeDeps({
     computePatchId: async () => ({ patchId: "pid-a", baseSha: "base-pid-a", files: ["f"] }), // bounced back to a diff reviewed earlier this streak
   });
@@ -2806,7 +3016,7 @@ test("revert to an earlier (not immediately-prior) reviewed patch-id skips", asy
     reviewedPatchIds: ["pid-a", "pid-b", "pid-c"],
   });
   const svc = new ReviewService(d as any);
-  await svc.consider(session(), { ...OPEN_GREEN, headSha: "newsha" });
+  await svc.consider(session(), atHead("newsha"));
   expect(started).toHaveLength(0); // set-membership match → skipped
   expect(bumped).toEqual([{ id: "s1", headSha: "newsha" }]); // head re-pointed, verdict preserved
   expect(reviews["s1"]?.findings).toEqual(["fix the race in worker.ts"]); // outstanding findings held
@@ -2818,6 +3028,7 @@ test("after a clean verdict cleared the set, a pre-clean patch-id is reviewed ag
     reviews,
     started,
     bumped,
+    atHead,
   } = makeDeps({
     computePatchId: async () => ({ patchId: "pid-a", baseSha: "base-pid-a", files: ["f"] }),
   });
@@ -2831,20 +3042,24 @@ test("after a clean verdict cleared the set, a pre-clean patch-id is reviewed ag
     headSha: "old",
   });
   const svc = new ReviewService(d as any);
-  await svc.consider(session(), { ...OPEN_GREEN, headSha: "newsha" });
+  await svc.consider(session(), atHead("newsha"));
   expect(bumped).toHaveLength(0); // not skipped — the set was cleared
   expect(started).toHaveLength(1); // reviewed again (a revert to a buggy earlier state)
 });
 
 test("error verdict does not poison the dedup set (same diff re-reviews)", async () => {
-  const { deps: d, reviews } = makeDeps({
+  const {
+    deps: d,
+    reviews,
+    atHead,
+  } = makeDeps({
     computePatchId: async () => ({ patchId: "pid-x", baseSha: "base-pid-x", files: ["f"] }),
     // first run errors on pid-x; it must NOT be added to reviewedPatchIds.
     readVerdict: () => ({ decision: "junk", summary: "boom", body: "" }),
   });
   reviews["s1"] = priorReview({ headSha: "old", reviewedPatchIds: [] });
   const svc = new ReviewService(d as any);
-  await svc.consider(session(), { ...OPEN_GREEN, headSha: "newsha" });
+  await svc.consider(session(), atHead("newsha"));
   await svc.tick();
   expect(reviews["s1"]?.decision).toBe("error");
   // errored patch-id NOT added → a later head with the SAME diff re-reviews (rebaseSkip
@@ -2871,6 +3086,7 @@ test("clean prior verdict still rebase-skips on a same-patch-id force-push (OR-b
     reviews,
     started,
     bumped,
+    atHead,
   } = makeDeps({
     computePatchId: async () => ({ patchId: "pid-clean", baseSha: "base-pid-clean", files: ["f"] }),
   });
@@ -2885,7 +3101,7 @@ test("clean prior verdict still rebase-skips on a same-patch-id force-push (OR-b
     headSha: "old",
   });
   const svc = new ReviewService(d as any);
-  await svc.consider(session(), { ...OPEN_GREEN, headSha: "newsha" });
+  await svc.consider(session(), atHead("newsha"));
   expect(started).toHaveLength(0); // skipped via the patchId OR-branch
   expect(bumped).toEqual([{ id: "s1", headSha: "newsha" }]); // head re-pointed
 });
@@ -2894,7 +3110,11 @@ test("clean prior verdict still rebase-skips on a same-patch-id force-push (OR-b
 
 test("critic prompt embeds the originating issue body (UNTRUSTED) when issueNumber is set", async () => {
   const { deps: d, started } = makeDeps({
-    resolveForge: () => ({ getIssue: async () => ({ body: "ISSUE_BODY_XYZ" }) }) as any,
+    resolveForge: () =>
+      ({
+        prStatus: async () => OPEN_GREEN,
+        getIssue: async () => ({ body: "ISSUE_BODY_XYZ" }),
+      }) as any,
   });
   await new ReviewService(d as any).consider(session({ issueNumber: 99 }), OPEN_GREEN);
   const prompt = started[0]!.argv.at(-1)!;
@@ -2905,7 +3125,11 @@ test("critic prompt embeds the originating issue body (UNTRUSTED) when issueNumb
 
 test("no issue block when issueNumber is null", async () => {
   const { deps: d, started } = makeDeps({
-    resolveForge: () => ({ getIssue: async () => ({ body: "ISSUE_BODY_XYZ" }) }) as any,
+    resolveForge: () =>
+      ({
+        prStatus: async () => OPEN_GREEN,
+        getIssue: async () => ({ body: "ISSUE_BODY_XYZ" }),
+      }) as any,
   });
   await new ReviewService(d as any).consider(session({ issueNumber: null }), OPEN_GREEN);
   const prompt = started[0]!.argv.at(-1)!;
@@ -2922,7 +3146,7 @@ test("degrades cleanly when getIssue is absent / returns null / throws (no block
     },
   ]) {
     const { deps: d, started } = makeDeps({
-      resolveForge: () => ({ getIssue }) as any,
+      resolveForge: () => ({ prStatus: async () => OPEN_GREEN, getIssue }) as any,
     });
     await new ReviewService(d as any).consider(session({ issueNumber: 99 }), OPEN_GREEN);
     expect(started).toHaveLength(1); // no throw → critic still spawns
@@ -3066,13 +3290,14 @@ test("forceReview: aborts an in-flight run (finalizing=false), reaps it, then re
     started,
     stopped,
     removed,
+    atHead,
   } = makeDeps({
     onReviewing: (id: string, reviewing: boolean) => events.push({ id, reviewing }),
   });
   const svc = new ReviewService(d as any);
   await svc.consider(session(), OPEN_GREEN); // now in-flight (terminal "rt", worktree /review-wt)
   expect(svc.reviewingIds()).toEqual(["s1"]);
-  const outcome = await svc.forceReview(session(), { ...OPEN_GREEN, headSha: "newsha" });
+  const outcome = await svc.forceReview(session(), atHead("newsha"));
   expect(outcome).toBe("started");
   // old run reaped: its terminal stopped + worktree removed; onReviewing(false) emitted
   expect(stopped).toContain("rt");
@@ -3084,12 +3309,12 @@ test("forceReview: aborts an in-flight run (finalizing=false), reaps it, then re
 });
 
 test("forceReview: finalizing in-flight run → skipped, does NOT reap (tick owns teardown)", async () => {
-  const { deps: d, started, stopped, removed } = makeDeps({});
+  const { deps: d, started, stopped, removed, atHead } = makeDeps({});
   const svc = new ReviewService(d as any);
   await svc.consider(session(), OPEN_GREEN);
   // tick()'s finalize already owns this run's teardown + verdict.
   (svc as any).inflight.get("s1").finalizing = true;
-  const outcome = await svc.forceReview(session(), { ...OPEN_GREEN, headSha: "newsha" });
+  const outcome = await svc.forceReview(session(), atHead("newsha"));
   expect(outcome).toBe("skipped");
   expect(stopped).toEqual([]); // not reaped — finalize() owns it
   expect(removed).toEqual([]);

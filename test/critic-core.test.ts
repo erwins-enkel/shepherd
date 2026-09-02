@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   scopeBackstop,
+  headSuperseded,
   shouldSkipForPatchId,
   scopeFindings,
   attributeFinding,
@@ -1561,4 +1562,30 @@ test("#2154 both blocks together keep the shared verdict-output contract identic
   expect(outputContract(a)).toBe(
     outputContract(reviewPrompt("b", "task")), // and identical to the no-blocks prompt
   );
+});
+
+// ── headSuperseded (#2175) ────────────────────────────────────────────────────
+
+const openAt = (headSha?: string) => ({ state: "open", checks: "success", headSha }) as any;
+
+test("headSuperseded: a different head on a still-open PR is superseded", () => {
+  expect(headSuperseded("abc", openAt("def"))).toBe(true);
+});
+
+test("headSuperseded: the same head is not superseded", () => {
+  expect(headSuperseded("abc", openAt("abc"))).toBe(false);
+});
+
+test("headSuperseded fails OPEN on every unconfirmable shape", () => {
+  expect(headSuperseded("abc", undefined)).toBe(false); // no forge, or the forge threw
+  expect(headSuperseded("abc", openAt(undefined))).toBe(false); // payload carries no headSha
+  expect(headSuperseded("abc", { state: "open", checks: "success", headSha: "" } as any)).toBe(
+    false, // empty sha is not evidence of a move
+  );
+});
+
+test("headSuperseded ignores non-open states (their own moot handling owns those)", () => {
+  for (const state of ["merged", "closed", "none"] as const) {
+    expect(headSuperseded("abc", { state, checks: "success", headSha: "def" } as any)).toBe(false);
+  }
 });

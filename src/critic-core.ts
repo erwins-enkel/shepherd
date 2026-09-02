@@ -12,6 +12,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { execFileSync, timedAsync } from "./instrument";
 import type { PlanDrift, ReviewDecision } from "./types";
+import type { PrStatus } from "./forge/types";
 import type { SessionUsage } from "./usage";
 import { tolerantParseJson } from "./json-tolerant";
 import type { VerdictRead } from "./json-tolerant";
@@ -1411,6 +1412,24 @@ export async function captureUsage(
   } catch (err) {
     console.warn(`[review] usage capture failed for ${logLabel}:`, err);
   }
+}
+
+/**
+ * Has the head we are about to review — or have just reviewed — been superseded by a newer push?
+ *
+ * The poller's `GitState` is a CACHED snapshot (a full sweep can be 300s cold), so the head it
+ * carries can already be stale by the time a critic spawns, and can go stale again during the
+ * ~8 minutes one runs. Reviewing a superseded head costs a spawn, delivers a `changes_requested`
+ * round the author has nothing to fix, and burns a rework round against the cap (issue #2175).
+ *
+ * FAILS OPEN on purpose: only a CONFIRMED, still-`open` PR carrying a DIFFERENT `headSha` counts as
+ * superseded. No forge, a forge that threw (`live` undefined), a payload without `headSha`, or a
+ * non-`open` state all return false — behave exactly as before. A forge blip must never be able to
+ * permanently suppress review, and merged/closed PRs already have their own moot handling that this
+ * predicate must not pre-empt.
+ */
+export function headSuperseded(reviewedSha: string, live: PrStatus | undefined): boolean {
+  return live?.state === "open" && !!live.headSha && live.headSha !== reviewedSha;
 }
 
 /** Terminal + disposable-worktree teardown for a finished critic run.

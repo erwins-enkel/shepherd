@@ -2271,7 +2271,11 @@ describe("classifyPreviewProbes (#1912)", () => {
   it("the probe reads the LIVE cell health, not a fresh backend (frozen-cell detection)", async () => {
     // Probe reports ok (its own spawn succeeds within the 5s budget), but the live
     // cell is frozen by 3s refresh timeouts → the check must still warn.
+    // `healthyDeps()` like every sibling: without it the untouched deps fall through to their REAL
+    // probes (gh auth, herdr liveness, tailscale serve, bwrap membrane), which on a host lacking
+    // those binaries burn retries and blow the 5s per-test budget. Only the preview rows matter here.
     const svc = new DiagnosticsService({
+      ...healthyDeps(),
       runPreviewProbe: async () => "ok",
       probeHealth: () => ({ state: "stale", driven: true }),
     });

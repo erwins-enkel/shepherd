@@ -87,8 +87,9 @@ function rate(hits: number, total: number): DeliverySample {
 }
 
 /** Group the reviewer-spawn log by task session, keeping only the two kinds a delivery indicator
- *  reads. A NULL `outcome` is a legacy row or a spawn that never finalized: it is UNKNOWN, so it
- *  is excluded from every round count — counting it would inflate rework with crashed runs. */
+ *  reads. A NULL `outcome` is a legacy row, a spawn that never finalized, or one whose verdict was
+ *  discarded as superseded (#2175): it is UNKNOWN, so it is excluded from every round count —
+ *  counting it would inflate rework with crashed runs and with reviews of code already replaced. */
 function applyReviewSpawn(t: TaskRounds, sp: ReviewerSpawnRow): void {
   // The review STARTED regardless of how it ended, so every spawn moves the first-review mark.
   if (t.firstReviewAt == null || sp.spawnedAt < t.firstReviewAt) t.firstReviewAt = sp.spawnedAt;

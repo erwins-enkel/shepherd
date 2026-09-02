@@ -9,7 +9,6 @@ import {
   scopeFindings,
   attributeFinding,
   normalizeDecision,
-  normalizeFindings,
   normalizeFindingEntries,
   NIT_CAP,
   buildVerdictCore,
@@ -56,9 +55,9 @@ test("#822 critic read path: malformed verdict recovers with decision + findings
   // decision is NOT flipped, and both findings survive with their inner-quoted phrases verbatim.
   expect(normalizeDecision(read.value.decision)).toBe("changes_requested");
   expect(read.value.summary).toContain('"Open for merge"');
-  const findings = normalizeFindings(read.value.findings);
+  const findings = normalizeFindingEntries(read.value.findings);
   expect(findings).toHaveLength(2);
-  expect(findings[0]).toContain('"fast"');
+  expect(findings[0]!.text).toContain('"fast"');
 });
 
 // ── #2042 regression: the bare quote jsonrepair CANNOT recover ──────────────────────────────────
@@ -667,7 +666,7 @@ test("scopeFindings drops exactly the out-of-diff attributions (parity with attr
   expect(dropped).toEqual(["src/x.ts: out"]);
 });
 
-// ── normalizeDecision / normalizeFindings (pure) ────────────────────────────
+// ── normalizeDecision (pure) ────────────────────────────────────────────────
 
 test("normalizeDecision maps the critic's enum and rejects junk", () => {
   expect(normalizeDecision("request-changes")).toBe("changes_requested");
@@ -675,12 +674,6 @@ test("normalizeDecision maps the critic's enum and rejects junk", () => {
   expect(normalizeDecision("approve")).toBe(null);
   expect(normalizeDecision(undefined)).toBe(null);
   expect(normalizeDecision(42)).toBe(null);
-});
-
-test("normalizeFindings coerces to a clean trimmed string[], dropping junk", () => {
-  expect(normalizeFindings(["  a  ", "", "b", 7, null, "  "])).toEqual(["a", "b"]);
-  expect(normalizeFindings("not an array")).toEqual([]);
-  expect(normalizeFindings(undefined)).toEqual([]);
 });
 
 // ── buildVerdictCore (pure) — the normalize+scope+fallback split ─────────────

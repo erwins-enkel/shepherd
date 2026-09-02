@@ -1214,20 +1214,6 @@ export function normalizeFindingEntries(raw: unknown): CriticFinding[] {
   return raw.map(normalizeFindingEntry).filter((f): f is CriticFinding => f !== null);
 }
 
-/** Coerce the critic's `findings` field to a clean string[] (drops junk, never throws).
- *
- *  Deliberately NOT re-implemented on top of {@link normalizeFindingEntries}: this is the PLAN
- *  GATE's parser (`src/plan-gate.ts`), whose prompt asks for bare strings and whose verdict has no
- *  severity, so widening it to accept objects would change that loop's behaviour for no reason.
- *  The critic path uses `normalizeFindingEntries`. */
-export function normalizeFindings(raw: unknown): string[] {
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .filter((f): f is string => typeof f === "string")
-    .map((f) => f.trim())
-    .filter(Boolean);
-}
-
 /** Coerce the critic's `planDrift` field to a known level (#2155). Anything else — a missing field,
  *  a sentence, a novel level — is `null` = NOT MEASURED, which every consumer excludes rather than
  *  reading as `none`. Deliberately NOT part of buildVerdictCore: that is shared with the standalone

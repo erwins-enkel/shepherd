@@ -57,6 +57,12 @@
         note: sampleNote(st.firstPassRate),
       },
       {
+        key: "first-push-green",
+        label: m.usage_delivery_first_push(),
+        value: pct(st.firstPushGreenRate),
+        note: sampleNote(st.firstPushGreenRate),
+      },
+      {
         key: "rework",
         label: m.usage_delivery_rework(),
         value: count(st.reworkCyclesMedian),

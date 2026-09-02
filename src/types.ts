@@ -988,6 +988,11 @@ export type PlanDrift = "none" | "minor" | "major";
 
 // ── delivery metrics (#2151 R1) ─────────────────────────────────────────────
 
+/** A terminal CI rollup — the two `ChecksState` values that mean "CI finished". `pending`
+ *  and `none` are excluded on purpose: neither is a conclusion, and a GitHub repo with zero
+ *  workflows sits at a permanent `none`, which must never read as a green push. */
+export type CiConclusion = "success" | "failure";
+
 /** One task session's durable delivery timestamps. Archive-decoupled with no FK to `sessions`
  *  (like {@link ReviewerSpawnRow}): `pruneArchivedSessions` hard-deletes sessions at 30 days and
  *  `archive()` deletes the session's git cache outright, so without this row a merged task's PR
@@ -1007,6 +1012,18 @@ export interface DeliveryFact {
   /** ms epoch this session's merge was SETTLED (teardown archived it, or the poller observed the
    *  merge) — NOT the forge's merge timestamp. A server down at merge time stamps late. */
   mergedAt: number | null;
+  /** Head commit the retained CI conclusion belongs to; null until one is observed (#2159). */
+  firstCiHeadSha: string | null;
+  /** The FIRST terminal CI rollup Shepherd observed for this session, frozen at the first write
+   *  (`COALESCE` in `upsertDeliveryFact`) so a re-poll, a re-run, or a later push can never
+   *  overwrite it. null = never observed.
+   *
+   *  Read it as "the first CI conclusion Shepherd SAW", not "the first push's CI": a session can
+   *  push several times before its PR opens, the server can be down across the first run, and a
+   *  head superseded before its rollup went terminal never stamps at all — in each case the first
+   *  head observed is a later one. The bias is disclosed on the tile (which carries its sample
+   *  size) rather than hidden. */
+  firstCiConclusion: CiConclusion | null;
   updatedAt: number;
 }
 
@@ -1046,6 +1063,11 @@ export interface DeliveryStats {
   timeToFirstReviewMs: DeliverySample;
   /** Median ms from session creation to merge settle. */
   leadTimeMs: DeliverySample;
+  /** Share (0..1) of merged tasks whose first observed CI conclusion was `success` (#2159).
+   *  Denominator = tasks carrying a conclusion at all; a task whose CI was never observed terminal
+   *  (or whose repo has no CI) is excluded, never counted as a pass. See
+   *  {@link DeliveryFact.firstCiConclusion} for what "first" can and cannot promise. */
+  firstPushGreenRate: DeliverySample;
 }
 
 /** Per-repo delivery row. `repo` is the basename shown in the UI; `repoPath` is the key. */

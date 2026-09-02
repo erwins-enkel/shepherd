@@ -67,6 +67,14 @@ The share of merged tasks that passed review in a single clean round — no rewo
 requested. Tasks that were never reviewed are left out of the calculation
 entirely rather than counted as passes.
 
+### First-push CI green
+
+The share of merged tasks whose first observed CI result was green — the change
+passed CI outright, with no red round before it. It measures what Shepherd saw: a
+push made before the PR opened is not counted. Tasks in repos without CI, and
+tasks whose CI was never observed finishing, are left out rather than counted as
+failures.
+
 ### Plan drift
 
 How far a merged change departed from the plan approved before it was written, as

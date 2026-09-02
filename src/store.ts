@@ -6,6 +6,7 @@ import type {
   ExperimentRole,
   ReviewVerdict,
   ReviewDecision,
+  CriticFinding,
   PlanGate,
   SpawnNotice,
   SpawnNoticeKind,
@@ -272,6 +273,36 @@ function parsePersistedGitState(raw: string): GitState | null {
   }
 
   return result;
+}
+
+/** Tolerantly parse the persisted `findingsMeta` JSON back to CriticFindings (#2165, never throws).
+ *
+ *  `findings` is the fallback, not a second source of truth: a row written before this column
+ *  existed carries `'[]'` here and a non-empty `findings`, so it hydrates with each stored finding
+ *  synthesized as `important`/`bug` — the same default the verdict parser applies to a bare string.
+ *  That IS the migration for existing rows: no backfill pass, and a legacy verdict re-raises and
+ *  re-renders exactly as it did before. Entries are re-validated rather than trusted, so a
+ *  hand-edited column can never inject an unknown severity into the loop. */
+function parseFindingsMeta(raw: unknown, findings: string[]): CriticFinding[] {
+  const value = safeJsonParse<unknown>(typeof raw === "string" ? raw : null, []);
+  const rows = Array.isArray(value) ? value : [];
+  const out = rows.map(coerceFindingRow).filter((f): f is CriticFinding => f !== null);
+  if (out.length > 0 || findings.length === 0) return out;
+  return findings.map((text) => ({ text, severity: "important" as const, pass: "bug" as const }));
+}
+
+/** Validate one persisted `findingsMeta` row, or null to drop it. Mirrors the verdict parser's
+ *  defaults exactly (unknown ⇒ important/bug), so a row can never come back out of the DB softer
+ *  than it went in. */
+function coerceFindingRow(row: unknown): CriticFinding | null {
+  if (!row || typeof row !== "object" || Array.isArray(row)) return null;
+  const o = row as { text?: unknown; severity?: unknown; pass?: unknown };
+  if (typeof o.text !== "string" || !o.text) return null;
+  return {
+    text: o.text,
+    severity: o.severity === "nit" ? "nit" : "important",
+    pass: o.pass === "security" || o.pass === "compliance" || o.pass === "scope" ? o.pass : "bug",
+  };
 }
 
 /** Tolerantly parse the persisted findings JSON back to a string[] (never throws). */
@@ -668,6 +699,7 @@ type ReviewVerdictRow = {
   summaryCode: string | null;
   body: string;
   findings: string;
+  findingsMeta: string;
   addressRound: number | null;
   addressCap: number | null;
   streakReviews: number | null;
@@ -1291,7 +1323,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       sessionId TEXT PRIMARY KEY, headSha TEXT NOT NULL, patchId TEXT NOT NULL DEFAULT '',
       decision TEXT NOT NULL,
       summary TEXT NOT NULL DEFAULT '', summaryCode TEXT, body TEXT NOT NULL DEFAULT '',
-      findings TEXT NOT NULL DEFAULT '[]', addressRound INTEGER NOT NULL DEFAULT 0,
+      findings TEXT NOT NULL DEFAULT '[]', findingsMeta TEXT NOT NULL DEFAULT '[]',
+      addressRound INTEGER NOT NULL DEFAULT 0,
       addressCap INTEGER NOT NULL DEFAULT 3, errorRound INTEGER NOT NULL DEFAULT 0,
       streakReviews INTEGER NOT NULL DEFAULT 0, reviewedPatchIds TEXT NOT NULL DEFAULT '[]',
       seenNoteIds TEXT NOT NULL DEFAULT '[]',
@@ -3195,12 +3228,16 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
 
   // ── critic reviews ─────────────────────────────────────────────────────────
   private hydrateReview(r: ReviewVerdictRow): ReviewVerdict {
+    const findings = parseFindings(r.findings);
     return {
       ...r,
       patchId: r.patchId ?? "",
       // Explicit: the `...r` spread would otherwise pass the raw column through un-validated.
       summaryCode: coerceReviewSummaryCode(r.summaryCode),
-      findings: parseFindings(r.findings),
+      findings,
+      // #2165: the structured record. Legacy rows (column '[]', findings non-empty) synthesize
+      // important/bug entries — see parseFindingsMeta; that is the migration for existing rows.
+      findingsMeta: parseFindingsMeta(r.findingsMeta, findings),
       addressRound: r.addressRound ?? 0,
       addressCap: r.addressCap ?? 3,
       streakReviews: r.streakReviews ?? 0,
@@ -3225,7 +3262,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   getReview(sessionId: string): ReviewVerdict | null {
     const r = this.db
       .query(
-        `SELECT sessionId, headSha, patchId, decision, summary, summaryCode, body, findings, addressRound,
+        `SELECT sessionId, headSha, patchId, decision, summary, summaryCode, body, findings, findingsMeta, addressRound,
                 addressCap, streakReviews, reviewedPatchIds, errorRound, finalRoundPending, finalRoundTimeoutMs, seenNoteIds, url, spawnAborted, dismissed, planDrift, planDriftNote, updatedAt
               FROM reviews WHERE sessionId = ?`,
       )
@@ -3238,13 +3275,13 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // optional on the verdict and NULL in the column, and the list is already at its budget.
     const { planDrift = null, planDriftNote = null } = v;
     this.db.run(
-      `INSERT INTO reviews (sessionId, headSha, patchId, decision, summary, summaryCode, body, findings, addressRound,
+      `INSERT INTO reviews (sessionId, headSha, patchId, decision, summary, summaryCode, body, findings, findingsMeta, addressRound,
          addressCap, streakReviews, reviewedPatchIds, errorRound, finalRoundPending, finalRoundTimeoutMs, seenNoteIds, url, spawnAborted, dismissed, planDrift, planDriftNote, updatedAt)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(sessionId) DO UPDATE SET headSha=excluded.headSha, patchId=excluded.patchId,
          decision=excluded.decision,
          summary=excluded.summary, summaryCode=excluded.summaryCode,
-         body=excluded.body, findings=excluded.findings,
+         body=excluded.body, findings=excluded.findings, findingsMeta=excluded.findingsMeta,
          addressRound=excluded.addressRound, addressCap=excluded.addressCap,
          streakReviews=excluded.streakReviews, reviewedPatchIds=excluded.reviewedPatchIds,
          errorRound=excluded.errorRound, finalRoundPending=excluded.finalRoundPending,
@@ -3260,6 +3297,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         v.summaryCode ?? null,
         v.body,
         JSON.stringify(v.findings ?? []),
+        JSON.stringify(v.findingsMeta ?? []),
         v.addressRound ?? 0,
         v.addressCap ?? 3,
         v.streakReviews ?? 0,
@@ -3313,7 +3351,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   snapshotReviews(): Record<string, ReviewVerdict> {
     const rows = this.db
       .query(
-        `SELECT sessionId, headSha, patchId, decision, summary, summaryCode, body, findings, addressRound,
+        `SELECT sessionId, headSha, patchId, decision, summary, summaryCode, body, findings, findingsMeta, addressRound,
                 addressCap, streakReviews, reviewedPatchIds, errorRound, finalRoundPending, finalRoundTimeoutMs, seenNoteIds, url, spawnAborted, dismissed, planDrift, planDriftNote, updatedAt FROM reviews`,
       )
       .all() as ReviewVerdictRow[];
@@ -4705,6 +4743,10 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       if (!cols.some((c) => c.name === name)) this.db.run(`ALTER TABLE reviews ADD COLUMN ${ddl}`);
     };
     add("findings", `findings TEXT NOT NULL DEFAULT '[]'`);
+    // #2165: the structured findings record (severity + pass). Pre-existing rows backfill to '[]'
+    // and are reconstituted at read time by hydrateReview, which synthesizes an important/bug entry
+    // per stored finding — so no backfill pass is needed and a legacy row re-raises unchanged.
+    add("findingsMeta", `findingsMeta TEXT NOT NULL DEFAULT '[]'`);
     add("addressRound", `addressRound INTEGER NOT NULL DEFAULT 0`);
     // addressCap's DEFAULT 3 only backfills pre-#247 rows; every live row carries
     // ReviewService's actual cap, so the literal here is a one-time migration value, not

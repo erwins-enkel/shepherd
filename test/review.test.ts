@@ -4096,6 +4096,71 @@ test("#1948: the auto-address steer names blockers and marks nits optional", asy
   expect(steers[0]!.text).toContain("genuinely disagree");
 });
 
+test("#2165: a nit is never steered, never advances the streak, and rides the body", async () => {
+  const {
+    deps: d,
+    steers,
+    reviews,
+    rec,
+  } = makeDeps(
+    {
+      readVerdict: () => ({
+        decision: "request-changes",
+        summary: "s",
+        body: "b",
+        findings: [
+          { text: "fix the real bug", severity: "important", pass: "bug" },
+          { text: "rename the helper", severity: "nit", pass: "compliance" },
+        ],
+      }),
+    },
+    { autoAddressEnabled: true },
+  );
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  await svc.tick();
+  const v = reviews["s1"]!;
+  // The blocking list — and therefore the streak, the steer and the merge gate — sees the bug only.
+  expect(v.findings).toEqual(["fix the real bug"]);
+  expect(v.findingsMeta).toHaveLength(2);
+  expect(steers[0]!.text).toContain("fix the real bug");
+  expect(steers[0]!.text).not.toContain("rename the helper");
+  // The nit still reaches the human, through the posted review body.
+  expect(v.body).toContain("**Nits (non-blocking):**");
+  expect(v.body).toContain("- [compliance] rename the helper");
+  expect(rec.body).toContain("- [compliance] rename the helper");
+});
+
+test("#2165: a nits-only verdict is a clean comment — no steer, no rework", async () => {
+  const {
+    deps: d,
+    steers,
+    reviews,
+    rec,
+  } = makeDeps(
+    {
+      readVerdict: () => ({
+        decision: "request-changes",
+        summary: "polish only",
+        body: "b",
+        findings: [{ text: "rename the helper", severity: "nit", pass: "bug" }],
+      }),
+    },
+    { autoAddressEnabled: true },
+  );
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  await svc.tick();
+  const v = reviews["s1"]!;
+  expect(v.decision).toBe("commented");
+  expect(v.findings).toEqual([]);
+  expect(v.streakReviews).toBe(0);
+  expect(v.addressRound).toBe(0);
+  expect(steers).toHaveLength(0);
+  // Posted as a COMMENT, not REQUEST_CHANGES — the merge train must stay unblocked.
+  expect(rec.event).toBe("COMMENT");
+});
+
 // ── #1944: argv-budget wiring at the session critic ───────────────────────────
 //
 // Linux-gated throughout: argvElementLimit is Infinity elsewhere, so nothing clamps and the spawn

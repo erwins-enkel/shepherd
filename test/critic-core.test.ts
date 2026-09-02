@@ -10,6 +10,8 @@ import {
   attributeFinding,
   normalizeDecision,
   normalizeFindings,
+  normalizeFindingEntries,
+  NIT_CAP,
   buildVerdictCore,
   defaultReadVerdict,
   reviewPrompt,
@@ -269,7 +271,9 @@ test("the plan-drift block sits ABOVE the output contract and leaves the JSON sh
   const contract = p.slice(p.indexOf("When done, write TWO files"));
   // The shape line grows by two keys; everything the parser/backstop keys off is untouched.
   expect(contract).toContain('"decision": "request-changes" | "comment"');
-  expect(contract).toContain('"findings": ["<discrete actionable item>", ...]');
+  expect(contract).toContain(
+    '"findings": [{"text": "<discrete actionable item>", "severity": "important" | "nit"',
+  );
   expect(contract).toContain('"body": "<optional — see below>"');
 });
 
@@ -713,6 +717,187 @@ test("buildVerdictCore: request-changes with no findings falls back to its summa
   expect(core.findings).toEqual(["needs work"]);
 });
 
+// ── #2165: severity split, nit cap, and the invariant tying the two shapes ──
+
+test("normalizeFindingEntries: objects, bare strings, and junk", () => {
+  expect(
+    normalizeFindingEntries([
+      { text: "  src/a.ts: null deref  ", severity: "important", pass: "security" },
+      { text: "src/a.ts: odd name", severity: "nit", pass: "compliance" },
+      "src/b.ts: legacy string",
+    ]),
+  ).toEqual([
+    { text: "src/a.ts: null deref", severity: "important", pass: "security" },
+    { text: "src/a.ts: odd name", severity: "nit", pass: "compliance" },
+    // A verdict persisted before #2165 (or written by an older prompt) still parses, as
+    // important/bug — the same class it had under the blocking-only contract.
+    { text: "src/b.ts: legacy string", severity: "important", pass: "bug" },
+  ]);
+  // Junk is dropped, exactly as the string parser dropped non-strings.
+  expect(normalizeFindingEntries([null, 3, [], {}, { severity: "nit" }, "", "   "])).toEqual([]);
+  expect(normalizeFindingEntries("not an array")).toEqual([]);
+  expect(normalizeFindingEntries(undefined)).toEqual([]);
+});
+
+test("normalizeFindingEntries: every unknown value fails toward blocking", () => {
+  expect(
+    normalizeFindingEntries([
+      { text: "a", severity: "trivial", pass: "perf" },
+      { text: "b", severity: 1, pass: null },
+      { text: "c" },
+      // Casing is not normalized on purpose: only the literal enum counts, and anything else
+      // is important — a demotion must never happen by accident.
+      { text: "d", severity: "NIT" },
+    ]),
+  ).toEqual([
+    { text: "a", severity: "important", pass: "bug" },
+    { text: "b", severity: "important", pass: "bug" },
+    { text: "c", severity: "important", pass: "bug" },
+    { text: "d", severity: "important", pass: "bug" },
+  ]);
+});
+
+test("buildVerdictCore: nits stay out of findings and are rendered into the body (#2165)", () => {
+  const core = buildVerdictCore(
+    {
+      decision: "request-changes",
+      summary: "one real bug",
+      body: "## Review\n\nThe details.",
+      findings: [
+        { text: "src/a.ts: null deref", severity: "important", pass: "bug" },
+        { text: "src/a.ts: helper name reads oddly", severity: "nit", pass: "compliance" },
+      ],
+    },
+    "base-sha",
+    ["src/a.ts"],
+    "p1",
+    "s1",
+  );
+  // The blocking contract every downstream consumer gates on: important texts, nothing else.
+  expect(core.findings).toEqual(["src/a.ts: null deref"]);
+  expect(core.decision).toBe("changes_requested");
+  expect(core.findingsMeta).toEqual([
+    { text: "src/a.ts: null deref", severity: "important", pass: "bug" },
+    { text: "src/a.ts: helper name reads oddly", severity: "nit", pass: "compliance" },
+  ]);
+  // The section the critic used to hand-write is now server-rendered, so a PR reader still sees it.
+  expect(core.body).toBe(
+    "## Review\n\nThe details.\n\n**Nits (non-blocking):**\n\n- [compliance] src/a.ts: helper name reads oddly",
+  );
+});
+
+test("buildVerdictCore: a nits-only request-changes flips to commented (#2165)", () => {
+  const core = buildVerdictCore(
+    {
+      decision: "request-changes",
+      summary: "some polish",
+      body: "b",
+      findings: [{ text: "src/a.ts: rename this", severity: "nit", pass: "bug" }],
+    },
+    "base-sha",
+    ["src/a.ts"],
+    "p1",
+    "s1",
+  );
+  // Nothing blocking was raised, so nothing may steer a rework round, advance the streak or
+  // block the merge train — and the summary fallback must NOT re-inflate it into a finding.
+  expect(core.decision).toBe("commented");
+  expect(core.findings).toEqual([]);
+  expect(core.findingsMeta).toHaveLength(1);
+});
+
+test("buildVerdictCore: the nit cap truncates nits only (#2165)", () => {
+  const nits = Array.from({ length: NIT_CAP + 3 }, (_, i) => ({
+    text: `src/a.ts: nit ${i}`,
+    severity: "nit" as const,
+    pass: "bug" as const,
+  }));
+  const important = Array.from({ length: NIT_CAP + 3 }, (_, i) => ({
+    text: `src/a.ts: bug ${i}`,
+    severity: "important" as const,
+    pass: "bug" as const,
+  }));
+  const core = buildVerdictCore(
+    { decision: "request-changes", summary: "lots", body: "b", findings: [...important, ...nits] },
+    "base-sha",
+    ["src/a.ts"],
+    "p1",
+    "s1",
+  );
+  // Important findings are NEVER truncated — the cap must not be able to lose a blocker.
+  expect(core.findings).toHaveLength(NIT_CAP + 3);
+  expect(core.findingsMeta.filter((f) => f.severity === "nit")).toHaveLength(NIT_CAP);
+  expect(core.body).toContain(`nit ${NIT_CAP - 1}`);
+  expect(core.body).not.toContain(`nit ${NIT_CAP}`);
+});
+
+test("buildVerdictCore: the scope backstop drops out-of-diff nits too (#2165)", () => {
+  const core = buildVerdictCore(
+    {
+      decision: "comment",
+      summary: "ok",
+      body: "b",
+      findings: [
+        { text: "src/a.ts: in-diff nit", severity: "nit", pass: "bug" },
+        { text: "src/gone.ts: out-of-diff nit", severity: "nit", pass: "bug" },
+      ],
+    },
+    "base-sha",
+    ["src/a.ts"],
+    "p1",
+    "s1",
+  );
+  expect(core.findingsMeta).toEqual([
+    { text: "src/a.ts: in-diff nit", severity: "nit", pass: "bug" },
+  ]);
+  expect(core.body).not.toContain("out-of-diff nit");
+});
+
+test("buildVerdictCore: findings is always findingsMeta's important projection (#2165)", () => {
+  const cases: Parameters<typeof buildVerdictCore>[0][] = [
+    null,
+    { decision: "comment", summary: "s", body: "b", findings: [] },
+    // legacy all-strings shape
+    { decision: "request-changes", summary: "s", body: "b", findings: ["src/a.ts: x", "y"] },
+    // the summary fallback (request-changes with nothing declared)
+    { decision: "request-changes", summary: "needs work", body: "b", findings: [] },
+    {
+      decision: "request-changes",
+      summary: "s",
+      body: "b",
+      findings: [
+        { text: "src/a.ts: blocker", severity: "important", pass: "scope" },
+        { text: "src/a.ts: nit", severity: "nit", pass: "bug" },
+      ],
+    },
+  ];
+  for (const raw of cases) {
+    const core = buildVerdictCore(raw, "base-sha", ["src/a.ts"], "p1", "s1");
+    expect(core.findings).toEqual(
+      core.findingsMeta.filter((f) => f.severity === "important").map((f) => f.text),
+    );
+  }
+});
+
+test("buildVerdictCore: a legacy all-strings verdict behaves exactly as before (#2165)", () => {
+  const core = buildVerdictCore(
+    {
+      decision: "request-changes",
+      summary: "two issues",
+      body: "b",
+      findings: ["src/a.ts: real bug", "src/gone.ts: out of diff", "unattributed point"],
+    },
+    "base-sha",
+    ["src/a.ts"],
+    "p1",
+    "s1",
+  );
+  expect(core.decision).toBe("changes_requested");
+  expect(core.findings).toEqual(["src/a.ts: real bug", "unattributed point"]);
+  // No declared nits ⇒ the body is untouched, so an older critic's review posts unchanged.
+  expect(core.body).toBe("b");
+});
+
 // ── reapRun: teardown can't crash ───────────────────────────────────────────
 
 test("reapRun: a throwing herdr.stop still removes the worktree and does not escape", () => {
@@ -1102,14 +1287,22 @@ test("#1757 base commits with an EMPTY net diff (revert pair) still mean the tre
 // goes in findings". Because runAutoAddress fires on non-empty findings REGARDLESS of decision and
 // the re-raise rule re-raises them, a comment nit looped until the streak ceiling paused the PR.
 
-test("#1948: findings is blocking-only; nits route to a named non-blocking body section", () => {
+test("#1948/#2165: findings carry a declared severity; only important blocks", () => {
   const p = reviewPrompt("BASE", "do X");
   expect(p).not.toContain('A non-blocking nit STILL goes in "findings"');
   expect(p).toContain("FINDINGS ROUTING");
-  expect(p).toContain("`Nits (non-blocking):`");
-  expect(p).toContain('does NOT go in "findings"');
+  // The wire shape is stated explicitly — the parser accepts bare strings, but the prompt must
+  // ask for the object form or severity is never declared in the first place.
+  expect(p).toContain('"severity": "important" | "nit"');
+  expect(p).toContain('"pass": "bug" | "security" | "compliance" | "scope"');
+  expect(p).toContain("Only important findings are sent to the author");
+  // The nit section is now SERVER-rendered from the structured entries; the critic must not
+  // hand-write it, or the posted review carries it twice.
+  expect(p).toContain("do NOT write that section into `.shepherd-review.md` yourself");
   // Size must never excuse a real defect.
   expect(p).toContain("REGARDLESS of how small it looks");
+  // Ambiguity resolves toward blocking, matching normalizeFindingEntries' unknown-value default.
+  expect(p).toContain("When you genuinely cannot decide, it is important");
 });
 
 test("#1948: comment rule — rewording is a nit, a factually wrong comment is a defect", () => {
@@ -1119,12 +1312,19 @@ test("#1948: comment rule — rewording is a nit, a factually wrong comment is a
   expect(p).toContain("factually WRONG about what the code does IS a defect");
 });
 
-test("#1948: the cap is advisory and can never shed a blocker into Nits", () => {
+test("#1948: the important cap is advisory and can never shed a blocker into nits", () => {
   const p = reviewPrompt("BASE", "do X");
-  expect(p).toContain("At most 5 NEW findings");
+  expect(p).toContain("At most 5 NEW important findings");
   expect(p).toContain("emit ALL of them");
-  expect(p).toContain("NEVER move a blocking problem");
+  expect(p).toContain('NEVER demote a blocking problem to "nit"');
   expect(p).toContain("do NOT count against those 5");
+});
+
+test("#2165: the nit cap is stated as enforced, and never touches important findings", () => {
+  const p = reviewPrompt("BASE", "do X");
+  expect(p).toContain(`At most ${NIT_CAP} "nit" findings per review`);
+  expect(p).toContain("DISCARDED by the server");
+  expect(p).toContain("NEVER applies to important findings");
 });
 
 test("#1948: a stale prior the routing does not admit is dropped, not re-raised", () => {

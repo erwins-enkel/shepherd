@@ -703,6 +703,26 @@ export interface PlanGate {
 // ── critic-on-PR review verdict ─────────────────────────────────────────────
 export type ReviewDecision = "changes_requested" | "commented" | "error";
 
+/** #2165 — how much a critic finding binds the author. `important` is the ONLY severity that
+ *  reaches {@link ReviewVerdict.findings}, and therefore the only one that advances the streak,
+ *  is auto-addressed, is re-raised, and blocks the merge train. `nit` is non-blocking: it is
+ *  recorded, rendered into the posted review body, and never steered. */
+export type FindingSeverity = "important" | "nit";
+
+/** #2165 — the named review pass a finding came out of (the playbook's taxonomy). Classification
+ *  only: nothing gates on it. `compliance` covers repo policy / house rules / catalog parity;
+ *  `scope` covers "does not satisfy the task" and explicit-boundary violations. */
+export type FindingPass = "bug" | "security" | "compliance" | "scope";
+
+/** #2165 — one critic finding as the verdict declares it. `text` keeps the existing
+ *  `<path>: <finding>` convention the scope backstop and the Diff tab parse, so severity is
+ *  additive to it, never a replacement for it. */
+export interface CriticFinding {
+  text: string;
+  severity: FindingSeverity;
+  pass: FindingPass;
+}
+
 /** Why a critic run produced no usable verdict. A SERVER-authored reason, so it travels as a
  *  sentinel code and is rendered per-locale in the UI (same contract as `PlanSummaryCode`) rather
  *  than baking English into the row. Only `error` verdicts carry one.
@@ -731,7 +751,17 @@ export interface ReviewVerdict {
   // PlanGate.summaryCode. See src/review.ts noVerdictCause().
   summaryCode?: ReviewSummaryCode | null;
   body: string; // full markdown findings (seeds the steer-back)
+  // BLOCKING findings only (#2165): the texts of every `important` entry, and nothing else. Every
+  // consumer of this field gates on it — streak, auto-address, re-raise, merge train, drain,
+  // autopilot, signoff — so a `nit` must never appear here. The split happens once, in
+  // buildVerdictCore; `findingsMeta` below carries the full declared list.
   findings: string[]; // discrete actionable items; [] = nothing to address (loop terminates)
+  /** #2165 — the machine-readable record of what the critic declared this round: every finding
+   *  that survived the scope backstop, `important` and (capped) `nit` alike, with its pass.
+   *  `findings` above is exactly `findingsMeta.filter(f => f.severity === "important").map(text)`.
+   *  Absent ⇒ treated as [] by every consumer; a row persisted before this field existed hydrates
+   *  with its findings synthesized as `important`/`bug` (see SessionStore.hydrateReview). */
+  findingsMeta?: CriticFinding[];
   addressRound: number; // auto-address steers spent on the current findings streak (0 = clean/reset)
   addressCap: number; // the streak cap this run used — surfaced so the UI badge math need not mirror it
   streakReviews: number; // critic reviews finalized during the current outstanding-findings streak (0 = clean/reset); bounds review spawns at 2*cap, independent of addressRound

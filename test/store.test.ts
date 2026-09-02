@@ -5,7 +5,13 @@ import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import { SessionStore, REVIEWER_SPAWNS_DDL } from "../src/store";
 import { isEpicChild } from "../src/epic-branch";
-import type { PrReview, Recap, ReviewVerdict, SessionLaunchMetadata } from "../src/types";
+import type {
+  CriticFinding,
+  PrReview,
+  Recap,
+  ReviewVerdict,
+  SessionLaunchMetadata,
+} from "../src/types";
 import type { SessionUsage } from "../src/usage";
 
 function mk() {
@@ -589,6 +595,12 @@ test("reviews: upsert + read by session, snapshot all", () => {
     summary: "2 issues",
     body: "## findings",
     findings: ["fix the off-by-one", "handle the null case"],
+    // #2165: `findings` is the important projection of `findingsMeta`; the nit rides along.
+    findingsMeta: [
+      { text: "fix the off-by-one", severity: "important" as const, pass: "bug" as const },
+      { text: "handle the null case", severity: "important" as const, pass: "bug" as const },
+      { text: "helper name reads oddly", severity: "nit" as const, pass: "compliance" as const },
+    ],
     addressRound: 1,
     addressCap: 3,
     streakReviews: 2,
@@ -610,6 +622,70 @@ test("reviews: upsert + read by session, snapshot all", () => {
   });
   store.dropReview("s1");
   expect(store.getReview("s1")).toBeNull();
+});
+
+test("reviews: a row with no findingsMeta hydrates it from findings (#2165 migration)", () => {
+  const store = new SessionStore(":memory:");
+  store.putReview({
+    sessionId: "s1",
+    headSha: "abc",
+    patchId: "pid",
+    decision: "changes_requested",
+    summary: "1 issue",
+    summaryCode: null,
+    body: "## findings",
+    findings: ["src/a.ts: fix the off-by-one"],
+    // findingsMeta omitted entirely — exactly what a row persisted before the column existed
+    // looks like once the ALTER backfills it to '[]'.
+    addressRound: 1,
+    addressCap: 3,
+    streakReviews: 1,
+    reviewedPatchIds: [],
+    errorRound: 0,
+    finalRoundPending: false,
+    finalRoundTimeoutMs: 900_000,
+    seenNoteIds: [],
+    updatedAt: 1,
+  });
+  // Synthesized as important/bug: a legacy finding was raised under the blocking-only contract,
+  // so it must keep blocking and keep being re-raised.
+  expect(store.getReview("s1")?.findingsMeta).toEqual([
+    { text: "src/a.ts: fix the off-by-one", severity: "important", pass: "bug" },
+  ]);
+  // A row with neither stays empty — nothing to synthesize from.
+  store.putReview({ ...store.getReview("s1")!, findings: [], findingsMeta: [], updatedAt: 2 });
+  expect(store.getReview("s1")?.findingsMeta).toEqual([]);
+});
+
+test("reviews: an unknown persisted severity/pass coerces to important/bug (#2165)", () => {
+  const store = new SessionStore(":memory:");
+  store.putReview({
+    sessionId: "s1",
+    headSha: "abc",
+    patchId: "pid",
+    decision: "commented",
+    summary: "",
+    summaryCode: null,
+    body: "",
+    findings: [],
+    findingsMeta: [
+      // Only reachable by a hand-edited DB, but the read path must not be the place that trusts it:
+      // an unknown severity must fail toward blocking, never silently demote to a nit.
+      { text: "odd row", severity: "trivial", pass: "perf" } as unknown as CriticFinding,
+    ],
+    addressRound: 0,
+    addressCap: 3,
+    streakReviews: 0,
+    reviewedPatchIds: [],
+    errorRound: 0,
+    finalRoundPending: false,
+    finalRoundTimeoutMs: 900_000,
+    seenNoteIds: [],
+    updatedAt: 1,
+  });
+  expect(store.getReview("s1")?.findingsMeta).toEqual([
+    { text: "odd row", severity: "important", pass: "bug" },
+  ]);
 });
 
 test("reviews: planDrift + note round-trip; unknown levels coerce away (#2155)", () => {
@@ -805,6 +881,9 @@ test("bumpReviewHead: re-points head + updatedAt, leaves the verdict otherwise i
     summary: "still broken",
     body: "## findings",
     findings: ["fix the off-by-one"],
+    findingsMeta: [
+      { text: "fix the off-by-one", severity: "important" as const, pass: "bug" as const },
+    ],
     addressRound: 2,
     addressCap: 3,
     streakReviews: 2,

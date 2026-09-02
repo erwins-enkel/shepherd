@@ -105,7 +105,7 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     title: "Review policy (REVIEW.md)",
     path: "/reference/review-policy/",
     keywords:
-      "how a repository steers shepherd's pr critic with a version-controlled review.md, why the file is read from the base commit rather than the pull request, and how the repo's own house rules now reach the reviewer. review.md extra passes known exclusions it is read from the base commit the built-in lenses stay the floor house rules reach the reviewer",
+      "how a repository steers shepherd's pr critic with a version-controlled review.md, why the file is read from the base commit rather than the pull request, and how the repo's own house rules now reach the reviewer. review.md extra passes known exclusions it is read from the base commit the built-in lenses stay the floor severity: important and nit house rules reach the reviewer",
   },
   {
     title: "Design system",

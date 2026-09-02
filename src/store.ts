@@ -30,6 +30,8 @@ import type {
   EpicDraftChild,
   EpicDraftContent,
   ReviewerSpawnRow,
+  ReviewerSpawnOutcome,
+  DeliveryFact,
   AgentProvider,
   PrReview,
   HerdDigest,
@@ -1152,7 +1154,8 @@ export const REVIEWER_SPAWNS_DDL = `CREATE TABLE IF NOT EXISTS reviewer_spawns (
   cacheReadTokens   INTEGER,
   cacheWriteTokens  INTEGER,
   totalTokens       INTEGER,
-  providerSessionId TEXT)`;
+  providerSessionId TEXT,
+  outcome           TEXT)`;
 
 export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   private db: Database;
@@ -1177,10 +1180,10 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // is sub-second, so the worst-case wait is a brief, bounded stall — not a crash. Keep equal to
     // BUSY_TIMEOUT_MS in scripts/backup.ts.
     this.db.run("PRAGMA busy_timeout = 5000");
-    // Everything below is ONE transaction. A fresh open fires 150 write statements: 43
-    // CREATE TABLE IF NOT EXISTS (41 here, REVIEWER_SPAWNS_DDL, and terminal_claims inside
-    // migrateSessionColumns), 12 index creations (11 here plus that method's partial unique
-    // index), 88 ALTER TABLE column adds behind PRAGMA table_info probes, and 3 seed INSERTs.
+    // Everything below is ONE transaction. A fresh open fires 153 write statements: 44
+    // CREATE TABLE IF NOT EXISTS (42 here, REVIEWER_SPAWNS_DDL, and terminal_claims inside
+    // migrateSessionColumns), 13 index creations (12 here plus that method's partial unique
+    // index), 89 ALTER TABLE column adds behind PRAGMA table_info probes, and 3 seed INSERTs.
     // Each one left to autocommit pays SQLite's full rollback-journal fsync cycle — 310ms per open
     // on a fast NVMe, seconds on CI's disk, which is what times out the disk-backed migration
     // tests in test/store.test.ts. Batched: ~9ms. It also makes migration atomic — a crash mid-boot
@@ -1277,6 +1280,23 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       mergedAt  INTEGER,
       UNIQUE(repoPath, branch)
     )`);
+    // Delivery metrics (#2151 R1). One row per task session carrying the PR timestamps that are
+    // otherwise destroyed: `archive()` deletes the session's git cache outright, and
+    // `pruneArchivedSessions` hard-deletes the sessions row at 30 days. Archive-decoupled by the
+    // same rule as reviewer_spawns / post_merge_steps — NO FK, deliberately absent from the prune
+    // cascade, own retention sweep. Display fields are denormalized so a row still reads once the
+    // sessions row is gone. Forward-only: nothing backfills rows for pre-existing sessions.
+    this.db.run(`CREATE TABLE IF NOT EXISTS delivery_facts (
+      sessionId   TEXT PRIMARY KEY,
+      repoPath    TEXT NOT NULL,
+      desig       TEXT NOT NULL DEFAULT '',
+      issueNumber INTEGER,
+      prNumber    INTEGER,
+      createdAt   INTEGER NOT NULL,
+      prOpenedAt  INTEGER,
+      mergedAt    INTEGER,
+      updatedAt   INTEGER NOT NULL)`);
+    this.db.run(`CREATE INDEX IF NOT EXISTS delivery_facts_merged ON delivery_facts (mergedAt)`);
     this.db.run(`CREATE TABLE IF NOT EXISTS reviews (
       sessionId TEXT PRIMARY KEY, headSha TEXT NOT NULL, patchId TEXT NOT NULL DEFAULT '',
       decision TEXT NOT NULL,
@@ -2981,13 +3001,38 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     return out;
   }
 
+  /**
+   * Archive a session. `reason='merged'` ALSO stamps the delivery fact's `mergedAt` (#2151 R1).
+   *
+   * This is the stamp site because the merge train never emits `session:git` for a session it
+   * merges: `AutoMergeService.doMerge` calls `settleMergedSession`, which archives and drops the
+   * session from the PR poller. That settle path (shared by the train, `Drain.reapMerged` and the
+   * manual merge route) is the only writer of `archive(id, 'merged')`, so stamping here is the one
+   * point no merge path can bypass. Sourcing `mergedAt` from the git event alone would have
+   * silently excluded every autonomous merge from the delivery metrics.
+   *
+   * It records the SETTLE time, not the forge's merge timestamp — a server that was down when the
+   * PR merged stamps late. First-write-wins in `upsertDeliveryFact` keeps an earlier
+   * poller-observed merge, which is the truer one.
+   */
   archive(id: string, reason: SessionArchiveReason = "operator") {
     const now = Date.now();
+    const s = reason === "merged" ? this.get(id) : null;
     this.db.transaction(() => {
       this.db.run(
         `UPDATE sessions SET status='archived', archivedAt=?, archiveReason=?, updatedAt=? WHERE id=? AND status!='archived'`,
         [now, reason, now, id],
       );
+      if (s)
+        this.upsertDeliveryFact({
+          sessionId: s.id,
+          repoPath: s.repoPath,
+          desig: s.desig,
+          issueNumber: s.issueNumber ?? null,
+          createdAt: s.createdAt,
+          mergedAt: now,
+          now,
+        });
       this.deleteSessionGitCache(id);
     })();
   }
@@ -4152,6 +4197,94 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     return n;
   }
 
+  /** Stamp a reviewer run's terminal outcome (#2151 R1). Separate from `completeReviewerSpawn`
+   *  on purpose: that one is called through the shared `captureUsage` helper by recap, rundown and
+   *  the doc agent too, none of which have a verdict to report. No-op on an unknown id. */
+  setReviewerSpawnOutcome(reviewerSessionId: string, outcome: ReviewerSpawnOutcome): void {
+    this.db.run(`UPDATE reviewer_spawns SET outcome = ? WHERE reviewerSessionId = ?`, [
+      outcome,
+      reviewerSessionId,
+    ]);
+  }
+
+  // ── delivery facts (#2151 R1) ────────────────────────────────────────────────
+  /**
+   * Create-or-fill one session's delivery fact row. Every timestamp is FIRST-WRITE-WINS
+   * (`COALESCE(existing, new)`): the merged event replays on the boot warm-tick, and both the
+   * `session:git` observation and the merge-teardown archive can stamp `mergedAt` for the same
+   * session — whichever lands first is the earliest, hence the truest, observation.
+   *
+   * `repoPath`/`desig`/`createdAt` are set once at insert and never overwritten, so a later
+   * partial call can't blank them.
+   */
+  upsertDeliveryFact(f: {
+    sessionId: string;
+    repoPath: string;
+    desig: string;
+    issueNumber: number | null;
+    prNumber?: number | null;
+    createdAt: number;
+    prOpenedAt?: number | null;
+    mergedAt?: number | null;
+    now: number;
+  }): void {
+    this.db.run(
+      `INSERT INTO delivery_facts
+         (sessionId, repoPath, desig, issueNumber, prNumber, createdAt, prOpenedAt, mergedAt, updatedAt)
+       VALUES (?,?,?,?,?,?,?,?,?)
+       ON CONFLICT(sessionId) DO UPDATE SET
+         issueNumber = COALESCE(delivery_facts.issueNumber, excluded.issueNumber),
+         prNumber    = COALESCE(delivery_facts.prNumber, excluded.prNumber),
+         prOpenedAt  = COALESCE(delivery_facts.prOpenedAt, excluded.prOpenedAt),
+         mergedAt    = COALESCE(delivery_facts.mergedAt, excluded.mergedAt),
+         updatedAt   = excluded.updatedAt`,
+      [
+        f.sessionId,
+        f.repoPath,
+        f.desig,
+        f.issueNumber,
+        f.prNumber ?? null,
+        f.createdAt,
+        f.prOpenedAt ?? null,
+        f.mergedAt ?? null,
+        f.now,
+      ],
+    );
+  }
+
+  /** Delivery facts for sessions that MERGED at or after `since` (0 = all time), newest first.
+   *  Unmerged sessions are excluded — every delivery indicator is keyed off a completed task. */
+  listMergedDeliveryFacts(since: number): DeliveryFact[] {
+    return this.db
+      .query(
+        `SELECT * FROM delivery_facts WHERE mergedAt IS NOT NULL AND mergedAt >= ?
+         ORDER BY mergedAt DESC`,
+      )
+      .all(since) as DeliveryFact[];
+  }
+
+  /** Earliest instrumented session, or null on a fresh install. Drives the lens's
+   *  "measuring since" note — delivery instrumentation is forward-only, so an empty window must
+   *  read as young instrumentation rather than as a delivery drought. */
+  earliestDeliveryFactAt(): number | null {
+    const row = this.db.query(`SELECT MIN(createdAt) AS t FROM delivery_facts`).get() as {
+      t: number | null;
+    };
+    return row?.t ?? null;
+  }
+
+  /** Drop delivery facts for sessions created before `beforeTs` (own retention sweep, matching
+   *  reviewer_spawns' window — the two are read together). Returns the count removed. */
+  pruneDeliveryFacts(beforeTs: number): number {
+    const n = (
+      this.db
+        .query(`SELECT COUNT(*) AS c FROM delivery_facts WHERE createdAt < ?`)
+        .get(beforeTs) as { c: number }
+    ).c;
+    this.db.run(`DELETE FROM delivery_facts WHERE createdAt < ?`, [beforeTs]);
+    return n;
+  }
+
   // ── learning signals ─────────────────────────────────────────────────────────
   addSignal(input: {
     repoPath: string;
@@ -4184,6 +4317,19 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       )
       .all(repoPath, since, limit) as Signal[];
     return rows;
+  }
+
+  /** In-window signal tally by kind across every repo (#2151 R1's repeat-incident indicator).
+   *  `sessions` counts DISTINCT non-null sessionIds, which is what separates one thrashing task
+   *  from a class of problem recurring across many. Aggregated in SQL so the read stays bounded
+   *  by the number of kinds, not by the signal volume. */
+  countSignalsByKind(since: number): { kind: SignalKind; occurrences: number; sessions: number }[] {
+    return this.db
+      .query(
+        `SELECT kind, COUNT(*) AS occurrences, COUNT(DISTINCT sessionId) AS sessions
+         FROM signals WHERE ts >= ? GROUP BY kind ORDER BY occurrences DESC, kind ASC`,
+      )
+      .all(since) as { kind: SignalKind; occurrences: number; sessions: number }[];
   }
 
   pruneSignals(beforeTs: number): number {
@@ -4259,7 +4405,10 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       );
       // NOTE: post_merge_steps is INTENTIONALLY NOT cascaded here (#1061) — owed manual steps must
       // outlive the archived session AND this prune. Its display fields are denormalized so it
-      // renders fine once the sessions row below is gone. Don't "tidy" it into this cascade.
+      // renders fine once the sessions row below is gone. The same holds for delivery_facts
+      // (#2151 R1): outliving this prune is its whole purpose, so a merged task keeps counting
+      // toward the delivery metrics after its sessions row is gone. Don't "tidy" either into
+      // this cascade.
       this.db.run(`DELETE FROM sessions WHERE ${victims}`, params);
       return n;
     })();
@@ -4597,6 +4746,9 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // stay NULL and fall back to cwd resolution; the partial UNIQUE index (created in init) can't
     // trip on them precisely because they're NULL.
     add("providerSessionId", `providerSessionId TEXT`);
+    // Terminal state of the run, stamped once at finalize (#2151 R1). Legacy rows stay NULL and the
+    // delivery metrics skip them — a NULL is "unknown", never "clean".
+    add("outcome", `outcome TEXT`);
   }
 
   // ── learnings ─────────────────────────────────────────────────────────────

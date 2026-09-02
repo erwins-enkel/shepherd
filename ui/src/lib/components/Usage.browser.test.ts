@@ -93,6 +93,31 @@ const inlinePromptBudgets: PromptBudgetRecord[] = [
 ];
 
 // Mock the API so tests are deterministic and backend-independent.
+/** Minimal Delivery payload — the lens's own suite covers rendering; this only has to be a
+ *  well-formed response so the tab can mount. */
+const inlineDelivery = {
+  range: "7d" as UsageRange,
+  generatedAt: BASE,
+  since: 0,
+  measuringSince: BASE - H,
+  totals: {
+    mergedTasks: 2,
+    firstPassRate: { value: 0.5, n: 2 },
+    unreviewed: 0,
+    reworkCyclesMedian: { value: 1.5, n: 2 },
+    reworkCyclesMean: { value: 1.5, n: 2 },
+    criticErrors: 0,
+    planRoundsMedian: { value: null, n: 0 },
+    planReworkRate: { value: null, n: 0 },
+    timeToFirstReviewMs: { value: 600_000, n: 2 },
+    leadTimeMs: { value: 3_600_000, n: 2 },
+  },
+  repos: [],
+  incidents: [],
+  trend: [],
+  tasks: [],
+};
+
 vi.mock("$lib/api", async () => {
   const { mockBreakdown } = await import("$lib/usage-mock");
   return {
@@ -111,6 +136,7 @@ vi.mock("$lib/api", async () => {
       }),
     ),
     getPromptBudgets: vi.fn(() => Promise.resolve(inlinePromptBudgets)),
+    getDeliveryMetrics: vi.fn((range: UsageRange) => Promise.resolve({ ...inlineDelivery, range })),
   };
 });
 

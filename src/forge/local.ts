@@ -389,6 +389,10 @@ export class LocalForge implements GitForge {
         state: "merged",
         number: row.number,
         checks: "success",
+        // #2151 R1: the delivery metrics read `createdAt` as the PR-opened epoch. Omitting it here
+        // meant a pseudo-PR first observed already-merged (server down over the merge) never got a
+        // prOpenedAt, silently dropping that task from time-to-first-review.
+        createdAt: row.createdAt,
         deployConfigured: false,
       };
     }

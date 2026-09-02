@@ -6,6 +6,7 @@
     UsageProjection,
     UsageRange,
     PromptBudgetRecord,
+    DeliveryMetrics,
     GithubRateLimit,
   } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
@@ -15,6 +16,7 @@
     getUsageLimits,
     getGithubRateLimit,
     getPromptBudgets,
+    getDeliveryMetrics,
   } from "$lib/api";
   import { dialog } from "$lib/a11yDialog";
   import { formatTokenLabel } from "$lib/format";
@@ -26,10 +28,11 @@
   import LimitsLens from "$lib/components/usage/LimitsLens.svelte";
   import GithubLens from "$lib/components/usage/GithubLens.svelte";
   import TimelineLens from "$lib/components/usage/TimelineLens.svelte";
+  import DeliveryLens from "$lib/components/usage/DeliveryLens.svelte";
 
   let { onclose }: { onclose?: () => void } = $props();
 
-  type Tab = "spend" | "overhead" | "prompt" | "timeline" | "limits" | "github";
+  type Tab = "spend" | "overhead" | "prompt" | "timeline" | "delivery" | "limits" | "github";
 
   let tab = $state<Tab>("spend");
   let range = $state<UsageRange>("7d");
@@ -45,6 +48,9 @@
   // (no spawn has been measured yet) and the lens renders its own empty state for it.
   let prompts = $state<PromptBudgetRecord[] | null>(null);
   let promptsError = $state(false);
+  // Delivery outcomes (#2151 R1). Range-dependent and lazily loaded, like the timeline.
+  let delivery = $state<DeliveryMetrics | null>(null);
+  let deliveryError = $state(false);
   let loading = $state(true);
   let error = $state(false);
   // Limits has its own error track (the Limits tab doesn't use `breakdown`), so a
@@ -142,6 +148,27 @@
     if (tab === "prompt") loadPrompts();
   });
 
+  // Delivery metrics: range-dependent, so it carries its own monotonic token like the timeline —
+  // a stale range's response must never overwrite a newer one.
+  let deliveryReqToken = 0;
+
+  async function loadDelivery(r: UsageRange) {
+    const my = ++deliveryReqToken;
+    deliveryError = false;
+    try {
+      const d = await getDeliveryMetrics(r);
+      if (my !== deliveryReqToken) return;
+      delivery = d;
+    } catch {
+      if (my !== deliveryReqToken) return;
+      deliveryError = true;
+    }
+  }
+
+  $effect(() => {
+    if (tab === "delivery") loadDelivery(range);
+  });
+
   // Retry re-fetches ALL tracks so any failure surface recovers.
   function retry() {
     loadBreakdown(range);
@@ -149,24 +176,29 @@
     loadLimits();
     loadGithub();
     loadPrompts();
+    loadDelivery(range);
   }
 
   // Template-state derivations (kept out of the markup to keep the template's
   // branching shallow). `showRange`: spend/overhead are the only ranged tabs.
-  const showRange = $derived(tab === "spend" || tab === "overhead" || tab === "timeline");
+  const showRange = $derived(
+    tab === "spend" || tab === "overhead" || tab === "timeline" || tab === "delivery",
+  );
   // Non-blocking refetch banner — Spend/Overhead use `breakdown`'s error track, Timeline its own.
   const showBreakdownError = $derived(error && (tab === "spend" || tab === "overhead"));
   const showTimelineError = $derived(timelineError && tab === "timeline");
   // Prompt follows Timeline's shape rather than Limits'/GitHub's: banner, never inline — so a
   // refetch that fails after a first success can't leave stale numbers on screen unannounced.
   const showPromptsError = $derived(promptsError && tab === "prompt");
+  const showDeliveryError = $derived(deliveryError && tab === "delivery");
   // The active tab has data to render its lens (else we show loading/error chrome).
   const hasContent = $derived(
     ((tab === "spend" || tab === "overhead") && !!breakdown) ||
       (tab === "timeline" && !!timeline) ||
       (tab === "limits" && !!limits) ||
       (tab === "github" && !!github) ||
-      (tab === "prompt" && prompts !== null),
+      (tab === "prompt" && prompts !== null) ||
+      (tab === "delivery" && !!delivery),
   );
   // No content yet, and the failing fetch for this tab errored (not still loading).
   // (Spend/Overhead/Timeline surface their error via the banner above, never inline.)
@@ -178,7 +210,8 @@
       (tab === "timeline" && !timeline && !timelineError) ||
       (tab === "limits" && !limits && !limitsError) ||
       (tab === "github" && !github && !githubError) ||
-      (tab === "prompt" && prompts === null && !promptsError),
+      (tab === "prompt" && prompts === null && !promptsError) ||
+      (tab === "delivery" && !delivery && !deliveryError),
   );
 </script>
 
@@ -233,6 +266,14 @@
         class:seg-active={tab === "timeline"}
         aria-pressed={tab === "timeline"}
         onclick={() => (tab = "timeline")}>{m.usage_timeline_tab()}</button
+      >
+      <button
+        type="button"
+        class="seg-btn"
+        class:seg-active={tab === "delivery"}
+        aria-pressed={tab === "delivery"}
+        use:coachTarget={"usage-delivery-tab"}
+        onclick={() => (tab = "delivery")}>{m.usage_tab_delivery()}</button
       >
       <button
         type="button"
@@ -307,7 +348,7 @@
       <!-- Breakdown-error banner for the Spend/Overhead tabs. Shown even when a stale
            `breakdown` is still present (a failed range-change refetch) so the user isn't
            silently left on old-range data with no indication the new range failed. -->
-      {#if showBreakdownError || showTimelineError || showPromptsError}
+      {#if showBreakdownError || showTimelineError || showPromptsError || showDeliveryError}
         <div class="usage-error-banner" role="alert">
           <span class="usage-status-line usage-error">{m.usage_load_error()}</span>
           <button type="button" class="gbtn gbtn-secondary" onclick={retry}
@@ -324,6 +365,8 @@
         <PromptLens records={prompts} />
       {:else if tab === "timeline" && timeline}
         <TimelineLens {timeline} />
+      {:else if tab === "delivery" && delivery}
+        <DeliveryLens metrics={delivery} />
       {:else if tab === "limits" && limits}
         <LimitsLens {limits} {projections} {codexUsage} />
       {:else if tab === "github" && github}

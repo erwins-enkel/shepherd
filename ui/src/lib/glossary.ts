@@ -79,6 +79,22 @@ const glossary: readonly GlossaryTerm[] = [
     bodyKey: "gloss_rework_def",
   },
   {
+    id: "first-pass-rate",
+    kind: "internal",
+    termKey: "gloss_first_pass_rate_term",
+    bodyKey: "gloss_first_pass_rate_def",
+  },
+  {
+    id: "lead-time",
+    kind: "external",
+    termKey: "gloss_lead_time_term",
+    bodyKey: "gloss_lead_time_def",
+    wikipedia: {
+      en: "Lead_time",
+      de: "Durchlaufzeit",
+    },
+  },
+  {
     id: "inferred",
     kind: "internal",
     termKey: "gloss_inferred_term",

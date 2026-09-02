@@ -957,6 +957,124 @@ export interface ReviewerSpawnRow {
   /** Codex-native rollout id, backfilled once the spawn's rollout resolves; NULL until then and for
    *  every claude spawn (issue #1816). Enables exact, restart-durable rollout resolution. */
   providerSessionId: string | null;
+  /** What this reviewer run concluded, stamped once at finalize (#2151 R1). NULL for a legacy row
+   *  and for a spawn that never finalized (crashed / orphaned) — delivery metrics EXCLUDE those
+   *  rather than counting them as rework rounds, which a raw spawn tally would. */
+  outcome: ReviewerSpawnOutcome | null;
+}
+
+/** Terminal state of one reviewer run. `review` kinds resolve to clean/changes_requested/error;
+ *  `plan_gate` kinds to approved/rework/error. The other spawn kinds (recap, rundown, doc_agent)
+ *  are never stamped — they have no verdict a delivery metric reads. */
+export type ReviewerSpawnOutcome = "clean" | "changes_requested" | "approved" | "rework" | "error";
+
+// ── delivery metrics (#2151 R1) ─────────────────────────────────────────────
+
+/** One task session's durable delivery timestamps. Archive-decoupled with no FK to `sessions`
+ *  (like {@link ReviewerSpawnRow}): `pruneArchivedSessions` hard-deletes sessions at 30 days and
+ *  `archive()` deletes the session's git cache outright, so without this row a merged task's PR
+ *  timestamps are unrecoverable. Display fields are denormalized for the same reason.
+ *
+ *  Forward-only: rows exist only for sessions that ran after this shipped. */
+export interface DeliveryFact {
+  sessionId: string;
+  repoPath: string;
+  desig: string;
+  issueNumber: number | null;
+  prNumber: number | null;
+  /** The session's own createdAt — the lead-time origin, denormalized so it survives the prune. */
+  createdAt: number;
+  /** ms epoch the PR was opened, per the forge (`GitState.createdAt`); null when never observed. */
+  prOpenedAt: number | null;
+  /** ms epoch this session's merge was SETTLED (teardown archived it, or the poller observed the
+   *  merge) — NOT the forge's merge timestamp. A server down at merge time stamps late. */
+  mergedAt: number | null;
+  updatedAt: number;
+}
+
+/** A metric with its sample size. `value` is null when nothing qualified — rendered as an em dash,
+ *  never as a zero, so an unmeasured window can't be misread as a perfect (or terrible) one. */
+export interface DeliverySample {
+  value: number | null;
+  /** How many tasks the value was computed over. */
+  n: number;
+}
+
+/** The delivery indicators for one scope (a repo, or the global total) over the window. */
+export interface DeliveryStats {
+  /** Tasks whose merge settled inside the window. */
+  mergedTasks: number;
+  /** Share (0..1) of reviewed merged tasks that needed exactly one clean review round. */
+  firstPassRate: DeliverySample;
+  /** Merged tasks with no outcome-bearing review spawn — excluded from `firstPassRate`'s
+   *  denominator, surfaced so the exclusion is visible rather than silent. */
+  unreviewed: number;
+  /** Median / mean review rounds per merged task (error spawns excluded). */
+  reworkCyclesMedian: DeliverySample;
+  reworkCyclesMean: DeliverySample;
+  /** Review spawns in the window that ended in `error` — critic runs that produced no verdict. */
+  criticErrors: number;
+  /** Median plan-gate rounds over merged tasks that had a gate. */
+  planRoundsMedian: DeliverySample;
+  /** Share (0..1) of gated merged tasks that needed more than one plan round. */
+  planReworkRate: DeliverySample;
+  /** Median ms from PR open to the first critic spawn. */
+  timeToFirstReviewMs: DeliverySample;
+  /** Median ms from session creation to merge settle. */
+  leadTimeMs: DeliverySample;
+}
+
+/** Per-repo delivery row. `repo` is the basename shown in the UI; `repoPath` is the key. */
+export interface DeliveryRepoRow extends DeliveryStats {
+  repoPath: string;
+  repo: string;
+}
+
+/** One merged task, newest-merged first — the evidence behind the aggregates. */
+export interface DeliveryTaskRow {
+  sessionId: string;
+  desig: string;
+  repo: string;
+  issueNumber: number | null;
+  prNumber: number | null;
+  reviewRounds: number;
+  planRounds: number;
+  firstPass: boolean | null; // null = no outcome-bearing review spawn
+  timeToFirstReviewMs: number | null;
+  leadTimeMs: number | null;
+  mergedAt: number;
+}
+
+/** One day of the trend line. `dayKey` is a UTC `YYYY-MM-DD`. */
+export interface DeliveryBucket {
+  dayKey: string;
+  mergedTasks: number;
+  firstPassRate: number | null;
+  leadTimeMedianMs: number | null;
+}
+
+/** Repeat-incident tally: in-window `signals` grouped by kind. */
+export interface DeliveryIncidentRow {
+  kind: SignalKind;
+  occurrences: number;
+  /** Distinct sessions the kind fired for — separates one thrashing task from a systemic class. */
+  sessions: number;
+}
+
+/** GET /api/usage/delivery payload. Mirror of the contract in ui/src/lib/types.ts — keep in sync. */
+export interface DeliveryMetrics {
+  range: UsageRange;
+  generatedAt: number;
+  /** Window start (ms epoch); 0 for range `all`. */
+  since: number;
+  /** Earliest instrumented session, or null when nothing is recorded yet. Delivery instrumentation
+   *  is forward-only, so the UI needs this to say "measuring since X" rather than imply a drought. */
+  measuringSince: number | null;
+  totals: DeliveryStats;
+  repos: DeliveryRepoRow[];
+  incidents: DeliveryIncidentRow[];
+  trend: DeliveryBucket[];
+  tasks: DeliveryTaskRow[];
 }
 
 // ── autopilot mode ──────────────────────────────────────────────────────────

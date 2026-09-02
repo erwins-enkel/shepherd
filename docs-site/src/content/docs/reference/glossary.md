@@ -58,6 +58,12 @@ landing it once CI stays green.
 A session sent back to revise its work after the plan gate or PR critic requested
 changes, instead of approving it.
 
+### First-pass rate
+
+The share of merged tasks that passed review in a single clean round — no rework
+requested. Tasks that were never reviewed are left out of the calculation
+entirely rather than counted as passes.
+
 ### Inferred
 
 Derived by the recap model from the code — not verified against the real diff.
@@ -170,6 +176,13 @@ back to its developers to guide improvements. In Shepherd it is off until you op
 in, respects `DO_NOT_TRACK`, and never includes code or personal data — see
 [Configuration](/reference/configuration/#anonymous-usage-telemetry).
 ([Wikipedia](https://en.wikipedia.org/wiki/Telemetry#Software))
+
+### Lead time
+
+How long a task took end to end: from the moment the session was created to the
+moment its pull request merged. Borrowed from lean manufacturing, where it
+measures the delay between a request and its delivery.
+([Wikipedia](https://en.wikipedia.org/wiki/Lead_time))
 
 ### Inode
 

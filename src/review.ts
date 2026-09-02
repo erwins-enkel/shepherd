@@ -259,6 +259,7 @@ export interface ReviewServiceDeps extends MembraneSeams {
     | "addSignal"
     | "recordReviewerSpawn"
     | "completeReviewerSpawn"
+    | "setReviewerSpawnOutcome"
     | "setReviewerSpawnProviderSessionId"
     | "listReviewerSpawns"
     | "putSpawnNotice"
@@ -1177,6 +1178,24 @@ export class ReviewService {
     // (a forge/store/steer failure must not strand them).
     try {
       const verdict = this.buildVerdict(f, raw, cause ?? null);
+      // Stamp the spawn's terminal outcome for the delivery metrics (#2151 R1). Deliberately
+      // BEFORE the moot-verdict branch below: the critic did run and did conclude, so the spawn
+      // row must say so even when the verdict isn't persisted as session state. `findings` — not
+      // `decision` — is what drives rework here, mirroring the auto-address loop, so a
+      // findings-free "comment" verdict is a clean first pass. Best-effort: an accounting write
+      // must never strand finalize.
+      try {
+        this.deps.store.setReviewerSpawnOutcome(
+          f.criticSessionId,
+          verdict.decision === "error"
+            ? "error"
+            : verdict.findings.length === 0
+              ? "clean"
+              : "changes_requested",
+        );
+      } catch (err) {
+        console.warn(`[review] outcome accounting failed for ${f.sessionId}:`, err);
+      }
       // A verdict for a PR that's no longer open is moot. The real branch handles that inside
       // publishVerdict(); the error branch needs its own gate (finalizeErrorVerdict) since it
       // never reaches publishVerdict. When persist is false we skip persisting the verdict as

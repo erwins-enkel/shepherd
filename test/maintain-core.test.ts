@@ -9,6 +9,7 @@ import {
   describeReading,
   evaluateBands,
   mergeThresholds,
+  packagesFor,
   parseDeadCodeReport,
   readMaintainDraft,
   renderFixPrBody,
@@ -661,8 +662,12 @@ describe("describeReading / renderFixPrBody — count band", () => {
     const body = renderFixPrBody(
       { autoFixable: 2, total: 5, byCategory: { unused_exports: 2 } },
       r,
+      ["root", "ui"],
     );
     expect(body).toContain("maintain loop (tier 3)");
+    // The body must name what was ACTUALLY checked — the root tsc alone would be a vacuous claim
+    // for a diff under ui/.
+    expect(body).toContain("`root`, `ui`");
     expect(body).toContain("2 unused exports");
     expect(body).toContain("3 finding(s) are not auto-fixable");
     expect(body).toContain("dead_code_drift");
@@ -672,6 +677,7 @@ describe("describeReading / renderFixPrBody — count band", () => {
     const body = renderFixPrBody(
       { autoFixable: 2, total: 2, byCategory: { unused_exports: 2 } },
       r,
+      ["root"],
     );
     expect(body).not.toContain("Left alone");
   });
@@ -680,5 +686,37 @@ describe("describeReading / renderFixPrBody — count band", () => {
 describe("windowDaysFor", () => {
   it("reports no window for the point-in-time band", () => {
     expect(windowDaysFor("dead_code_drift")).toBe(0);
+  });
+});
+
+describe("packagesFor", () => {
+  it("routes each changed path to the package that can actually check it", () => {
+    // The bug this closes: `bun run typecheck` is tsc against a tsconfig that EXCLUDES ui and
+    // extension, so a root-only gate passes vacuously for a fix under ui/src/lib.
+    expect(packagesFor(["src/usage.ts"]).packages).toEqual(["root"]);
+    expect(packagesFor(["ui/src/lib/x.ts"]).packages).toEqual(["ui"]);
+    expect(packagesFor(["extension/src/background.ts"]).packages).toEqual(["extension"]);
+  });
+
+  it("returns every touched package, cheapest check first", () => {
+    expect(packagesFor(["ui/src/lib/x.ts", "src/usage.ts", "extension/src/y.ts"]).packages).toEqual(
+      ["root", "extension", "ui"],
+    );
+  });
+
+  it("de-duplicates several paths in one package", () => {
+    expect(packagesFor(["ui/a.ts", "ui/b.ts", "ui/c.ts"]).packages).toEqual(["ui"]);
+  });
+
+  it("flags the trees nothing here can verify rather than silently checking the root", () => {
+    // site/ and docs-site/ are in fallow's entry list but have no installed deps and no wired
+    // check in the fix worktree — treating them as "root" would be the same vacuous pass.
+    const out = packagesFor(["src/usage.ts", "site/src/pages/index.astro", "docs-site/x.mjs"]);
+    expect(out.unverifiable).toEqual(["site/src/pages/index.astro", "docs-site/x.mjs"]);
+    expect(out.packages).toEqual(["root"]);
+  });
+
+  it("treats scripts and tests as root", () => {
+    expect(packagesFor(["scripts/x.ts", "test/y.ts"]).packages).toEqual(["root"]);
   });
 });

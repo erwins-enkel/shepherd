@@ -290,6 +290,51 @@ function isAutoFixableAction(a: unknown): boolean {
   );
 }
 
+/**
+ * The packages a Tier-3 fix can type-check, cheapest first.
+ *
+ * `root` is `bun run typecheck` (`tsc --noEmit`), whose tsconfig EXCLUDES `ui`, `extension`,
+ * `site` and `docs-site` — each is its own package with its own check command. So a root
+ * typecheck alone says nothing about a fix under `ui/src`, which is most of what fallow analyses.
+ */
+export type FixPackage = "root" | "ui" | "extension";
+
+/** Cheapest-first, so a failing gate short-circuits before the slow svelte-checks. */
+const PACKAGE_ORDER: FixPackage[] = ["root", "extension", "ui"];
+
+/** Trees fallow analyses that a Tier-3 run CANNOT verify: their dependencies are not installed in
+ *  the fix worktree and no check command is wired for them. A fix touching one is refused rather
+ *  than committed unverified. */
+const UNVERIFIABLE_PREFIXES = ["site/", "docs-site/"];
+
+/**
+ * Which packages a set of changed paths implicates, and which paths nothing can verify.
+ *
+ * WHY THIS EXISTS: fallow's entry list spans the root, `ui/`, `extension/`, `site/` and
+ * `docs-site/`, while `bun run typecheck` covers only the first. Verifying with the root
+ * typecheck alone would pass VACUOUSLY for a `fallow fix` that deleted a live export under
+ * `ui/src/lib` — and that diff would then be committed, pushed and opened as a PR.
+ */
+export function packagesFor(changed: string[]): {
+  packages: FixPackage[];
+  unverifiable: string[];
+} {
+  const touched = new Set<FixPackage>();
+  const unverifiable: string[] = [];
+  for (const path of changed) {
+    if (UNVERIFIABLE_PREFIXES.some((prefix) => path.startsWith(prefix))) {
+      unverifiable.push(path);
+    } else if (path.startsWith("ui/")) {
+      touched.add("ui");
+    } else if (path.startsWith("extension/")) {
+      touched.add("extension");
+    } else {
+      touched.add("root");
+    }
+  }
+  return { packages: PACKAGE_ORDER.filter((p) => touched.has(p)), unverifiable };
+}
+
 /** Human-readable one-liner for a reading's auto-fixable breakdown, for the PR body and the log.
  *  Categories are fallow's own snake_case names, spelled out. */
 export function describeDeadCode(reading: DeadCodeReading): string {
@@ -673,8 +718,13 @@ export const DEAD_CODE_COMMIT_MSG = "chore(maintain): remove auto-fixable dead c
  * deliberately left alone are still there. The pinned fallow version is named because the diff is
  * only reproducible against it.
  */
-export function renderFixPrBody(before: DeadCodeReading, reading: BandReading): string {
+export function renderFixPrBody(
+  before: DeadCodeReading,
+  reading: BandReading,
+  packages: FixPackage[],
+): string {
   const remaining = before.total - before.autoFixable;
+  const checked = packages.map((p) => `\`${p}\``).join(", ") || "none";
   const lines = [
     "> Opened automatically by Shepherd's maintain loop (tier 3). The diff is the verbatim output",
     `> of \`fallow fix\` — no agent wrote it. Review it as you would any deletion.`,
@@ -688,7 +738,8 @@ export function renderFixPrBody(before: DeadCodeReading, reading: BandReading): 
     "",
     "- `bun install --frozen-lockfile` in the root, `ui/` and `extension/` — without installed",
     "  dependencies fallow cannot resolve imports and reports findings that are not real.",
-    "- `bun run typecheck` passes on the result.",
+    `- The type-check of every package this diff touches (${checked}) passes. The root`,
+    "  `tsc` excludes `ui` and `extension`, so each is checked with its own command.",
     "- A re-run of `fallow dead-code` reports no auto-fixable findings left.",
   ];
   if (remaining > 0) {

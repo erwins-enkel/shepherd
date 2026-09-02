@@ -9,6 +9,7 @@ import {
 import { DEAD_CODE_COMMIT_MSG, DEFAULT_COOLDOWN_MS } from "../src/maintain-core";
 import { UNTRUSTED_CONTENT_DIRECTIVE } from "../src/untrusted";
 import { EmptyDiffError, type GitForge, type Issue } from "../src/forge/types";
+import type { FixPackage } from "../src/maintain-core";
 import type { DeliveryRepoRow, DeliveryStats } from "../src/types";
 
 const SELF = "/repos/shepherd";
@@ -71,8 +72,10 @@ interface Harness {
   /** Dead-code reports: `live` answers the sweep's measurement of the live checkout, `worktree`
    *  is consumed in order by the fix run's before/after measurements. */
   deadCode: { live: string | null; worktree: (string | null)[] };
-  /** Which fix subprocess, if any, should reject. */
-  fixFails: { install: boolean; fix: boolean; typecheck: boolean };
+  /** Which fix subprocess, if any, should reject. `typecheck` may name one package. */
+  fixFails: { install: boolean; fix: boolean; typecheck: boolean | FixPackage };
+  /** Packages the verify gate actually type-checked, in call order. */
+  checked: FixPackage[];
   /** Set to throw from openPr. */
   openPrError: { current: Error | null };
 }
@@ -122,7 +125,8 @@ function harness(over: Partial<MaintainDeps> = {}): Harness {
   const openPrNumbers: number[] = [];
   const statusOut = { current: " M src/usage.ts\n" };
   const deadCode = { live: CLEAN_REPORT as string | null, worktree: [] as (string | null)[] };
-  const fixFails = { install: false, fix: false, typecheck: false };
+  const fixFails = { install: false, fix: false, typecheck: false as boolean | FixPackage };
+  const checked: FixPackage[] = [];
   const openPrError = { current: null as Error | null };
   let nextIssue = 100;
   let nextPr = 500;
@@ -231,8 +235,9 @@ function harness(over: Partial<MaintainDeps> = {}): Harness {
       fix: async () => {
         if (fixFails.fix) throw new Error("fallow fix exploded");
       },
-      typecheck: async () => {
-        if (fixFails.typecheck) throw new Error("TS2322");
+      typecheck: async (_wt: string, pkg: FixPackage) => {
+        checked.push(pkg);
+        if (fixFails.typecheck === true || fixFails.typecheck === pkg) throw new Error("TS2322");
       },
     },
     readDraft: () => draft.current,
@@ -268,6 +273,7 @@ function harness(over: Partial<MaintainDeps> = {}): Harness {
     statusOut,
     deadCode,
     fixFails,
+    checked,
     openPrError,
   };
 }
@@ -913,6 +919,43 @@ describe("tier 3 — fail-closed gates", () => {
     expect((await runWith(h)).outcome).toBe("error");
     expect(h.openedPrs).toHaveLength(0);
     expect(h.logs.join("\n")).toContain("typecheck failed");
+  });
+
+  it("checks every package the diff touches, not just the server root", async () => {
+    // `bun run typecheck` excludes ui/ and extension/, so a root-only gate would pass vacuously
+    // for a fix that deleted a live export under ui/src/lib.
+    const h = drifting();
+    h.statusOut.current = " M src/usage.ts\n M ui/src/lib/x.ts\n M extension/src/y.ts\n";
+    await h.svc.sweep();
+    expect(h.checked).toEqual(["root", "extension", "ui"]);
+    expect(h.openedPrs).toHaveLength(1);
+    expect(h.openedPrs[0]!.body).toContain("`root`, `extension`, `ui`");
+  });
+
+  it("opens nothing when a sub-package check goes red, even with the root green", async () => {
+    const h = drifting();
+    h.statusOut.current = " M ui/src/lib/x.ts\n";
+    h.fixFails.typecheck = "ui";
+    expect((await runWith(h)).outcome).toBe("error");
+    expect(h.openedPrs).toHaveLength(0);
+    expect(h.logs.join("\n")).toContain("typecheck failed on the result (ui)");
+  });
+
+  it("does not run a check for a package the diff never touched", async () => {
+    const h = drifting();
+    h.statusOut.current = " M src/usage.ts\n";
+    await h.svc.sweep();
+    expect(h.checked).toEqual(["root"]);
+  });
+
+  it("refuses to commit a change in a tree nothing here can type-check", async () => {
+    // site/ and docs-site/ are inside fallow's entry list but have no installed deps and no wired
+    // check in the fix worktree.
+    const h = drifting();
+    h.statusOut.current = " M src/usage.ts\n M docs-site/src/x.mjs\n";
+    expect((await runWith(h)).outcome).toBe("error");
+    expect(h.openedPrs).toHaveLength(0);
+    expect(h.logs.join("\n")).toContain("nothing here can type-check");
   });
 
   it("opens nothing when auto-fixable findings survive the fix", async () => {

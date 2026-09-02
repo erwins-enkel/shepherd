@@ -289,10 +289,16 @@ tokens and has no prompt to be injected into. The run:
 3. re-measures in that pristine checkout and stands down if there is nothing to fix (the
    sweep's reading came from the live checkout, which can carry uncommitted edits);
 4. runs `bunx fallow@<pinned> fix --yes --no-create-config`;
-5. **verifies fail-closed** — `bun run typecheck` must pass and a re-run of `fallow dead-code`
-   must report no auto-fixable findings left. It also **refuses** to commit when the fix touched
-   any `package.json` or lockfile: `fallow fix` removes unused *dependencies* too, and that needs
-   a lockfile regen a background loop must not do;
+5. **verifies fail-closed** — the type-check of **every package the diff touches** must pass, and
+   a re-run of `fallow dead-code` must report no auto-fixable findings left. Per package, not just
+   the root: `bun run typecheck` is `tsc` against a tsconfig that excludes `ui`, `extension`,
+   `site` and `docs-site`, while fallow analyses all of them, so a root-only gate would pass
+   vacuously for a fix under `ui/src`. The root uses `bun run typecheck`; `ui` and `extension` use
+   their own `bun run check`. The run also **refuses** to commit when the fix touched any
+   `package.json` or lockfile (`fallow fix` removes unused *dependencies* too, and that needs a
+   lockfile regen a background loop must not do), or anything under `site/` or `docs-site/`, whose
+   dependencies are not installed in the fix worktree and which therefore cannot be verified at
+   all;
 6. commits `--no-verify`, pushes, and opens the PR.
 
 Any failed gate opens nothing, records an `error` outcome and throws the branch away. **Nothing

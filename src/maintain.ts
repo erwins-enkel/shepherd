@@ -59,6 +59,7 @@ import {
   describeDeadCode,
   describeReading,
   evaluateBands,
+  packagesFor,
   parseDeadCodeReport,
   readMaintainDraft,
   renderFixPrBody,
@@ -67,6 +68,7 @@ import {
   type BandThresholds,
   type DeadCodeReading,
   type EvidenceLine,
+  type FixPackage,
   type MaintainDraft,
 } from "./maintain-core";
 
@@ -116,8 +118,10 @@ export interface FixRunner {
   deadCode(worktreePath: string): Promise<string | null>;
   /** `fallow fix --yes --no-create-config`. Throws on failure. */
   fix(worktreePath: string): Promise<void>;
-  /** `bun run typecheck`. Throws when it does not pass. */
-  typecheck(worktreePath: string): Promise<void>;
+  /** Type-check ONE package: `bun run typecheck` for the server root, `bun run check` for `ui`
+   *  and `extension`. Throws when it does not pass. Per-package because the root tsconfig
+   *  excludes the others — see {@link packagesFor}. */
+  typecheck(worktreePath: string, pkg: FixPackage): Promise<void>;
 }
 
 const execFileP = promisify(execFile);
@@ -176,9 +180,11 @@ const defaultFixRunner: FixRunner = {
       timeout: FIX_SUBPROCESS_TIMEOUT_MS,
     });
   },
-  async typecheck(worktreePath) {
-    await execFileP("bun", ["run", "typecheck"], {
-      cwd: worktreePath,
+  async typecheck(worktreePath, pkg) {
+    // `bun run check` is each sub-package's own svelte-check; `typecheck` is the server's tsc.
+    const [dir, script] = pkg === "root" ? [".", "typecheck"] : [pkg, "check"];
+    await execFileP("bun", ["run", script], {
+      cwd: join(worktreePath, dir),
       timeout: FIX_SUBPROCESS_TIMEOUT_MS,
     });
   },
@@ -694,9 +700,17 @@ export class MaintainService {
   ): Promise<FixAbort | { outcome: "opened"; why: string; pr: { number: number; url: string } }> {
     const prepared = await this.prepareFix(worktreePath);
     if ("outcome" in prepared) return prepared;
-    const failed = await this.verifyFix(worktreePath);
-    if (failed) return failed;
-    return this.publishFix({ reading, worktreePath, branch, base, forge, ...prepared });
+    const verified = await this.verifyFix(worktreePath, prepared.changed);
+    if ("outcome" in verified) return verified;
+    return this.publishFix({
+      reading,
+      worktreePath,
+      branch,
+      base,
+      forge,
+      ...prepared,
+      ...verified,
+    });
   }
 
   /**
@@ -744,13 +758,33 @@ export class MaintainService {
     return { before, changed };
   }
 
-  /** The fail-closed gate, or null when the result is publishable. A red typecheck or a leftover
-   *  finding means the fix is not the clean mechanical removal this tier is licensed for. */
-  private async verifyFix(worktreePath: string): Promise<FixAbort | null> {
-    try {
-      await this.fixRunner.typecheck(worktreePath);
-    } catch (err) {
-      return { outcome: "error", why: `typecheck failed on the result: ${String(err)}` };
+  /**
+   * The fail-closed gate. Returns the packages it actually checked, or the reason the run stops.
+   *
+   * ROUTED BY WHAT CHANGED, not fixed at the root. `bun run typecheck` is `tsc --noEmit` against a
+   * tsconfig that excludes `ui`, `extension`, `site` and `docs-site` — but fallow analyses and
+   * fixes all of them. Running only the root check would pass VACUOUSLY for a fix that deleted a
+   * live export under `ui/src/lib`, and that diff would be committed and opened as a PR.
+   */
+  private async verifyFix(
+    worktreePath: string,
+    changed: string[],
+  ): Promise<FixAbort | { packages: FixPackage[] }> {
+    const { packages, unverifiable } = packagesFor(changed);
+    if (unverifiable.length > 0) {
+      // `site/` and `docs-site/` have no dependencies installed here and no check command wired,
+      // so there is no honest way to verify a fix in them. Refuse rather than commit unverified.
+      return {
+        outcome: "error",
+        why: `refusing to commit changes nothing here can type-check: ${unverifiable.join(", ")}`,
+      };
+    }
+    for (const pkg of packages) {
+      try {
+        await this.fixRunner.typecheck(worktreePath, pkg);
+      } catch (err) {
+        return { outcome: "error", why: `typecheck failed on the result (${pkg}): ${String(err)}` };
+      }
     }
     const after = parseDeadCodeReport(await this.fixRunner.deadCode(worktreePath));
     if (after === null) {
@@ -762,7 +796,7 @@ export class MaintainService {
         why: `${after.autoFixable} auto-fixable finding(s) survived the fix`,
       };
     }
-    return null;
+    return { packages };
   }
 
   /** Commit, push and open the PR — or, unarmed, say what that would have been. */
@@ -774,6 +808,7 @@ export class MaintainService {
     forge: GitForge;
     before: DeadCodeReading;
     changed: string[];
+    packages: FixPackage[];
   }): Promise<FixAbort | { outcome: "opened"; why: string; pr: { number: number; url: string } }> {
     const { worktreePath, branch, before } = o;
     if (!this.deps.pr) {
@@ -794,7 +829,7 @@ export class MaintainService {
         head: branch,
         base: o.base,
         title: DEAD_CODE_COMMIT_MSG,
-        body: renderFixPrBody(before, o.reading),
+        body: renderFixPrBody(before, o.reading, o.packages),
       });
     } catch (err) {
       // The branch is pushed but has no PR. Take it back down rather than leave an orphan on the

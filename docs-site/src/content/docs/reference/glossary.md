@@ -46,7 +46,10 @@ its resume path would otherwise target a sibling session in the shared directory
 ### Critic
 
 Shepherd's isolated, read-only review agent that inspects a PR's diff once CI is
-green and posts a verdict.
+green and posts a verdict. Its built-in lenses are the floor; a repository can
+add passes and known exclusions with a committed `REVIEW.md`, and the repo's
+house rules are shown to the critic alongside them — see
+[Review policy](/reference/review-policy/).
 
 ### Merge train
 

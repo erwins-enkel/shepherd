@@ -49,7 +49,7 @@ async function withAuth<T>(
   }
 }
 import type { GitForge, GitState, PrComment, PrStatus } from "../src/forge/types";
-import type { Session, ReviewVerdict } from "../src/types";
+import type { Session, ReviewVerdict, Learning } from "../src/types";
 
 function session(over: Partial<Session> = {}): Session {
   return {
@@ -3977,3 +3977,140 @@ test("#1944 BACKSTOP: an ORDINARY spawn failure still writes no notice", async (
   expect(notices.size, "only an argv failure is a spawn notice").toBe(0);
   expect(removed).toContain("/review-wt");
 });
+
+// ── #2154: version-controlled review policy + house rules at the session critic ────────────────
+
+/** Minimal active Learning for the house-rules planner. */
+function learning2154(rule: string, scopeGlobs: string[] = []): Learning {
+  return {
+    id: `l-${rule.slice(0, 8)}`,
+    repoPath: "/repo",
+    rule,
+    rationale: "",
+    evidence: [],
+    status: "active",
+    evidenceCount: 0,
+    ineffectiveCount: 0,
+    helpfulCount: 1,
+    injectedCount: 1,
+    lastUsedAt: 1000,
+    retiredAt: null,
+    retiredReason: null,
+    scopeGlobs,
+    createdAt: 0,
+    updatedAt: 0,
+    lastEvidenceAt: null,
+    promotedPrUrl: null,
+    mergedIntoId: null,
+    trialedAt: null,
+    reTrialBlockedAt: null,
+    distinctKinds: 0,
+    distinctSessions: 0,
+  };
+}
+
+/** deps whose fingerprint resolves a real base SHA + changed files — the policy read and the
+ *  house-rules scoping both key off those, and the default fake leaves baseSha null. */
+function makeDeps2154(
+  over: Record<string, unknown> = {},
+  files: string[] = ["src/foo.ts"],
+): ReturnType<typeof makeDeps> {
+  return makeDeps({
+    computePatchId: async () => ({ patchId: "pid-2154", baseSha: "a1b2c3d4e5f6", files }),
+    ...over,
+  });
+}
+
+test("#2154 the repo REVIEW.md reaches the critic prompt, read from the resolved BASE SHA", async () => {
+  const seen: { wt: string; sha: string }[] = [];
+  const { deps: d, started } = makeDeps2154({
+    readReviewPolicy: async (wt: string, sha: string) => {
+      seen.push({ wt, sha });
+      return "Run the compliance pass on every migration.";
+    },
+  });
+  await new ReviewService(d as any).consider(session(), OPEN_GREEN);
+  // read from the critic's own checkout, against the SHA the fingerprint resolved — the git object,
+  // not the tree (defaultReadReviewPolicy is what enforces that; here we assert the arguments).
+  expect(seen).toEqual([{ wt: "/review-wt", sha: "a1b2c3d4e5f6" }]);
+  const prompt = started[0]!.argv.at(-1)!;
+  expect(prompt).toContain("REPO REVIEW POLICY");
+  expect(prompt).toContain("Run the compliance pass on every migration.");
+});
+
+test("#2154 no resolved base SHA ⇒ the policy is never read and the block is absent", async () => {
+  // A total git failure leaves baseSha null; guessing a policy from the untrusted worktree instead
+  // is exactly what must not happen, so the block is simply omitted.
+  let called = 0;
+  const { deps: d, started } = makeDeps({
+    computePatchId: async () => ({ patchId: null, baseSha: null, files: [] }),
+    readReviewPolicy: async () => {
+      called++;
+      return "should never be read";
+    },
+  });
+  await new ReviewService(d as any).consider(session(), OPEN_GREEN);
+  expect(called).toBe(0);
+  expect(started[0]!.argv.at(-1)!).not.toContain("REPO REVIEW POLICY");
+});
+
+test("#2154 house rules are injected into the critic, scoped to the diff's changed files", async () => {
+  const { deps: d, started } = makeDeps2154({}, ["ui/src/lib/x.svelte"]);
+  (d as any).store.getRepoConfig = () => ({ criticEnabled: true, learningsEnabled: true });
+  (d as any).store.listActiveLearnings = () => [
+    learning2154("Never call execFileSync on the server loop."),
+    learning2154("Svelte files: snapshot $state before persisting.", ["ui/**/*.svelte"]),
+    learning2154("Python files only.", ["**/*.py"]),
+  ];
+  await new ReviewService(d as any).consider(session(), OPEN_GREEN);
+  const prompt = started[0]!.argv.at(-1)!;
+  expect(prompt).toContain("REPO HOUSE RULES");
+  expect(prompt).toContain("Never call execFileSync on the server loop."); // always-rule
+  expect(prompt).toContain("Svelte files: snapshot $state before persisting."); // glob matched
+  // scope-gated: the diff touches no .py file, so this rule is not injected
+  expect(prompt).not.toContain("Python files only.");
+});
+
+test("#2154 house rules are gated by learningsEnabled, and never counted against the rules' stats", async () => {
+  const { deps: d, started } = makeDeps2154();
+  let recorded = 0;
+  (d as any).store.getRepoConfig = () => ({ criticEnabled: true, learningsEnabled: false });
+  (d as any).store.listActiveLearnings = () => [learning2154("a rule the critic must not see")];
+  // Present only so a future widening that starts counting reviewer injections trips this test:
+  // `injectedCount` is the Wilson auto-retire denominator, and only an AUTHOR session pays the
+  // matching reward — see ReviewService.repoHouseRules.
+  (d as any).store.recordInjectedLearnings = () => recorded++;
+  await new ReviewService(d as any).consider(session(), OPEN_GREEN);
+  const prompt = started[0]!.argv.at(-1)!;
+  expect(prompt).not.toContain("REPO HOUSE RULES");
+  expect(prompt).not.toContain("a rule the critic must not see");
+  expect(recorded).toBe(0);
+});
+
+test("#2154 no policy and no house rules ⇒ the prompt is unchanged", async () => {
+  const { deps: d, started } = makeDeps2154({ readReviewPolicy: async () => null });
+  await new ReviewService(d as any).consider(session(), OPEN_GREEN);
+  const prompt = started[0]!.argv.at(-1)!;
+  expect(prompt).not.toContain("REPO REVIEW POLICY");
+  expect(prompt).not.toContain("REPO HOUSE RULES");
+});
+
+test.skipIf(!onLinux1944)(
+  "#2154 under argv pressure the plan clamps first — the review policy survives whole",
+  async () => {
+    const policy = "# Policy\nRun the security pass on every auth change.\n";
+    const { deps: d, started } = makeDeps2154({
+      readPlan: () => bigPlan1944(200_000),
+      readReviewPolicy: async () => policy,
+    });
+    await new ReviewService(d as any).consider(session(), OPEN_GREEN);
+
+    const s = started[0]!;
+    expect(spawnFootprintBytes(buildWrappedArgv(s.argv, s.env))).toBeLessThanOrEqual(
+      hostArgvBudget(),
+    );
+    const prompt = s.argv.at(-1)!;
+    expect(prompt).toMatch(/\[… \d+ bytes elided …\]/); // the plan gave way
+    expect(prompt).toContain("Run the security pass on every auth change."); // the policy did not
+  },
+);

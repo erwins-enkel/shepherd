@@ -102,6 +102,12 @@ export const DOCS_PAGES: readonly DocsPage[] = [
       "write server-side plugins: spawn hooks, routes, status/ui panels, and gear-menu items. location & loading installing from the ui updates — in place, one click manifest (plugin.json) entry contract the ctx capability seam reading sessions (ctx.sessions) the onspawn hook failure behavior the single-loop discipline (important) status panel declarative ui panel (publishui) editable settings — input nodes + a submitting button writing config (ctx.setconfig) gear-menu item (publishgearitem) three action kinds validation & security additive guard http routes a fuller example: spawn-labeler",
   },
   {
+    title: "Review policy (REVIEW.md)",
+    path: "/reference/review-policy/",
+    keywords:
+      "how a repository steers shepherd's pr critic with a version-controlled review.md, why the file is read from the base commit rather than the pull request, and how the repo's own house rules now reach the reviewer. review.md extra passes known exclusions it is read from the base commit the built-in lenses stay the floor house rules reach the reviewer",
+  },
+  {
     title: "Design system",
     path: "/reference/rules-design-system/",
     keywords: "semantic token layer, component recipes, and the modal scrim rule for any ui work.",

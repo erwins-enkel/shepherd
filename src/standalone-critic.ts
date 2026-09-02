@@ -27,6 +27,11 @@ import { randomUUID } from "node:crypto";
 import { buildTransientAgentArgv } from "./transient-agent-argv";
 import type { RoleEnvironment } from "./default-model";
 import { isEpicChild, isEpicIntegrationBranch } from "./epic-branch";
+import {
+  planHouseRulesInjection,
+  renderHouseRulesBlock,
+  HOUSE_RULES_DEFAULT_BUDGET_CHARS,
+} from "./house-rules";
 import { checksCleared, repoHasNoCiCached } from "./checks-gate";
 import { apiKeyFailClosed } from "./spawn-auth";
 import { readSessionUsage, type SessionUsage } from "./usage";
@@ -35,6 +40,7 @@ import {
   defaultReadVerdict,
   defaultComputePatchId,
   defaultCollectBaseDelta,
+  defaultReadReviewPolicy,
   buildVerdictCore,
   shouldSkipForPatchId,
   captureUsage,
@@ -85,6 +91,7 @@ export interface StandalonePrCriticDeps extends MembraneSeams {
     | "completeReviewerSpawn"
     | "listEpicCompleted"
     | "getEpicParentByBranch"
+    | "listActiveLearnings"
   >;
   herdr: Pick<HerdrDriver, "start" | "stop" | "list" | "tabsAsync" | "closeTab">;
   worktree: Pick<WorktreeMgr, "createDetached" | "remove" | "gitCommonDir">;
@@ -121,6 +128,13 @@ export interface StandalonePrCriticDeps extends MembraneSeams {
   collectBaseDelta?: typeof defaultCollectBaseDelta;
   /** Injectable reader of a finished reviewer's token totals (default: readSessionUsage). */
   readUsage?: (worktreePath: string, criticSessionId: string) => Promise<SessionUsage | null>;
+  /** Injectable reader for the repo's `REVIEW.md` review policy (#2154; default reads it from the
+   *  BASE COMMIT via read-only git). Same contract as ReviewService — and the base-object read
+   *  matters MOST here, where the PR can come from a fork nobody vetted. */
+  readReviewPolicy?: typeof defaultReadReviewPolicy;
+  /** Char budget for the house-rules block injected into the critic (#2154). Thunk so a live config
+   *  value takes effect on the next sweep; defaults to the shared house-rules default. */
+  houseRulesBudgetChars?: () => number;
 }
 
 export class StandalonePrCriticService {
@@ -145,6 +159,8 @@ export class StandalonePrCriticService {
     worktreePath: string,
     criticSessionId: string,
   ) => Promise<SessionUsage | null>;
+  private readReviewPolicy: typeof defaultReadReviewPolicy;
+  private houseRulesBudgetFn: () => number;
 
   constructor(private deps: StandalonePrCriticDeps) {
     this.now = deps.now ?? Date.now;
@@ -155,6 +171,30 @@ export class StandalonePrCriticService {
     this.computePatchId = deps.computePatchId ?? defaultComputePatchId;
     this.collectBaseDelta = deps.collectBaseDelta ?? defaultCollectBaseDelta;
     this.readUsage = deps.readUsage ?? readSessionUsage;
+    this.readReviewPolicy = deps.readReviewPolicy ?? defaultReadReviewPolicy;
+    this.houseRulesBudgetFn =
+      deps.houseRulesBudgetChars ?? (() => HOUSE_RULES_DEFAULT_BUDGET_CHARS);
+  }
+
+  /** The `<shepherd-house-rules>` block of the repo's standing rules, scoped to the files this PR
+   *  touches (#2154 slice 2). null when the repo has learnings off or there is nothing to inject.
+   *
+   *  This critic sweeps PRs Shepherd did not author — third-party and fork PRs included — so the
+   *  rules reach it as the REPO's standard and nothing more; `prReviewPrompt` withholds the
+   *  author-facing framing accordingly (see reviewerHouseRulesBlock).
+   *
+   *  Deliberately does NOT call `recordInjectedLearnings`; see ReviewService.repoHouseRules for why
+   *  (the reward that balances `injectedCount` is only ever paid by an author session). There is no
+   *  session to attribute to here in any case. */
+  private repoHouseRules(repoPath: string, files: string[]): string | null {
+    if (!this.deps.store.getRepoConfig(repoPath).learningsEnabled) return null;
+    const { injected } = planHouseRulesInjection(
+      this.deps.store.listActiveLearnings(repoPath),
+      this.houseRulesBudgetFn(),
+      this.now(),
+      files,
+    );
+    return renderHouseRulesBlock(injected);
   }
 
   private key(repoPath: string, prNumber: number): string {
@@ -481,12 +521,20 @@ export class StandalonePrCriticService {
       return;
     }
     const env = this.deps.env?.() ?? { provider: "claude" as const, model: null };
+    // #2154: repo policy from the BASE COMMIT (never the checked-out PR head — this is the site
+    // where the head may be a fork nobody vetted), plus the repo's standing house rules, scoped by
+    // the diff's changed files. Both null ⇒ the composed prompt is unchanged.
+    const reviewPolicy = fp.baseSha ? await this.readReviewPolicy(worktreePath, fp.baseSha) : null;
+    const houseRules = this.repoHouseRules(repoPath, fp.files);
     // ONE pinned id for every argv this spawn builds (#1944): buildTransientAgentArgv falls back to
     // `randomUUID()`, so the budget probe and the clamped rebuild would otherwise each mint their
     // own `--session-id` and the verdict would land where readVerdict never looks.
     const criticSessionId = randomUUID();
-    const composePrompt = (body: string): string =>
-      prReviewPrompt(diffBase, pr.title, body, fp.epic ?? null, fp.landing ?? null);
+    const composePrompt = (body: string, policy: string | null): string =>
+      prReviewPrompt(diffBase, pr.title, body, fp.epic ?? null, fp.landing ?? null, {
+        reviewPolicy: policy,
+        houseRules,
+      });
     const argvFor = (p: string): string[] =>
       buildTransientAgentArgv("reviewer", {
         provider: env.provider,
@@ -500,7 +548,7 @@ export class StandalonePrCriticService {
     // Fire plugin onSpawn hooks (issue #1205) + bind patched env THROUGH the membrane. Session-less
     // PR critic → no parentSessionId. An abortSpawn cleanly skips (worktree reaped).
     const auxArgs = {
-      argv: argvFor(composePrompt(prBody)),
+      argv: argvFor(composePrompt(prBody, reviewPolicy)),
       worktreePath,
       repoPath,
       worktree: this.deps.worktree,
@@ -532,10 +580,25 @@ export class StandalonePrCriticService {
     // consumed-once state — the only unbounded input a third-party PR contributes is its BODY, so
     // that is what clamps (then the title, which is bounded in practice but completes the ladder).
     // Session-less, so there is no `spawn_notices` row and no badge to adorn: log-only (§4a).
+    // #2154: the review policy joins the ladder AFTER the body — the PR's own description is the
+    // more expendable of the two, and the policy is already hard-capped on read.
     const fitted = fitAssembledPrompt({
       ...spawnBudget((p) => assembleAuxSpawn(patch, auxArgs, argvFor(p))),
-      specs: [{ id: "body", kind: "text", text: prBody, mode: "head" }],
-      compose: (v) => composePrompt(v.body as string),
+      specs: [
+        { id: "body", kind: "text", text: prBody, mode: "head" },
+        ...(reviewPolicy
+          ? [
+              {
+                id: "reviewPolicy",
+                kind: "text" as const,
+                text: reviewPolicy,
+                mode: "head" as const,
+              },
+            ]
+          : []),
+      ],
+      compose: (v) =>
+        composePrompt(v.body as string, reviewPolicy ? (v.reviewPolicy as string) : null),
     });
     if (!fitted.ok) {
       this.log(

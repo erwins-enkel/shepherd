@@ -7,7 +7,7 @@ import { graphRateLimit } from "../src/forge/rate-limit";
 import { config } from "../src/config";
 import { __setApiKeyConfigDirProvisionForTest } from "../src/spawn-auth";
 import type { GitForge, PrReviewMeta, PullRequest } from "../src/forge/types";
-import type { PrReview } from "../src/types";
+import type { PrReview, Learning } from "../src/types";
 
 beforeEach(() => {
   __setApiKeyConfigDirProvisionForTest(() => "/tmp/shepherd-test-apikey-config");
@@ -1030,4 +1030,95 @@ test("#1761 ordinary PR (no matching open landing row): no LANDING block", async
   const prompt = spies.started[0]!.argv.at(-1)!;
   expect(prompt).not.toContain("EPIC LANDING PR");
   expect(prompt).not.toContain("EPIC CONTEXT");
+});
+
+// ── #2154: review policy + house rules at the standalone (session-less) critic ─────────────────
+
+/** Minimal active Learning for the house-rules planner. */
+function learning2154(rule: string, scopeGlobs: string[] = []): Learning {
+  return {
+    id: `l-${rule.slice(0, 8)}`,
+    repoPath: "/r",
+    rule,
+    rationale: "",
+    evidence: [],
+    status: "active",
+    evidenceCount: 0,
+    ineffectiveCount: 0,
+    helpfulCount: 1,
+    injectedCount: 1,
+    lastUsedAt: 1000,
+    retiredAt: null,
+    retiredReason: null,
+    scopeGlobs,
+    createdAt: 0,
+    updatedAt: 0,
+    lastEvidenceAt: null,
+    promotedPrUrl: null,
+    mergedIntoId: null,
+    trialedAt: null,
+    reTrialBlockedAt: null,
+    distinctKinds: 0,
+    distinctSessions: 0,
+  };
+}
+
+test("#2154 the repo REVIEW.md reaches the session-less critic, read from the base SHA", async () => {
+  const seen: { wt: string; sha: string }[] = [];
+  const { deps, spies } = makeDeps({
+    computePatchId: async () => ({ patchId: "p1", baseSha: "b1c2d3e4", files: ["src/a.ts"] }),
+    readReviewPolicy: async (wt: string, sha: string) => {
+      seen.push({ wt, sha });
+      return "Exclude src/generated/** — it is codegen.";
+    },
+  });
+  await new StandalonePrCriticService(deps as any).sweep();
+  // The base object, never the checked-out tree: this critic reviews PRs that may come from a fork
+  // nobody vetted, so a head-authored policy would let the PR rewrite its own review rules.
+  expect(seen).toEqual([{ wt: "/review-wt", sha: "b1c2d3e4" }]);
+  const prompt = spies.started[0]!.argv.at(-1)!;
+  expect(prompt).toContain("REPO REVIEW POLICY");
+  expect(prompt).toContain("Exclude src/generated/**");
+});
+
+test("#2154 no base SHA ⇒ the session-less critic never reads a policy", async () => {
+  let called = 0;
+  const { deps, spies } = makeDeps({
+    readReviewPolicy: async () => {
+      called++;
+      return "never";
+    },
+  });
+  await new StandalonePrCriticService(deps as any).sweep();
+  expect(called).toBe(0); // the default fake leaves baseSha null
+  expect(spies.started[0]!.argv.at(-1)!).not.toContain("REPO REVIEW POLICY");
+});
+
+test("#2154 house rules reach the session-less critic, gated by learningsEnabled", async () => {
+  const { deps, spies } = makeDeps({
+    computePatchId: async () => ({ patchId: "p1", baseSha: "b1c2d3e4", files: ["src/a.ts"] }),
+  });
+  (deps as any).store.getRepoConfig = () => ({
+    criticAllPrs: true,
+    criticEnabled: true,
+    learningsEnabled: true,
+  });
+  (deps as any).store.listActiveLearnings = () => [
+    learning2154("Never call execFileSync on the server loop."),
+  ];
+  await new StandalonePrCriticService(deps as any).sweep();
+  const prompt = spies.started[0]!.argv.at(-1)!;
+  expect(prompt).toContain("REPO HOUSE RULES");
+  expect(prompt).toContain("Never call execFileSync on the server loop.");
+});
+
+test("#2154 learnings off ⇒ no house-rules block at the session-less critic", async () => {
+  const { deps, spies } = makeDeps({
+    computePatchId: async () => ({ patchId: "p1", baseSha: "b1c2d3e4", files: ["src/a.ts"] }),
+  });
+  (deps as any).store.listActiveLearnings = () => [learning2154("must not be shown")];
+  await new StandalonePrCriticService(deps as any).sweep();
+  const prompt = spies.started[0]!.argv.at(-1)!;
+  expect(prompt).not.toContain("REPO HOUSE RULES");
+  expect(prompt).not.toContain("must not be shown");
 });

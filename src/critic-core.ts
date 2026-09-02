@@ -15,6 +15,7 @@ import type { ReviewDecision } from "./types";
 import type { SessionUsage } from "./usage";
 import { tolerantParseJson } from "./json-tolerant";
 import type { VerdictRead } from "./json-tolerant";
+import { clampBlock } from "./prompt-fit";
 import { UNTRUSTED_CONTENT_DIRECTIVE, fenceUntrusted } from "./untrusted";
 
 const execFileAsync = promisify(execFile);
@@ -83,6 +84,63 @@ const DELTA_SUBJECT_CLIP = 120;
 /** Clip one embedded entry, marking the clip (never silent). */
 function clip(s: string, max: number): string {
   return s.length > max ? `${s.slice(0, max)}…` : s;
+}
+
+/** Candidate paths for a repo's version-controlled review policy, in precedence order — the first
+ *  that exists on the base commit wins. `REVIEW.md` is the discoverable default (the playbook's own
+ *  name); `.shepherd/review.md` is for repos that would rather not spend a root-level file. */
+const REVIEW_POLICY_FILES = ["REVIEW.md", ".shepherd/review.md"] as const;
+
+/** Hard cap on the policy text embedded in the prompt. A policy is a page of standing rules, not a
+ *  document — this is generous for that and still leaves the diff, the plan and the issue body room
+ *  under the OS argv limit. Over-length content is CLAMPED (marked), never silently dropped, and the
+ *  argv ladder can shrink it further at the spawn site if the rest of the prompt still overruns. */
+export const REVIEW_POLICY_MAX_BYTES = 8000;
+
+/**
+ * Read the repo's review policy AS COMMITTED ON THE BASE COMMIT — deliberately NOT from the checked
+ * out worktree, which is the UNTRUSTED PR head.
+ *
+ * That provenance is the whole security argument for this block. The policy rides the prompt
+ * UNFENCED, as trusted instruction: fenced as untrusted content it would be contractually
+ * ignorable (see {@link UNTRUSTED_CONTENT_DIRECTIVE}) and therefore inert. Unfenced text that the
+ * PR under review could author would instead let any branch rewrite the rules it is judged by —
+ * decisive for a fork PR at the standalone critic. Reading the base object closes that: only policy
+ * that has already been reviewed and merged is ever honored, at the cost that a PR introducing
+ * `REVIEW.md` is not itself reviewed under it.
+ *
+ * Best-effort like {@link defaultCollectBaseDelta}: a missing file, a bad SHA, or any git failure
+ * yields null and the block is simply omitted. Never throws. A binary blob at that path is decoded
+ * lossily rather than rejected — committing one AS the review policy is a repo-authored mistake, not
+ * an attack surface, and the cap below bounds what it can cost.
+ */
+export async function defaultReadReviewPolicy(
+  worktreePath: string,
+  baseSha: string,
+): Promise<string | null> {
+  // Same guard as defaultCollectBaseDelta: the SHA comes from `git rev-parse`, but validating it
+  // before it reaches argv keeps a hostile ref from ever being smuggled into a git invocation.
+  if (!/^[0-9a-f]{7,40}$/.test(baseSha)) return null;
+  for (const file of REVIEW_POLICY_FILES) {
+    let text: string;
+    try {
+      const { stdout } = await timedAsync("git show review-policy", () =>
+        execFileAsync("git", ["show", `${baseSha}:${file}`], {
+          cwd: worktreePath,
+          // Well past the cap below, so an oversized policy is CLAMPED with a visible marker
+          // rather than lost to a maxBuffer kill that would look like "no policy at all".
+          maxBuffer: 4 * 1024 * 1024,
+          encoding: "utf8",
+        }),
+      );
+      text = stdout;
+    } catch {
+      continue; // absent on this base (or git failed) → try the next candidate
+    }
+    if (!text.trim()) continue; // an empty policy file is the same as none
+    return clampBlock(text, REVIEW_POLICY_MAX_BYTES, "head");
+  }
+  return null;
 }
 
 /** Collect the base delta for an epic child: the paths whose base content differs from the fork
@@ -164,6 +222,10 @@ export function reviewPrompt(
     /** #1944: the plan was mechanically truncated to fit the OS argv limit. Additive — it never
      *  removes a lens, only tells the reader not to read an elision as an authorial omission. */
     planClamped?: boolean;
+    /** #2154: the repo's `REVIEW.md` as committed on the base commit, or null/absent for none. */
+    reviewPolicy?: string | null;
+    /** #2154: the rendered `<shepherd-house-rules>` block of the repo's standing rules. */
+    houseRules?: string | null;
   } = {},
 ): string {
   // The clamp caveats speak about "the plan shown above", so they are only coherent when a plan is
@@ -255,7 +317,18 @@ export function reviewPrompt(
       // measure "unrequested" against — so the standalone-critic prompt stays byte-identical.
       // #1824 finding C: the POSSIBLE-SMELLS lens rides behind a per-repo flag (opts.smellLens),
       // default OFF — absent it, the emitted tail is byte-identical to before finding C.
-      { scopeCreep: true, smellLens: opts.smellLens, planClamped },
+      {
+        scopeCreep: true,
+        smellLens: opts.smellLens,
+        planClamped,
+        // #2154: repo policy + the repo's standing house rules. Both absent ⇒ tail unchanged.
+        // `houseRulesAuthored`: this critic reviews a SHEPHERD SESSION's own PR, so an agent really
+        // did write the diff under these rules. prReviewPrompt never sets it — see
+        // reviewerHouseRulesBlock for why that distinction is load-bearing.
+        reviewPolicy: opts.reviewPolicy,
+        houseRules: opts.houseRules,
+        houseRulesAuthored: true,
+      },
     ),
   );
   return lines.join("\n");
@@ -275,6 +348,12 @@ export function prReviewPrompt(
   prBody: string,
   epic?: EpicContext | null,
   landing?: LandingContext | null,
+  opts: {
+    /** #2154: the repo's `REVIEW.md` as committed on the PR's base commit, or null for none. */
+    reviewPolicy?: string | null;
+    /** #2154: the rendered `<shepherd-house-rules>` block for this repo, or null for none. */
+    houseRules?: string | null;
+  } = {},
 ): string {
   const lines = [
     "You are a code critic reviewing a pull request. Do NOT modify, build, commit, or run anything — read-only inspection only.",
@@ -296,7 +375,11 @@ export function prReviewPrompt(
       diffBase,
       "Judge the diff ONLY for bugs, security issues, and clear quality problems. Use the stated intent above to understand what the change is for — do NOT raise a finding merely because the diff seems incomplete versus that intent. Tests and lint are handled by CI — do not run them.",
       epic,
-      { landing },
+      // #2154: the standalone critic gets the same repo policy + house rules as the session critic
+      // — both are a property of the REPO, not of who opened the PR. `houseRulesAuthored` is
+      // deliberately NOT set: this critic sweeps third-party and fork PRs, where no Shepherd agent
+      // wrote the diff and nothing was injected into its author. Both absent ⇒ unchanged.
+      { landing, reviewPolicy: opts.reviewPolicy, houseRules: opts.houseRules },
     ),
   );
   return lines.join("\n");
@@ -581,6 +664,86 @@ export function effectiveRound(priorRound: number, reviewCount: number, cap: num
   return Math.max(clamped, Math.min(reviewCount, cap));
 }
 
+/**
+ * The REPO REVIEW POLICY block (#2154 slice 1) — the repo's own `REVIEW.md` as committed on the
+ * BASE commit (see {@link defaultReadReviewPolicy}). Empty array when there is no policy, so every
+ * prompt without one stays byte-identical.
+ *
+ * UNFENCED, unlike the plan / issue body / PR description above it, and that asymmetry is
+ * deliberate: a fenced block is DATA the reader is ordered never to obey, so a fenced policy could
+ * not steer a review at all. What earns the unfenced treatment is provenance — the text comes from
+ * the base commit, i.e. from work the repo already merged, and never from the diff under review.
+ *
+ * PRECEDENCE is stated inside the block rather than trusted to placement: the file may only ADD to
+ * the built-in contract. An exclusion may narrow which AREAS or CLASSES get reviewed (the playbook's
+ * "known exclusions" — generated code, vendored trees, a class the repo tests by hand); it may never
+ * license shipping a defect the critic actually verified, and it may never touch the verdict-output
+ * contract the server-side parser and scope backstop depend on.
+ *
+ * The delimiters are plain marker lines, NOT a nonce fence: a nonce exists to stop untrusted text
+ * from forging the boundary, and this text is trusted by construction.
+ */
+function reviewPolicyBlock(policy: string | null | undefined): string[] {
+  if (!policy || !policy.trim()) return [];
+  return [
+    "REPO REVIEW POLICY — this repository's own review policy (`REVIEW.md`), as committed on the BASE commit of this PR. It is repo policy that has already been reviewed and merged, supplied by Shepherd — it is NOT content from the diff under review, and it is NOT untrusted input. Apply it IN ADDITION to everything above, bounded as follows:",
+    "- Everything above is the FLOOR and WINS on any conflict. The SCOPE rules, VERIFY, CANNOT-VERIFY, ATTRIBUTION, the lenses, FINDINGS ROUTING below, the decision vocabulary and the verdict-output contract are NOT negotiable by this file.",
+    "- The policy MAY add review passes, add emphasis, and state repo-specific severity guidance. It MAY declare known exclusions that narrow WHICH AREAS or WHICH CLASSES of issue you spend attention on.",
+    "- An exclusion may NEVER suppress a correctness or security defect you actually verified in the diff, and may never change what you write to the verdict files.",
+    "- Anything you raise under this policy is routed by FINDINGS ROUTING below exactly like any other point — the policy adds passes, not a new output category.",
+    "--- BEGIN REPO REVIEW POLICY ---",
+    policy,
+    "--- END REPO REVIEW POLICY ---",
+    "",
+  ];
+}
+
+/**
+ * The REPO HOUSE RULES block (#2154 slice 2) — the repository's curated standing rules, the set
+ * Shepherd injects into the system prompt of every agent it runs in this repo.
+ *
+ * WHAT IT IS NOT, and why the wording is careful about it. An earlier version of this block told the
+ * critic these rules were "injected into the agent that wrote this diff, reproduced verbatim", and
+ * rested the license to BLOCK on that premise. It is false twice over:
+ *   1. `prReviewPrompt` carries this block for every PR the standalone critic sweeps — third-party
+ *      and fork PRs included — where no Shepherd agent authored the diff and nothing was injected
+ *      into anything. `learningsEnabled` defaults ON, so that is the common case, not a corner.
+ *   2. Even at the session critic it is not a reproduction: the set is re-planned at review time
+ *      from the CURRENT active rules, scoped by the files the diff touches and ranked by a
+ *      recency decay evaluated NOW (see ReviewService.repoHouseRules) — so it can differ from what
+ *      the author actually received at spawn, in either direction.
+ * The block therefore claims only what is true everywhere — these are the repo's standing rules —
+ * and `authored` adds the author-facing framing ONLY where a Shepherd agent really did write the
+ * diff under a (possibly different) cut of these rules. The blocking license rests on the rules
+ * being the REPO's standard, which holds for any PR against it.
+ *
+ * ROUTING splits on how clear-cut the violation is, for the same reason the scope-creep / smells /
+ * latent lenses split: ANY entry in `findings` advances the streak (buildVerdict), is auto-addressed
+ * (runAutoAddress fires on non-empty findings regardless of decision) and is re-raised every round —
+ * so a rule that is stale, or only arguably applicable, would loop the PR until the streak ceiling
+ * paused it. Rules are distilled from past sessions by an LLM and curated, not proven, so only an
+ * unambiguous violation may block; everything softer goes to a non-blocking body section.
+ */
+function reviewerHouseRulesBlock(
+  houseRules: string | null | undefined,
+  authored: boolean | undefined,
+): string[] {
+  if (!houseRules || !houseRules.trim()) return [];
+  return [
+    "REPO HOUSE RULES — this repository's curated standing rules, supplied by Shepherd. They are the same body of guidance Shepherd puts in the system prompt of every agent it runs in this repo, so the block below is written to address an agent DOING the work rather than reviewing it; your job is to judge the diff against it. Shepherd-supplied repo standard, NOT content from the diff:",
+    ...(authored
+      ? [
+          "- A Shepherd agent wrote this diff, and was given this same standing guidance when it started. (The exact set is re-planned for this review from the current rules and the files this diff touches, so it may differ in detail from the cut that agent saw — judge the diff against the rules shown here.) A rule the author was handed and ignored is exactly what review exists to catch.",
+        ]
+      : []),
+    '- A CLEAR, UNAMBIGUOUS violation of a stated rule by a change IN THE DIFF is a finding: put it in "findings", name the rule you are applying, and block it per the usual rules.',
+    '- Anything short of that — a rule that only arguably applies, one whose intent the diff meets by other means, or a stylistic reading of it — is a JUDGEMENT CALL. Report it in a SINGLE "body" section headed exactly `House rules (non-blocking):`, ONE LINE PER DISTINCT ITEM, do NOT put it in "findings", and it NEVER makes the decision "request-changes".',
+    "- These rules are distilled from past sessions and can be stale or simply wrong for this change. They are never a reason to raise something you cannot see in the diff, and every item must concern a file in the diff per the SCOPE rule above.",
+    houseRules,
+    "",
+  ];
+}
+
 function scopeAndOutputTail(
   diffBase: string,
   judgeClause: string,
@@ -590,6 +753,11 @@ function scopeAndOutputTail(
     smellLens?: boolean;
     landing?: LandingContext | null;
     planClamped?: boolean;
+    reviewPolicy?: string | null;
+    houseRules?: string | null;
+    /** True only where a Shepherd agent authored the diff under this repo's rules — see
+     *  {@link reviewerHouseRulesBlock}. The standalone critic never sets it. */
+    houseRulesAuthored?: boolean;
   } = {},
 ): string[] {
   return [
@@ -698,6 +866,12 @@ function scopeAndOutputTail(
     '- A bug currently unreachable but made reachable by change THIS PR foreshadows (a param wired only in tests, a value a follow-up will populate, a path behind a not-yet-set flag) is real — "descoped", "handled in another ticket", or "never reached in production" does NOT make such an in-diff defect a non-issue.',
     '- Route by reachability TODAY. If the defect is reachable on a path that ALREADY executes, treat it as a normal bug: put it in "findings" and block it per the usual rules. If it is reachable ONLY through the foreshadowed-but-not-yet-wired future above (dormant today), it is informational: report it in a SINGLE "body" section headed exactly `Latent / future-reachable (non-blocking):`, ONE LINE PER DISTINCT ITEM, do NOT put it in "findings", and it NEVER makes the decision "request-changes". Either way it must concern a file in the diff per the SCOPE rule above.',
     "",
+    // REPO REVIEW POLICY (#2154 slice 1) and REPO HOUSE RULES (slice 2). Both sit HERE — after
+    // every built-in lens and immediately BEFORE the routing/output contract — so the floor is the
+    // last thing read and the two blocks can only ADD to it. Both are empty by default, keeping
+    // every existing prompt byte-identical.
+    ...reviewPolicyBlock(opts.reviewPolicy),
+    ...reviewerHouseRulesBlock(opts.houseRules, opts.houseRulesAuthored),
     // FINDINGS ROUTING (#1948). The tail used to mandate the exact opposite — "A non-blocking nit
     // STILL goes in findings" — which contradicted the three lenses above and their stated reason:
     // ANY entry in `findings` advances the streak (buildVerdict), is auto-addressed (runAutoAddress

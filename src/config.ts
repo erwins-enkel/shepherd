@@ -15,6 +15,7 @@ import { normalizeTelemetryConsent } from "./telemetry-consent";
 import { normalizeOperatorLanguage } from "./operator-language";
 import { type SandboxProfile, isSandboxProfile } from "./sandbox";
 import { applyHerdrSocket } from "./herdr-session";
+import { HOUSE_RULES_DEFAULT_BUDGET_CHARS } from "./house-rules";
 
 const dbPath = process.env.SHEPHERD_DB ?? `${process.env.HOME}/.shepherd/shepherd.db`;
 // forge map sits next to the db by default; SHEPHERD_FORGES overrides the path.
@@ -800,9 +801,12 @@ export const config = {
   namerEffort: normalizeDefaultEffortSetting(process.env.SHEPHERD_NAMER_EFFORT) ?? "low",
   // Char budget for the Shepherd house-rules block prepended to every agent prompt. Active+
   // promoted rules fill greedily by most-recently-effective priority until this cap; the rest
-  // stay visible-but-uninjected in the Learnings drawer for the operator to prune. Default 4000
-  // (~25 max-length rules); only an unusually large curated set is capped.
-  houseRulesBudgetChars: Number(process.env.SHEPHERD_HOUSE_RULES_BUDGET_CHARS ?? 4000),
+  // stay visible-but-uninjected in the Learnings drawer for the operator to prune. The default
+  // lives in house-rules.ts beside the planner it bounds (the reviewer-side injection falls back
+  // to it without importing this module); only an unusually large curated set is capped.
+  houseRulesBudgetChars: Number(
+    process.env.SHEPHERD_HOUSE_RULES_BUDGET_CHARS ?? HOUSE_RULES_DEFAULT_BUDGET_CHARS,
+  ),
   // Max auto-steers autopilot spends per session before it pauses for the operator (runaway guard).
   autopilotStepCap: Number(process.env.SHEPHERD_AUTOPILOT_STEP_CAP ?? 10),
   // Per-role ENVIRONMENT (CLI + model + effort) for the transient autopilot stop-classifier spawn (cheap +

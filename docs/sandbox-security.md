@@ -109,6 +109,21 @@ execution controls below, Shepherd bounds the injection surface at ingestion
   (`composeSystemPromptBlocks`), and each aux prompt builder emits it itself. That
   invariant is pinned by `test/untrusted.test.ts`: a builder that fences without the
   directive fails there.
+- **Trusted-by-provenance exception: the repo review policy.** The PR critic's
+  prompt carries one block _unfenced_, as genuine instruction: the repo's
+  `REVIEW.md` (else `.shepherd/review.md`), read with `git show` from the PR's
+  **base commit**, never from the checked-out PR head
+  (`defaultReadReviewPolicy`, `src/critic-core.ts`). Fenced it would be
+  contractually ignorable and therefore inert; unfenced text the PR could author
+  would let a branch (notably a fork PR at the standalone critic) rewrite the
+  rules it is judged by. Base provenance closes that — only already-merged policy
+  is honored, at the cost that the PR _introducing_ `REVIEW.md` is not reviewed
+  under it. The built-in contract stays the floor: the block may add passes and
+  narrow which areas/classes get attention, never suppress a verified defect or
+  touch the verdict-output contract. Text is clamped at
+  `REVIEW_POLICY_MAX_BYTES` (8 KB) with a visible marker, a bad SHA or git
+  failure yields no block, and the delimiters are plain markers rather than a
+  nonce fence because the content is trusted by construction.
 - **Fail-closed author-trust gate.** An **autonomous** (`auto=true`) spawn from an
   issue whose author is **not** a trusted repo association (`OWNER` / `MEMBER` /
   `COLLABORATOR` — anything else, including an unresolvable, absent, or Gitea-side

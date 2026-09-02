@@ -69,7 +69,7 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     title: "Configuration",
     path: "/reference/configuration/",
     keywords:
-      "every environment variable and the per-agent sandbox profiles. core live preview host tuning (tmpfs inodes) runaway-orphan reaper main agent terminal renderer (research preview) up next quick-start session revival (herdr daemon-restart recovery) push-based hook ingestion tool guard (pretooluse deny) documentation automation (pr-gated doc agent) anonymous usage telemetry per-agent sandbox / permission profiles",
+      "every environment variable and the per-agent sandbox profiles. core live preview host tuning (tmpfs inodes) runaway-orphan reaper main agent terminal renderer (research preview) up next quick-start session revival (herdr daemon-restart recovery) push-based hook ingestion tool guard (pretooluse deny) documentation automation (pr-gated doc agent) maintain loop (self-health bands) anonymous usage telemetry per-agent sandbox / permission profiles",
   },
   {
     title: "External Task API",
@@ -81,7 +81,7 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     title: "Concepts & glossary",
     path: "/reference/glossary/",
     keywords:
-      "the shepherd-specific and industry terms used throughout the app and these docs. shepherd concepts epic plan gate autopilot critic merge train rework first-pass rate first-push ci green plan drift inferred lightweight repo trial weighted units reasoning effort satellite pass host capacity herdr runtime hygiene sandbox membrane spawn prompt access token token scope industry terms pr ci telemetry lead time inode",
+      "the shepherd-specific and industry terms used throughout the app and these docs. shepherd concepts epic plan gate autopilot critic merge train rework first-pass rate first-push ci green plan drift maintain loop band inferred lightweight repo trial weighted units reasoning effort satellite pass host capacity herdr runtime hygiene sandbox membrane spawn prompt access token token scope industry terms pr ci telemetry lead time inode",
   },
   {
     title: "Project house rules",

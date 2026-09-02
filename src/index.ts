@@ -137,7 +137,10 @@ import {
   runReapStaleTrials,
 } from "./learnings-lifecycle";
 import { Promoter } from "./promote";
-import { DocAgentService } from "./doc-agent";
+import { DocAgentService, SERVER_INSTALL_ROOT } from "./doc-agent";
+import { MaintainService } from "./maintain";
+import { FIRST_PASS_RANGE } from "./maintain-core";
+import { buildDeliveryMetrics } from "./delivery-metrics";
 import { ensureRepoRootTrusted } from "./claude-trust";
 import { GitignoreAdopter } from "./gitignore-adopt";
 import { attachSignalCapture } from "./signals";
@@ -1453,6 +1456,16 @@ const docAgent = new DocAgentService({
   act: config.docAgentAct,
   onChange: (f) => events.emit("doc-agent:done", f),
 });
+if (config.maintainLoopEnabled) {
+  // Boot reconcile: a diagnosis run in flight when the process died has a durable row, a worktree
+  // on disk and no owner. Settle the row and reclaim the checkout so the band's cooldown restarts
+  // from now — the breach is re-diagnosed on the next cadence, never immediately re-spawned.
+  // MUST run before the boot sweepStaleReviewWorktrees below (same ordering the doc agent needs):
+  // a settled row releases its path, and a live one is held by inflightWorktrees().
+  deferredStarts.push(() => {
+    void maintainService.reapOrphans().catch((err) => console.warn("[maintain] reapOrphans:", err));
+  });
+}
 if (config.docAgentEnabled) {
   // Boot reconcile: re-adopt a finished/in-progress interrupted run (its SENTINEL edits are the
   // deliverable), prune dead ones + husk tabs + dangling cost rows, and reap orphan remote
@@ -1587,6 +1600,32 @@ const planGate = new PlanGateService({
   onActivity: (id, summary) => events.emit("session:plangate-activity", { id, summary }),
   cap: () => config.planReviewCyclesCap,
 });
+// Maintain loop (#2157, from #2151 R5). Opt-in and two-phase like the doc agent
+// (config.maintainLoopEnabled / maintainLoopAct). Constructed unconditionally and ABOVE
+// sweepStaleReviewWorktrees — its `inflightWorktrees()` is unioned into that sweep's
+// protectedPaths below, and the const must exist before the sweep closure runs.
+const maintainService = new MaintainService({
+  herdr,
+  worktree,
+  store,
+  // Shepherd's OWN checkout: the diagnosis reads it and the drafted issue is filed against it.
+  // Deliberately never a managed repo — no auto-filed issues land in someone else's backlog.
+  selfRepoPath: SERVER_INSTALL_ROOT,
+  resolveForge,
+  // Per-repo first-pass rates over the 30d window. Fresh per sweep (never cached) so a repo that
+  // appeared or went quiet between sweeps is reflected immediately.
+  repoDelivery: () =>
+    buildDeliveryMetrics({ store, range: FIRST_PASS_RANGE, now: Date.now() }).repos,
+  act: config.maintainLoopAct,
+  sweepHour: config.maintainLoopHour,
+  isPresent: () => presence.isActive(),
+  env: () => roleEnv(config.maintainCli, config.maintainModel, config.maintainEffort),
+  thresholds: config.maintainThresholds,
+  // Plugin onSpawn hooks + the membrane + the workspace-trust pre-accept, same as every aux spawn.
+  runSpawnHooks: (d) => pluginRegistry.runSpawnHooks(d),
+  trustDir: trustAuxDir,
+});
+
 // Grace window for a recent uncompleted reviewer_spawns row: spares a plan-gate reviewer during
 // its durable pre-launch/pre-inflight window and any recent restart-orphan before re-adoption.
 // The directory-age guard in reapStaleReviewWorktrees reuses this threshold as an independent
@@ -1612,6 +1651,13 @@ const sweepStaleReviewWorktrees = async () => {
       ...planGate.inflightWorktrees(),
       ...reviewService.inflightWorktrees(),
       ...standaloneCritic.inflightWorktrees(),
+      // The maintain loop's diagnosis checkout is `-review-`-shaped too (createDetached hardcodes
+      // the tag), so this sweep sees it as a candidate. Its reviewer_spawns row earns the
+      // recent-uncompleted-spawn spare for REVIEW_WORKTREE_GRACE_MS — but the role's hard timeout
+      // is that same 15 minutes, so a diagnosis running to its deadline outlives the spare, and
+      // scanClaudeAliveByWorktree cannot see a Codex spawn holding it. Without this union such a
+      // run has its worktree deleted underneath it (#2157).
+      ...maintainService.inflightWorktrees(),
     ]);
     const sessions = store.list();
     const sessionWorktreePaths = new Set(sessions.map((s) => s.worktreePath));
@@ -1832,6 +1878,12 @@ deferredStarts.push(() => {
     void standaloneCritic.tick().catch((err) => console.warn("[critic] tick failed:", err));
     void recapService.tick().catch((err) => console.warn("[recap] tick failed:", err)); // finalize in-flight recaps (restart-safe)
     void recapService.sweep().catch((err) => console.warn("[recap] sweep failed:", err)); // settled-idle auto-fire
+    if (config.maintainLoopEnabled) {
+      void maintainService.tick().catch((err) => console.warn("[maintain] tick failed:", err)); // finalize: parse the draft, file (or log) the issue
+      // The band sweep's own hour/presence/day gates make this cheap to call every tick; the daily
+      // key is what actually bounds it to one evaluation (and one diagnosis spawn) per day.
+      void maintainService.sweep().catch((err) => console.warn("[maintain] sweep failed:", err));
+    }
     if (config.docAgentEnabled) {
       void docAgent.tick().catch((err) => console.warn("[doc-agent] tick failed:", err)); // finalize: server stages/commits/pushes/opens PR
       void docAgent
@@ -2398,6 +2450,9 @@ const runDailySweep = (opts?: { skipTmpSweep?: boolean }) => {
   store.pruneReviewerSpawns(Date.now() - REVIEWER_SPAWN_RETENTION_MS);
   // Delivery facts (#2151 R1); same window as reviewer_spawns above — they are read together.
   store.pruneDeliveryFacts(Date.now() - DELIVERY_FACT_RETENTION_MS);
+  // Maintain-loop diagnosis runs (#2157); same 90-day window. Only COMPLETED rows are eligible —
+  // an in-flight row is the boot-adoption set, and dropping one would strand its worktree.
+  store.pruneMaintainRuns(Date.now() - REVIEWER_SPAWN_RETENTION_MS);
   // Scrape timeline history; pruned on a 90-day window matching the caps/credit tables.
   store.pruneUsageHistory(Date.now() - USAGE_HISTORY_RETENTION_MS);
   // #1794: permanently prune stale proposed learnings (3-day default retention). Runs
@@ -2919,6 +2974,10 @@ const appDeps: AppDeps = {
   docAgent: {
     consider: (repoPath: string) => docAgent.consider(repoPath),
     isRunning: (repoPath: string) => docAgent.isRunning(repoPath),
+  },
+  maintain: {
+    sweep: (opts) => maintainService.sweep(opts),
+    snapshot: () => maintainService.snapshot(),
   },
   gitignoreAdopter,
   drain: {

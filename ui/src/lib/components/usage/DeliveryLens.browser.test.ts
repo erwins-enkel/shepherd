@@ -2,7 +2,13 @@ import { describe, it, expect, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "@vitest/browser/context";
 import "../../../app.css";
-import type { DeliveryMetrics, DeliverySample, DeliveryStats } from "$lib/types";
+import type {
+  BandReading,
+  DeliveryMetrics,
+  DeliverySample,
+  DeliveryStats,
+  MaintainBlock,
+} from "$lib/types";
 
 const { default: DeliveryLens } = await import("./DeliveryLens.svelte");
 
@@ -155,5 +161,142 @@ describe("DeliveryLens", () => {
     expect(repos).toContain("beta");
     expect(repos).toContain("stall"); // incident rows reuse the name cell
     expect(document.body.textContent).toContain("2");
+  });
+});
+
+describe("DeliveryLens — maintain loop band card (#2157)", () => {
+  const reading = (over: Partial<BandReading> = {}): BandReading => ({
+    key: "critic_error_rate",
+    bandId: "critic_error_rate",
+    repoPath: null,
+    subject: null,
+    tier: 0,
+    value: 0.05,
+    sampleN: 20,
+    belowMinSample: false,
+    evaluatedAt: 1_000,
+    ...over,
+  });
+
+  const maintain = (over: Partial<MaintainBlock> = {}): MaintainBlock => ({
+    enabled: true,
+    act: false,
+    readings: [reading()],
+    recentRuns: [],
+    ...over,
+  });
+
+  const bandRows = () => Array.from(document.querySelectorAll(".band-row:not(.row-head)"));
+
+  it("is absent entirely on an older server that sends no maintain block", async () => {
+    render(DeliveryLens, { metrics: metrics() });
+    expect(document.querySelectorAll(".band-row")).toHaveLength(0);
+  });
+
+  it("renders one row per band with its value, sample and tier state", async () => {
+    render(DeliveryLens, {
+      metrics: metrics({
+        maintain: maintain({
+          readings: [
+            reading(),
+            reading({
+              key: "incident_spike:stall",
+              bandId: "incident_spike",
+              subject: "stall",
+              tier: 1,
+              value: 12,
+              sampleN: 4,
+            }),
+            reading({
+              key: "first_pass_collapse:/repos/alpha",
+              bandId: "first_pass_collapse",
+              subject: "alpha",
+              tier: 2,
+              value: 0.3,
+              sampleN: 20,
+            }),
+          ],
+        }),
+      }),
+    });
+    expect(bandRows()).toHaveLength(3);
+    const text = document.body.textContent ?? "";
+    // A rate band renders as a percentage; the incident band as a raw occurrence count.
+    expect(text).toContain("5%");
+    expect(text).toContain("12");
+    expect(text).toContain("30%");
+    expect(text).toContain("Incidents — stall");
+    expect(text).toContain("First pass — alpha");
+  });
+
+  it("shows a below-min-sample band as unjudged, never as clear", async () => {
+    render(DeliveryLens, {
+      metrics: metrics({
+        maintain: maintain({ readings: [reading({ sampleN: 2, belowMinSample: true })] }),
+      }),
+    });
+    const text = document.body.textContent ?? "";
+    expect(text).toContain("too few to judge");
+    expect(text).not.toContain("clear");
+    // No misleading number beside it either.
+    expect(bandRows()[0]?.textContent).toContain("—");
+  });
+
+  it("distinguishes off, observe and armed", async () => {
+    render(DeliveryLens, { metrics: metrics({ maintain: maintain({ enabled: false }) }) });
+    expect(document.body.textContent).toContain("SHEPHERD_MAINTAIN_LOOP=1");
+    document.body.innerHTML = "";
+
+    render(DeliveryLens, { metrics: metrics({ maintain: maintain({ act: false }) }) });
+    expect(document.body.textContent).toContain("SHEPHERD_MAINTAIN_ACT=1");
+    document.body.innerHTML = "";
+
+    render(DeliveryLens, { metrics: metrics({ maintain: maintain({ act: true }) }) });
+    expect(document.body.textContent).toContain("opens a labelled issue");
+  });
+
+  it("links a band to the issue its own diagnosis filed", async () => {
+    render(DeliveryLens, {
+      metrics: metrics({
+        maintain: maintain({
+          act: true,
+          readings: [reading({ tier: 2 })],
+          recentRuns: [
+            {
+              id: "r1",
+              bandKey: "critic_error_rate",
+              bandId: "critic_error_rate",
+              tier: 2,
+              value: 0.4,
+              worktreePath: "/wt",
+              agentName: "__maintain__abc",
+              spawnSessionId: "s",
+              spawnedAt: 1_000,
+              completedAt: 2_000,
+              outcome: "filed",
+              issueNumber: 2181,
+              issueUrl: "https://example.test/issues/2181",
+            },
+          ],
+        }),
+      }),
+    });
+    const link = document.querySelector<HTMLAnchorElement>(".issue-link");
+    expect(link?.textContent).toContain("2181");
+    expect(link?.href).toBe("https://example.test/issues/2181");
+  });
+
+  it("keeps the band rows out of the narrow-screen repo-grid override", async () => {
+    await page.viewport(390, 800);
+    render(DeliveryLens, { metrics: metrics({ maintain: maintain() }) });
+    const row = bandRows()[0]!;
+    // 3 tracks at 390px (sample column hidden) — NOT the repo grid's 4.
+    expect(getComputedStyle(row).gridTemplateColumns.split(" ")).toHaveLength(3);
+  });
+
+  it("says so when the loop is armed but has never swept", async () => {
+    render(DeliveryLens, { metrics: metrics({ maintain: maintain({ readings: [] }) }) });
+    expect(document.body.textContent).toContain("No bands evaluated yet");
+    expect(document.querySelectorAll(".band-row")).toHaveLength(0);
   });
 });

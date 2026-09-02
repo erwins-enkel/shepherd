@@ -173,7 +173,7 @@ hosts that can sandbox.
 A separate check answers the other question: does `claude` / `codex` actually
 **start** inside the membrane? A version manager that rebuilds its shims directory
 against a read-only bind, for instance, exits non-zero at launch — so every confined
-helper (plan reviewer, PR critic, doc agent, standalone critic) died at launch,
+helper (plan reviewer, PR critic, doc agent, maintain diagnosis, standalone critic) died at launch,
 waited out its whole timeout and reported no verdict, while the sandbox row stayed
 green.
 

@@ -2274,3 +2274,165 @@ test("access_tokens migration: a token minted before per-token scopes reads as f
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// ── maintain loop (#2157) ────────────────────────────────────────────────────
+
+test("countReviewOutcomes tallies review spawns in-window and treats NULL as UNKNOWN", () => {
+  const store = new SessionStore(":memory:");
+  const now = Date.now();
+  const spawn = (id: string, at: number, outcome?: "clean" | "changes_requested" | "error") => {
+    store.recordReviewerSpawn({
+      reviewerSessionId: id,
+      taskSessionId: "t1",
+      kind: "review",
+      worktreePath: "/wt",
+      model: null,
+      spawnedAt: at,
+    });
+    if (outcome) store.setReviewerSpawnOutcome(id, outcome);
+  };
+  spawn("a", now - 1000, "clean");
+  spawn("b", now - 1000, "changes_requested");
+  spawn("c", now - 1000, "error");
+  // A spawn that never finalized: neither an error nor a verdict.
+  spawn("d", now - 1000);
+  // Out of window.
+  spawn("e", now - 100_000, "error");
+
+  const r = store.countReviewOutcomes(now - 10_000);
+  expect(r.verdicts).toBe(2);
+  expect(r.errors).toBe(1);
+});
+
+test("countReviewOutcomes ignores non-review spawn kinds and reports zeroes on an empty table", () => {
+  const store = new SessionStore(":memory:");
+  const now = Date.now();
+  store.recordReviewerSpawn({
+    reviewerSessionId: "p",
+    taskSessionId: "t1",
+    kind: "plan_gate",
+    worktreePath: "/wt",
+    model: null,
+    spawnedAt: now,
+  });
+  store.setReviewerSpawnOutcome("p", "error");
+  expect(store.countReviewOutcomes(0)).toEqual({ verdicts: 0, errors: 0 });
+});
+
+test("maintain readings upsert per band key rather than accumulating", () => {
+  const store = new SessionStore(":memory:");
+  const reading = {
+    key: "critic_error_rate",
+    bandId: "critic_error_rate" as const,
+    repoPath: null,
+    subject: null,
+    tier: 1 as const,
+    value: 0.2,
+    sampleN: 20,
+    belowMinSample: false,
+    evaluatedAt: 1000,
+  };
+  store.upsertMaintainReading(reading);
+  store.upsertMaintainReading({ ...reading, tier: 2, value: 0.4, evaluatedAt: 2000 });
+  const rows = store.listMaintainReadings();
+  expect(rows).toHaveLength(1);
+  expect(rows[0]!.tier).toBe(2);
+  expect(rows[0]!.value).toBe(0.4);
+  // The boolean survives the INTEGER round-trip.
+  expect(rows[0]!.belowMinSample).toBe(false);
+  store.upsertMaintainReading({ ...reading, belowMinSample: true });
+  expect(store.listMaintainReadings()[0]!.belowMinSample).toBe(true);
+});
+
+test("maintain runs round-trip, and lastCompletedMaintainRun ignores in-flight rows", () => {
+  const store = new SessionStore(":memory:");
+  const run = (id: string, spawnedAt: number) => ({
+    id,
+    bandKey: "incident_spike:stall",
+    bandId: "incident_spike" as const,
+    tier: 2 as const,
+    value: 30,
+    worktreePath: `/wt/${id}`,
+    agentName: `__maintain__${id}`,
+    spawnSessionId: `sess-${id}`,
+    spawnedAt,
+    completedAt: null,
+    outcome: null,
+    issueNumber: null,
+    issueUrl: null,
+  });
+  store.insertMaintainRun(run("r1", 1000));
+  store.insertMaintainRun(run("r2", 2000));
+
+  // Only r1 has completed, so it is the anchor even though r2 is newer.
+  store.finishMaintainRun("r1", { outcome: "skipped", completedAt: 1500 });
+  const last = store.lastCompletedMaintainRun("incident_spike:stall");
+  expect(last?.id).toBe("r1");
+  expect(last?.outcome).toBe("skipped");
+  expect(store.listInflightMaintainRuns().map((r) => r.id)).toEqual(["r2"]);
+  expect(store.lastCompletedMaintainRun("critic_error_rate")).toBeNull();
+});
+
+test("finishMaintainRun cannot overwrite an already-settled outcome", () => {
+  const store = new SessionStore(":memory:");
+  store.insertMaintainRun({
+    id: "r1",
+    bandKey: "critic_error_rate",
+    bandId: "critic_error_rate",
+    tier: 2,
+    value: 0.4,
+    worktreePath: "/wt",
+    agentName: "__maintain__x",
+    spawnSessionId: "s",
+    spawnedAt: 1000,
+    completedAt: null,
+    outcome: null,
+    issueNumber: null,
+    issueUrl: null,
+  });
+  store.finishMaintainRun("r1", {
+    outcome: "filed",
+    completedAt: 1500,
+    issueNumber: 42,
+    issueUrl: "https://example.test/42",
+  });
+  // A late finalize racing the settled row must not erase the filed issue.
+  store.finishMaintainRun("r1", { outcome: "error", completedAt: 9999 });
+  const row = store.listMaintainRuns(5)[0]!;
+  expect(row.outcome).toBe("filed");
+  expect(row.issueNumber).toBe(42);
+  expect(row.completedAt).toBe(1500);
+});
+
+test("pruneMaintainRuns drops old completed rows but never the in-flight adoption set", () => {
+  const store = new SessionStore(":memory:");
+  const mk = (id: string, spawnedAt: number, completedAt: number | null) => {
+    store.insertMaintainRun({
+      id,
+      bandKey: "critic_error_rate",
+      bandId: "critic_error_rate",
+      tier: 2,
+      value: 0.4,
+      worktreePath: `/wt/${id}`,
+      agentName: `__maintain__${id}`,
+      spawnSessionId: `s-${id}`,
+      spawnedAt,
+      completedAt: null,
+      outcome: null,
+      issueNumber: null,
+      issueUrl: null,
+    });
+    if (completedAt !== null) store.finishMaintainRun(id, { outcome: "skipped", completedAt });
+  };
+  mk("old-done", 1000, 1100);
+  mk("old-inflight", 1000, null);
+  mk("new-done", 9000, 9100);
+
+  expect(store.pruneMaintainRuns(5000)).toBe(1);
+  expect(
+    store
+      .listMaintainRuns(10)
+      .map((r) => r.id)
+      .sort(),
+  ).toEqual(["new-done", "old-inflight"]);
+});

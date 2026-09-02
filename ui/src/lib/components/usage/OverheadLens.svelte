@@ -23,6 +23,8 @@
         return m.usage_kind_rundown();
       case "doc_agent":
         return m.usage_kind_doc_agent();
+      case "maintain":
+        return m.usage_kind_maintain();
       default:
         return kind;
     }

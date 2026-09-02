@@ -36,6 +36,13 @@ import type { BandReading, MaintainOutcome, MaintainRun, SignalKind } from "./ty
 import type { RoleEnvironment } from "./default-model";
 import { buildTransientAgentArgv } from "./transient-agent-argv";
 import { resolveAuxSpawn, type MembraneSeams } from "./spawn-membrane";
+import {
+  STARTUP_GRACE_MS,
+  decideVerdictAction,
+  isSpawnAlive,
+  type VerdictAction,
+  type VerdictRead,
+} from "./json-tolerant";
 import { readSessionUsage, type SessionUsage } from "./usage";
 import {
   CRITIC_WINDOW_MS,
@@ -48,11 +55,12 @@ import {
   buildDiagnosisPrompt,
   describeReading,
   evaluateBands,
-  parseMaintainDraft,
+  readMaintainDraft,
   renderIssueBody,
   type BandInput,
   type BandThresholds,
   type EvidenceLine,
+  type MaintainDraft,
 } from "./maintain-core";
 
 /** Herdr agent-name prefix. Unique per run (`__maintain__<8hex>`) so an orphaned pane from a prior
@@ -105,7 +113,7 @@ export type MaintainStore = Pick<
 >;
 
 export interface MaintainDeps extends MembraneSeams {
-  herdr: Pick<HerdrDriver, "start" | "stop">;
+  herdr: Pick<HerdrDriver, "start" | "stop" | "list" | "paneForegroundProcs">;
   worktree: Pick<WorktreeMgr, "createDetached" | "remove" | "ensureBaseRef" | "gitCommonDir">;
   store: MaintainStore;
   /** Shepherd's OWN checkout — the repo the diagnosis reads and the issue is filed against. */
@@ -210,12 +218,13 @@ export class MaintainService {
   /** Worktree paths this service currently owns.
    *
    *  LOAD-BEARING: `createDetached` puts `-review-` in the path, so a diagnosis checkout lands in
-   *  the namespace `sweepStaleReviewWorktrees` reaps hourly at a 15-minute grace. This service is in
-   *  none of that sweeper's other spares — it records a `maintain_runs` row rather than the
-   *  `reviewer_spawns` row that grants the grace, and `scanClaudeAliveByWorktree` cannot see a Codex
-   *  spawn — so index.ts MUST union this into that sweep's `protectedPaths`, exactly as it does for
-   *  the plan gate and the two critics. Without it a run outliving the grace has its checkout
-   *  deleted underneath it. */
+   *  the namespace `sweepStaleReviewWorktrees` reaps hourly at a REVIEW_WORKTREE_GRACE_MS
+   *  (15-minute) grace. `launch()` does record a `reviewer_spawns` row, so that sweeper's
+   *  recent-uncompleted-spawn spare covers the run's first 15 minutes — but this role's hard
+   *  timeout is 15 minutes too, so a diagnosis that runs to its deadline outlives the grace by
+   *  design, and `scanClaudeAliveByWorktree` cannot see a Codex spawn holding it. index.ts MUST
+   *  therefore union this into that sweep's `protectedPaths`, exactly as it does for the plan gate
+   *  and the two critics; without it a long run has its checkout deleted underneath it. */
   inflightWorktrees(): string[] {
     return [...this.inflight.values()].map((f) => f.run.worktreePath);
   }
@@ -388,7 +397,6 @@ export class MaintainService {
     const prompt = buildDiagnosisPrompt({
       reading,
       evidence: this.evidenceFor(reading, now),
-      windowDays: 7,
       thresholdNote: thresholdNote(reading, this.thresholds),
     });
     const env = this.deps.env?.() ?? { provider: "claude" as const, model: null };
@@ -472,30 +480,66 @@ export class MaintainService {
     return true;
   }
 
-  /** Finalize any run whose draft is ready or that timed out. */
+  /**
+   * Finalize any run whose draft can be trusted, or that timed out.
+   *
+   * The read is gated exactly the way the recap and critic loops gate theirs. Finalizing on the
+   * mere EXISTENCE of the draft file would be wrong: `readMaintainDraft` runs jsonrepair over a
+   * malformed document, so a file caught halfway through being written comes back shape-valid.
+   * Acting on it would kill the pane and delete the worktree mid-turn, and with `act` on would file
+   * a truncated diagnosis as a real issue — which the 14-day cooldown then holds. So a REPAIRED
+   * parse waits until the spawn is no longer alive (or the hard timeout fires); a strict parse is a
+   * complete document and finalizes immediately.
+   */
   async tick(): Promise<void> {
     for (const f of [...this.inflight.values()]) {
       if (f.finalizing) continue;
-      const draft = this.readDraft(f.run.worktreePath);
-      const timedOut = this.now() - f.run.spawnedAt > this.timeoutMs;
-      if (draft === null && !timedOut) continue;
       f.finalizing = true;
+      let read: VerdictRead<MaintainDraft>;
+      let action: VerdictAction;
       try {
-        await this.finalize(f, draft);
+        const elapsed = this.now() - f.run.spawnedAt;
+        read = readMaintainDraft(this.readDraft(f.run.worktreePath));
+        // Ground-truth liveness via paneForegroundProcs (the tab-reaper's signal): a live-but-idle
+        // agent between API turns reads "idle" in agentStatus but still owns non-shell procs.
+        // isSpawnAlive never throws; a herdr blip fails closed to alive.
+        const finished = !(await isSpawnAlive(this.deps.herdr, f.run.worktreePath));
+        action = decideVerdictAction(
+          read,
+          finished,
+          elapsed > this.timeoutMs,
+          elapsed > STARTUP_GRACE_MS,
+        );
+      } catch (err) {
+        // Release the claim so the next tick retries rather than wedging this run forever.
+        f.finalizing = false;
+        this.log(`[maintain] ${f.run.bandKey}: read/liveness failed, retrying: ${String(err)}`);
+        continue;
+      }
+      if (action === "wait") {
+        f.finalizing = false;
+        continue;
+      }
+      const draft = action === "finalize-value" && read.status === "parsed" ? read.value : null;
+      try {
+        await this.finalize(f, draft, read.status);
       } catch (err) {
         this.log(`[maintain] ${f.run.bandKey}: finalize failed: ${String(err)}`);
       }
     }
   }
 
-  private async finalize(f: InFlight, draftText: string | null): Promise<void> {
+  private async finalize(
+    f: InFlight,
+    draft: MaintainDraft | null,
+    readStatus: VerdictRead<MaintainDraft>["status"],
+  ): Promise<void> {
     let outcome: MaintainOutcome = "error";
     let issue: { number: number; url: string } | null = null;
     try {
-      const draft = draftText === null ? null : parseMaintainDraft(draftText);
       if (draft === null) {
         this.log(
-          `[maintain] ${f.run.bandKey}: no usable draft (${draftText === null ? "timed out" : "unparseable"})`,
+          `[maintain] ${f.run.bandKey}: no usable draft (${readStatus === "absent" ? "none written" : readStatus})`,
         );
       } else if (!this.deps.act) {
         // Phase-0 observe: say exactly what WOULD be filed, then file nothing.

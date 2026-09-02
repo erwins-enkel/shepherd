@@ -21,7 +21,7 @@ import type {
   MaintainTier,
   SignalKind,
 } from "./types";
-import { tolerantParseJson } from "./json-tolerant";
+import { tolerantParseJson, type VerdictRead } from "./json-tolerant";
 import { fenceUntrusted, UNTRUSTED_CONTENT_DIRECTIVE } from "./untrusted";
 
 /** The file the diagnosis agent writes its drafted issue to, in its disposable worktree. */
@@ -32,8 +32,10 @@ export const MAINTAIN_DRAFT_FILE = ".shepherd-maintain.json";
 export const CRITIC_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 export const INCIDENT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
-/** `first_pass_collapse` reads the 30d delivery range. */
+/** `first_pass_collapse` reads the 30d delivery range. The two must agree — the range is what the
+ *  metric is computed over, the day count is what the diagnosis prompt tells the agent. */
 export const FIRST_PASS_RANGE = "30d" as const;
+const FIRST_PASS_WINDOW_DAYS = 30;
 
 /**
  * `incident_spike` evaluates every SignalKind EXCEPT this one. `reply` is the learnings flywheel's
@@ -177,6 +179,15 @@ function incidentTier(row: DeliveryIncidentRow, cfg: IncidentBandConfig): Mainta
   return 0;
 }
 
+/** The measurement window a band is scored over, in days — what the diagnosis prompt must state.
+ *  `first_pass_collapse` reads the 30d delivery range; the other two use their 7d windows. Derived
+ *  here rather than passed by the caller so the prompt can never quote a window the band does not
+ *  actually use (which would land in the filed issue as the agent's reasoning). */
+export function windowDaysFor(bandId: BandId): number {
+  if (bandId === "first_pass_collapse") return FIRST_PASS_WINDOW_DAYS;
+  return CRITIC_WINDOW_MS / 86_400_000;
+}
+
 /** Stable identity for a band row — the key a run, a reading and a cooldown are all keyed by. */
 export function bandKey(bandId: BandId, subject?: string | null): string {
   return subject ? `${bandId}:${subject}` : bandId;
@@ -309,10 +320,10 @@ function renderEvidence(evidence: EvidenceLine[]): string {
 export function buildDiagnosisPrompt(opts: {
   reading: BandReading;
   evidence: EvidenceLine[];
-  windowDays: number;
   thresholdNote: string;
 }): string {
-  const { reading, evidence, windowDays, thresholdNote } = opts;
+  const { reading, evidence, thresholdNote } = opts;
+  const windowDays = windowDaysFor(reading.bandId);
   return [
     "You are diagnosing a health-band breach in Shepherd itself. Shepherd is an interactive",
     "mission-control for Claude Code sessions; this checkout is Shepherd's own source.",
@@ -375,17 +386,33 @@ function str(v: unknown): string {
 }
 
 /**
- * Parse + clamp the agent's draft. Tolerant of the malformed-but-recoverable JSON unattended
- * spawns produce (unescaped inner quotes are a recurring real failure), and strict about the one
- * thing that matters: a draft with no title and no anomaly is not a diagnosis and is rejected, so
- * an empty issue can never reach the backlog.
+ * Read + clamp the agent's draft as a 3-way {@link VerdictRead}, the same contract the recap and
+ * critic finalize loops use.
+ *
+ * `repaired` is CARRIED, not swallowed. `tolerantParseJson` will happily run jsonrepair over a
+ * truncated mid-write file and hand back a shape-valid object — so a draft caught halfway through
+ * writing would otherwise finalize as a real diagnosis, kill the pane mid-turn, and (with `act` on)
+ * file a truncated issue that the 14-day cooldown then holds. The caller gates a repaired parse on
+ * spawn liveness via `decideVerdictAction`; a strict parse is trusted immediately.
+ *
+ * A present-but-shapeless draft (no title, or no anomaly) is `unparseable`, not `absent`: it is not
+ * a diagnosis, and reporting it as absent would make the finalize loop wait out the whole timeout
+ * for a file that is never going to improve.
  */
-export function parseMaintainDraft(text: string): MaintainDraft | null {
+export function readMaintainDraft(text: string | null): VerdictRead<MaintainDraft> {
+  if (text === null) return { status: "absent" };
   const parsed = tolerantParseJson(text);
   if (parsed.status !== "ok" || parsed.value === null || typeof parsed.value !== "object") {
-    return null;
+    return { status: "unparseable", raw: text };
   }
-  const o = parsed.value as Record<string, unknown>;
+  const draft = clampDraft(parsed.value as Record<string, unknown>);
+  return draft === null
+    ? { status: "unparseable", raw: text }
+    : { status: "parsed", value: draft, repaired: parsed.repaired };
+}
+
+/** Shape-check + clamp a parsed draft object; null when it is not a diagnosis at all. */
+function clampDraft(o: Record<string, unknown>): MaintainDraft | null {
   const title = str(o.title).replace(/\s+/g, " ").slice(0, MAX_TITLE_CHARS);
   const anomaly = str(o.anomaly).slice(0, MAX_SECTION_CHARS);
   if (!title || !anomaly) return null;

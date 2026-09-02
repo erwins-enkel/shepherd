@@ -46,6 +46,8 @@ interface Harness {
   forgeAvailable: { current: boolean };
   labelFails: { current: boolean };
   gitSha: { current: string };
+  /** Whether the fake diagnosis pane still looks alive to isSpawnAlive. */
+  agentAlive: { current: boolean };
   detached: { repoPath: string; branch: string; sha: string }[];
 }
 
@@ -64,6 +66,7 @@ function harness(over: Partial<MaintainDeps> = {}): Harness {
   const forgeAvailable = { current: true };
   const labelFails = { current: false };
   const gitSha = { current: "deadbeefcafe1234" };
+  const agentAlive = { current: true };
   let nextIssue = 100;
 
   const forge = {
@@ -91,6 +94,15 @@ function harness(over: Partial<MaintainDeps> = {}): Harness {
       stop: async (id: string) => {
         stopped.push(id);
       },
+      // isSpawnAlive reads these: an agent absent from list() is dead; one present and "idle" is
+      // resolved by its foreground procs (shell-only = husk = dead).
+      list: () =>
+        spawns.map((sp, i) => ({
+          cwd: sp.worktreePath,
+          paneId: `pane_${i + 1}`,
+          agentStatus: "idle",
+        })),
+      paneForegroundProcs: async () => (agentAlive.current ? ["claude"] : ["zsh"]),
     } as unknown as MaintainDeps["herdr"],
     worktree: {
       createDetached: async (repoPath: string, branch: string, sha: string, slug?: string) => {
@@ -144,6 +156,7 @@ function harness(over: Partial<MaintainDeps> = {}): Harness {
     labelFails,
     gitSha,
     detached,
+    agentAlive,
   };
 }
 
@@ -361,6 +374,11 @@ describe("act gate", () => {
     const h = harness({ repoDelivery: collapsing, act: true });
     await h.svc.sweep();
     h.draft.current = "not json at all {{{";
+    // While the agent is alive the file may still be mid-write, so the read waits...
+    await h.svc.tick();
+    expect(h.store.listMaintainRuns(5)[0]!.outcome).toBeNull();
+    // ...and fails fast once the pane is gone, without waiting out the whole timeout.
+    h.agentAlive.current = false;
     await h.svc.tick();
     expect(h.created).toHaveLength(0);
     expect(h.store.listMaintainRuns(5)[0]!.outcome).toBe("error");
@@ -524,5 +542,91 @@ describe("worktree base resolution", () => {
     expect(h.logs.join("\n")).toContain("cannot resolve origin/main");
     // No dangling run row for a diagnosis that never started.
     expect(h.store.listMaintainRuns(5)).toHaveLength(0);
+  });
+});
+
+describe("partial-write protection", () => {
+  /** A draft caught halfway through being written. jsonrepair closes it into a shape-valid object,
+   *  so nothing but the `repaired` flag distinguishes it from a finished diagnosis. */
+  const TRUNCATED = '{"title":"First pass collapsed on shepherd","anomaly":"Only 10% of merged ta';
+
+  it("does not finalize a repaired draft while the agent is still alive", async () => {
+    const h = harness({ repoDelivery: collapsing, act: true });
+    await h.svc.sweep();
+    h.draft.current = TRUNCATED;
+    await h.svc.tick();
+    // Nothing filed, nothing torn down — the run is still in flight, so the pane keeps writing.
+    expect(h.created).toHaveLength(0);
+    expect(h.removed).toHaveLength(0);
+    expect(h.stopped).toHaveLength(0);
+    expect(h.svc.inflightWorktrees()).toHaveLength(1);
+    expect(h.store.listInflightMaintainRuns()).toHaveLength(1);
+  });
+
+  it("finalizes the COMPLETED draft once the agent finishes writing it", async () => {
+    const h = harness({ repoDelivery: collapsing, act: true });
+    await h.svc.sweep();
+    h.draft.current = TRUNCATED;
+    await h.svc.tick();
+    expect(h.created).toHaveLength(0);
+    // The agent finishes the file; the strict parse then finalizes on the very next tick.
+    h.draft.current = GOOD_DRAFT;
+    await h.svc.tick();
+    expect(h.created).toHaveLength(1);
+    expect(h.created[0]!.body).toContain("Only 10% of merged tasks passed review first time.");
+  });
+
+  it("accepts a repaired draft once the pane is dead — it will never improve", async () => {
+    const h = harness({ repoDelivery: collapsing, act: true });
+    await h.svc.sweep();
+    // Unescaped inner quotes: recoverable, and the agent is gone, so waiting buys nothing.
+    h.draft.current = '{"title":"Reviewer says "no verdict"","anomaly":"It errored."}';
+    h.agentAlive.current = false;
+    await h.svc.tick();
+    expect(h.created).toHaveLength(1);
+    expect(h.store.listMaintainRuns(5)[0]!.outcome).toBe("filed");
+  });
+
+  it("still finalizes a strict parse immediately, without waiting on the pane", async () => {
+    const h = harness({ repoDelivery: collapsing, act: true });
+    await h.svc.sweep();
+    h.draft.current = GOOD_DRAFT;
+    expect(h.agentAlive.current).toBe(true);
+    await h.svc.tick();
+    expect(h.created).toHaveLength(1);
+  });
+
+  it("times out a repaired draft the agent never completes", async () => {
+    const h = harness({ repoDelivery: collapsing, act: true });
+    await h.svc.sweep();
+    h.draft.current = TRUNCATED;
+    await h.svc.tick();
+    expect(h.created).toHaveLength(0);
+    // The hard timeout is the backstop when the pane stays alive forever.
+    h.clock.now += 16 * 60_000;
+    await h.svc.tick();
+    expect(h.created).toHaveLength(1);
+    expect(h.store.listInflightMaintainRuns()).toHaveLength(0);
+  });
+
+  it("releases the finalizing claim on a wait, so the next tick retries", async () => {
+    const h = harness({ repoDelivery: collapsing, act: true });
+    await h.svc.sweep();
+    h.draft.current = TRUNCATED;
+    await h.svc.tick();
+    await h.svc.tick();
+    h.draft.current = GOOD_DRAFT;
+    await h.svc.tick();
+    expect(h.created).toHaveLength(1);
+  });
+});
+
+describe("diagnosis prompt window", () => {
+  it("quotes the band's OWN measurement window, not a fixed 7 days", async () => {
+    const h = harness({ repoDelivery: collapsing });
+    await h.svc.sweep();
+    // first_pass_collapse is scored over the 30d delivery range; telling the agent 7 would put a
+    // wrong window into the filed issue as its reasoning.
+    expect(h.spawns[0]!.cwdPrompt.at(-1)!).toContain("the last 30 days");
   });
 });

@@ -1652,10 +1652,11 @@ const sweepStaleReviewWorktrees = async () => {
       ...reviewService.inflightWorktrees(),
       ...standaloneCritic.inflightWorktrees(),
       // The maintain loop's diagnosis checkout is `-review-`-shaped too (createDetached hardcodes
-      // the tag), so this sweep sees it as a candidate. It gets NONE of the other spares — it
-      // records a maintain_runs row rather than the reviewer_spawns row that grants the grace, and
-      // scanClaudeAliveByWorktree cannot see a Codex spawn — so without this union a diagnosis
-      // outliving the 15-minute grace has its worktree deleted underneath it (#2157).
+      // the tag), so this sweep sees it as a candidate. Its reviewer_spawns row earns the
+      // recent-uncompleted-spawn spare for REVIEW_WORKTREE_GRACE_MS — but the role's hard timeout
+      // is that same 15 minutes, so a diagnosis running to its deadline outlives the spare, and
+      // scanClaudeAliveByWorktree cannot see a Codex spawn holding it. Without this union such a
+      // run has its worktree deleted underneath it (#2157).
       ...maintainService.inflightWorktrees(),
     ]);
     const sessions = store.list();

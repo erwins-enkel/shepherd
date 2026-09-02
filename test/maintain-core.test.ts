@@ -8,9 +8,10 @@ import {
   describeReading,
   evaluateBands,
   mergeThresholds,
-  parseMaintainDraft,
+  readMaintainDraft,
   renderIssueBody,
   thresholdsFromEnv,
+  windowDaysFor,
   type BandInput,
 } from "../src/maintain-core";
 import type { BandReading, DeliveryRepoRow, DeliveryStats } from "../src/types";
@@ -292,7 +293,6 @@ describe("buildDiagnosisPrompt", () => {
     const prompt = buildDiagnosisPrompt({
       reading,
       evidence: [{ kind: "stall", repo: "shepherd", ts: NOW, payload: "agent tail" }],
-      windowDays: 7,
       thresholdNote: "t1 10/3, t2 25/5",
     });
     expect(prompt).toContain("⟦UNTRUSTED:signal 1:");
@@ -309,7 +309,6 @@ describe("buildDiagnosisPrompt", () => {
     const prompt = buildDiagnosisPrompt({
       reading,
       evidence: many,
-      windowDays: 7,
       thresholdNote: "n",
     });
     // Count opening evidence fences only — the standing directive quotes the marker shape too.
@@ -322,7 +321,6 @@ describe("buildDiagnosisPrompt", () => {
     const prompt = buildDiagnosisPrompt({
       reading,
       evidence: [],
-      windowDays: 7,
       thresholdNote: "n",
     });
     expect(prompt).toContain(MAINTAIN_DRAFT_FILE);
@@ -330,7 +328,7 @@ describe("buildDiagnosisPrompt", () => {
   });
 });
 
-describe("parseMaintainDraft", () => {
+describe("readMaintainDraft", () => {
   const good = JSON.stringify({
     title: "Critic spawns wedge on the trust dialog",
     anomaly: "30% of review spawns produced no verdict.",
@@ -339,52 +337,88 @@ describe("parseMaintainDraft", () => {
     openQuestions: ["Is this only Codex?"],
   });
 
-  it("parses a well-formed draft", () => {
-    const d = parseMaintainDraft(good);
-    expect(d?.title).toBe("Critic spawns wedge on the trust dialog");
-    expect(d?.openQuestions).toEqual(["Is this only Codex?"]);
+  it("reports a well-formed draft as a STRICT parse, so it finalizes without waiting", () => {
+    const r = readMaintainDraft(good);
+    expect(r.status).toBe("parsed");
+    if (r.status !== "parsed") throw new Error("unreachable");
+    expect(r.repaired).toBe(false);
+    expect(r.value.title).toBe("Critic spawns wedge on the trust dialog");
+    expect(r.value.openQuestions).toEqual(["Is this only Codex?"]);
   });
 
-  it("recovers a draft with unescaped inner quotes", () => {
-    // The recurring real failure: the agent writes „…" prose and forgets to escape.
+  it("recovers a draft with unescaped inner quotes, and MARKS it repaired", () => {
+    // The recurring real failure: the agent writes „…" prose and forgets to escape. Recoverable —
+    // but `repaired` is what stops a truncated mid-write file being trusted as a finished one.
     const sloppy = '{"title":"Reviewer says "no verdict"","anomaly":"It errored."}';
-    expect(parseMaintainDraft(sloppy)?.anomaly).toBe("It errored.");
+    const r = readMaintainDraft(sloppy);
+    expect(r.status).toBe("parsed");
+    if (r.status !== "parsed") throw new Error("unreachable");
+    expect(r.repaired).toBe(true);
+    expect(r.value.anomaly).toBe("It errored.");
   });
 
-  it("rejects a draft with no title or no anomaly, so an empty issue can never be filed", () => {
-    expect(parseMaintainDraft('{"anomaly":"x"}')).toBeNull();
-    expect(parseMaintainDraft('{"title":"x"}')).toBeNull();
-    expect(parseMaintainDraft('{"title":"  ","anomaly":"x"}')).toBeNull();
+  it("marks a TRUNCATED draft repaired rather than passing it off as complete", () => {
+    // jsonrepair closes this up into a shape-valid object; only `repaired` distinguishes it from a
+    // finished document.
+    const r = readMaintainDraft('{"title":"Critic errors spiked","anomaly":"30% of review spa');
+    expect(r.status).toBe("parsed");
+    if (r.status !== "parsed") throw new Error("unreachable");
+    expect(r.repaired).toBe(true);
+  });
+
+  it("reports a missing file as absent, distinct from a bad one", () => {
+    expect(readMaintainDraft(null).status).toBe("absent");
+  });
+
+  it("reports a present-but-shapeless draft as unparseable, not absent", () => {
+    // Present but not a diagnosis: waiting out the timeout for it would be pointless.
+    expect(readMaintainDraft('{"anomaly":"x"}').status).toBe("unparseable");
+    expect(readMaintainDraft('{"title":"x"}').status).toBe("unparseable");
+    expect(readMaintainDraft('{"title":"  ","anomaly":"x"}').status).toBe("unparseable");
   });
 
   it("rejects non-JSON and non-object payloads", () => {
-    expect(parseMaintainDraft("")).toBeNull();
-    expect(parseMaintainDraft("null")).toBeNull();
-    expect(parseMaintainDraft('"just a string"')).toBeNull();
-    expect(parseMaintainDraft("[1,2,3]")).toBeNull();
+    expect(readMaintainDraft("").status).toBe("unparseable");
+    expect(readMaintainDraft("null").status).toBe("unparseable");
+    expect(readMaintainDraft('"just a string"').status).toBe("unparseable");
+    expect(readMaintainDraft("[1,2,3]").status).toBe("unparseable");
   });
 
   it("clamps an over-long title and collapses its whitespace", () => {
-    const d = parseMaintainDraft(
+    const r = readMaintainDraft(
       JSON.stringify({ title: `a\n\nb${"c".repeat(500)}`, anomaly: "x" }),
     );
-    expect(d?.title.length).toBe(120);
-    expect(d?.title.startsWith("a b")).toBe(true);
+    if (r.status !== "parsed") throw new Error("expected a parsed draft");
+    expect(r.value.title.length).toBe(120);
+    expect(r.value.title.startsWith("a b")).toBe(true);
   });
 
   it("caps and cleans the open-questions list", () => {
-    const d = parseMaintainDraft(
+    const r = readMaintainDraft(
       JSON.stringify({
         title: "t",
         anomaly: "a",
         openQuestions: [...Array.from({ length: 20 }, (_, i) => `q${i}`), "", 42],
       }),
     );
-    expect(d?.openQuestions).toHaveLength(8);
+    if (r.status !== "parsed") throw new Error("expected a parsed draft");
+    expect(r.value.openQuestions).toHaveLength(8);
   });
 
   it("tolerates a missing openQuestions field", () => {
-    expect(parseMaintainDraft('{"title":"t","anomaly":"a"}')?.openQuestions).toEqual([]);
+    const r = readMaintainDraft('{"title":"t","anomaly":"a"}');
+    if (r.status !== "parsed") throw new Error("expected a parsed draft");
+    expect(r.value.openQuestions).toEqual([]);
+  });
+});
+
+describe("windowDaysFor", () => {
+  it("gives each band the window it is actually scored over", () => {
+    // first_pass_collapse reads the 30d delivery range; quoting 7 in the prompt would put a wrong
+    // measurement window into the filed issue as the agent's reasoning.
+    expect(windowDaysFor("first_pass_collapse")).toBe(30);
+    expect(windowDaysFor("critic_error_rate")).toBe(7);
+    expect(windowDaysFor("incident_spike")).toBe(7);
   });
 });
 

@@ -1067,7 +1067,9 @@ export interface BandReading {
   bandId: BandId;
   /** Set for repo-scoped bands (`first_pass_collapse`); null for the global ones. */
   repoPath: string | null;
-  /** Set for `incident_spike` — the signal kind this row is about; null otherwise. */
+  /** What the row is about within its band: the signal kind for `incident_spike`, the repo
+   *  basename for `first_pass_collapse` (the UI labels the row from it), null for the global
+   *  `critic_error_rate`. Mirror of the client contract in ui/src/lib/types.ts. */
   subject: string | null;
   tier: MaintainTier;
   /** The measured quantity. A rate in 0..1 for the two rate bands, an occurrence count for

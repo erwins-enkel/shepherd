@@ -137,7 +137,6 @@ describe("#2002 fence ⇒ directive invariant", () => {
           evaluatedAt: 0,
         },
         evidence: [{ kind: "stall", repo: "shepherd", ts: 0, payload: "agent tail" }],
-        windowDays: 7,
         thresholdNote: "t1 10/3, t2 25/5",
       }),
     ],

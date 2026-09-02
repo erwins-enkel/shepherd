@@ -3564,7 +3564,7 @@
     color: currentColor;
   }
 
-  /* passive at-rest state pips (identity row): quiet AutoPip-style pills that keep
+  /* passive at-rest state pips (identity row): quiet uppercase micro-pills that keep
      the READY / AUTOPILOT on-state visible while the controls themselves live in
      the git strip. Four-Light hues: green = ready-to-merge, amber = active mode. */
   .state-pip {

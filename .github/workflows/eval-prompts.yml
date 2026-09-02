@@ -167,8 +167,12 @@ jobs:
             # ONE run per eval. `--json` emits the human report on stderr (for this log) and the
             # JSON block on stdout (what the doc's baseline tables are transcribed from), so both
             # artifacts come from a single paid pass.
-            bun run "eval:$name" $flags --json
-            code=$?
+            # NOTE the `|| code=$?` form. GitHub runs a step as `bash -e <script>`, so errexit is
+            # ON and `set -uo pipefail` above does NOT clear it: a bare `bun run …` returning 2
+            # kills the shell before the next line, and the job fails on the very code that is
+            # supposed to mean "green with a warning". A command on the left of `||` is exempt.
+            code=0
+            bun run "eval:$name" $flags --json || code=$?
             echo "::endgroup::"
             case $code in
               0) ;;

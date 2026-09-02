@@ -25,7 +25,14 @@ import {
 } from "../src/critic-core";
 import { CRITIC_FIXTURES, type CriticFixture } from "./eval-fixtures/critic";
 import { respondFromEnv } from "./eval-fixtures/env";
-import { READONLY_TOOLS, WRITE_TOOL, main, type EvalSpec, type Score } from "./eval-core";
+import {
+  AGENT_SYSTEM_PROMPT,
+  READONLY_TOOLS,
+  WRITE_TOOL,
+  main,
+  type EvalSpec,
+  type Score,
+} from "./eval-core";
 
 /** `claude-sonnet-5` is the API snapshot standing in for the operator's critic role model
  *  (`criticModel`, "default" ⇒ the operator default). Overridable via `--model`. */
@@ -112,6 +119,9 @@ export const SPEC: EvalSpec<CriticFixture> = {
   fixtures: CRITIC_FIXTURES,
   labels: LABELS,
   tools: [WRITE_TOOL, ...READONLY_TOOLS],
+  // Without this the model answers a review prompt in prose and never writes a verdict — see
+  // AGENT_SYSTEM_PROMPT for the live evidence. Mode-setting only; it says nothing about judgement.
+  system: AGENT_SYSTEM_PROMPT,
   // The completion signal, not the first write — see the two-writes note above.
   verdictFile: VERDICT_FILE,
   // Budget: the diff read, a handful of greps/reads, then BOTH writes. Generous enough that a

@@ -43,6 +43,8 @@ export interface AnthropicContentBlock {
 
 export interface AnthropicResponse {
   content?: AnthropicContentBlock[];
+  /** "end_turn" | "tool_use" | "max_tokens" | … — kept for diagnosing a verdict-less trial. */
+  stop_reason?: string | null;
 }
 
 /** The transport. Injected so the whole loop is testable without network access. */
@@ -112,6 +114,31 @@ export const GREP_TOOL: ToolDef = {
 
 export const READONLY_TOOLS: ToolDef[] = [BASH_TOOL, READ_TOOL, GREP_TOOL];
 
+/**
+ * Operating-mode framing for the evals that declare inspection tools (plan-gate, critic).
+ *
+ * WHY IT EXISTS: production runs these prompts inside the interactive `claude` CLI, whose own
+ * system prompt establishes that the model is an agent acting through tools. A bare Messages call
+ * has none of that, and the first live run showed exactly what that costs — the model answered a
+ * "review this PR" prompt the way a chat model does, in prose, and never called `Write`: `no-tool`
+ * on 55/55 critic trials and 50/55 plan-gate trials, with zero transport errors. This is the
+ * documented CLI-wrapper gap (caveat A/C), narrowed.
+ *
+ * It is deliberately MODE-SETTING ONLY. It says nothing about how to review, what to look for, or
+ * what to decide — anything of that kind would contaminate the very judgement the eval measures.
+ *
+ * The two single-tool evals do NOT carry it: the classifier scored 95.1% and the rundown produced a
+ * parseable verdict on every single trial without it, so adding it would only invalidate
+ * measurements already paid for.
+ */
+export const AGENT_SYSTEM_PROMPT = [
+  "You are an autonomous agent working in a checked-out git worktree, not a chat assistant.",
+  "You act ONLY through the provided tools: Bash, Read and Grep to inspect the repository, and",
+  "Write to produce files. Do not reply in prose — a reply that is not a tool call accomplishes",
+  "nothing and ends your turn. Carry out the task below exactly as written, and finish by writing",
+  "the file or files it names.",
+].join("\n");
+
 // ---------------------------------------------------------------------------
 // Fixtures
 // ---------------------------------------------------------------------------
@@ -168,6 +195,9 @@ export interface EvalSpec<F extends EvalFixtureBase> {
   verdictFile?: string;
   /** Maximum model turns per trial. Must admit every write the prompt's contract orders. */
   maxTurns: number;
+  /** Operating-mode system prompt. Set for the evals whose prompts assume a tool-driven agent
+   *  harness; omitted where the eval already obtains verdicts without one. */
+  system?: string;
   maxTokens: number;
   /** Extra header lines for the human-readable report (run-configuration provenance). */
   headerLines?: (run: RunOptions) => string[];
@@ -239,6 +269,21 @@ export function isVerdictWrite(block: AnthropicContentBlock, verdictFile?: strin
   return filePath.split("/").pop() === verdictFile;
 }
 
+/** Why a response carried no verdict: its stop reason plus a bounded slice of the prose it
+ *  returned instead. */
+export function diagnose(response: AnthropicResponse): {
+  stopReason?: string | null;
+  text?: string;
+} {
+  const text = (response.content ?? [])
+    .filter((b) => b.type === "text" && typeof b.text === "string")
+    .map((b) => b.text)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return { stopReason: response.stop_reason ?? null, text: text.slice(0, 300) };
+}
+
 /** The string the model passed as the file CONTENT (not the `{file_path, content}` wrapper). */
 export function writeContent(block: AnthropicContentBlock): string | null {
   const content = inputOf(block).content;
@@ -265,13 +310,18 @@ export interface TrialCapture {
   content: string | null;
   /** Model turns actually spent (for diagnosing budget exhaustion). */
   turns: number;
+  /** Why the last response ended, and the prose it returned instead of a verdict. Both exist to
+   *  make a verdict-less trial DIAGNOSABLE from a log — "no-tool" alone cost a full paid run to
+   *  interpret once already. */
+  stopReason?: string | null;
+  text?: string;
 }
 
 /** The capture a SINGLE response yields, for a prompt whose verdict arrives in one turn. Used by
  *  the unit tests and by any eval whose loop cannot need a second turn. */
 export function captureFrom(response: AnthropicResponse, verdictFile?: string): TrialCapture {
   const verdict = toolUses(response).find((b) => isVerdictWrite(b, verdictFile));
-  if (!verdict) return { toolUsed: false, content: null, turns: 1 };
+  if (!verdict) return { toolUsed: false, content: null, turns: 1, ...diagnose(response) };
   const content = writeContent(verdict);
   return { toolUsed: content !== null, content, turns: 1 };
 }
@@ -282,12 +332,14 @@ export function buildRequestBody(
   model: string,
   temperature: number,
   messages: unknown[],
+  system?: string,
 ): Record<string, unknown> {
   return {
     model,
     max_tokens: maxTokens,
     temperature,
     tools,
+    ...(system === undefined ? {} : { system }),
     // `tool_choice` omitted -> API default `auto`, mirroring production's `dontAsk`, which denies
     // off-allowlist tools rather than compelling a call.
     messages,
@@ -312,10 +364,12 @@ export async function runTrial<F extends EvalFixtureBase>(
   const messages: unknown[] = [{ role: "user", content: prompt }];
   for (let turn = 1; turn <= spec.maxTurns; turn++) {
     const response = await send(
-      buildRequestBody(spec.tools, spec.maxTokens, model, temperature, messages),
+      buildRequestBody(spec.tools, spec.maxTokens, model, temperature, messages, spec.system),
     );
     const uses = toolUses(response);
-    if (uses.length === 0) return { toolUsed: false, content: null, turns: turn };
+    if (uses.length === 0) {
+      return { toolUsed: false, content: null, turns: turn, ...diagnose(response) };
+    }
 
     const verdict = uses.find((b) => isVerdictWrite(b, spec.verdictFile));
     if (verdict) {
@@ -339,7 +393,7 @@ export async function runTrial<F extends EvalFixtureBase>(
       })),
     });
   }
-  return { toolUsed: false, content: null, turns: spec.maxTurns };
+  return { toolUsed: false, content: null, turns: spec.maxTurns, stopReason: "turn-budget" };
 }
 
 /** Turn one trial's capture into a scored outcome. */
@@ -666,17 +720,38 @@ export async function runEval<F extends EvalFixtureBase>(
   const attempt = (task: Task): Promise<TrialCapture> =>
     runTrial(transport, spec, task.fixture, task.prompt, run.model, run.temperature);
 
-  // PREFLIGHT, deliberately alone and before the pool: a dead key or a broken transport must abort
-  // the run rather than burn the rest of its spend across N workers.
+  // PREFLIGHT, deliberately alone and before the pool. It guards TWO failures, both of which
+  // otherwise cost a whole paid run to discover:
+  //   1. a dead key / broken transport;
+  //   2. a harness that cannot obtain a verdict at all. The first live run spent ~$10 and an hour
+  //      to report `no-tool` on 105/110 plan-gate+critic trials — a mode problem, not a model
+  //      result. Two consecutive verdict-less preflights now abort in seconds instead, and say why.
   const first = tasks[0];
   if (first) {
-    try {
-      outcomes[first.index]!.push(outcomeFrom(spec, first.fixture, await attempt(first)));
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.error(`${tag} first call failed — aborting before spending on the rest: ${msg}`);
+    const captures: TrialCapture[] = [];
+    for (let tryNo = 1; tryNo <= 2; tryNo++) {
+      try {
+        captures.push(await attempt(first));
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error(`${tag} first call failed — aborting before spending on the rest: ${msg}`);
+        return 2;
+      }
+      if (captures[captures.length - 1]!.toolUsed) break;
+    }
+    const preflight = captures[captures.length - 1]!;
+    if (!preflight.toolUsed) {
+      console.error(
+        `${tag} the first ${captures.length} trials produced NO verdict — aborting before spending ` +
+          `on the rest. This is a harness/mode failure, not a model result: the prompt names a ` +
+          `verdict file the model never wrote.\n` +
+          `${tag}   fixture=${first.fixture.id} turns=${preflight.turns} ` +
+          `stop_reason=${preflight.stopReason ?? "?"}\n` +
+          `${tag}   model said instead: ${preflight.text || "(nothing)"}`,
+      );
       return 2;
     }
+    outcomes[first.index]!.push(outcomeFrom(spec, first.fixture, preflight));
   }
 
   let next = 1;

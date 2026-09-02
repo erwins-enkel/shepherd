@@ -1,6 +1,8 @@
 import { test, expect } from "bun:test";
 import {
+  AGENT_SYSTEM_PROMPT,
   aggregate,
+  buildRequestBody,
   captureFrom,
   decide,
   isVerdictWrite,
@@ -172,7 +174,13 @@ test("turn-budget exhaustion is a mechanical miss, not a verdict", async () => {
     write("verdict.json", '{"label":"ok"}'),
   ]);
   const capture = await runTrial(send, spec, FIXTURE, "p", "m", 1);
-  expect(capture).toEqual({ toolUsed: false, content: null, turns: 2 });
+  expect(capture).toEqual({
+    toolUsed: false,
+    content: null,
+    turns: 2,
+    // The reason is recorded so a verdict-less trial is diagnosable from a log alone.
+    stopReason: "turn-budget",
+  });
   expect(outcomeFrom(spec, FIXTURE, capture).toolUsed).toBe(false);
 });
 
@@ -339,8 +347,19 @@ test("rundown scorer: surfaced / leaked / silent / manufactured / epic-echo", ()
   expect(scoreRundown(mustSurface, RUNDOWN_OK).label).toBe("miss:not-surfaced");
 
   const noLeak = rundownFixture({ mustNotSurface: ["s-2"] });
+  // A leak means the ATTENTION buckets. `focusNext` is where the prompt asks for routine follow-on
+  // work, so a routine session there is compliance — scoring it as a leak failed four fixtures on
+  // the first live run.
   expect(
     scoreRundown(noLeak, { ...RUNDOWN_OK, focusNext: [{ label: "routine", sessionId: "s-2" }] })
+      .label,
+  ).toBe("ok");
+  expect(
+    scoreRundown(noLeak, { ...RUNDOWN_OK, decisions: [{ label: "routine", sessionId: "s-2" }] })
+      .label,
+  ).toBe("miss:leaked");
+  expect(
+    scoreRundown(noLeak, { ...RUNDOWN_OK, ciRework: [{ label: "routine", sessionId: "s-2" }] })
       .label,
   ).toBe("miss:leaked");
 
@@ -654,4 +673,50 @@ test("runEval runs trials concurrently and still groups outcomes by fixture", as
 test("--concurrency is clamped to at least 1", () => {
   expect(parseArgs(testSpec(), ["--concurrency", "0"]).concurrency).toBe(1);
   expect(parseArgs(testSpec(), ["--concurrency", "8"]).concurrency).toBe(8);
+});
+
+test("the inspection-tool evals carry the agent framing; the single-tool evals do not", () => {
+  // Production runs these prompts inside the claude CLI, whose system prompt establishes tool-driven
+  // operation. Without it the model answers in prose: the first live run recorded `no-tool` on 55/55
+  // critic and 50/55 plan-gate trials, zero transport errors.
+  expect(CRITIC_SPEC.system).toBe(AGENT_SYSTEM_PROMPT);
+  expect(PLAN_GATE_SPEC.system).toBe(AGENT_SYSTEM_PROMPT);
+  // The classifier scored 95.1% and the rundown produced a verdict on every trial WITHOUT it —
+  // adding it there would only invalidate measurements already paid for.
+  expect(CLASSIFIER_SPEC.system).toBeUndefined();
+  expect(RUNDOWN_SPEC.system).toBeUndefined();
+  // Mode-setting only: it must not smuggle in review guidance the eval is supposed to measure.
+  expect(AGENT_SYSTEM_PROMPT).not.toMatch(/finding|verdict|approve|request-changes|severity/i);
+});
+
+test("the system prompt reaches the request body only when the spec sets one", () => {
+  const withSystem = buildRequestBody([], 10, "m", 1, [], AGENT_SYSTEM_PROMPT);
+  expect(withSystem.system).toBe(AGENT_SYSTEM_PROMPT);
+  expect(buildRequestBody([], 10, "m", 1, [])).not.toHaveProperty("system");
+});
+
+test("runEval aborts when the preflight obtains NO verdict, before spending on the rest", async () => {
+  // The failure that cost a full paid run to discover: the model answers in prose and never writes.
+  let calls = 0;
+  const send: Send = async () => {
+    calls++;
+    return {
+      content: [{ type: "text", text: "Here is my review in prose instead of a tool call." }],
+      stop_reason: "end_turn",
+    };
+  };
+  const spec = testSpec({ fixtures: [FIXTURE, { ...FIXTURE, id: "t2" }] });
+  expect(await runEval(spec, ["--trials", "5"], send)).toBe(2);
+  // Two attempts (one retry), then abort — not the 10 trials the run would otherwise have paid for.
+  expect(calls).toBe(2);
+});
+
+test("a verdict-less trial records why, so a log alone can diagnose it", async () => {
+  const spec = testSpec();
+  const send = scriptedSend([
+    { content: [{ type: "text", text: "I will describe it instead." }], stop_reason: "end_turn" },
+  ]);
+  const capture = await runTrial(send, spec, FIXTURE, "p", "m", 1);
+  expect(capture.stopReason).toBe("end_turn");
+  expect(capture.text).toContain("describe it instead");
 });

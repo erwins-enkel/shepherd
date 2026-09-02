@@ -14,7 +14,14 @@
 import { PLAN_VERDICT_FILE, planReviewPrompt, type RawPlanVerdict } from "../src/plan-gate";
 import { PLAN_GATE_FIXTURES, type PlanGateFixture } from "./eval-fixtures/plan-gate";
 import { respondFromEnv } from "./eval-fixtures/env";
-import { READONLY_TOOLS, WRITE_TOOL, main, type EvalSpec, type Score } from "./eval-core";
+import {
+  AGENT_SYSTEM_PROMPT,
+  READONLY_TOOLS,
+  WRITE_TOOL,
+  main,
+  type EvalSpec,
+  type Score,
+} from "./eval-core";
 
 /** `claude-sonnet-5` is the API snapshot standing in for the operator's plan-reviewer role model
  *  (`reviewerModel`, "default" ⇒ the operator default). Overridable via `--model`. */
@@ -92,6 +99,9 @@ export const SPEC: EvalSpec<PlanGateFixture> = {
   fixtures: PLAN_GATE_FIXTURES,
   labels: LABELS,
   tools: [WRITE_TOOL, ...READONLY_TOOLS],
+  // Without this the model answers a review prompt in prose and never writes a verdict — see
+  // AGENT_SYSTEM_PROMPT for the live evidence. Mode-setting only; it says nothing about judgement.
+  system: AGENT_SYSTEM_PROMPT,
   verdictFile: PLAN_VERDICT_FILE,
   // The prompt invites optional inspection before the single verdict write, so the budget has to
   // admit a few look-around turns without letting a confused run spend indefinitely.

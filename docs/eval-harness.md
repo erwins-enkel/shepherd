@@ -68,6 +68,23 @@ Three facts are tracked per trial — `toolUsed`, `parseOk` and the scored label
 failure (no verdict written, unparseable content, turn budget exhausted) never masquerades as a
 genuine wrong verdict.
 
+**The inspection-tool evals carry an agent system prompt.** Production runs these prompts inside
+the interactive `claude` CLI, whose own system prompt establishes that the model acts through
+tools. A bare Messages call has none of that, and the first live run showed the cost: asked to
+review a PR, the model answered the way a chat model does — in prose — and never called `Write`.
+`no-tool` on **55/55** critic and **50/55** plan-gate trials, with zero transport errors. So
+`AGENT_SYSTEM_PROMPT` frames the model as an agent acting through the provided tools. It is
+**mode-setting only** — it says nothing about how to review, what to look for, or what to decide,
+because that would contaminate the judgement being measured. The classifier and rundown do NOT
+carry it: both obtained verdicts on every trial without one, and adding it would invalidate
+measurements already paid for.
+
+**A broken harness fails in seconds, not in a full run.** The preflight trial runs alone and guards
+two things: a dead key, and a harness that cannot obtain a verdict at all. Two consecutive
+verdict-less preflights abort with the fixture, turn count, `stop_reason` and the prose the model
+returned instead. Discovering the mode failure above cost ~$10 and an hour once; it now costs a few
+cents and reports its own diagnosis.
+
 **Trials run concurrently** (`--concurrency`, default 4). They are independent, and a critic trial
 is a multi-turn conversation, so running them one at a time takes hours — too slow to gate a PR.
 The very first trial runs alone as a preflight: a dead key or broken transport aborts before the
@@ -169,9 +186,18 @@ already unit-tested, so putting it in front would test the assembler rather than
 
 ## Baselines
 
-> **PENDING CAPTURE.** The floors below are provisional pins awaiting the first live run. Capture
-> them with `bun run eval:<name> --json` (or a `workflow_dispatch` of `eval-prompts.yml`), then
-> transcribe the per-fixture distributions here and re-pin each floor via the adjustment rule.
+> **PENDING CAPTURE for the three new evals.** Their floors below are provisional pins. The first
+> live run (2026-09-02) is not usable as their baseline: it was taken before the agent framing and
+> the `focusNext` predicate fix above, so its plan-gate/critic numbers measure the harness, not the
+> prompts. Re-capture with `bun run eval:<name> --json` (or a `workflow_dispatch` of
+> `eval-prompts.yml`), then transcribe the per-fixture distributions here and re-pin each floor via
+> the adjustment rule.
+>
+> The **stop-classifier** leg of that run IS valid — it is unaffected by both bugs — and confirms
+> the refactor onto the shared harness preserved its behaviour: gating accuracy **95.1% (58/61)**
+> against its pinned floor of 0.80, with `ambiguous-unknown` holding 9/9 and `de-gate-commit` /
+> `de-question-approach` at 9/9. See [`eval-stop-classifier.md`](./eval-stop-classifier.md) for its
+> recorded baseline.
 
 | Eval        | Model             | Trials | Gating accuracy | Pinned floor |
 | ----------- | ----------------- | ------ | --------------- | ------------ |

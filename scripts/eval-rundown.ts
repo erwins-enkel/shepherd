@@ -75,15 +75,14 @@ export function scoreRundown(fixture: RundownFixture, raw: Record<string, unknow
   const e = fixture.expect;
   const surfaced = surfacedIds(verdict);
   const items = allItems(verdict);
-  const namedAnywhere = new Set(
-    items.map((i) => i.sessionId).filter((id): id is string => typeof id === "string"),
-  );
 
   for (const id of e.mustSurface ?? []) {
     if (!surfaced.has(id)) return { label: "miss:not-surfaced", correct: false };
   }
+  // Checked against the ATTENTION buckets only. `focusNext` is where the prompt asks for routine
+  // follow-on work, so a routine session appearing there is compliance, not a leak.
   for (const id of e.mustNotSurface ?? []) {
-    if (namedAnywhere.has(id)) return { label: "miss:leaked", correct: false };
+    if (surfaced.has(id)) return { label: "miss:leaked", correct: false };
   }
   if (e.mustSurfaceSomething === true && verdict.decisions.length + verdict.ciRework.length === 0) {
     return { label: "miss:silent", correct: false };

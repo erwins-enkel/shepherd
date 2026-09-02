@@ -19,7 +19,14 @@ import type { EvalFixtureBase } from "../eval-core";
 export interface RundownExpectations {
   /** Session ids that MUST appear in `decisions` or `ciRework` (the "needs a human now" set). */
   mustSurface?: string[];
-  /** Session ids that must appear in NO item at all — routine work the prompt forbids surfacing. */
+  /**
+   * Session ids that must not appear in `decisions` or `ciRework` — the two "needs a human now"
+   * buckets. Deliberately NOT checked against `focusNext`: the prompt defines that section as
+   * "what the operator should look at next once blockers clear", so routine in-flight work
+   * belongs there. The first live run failed four fixtures on exactly this — the model put a
+   * routine session in `focusNext` and the predicate called it a leak, scoring the prompt for
+   * obeying its own contract.
+   */
   mustNotSurface?: string[];
   /** Sections that must be non-empty. */
   nonEmpty?: ("decisions" | "ciRework" | "focusNext" | "overnight" | "train")[];

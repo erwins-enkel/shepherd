@@ -108,8 +108,9 @@ interface EcosystemProfile<Ctx> {
 }
 
 // ── Language-agnostic detectors (shared verbatim by both profiles) ───────────────
-// These three guardrails are the same markers regardless of stack, so both the JS/TS
-// and Rust guardrail arrays reuse them — a single source of truth for their evidence.
+// These guardrails are the same markers regardless of stack — CI, dependency automation, agent
+// instructions and issue templates are repo/forge configuration, not toolchain — so both the JS/TS
+// and Rust guardrail arrays reuse them: a single source of truth for their evidence.
 
 const detectCi = (s: FileScan): string[] => {
   const ev: string[] = [];

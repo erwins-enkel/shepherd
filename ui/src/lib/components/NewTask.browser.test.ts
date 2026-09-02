@@ -4762,6 +4762,12 @@ describe("NewTask shape round", () => {
     await expect.poll(() => textarea().value).toContain("## Problem");
     // The round closes once its brief has been taken.
     expect(document.querySelector(".shape")).toBeNull();
+    // The field grows to fit the brief: autogrow must run AFTER the bind:value flush, or it sizes
+    // the textarea against the one-line prompt the brief replaced.
+    await expect
+      .poll(() => parseFloat(textarea().style.height || "0"))
+      .toBeGreaterThan(textarea().clientHeight - 1);
+    await expect.poll(() => textarea().scrollHeight - textarea().clientHeight).toBeLessThan(2);
   });
 
   it("surfaces a failed round without touching the operator's prompt", async () => {

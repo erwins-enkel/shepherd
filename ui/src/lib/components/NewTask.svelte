@@ -881,8 +881,13 @@
     shapeSeq++;
     shapeStatus = "idle";
     shapeRound = null;
-    autogrow();
-    promptInput?.focus();
+    // Deferred like every other prompt-replacing site (pickIssue, injectSteer, …): the textarea is
+    // `bind:value={prompt}`, whose flush is a microtask, so measuring scrollHeight now would size
+    // the field to the OLD value and a multi-line brief would never grow it.
+    queueMicrotask(() => {
+      autogrow();
+      promptInput?.focus();
+    });
   }
 
   function dismissShape() {

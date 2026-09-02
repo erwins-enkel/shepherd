@@ -177,6 +177,17 @@ dontAsk` can otherwise read nothing but the files Shepherd itself wrote into
   `writer-ro` spawn over the operator's own rough prompt), and the repo path it
   passes is containment-checked against `config.repoRoot` by the `POST
 /api/shape` route before the spawn.
+  Because that path is the operator's REAL checkout rather than a disposable
+  worktree, the residual risk is not merely "a stray new file": the agent can
+  overwrite a tracked file (destroying uncommitted work, visible in `git status`
+  only after the fact) or write a gitignored path `git status` never shows at
+  all, and `disableAllHooks: true` rules out the tool-guard hook. What bounds it
+  is the allowlist — no `Bash`, no `Edit`, no git, no network — so the ceiling is
+  file writes inside one operator-chosen repo, with no exec, commit, push or
+  exfiltration. The prompt's "write only your result file" instruction is
+  guidance to a cooperative model, not an enforced boundary. Tightening this
+  means giving the helper a read-only view (detached worktree / RO bind, as the
+  reviewer roles get), not a narrower allowlist.
 - **Research is the deliberately egress-UNCONFINED surface.** A research session
   that would resolve to `autonomous` is **downgraded to `standard`**
   (`src/service.ts` `researchSafeProfileOverride`, warns once),

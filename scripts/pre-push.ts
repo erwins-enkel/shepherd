@@ -13,7 +13,7 @@
  * │ (and vice-versa). Two DELIBERATE local-only differences from CI:              │
  * │  • prettier/eslint are scoped to the push DELTA (vs origin/main) — CI keeps   │
  * │    the whole-repo check, so tree-wide drift is still caught before merge.     │
- * │  • fallow stays pinned to 2.100.0 (keep in sync w/ ci.yml + CONTRIBUTING.md). │
+ * │  • fallow@2.100.0 pin — same as CI, gated by check-fallow-pin.mjs.            │
  * └──────────────────────────────────────────────────────────────────────────────┘
  *
  * The hook (`.husky/pre-push`) scrubs git's local-env-vars and execs this script,
@@ -403,6 +403,12 @@ function buildLanes(
         args: ["scripts/check-model-mirror.mjs"],
         cwd: repoRoot,
       },
+      {
+        label: "fallow pin",
+        cmd: "node",
+        args: ["scripts/check-fallow-pin.mjs"],
+        cwd: repoRoot,
+      },
       { label: "herdr types", cmd: "bun", args: ["run", "check:herdr-types"], cwd: repoRoot },
     ],
   });
@@ -667,8 +673,8 @@ async function main(): Promise<void> {
   }
 
   // fallow runs only after every lane passes (delta vs origin/main). Skipped when
-  // origin/main is unavailable (offline) so a push isn't wedged. Pinned 2.100.0 —
-  // keep in sync with .github/workflows/ci.yml + CONTRIBUTING.md.
+  // origin/main is unavailable (offline) so a push isn't wedged. Pinned fallow@2.100.0,
+  // gated against every other pin site by scripts/check-fallow-pin.mjs.
   if (delta) {
     console.log("  → fallow audit (delta vs origin/main)");
     // Bounded so a cold `bunx fallow@…` download that hangs can't wedge the push —

@@ -23,6 +23,40 @@ export interface FixtureEnv {
   files?: Record<string, string>;
 }
 
+/** A fake worktree root. The reviewer orients itself with `pwd` / `git rev-parse --show-toplevel`
+ *  before it does anything else; answering those with silence reads as a broken shell. */
+const WORKTREE = "/tmp/shepherd-review-wt";
+/** Any ref the reviewer resolves answers with this. Fixed, so renders stay deterministic. */
+const HEAD_SHA = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+
+/**
+ * Files the DIFF adds, reconstructed from its `+` lines. In production the PR branch is checked
+ * out, so a file the diff creates is readable — a fixture that answers "does not exist" for the
+ * very file under review sends the reviewer hunting for a tree it will never find. Only ADDED
+ * files are reconstructed (their `+` lines are the whole content); a modified file's post-image
+ * cannot be recovered from the diff alone, so fixtures supply those through `files`.
+ */
+function addedFiles(diff: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const chunk of diff.split(/^diff --git /m).slice(1)) {
+    const path = /^a\/\S+ b\/(\S+)/.exec(chunk)?.[1];
+    // `--- /dev/null` is what marks a creation; anything else is a modification.
+    if (!path || !/^--- \/dev\/null$/m.test(chunk)) continue;
+    const body = chunk
+      .split("\n")
+      .filter((l) => l.startsWith("+") && !l.startsWith("+++"))
+      .map((l) => l.slice(1))
+      .join("\n");
+    if (body) out[path] = `${body}\n`;
+  }
+  return out;
+}
+
+/** Every path the reviewer can see: what the fixture supplies, plus what the diff creates. */
+function tree(env: FixtureEnv): Record<string, string> {
+  return { ...addedFiles(env.diff ?? ""), ...(env.files ?? {}) };
+}
+
 const MAX_GREP_MATCHES = 40;
 
 function readFile(env: FixtureEnv, filePath: unknown): string {
@@ -30,7 +64,7 @@ function readFile(env: FixtureEnv, filePath: unknown): string {
   // Tolerate `./x`, `/abs/x` and bare `x` for the same fixture key — a model may address the file
   // any of those ways, and the fixture map is keyed repo-relative.
   const candidates = [filePath, filePath.replace(/^\.\//, ""), filePath.replace(/^\/+/, "")];
-  const files = env.files ?? {};
+  const files = tree(env);
   for (const key of candidates) {
     const hit = files[key];
     if (hit !== undefined) return hit;
@@ -38,7 +72,7 @@ function readFile(env: FixtureEnv, filePath: unknown): string {
   // Last resort: a reviewer may address the file by its worktree-absolute path
   // (`/tmp/wt-1234/src/x.ts`). Match on a full path SUFFIX at a `/` boundary so `x.ts` alone never
   // resolves `src/x.ts` — that would answer a question the reviewer did not ask.
-  const suffixHit = Object.entries(env.files ?? {}).find(([key]) => filePath.endsWith(`/${key}`));
+  const suffixHit = Object.entries(files).find(([key]) => filePath.endsWith(`/${key}`));
   if (suffixHit) return suffixHit[1];
   return `Error: ${filePath} does not exist.`;
 }
@@ -53,7 +87,7 @@ function grep(env: FixtureEnv, pattern: unknown, path: unknown): string {
   }
   const scope = typeof path === "string" && path.trim() !== "" ? path.replace(/^\.\//, "") : null;
   const out: string[] = [];
-  for (const [file, content] of Object.entries(env.files ?? {})) {
+  for (const [file, content] of Object.entries(tree(env))) {
     if (scope && !file.startsWith(scope)) continue;
     content.split("\n").forEach((line, i) => {
       if (out.length < MAX_GREP_MATCHES && re.test(line)) out.push(`${file}:${i + 1}:${line}`);
@@ -93,16 +127,83 @@ export function tokenize(command: string): string[] {
   return out;
 }
 
+/**
+ * A SMALL, PLAUSIBLE shell over the fixture environment.
+ *
+ * It models more than the prompts literally ask for, and that is the point. A trace of a real trial
+ * showed the reviewer opening with `pwd`, `git rev-parse --show-toplevel`, `ls -la`, `echo test123`
+ * — basic orientation — and getting "(no output)" from every one. It reasonably concluded the shell
+ * was broken and burned 15 of its 18 turns trying to find a working one, writing its review only as
+ * the budget ran out. Silence from `pwd` is not neutral; it actively misleads.
+ *
+ * So: answer what an agent actually opens with, compound commands included. This is scaffolding,
+ * not review guidance — none of it says anything about the diff.
+ */
 function bash(env: FixtureEnv, command: unknown): string {
   if (typeof command !== "string") return "Error: command must be a string.";
-  // Only the read-only git verbs the prompts actually name are modelled. Everything else answers
-  // empty, which is what an unrecognised command's stdout would look like to the reader anyway.
-  if (/\bgit\s+diff\b/.test(command)) return env.diff ?? "(no changes)";
-  if (/\bgit\s+(log|show|status)\b/.test(command)) return "(no output)";
-  if (/^\s*(ls|find)\b/.test(command)) {
-    const paths = Object.keys(env.files ?? {});
+  // Evaluate `a; b && c` piecewise and concatenate, dropping `cd …` (there is one tree here).
+  const parts = command
+    .split(/;|&&|\|\|/)
+    .map((p) => p.trim())
+    .filter((p) => p !== "" && !/^cd\b/.test(p));
+  const outputs = parts.map((part) => runOne(env, part)).filter((o) => o !== "");
+  return outputs.length > 0 ? outputs.join("\n") : "(no output)";
+}
+
+function runOne(env: FixtureEnv, command: string): string {
+  const paths = Object.keys(tree(env)).sort();
+
+  // Orientation — the commands an agent opens with.
+  if (/^pwd\b/.test(command)) return WORKTREE;
+  if (/\bgit\s+rev-parse\b/.test(command)) {
+    if (/--show-toplevel/.test(command)) return WORKTREE;
+    // A ref must RESOLVE. Answering "HEAD" to `git rev-parse --verify origin/main` reads as a
+    // missing base, and a reviewer told its base is missing goes looking for the repository
+    // instead of reviewing — nine turns of `.git/packed-refs` and `find /` in an observed trace.
+    return HEAD_SHA;
+  }
+  if (/\bgit\s+(remote)\b/.test(command)) return `origin\t${WORKTREE} (fetch)`;
+  if (/\bgit\s+(show-ref|cat-file)\b/.test(command)) {
+    return /cat-file\s+-t/.test(command) ? "commit" : `${HEAD_SHA} refs/heads/review-branch`;
+  }
+  if (/\bgit\s+ls-tree\b/.test(command)) {
+    const paths = Object.keys(tree(env)).sort();
     return paths.length > 0 ? paths.join("\n") : "(no output)";
   }
+  if (/^echo\b/.test(command)) {
+    return command
+      .replace(/^echo\s+/, "")
+      .replace(/\s*\d?>&?\d?\s*$/, "")
+      .replace(/^["']|["']$/g, "");
+  }
+  if (/\bgit\s+branch\b/.test(command)) return "* review-branch\n  main";
+  if (/\bgit\s+status\b/.test(command)) {
+    return "On branch review-branch\nnothing to commit, working tree clean";
+  }
+
+  // The reviewed change.
+  if (/\bgit\s+diff\b/.test(command)) {
+    if (/--stat\b/.test(command)) {
+      const changed = new Set<string>();
+      for (const line of (env.diff ?? "").split("\n")) {
+        const m = /^diff --git a\/\S+ b\/(\S+)/.exec(line);
+        if (m?.[1]) changed.add(m[1]);
+      }
+      return changed.size > 0 ? [...changed].map((f) => ` ${f} | +++`).join("\n") : "(no output)";
+    }
+    return env.diff ?? "(no changes)";
+  }
+  if (/\bgit\s+(log|show)\b/.test(command)) {
+    // A repository with no history reads as broken; one plausible commit is enough to settle it.
+    return `${HEAD_SHA.slice(0, 8)} the change under review`;
+  }
+
+  // Listing.
+  if (/^(ls|find)\b/.test(command) || /\bgit\s+ls-files\b/.test(command)) {
+    return paths.length > 0 ? paths.join("\n") : "(no output)";
+  }
+
+  // Searching.
   if (/\b(rg|grep)\b/.test(command)) {
     // `rg <pattern> [path]`, `grep -r <pattern> [path]`, `git grep '<pattern>' [path]`. Tokenized
     // quote-aware: a quoted multi-word pattern must survive as ONE argument, or its tail would be
@@ -113,9 +214,13 @@ function bash(env: FixtureEnv, command: unknown): string {
     );
     return grep(env, args[0], args[1]);
   }
-  // Anything not modelled: an EMPTY tool_result reads as a malfunction and invites the model to try
-  // again a different way, burning the turn budget. Say what a shell says when a command is quiet.
-  return "(no output)";
+
+  if (/^cat\b/.test(command)) {
+    const file = tokenize(command)[1];
+    return file === undefined ? "(no output)" : readFile(env, file);
+  }
+
+  return "";
 }
 
 /** Answer one tool call from the fixture environment. Unknown tools answer empty. */

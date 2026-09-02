@@ -915,3 +915,30 @@ test("the default spend ceiling is low enough to be a real guard", () => {
   expect(parseArgs(testSpec(), []).maxSpend).toBeLessThanOrEqual(5);
   expect(parseArgs(testSpec(), ["--max-spend", "12.5"]).maxSpend).toBe(12.5);
 });
+
+test("the fixture tree includes files the DIFF adds, as a real checkout would", () => {
+  // A trace showed the reviewer reading the very file under review and being told it does not
+  // exist, because the fixture map only carried pre-existing files. In production the PR branch is
+  // checked out, so a file the diff creates is there.
+  const bug = CRITIC_SPEC.fixtures.find((f) => f.id === "bug-off-by-one")!;
+  expect(respondFromEnv(bug.env, "Read", { file_path: "src/paginate.ts" })).toContain(
+    "export function paginate",
+  );
+  expect(respondFromEnv(bug.env, "Grep", { pattern: "pageCount" })).toContain("src/paginate.ts:");
+});
+
+test("the fixture shell answers the orientation commands an agent opens with", () => {
+  // Silence from `pwd` / `ls` / `echo` is not neutral: it reads as a broken shell. An observed
+  // trial spent 15 of its 18 turns hunting for a working environment and ran out before writing.
+  const env = { diff: "diff --git a/x.ts b/x.ts\n", files: { "x.ts": "export const a = 1;\n" } };
+  expect(respondFromEnv(env, "Bash", { command: "pwd" })).not.toBe("(no output)");
+  expect(respondFromEnv(env, "Bash", { command: "echo test123" })).toBe("test123");
+  expect(respondFromEnv(env, "Bash", { command: "ls -la" })).toContain("x.ts");
+  expect(respondFromEnv(env, "Bash", { command: "git status" })).toContain("branch");
+  // A ref must RESOLVE — an unresolvable base reads as a missing repository.
+  expect(respondFromEnv(env, "Bash", { command: "git rev-parse --verify origin/main" })).toMatch(
+    /^[0-9a-f]{40}$/,
+  );
+  // Compound commands are evaluated piecewise, with `cd` dropped (there is one tree).
+  expect(respondFromEnv(env, "Bash", { command: "cd /repo && pwd; echo done" })).toContain("done");
+});

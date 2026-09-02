@@ -1,0 +1,163 @@
+name: Eval — prompt gate
+
+# Live-model evals for Shepherd's four high-leverage prompts (issue #2156): the autopilot
+# stop-classifier, the plan-gate reviewer, the PR critic and the rundown.
+#
+# THREE TRIGGERS, one job:
+#
+#   pull_request — the gate. Runs on EVERY PR and decides for itself whether there is anything to
+#     do, by comparing the freshly-rendered prompt fingerprints against the base's committed
+#     scripts/eval-fingerprints.json and running ONLY the evals whose hash moved. Path filtering is
+#     deliberately NOT used: a `paths:`-filtered job reports NO STATUS at all on PRs that don't
+#     touch those paths, and a required check that never reports blocks the PR from merging forever
+#     (the same reasoning as the `site` job in ci.yml — #1859).
+#
+#     Fingerprints, not paths, because src/plan-gate.ts, src/critic-core.ts and src/rundown-core.ts
+#     are busy service modules (45 / 20 / 15 commits in a recent three-month window) whose churn
+#     almost never touches the prompt text. A per-file trigger would spend $1-2 on ~25 PRs a month.
+#
+#   schedule — weekly drift detection over the FULL fixture sets (gating + baseline), for the three
+#     sonnet evals. The classifier keeps its own nightly cron in eval-stop-classifier.yml (haiku,
+#     pennies), which also owns its #1627 A/B dispatch inputs.
+#
+#   workflow_dispatch — run one eval, or all of them, on demand.
+#
+# COST: the PR leg runs `--gating-only` (baseline fixtures are for the recorded distribution, not
+# the gate). The weekly leg runs everything. See docs/eval-harness.md for the per-run numbers.
+#
+# NO KEY, NO FAILURE: forks and Dependabot PRs cannot see ANTHROPIC_API_KEY. The job then exits
+# GREEN with a loud warning rather than red — this gate is a regression net for our own prompt
+# edits, not a security boundary, and a check nobody outside the repo can pass would just block
+# every fork PR.
+on:
+  pull_request:
+  schedule:
+    # Mondays 06:00 UTC — the three sonnet evals, full fixture sets.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      evals:
+        description: "Which evals to run: 'all' or a space-separated subset (plan-gate critic rundown stop-classifier)"
+        required: false
+        default: "all"
+      trials:
+        description: "Trials per fixture (default: each eval's own pinned default)"
+        required: false
+        default: ""
+      gating_only:
+        description: "'true' to run only the gating fixtures (what the PR gate does)"
+        required: false
+        default: "false"
+
+permissions:
+  contents: read
+
+concurrency:
+  # Per-ref, and cancel superseded PR runs: a force-push should not leave two paid runs racing.
+  group: eval-prompts-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  eval:
+    name: eval-prompts
+    # Skip release-please's generated PR, mirroring ci.yml's jobs.
+    if: ${{ !(startsWith(github.head_ref, 'release-please--') && (github.event.pull_request.user.login == 'shepherd-release-please[bot]' || github.event.pull_request.user.login == 'github-actions[bot]')) }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          # The PR leg reads the base commit's fingerprint file via `git show`, so it needs history.
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: latest
+
+      - name: Install deps
+        run: bun install --frozen-lockfile
+
+      # Decide what to run. On a PR: only the evals whose RENDERED fingerprint differs from the
+      # base's committed one (rendered, not committed, so a stale commit cannot talk the gate out of
+      # running; the freshness gate in ci.yml keeps the two in step anyway). A base with no
+      # fingerprint file at all yields every eval — fail-open, because skipping a gate on unknown
+      # state is the outcome worth paying to avoid.
+      - name: Select evals
+        id: select
+        env:
+          EVENT: ${{ github.event_name }}
+          DISPATCH_EVALS: ${{ github.event.inputs.evals }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = "pull_request" ]; then
+            git show "$BASE_SHA:scripts/eval-fingerprints.json" > /tmp/base-fingerprints.json 2>/dev/null \
+              || echo '{}' > /tmp/base-fingerprints.json
+            selected="$(bun run scripts/gen-eval-fingerprints.ts --changed /tmp/base-fingerprints.json | tr '\n' ' ')"
+          elif [ "$EVENT" = "schedule" ]; then
+            # The classifier has its own nightly cron; the weekly leg covers the three sonnet evals.
+            selected="plan-gate critic rundown"
+          elif [ "${DISPATCH_EVALS:-all}" = "all" ] || [ -z "${DISPATCH_EVALS:-}" ]; then
+            selected="stop-classifier plan-gate critic rundown"
+          else
+            selected="$DISPATCH_EVALS"
+          fi
+          # Allowlist every name before it reaches a `bun run` argument: `evals` is a
+          # workflow_dispatch input, so it is caller-controlled text, not trusted data.
+          validated=""
+          for name in $selected; do
+            case "$name" in
+              stop-classifier | plan-gate | critic | rundown) validated="$validated $name" ;;
+              *) echo "::error title=Unknown eval::'$name' is not one of stop-classifier, plan-gate, critic, rundown."; exit 1 ;;
+            esac
+          done
+          selected="$(echo "$validated" | xargs || true)"
+          echo "evals=$selected" >> "$GITHUB_OUTPUT"
+          if [ -z "$selected" ]; then
+            echo "No prompt fingerprint changed — nothing to evaluate."
+          else
+            echo "Will run: $selected"
+          fi
+
+      # `--gating-only` on the PR leg and when a dispatch asks for it; the weekly run covers the
+      # full set so the recorded baseline distributions stay current.
+      - name: Run selected evals
+        if: steps.select.outputs.evals != ''
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          EVENT: ${{ github.event_name }}
+          TRIALS: ${{ github.event.inputs.trials }}
+          GATING_ONLY: ${{ github.event.inputs.gating_only }}
+          SELECTED: ${{ steps.select.outputs.evals }}
+        run: |
+          set -uo pipefail
+          if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
+            echo "::warning title=Eval skipped::No ANTHROPIC_API_KEY available (fork or Dependabot PR)." \
+                 "The prompt eval could not run for: $SELECTED. A maintainer must dispatch" \
+                 ".github/workflows/eval-prompts.yml before merging a prompt change."
+            exit 0
+          fi
+
+          flags=""
+          if [ "$EVENT" = "pull_request" ] || [ "${GATING_ONLY:-false}" = "true" ]; then
+            flags="$flags --gating-only"
+          fi
+          if [ -n "${TRIALS:-}" ]; then
+            # Digits only — another caller-controlled dispatch input reaching a command line.
+            case "$TRIALS" in
+              '' | *[!0-9]*) echo "::error title=Bad trials input::'$TRIALS' is not a positive integer."; exit 1 ;;
+              *) flags="$flags --trials $TRIALS" ;;
+            esac
+          fi
+
+          status=0
+          for name in $SELECTED; do
+            echo "::group::eval $name"
+            # ONE run per eval. `--json` emits the human report on stderr (for this log) and the
+            # JSON block on stdout (what the doc's baseline tables are transcribed from), so both
+            # artifacts come from a single paid pass. Its exit code is the gate.
+            bun run "eval:$name" $flags --json || status=1
+            echo "::endgroup::"
+          done
+          exit $status

@@ -121,6 +121,13 @@ jobs:
       - name: herdr protocol types freshness (schema ⇒ regenerated types)
         run: bun run check:herdr-types
 
+      # Prompt fingerprints (#2156): a prompt-builder edit must regenerate
+      # scripts/eval-fingerprints.json, which is what eval-prompts.yml compares against the PR base
+      # to decide which live evals to run. Without this gate a prompt change could ship with a
+      # stale fingerprint and silently skip its own eval.
+      - name: Eval prompt fingerprints freshness (prompt builders ⇒ regenerated hashes)
+        run: bun run check:eval-fingerprints
+
       - name: Test (root)
         # server.test.ts creates its temp repo inside repoRoot (default
         # $HOME/Work, absent on the runner). Point it at a writable temp dir.

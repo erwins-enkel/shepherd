@@ -22,6 +22,8 @@ const stats = (over: Partial<DeliveryStats> = {}): DeliveryStats => ({
   criticErrors: 0,
   planRoundsMedian: s(null),
   planReworkRate: s(null),
+  planDriftRate: s(null),
+  planDriftMajor: 0,
   timeToFirstReviewMs: s(600_000),
   leadTimeMs: s(23_400_000),
   ...over,
@@ -53,8 +55,8 @@ describe("DeliveryLens", () => {
   it("renders every indicator with its sample size", async () => {
     render(DeliveryLens, { metrics: metrics() });
 
-    // first-pass, rework, plan rework, ttfr, lead time, merged
-    expect(tileValues()).toEqual(["50%", "1.5", "—", "10m", "6h 30m", "4"]);
+    // first-pass, rework, plan rework, plan drift, ttfr, lead time, merged
+    expect(tileValues()).toEqual(["50%", "1.5", "—", "—", "10m", "6h 30m", "4"]);
     expect(document.body.textContent).toContain("n = 4");
   });
 
@@ -80,8 +82,8 @@ describe("DeliveryLens", () => {
     });
     const values = tileValues();
     expect(values[0]).toBe("—");
-    expect(values[3]).toBe("—");
     expect(values[4]).toBe("—");
+    expect(values[5]).toBe("—");
     expect(values).not.toContain("0%");
   });
 
@@ -110,6 +112,21 @@ describe("DeliveryLens", () => {
     // The count cell must keep its intrinsic width, not collapse into a 3rem track.
     const count = incident.lastElementChild as HTMLElement;
     expect(count.getBoundingClientRect().width).toBeGreaterThan(48);
+  });
+
+  it("renders the plan-drift rate and calls out major divergences (#2155)", async () => {
+    render(DeliveryLens, {
+      metrics: metrics({ totals: stats({ planDriftRate: s(0.25, 8), planDriftMajor: 1 }) }),
+    });
+    expect(tileValues()[3]).toBe("25%");
+    expect(document.body.textContent).toContain("n = 8");
+    // The major count is called out only when there is one — a rate alone hides how bad the drift is.
+    expect(document.body.textContent).toContain("approach");
+  });
+
+  it("omits the major-divergence note when nothing drifted that far", async () => {
+    render(DeliveryLens, { metrics: metrics({ totals: stats({ planDriftRate: s(0.25, 8) }) }) });
+    expect(document.body.textContent).not.toContain("approach");
   });
 
   it("lists repos and surfaces critic errors when there are any", async () => {

@@ -20,6 +20,7 @@
   import { criticChip, criticBadgeLabel, criticTitle } from "./critic-badge";
   import { canTriggerPlanReview } from "./plan-gate-badge";
   import RailStatusActions from "./git-rail/RailStatusActions.svelte";
+  import PlanDriftNote from "./git-rail/PlanDriftNote.svelte";
   import AutomationPanel from "./AutomationPanel.svelte";
   import { automationCount, AUTOMATION_TOTAL } from "./git-rail-automation";
   import { coachTarget, coachTargets } from "$lib/actions/coachTarget.svelte";
@@ -825,6 +826,8 @@
         {#if verdict.summaryCode || verdict.summary}
           <p class="rv-summary">{criticTitle(verdict)}</p>
         {/if}
+        <!-- #2155: renders nothing unless the critic measured a real departure from the plan. -->
+        <PlanDriftNote {verdict} />
         {#if verdict.body}
           <!-- eslint-disable-next-line svelte/no-at-html-tags -- sanitized via DOMPurify above -->
           <div class="rv-body">{@html renderedBody}</div>

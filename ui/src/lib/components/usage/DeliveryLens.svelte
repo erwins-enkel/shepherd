@@ -69,6 +69,12 @@
         note: sampleNote(st.planReworkRate),
       },
       {
+        key: "plan-drift",
+        label: m.usage_delivery_plan_drift(),
+        value: pct(st.planDriftRate),
+        note: sampleNote(st.planDriftRate),
+      },
+      {
         key: "ttfr",
         label: m.usage_delivery_ttfr(),
         value: durationOf(st.timeToFirstReviewMs),
@@ -125,6 +131,12 @@
           </div>
         {/each}
       </div>
+
+      {#if metrics.totals.planDriftMajor > 0}
+        <p class="caption">
+          {m.usage_delivery_plan_drift_major({ n: metrics.totals.planDriftMajor })}
+        </p>
+      {/if}
 
       {#if metrics.totals.criticErrors > 0}
         <p class="caption">

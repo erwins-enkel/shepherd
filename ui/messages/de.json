@@ -3731,5 +3731,13 @@
   "issues_attempt_http": "HTTP {status}",
   "issues_attempt_unknown": "unbekannter Fehler",
   "feat_issue_load_transports_title": "Scheitert das Laden der Issues, steht jetzt da, welcher Weg scheiterte",
-  "feat_issue_load_transports_body": "Shepherd lädt GitHub-Issues über zwei unabhängige Budgets — `gh issue list` auf dem GraphQL-Kontingent und `gh api` auf dem REST-Kontingent — und weicht bei einem Fehler auf den anderen Weg aus. Geben beide auf, sagen das Neue-Aufgabe-Modal und das Issues-Panel nicht mehr bloß „konnten nicht geladen werden“: Sie listen jeden Transport, der wirklich lief, samt Grund (Rate-Limit, nicht angemeldet, HTTP-Status, gh fehlt, Netzwerk). Der Mauszeiger auf einer Zeile zeigt die volle gh-Meldung. Ein „Erneut versuchen“ sagt damit, ob du auf ein Kontingent warten oder deine gh-Anmeldung reparieren musst."
+  "feat_issue_load_transports_body": "Shepherd lädt GitHub-Issues über zwei unabhängige Budgets — `gh issue list` auf dem GraphQL-Kontingent und `gh api` auf dem REST-Kontingent — und weicht bei einem Fehler auf den anderen Weg aus. Geben beide auf, sagen das Neue-Aufgabe-Modal und das Issues-Panel nicht mehr bloß „konnten nicht geladen werden“: Sie listen jeden Transport, der wirklich lief, samt Grund (Rate-Limit, nicht angemeldet, HTTP-Status, gh fehlt, Netzwerk). Der Mauszeiger auf einer Zeile zeigt die volle gh-Meldung. Ein „Erneut versuchen“ sagt damit, ob du auf ein Kontingent warten oder deine gh-Anmeldung reparieren musst.",
+  "usage_delivery_plan_drift": "[[plan-drift|Plan-Abweichung]]",
+  "usage_delivery_plan_drift_major": "{n} Aufgabe(n) wichen im Ansatz vom freigegebenen Plan ab, nicht nur im Detail.",
+  "feat_plan_drift_title": "Plan-Abweichungs-Bericht",
+  "feat_plan_drift_body": "Der PR-Critic meldet jetzt zusätzlich, wie weit eine gemergte Änderung von dem vor ihrer Umsetzung freigegebenen Plan abweicht — keine, gering oder groß, mit einer einzeiligen Notiz. Am Review-Urteil ändert das nichts: Vom Plan abzuweichen ist legitim. Der Tab „Lieferung“ zeigt die Quote, denn ein Repo mit ständiger Abweichung schreibt meist vage Pläne statt schlechten Code.",
+  "gloss_plan_drift_term": "Plan-Abweichung",
+  "gloss_plan_drift_def": "Wie weit eine gemergte Änderung von dem Plan abweicht, der vor ihrer Umsetzung freigegeben wurde — vom PR-Critic gemeldet als keine, gering oder groß. Das Review-Urteil bleibt davon unberührt: Vom Plan abzuweichen ist legitim. Gemessen wird es, weil ein Repo mit ständiger Abweichung meist vage Pläne schreibt, nicht schlechten Code.",
+  "gitrail_plan_drift_minor": "Plan-Abweichung: gering — gleicher Ansatz wie im freigegebenen Plan, mit beiläufigen Abweichungen.",
+  "gitrail_plan_drift_major": "Plan-Abweichung: groß — die Änderung ging einen anderen Weg als der freigegebene Plan."
 }

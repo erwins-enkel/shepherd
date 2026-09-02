@@ -81,7 +81,7 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     title: "Concepts & glossary",
     path: "/reference/glossary/",
     keywords:
-      "the shepherd-specific and industry terms used throughout the app and these docs. shepherd concepts epic plan gate autopilot critic merge train rework first-pass rate inferred lightweight repo trial weighted units reasoning effort satellite pass host capacity herdr runtime hygiene sandbox membrane spawn prompt access token token scope industry terms pr ci telemetry lead time inode",
+      "the shepherd-specific and industry terms used throughout the app and these docs. shepherd concepts epic plan gate autopilot critic merge train rework first-pass rate plan drift inferred lightweight repo trial weighted units reasoning effort satellite pass host capacity herdr runtime hygiene sandbox membrane spawn prompt access token token scope industry terms pr ci telemetry lead time inode",
   },
   {
     title: "Project house rules",

@@ -67,6 +67,13 @@ The share of merged tasks that passed review in a single clean round — no rewo
 requested. Tasks that were never reviewed are left out of the calculation
 entirely rather than counted as passes.
 
+### Plan drift
+
+How far a merged change departed from the plan approved before it was written, as
+reported by the PR critic: none, minor or major. It never affects the review's
+verdict — departing from a plan is legitimate. It is measured because a repo that
+drifts constantly is usually writing vague plans, not writing bad code.
+
 ### Inferred
 
 Derived by the recap model from the code — not verified against the real diff.

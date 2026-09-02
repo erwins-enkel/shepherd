@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test";
 import { SessionStore } from "../src/store";
 import { buildDeliveryMetrics } from "../src/delivery-metrics";
-import type { ReviewerSpawnOutcome } from "../src/types";
+import type { PlanDrift, ReviewerSpawnOutcome } from "../src/types";
 
 const DAY = 86_400_000;
 const NOW = 1_800_000_000_000;
@@ -19,7 +19,7 @@ function seedTask(
     createdAt: number;
     prOpenedAt?: number | null;
     mergedAt: number;
-    reviews?: { outcome: ReviewerSpawnOutcome | null; spawnedAt: number }[];
+    reviews?: { outcome: ReviewerSpawnOutcome | null; spawnedAt: number; planDrift?: PlanDrift }[];
     planRounds?: (ReviewerSpawnOutcome | null)[];
   },
 ): void {
@@ -44,7 +44,7 @@ function seedTask(
       model: null,
       spawnedAt: r.spawnedAt,
     });
-    if (r.outcome) store.setReviewerSpawnOutcome(rid, r.outcome);
+    if (r.outcome) store.setReviewerSpawnOutcome(rid, r.outcome, r.planDrift ?? null);
   });
   (opts.planRounds ?? []).forEach((outcome, i) => {
     const rid = `${opts.id}-plan-${i}`;
@@ -66,6 +66,8 @@ function build(store: SessionStore, range: "24h" | "7d" | "30d" | "all" = "7d") 
 
 test("empty store yields null metrics, not zeros", () => {
   const m = build(mk());
+  expect(m.totals.planDriftRate.value).toBeNull();
+  expect(m.totals.planDriftMajor).toBe(0);
   expect(m.totals.mergedTasks).toBe(0);
   expect(m.totals.firstPassRate.value).toBeNull();
   expect(m.totals.firstPassRate.n).toBe(0);
@@ -277,4 +279,76 @@ test("only this task's spawns count toward its rounds", () => {
   const m = build(s);
   expect(m.totals.reworkCyclesMedian).toEqual({ value: 1, n: 1 });
   expect(m.totals.firstPassRate.value).toBe(1);
+});
+
+// ── #2155 plan drift ────────────────────────────────────────────────────────────────────────────
+
+test("plan drift: the LAST measured round wins, and a later unmeasured round does not erase it", () => {
+  const s = mk();
+  seedTask(s, {
+    id: "drifted",
+    createdAt: NOW - DAY,
+    mergedAt: NOW - DAY / 2,
+    reviews: [
+      { outcome: "changes_requested", spawnedAt: NOW - DAY + 1000, planDrift: "major" },
+      { outcome: "clean", spawnedAt: NOW - DAY + 2000, planDrift: "minor" },
+      // A crashed final round measures nothing; the "minor" above still stands.
+      { outcome: "error", spawnedAt: NOW - DAY + 3000 },
+    ],
+  });
+  const m = build(s);
+  expect(m.totals.planDriftRate.value).toBe(1); // minor counts as drift
+  expect(m.totals.planDriftRate.n).toBe(1);
+  expect(m.totals.planDriftMajor).toBe(0); // the final measurement was minor, not major
+});
+
+test("plan drift: unmeasured tasks stay out of the denominator, never counted as `none`", () => {
+  const s = mk();
+  seedTask(s, {
+    id: "measured-none",
+    createdAt: NOW - DAY,
+    mergedAt: NOW - DAY / 2,
+    reviews: [{ outcome: "clean", spawnedAt: NOW - DAY + 1000, planDrift: "none" }],
+  });
+  seedTask(s, {
+    id: "measured-major",
+    createdAt: NOW - DAY,
+    mergedAt: NOW - DAY / 2,
+    reviews: [{ outcome: "clean", spawnedAt: NOW - DAY + 1000, planDrift: "major" }],
+  });
+  // Plan-less (or pre-instrumentation) task: reviewed, but never measured.
+  seedTask(s, {
+    id: "unmeasured",
+    createdAt: NOW - DAY,
+    mergedAt: NOW - DAY / 2,
+    reviews: [{ outcome: "clean", spawnedAt: NOW - DAY + 1000 }],
+  });
+  const m = build(s);
+  expect(m.totals.mergedTasks).toBe(3);
+  expect(m.totals.planDriftRate.value).toBe(0.5); // 1 of the 2 measured tasks drifted
+  expect(m.totals.planDriftRate.n).toBe(2);
+  expect(m.totals.planDriftMajor).toBe(1);
+});
+
+test("plan drift is reported per repo as well as in the totals", () => {
+  const s = mk();
+  seedTask(s, {
+    id: "a",
+    repoPath: "/repos/alpha",
+    createdAt: NOW - DAY,
+    mergedAt: NOW - DAY / 2,
+    reviews: [{ outcome: "clean", spawnedAt: NOW - DAY + 1000, planDrift: "major" }],
+  });
+  seedTask(s, {
+    id: "b",
+    repoPath: "/repos/beta",
+    createdAt: NOW - DAY,
+    mergedAt: NOW - DAY / 2,
+    reviews: [{ outcome: "clean", spawnedAt: NOW - DAY + 1000, planDrift: "none" }],
+  });
+  const m = build(s);
+  const byRepo = Object.fromEntries(m.repos.map((r) => [r.repo, r]));
+  expect(byRepo["alpha"]!.planDriftRate.value).toBe(1);
+  expect(byRepo["beta"]!.planDriftRate.value).toBe(0);
+  expect(m.totals.planDriftRate.value).toBe(0.5);
 });

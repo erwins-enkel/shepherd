@@ -122,7 +122,13 @@ test("the delivery payload always carries a maintain block", async () => {
   const { app } = harness();
   const res = await app.fetch(new Request("http://x/api/usage/delivery"));
   const body = await res.json();
-  expect(body.maintain).toEqual({ enabled: false, act: false, readings: [], recentRuns: [] });
+  expect(body.maintain).toEqual({
+    enabled: false,
+    act: false,
+    pr: false,
+    readings: [],
+    recentRuns: [],
+  });
 });
 
 test("a wired maintain service surfaces its readings on the delivery payload", async () => {

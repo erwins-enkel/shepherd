@@ -6,8 +6,16 @@
  * Shepherd's OWN health data:
  *   Tier 1 — log the reading.
  *   Tier 2 — spawn a read-only diagnosis agent that drafts a backlog issue.
- * Tier 3 (open a PR for a pre-approved fix class) is deliberately absent — the only such class the
- * report names is doc drift, which the doc agent already owns.
+ *   Tier 3 — for a band declaring a pre-approved fix class, open a PR instead (#2171).
+ *
+ * TIER 3 IS NOT A FOURTH THRESHOLD. A reading that crosses its band's tier-2 threshold is PROMOTED
+ * to tier 3 when — and only when — that band's config declares a `tier3` fix class. Making it a
+ * higher threshold would be backwards: you would need MORE dead code to earn the cheap mechanical
+ * fix. Promotion keeps the ladder monotonic and leaves no band with an unreachable rung.
+ *
+ * Exactly one class exists (`dead_code`), on exactly one band (`dead_code_drift`). #2171 forbids
+ * generalising ahead of a named class, so `tier3` lives on {@link CountBandConfig} alone — the
+ * three v1 bands have no mechanical remediation and do not get an inert `tier3?` field.
  *
  * SCOPE GUARD: internal signals only. No production ingress, and no statistical control bands —
  * report §4 rules both out. The threshold table below IS the "version-controlled config" the
@@ -44,11 +52,21 @@ const FIRST_PASS_WINDOW_DAYS = 30;
  */
 const INCIDENT_KIND_EXCLUDED: SignalKind = "reply";
 
-/** How long a band is suppressed after a diagnosis run COMPLETES, whatever its outcome. */
+/** How long a band is suppressed after a run COMPLETES, whatever its outcome or tier. */
 export const DEFAULT_COOLDOWN_MS = 14 * 24 * 60 * 60 * 1000;
 
-/** At most this many Tier-2 diagnosis spawns per sweep. The rest wait for the next day. */
-export const MAX_DIAGNOSES_PER_SWEEP = 1;
+/** At most this many band ACTIONS (a Tier-2 diagnosis spawn or a Tier-3 fix) per sweep. The rest
+ *  wait for the next day. */
+export const MAX_ACTIONS_PER_SWEEP = 1;
+
+/**
+ * The pinned fallow release the `dead_code_drift` band measures and fixes with (#2171).
+ *
+ * KEEP IN SYNC with the other pin sites — `.github/workflows/ci.yml`, `scripts/pre-push.ts` and
+ * `CONTRIBUTING.md` (they carry sync banners of their own). A different version changes what counts
+ * as a finding, so a drifted pin would have the band measure one thing while CI gates another.
+ */
+export const FALLOW_VERSION = "2.100.0";
 
 /** A rate band: breach when the measured rate crosses the tier in the band's direction. */
 interface RateBandConfig {
@@ -65,10 +83,40 @@ interface IncidentBandConfig {
   tier2: { occurrences: number; sessions: number };
 }
 
+/**
+ * The pre-approved remediation classes a band may declare (#2171). Exactly one exists, and adding
+ * a second is a deliberate act: each class needs a mechanism that can produce the diff without an
+ * operator in the loop, and an operator willing to see that diff arrive as a PR with no issue
+ * first. Do NOT widen this speculatively.
+ */
+type FixClass = "dead_code";
+
+/** A band's Tier-3 declaration: the pre-approved fix class its tier-2 breach escalates to. */
+interface Tier3Config {
+  class: FixClass;
+}
+
+/** A count band: breach when the measured count reaches the tier. No minimum sample — a count of
+ *  N is exactly as trustworthy at N=1 as at N=100. */
+interface CountBandConfig {
+  tier1: number;
+  tier2: number;
+  /**
+   * Present ⇒ a tier-2 breach is promoted to tier 3 and routed to the fix path instead of the
+   * diagnosis path. Absent on every band without a mechanical remediation, which is why this field
+   * lives here and not on the rate/incident configs.
+   *
+   * NOT operator-overridable: `SHEPHERD_MAINTAIN_THRESHOLDS` can retune the numbers, but disarming
+   * Tier 3 is what `SHEPHERD_MAINTAIN_PR` is for. One disarm switch, not two.
+   */
+  tier3?: Tier3Config;
+}
+
 export interface BandThresholds {
   critic_error_rate: RateBandConfig;
   incident_spike: IncidentBandConfig;
   first_pass_collapse: RateBandConfig;
+  dead_code_drift: CountBandConfig;
 }
 
 /**
@@ -87,6 +135,12 @@ export const DEFAULT_BAND_THRESHOLDS: BandThresholds = {
   },
   // Per repo over 30d. Direction is INVERTED: a LOWER rate is worse.
   first_pass_collapse: { minSample: 8, tier1: 0.6, tier2: 0.4 },
+  // Auto-fixable dead-code findings in Shepherd's own checkout, right now (#2171). A point-in-time
+  // count, not a window: `fallow fix` either has something to remove or it does not.
+  //
+  // Why tier2 sits as low as 3: the remediation is deterministic and free, so the cost of acting is
+  // a PR nobody had to write. One stray export is not worth the round trip; a handful is.
+  dead_code_drift: { tier1: 1, tier2: 3, tier3: { class: "dead_code" } },
 };
 
 function isFiniteNumber(v: unknown): v is number {
@@ -101,6 +155,18 @@ function mergeRateBand(base: RateBandConfig, raw: unknown): RateBandConfig {
     minSample: isFiniteNumber(o.minSample) && o.minSample >= 0 ? o.minSample : base.minSample,
     tier1: isFiniteNumber(o.tier1) ? o.tier1 : base.tier1,
     tier2: isFiniteNumber(o.tier2) ? o.tier2 : base.tier2,
+  };
+}
+
+/** Merge the count band's overrides. `tier3` is deliberately NOT mergeable — see
+ *  {@link CountBandConfig.tier3}; the base's class declaration is carried through untouched. */
+function mergeCountBand(base: CountBandConfig, raw: unknown): CountBandConfig {
+  if (raw === null || typeof raw !== "object") return base;
+  const o = raw as Record<string, unknown>;
+  return {
+    tier1: isFiniteNumber(o.tier1) ? o.tier1 : base.tier1,
+    tier2: isFiniteNumber(o.tier2) ? o.tier2 : base.tier2,
+    ...(base.tier3 ? { tier3: base.tier3 } : {}),
   };
 }
 
@@ -138,6 +204,7 @@ export function mergeThresholds(raw: unknown): BandThresholds {
       DEFAULT_BAND_THRESHOLDS.first_pass_collapse,
       o.first_pass_collapse,
     ),
+    dead_code_drift: mergeCountBand(DEFAULT_BAND_THRESHOLDS.dead_code_drift, o.dead_code_drift),
   };
 }
 
@@ -149,6 +216,89 @@ export function thresholdsFromEnv(raw: string | undefined): BandThresholds {
   return mergeThresholds(parsed.value);
 }
 
+// ── dead-code report ─────────────────────────────────────────────────────────
+
+/** What `fallow dead-code --format json` told us, reduced to what the band needs. */
+export interface DeadCodeReading {
+  /** Findings fallow can remove itself — the ONLY ones the band counts, because `fallow fix` is
+   *  what remediates them and it drives exactly this number to zero. */
+  autoFixable: number;
+  /** Every finding, auto-fixable or not. Carried as the band's `sampleN` so the lens can show
+   *  "1 of 3" rather than implying the other two do not exist. */
+  total: number;
+  /** Auto-fixable count per fallow category (`unused_exports`, …), for the PR body. Bounded by
+   *  fallow's own category list. */
+  byCategory: Record<string, number>;
+}
+
+/**
+ * Reduce a `fallow dead-code --format json` payload to a {@link DeadCodeReading}, or null when the
+ * payload is not a dead-code report at all.
+ *
+ * NULL IS LOAD-BEARING, in two places. The band renders it as "no data" rather than as a clear
+ * 0 — a fallow that failed to run must never read as "no dead code". And the Tier-3 verify gate
+ * requires `autoFixable === 0` from a REAL report, so a post-fix run whose output stopped parsing
+ * fails the gate instead of passing it.
+ *
+ * Category-agnostic on purpose: fallow's report carries ~30 finding arrays and grows new ones
+ * between releases, so this walks every top-level array of `{ actions: [...] }` objects rather than
+ * hard-coding a list that would silently stop counting a newly added category. `next_steps` (the
+ * only other top-level array) has no `actions` and is skipped by the same rule.
+ */
+export function parseDeadCodeReport(text: string | null): DeadCodeReading | null {
+  if (text === null) return null;
+  const parsed = tolerantParseJson(text);
+  if (parsed.status !== "ok" || parsed.value === null || typeof parsed.value !== "object") {
+    return null;
+  }
+  const o = parsed.value as Record<string, unknown>;
+  // Guard the discriminator: an error envelope or a different subcommand's output must not reduce
+  // to a confident zero.
+  if (o.kind !== "dead-code") return null;
+  const out: DeadCodeReading = { autoFixable: 0, total: 0, byCategory: {} };
+  for (const [category, value] of Object.entries(o)) {
+    if (!Array.isArray(value)) continue;
+    const tally = tallyFindings(value);
+    out.total += tally.total;
+    if (tally.fixable > 0) {
+      out.autoFixable += tally.fixable;
+      out.byCategory[category] = (out.byCategory[category] ?? 0) + tally.fixable;
+    }
+  }
+  return out;
+}
+
+/** Count one fallow category array: how many entries are findings, and how many of those fallow
+ *  can fix itself. An entry with no `actions` array is not a finding — `next_steps` is the live
+ *  example, and counting it would inflate every reading. */
+function tallyFindings(items: unknown[]): { total: number; fixable: number } {
+  let total = 0;
+  let fixable = 0;
+  for (const item of items) {
+    if (item === null || typeof item !== "object") continue;
+    const actions = (item as Record<string, unknown>).actions;
+    if (!Array.isArray(actions)) continue;
+    total += 1;
+    if (actions.some(isAutoFixableAction)) fixable += 1;
+  }
+  return { total, fixable };
+}
+
+function isAutoFixableAction(a: unknown): boolean {
+  return (
+    a !== null && typeof a === "object" && (a as Record<string, unknown>).auto_fixable === true
+  );
+}
+
+/** Human-readable one-liner for a reading's auto-fixable breakdown, for the PR body and the log.
+ *  Categories are fallow's own snake_case names, spelled out. */
+export function describeDeadCode(reading: DeadCodeReading): string {
+  const parts = Object.entries(reading.byCategory)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([category, n]) => `${n} ${category.replace(/_/g, " ")}`);
+  return parts.length > 0 ? parts.join(", ") : "no auto-fixable findings";
+}
+
 /** What one sweep measured, assembled by the caller from the store + delivery metrics. */
 export interface BandInput {
   /** Outcome-bearing review spawns in the critic window. */
@@ -157,6 +307,8 @@ export interface BandInput {
   incidents: DeliveryIncidentRow[];
   /** Per-repo delivery rows over `FIRST_PASS_RANGE`. */
   repos: DeliveryRepoRow[];
+  /** The self repo's dead-code reading, or null when fallow could not be run or read. */
+  deadCode: DeadCodeReading | null;
 }
 
 /** Highest tier a value crosses on a band where HIGHER is worse. */
@@ -179,12 +331,29 @@ function incidentTier(row: DeliveryIncidentRow, cfg: IncidentBandConfig): Mainta
   return 0;
 }
 
+/**
+ * Tier 3 is a PROMOTION of a tier-2 breach, not a threshold above it: a band that declares a fix
+ * class routes its breach to the fix path instead of the diagnosis path. Every other tier passes
+ * through untouched.
+ *
+ * The single place this happens, so no caller can reach a tier-2 reading on a fix-class band and
+ * spawn a diagnosis for work the loop is about to do deterministically.
+ */
+function promote(tier: MaintainTier, tier3: Tier3Config | undefined): MaintainTier {
+  return tier === 2 && tier3 ? 3 : tier;
+}
+
 /** The measurement window a band is scored over, in days — what the diagnosis prompt must state.
- *  `first_pass_collapse` reads the 30d delivery range; the other two use their 7d windows. Derived
- *  here rather than passed by the caller so the prompt can never quote a window the band does not
- *  actually use (which would land in the filed issue as the agent's reasoning). */
+ *  `first_pass_collapse` reads the 30d delivery range; the two incident/rate bands use their 7d
+ *  windows. Derived here rather than passed by the caller so the prompt can never quote a window
+ *  the band does not actually use (which would land in the filed issue as the agent's reasoning).
+ *
+ *  `dead_code_drift` has no window — it is a point-in-time count — and reports 0. Unreachable by
+ *  construction: only {@link buildDiagnosisPrompt} calls this, only a tier-2 reading reaches it,
+ *  and that band's tier-2 breach is always promoted to 3. */
 export function windowDaysFor(bandId: BandId): number {
   if (bandId === "first_pass_collapse") return FIRST_PASS_WINDOW_DAYS;
+  if (bandId === "dead_code_drift") return 0;
   return CRITIC_WINDOW_MS / 86_400_000;
 }
 
@@ -262,7 +431,33 @@ export function evaluateBands(
     });
   }
 
+  // ── dead_code_drift (global, self repo) ─────────────────────────────────────
+  const dcCfg = thresholds.dead_code_drift;
+  const dc = input.deadCode;
+  out.push({
+    key: bandKey("dead_code_drift"),
+    bandId: "dead_code_drift",
+    repoPath: null,
+    subject: null,
+    value: dc?.autoFixable ?? 0,
+    // Total findings, not a denominator: the lens shows "N of M", where M-N are the ones fallow
+    // will not touch (unused FILES, which it marks not-auto-fixable) and a human still owns.
+    sampleN: dc?.total ?? 0,
+    tier: dc === null ? 0 : promote(countTier(dc.autoFixable, dcCfg), dcCfg.tier3),
+    // A fallow that could not be run or read is "no data", NEVER a clear 0 — see
+    // parseDeadCodeReport.
+    belowMinSample: dc === null,
+    evaluatedAt: now,
+  });
+
   return out;
+}
+
+/** Highest tier a count crosses. Shares the higher-is-worse direction with the rate bands. */
+function countTier(value: number, cfg: CountBandConfig): MaintainTier {
+  if (value >= cfg.tier2) return 2;
+  if (value >= cfg.tier1) return 1;
+  return 0;
 }
 
 /** Breached readings, most severe first — the order Tier-2 candidates are considered in. */
@@ -276,10 +471,14 @@ export function breaches(readings: BandReading[]): BandReading[] {
 export function describeReading(r: BandReading): string {
   const where = r.subject ? ` [${r.subject}]` : "";
   const pct = (v: number) => `${(v * 100).toFixed(1)}%`;
-  const value =
-    r.bandId === "incident_spike"
-      ? `${r.value} occurrence(s) across ${r.sampleN} session(s)`
-      : `${pct(r.value)} (n=${r.sampleN})`;
+  let value: string;
+  if (r.bandId === "incident_spike") {
+    value = `${r.value} occurrence(s) across ${r.sampleN} session(s)`;
+  } else if (r.bandId === "dead_code_drift") {
+    value = `${r.value} auto-fixable of ${r.sampleN} finding(s)`;
+  } else {
+    value = `${pct(r.value)} (n=${r.sampleN})`;
+  }
   return `${r.bandId}${where}: ${value} → tier ${r.tier}`;
 }
 
@@ -448,6 +647,59 @@ export function renderIssueBody(draft: MaintainDraft, reading: BandReading): str
   if (draft.subsystem) lines.push("", "## Affected subsystem", "", draft.subsystem);
   if (draft.openQuestions.length > 0) {
     lines.push("", "## Open questions", "", ...draft.openQuestions.map((q) => `- ${q}`));
+  }
+  lines.push(
+    "",
+    "---",
+    "",
+    `Band \`${reading.key}\` · ${describeReading(reading)} · measured ${new Date(
+      reading.evaluatedAt,
+    ).toISOString()}`,
+  );
+  return lines.join("\n");
+}
+
+// ── tier 3: the dead-code fix ────────────────────────────────────────────────
+
+/** Commit subject and PR title for a Tier-3 dead-code fix. Conventional-commit shaped: the repo's
+ *  `pr-title` workflow gates PR titles, and this one is opened without a human to fix it. */
+export const DEAD_CODE_COMMIT_MSG = "chore(maintain): remove auto-fixable dead code";
+
+/**
+ * The Tier-3 PR body.
+ *
+ * Says three things an operator needs before reading the diff: a machine opened this, the diff is
+ * `fallow fix`'s output rather than anyone's judgement, and the non-auto-fixable findings this run
+ * deliberately left alone are still there. The pinned fallow version is named because the diff is
+ * only reproducible against it.
+ */
+export function renderFixPrBody(before: DeadCodeReading, reading: BandReading): string {
+  const remaining = before.total - before.autoFixable;
+  const lines = [
+    "> Opened automatically by Shepherd's maintain loop (tier 3). The diff is the verbatim output",
+    `> of \`fallow fix\` — no agent wrote it. Review it as you would any deletion.`,
+    "",
+    "## What this removes",
+    "",
+    `${describeDeadCode(before)} — found by \`fallow@${FALLOW_VERSION} dead-code\` against this`,
+    "repository's `.fallowrc.jsonc`.",
+    "",
+    "## Verified before opening",
+    "",
+    "- `bun install --frozen-lockfile` in the root, `ui/` and `extension/` — without installed",
+    "  dependencies fallow cannot resolve imports and reports findings that are not real.",
+    "- `bun run typecheck` passes on the result.",
+    "- A re-run of `fallow dead-code` reports no auto-fixable findings left.",
+  ];
+  if (remaining > 0) {
+    lines.push(
+      "",
+      "## Left alone",
+      "",
+      `${remaining} finding(s) are not auto-fixable — fallow flags unused FILES as unsafe to delete`,
+      "automatically, because deletion can remove runtime behaviour static analysis cannot see.",
+      "Those remain for a human.",
+    );
   }
   lines.push(
     "",

@@ -5,10 +5,13 @@ import {
   bandKey,
   breaches,
   buildDiagnosisPrompt,
+  describeDeadCode,
   describeReading,
   evaluateBands,
   mergeThresholds,
+  parseDeadCodeReport,
   readMaintainDraft,
+  renderFixPrBody,
   renderIssueBody,
   thresholdsFromEnv,
   windowDaysFor,
@@ -22,6 +25,7 @@ const EMPTY_INPUT: BandInput = {
   reviewOutcomes: { verdicts: 0, errors: 0 },
   incidents: [],
   repos: [],
+  deadCode: null,
 };
 
 function input(over: Partial<BandInput>): BandInput {
@@ -215,8 +219,9 @@ describe("evaluateBands", () => {
       reviewOutcomes: { verdicts: 100, errors: 0 },
       incidents: [{ kind: "stall", occurrences: 0, sessions: 0 }],
       repos: [repoRow("/r/a", 1, 20)],
+      deadCode: { autoFixable: 0, total: 0, byCategory: {} },
     });
-    expect(readings).toHaveLength(3);
+    expect(readings).toHaveLength(4);
     expect(readings.every((r) => r.tier === 0)).toBe(true);
   });
 
@@ -453,5 +458,227 @@ describe("renderIssueBody", () => {
     );
     expect(body).not.toContain("## Evidence");
     expect(body).not.toContain("## Open questions");
+  });
+});
+
+// ── dead_code_drift + tier 3 (#2171) ─────────────────────────────────────────
+
+/** A minimal but shape-faithful `fallow dead-code --format json` payload: one auto-fixable unused
+ *  export plus one unused file fallow refuses to touch, which is exactly today's repo state. */
+function fallowReport(over?: {
+  exports?: number;
+  files?: number;
+  extra?: Record<string, unknown>;
+}): string {
+  const exports = over?.exports ?? 1;
+  const files = over?.files ?? 1;
+  return JSON.stringify({
+    kind: "dead-code",
+    schema_version: 7,
+    total_issues: exports + files,
+    unused_files: Array.from({ length: files }, (_, i) => ({
+      path: `ui/src/lib/components/Gone${i}.svelte`,
+      actions: [
+        { type: "delete-file", auto_fixable: false, description: "Delete this file" },
+        { type: "suppress-file", auto_fixable: false, description: "Suppress" },
+      ],
+    })),
+    unused_exports: Array.from({ length: exports }, (_, i) => ({
+      path: "src/usage.ts",
+      export_name: `gone${i}`,
+      actions: [
+        { type: "remove-export", auto_fixable: true, description: "Remove the unused export" },
+        { type: "suppress-line", auto_fixable: false, description: "Suppress" },
+      ],
+    })),
+    // The only other top-level array fallow emits, and the reason the parser keys off `actions`
+    // rather than off "is an array".
+    next_steps: [{ id: "trace-unused-export", command: "fallow dead-code --trace x", reason: "y" }],
+    ...over?.extra,
+  });
+}
+
+describe("parseDeadCodeReport", () => {
+  it("counts only findings fallow can fix itself", () => {
+    const r = parseDeadCodeReport(fallowReport({ exports: 2, files: 3 }));
+    expect(r).not.toBeNull();
+    expect(r!.autoFixable).toBe(2);
+    expect(r!.total).toBe(5);
+    expect(r!.byCategory).toEqual({ unused_exports: 2 });
+  });
+
+  it("ignores top-level arrays that carry no actions", () => {
+    // `next_steps` has three entries in the fixture's shape but no `actions` — counting it would
+    // inflate every reading.
+    const r = parseDeadCodeReport(fallowReport({ exports: 0, files: 0 }));
+    expect(r!.total).toBe(0);
+    expect(r!.autoFixable).toBe(0);
+  });
+
+  it("counts a category fallow adds in a later release without a code change here", () => {
+    const r = parseDeadCodeReport(
+      fallowReport({
+        exports: 0,
+        files: 0,
+        extra: {
+          some_future_category: [
+            { path: "a.ts", actions: [{ type: "x", auto_fixable: true, description: "d" }] },
+          ],
+        },
+      }),
+    );
+    expect(r!.autoFixable).toBe(1);
+    expect(r!.byCategory).toEqual({ some_future_category: 1 });
+  });
+
+  it("returns null rather than a confident zero for anything that is not a dead-code report", () => {
+    // Each of these would otherwise read as "no dead code" — the exact lie that would let the
+    // Tier-3 verify gate pass on a fallow that fell over.
+    expect(parseDeadCodeReport(null)).toBeNull();
+    expect(parseDeadCodeReport("")).toBeNull();
+    expect(parseDeadCodeReport("not json at all {{{")).toBeNull();
+    expect(parseDeadCodeReport(JSON.stringify({ error: "boom" }))).toBeNull();
+    expect(parseDeadCodeReport(JSON.stringify({ kind: "health", total_issues: 0 }))).toBeNull();
+  });
+});
+
+describe("describeDeadCode", () => {
+  it("spells out the per-category breakdown", () => {
+    expect(describeDeadCode(parseDeadCodeReport(fallowReport({ exports: 2 }))!)).toBe(
+      "2 unused exports",
+    );
+  });
+
+  it("says so when there is nothing to fix", () => {
+    expect(describeDeadCode({ autoFixable: 0, total: 3, byCategory: {} })).toBe(
+      "no auto-fixable findings",
+    );
+  });
+});
+
+describe("evaluateBands — dead_code_drift", () => {
+  const reading = (over: Partial<BandInput>) => readingFor(evaluate(over), "dead_code_drift");
+
+  it("is always present, and reads as no-data when fallow could not be run", () => {
+    const r = reading({ deadCode: null });
+    expect(r.tier).toBe(0);
+    expect(r.belowMinSample).toBe(true);
+    expect(r.value).toBe(0);
+  });
+
+  it("is clear at zero auto-fixable findings even with findings a human still owns", () => {
+    const r = reading({ deadCode: { autoFixable: 0, total: 4, byCategory: {} } });
+    expect(r.tier).toBe(0);
+    expect(r.belowMinSample).toBe(false);
+    expect(r.sampleN).toBe(4);
+  });
+
+  it("logs at tier 1 below the tier-2 threshold", () => {
+    const r = reading({ deadCode: { autoFixable: 1, total: 3, byCategory: {} } });
+    expect(r.tier).toBe(1);
+  });
+
+  it("promotes its tier-2 breach to tier 3 — it declares a fix class", () => {
+    const r = reading({ deadCode: { autoFixable: 3, total: 3, byCategory: {} } });
+    expect(r.tier).toBe(3);
+    expect(DEFAULT_BAND_THRESHOLDS.dead_code_drift.tier3).toEqual({ class: "dead_code" });
+  });
+
+  it("reports tier 2, not 3, when the band declares no fix class", () => {
+    // The whole point of the promotion rule: a band without a mechanical remediation keeps the
+    // diagnosis path. Guards against a future edit putting `tier3` on the shared config shape.
+    const noClass = {
+      ...DEFAULT_BAND_THRESHOLDS,
+      dead_code_drift: { tier1: 1, tier2: 3 },
+    };
+    const readings = evaluateBands(
+      input({ deadCode: { autoFixable: 9, total: 9, byCategory: {} } }),
+      noClass,
+      NOW,
+    );
+    expect(readingFor(readings, "dead_code_drift").tier).toBe(2);
+  });
+
+  it("never promotes the three v1 bands — none has a fix class", () => {
+    const readings = evaluateBands(
+      input({
+        reviewOutcomes: { verdicts: 1, errors: 9 },
+        incidents: [{ kind: "stall", occurrences: 100, sessions: 50 }],
+        repos: [repoRow("/r/a", 0.0, 40)],
+        deadCode: { autoFixable: 9, total: 9, byCategory: {} },
+      }),
+      DEFAULT_BAND_THRESHOLDS,
+      NOW,
+    );
+    for (const r of readings) {
+      if (r.bandId === "dead_code_drift") expect(r.tier).toBe(3);
+      else expect(r.tier).toBe(2);
+    }
+  });
+});
+
+describe("mergeThresholds — dead_code_drift", () => {
+  it("retunes the numbers", () => {
+    const t = mergeThresholds({ dead_code_drift: { tier1: 5, tier2: 20 } });
+    expect(t.dead_code_drift.tier1).toBe(5);
+    expect(t.dead_code_drift.tier2).toBe(20);
+  });
+
+  it("keeps the fix class an override cannot reach", () => {
+    // Disarming tier 3 is SHEPHERD_MAINTAIN_PR's job, not the threshold table's — one disarm
+    // switch, not two. An override that drops the class must not silently disarm the tier.
+    const t = mergeThresholds({ dead_code_drift: { tier1: 2, tier2: 4 } });
+    expect(t.dead_code_drift.tier3).toEqual({ class: "dead_code" });
+    const cleared = mergeThresholds({ dead_code_drift: { tier3: null } });
+    expect(cleared.dead_code_drift.tier3).toEqual({ class: "dead_code" });
+  });
+
+  it("falls back field-by-field on garbage", () => {
+    const t = mergeThresholds({ dead_code_drift: { tier1: "lots", tier2: 7 } });
+    expect(t.dead_code_drift.tier1).toBe(DEFAULT_BAND_THRESHOLDS.dead_code_drift.tier1);
+    expect(t.dead_code_drift.tier2).toBe(7);
+  });
+});
+
+describe("describeReading / renderFixPrBody — count band", () => {
+  const r: BandReading = {
+    key: "dead_code_drift",
+    bandId: "dead_code_drift",
+    repoPath: null,
+    subject: null,
+    tier: 3,
+    value: 2,
+    sampleN: 5,
+    belowMinSample: false,
+    evaluatedAt: NOW,
+  };
+
+  it("renders a count, not a percentage", () => {
+    expect(describeReading(r)).toBe("dead_code_drift: 2 auto-fixable of 5 finding(s) → tier 3");
+  });
+
+  it("names what was removed, what was left, and the pinned fallow", () => {
+    const body = renderFixPrBody(
+      { autoFixable: 2, total: 5, byCategory: { unused_exports: 2 } },
+      r,
+    );
+    expect(body).toContain("maintain loop (tier 3)");
+    expect(body).toContain("2 unused exports");
+    expect(body).toContain("3 finding(s) are not auto-fixable");
+    expect(body).toContain("dead_code_drift");
+  });
+
+  it("omits the left-alone section when fallow could fix everything", () => {
+    const body = renderFixPrBody(
+      { autoFixable: 2, total: 2, byCategory: { unused_exports: 2 } },
+      r,
+    );
+    expect(body).not.toContain("Left alone");
+  });
+});
+
+describe("windowDaysFor", () => {
+  it("reports no window for the point-in-time band", () => {
+    expect(windowDaysFor("dead_code_drift")).toBe(0);
   });
 });

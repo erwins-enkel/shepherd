@@ -1053,12 +1053,19 @@ export interface DeliveryMetrics {
 
 // ── maintain loop (#2157) ────────────────────────────────────────────────────
 
-/** The three bands v1 evaluates over Shepherd's OWN health data (#2151 R5). */
-export type BandId = "critic_error_rate" | "incident_spike" | "first_pass_collapse";
+/** The bands evaluated over Shepherd's OWN health data (#2151 R5). `dead_code_drift` (#2171) is
+ *  the only one carrying a pre-approved Tier-3 fix class. */
+export type BandId =
+  "critic_error_rate" | "incident_spike" | "first_pass_collapse" | "dead_code_drift";
 
-/** 0 = clear (or below the band's minimum sample), 1 = log, 2 = diagnose. Tier 3 (open a PR for a
- *  pre-approved fix class) is deliberately not implemented — see the follow-up issue. */
-export type MaintainTier = 0 | 1 | 2;
+/** 0 = clear (or below the band's minimum sample), 1 = log, 2 = diagnose, 3 = open a PR for the
+ *  band's pre-approved fix class (#2171).
+ *
+ *  Tier 3 is NOT a fourth threshold: a reading that crosses its band's tier-2 threshold is
+ *  PROMOTED to 3 when — and only when — that band's config declares a `tier3` fix class. A band
+ *  with a mechanical remediation escalates to the PR path instead of the diagnosis path; the
+ *  ladder stays monotonic and no band gains a rung it can never reach. */
+export type MaintainTier = 0 | 1 | 2 | 3;
 
 /** One band evaluated once. `key` is the stable identity a run and a cooldown are keyed by:
  *  `critic_error_rate`, `incident_spike:<signal kind>`, `first_pass_collapse:<repoPath>`. */
@@ -1073,10 +1080,11 @@ export interface BandReading {
   subject: string | null;
   tier: MaintainTier;
   /** The measured quantity. A rate in 0..1 for the two rate bands, an occurrence count for
-   *  `incident_spike`. */
+   *  `incident_spike`, an auto-fixable-finding count for `dead_code_drift`. */
   value: number;
   /** Sample size behind `value` — review spawns, merged tasks, or distinct sessions. A band below
-   *  its minimum sample reports tier 0 and is shown as such rather than as "clear". */
+   *  its minimum sample reports tier 0 and is shown as such rather than as "clear". Count bands
+   *  (`dead_code_drift`) have no separate denominator and report `sampleN === value`. */
   sampleN: number;
   /** True when `sampleN` fell under the band's minimum, i.e. `tier` is 0 for want of data rather
    *  than because the metric is healthy. */
@@ -1084,12 +1092,14 @@ export interface BandReading {
   evaluatedAt: number;
 }
 
-/** Terminal state of a Tier-2 diagnosis run. `skipped` covers a run that produced a draft the
- *  server chose not to file (act off), which is the expected observe-mode outcome. */
-export type MaintainOutcome = "filed" | "skipped" | "error";
+/** Terminal state of a maintain run. `filed` = a Tier-2 diagnosis became an issue; `opened` = a
+ *  Tier-3 fix became a PR (#2171). `skipped` covers a run the server deliberately did not publish
+ *  — act/pr off, or nothing left to fix — which is the expected observe-mode outcome. */
+export type MaintainOutcome = "filed" | "opened" | "skipped" | "error";
 
-/** One Tier-2 diagnosis spawn. Append-only: this is both the audit trail and — critically — the
- *  cooldown anchor, so a row is written for EVERY run including the ones that file nothing. */
+/** One maintain run — a Tier-2 diagnosis spawn or a Tier-3 fix. Append-only: this is both the
+ *  audit trail and — critically — the cooldown anchor, so a row is written for EVERY run including
+ *  the ones that publish nothing. */
 export interface MaintainRun {
   id: string;
   bandKey: string;
@@ -1097,11 +1107,16 @@ export interface MaintainRun {
   tier: MaintainTier;
   value: number;
   worktreePath: string;
+  /** Herdr pane name for a Tier-2 diagnosis. Empty for a Tier-3 fix — it spawns no agent. */
   agentName: string;
+  /** Transient-spawn id for a Tier-2 diagnosis, and its `reviewer_spawns` cost-ledger key. Empty
+   *  for a Tier-3 fix, which has no spawn and therefore no cost row. */
   spawnSessionId: string;
   spawnedAt: number;
   completedAt: number | null;
   outcome: MaintainOutcome | null;
+  /** The published artifact: the issue number for a `filed` run, the PR number for an `opened`
+   *  one. Both live here — a GitHub PR *is* an issue — and `outcome` says which it is. */
   issueNumber: number | null;
   issueUrl: string | null;
 }
@@ -1113,6 +1128,10 @@ export interface MaintainBlock {
   enabled: boolean;
   /** SHEPHERD_MAINTAIN_ACT — a drafted issue is actually filed. Meaningless without `enabled`. */
   act: boolean;
+  /** SHEPHERD_MAINTAIN_PR — a Tier-3 fix actually opens a PR (#2171). Deliberately INDEPENDENT of
+   *  `act`: arming issue-filing must never implicitly arm PR-opening. Meaningless without
+   *  `enabled`. */
+  pr: boolean;
   readings: BandReading[];
   recentRuns: MaintainRun[];
 }

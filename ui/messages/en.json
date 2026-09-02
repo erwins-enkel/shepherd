@@ -3754,11 +3754,18 @@
   "usage_maintain_state_clear": "clear",
   "usage_maintain_state_log": "tier 1 · logged",
   "usage_maintain_state_diagnose": "tier 2 · diagnosed",
+  "usage_maintain_band_dead_code": "Dead code — auto-fixable",
+  "usage_maintain_sample_findings": "{n} found",
+  "usage_maintain_state_fix": "tier 3 · PR opened",
+  "usage_maintain_pr_armed": "Tier 3 armed: a dead-code breach opens a pull request. Never auto-merged.",
+  "usage_maintain_pr_observe": "Tier 3 not armed. Set SHEPHERD_MAINTAIN_PR=1 to let a dead-code breach open a pull request.",
   "usage_maintain_state_no_data": "too few to judge",
   "feat_maintain_loop_title": "The maintain loop opens work",
   "feat_maintain_loop_body": "Shepherd now watches its own health signals daily against three declared bands. A sustained breach spawns a read-only diagnosis agent that drafts a backlog issue — anomaly, evidence, affected subsystem, open questions — instead of only telling you something looks wrong. Band state lives in Usage → Delivery; it stays off until you set SHEPHERD_MAINTAIN_LOOP=1.",
+  "feat_maintain_tier3_title": "The maintain loop can open a PR",
+  "feat_maintain_tier3_body": "For one pre-approved class of fix — auto-fixable dead code in Shepherd's own checkout — the maintain loop now skips the drafted issue and opens a pull request instead. No agent writes that diff: Shepherd runs fallow in a throwaway checkout, installs dependencies (without them fallow calls live code dead), and only commits once typecheck passes and no auto-fixable finding is left. It refuses outright if the fix touched a package.json or lockfile. Nothing is ever auto-merged, and it stays off until you set SHEPHERD_MAINTAIN_PR=1 — deliberately separate from SHEPHERD_MAINTAIN_ACT, so arming issue-filing never arms PR-opening.",
   "gloss_maintain_loop_term": "Maintain loop",
-  "gloss_maintain_loop_def": "A daily check of Shepherd's own health signals against declared thresholds. A mild breach is logged; a sustained one spawns a read-only agent that drafts a backlog issue for you to triage.",
+  "gloss_maintain_loop_def": "A daily check of Shepherd's own health signals against declared thresholds. A mild breach is logged; a sustained one spawns a read-only agent that drafts a backlog issue for you to triage. For one pre-approved class of mechanical fix it skips the issue and opens a pull request instead.",
   "gloss_band_term": "Band",
-  "gloss_band_def": "One health signal plus the thresholds that decide what happens when it is crossed: tier 1 logs a reading, tier 2 spawns a diagnosis. A band below its minimum sample size reports nothing rather than a misleading number."
+  "gloss_band_def": "One health signal plus the thresholds that decide what happens when it is crossed: tier 1 logs a reading, tier 2 spawns a diagnosis. A band whose remediation is mechanical enough to be pre-approved is promoted to tier 3 instead, which opens a pull request. A band below its minimum sample size reports nothing rather than a misleading number."
 }

@@ -1512,16 +1512,20 @@ export interface DeliveryMetrics {
 
 // ── maintain loop (#2157) — mirror of the server contract in src/types.ts ────
 
-export type BandId = "critic_error_rate" | "incident_spike" | "first_pass_collapse";
+export type BandId =
+  "critic_error_rate" | "incident_spike" | "first_pass_collapse" | "dead_code_drift";
 
-/** 0 = clear (or below the band's minimum sample), 1 = log, 2 = diagnose. */
-export type MaintainTier = 0 | 1 | 2;
+/** 0 = clear (or below the band's minimum sample), 1 = log, 2 = diagnose, 3 = open a PR for the
+ *  band's pre-approved fix class (#2171). Tier 3 is a promotion of a tier-2 breach on a band that
+ *  declares a fix class, not a fourth threshold. */
+export type MaintainTier = 0 | 1 | 2 | 3;
 
 export interface BandReading {
   key: string;
   bandId: BandId;
   repoPath: string | null;
-  /** Signal kind for `incident_spike`, repo basename for `first_pass_collapse`, else null. */
+  /** Signal kind for `incident_spike`, repo basename for `first_pass_collapse`, else null
+   *  (`critic_error_rate`, `dead_code_drift`). */
   subject: string | null;
   tier: MaintainTier;
   value: number;
@@ -1531,7 +1535,8 @@ export interface BandReading {
   evaluatedAt: number;
 }
 
-export type MaintainOutcome = "filed" | "skipped" | "error";
+/** `filed` = a Tier-2 diagnosis became an issue; `opened` = a Tier-3 fix became a PR (#2171). */
+export type MaintainOutcome = "filed" | "opened" | "skipped" | "error";
 
 export interface MaintainRun {
   id: string;
@@ -1545,6 +1550,7 @@ export interface MaintainRun {
   spawnedAt: number;
   completedAt: number | null;
   outcome: MaintainOutcome | null;
+  /** Issue number for a `filed` run, PR number for an `opened` one — `outcome` says which. */
   issueNumber: number | null;
   issueUrl: string | null;
 }
@@ -1552,6 +1558,8 @@ export interface MaintainRun {
 export interface MaintainBlock {
   enabled: boolean;
   act: boolean;
+  /** SHEPHERD_MAINTAIN_PR — a Tier-3 fix actually opens a PR. Independent of `act`. */
+  pr: boolean;
   readings: BandReading[];
   recentRuns: MaintainRun[];
 }

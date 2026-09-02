@@ -1,9 +1,15 @@
 import { describe, expect, it } from "bun:test";
 import { SessionStore } from "../src/store";
-import { MAINTAIN_ISSUE_LABEL, MaintainService, type MaintainDeps } from "../src/maintain";
-import { DEFAULT_COOLDOWN_MS } from "../src/maintain-core";
+import {
+  MAINTAIN_ISSUE_LABEL,
+  MaintainService,
+  reportFromFailedExit,
+  type MaintainDeps,
+} from "../src/maintain";
+import { DEAD_CODE_COMMIT_MSG, DEFAULT_COOLDOWN_MS } from "../src/maintain-core";
 import { UNTRUSTED_CONTENT_DIRECTIVE } from "../src/untrusted";
-import type { GitForge, Issue } from "../src/forge/types";
+import { EmptyDiffError, type GitForge, type Issue } from "../src/forge/types";
+import type { FixPackage } from "../src/maintain-core";
 import type { DeliveryRepoRow, DeliveryStats } from "../src/types";
 
 const SELF = "/repos/shepherd";
@@ -54,7 +60,45 @@ interface Harness {
   /** Ordered trace of teardown calls, for the close-before-remove guarantee. */
   order: string[];
   detached: { repoPath: string; branch: string; sha: string }[];
+  // ── tier 3 (#2171) ──────────────────────────────────────────────────────────
+  /** Branch worktrees `worktree.create` handed out. */
+  createdWorktrees: { baseBranch: string; name: string; worktreePath: string; branch: string }[];
+  /** Every git invocation, so a test can assert what was (and was not) committed or pushed. */
+  gitCalls: { cwd: string; args: string[] }[];
+  openedPrs: { head: string; base: string; title: string; body: string }[];
+  openPrNumbers: number[];
+  /** What `git status --porcelain` reports after the fake `fallow fix`. */
+  statusOut: { current: string };
+  /** Dead-code reports: `live` answers the sweep's measurement of the live checkout, `worktree`
+   *  is consumed in order by the fix run's before/after measurements. */
+  deadCode: { live: string | null; worktree: (string | null)[] };
+  /** Which fix subprocess, if any, should reject. `typecheck` may name one package. */
+  fixFails: { install: boolean; fix: boolean; typecheck: boolean | FixPackage };
+  /** Packages the verify gate actually type-checked, in call order. */
+  checked: FixPackage[];
+  /** Set to throw from openPr. */
+  openPrError: { current: Error | null };
 }
+
+/** A shape-faithful `fallow dead-code --format json` payload: `fixable` auto-fixable unused
+ *  exports plus `files` unused files fallow refuses to touch. */
+function report(fixable: number, files = 0): string {
+  return JSON.stringify({
+    kind: "dead-code",
+    total_issues: fixable + files,
+    unused_exports: Array.from({ length: fixable }, (_, i) => ({
+      path: "src/usage.ts",
+      export_name: `gone${i}`,
+      actions: [{ type: "remove-export", auto_fixable: true, description: "Remove" }],
+    })),
+    unused_files: Array.from({ length: files }, (_, i) => ({
+      path: `ui/src/lib/Gone${i}.svelte`,
+      actions: [{ type: "delete-file", auto_fixable: false, description: "Delete" }],
+    })),
+  });
+}
+
+const CLEAN_REPORT = report(0);
 
 function harness(over: Partial<MaintainDeps> = {}): Harness {
   const store = new SessionStore(":memory:");
@@ -75,12 +119,30 @@ function harness(over: Partial<MaintainDeps> = {}): Harness {
   const tabs: Harness["tabs"] = [];
   const closedTabs: string[] = [];
   const order: string[] = [];
+  const createdWorktrees: Harness["createdWorktrees"] = [];
+  const gitCalls: Harness["gitCalls"] = [];
+  const openedPrs: Harness["openedPrs"] = [];
+  const openPrNumbers: number[] = [];
+  const statusOut = { current: " M src/usage.ts\n" };
+  const deadCode = { live: CLEAN_REPORT as string | null, worktree: [] as (string | null)[] };
+  const fixFails = { install: false, fix: false, typecheck: false as boolean | FixPackage };
+  const checked: FixPackage[] = [];
+  const openPrError = { current: null as Error | null };
   let nextIssue = 100;
+  let nextPr = 500;
 
   const forge = {
     isLightweight: false,
     defaultBranch: async () => "main",
     listIssues: async () => openIssues.map((number) => ({ number }) as Issue),
+    listPullRequests: async () => openPrNumbers.map((number) => ({ number })),
+    openPr: async (o: { head: string; base: string; title: string; body: string }) => {
+      if (openPrError.current) throw openPrError.current;
+      openedPrs.push(o);
+      const number = nextPr++;
+      openPrNumbers.push(number);
+      return { state: "open", number, url: `https://example.test/pull/${number}`, checks: "none" };
+    },
     createIssue: async (o: { title: string; body: string }) => {
       created.push(o);
       const number = nextIssue++;
@@ -130,6 +192,12 @@ function harness(over: Partial<MaintainDeps> = {}): Harness {
         removed.push(p);
         order.push(`remove:${p}`);
       },
+      create: (_repoPath: string, baseBranch: string, name: string) => {
+        const worktreePath = `/wt/shepherd-${name}`;
+        const branch = `shepherd/${name}`;
+        createdWorktrees.push({ baseBranch, name, worktreePath, branch });
+        return { worktreePath, branch, isolated: true };
+      },
       ensureBaseRef: async () => ({ baseRef: "deadbeefcafe" }),
       gitCommonDir: () => "/repos/shepherd/.git",
     } as unknown as MaintainDeps["worktree"],
@@ -147,7 +215,31 @@ function harness(over: Partial<MaintainDeps> = {}): Harness {
       projectsDir: "/tmp/claude/projects",
     }),
     now: () => clock.now,
-    git: async () => `${gitSha.current}\n`,
+    git: async (cwd: string, args: string[]) => {
+      gitCalls.push({ cwd, args });
+      if (args[0] === "rev-parse") return `${gitSha.current}\n`;
+      if (args[0] === "status") return statusOut.current;
+      return "";
+    },
+    fixRunner: {
+      install: async () => {
+        if (fixFails.install) throw new Error("frozen lockfile mismatch");
+      },
+      // The sweep measures the LIVE checkout; the fix run measures its own worktree, twice.
+      deadCode: async (cwd: string) =>
+        cwd === SELF
+          ? deadCode.live
+          : deadCode.worktree.length > 0
+            ? deadCode.worktree.shift()!
+            : CLEAN_REPORT,
+      fix: async () => {
+        if (fixFails.fix) throw new Error("fallow fix exploded");
+      },
+      typecheck: async (_wt: string, pkg: FixPackage) => {
+        checked.push(pkg);
+        if (fixFails.typecheck === true || fixFails.typecheck === pkg) throw new Error("TS2322");
+      },
+    },
     readDraft: () => draft.current,
     readUsage: async () => null,
     log: (m: string) => logs.push(m),
@@ -174,6 +266,15 @@ function harness(over: Partial<MaintainDeps> = {}): Harness {
     tabs,
     closedTabs,
     order,
+    createdWorktrees,
+    gitCalls,
+    openedPrs,
+    openPrNumbers,
+    statusOut,
+    deadCode,
+    fixFails,
+    checked,
+    openPrError,
   };
 }
 
@@ -705,5 +806,357 @@ describe("restart reconcile", () => {
     // The tab reap is best-effort; the row must still settle so the band is not stuck in flight.
     await fresh.svc.reapOrphans();
     expect(fresh.store.listInflightMaintainRuns()).toHaveLength(0);
+  });
+});
+
+// ── tier 3: the dead-code fix (#2171) ────────────────────────────────────────
+
+/** Enough auto-fixable dead code in the live checkout to put `dead_code_drift` over its tier-2
+ *  threshold — which, because the band declares a fix class, reads as tier 3. */
+function drifting(over: Partial<MaintainDeps> = {}) {
+  const h = harness({ pr: true, ...over });
+  h.deadCode.live = report(4, 2);
+  // The fix worktree sees the same drift, then a clean tree once fallow has fixed it.
+  h.deadCode.worktree = [report(4, 2), CLEAN_REPORT];
+  return h;
+}
+
+describe("tier 3 — routing", () => {
+  it("promotes the band and takes the fix path, not the diagnosis path", async () => {
+    const h = drifting();
+    await h.svc.sweep();
+    expect(h.spawns).toHaveLength(0); // no agent — the whole point of a pre-approved class
+    expect(h.created).toHaveLength(0); // and no issue
+    expect(h.openedPrs).toHaveLength(1);
+    const run = h.store.listMaintainRuns(10).find((r) => r.bandKey === "dead_code_drift")!;
+    expect(run.tier).toBe(3);
+    expect(run.outcome).toBe("opened");
+    expect(run.issueNumber).toBe(500);
+    expect(run.issueUrl).toBe("https://example.test/pull/500");
+    // No spawn happened, so nothing may be charged to the cost ledger.
+    expect(run.spawnSessionId).toBe("");
+    expect(run.agentName).toBe("");
+  });
+
+  it("still diagnoses a tier-2 band that declares no fix class", async () => {
+    const h = harness({ repoDelivery: collapsing });
+    await h.svc.sweep();
+    expect(h.spawns).toHaveLength(1);
+    expect(h.openedPrs).toHaveLength(0);
+  });
+
+  it("spends the per-sweep action cap on the more severe band", async () => {
+    // Tier 3 sorts above tier 2, so the fix runs and the diagnosis waits for tomorrow.
+    const h = drifting({ repoDelivery: collapsing });
+    await h.svc.sweep();
+    expect(h.openedPrs).toHaveLength(1);
+    expect(h.spawns).toHaveLength(0);
+  });
+
+  it("commits, pushes and opens the PR against the default branch", async () => {
+    const h = drifting();
+    await h.svc.sweep();
+    const wt = h.createdWorktrees[0]!;
+    const args = h.gitCalls.filter((c) => c.cwd === wt.worktreePath).map((c) => c.args);
+    expect(args).toContainEqual(["add", "-A"]);
+    expect(args).toContainEqual(["commit", "--no-verify", "-m", DEAD_CODE_COMMIT_MSG]);
+    expect(args).toContainEqual(["push", "-u", "origin", wt.branch]);
+    expect(h.openedPrs[0]!.head).toBe(wt.branch);
+    expect(h.openedPrs[0]!.base).toBe("main");
+    expect(h.openedPrs[0]!.title).toBe(DEAD_CODE_COMMIT_MSG);
+    // The body has to tell the operator what was left behind, or the two unused FILES look fixed.
+    expect(h.openedPrs[0]!.body).toContain("4 unused exports");
+    expect(h.openedPrs[0]!.body).toContain("2 finding(s) are not auto-fixable");
+  });
+
+  it("cleans up the worktree and the local branch on the way out", async () => {
+    const h = drifting();
+    await h.svc.sweep();
+    const wt = h.createdWorktrees[0]!;
+    expect(h.removed).toContain(wt.worktreePath);
+    expect(h.gitCalls.map((c) => c.args)).toContainEqual(["branch", "-D", wt.branch]);
+  });
+});
+
+describe("tier 3 — observe mode", () => {
+  it("does all the work and opens nothing when SHEPHERD_MAINTAIN_PR is off", async () => {
+    const h = drifting({ pr: false });
+    await h.svc.sweep();
+    expect(h.openedPrs).toHaveLength(0);
+    const wtArgs = h.gitCalls.map((c) => c.args.join(" "));
+    expect(wtArgs.some((a) => a.startsWith("commit"))).toBe(false);
+    expect(wtArgs.some((a) => a.startsWith("push"))).toBe(false);
+    // The log must name the real diff, not a guess — that is why observe still installs and fixes.
+    expect(h.logs.join("\n")).toContain("would open a PR removing 4 unused exports");
+    const run = h.store.listMaintainRuns(10).find((r) => r.bandKey === "dead_code_drift")!;
+    expect(run.outcome).toBe("skipped");
+  });
+
+  it("is not armed by SHEPHERD_MAINTAIN_ACT", async () => {
+    // The whole reason tier 3 has its own flag: arming issue-filing must not arm PR-opening.
+    const h = drifting({ pr: false, act: true });
+    await h.svc.sweep();
+    expect(h.openedPrs).toHaveLength(0);
+  });
+});
+
+describe("tier 3 — fail-closed gates", () => {
+  const runWith = async (h: ReturnType<typeof drifting>) => {
+    await h.svc.sweep();
+    return h.store.listMaintainRuns(10).find((r) => r.bandKey === "dead_code_drift")!;
+  };
+
+  it("opens nothing when the install fails", async () => {
+    const h = drifting();
+    h.fixFails.install = true;
+    expect((await runWith(h)).outcome).toBe("error");
+    expect(h.openedPrs).toHaveLength(0);
+  });
+
+  it("opens nothing when typecheck goes red on the result", async () => {
+    const h = drifting();
+    h.fixFails.typecheck = true;
+    expect((await runWith(h)).outcome).toBe("error");
+    expect(h.openedPrs).toHaveLength(0);
+    expect(h.logs.join("\n")).toContain("typecheck failed");
+  });
+
+  it("checks every package the diff touches, not just the server root", async () => {
+    // `bun run typecheck` excludes ui/ and extension/, so a root-only gate would pass vacuously
+    // for a fix that deleted a live export under ui/src/lib.
+    const h = drifting();
+    h.statusOut.current = " M src/usage.ts\n M ui/src/lib/x.ts\n M extension/src/y.ts\n";
+    await h.svc.sweep();
+    expect(h.checked).toEqual(["root", "extension", "ui"]);
+    expect(h.openedPrs).toHaveLength(1);
+    expect(h.openedPrs[0]!.body).toContain("`root`, `extension`, `ui`");
+  });
+
+  it("opens nothing when a sub-package check goes red, even with the root green", async () => {
+    const h = drifting();
+    h.statusOut.current = " M ui/src/lib/x.ts\n";
+    h.fixFails.typecheck = "ui";
+    expect((await runWith(h)).outcome).toBe("error");
+    expect(h.openedPrs).toHaveLength(0);
+    expect(h.logs.join("\n")).toContain("typecheck failed on the result (ui)");
+  });
+
+  it("does not run a check for a package the diff never touched", async () => {
+    const h = drifting();
+    h.statusOut.current = " M src/usage.ts\n";
+    await h.svc.sweep();
+    expect(h.checked).toEqual(["root"]);
+  });
+
+  it("refuses to commit a change in a tree nothing here can type-check", async () => {
+    // site/ and docs-site/ are inside fallow's entry list but have no installed deps and no wired
+    // check in the fix worktree.
+    const h = drifting();
+    h.statusOut.current = " M src/usage.ts\n M docs-site/src/x.mjs\n";
+    expect((await runWith(h)).outcome).toBe("error");
+    expect(h.openedPrs).toHaveLength(0);
+    expect(h.logs.join("\n")).toContain("nothing here can type-check");
+  });
+
+  it("opens nothing when auto-fixable findings survive the fix", async () => {
+    const h = drifting();
+    h.deadCode.worktree = [report(4, 2), report(2, 2)]; // fallow only got half of them
+    expect((await runWith(h)).outcome).toBe("error");
+    expect(h.openedPrs).toHaveLength(0);
+    expect(h.logs.join("\n")).toContain("2 auto-fixable finding(s) survived");
+  });
+
+  it("refuses to commit a manifest change without a lockfile regen", async () => {
+    // `fallow fix` also removes unused DEPENDENCIES; committing that would land the PR CI-red.
+    const h = drifting();
+    h.statusOut.current = " M src/usage.ts\n M package.json\n";
+    expect((await runWith(h)).outcome).toBe("error");
+    expect(h.openedPrs).toHaveLength(0);
+    expect(h.logs.join("\n")).toContain("package.json");
+  });
+
+  it("catches a lockfile too, in any package", async () => {
+    const h = drifting();
+    h.statusOut.current = " M ui/bun.lock\n";
+    expect((await runWith(h)).outcome).toBe("error");
+    expect(h.openedPrs).toHaveLength(0);
+  });
+
+  it("treats an unreadable post-fix measurement as a failure, never as a clean tree", async () => {
+    const h = drifting();
+    h.deadCode.worktree = [report(4, 2), null];
+    expect((await runWith(h)).outcome).toBe("error");
+    expect(h.openedPrs).toHaveLength(0);
+  });
+
+  it("stands down when the pristine base branch has nothing to fix", async () => {
+    // The sweep measured the LIVE checkout, which can carry uncommitted edits. The clean checkout
+    // of origin/main is what the fix is accountable to.
+    const h = drifting();
+    h.deadCode.worktree = [CLEAN_REPORT];
+    const run = await runWith(h);
+    expect(run.outcome).toBe("skipped");
+    expect(h.openedPrs).toHaveLength(0);
+    expect(h.logs.join("\n")).toContain("nothing auto-fixable on the base branch");
+  });
+
+  it("stands down when fallow fix changes nothing", async () => {
+    const h = drifting();
+    h.statusOut.current = "";
+    const run = await runWith(h);
+    expect(run.outcome).toBe("skipped");
+    expect(h.openedPrs).toHaveLength(0);
+  });
+});
+
+describe("tier 3 — openPr failure", () => {
+  it("takes the pushed branch back down rather than orphaning it on the remote", async () => {
+    const h = drifting();
+    h.openPrError.current = new Error("forge is down");
+    await h.svc.sweep();
+    const wt = h.createdWorktrees[0]!;
+    expect(h.gitCalls.map((c) => c.args)).toContainEqual(["push", "origin", "--delete", wt.branch]);
+    const run = h.store.listMaintainRuns(10).find((r) => r.bandKey === "dead_code_drift")!;
+    expect(run.outcome).toBe("error");
+  });
+
+  it("treats an empty diff as nothing to open, not as an error", async () => {
+    const h = drifting();
+    h.openPrError.current = new EmptyDiffError("shepherd/maintain-fix-aaaaaaaa", "main");
+    await h.svc.sweep();
+    const run = h.store.listMaintainRuns(10).find((r) => r.bandKey === "dead_code_drift")!;
+    expect(run.outcome).toBe("skipped");
+  });
+});
+
+describe("tier 3 — suppression", () => {
+  it("will not open a second PR while the first is still open", async () => {
+    const h = drifting({ cooldownMs: 0 });
+    await h.svc.sweep();
+    expect(h.openedPrs).toHaveLength(1);
+    h.deadCode.worktree = [report(4, 2), CLEAN_REPORT];
+    h.clock.now += 25 * 60 * 60 * 1000;
+    await h.svc.sweep();
+    expect(h.openedPrs).toHaveLength(1);
+    expect(h.logs.join("\n")).toContain("PR #500 is still open");
+  });
+
+  it("opens another once the first PR is gone", async () => {
+    const h = drifting({ cooldownMs: 0 });
+    await h.svc.sweep();
+    h.openPrNumbers.length = 0; // merged or closed
+    h.deadCode.worktree = [report(4, 2), CLEAN_REPORT];
+    h.clock.now += 25 * 60 * 60 * 1000;
+    await h.svc.sweep();
+    expect(h.openedPrs).toHaveLength(2);
+  });
+
+  it("holds the band for the cooldown even when the run published nothing", async () => {
+    const h = drifting({ pr: false });
+    await h.svc.sweep();
+    h.deadCode.worktree = [report(4, 2), CLEAN_REPORT];
+    h.clock.now += 25 * 60 * 60 * 1000;
+    await h.svc.sweep();
+    expect(h.logs.join("\n")).toContain("cooling down");
+  });
+});
+
+describe("tier 3 — restart reconcile", () => {
+  it("settles an interrupted fix run and force-deletes its branch", async () => {
+    const h = harness();
+    h.store.insertMaintainRun({
+      id: "run-1",
+      bandKey: "dead_code_drift",
+      bandId: "dead_code_drift",
+      tier: 3,
+      value: 4,
+      worktreePath: "/wt/shepherd-maintain-fix-abcdef12",
+      agentName: "",
+      spawnSessionId: "",
+      spawnedAt: NOW - 60_000,
+      completedAt: null,
+      outcome: null,
+      issueNumber: null,
+      issueUrl: null,
+    });
+    await h.svc.reapOrphans();
+    expect(h.removed).toContain("/wt/shepherd-maintain-fix-abcdef12");
+    expect(h.gitCalls.map((c) => c.args)).toContainEqual([
+      "branch",
+      "-D",
+      "shepherd/maintain-fix-abcdef12",
+    ]);
+    expect(h.store.listInflightMaintainRuns()).toHaveLength(0);
+  });
+
+  it("does not go looking for a branch behind a tier-2 diagnosis worktree", async () => {
+    const h = harness();
+    h.store.insertMaintainRun({
+      id: "run-2",
+      bandKey: "critic_error_rate",
+      bandId: "critic_error_rate",
+      tier: 2,
+      value: 0.5,
+      worktreePath: "/wt/shepherd-review-sess-abcdef12",
+      agentName: "__maintain__abcdef12",
+      spawnSessionId: "sess",
+      spawnedAt: NOW - 60_000,
+      completedAt: null,
+      outcome: null,
+      issueNumber: null,
+      issueUrl: null,
+    });
+    await h.svc.reapOrphans();
+    expect(h.gitCalls.some((c) => c.args[0] === "branch")).toBe(false);
+  });
+});
+
+describe("tier 3 — worktree protection", () => {
+  it("protects the fix checkout while the run owns it, and releases it after", async () => {
+    // A stale-worktree sweeper reads inflightWorktrees(); if the fix path is missing from it, a
+    // long run has its checkout deleted underneath it.
+    const seen: string[][] = [];
+    // Referenced from the runner closures below, which only run once `drifting` has returned.
+    const h: ReturnType<typeof drifting> = drifting({
+      fixRunner: {
+        install: async () => {
+          seen.push(h.svc.inflightWorktrees());
+        },
+        deadCode: async (cwd: string) =>
+          cwd === SELF ? h.deadCode.live : (h.deadCode.worktree.shift() ?? CLEAN_REPORT),
+        fix: async () => {},
+        typecheck: async () => {
+          seen.push(h.svc.inflightWorktrees());
+        },
+      },
+    });
+    await h.svc.sweep();
+    const wt = h.createdWorktrees[0]!.worktreePath;
+    expect(seen).toHaveLength(2);
+    for (const snapshot of seen) expect(snapshot).toContain(wt);
+    expect(h.svc.inflightWorktrees()).toHaveLength(0);
+  });
+});
+
+describe("reportFromFailedExit", () => {
+  it("keeps the report from a non-zero exit — fallow exits 1 whenever it finds anything", () => {
+    // Verified against fallow 2.100.0: `dead-code` exits 1 both before AND after a fix while
+    // non-auto-fixable findings remain. Discarding that output would leave the band permanently
+    // reading "no data" and tier 3 permanently unreachable.
+    expect(reportFromFailedExit({ code: 1, stdout: '{"kind":"dead-code"}' })).toBe(
+      '{"kind":"dead-code"}',
+    );
+  });
+
+  it("discards output from a KILLED process — it is truncated mid-document", () => {
+    // A timeout or maxBuffer overflow leaves half a JSON document that jsonrepair would happily
+    // close into a shape-valid report with a smaller finding count, which the verify gate could
+    // read as a clean tree.
+    expect(reportFromFailedExit({ killed: true, stdout: '{"kind":"dead-code","unu' })).toBeNull();
+  });
+
+  it("is null when there is no output at all", () => {
+    expect(reportFromFailedExit(new Error("bunx: command not found"))).toBeNull();
+    expect(reportFromFailedExit({ code: 127, stdout: "" })).toBeNull();
   });
 });

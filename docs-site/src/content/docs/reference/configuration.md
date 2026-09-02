@@ -247,36 +247,75 @@ one (a per-repo in-flight guard means at most one run per repo at a time):
 
 ## Maintain loop (self-health bands)
 
-Opt-in, default-off, and fully inert when off. Once per local day Shepherd scores three
+Opt-in, default-off, and fully inert when off. Once per local day Shepherd scores four
 **bands** over its **own** health data and escalates by tier: **tier 1** logs the reading,
 **tier 2** spawns a read-only diagnosis agent that drafts a backlog issue which the trusted
 server files **against Shepherd's own repo** — never a managed repo, so nothing lands in
 someone else's backlog. The agent itself never touches a forge: it writes a JSON draft in a
-disposable worktree and nothing else. There is no tier 3 (no automatic fix PR).
+disposable worktree and nothing else. **Tier 3** skips the issue and opens a **pull request**
+— see below.
 
 | Band | Measures | Window | Tier 1 | Tier 2 |
 | --- | --- | --- | --- | --- |
 | `critic_error_rate` | Share of outcome-bearing review spawns that errored (produced no verdict) | 7 days, min sample 10 | ≥ `0.15` | ≥ `0.30` |
 | `incident_spike` | `signals` per kind — needs **both** an occurrence count and a distinct-session count, so one thrashing task can't trip it. The `reply` kind is excluded (operator corrections are high-volume by design) | 7 days | ≥ 10 occurrences **and** ≥ 3 sessions | ≥ 25 occurrences **and** ≥ 5 sessions |
 | `first_pass_collapse` | Per-repo first-pass review rate — direction is **inverted**, a lower rate is worse | 30 days, min sample 8 | ≤ `0.60` | ≤ `0.40` |
+| `dead_code_drift` | Auto-fixable dead-code findings in Shepherd's own checkout (`fallow dead-code`). Point-in-time, no window and no minimum sample. Declares a tier-3 fix class, so its tier-2 breach is **promoted to tier 3** | now | ≥ 1 finding | ≥ 3 findings |
 
 A band below its minimum sample reports "below min sample" rather than a misleading number.
 Every band's live value is persisted and surfaced on the **Delivery lens** whether or not it
 breached — the starting thresholds are calibrated guesses, and observed values are what let
 you retune them.
 
-**Spend bounds.** At most **one** tier-2 diagnosis spawn per sweep (the rest wait for the next
-day), and after a diagnosis run **completes** — filed, skipped or errored — its band is
-suppressed for **14 days**. The cooldown anchors on the run, not on a filed issue, precisely
-so observe mode (which files nothing) still suppresses.
+**Spend bounds.** At most **one** band action per sweep — a tier-2 diagnosis spawn *or* a
+tier-3 fix, whichever band is more severe; the rest wait for the next day. After a run
+**completes** — published, skipped or errored — its band is suppressed for **14 days**. The
+cooldown anchors on the run, not on a published issue or PR, precisely so observe mode (which
+publishes nothing) still suppresses. A still-open issue or PR from the band's last run extends
+the suppression past the cooldown.
 
-**Phased soak (`observe → act`)**, mirroring the doc agent:
+### Tier 3 — the pre-approved fix class
+
+A band may declare a **pre-approved fix class**: a remediation mechanical enough that no
+judgement is needed, so the loop produces the diff itself and opens a PR instead of asking you
+to read a drafted issue first. Exactly one class exists — `dead_code`, on `dead_code_drift`.
+
+**No agent is involved.** The fix is `fallow fix`'s verbatim output, so a tier-3 run costs no
+tokens and has no prompt to be injected into. The run:
+
+1. creates a branch worktree `shepherd/maintain-fix-<8hex>` off `origin/<default branch>`;
+2. runs `bun install --frozen-lockfile` in the root, `ui/` and `extension/` — **load-bearing**:
+   without installed dependencies fallow cannot resolve imports and reports live code as dead;
+3. re-measures in that pristine checkout and stands down if there is nothing to fix (the
+   sweep's reading came from the live checkout, which can carry uncommitted edits);
+4. runs `bunx fallow@<pinned> fix --yes --no-create-config`;
+5. **verifies fail-closed** — the type-check of **every package the diff touches** must pass, and
+   a re-run of `fallow dead-code` must report no auto-fixable findings left. Per package, not just
+   the root: `bun run typecheck` is `tsc` against a tsconfig that excludes `ui`, `extension`,
+   `site` and `docs-site`, while fallow analyses all of them, so a root-only gate would pass
+   vacuously for a fix under `ui/src`. The root uses `bun run typecheck`; `ui` and `extension` use
+   their own `bun run check`. The run also **refuses** to commit when the fix touched any
+   `package.json` or lockfile (`fallow fix` removes unused *dependencies* too, and that needs a
+   lockfile regen a background loop must not do), or anything under `site/` or `docs-site/`, whose
+   dependencies are not installed in the fix worktree and which therefore cannot be verified at
+   all;
+6. commits `--no-verify`, pushes, and opens the PR.
+
+Any failed gate opens nothing, records an `error` outcome and throws the branch away. **Nothing
+is ever auto-merged.** If `openPr` fails after the push, the branch is deleted from the remote
+rather than left orphaned.
+
+**Phased soak (`observe → act → pr`)**, mirroring the doc agent:
 
 1. **Observe** — `SHEPHERD_MAINTAIN_LOOP=1` alone. Bands are evaluated, readings persisted,
    breaches logged and the tier-2 diagnosis spawns, but finalize is **log-only**: it logs
    `[maintain] <band>: would file issue "<title>" (act is off)` and calls the forge never.
 2. **Act** — additionally set `SHEPHERD_MAINTAIN_ACT=1` to escalate finalize to actually
    opening the labelled issue. Meaningful only when `SHEPHERD_MAINTAIN_LOOP` is also on.
+3. **PR** — additionally set `SHEPHERD_MAINTAIN_PR=1` to let a tier-3 run open its pull
+   request. **Independent of `SHEPHERD_MAINTAIN_ACT`**: arming issue-filing never implicitly
+   arms PR-opening. Without it a tier-3 run still installs, fixes and verifies, then logs
+   `would open a PR removing …` and discards the branch — so the log names the real diff.
 
 `POST /api/maintain/sweep` runs an evaluation on demand (it `404`s when the flag is off, the
 same unadvertised contract as the doc-agent route). It skips the hour/presence/once-a-day
@@ -287,11 +326,12 @@ its worktree reclaimed by the boot reconcile; the breach is re-diagnosed on the 
 | --- | --- | --- |
 | `SHEPHERD_MAINTAIN_LOOP` | `0` (off) | Set `1` to arm the loop (**observe**): band evaluation, tier-1 logging, and the tier-2 read-only diagnosis spawn. The drafted issue is only **logged** until `SHEPHERD_MAINTAIN_ACT` is also set |
 | `SHEPHERD_MAINTAIN_ACT` | `0` (off) | **Act.** Set `1` to escalate finalize to actually filing the labelled issue against Shepherd's own repo. Meaningful only when `SHEPHERD_MAINTAIN_LOOP` is also on |
+| `SHEPHERD_MAINTAIN_PR` | `0` (off) | **Tier 3.** Set `1` to let a tier-3 fix open a pull request against Shepherd's own repo. Never auto-merges. Meaningful only when `SHEPHERD_MAINTAIN_LOOP` is also on, and **independent of** `SHEPHERD_MAINTAIN_ACT` |
 | `SHEPHERD_MAINTAIN_HOUR` | `4` | Local hour (0–23) at/after which the once-a-day band sweep may run — an hour after the doc agent's nightly so the two spawns don't land together. Invalid values fall back to `4` |
 | `SHEPHERD_MAINTAIN_CLI` | `inherit` | Agent CLI for the diagnosis spawn: `inherit` follows the global default provider, or pin `claude` / `codex`. Env-only (not persisted or UI-configurable) |
 | `SHEPHERD_MAINTAIN_MODEL` | `default` | Model for the diagnosis spawn: `default` follows the global default model, or pin a `<model alias>`. Env-only |
 | `SHEPHERD_MAINTAIN_EFFORT` | `default` | Reasoning-effort tier for the diagnosis spawn: `default` follows the CLI's own effort, or pin a tier (`low` / `medium` / `high` / `xhigh` / `max`). Env-only |
-| `SHEPHERD_MAINTAIN_THRESHOLDS` | _(unset)_ | JSON object deep-merged over the threshold table above, so a recalibration ships without a deploy. Parsed field-by-field and **fail-soft**: an unparseable value or a typo in one number falls back to that default rather than disarming a band. E.g. `{"critic_error_rate":{"tier1":0.2}}` |
+| `SHEPHERD_MAINTAIN_THRESHOLDS` | _(unset)_ | JSON object deep-merged over the threshold table above, so a recalibration ships without a deploy. Parsed field-by-field and **fail-soft**: an unparseable value or a typo in one number falls back to that default rather than disarming a band. E.g. `{"critic_error_rate":{"tier1":0.2}}`. Retunes numbers only — a band's tier-3 fix class is not overridable, because `SHEPHERD_MAINTAIN_PR` is the one switch that disarms tier 3 |
 
 ## Anonymous usage telemetry
 

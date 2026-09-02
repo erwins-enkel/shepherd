@@ -4387,6 +4387,7 @@ function handleUsageDelivery({ req, parts, url, deps }: Ctx): Response | null {
   const maintain: MaintainBlock = {
     enabled: config.maintainLoopEnabled,
     act: config.maintainLoopAct,
+    pr: config.maintainLoopPr,
     readings: snap?.readings ?? [],
     recentRuns: snap?.recentRuns ?? [],
   };

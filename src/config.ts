@@ -744,6 +744,11 @@ export const config = {
   // Phase-1 escalation; meaningful only with `maintainLoopEnabled`. When off, finalize logs the
   // issue it WOULD file and calls createIssue never.
   maintainLoopAct: process.env.SHEPHERD_MAINTAIN_ACT === "1",
+  // Tier-3 escalation (#2171); meaningful only with `maintainLoopEnabled`. When off, a Tier-3 fix
+  // runs and verifies in its worktree, logs the PR it WOULD open, and throws the branch away.
+  // DELIBERATELY INDEPENDENT of `maintainLoopAct`: arming issue-filing must never implicitly arm
+  // PR-opening, so this is its own flag rather than a second meaning for that one.
+  maintainLoopPr: process.env.SHEPHERD_MAINTAIN_PR === "1",
   // Local hour (0–23) at/after which the once-a-day band sweep may run. Default 4 (≈04:00 local),
   // an hour after the doc agent's so the two nightly spawns don't land together.
   maintainLoopHour: parseHour(process.env.SHEPHERD_MAINTAIN_HOUR, 4),

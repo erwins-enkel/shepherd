@@ -3754,11 +3754,18 @@
   "usage_maintain_state_clear": "unauffällig",
   "usage_maintain_state_log": "Tier 1 · protokolliert",
   "usage_maintain_state_diagnose": "Tier 2 · diagnostiziert",
+  "usage_maintain_band_dead_code": "Toter Code — automatisch behebbar",
+  "usage_maintain_sample_findings": "{n} gefunden",
+  "usage_maintain_state_fix": "Tier 3 · PR eröffnet",
+  "usage_maintain_pr_armed": "Tier 3 aktiv: Eine Überschreitung bei totem Code eröffnet einen Pull Request. Wird nie automatisch gemerged.",
+  "usage_maintain_pr_observe": "Tier 3 nicht aktiv. Mit SHEPHERD_MAINTAIN_PR=1 darf eine Überschreitung bei totem Code einen Pull Request eröffnen.",
   "usage_maintain_state_no_data": "zu wenig Daten",
   "feat_maintain_loop_title": "Der Maintain-Loop eröffnet Arbeit",
   "feat_maintain_loop_body": "Shepherd prüft seine eigenen Health-Signale jetzt täglich gegen drei definierte Bänder. Eine anhaltende Überschreitung startet einen nur lesenden Diagnose-Agenten, der ein Backlog-Issue entwirft — Anomalie, Belege, betroffenes Subsystem, offene Fragen — statt nur zu melden, dass etwas nicht stimmt. Den Bandstatus zeigt Usage → Delivery; aktiv wird das Ganze erst mit SHEPHERD_MAINTAIN_LOOP=1.",
+  "feat_maintain_tier3_title": "Der Maintain-Loop kann einen PR eröffnen",
+  "feat_maintain_tier3_body": "Für eine vorab freigegebene Klasse von Korrekturen — automatisch behebbarer toter Code in Shepherds eigenem Checkout — überspringt der Maintain-Loop jetzt das entworfene Issue und eröffnet direkt einen Pull Request. Diesen Diff schreibt kein Agent: Shepherd führt fallow in einem Wegwerf-Checkout aus, installiert die Abhängigkeiten (ohne sie hält fallow lebenden Code für tot) und committet erst, wenn der Typecheck grün ist und kein automatisch behebbarer Fund übrig bleibt. Berührt die Korrektur eine package.json oder ein Lockfile, bricht sie ab. Automatisch gemerged wird nie, und aktiv ist das Ganze erst mit SHEPHERD_MAINTAIN_PR=1 — bewusst getrennt von SHEPHERD_MAINTAIN_ACT, damit das Anlegen von Issues nie das Eröffnen von PRs mitaktiviert.",
   "gloss_maintain_loop_term": "Maintain-Loop",
-  "gloss_maintain_loop_def": "Eine tägliche Prüfung von Shepherds eigenen Health-Signalen gegen definierte Schwellen. Eine leichte Überschreitung wird protokolliert; eine anhaltende startet einen nur lesenden Agenten, der ein Backlog-Issue zur Sichtung entwirft.",
+  "gloss_maintain_loop_def": "Eine tägliche Prüfung von Shepherds eigenen Health-Signalen gegen definierte Schwellen. Eine leichte Überschreitung wird protokolliert; eine anhaltende startet einen nur lesenden Agenten, der ein Backlog-Issue zur Sichtung entwirft. Für eine vorab freigegebene Klasse mechanischer Korrekturen entfällt das Issue und es wird direkt ein Pull Request eröffnet.",
   "gloss_band_term": "Band",
-  "gloss_band_def": "Ein Health-Signal samt der Schwellen, die festlegen, was beim Überschreiten passiert: Tier 1 protokolliert einen Messwert, Tier 2 startet eine Diagnose. Ein Band unterhalb seiner Mindeststichprobe meldet nichts statt einer irreführenden Zahl."
+  "gloss_band_def": "Ein Health-Signal samt der Schwellen, die festlegen, was beim Überschreiten passiert: Tier 1 protokolliert einen Messwert, Tier 2 startet eine Diagnose. Ein Band, dessen Behebung mechanisch genug für eine Vorab-Freigabe ist, wird stattdessen auf Tier 3 hochgestuft und eröffnet einen Pull Request. Ein Band unterhalb seiner Mindeststichprobe meldet nichts statt einer irreführenden Zahl."
 }

@@ -69,7 +69,7 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     title: "Configuration",
     path: "/reference/configuration/",
     keywords:
-      "every environment variable and the per-agent sandbox profiles. core live preview host tuning (tmpfs inodes) runaway-orphan reaper main agent terminal renderer (research preview) up next quick-start session revival (herdr daemon-restart recovery) push-based hook ingestion tool guard (pretooluse deny) documentation automation (pr-gated doc agent) maintain loop (self-health bands) anonymous usage telemetry per-agent sandbox / permission profiles",
+      "every environment variable and the per-agent sandbox profiles. core live preview host tuning (tmpfs inodes) runaway-orphan reaper main agent terminal renderer (research preview) up next quick-start session revival (herdr daemon-restart recovery) push-based hook ingestion tool guard (pretooluse deny) documentation automation (pr-gated doc agent) maintain loop (self-health bands) tier 3 — the pre-approved fix class anonymous usage telemetry per-agent sandbox / permission profiles",
   },
   {
     title: "External Task API",

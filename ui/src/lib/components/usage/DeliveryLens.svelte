@@ -134,22 +134,34 @@
     if (r.bandId === "critic_error_rate") return m.usage_maintain_band_critic_errors();
     if (r.bandId === "incident_spike")
       return m.usage_maintain_band_incidents({ kind: r.subject ?? "?" });
+    if (r.bandId === "dead_code_drift") return m.usage_maintain_band_dead_code();
     return m.usage_maintain_band_first_pass({ repo: r.subject ?? "?" });
   }
 
-  /** The measured quantity in the band's own units — a rate for the two rate bands, a raw count
-   *  for the incident band. */
-  function bandValue(r: BandReading): string {
-    if (r.belowMinSample) return EMPTY;
-    return r.bandId === "incident_spike" ? String(r.value) : formatPct(r.value);
+  /** Bands whose value is a raw count rather than a rate in 0..1. */
+  function isCountBand(r: BandReading): boolean {
+    return r.bandId === "incident_spike" || r.bandId === "dead_code_drift";
   }
 
+  /** The measured quantity in the band's own units — a rate for the two rate bands, a raw count
+   *  for the incident and dead-code bands. */
+  function bandValue(r: BandReading): string {
+    if (r.belowMinSample) return EMPTY;
+    return isCountBand(r) ? String(r.value) : formatPct(r.value);
+  }
+
+  /** `dead_code_drift`'s sampleN is not a denominator — it is the total finding count, of which
+   *  `value` are the ones fallow can remove itself. Labelled as such so the row does not read as
+   *  "2 out of 3 tries". */
   function bandSample(r: BandReading): string {
-    return m.usage_maintain_sample({ n: r.sampleN });
+    return r.bandId === "dead_code_drift"
+      ? m.usage_maintain_sample_findings({ n: r.sampleN })
+      : m.usage_maintain_sample({ n: r.sampleN });
   }
 
   function bandState(r: BandReading): string {
     if (r.belowMinSample) return m.usage_maintain_state_no_data();
+    if (r.tier === 3) return m.usage_maintain_state_fix();
     if (r.tier === 2) return m.usage_maintain_state_diagnose();
     if (r.tier === 1) return m.usage_maintain_state_log();
     return m.usage_maintain_state_clear();
@@ -157,7 +169,8 @@
 
   function stateClass(r: BandReading): string {
     if (r.belowMinSample) return "chip";
-    return r.tier === 2 ? "chip chip-bad" : r.tier === 1 ? "chip chip-warn" : "chip chip-ok";
+    if (r.tier >= 2) return "chip chip-bad";
+    return r.tier === 1 ? "chip chip-warn" : "chip chip-ok";
   }
 </script>
 
@@ -267,6 +280,11 @@
             {m.usage_maintain_observe()}
           {:else}
             {m.usage_maintain_armed()}
+          {/if}
+          {#if maintain.enabled}
+            <!-- Tier 3 is armed by its own flag, so its state is its own sentence — reading the
+                 act line alone must never suggest PRs are (or are not) being opened. -->
+            {maintain.pr ? m.usage_maintain_pr_armed() : m.usage_maintain_pr_observe()}
           {/if}
         </p>
         {#if maintain.readings.length > 0}

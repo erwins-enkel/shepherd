@@ -86,14 +86,17 @@ drifts constantly is usually writing vague plans, not writing bad code.
 
 A daily check of Shepherd's own health signals against declared thresholds. A
 mild breach is logged; a sustained one spawns a read-only agent that drafts a
-backlog issue for you to triage. It watches Shepherd itself — never a production
-system.
+backlog issue for you to triage. For one pre-approved class of mechanical fix it
+skips the issue and opens a pull request instead. It watches Shepherd itself —
+never a production system.
 
 ### Band
 
 One health signal plus the thresholds that decide what happens when it is
-crossed: tier 1 logs a reading, tier 2 spawns a diagnosis. A band below its
-minimum sample size reports nothing rather than a misleading number.
+crossed: tier 1 logs a reading, tier 2 spawns a diagnosis. A band whose
+remediation is mechanical enough to be pre-approved is promoted to tier 3
+instead, which opens a pull request. A band below its minimum sample size reports
+nothing rather than a misleading number.
 
 ### Inferred
 

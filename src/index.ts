@@ -1600,8 +1600,9 @@ const planGate = new PlanGateService({
   onActivity: (id, summary) => events.emit("session:plangate-activity", { id, summary }),
   cap: () => config.planReviewCyclesCap,
 });
-// Maintain loop (#2157, from #2151 R5). Opt-in and two-phase like the doc agent
-// (config.maintainLoopEnabled / maintainLoopAct). Constructed unconditionally and ABOVE
+// Maintain loop (#2157, from #2151 R5). Opt-in and three-phase like the doc agent
+// (maintainLoopEnabled arms it, maintainLoopAct files issues, maintainLoopPr opens tier-3 PRs).
+// Constructed unconditionally and ABOVE
 // sweepStaleReviewWorktrees — its `inflightWorktrees()` is unioned into that sweep's
 // protectedPaths below, and the const must exist before the sweep closure runs.
 const maintainService = new MaintainService({
@@ -1617,6 +1618,8 @@ const maintainService = new MaintainService({
   repoDelivery: () =>
     buildDeliveryMetrics({ store, range: FIRST_PASS_RANGE, now: Date.now() }).repos,
   act: config.maintainLoopAct,
+  // Tier 3 (#2171): armed separately from `act`, so filing issues never implies opening PRs.
+  pr: config.maintainLoopPr,
   sweepHour: config.maintainLoopHour,
   isPresent: () => presence.isActive(),
   env: () => roleEnv(config.maintainCli, config.maintainModel, config.maintainEffort),

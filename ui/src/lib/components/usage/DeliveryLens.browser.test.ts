@@ -181,6 +181,7 @@ describe("DeliveryLens — maintain loop band card (#2157)", () => {
   const maintain = (over: Partial<MaintainBlock> = {}): MaintainBlock => ({
     enabled: true,
     act: false,
+    pr: false,
     readings: [reading()],
     recentRuns: [],
     ...over,
@@ -298,5 +299,88 @@ describe("DeliveryLens — maintain loop band card (#2157)", () => {
     render(DeliveryLens, { metrics: metrics({ maintain: maintain({ readings: [] }) }) });
     expect(document.body.textContent).toContain("No bands evaluated yet");
     expect(document.querySelectorAll(".band-row")).toHaveLength(0);
+  });
+});
+
+describe("DeliveryLens — tier 3 dead-code band (#2171)", () => {
+  const deadCode = (over: Partial<BandReading> = {}): BandReading => ({
+    key: "dead_code_drift",
+    bandId: "dead_code_drift",
+    repoPath: null,
+    subject: null,
+    tier: 3,
+    value: 2,
+    sampleN: 5,
+    belowMinSample: false,
+    evaluatedAt: 1_000,
+    ...over,
+  });
+
+  const block = (over: Partial<MaintainBlock> = {}): MaintainBlock => ({
+    enabled: true,
+    act: false,
+    pr: false,
+    readings: [deadCode()],
+    recentRuns: [],
+    ...over,
+  });
+
+  const row = () => document.querySelector(".band-row:not(.row-head)")!;
+
+  it("shows the auto-fixable count as a raw number, not a percentage", async () => {
+    render(DeliveryLens, { metrics: metrics({ maintain: block() }) });
+    const cells = Array.from(row().children).map((c) => c.textContent?.trim());
+    expect(cells[1]).toBe("2");
+    // sampleN is the TOTAL finding count, so it must not read as a denominator like "n=5".
+    expect(cells[2]).toContain("5");
+    expect(cells[2]).not.toContain("n=");
+  });
+
+  it("labels tier 3 distinctly from tier 2 and flags it as bad", async () => {
+    render(DeliveryLens, { metrics: metrics({ maintain: block() }) });
+    const chip = row().querySelector(".chip")!;
+    expect(chip.textContent).toContain("3");
+    expect(chip.className).toContain("chip-bad");
+  });
+
+  it("states tier-3 arming separately from the act flag", async () => {
+    // Reading the act line alone must never suggest PRs are being opened.
+    render(DeliveryLens, { metrics: metrics({ maintain: block({ act: true, pr: false }) }) });
+    expect(document.body.textContent).toContain("SHEPHERD_MAINTAIN_PR=1");
+
+    document.body.innerHTML = "";
+    render(DeliveryLens, { metrics: metrics({ maintain: block({ act: false, pr: true }) }) });
+    expect(document.body.textContent).not.toContain("SHEPHERD_MAINTAIN_PR=1");
+    expect(document.body.textContent).toContain("Never auto-merged");
+  });
+
+  it("links the PR a tier-3 run opened", async () => {
+    render(DeliveryLens, {
+      metrics: metrics({
+        maintain: block({
+          pr: true,
+          recentRuns: [
+            {
+              id: "r1",
+              bandKey: "dead_code_drift",
+              bandId: "dead_code_drift",
+              tier: 3,
+              value: 2,
+              worktreePath: "/wt/x",
+              agentName: "",
+              spawnSessionId: "",
+              spawnedAt: 1,
+              completedAt: 2,
+              outcome: "opened",
+              issueNumber: 512,
+              issueUrl: "https://example.test/pull/512",
+            },
+          ],
+        }),
+      }),
+    });
+    const link = row().querySelector("a.issue-link") as HTMLAnchorElement;
+    expect(link.href).toBe("https://example.test/pull/512");
+    expect(link.textContent).toContain("512");
   });
 });

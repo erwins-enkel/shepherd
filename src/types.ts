@@ -694,7 +694,7 @@ export interface PlanGate {
   // takeover (both leave round === cap); planStallStatus reads it. Absent ⇒ false. See src/plan-status.ts.
   finalRoundPending?: boolean;
   // Operator dismissed / took over this stalled rework. Display + attention consumers stop counting
-  // this verdict as active rework (REWORK RUNNING / review banner / rundown rework signal). Reset to
+  // this verdict as active rework (REWORK RUNNING / review banner / critic-rework signal). Reset to
   // false on any new verdict (buildGate) and on resume(). Absent ⇒ false.
   dismissed?: boolean;
   updatedAt: number;
@@ -854,80 +854,6 @@ export interface Recap {
   // finalize's diff-join; never serialized to the client, never set via putRecap
 }
 
-// ── herd rundown (cross-session attention digest, keyed by calendar day) ──────
-export type HerdDigestState = "generating" | "ready" | "failed";
-
-/** One actionable line in a rundown section. `sessionId`/`pr` let the UI deep-link. */
-export interface RundownItem {
-  label: string;
-  sessionId?: string;
-  pr?: number;
-}
-
-/** A Tier-1 "land this epic" item in the rundown (#1045). Unlike RundownItem these are NOT
- *  LLM-authored — the server injects them deterministically from the landing-ready completed-epic
- *  set (open landing PR that is CLEAN + CI-green + mergeable per #1039's computeLandingReady), so
- *  they can never be dropped or hallucinated. `repo`/`parent` deep-link to the IntegratedEpicsBand
- *  row + its Land CTA. `stranded` flags an open+ready landing that has sat unlanded past the Rec D
- *  threshold (urgency emphasis only — it does not gate inclusion).
- *  `pausedReason` — when present, the auto-rebase pass is paused (not ready to merge, needs
- *  operator action): 'cap' = rebase cap exhausted; 'conflict' = genuine conflict; 'driver' = merge
- *  driver unavailable on the server. Absent on landing-ready (non-paused) items. (#1071) */
-export interface RundownEpicItem {
-  repo: string;
-  parent: number;
-  title: string;
-  landingPr: number | null;
-  stranded: boolean;
-  /** Present when the auto-rebase pass is paused and operator action is needed (#1071). */
-  pausedReason?: "cap" | "conflict" | "driver";
-  /** When true, the landing PR's CI is failing (terminal `checks:"failure"`, and NOT
-   *  behind/conflicting — those are the rebase pass's `pausedReason`). A distinct Tier-1 attention
-   *  item: not "ready", not "paused", not "repairing". */
-  ciFailing?: boolean;
-  /** When true, a genuinely-live landingRepair session is already fixing this landing's CI —
-   *  non-actionable, so it is NOT `ciFailing` (that item is the backstop for a stuck/finished
-   *  session). A distinct Tier-1 attention item: not "ready", not "paused", not "ciFailing". */
-  repairing?: boolean;
-}
-
-/** The LLM-authored verdict the rundown spawn writes to `.shepherd-rundown.json`. */
-export interface RundownVerdict {
-  overnight: string;
-  decisions: RundownItem[];
-  ciRework: RundownItem[];
-  train: string;
-  focusNext: RundownItem[];
-}
-
-/** A synthesized cross-session attention digest for one calendar day (the stored +
- *  wire shape). Mirrors the recap lifecycle (generating → ready/failed). The verdict
- *  fields (overnight/decisions/ciRework/train/focusNext) are empty until `ready`.
- *  `attentionFingerprint` snapshots the per-session signal set at generation time so a
- *  later task can decide whether the herd has drifted enough to regenerate. */
-export interface HerdDigest {
-  dayKey: string; // "YYYY-MM-DD" of the operator's local day this digest covers
-  state: HerdDigestState;
-  overnight: string;
-  decisions: RundownItem[];
-  ciRework: RundownItem[];
-  train: string;
-  focusNext: RundownItem[];
-  /** Tier-1 "land this epic" items (#1045). Server ground truth, NOT from the LLM verdict — set
-   *  at spawn time and kept live intraday by reconcileEpics() (see HerdDigestService). */
-  epicsToLand: RundownEpicItem[];
-  attentionFingerprint: Record<string, string[]>; // sessionId → sorted signal codes
-  spawnSessionId: string; // provider spawn tracking id (usage attribution + pane resolve)
-  cwd: string; // tmpdir cwd of the spawn (verdict file read + pane reap)
-  model: string | null;
-  spawnedAt: number;
-  generatedAt: number | null; // set when finalized (ready/failed)
-  updatedAt: number;
-  /** Route-computed at GET time (count of attention-bearing sessions whose signal set
-   *  changed since this digest was generated); NOT stored. */
-  staleCount?: number;
-}
-
 // ── doc-agent run history ────────────────────────────────────────────────────
 /** Outcome of a completed doc-agent run, surfaced in the UI run history. */
 export type DocAgentOutcome = "pr" | "observe" | "nochange" | "error";
@@ -949,6 +875,8 @@ export interface DocAgentRun {
 export interface ReviewerSpawnRow {
   reviewerSessionId: string;
   taskSessionId: string;
+  /** `rundown` is READ-ONLY history: the Herd Rundown was removed and nothing writes that
+   *  kind any more, but its past rows carry real token spend the usage breakdown attributes. */
   kind: "review" | "plan_gate" | "recap" | "rundown" | "doc_agent";
   worktreePath: string;
   reviewerProvider: AgentProvider | null;
@@ -976,8 +904,8 @@ export interface ReviewerSpawnRow {
 }
 
 /** Terminal state of one reviewer run. `review` kinds resolve to clean/changes_requested/error;
- *  `plan_gate` kinds to approved/rework/error. The other spawn kinds (recap, rundown, doc_agent)
- *  are never stamped — they have no verdict a delivery metric reads. */
+ *  `plan_gate` kinds to approved/rework/error. The other spawn kinds (recap, doc_agent, and the
+ *  retired rundown) are never stamped — they have no verdict a delivery metric reads. */
 export type ReviewerSpawnOutcome = "clean" | "changes_requested" | "approved" | "rework" | "error";
 
 /** How far a merged diff departed from the APPROVED PLAN the critic was shown (#2155). Reported by
@@ -1499,9 +1427,9 @@ export interface UsageRepoBreakdown {
 
 // One satellite-pass kind's global, spawn-timestamp-filtered tally. Independent of the
 // per-task `satelliteUnits` attribution (different filter axis + includes unattributed
-// buckets like rundown/doc_agent/standalone-critic) — see buildUsageBreakdown.
+// buckets like doc_agent/standalone-critic) — see buildUsageBreakdown.
 export interface UsageKindUnits {
-  kind: string; // "review" | "plan_gate" | "recap" | "rundown" | "doc_agent" — data, not translated
+  kind: string; // "review" | "plan_gate" | "recap" | "doc_agent" (+ historical "rundown") — data, not translated
   units: number; // weighted units for that kind, in range
   count: number; // number of completed passes of that kind, in range
 }
@@ -1615,8 +1543,8 @@ export const USAGE_TIMELINE_KEYS = [
 
 // ── per-session hold reason ("Why parked?") ──────────────────────────────────
 /** Closed set of reasons a session is parked/blocked/gate-held. One per session,
- *  derived (see explainHold in rundown-core.ts). UI localizes via m.hold_<code>(params);
- *  server (push + rundown prompt) via renderHold() in hold.ts. */
+ *  derived (see explainHold in attention-core.ts). UI localizes via m.hold_<code>(params);
+ *  server (push) via renderHold() in hold.ts. */
 export type HoldCode =
   | "halted-error"
   | "halted-usage"

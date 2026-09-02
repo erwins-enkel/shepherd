@@ -111,7 +111,7 @@ function signoffView(s: MergeSessionView) {
 
 /** True when an un-acked, non-`POST-MERGE` manual operator step holds this PR (#1060). A
  *  `POST-MERGE`-only PR never qualifies (those never gate — they only inform + carry forward).
- *  Used as the `readyToMerge` disqualifier AND the rundown signal predicate — NOT as the
+ *  Used as the `readyToMerge` disqualifier — NOT as the
  *  hold/push trigger (that additionally needs readyExceptManualSteps; see computeMerge). */
 function hasBlockingManualSteps(s: MergeSessionView): boolean {
   return s.manualStepsAckedAt == null && s.manualSteps.some((st) => !st.postMerge);

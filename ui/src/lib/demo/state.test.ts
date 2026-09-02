@@ -52,7 +52,6 @@ describe("demoState.reset() → bootstrap getters", () => {
     expect(Object.keys(demoState.recaps()).length).toBeGreaterThan(0);
     expect(Object.keys(demoState.reviews()).length).toBeGreaterThan(0);
     expect(Object.keys(demoState.planGates()).length).toBeGreaterThan(0);
-    expect(demoState.herdDigest()).not.toBeNull();
     expect(demoState.upNext()?.sections.length).toBeGreaterThan(0);
     expect(demoState.steers().length).toBeGreaterThan(0);
     expect(Object.keys(demoState.projectIcons()).length).toBeGreaterThan(0);

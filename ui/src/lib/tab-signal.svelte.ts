@@ -3,7 +3,7 @@
 // background → title count + severity-dot favicon + App Badge; away → existing push.
 //
 // deriveTabState is a PURE function mirroring the in-scope server ATTENTION_RULES
-// (src/rundown-core.ts) from the same client-side inputs those rules use — NOT the
+// (src/attention-core.ts) from the same client-side inputs those rules use — NOT the
 // primary-only `store.holds` projection, which would mask ci-red under a co-tier-1
 // hold. createTabSignal() owns the side effects (title / <link rel=icon> canvas
 // swap / setAppBadge / aria-live) and is driven by one $effect in +page.svelte.
@@ -31,7 +31,7 @@ const SEVERITY_RANK: Record<Severity, number> = { none: 0, green: 1, amber: 2, r
 
 /** True when `gate` has ≥1 question-form question whose `${blockId} ${questionId}` key is not
  *  in `answeredQuestionKeys` — an operator answer is still pending (#1332).
- *  DRIFT: keep in sync with planQuestionsUnanswered in src/rundown-core.ts; both are
+ *  DRIFT: keep in sync with planQuestionsUnanswered in src/attention-core.ts; both are
  *  drift-locked by test/fixtures/plan-question-parity.json. */
 export function planQuestionsUnanswered(gate: PlanGate | undefined): boolean {
   if (!gate?.blocks?.length) return false;
@@ -48,7 +48,7 @@ export function planQuestionsUnanswered(gate: PlanGate | undefined): boolean {
 
 /** Severity for a single session, or "none" when it needs no operator action.
  *  Mirrors the in-scope ATTENTION_RULES using their exact inputs:
- *   - ci-red        → git.checks === "failure"                       (rundown-core.ts)
+ *   - ci-red        → git.checks === "failure"                       (attention-core.ts)
  *   - blocked       → displayStatus === "blocked"                    (blocked-decision)
  *   - plan-question → planPhase === "planning" && unanswered qs      (#1332)
  *   - ready         → readyToMerge && handoff !== "merger"           (ready-merge)

@@ -135,7 +135,7 @@
 
   const q = $derived(filter.trim().toLowerCase());
 
-  // The six herd lenses, "all" included (the default all-sessions view). Labels reuse the
+  // The five herd lenses, "all" included (the default all-sessions view). Labels reuse the
   // `herd_seg_*` keys and glyphs come from the shared lensGlyph map, so both dimensions stay
   // single-sourced with the HerdLensStrip and can't drift.
   const LENSES: { id: HerdFilter; label: () => string }[] = [
@@ -143,7 +143,6 @@
     { id: "next", label: () => m.herd_seg_next() },
     { id: "ready", label: () => m.herd_seg_ready() },
     { id: "done", label: () => m.herd_seg_done() },
-    { id: "rundown", label: () => m.herd_seg_rundown() },
     { id: "owed", label: () => m.herd_seg_owed() },
   ];
 

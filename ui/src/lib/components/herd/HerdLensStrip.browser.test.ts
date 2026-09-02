@@ -28,10 +28,10 @@ afterEach(() => {
 });
 
 describe("HerdLensStrip layout at the 300px sidebar floor", () => {
-  it("keeps all six lenses on a single row", async () => {
+  it("keeps all five lenses on a single row", async () => {
     const frame = mount300();
     const btns = [...frame.querySelectorAll<HTMLElement>(".lens")];
-    expect(btns).toHaveLength(6);
+    expect(btns).toHaveLength(5);
     // single row ⇒ every segment shares the same offsetTop
     const tops = new Set(btns.map((b) => b.offsetTop));
     expect(tops.size).toBe(1);
@@ -41,7 +41,7 @@ describe("HerdLensStrip layout at the 300px sidebar floor", () => {
     overwriteGetLocale(() => "de");
     const frame = mount300();
     const labels = [...frame.querySelectorAll<HTMLElement>(".lens .lb")];
-    expect(labels.length).toBe(6);
+    expect(labels.length).toBe(5);
     // a clipped label has scrollWidth > clientWidth (text-overflow:ellipsis kicked in)
     for (const lb of labels) {
       expect(lb.scrollWidth).toBeLessThanOrEqual(lb.clientWidth);
@@ -96,13 +96,13 @@ describe("HerdLensStrip OWED count badge (#1257)", () => {
     expect(frame.querySelector(".owed-badge")!.textContent).toBe("99+");
   });
 
-  it("keeps all six lenses on a single row at the 300px floor with a 2-digit badge", async () => {
+  it("keeps all five lenses on a single row at the 300px floor with a 2-digit badge", async () => {
     const frame = document.createElement("div");
     frame.style.width = "300px";
     document.body.appendChild(frame);
     render(HerdLensStrip, { props: { ...base, owedCount: 42 }, target: frame });
     const btns = [...frame.querySelectorAll<HTMLElement>(".lens")];
-    expect(btns).toHaveLength(6);
+    expect(btns).toHaveLength(5);
     // single row ⇒ every segment shares the same offsetTop (the absolute badge adds no flow width)
     expect(new Set(btns.map((b) => b.offsetTop)).size).toBe(1);
     // the badge itself must not overflow the OWED segment's box

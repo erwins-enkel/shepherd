@@ -13,7 +13,6 @@ import { recommenderPrompt } from "../src/prompt-recommend";
 import { buildRecapPrompt } from "../src/recap-core";
 import { prReviewPrompt, reviewPrompt } from "../src/critic-core";
 import { planReviewPrompt } from "../src/plan-gate";
-import { assembleHerdState, buildRundownPrompt } from "../src/rundown-core";
 
 describe("isTrustedAssociation", () => {
   it("trusts OWNER/MEMBER/COLLABORATOR", () => {
@@ -102,8 +101,8 @@ describe("UNTRUSTED_CONTENT_DIRECTIVE", () => {
 describe("#2002 fence ⇒ directive invariant", () => {
   // A fence carries label + nonce only, so the prompt around it MUST say what a fence means. This
   // is asserted over the built prompts rather than a hand-kept list of builders: a builder left off
-  // such a list is exactly the failure mode that ships an undefended prompt (src/rundown-core.ts
-  // was one — it fences external issue/PR titles and carried no directive).
+  // such a list is exactly the failure mode that ships an undefended prompt (the since-removed
+  // herd-rundown prompt was one — it fenced external issue/PR titles and carried no directive).
   const UNTRUSTED = "⟦UNTRUSTED:";
   const prompts: [string, string][] = [
     ["namingPrompt", namingPrompt("ship the thing")],
@@ -122,16 +121,6 @@ describe("#2002 fence ⇒ directive invariant", () => {
     ["reviewPrompt", reviewPrompt("origin/main", "task", [], [], "issue text")],
     ["prReviewPrompt", prReviewPrompt("origin/main", "title", "body")],
     ["planReviewPrompt", planReviewPrompt("task", "plan text", [], "issue text")],
-    [
-      "buildRundownPrompt",
-      buildRundownPrompt(
-        assembleHerdState({
-          sessions: [],
-          overnightDelta: { mergedPrs: [], archivedSessions: [] },
-          generatedFor: "2026-08-03",
-        }),
-      ),
-    ],
   ];
 
   for (const [name, prompt] of prompts) {

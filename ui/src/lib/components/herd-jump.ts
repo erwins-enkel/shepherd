@@ -41,8 +41,6 @@ export type JumpEffects = {
   resetLensAndFilters: () => void;
   /** jumpToSession: collapse the repo filter onto the target's repo. */
   followRepo: (id: string) => void;
-  /** selectRundownItem: leave the panel-only Rundown lens. */
-  leaveRundown: () => void;
   /** jumpFromHerdrUpdate: close the update modal + clear its run state. */
   beforeHerdrUpdateJump: () => void;
 };
@@ -94,7 +92,6 @@ export async function revealAndSelect(
  *  | --------------------- | -------------------------- | ------------------------------- |
  *  | jumpToSession         | resetLensAndFilters,       | select(id)                      |
  *  |                       | followRepo(id)             |                                 |
- *  | selectRundownItem     | leaveRundown               | select(id)                      |
  *  | selectFromDeepLink    | —                          | select(id)                      |
  *  | jumpFromHerdrUpdate   | beforeHerdrUpdateJump      | select(id)                      |
  *  | navigateFromViewport  | —                          | select(id)                      |
@@ -108,10 +105,6 @@ export function createJumpHandlers(deps: JumpDeps, effects: JumpEffects) {
     jumpToSession: async (id: string): Promise<void> => {
       effects.resetLensAndFilters();
       effects.followRepo(id);
-      await revealAndSelect(id, deps, (i) => deps.select(i));
-    },
-    selectRundownItem: async (id: string): Promise<void> => {
-      effects.leaveRundown();
       await revealAndSelect(id, deps, (i) => deps.select(i));
     },
     selectFromDeepLink: async (id: string): Promise<void> => {

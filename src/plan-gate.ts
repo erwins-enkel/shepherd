@@ -1669,7 +1669,7 @@ export class PlanGateService {
     const gate = this.deps.store.getPlanGate(session.id);
     if (!gate || gate.decision !== "changes_requested") return;
     // Operator took over: mark dismissed so the rework classification (REWORK RUNNING / banner /
-    // rundown) stops counting it as active rework, even after the round reset drops below the cap.
+    // banner) stops counting it as active rework, even after the round reset drops below the cap.
     const reset = { ...gate, round: 0, finalRoundPending: false, dismissed: true };
     this.deps.store.putPlanGate(reset);
     this.deps.onChange(session.id, reset);

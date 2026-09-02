@@ -89,8 +89,8 @@ export class CountsService {
   /**
    * Synchronous cache-only peek — returns the last cached value for `repoPath` (regardless
    * of TTL freshness) or null when nothing has been cached yet. Never triggers a fetch, so
-   * a caller on the event loop (e.g. the rundown's backlog-priority ranking) can read the
-   * kept-warm cache without an async forge round-trip. The backlog poller keeps these warm.
+   * a caller on the event loop can read the kept-warm cache without an async forge
+   * round-trip. The backlog poller keeps these warm.
    */
   peek(repoPath: string): RepoCounts | null {
     return this.cache.get(repoPath)?.value ?? null;

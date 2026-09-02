@@ -21,7 +21,6 @@
   import HerdDoneList from "./herd/HerdDoneList.svelte";
   import HerdEmptyState from "./herd/HerdEmptyState.svelte";
   import IntegratedEpicsBand from "./IntegratedEpicsBand.svelte";
-  import RundownPanel from "./RundownPanel.svelte";
   import PostMergeStepsPanel from "./PostMergeStepsPanel.svelte";
   import UpNextPanel from "./UpNextPanel.svelte";
   import {
@@ -92,9 +91,6 @@
     doneList = [],
     doneSelectedId = null,
     ondoneselect = undefined,
-    onrundownitem = undefined,
-    onrundownepic = undefined,
-    focusEpic = null,
     onackmigrationsepic = undefined,
     onackmanualsteps = undefined,
     onshowowed = undefined,
@@ -222,14 +218,6 @@
     doneSelectedId?: string | null;
     // a done row was picked → page selects it + shows its DoneRecapPanel in the main area
     ondoneselect?: (id: string) => void;
-    // a Rundown digest item with a sessionId was clicked → page leaves the Rundown lens
-    // and selects that live session (deep-link). Same mechanism a rail click uses.
-    onrundownitem?: (id: string) => void;
-    // a Rundown epics-to-land item was clicked (#1045) → page leaves the Rundown lens and focuses
-    // that epic's row in the IntegratedEpicsBand (deep-link to its Land CTA), NOT a direct land.
-    onrundownepic?: (repo: string, parent: number) => void;
-    // when set, the IntegratedEpicsBand auto-expands + scrolls/opens this epic's row (#1045).
-    focusEpic?: { repo: string; parent: number } | null;
     // acknowledge a completed epic's landing-PR migrations (#645); also clears the row
     onackmigrationsepic?: (repoPath: string, parent: number) => void;
     // acknowledge a session's manual operator steps (#1060); clears its auto-merge gate
@@ -671,9 +659,6 @@
     {#if filter === "next"}
       <!-- Up Next lens (#1169): cross-repo ranked queue of un-started work, no session list. -->
       <UpNextPanel {onbacklog} {repoFilter} {filteredRepo} launchContext={upNextLaunch} />
-    {:else if filter === "rundown"}
-      <!-- Rundown lens: the daily Herd Rundown digest panel, no session list. -->
-      <RundownPanel onitemselect={onrundownitem} onepicland={onrundownepic} />
     {:else if filter === "owed"}
       <!-- Owed lens: durable post-merge manual steps still owed, across merged sessions (#1061).
          Panel-only (no session list), persists beyond the Done lens's 48h window. -->
@@ -744,13 +729,12 @@
         />
       {/each}
     {/if}
-    {#if filter !== "done" && filter !== "rundown" && filter !== "owed"}
+    {#if filter !== "done" && filter !== "owed"}
       <IntegratedEpicsBand
         epics={completedEpics}
         ondismiss={ondismissepic ?? (() => {})}
         onackmigrations={onackmigrationsepic ?? (() => {})}
         onland={onlandepic ?? (() => {})}
-        {focusEpic}
         {nowMs}
       />
     {/if}

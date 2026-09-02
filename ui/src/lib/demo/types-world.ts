@@ -17,7 +17,6 @@ import type {
   Recap,
   ReviewVerdict,
   PlanGate,
-  HerdDigest,
   UpNextSnapshot,
   BacklogPayload,
   Settings,
@@ -101,7 +100,6 @@ export interface DemoWorld {
   recaps: Record<string, Recap>;
   reviews: Record<string, ReviewVerdict>;
   planGates: Record<string, PlanGate>;
-  herdDigest: HerdDigest | null;
   upNext: UpNextSnapshot | null;
   steers: Steer[];
   projectIcons: ProjectIcons;

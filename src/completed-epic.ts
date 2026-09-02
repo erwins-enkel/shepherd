@@ -121,8 +121,8 @@ export function isLiveRepairSession(s: Session, now: number): boolean {
 }
 
 /** Whether any session in `sessions` is a genuinely-live repair session holding `integrationBranch`
- *  for `repoPath`. Single source of truth for the fence/surface predicate so the drain pass, the
- *  rundown, and GET /api/epics/completed can't drift. */
+ *  for `repoPath`. Single source of truth for the fence/surface predicate so the drain pass and
+ *  GET /api/epics/completed can't drift. */
 export function anyLiveRepairSession(
   sessions: Session[],
   repoPath: string,
@@ -152,8 +152,7 @@ export interface EnrichLandingDeps {
  *  (`landingChecks`/`landingMergeable`/`landingReady`/`landingStranded`/`landingCiFailing`/
  *  `landingRepairing`), mutating in place.
  *  Best-effort + fail-safe per row: a missing branch/forge or a forge error simply leaves that
- *  row's live fields undefined — never throws. Shared by GET /api/epics/completed and the rundown's
- *  landing-ready accessor so both compute readiness identically. */
+ *  row's live fields undefined — never throws. Used by GET /api/epics/completed. */
 export async function enrichLandingEpics(
   rows: CompletedEpic[],
   deps: EnrichLandingDeps,

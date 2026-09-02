@@ -145,9 +145,6 @@ export interface Settings {
   recapCli: string;
   recapModel: string;
   recapEffort: string;
-  rundownCli?: string;
-  rundownModel?: string;
-  rundownEffort?: string;
   docAgentCli: string;
   docAgentModel: string;
   docAgentEffort: string;
@@ -743,50 +740,6 @@ export interface Recap {
   generatedAt: number | null;
   updatedAt: number;
   blocks?: VisualBlock[]; // arrives over session:recap WS payload; optional for back-compat
-}
-
-// mirrors server HerdDigest / RundownItem / HerdDigestState
-export type HerdDigestState = "generating" | "ready" | "failed";
-export interface RundownItem {
-  label: string;
-  sessionId?: string;
-  pr?: number;
-}
-// Tier-1 "land this epic" item (#1045) — server ground truth; repo/parent deep-link to the band.
-// pausedReason: present when auto-rebase is paused; 'cap'|'conflict'|'driver' (#1071).
-export interface RundownEpicItem {
-  repo: string;
-  parent: number;
-  title: string;
-  landingPr: number | null;
-  stranded: boolean;
-  /** Present when the auto-rebase pass is paused and operator action is needed (#1071). */
-  pausedReason?: "cap" | "conflict" | "driver";
-  /** The landing PR's CI is terminally failing and needs operator attention (mirrors server
-   *  RundownEpicItem.ciFailing). Not set while a repair session is live — see `repairing`. */
-  ciFailing?: boolean;
-  /** Non-actionable: a capped auto-repair agent session is live, driving this landing's CI back
-   *  to green (mirrors server RundownEpicItem.repairing). Mutually exclusive with `ciFailing`. */
-  repairing?: boolean;
-}
-export interface HerdDigest {
-  dayKey: string;
-  state: HerdDigestState;
-  overnight: string;
-  decisions: RundownItem[];
-  ciRework: RundownItem[];
-  train: string;
-  focusNext: RundownItem[];
-  epicsToLand: RundownEpicItem[];
-  attentionFingerprint: Record<string, string[]>;
-  spawnSessionId: string;
-  cwd: string;
-  model: string | null;
-  spawnedAt: number;
-  generatedAt: number | null;
-  updatedAt: number;
-  /** Route-computed at GET time; NOT stored. */
-  staleCount?: number;
 }
 
 export type ReviewDecision = "changes_requested" | "commented" | "error";
@@ -1425,7 +1378,7 @@ export interface UsageRepoBreakdown {
 
 /** One satellite-pass kind's global, spawn-timestamp-filtered tally (Overhead lens). */
 export interface UsageKindUnits {
-  kind: string; // "review" | "plan_gate" | "recap" | "rundown" | "doc_agent" — data, not translated
+  kind: string; // "review" | "plan_gate" | "recap" | "doc_agent" (+ historical "rundown") — data, not translated
   units: number; // weighted units for that kind, in range
   count: number; // number of completed passes of that kind, in range
 }
@@ -2067,7 +2020,6 @@ export type WsEvent =
   | { event: "plugin-update:status"; data: PluginUpdatesStatus }
   | { event: "project-icons:update"; data: ProjectIcons }
   | { event: "session:recap"; data: { id: string; recap: Recap | null } }
-  | { event: "herd:digest"; data: { digest: HerdDigest } }
   | { event: "upnext:snapshot"; data: { snapshot: UpNextSnapshot } }
   | { event: "session:review"; data: { id: string; review: ReviewVerdict | null } }
   | {

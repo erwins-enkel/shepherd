@@ -100,7 +100,7 @@ execution controls below, Shepherd bounds the injection surface at ingestion
 
 - **Untrusted-content fencing.** External text an agent or helper LLM might read —
   issue title/body, issue comments, PR bodies + author-notes, captured terminal
-  tails, and the recap/rundown context — is wrapped in unforgeable `⟦UNTRUSTED:…⟧`
+  tails, and the recap context — is wrapped in unforgeable `⟦UNTRUSTED:…⟧`
   markers (`fenceUntrusted`, with a per-fence random nonce that the content cannot
   predict or close early) so the model treats it as **data, never instructions**.
   The fence carries its **label and nonce only**; the instruction hierarchy has one

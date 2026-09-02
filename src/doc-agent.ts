@@ -320,7 +320,7 @@ export interface DocAgentDeps extends MembraneSeams {
    *  instead of the recent-commit window. */
   buildPrompt?: (base: string, ctx?: RetargetPromptCtx) => string;
   /** Read a spawn's token usage from its transcript at finalize (cost attribution). Mirrors
-   *  herd-digest.ts's identical dep + readSessionUsage default. */
+   *  recap.ts's identical dep + readSessionUsage default. */
   readUsage?: (cwd: string, spawnSessionId: string) => Promise<SessionUsage | null>;
   /** Write the re-target marker (tests inject a fake; default `writeFileSync`). */
   writeMarker?: (path: string, contents: string) => void;
@@ -741,7 +741,8 @@ export class DocAgentService {
     });
     // AFTER inflight.set (the ordering mirrors plan-gate's documented invariant): persist a durable
     // reviewer_spawns row so this run's token burn is attributable even if it crashes before finalize.
-    // Session-less — repoPath is the correlation key (herd-digest uses "" for its herd-wide spawn).
+    // Session-less — repoPath is the correlation key, standing in for the task sessionId a
+    // session-scoped spawn would carry.
     this.deps.store.recordReviewerSpawn({
       reviewerSessionId: spawnSessionId,
       taskSessionId: repoPath,
@@ -1006,7 +1007,7 @@ export class DocAgentService {
       result = await this.stageAndPublish(f, sentinel);
     } finally {
       // Complete the durable cost row with real usage (best-effort) on EVERY finalize path (observe
-      // and act) BEFORE the worktree is removed — mirrors herd-digest.ts / review.ts.
+      // and act) BEFORE the worktree is removed — mirrors recap.ts / review.ts.
       // completeReviewerSpawn no-ops on an unknown id, so an empty/missing id is safe.
       const usage = await this.readUsage(f.worktreePath, f.spawnSessionId).catch(() => null);
       this.deps.store.completeReviewerSpawn(f.spawnSessionId, usage ?? ZEROED_USAGE, this.now());
@@ -1608,7 +1609,8 @@ const mergedSeenKey = (repo: string, prNumber: number) =>
 // as mergedSeenKey — one tiny row per re-targeted PR, never cleaned up.
 const prSyncedKey = (repo: string, prNumber: number) => `docagent:pr-synced:${repo}:${prNumber}`;
 
-/** Local `YYYY-MM-DD` for `now` — the nightly once/day key (mirrors herd-digest's dayKeyFor). */
+/** Local `YYYY-MM-DD` for `now` — the nightly once/day key. Local, not UTC, so the cadence
+ *  turns over at the operator's midnight. */
 function defaultDayKey(now: number): string {
   const d = new Date(now);
   const m = String(d.getMonth() + 1).padStart(2, "0");

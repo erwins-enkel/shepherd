@@ -91,7 +91,6 @@ const lensGetRoutes: Record<string, GetHandler> = {
   "/api/plan-gates": () => json(demoState.planGates()),
   "/api/plan-gates/inflight": () => json([]),
   "/api/recaps": () => json(demoState.recaps()),
-  "/api/herd/digest": () => json(demoState.herdDigest()),
   "/api/up-next": () => json(demoState.upNext()),
   "/api/steers": () => json(demoState.steers()),
   "/api/project-icons": () => json(demoState.projectIcons()),

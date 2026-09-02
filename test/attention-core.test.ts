@@ -1,22 +1,13 @@
 import { test, expect } from "bun:test";
 import { readFileSync } from "node:fs";
 import {
-  parseRundownVerdict,
   classifyAttention,
-  assembleHerdState,
-  buildRundownPrompt,
-  fingerprintDiffCount,
-  attentionFingerprint,
   isMerging,
   MERGE_MARK_BACKSTOP_MS,
-  RUNDOWN_LABEL_MAX,
-  RUNDOWN_DECISIONS_CAP,
-  RUNDOWN_FOCUSNEXT_CAP,
-  RUNDOWN_EPICS_CAP,
   explainHold,
   planQuestionsUnanswered,
   type ClassifyCaches,
-} from "../src/rundown-core";
+} from "../src/attention-core";
 import type { Session } from "../src/types";
 import type { GitState } from "../src/forge/types";
 import type { BlockReason } from "../src/blocked";
@@ -83,61 +74,6 @@ function session(over: Partial<Session> = {}): Session {
 
 const git = (over: Partial<GitState> = {}): GitState =>
   ({ kind: "github", state: "open", checks: "none", deployConfigured: false, ...over }) as GitState;
-
-// ── parseRundownVerdict ──────────────────────────────────────────────────────
-
-test("parseRundownVerdict: valid full verdict parses", () => {
-  const v = parseRundownVerdict(
-    JSON.stringify({
-      overnight: "2 PRs merged overnight",
-      decisions: [{ label: "Answer the auth question", sessionId: "s1" }],
-      ciRework: [{ label: "CI red on TASK-03", pr: 42 }],
-      train: "1 ready PR waiting",
-      focusNext: [{ label: "Review the migration" }],
-    }),
-  );
-  expect(v).not.toBeNull();
-  expect(v?.overnight).toBe("2 PRs merged overnight");
-  expect(v?.decisions).toEqual([{ label: "Answer the auth question", sessionId: "s1" }]);
-  expect(v?.ciRework).toEqual([{ label: "CI red on TASK-03", pr: 42 }]);
-  expect(v?.train).toBe("1 ready PR waiting");
-  expect(v?.focusNext).toEqual([{ label: "Review the migration" }]);
-});
-
-test("parseRundownVerdict: over-long label clamped", () => {
-  const long = "x".repeat(RUNDOWN_LABEL_MAX + 50);
-  const v = parseRundownVerdict(JSON.stringify({ decisions: [{ label: long }] }));
-  expect(v!.decisions[0]!.label.length).toBe(RUNDOWN_LABEL_MAX);
-});
-
-test("parseRundownVerdict: >cap decisions sliced, >cap focusNext sliced", () => {
-  const decisions = Array.from({ length: 10 }, (_, i) => ({ label: `d${i}` }));
-  const focusNext = Array.from({ length: 8 }, (_, i) => ({ label: `f${i}` }));
-  const v = parseRundownVerdict(JSON.stringify({ decisions, focusNext }));
-  expect(v?.decisions.length).toBe(RUNDOWN_DECISIONS_CAP);
-  expect(v?.focusNext.length).toBe(RUNDOWN_FOCUSNEXT_CAP);
-});
-
-test("parseRundownVerdict: malformed item dropped, missing fields defaulted", () => {
-  const v = parseRundownVerdict(
-    JSON.stringify({
-      decisions: [{ label: "keep" }, { nolabel: true }, { label: "" }, "string-not-object", 5],
-    }),
-  );
-  expect(v?.decisions).toEqual([{ label: "keep" }]);
-  expect(v?.overnight).toBe("");
-  expect(v?.train).toBe("");
-  expect(v?.ciRework).toEqual([]);
-  expect(v?.focusNext).toEqual([]);
-});
-
-test("parseRundownVerdict: empty / non-object / unparseable → null", () => {
-  expect(parseRundownVerdict("")).toBeNull();
-  expect(parseRundownVerdict("not json")).toBeNull();
-  expect(parseRundownVerdict("[1,2,3]")).toBeNull();
-  expect(parseRundownVerdict("null")).toBeNull();
-  expect(parseRundownVerdict('"a string"')).toBeNull();
-});
 
 // ── classifyAttention ────────────────────────────────────────────────────────
 
@@ -280,184 +216,6 @@ test("explainHold: manual-steps → hold reason with the non-POST-MERGE step cou
   expect(hold).toEqual({ code: "manual-steps", params: { steps: 2 } });
 });
 
-// ── assembleHerdState — Tier-1 never dropped by top-N ─────────────────────────
-
-test("assembleHerdState: Tier-1 always kept, only Tier-3 dropped, truncatedTier3 set", () => {
-  const sessions: Session[] = [];
-  // 3 Tier-1 (blocked)
-  for (let i = 0; i < 3; i++)
-    sessions.push(session({ id: `t1-${i}`, desig: `T1-${i}`, status: "blocked" }));
-  // 10 Tier-3 (running, in-flight only)
-  for (let i = 0; i < 10; i++)
-    sessions.push(session({ id: `t3-${i}`, desig: `T3-${i}`, status: "running" }));
-
-  const out = assembleHerdState({
-    sessions,
-    overnightDelta: { mergedPrs: [], archivedSessions: [] },
-    generatedFor: "2026-06-15",
-    now: NOW,
-    topN: 5, // budget: 3 tier1 forced + 2 tier3 → 8 tier3 dropped
-  });
-
-  const keptIds = out.sessions.map((s) => s.sessionId);
-  for (let i = 0; i < 3; i++) expect(keptIds).toContain(`t1-${i}`);
-  expect(out.sessions.filter((s) => s.tier === 1).length).toBe(3);
-  expect(out.sessions.filter((s) => s.tier === 3).length).toBe(2);
-  expect(out.truncatedTier3).toBe(8);
-  // Tier-1 first in output
-  expect(out.sessions[0]!.tier).toBe(1);
-});
-
-test("assembleHerdState: Tier-1 overflow drops a Tier-2, truncatedTier2 set", () => {
-  const sessions: Session[] = [];
-  // 3 Tier-1 (blocked)
-  for (let i = 0; i < 3; i++)
-    sessions.push(session({ id: `t1-${i}`, desig: `T1-${i}`, status: "blocked" }));
-  // 2 Tier-2 (stalled)
-  for (let i = 0; i < 2; i++)
-    sessions.push(session({ id: `t2-${i}`, desig: `T2-${i}`, status: "idle" }));
-
-  const out = assembleHerdState({
-    sessions,
-    stalled: new Set(["t2-0", "t2-1"]),
-    overnightDelta: { mergedPrs: [], archivedSessions: [] },
-    generatedFor: "2026-06-15",
-    now: NOW,
-    topN: 3, // budget: 3 tier1 forced, 0 left → both tier2 dropped
-  });
-
-  expect(out.sessions.filter((s) => s.tier === 1).length).toBe(3);
-  expect(out.sessions.filter((s) => s.tier === 2).length).toBe(0);
-  expect(out.truncatedTier2).toBe(2);
-  expect(out.truncatedTier3).toBe(0);
-});
-
-test("buildRundownPrompt: not-all-clear guard fires when truncatedTier2>0 with truncatedTier3==0", () => {
-  const sessions: Session[] = [];
-  for (let i = 0; i < 3; i++)
-    sessions.push(session({ id: `t1-${i}`, desig: `T1-${i}`, status: "blocked" }));
-  sessions.push(session({ id: "t2-0", desig: "T2-0", status: "idle" }));
-
-  const out = assembleHerdState({
-    sessions,
-    stalled: new Set(["t2-0"]),
-    overnightDelta: { mergedPrs: [], archivedSessions: [] },
-    generatedFor: "2026-06-15",
-    now: NOW,
-    topN: 3,
-  });
-  expect(out.truncatedTier2).toBe(1);
-  expect(out.truncatedTier3).toBe(0);
-
-  const prompt = buildRundownPrompt(out);
-  expect(prompt).toContain('do NOT claim "all clear"');
-  expect(prompt).toContain("Tier-2 (HIGH)");
-});
-
-// ── assembleHerdState — backlog-priority weighting ────────────────────────────
-
-test("assembleHerdState: within a tier, higher-priority repo (lower backlogRank) sorts first", () => {
-  // Same tier (both Tier-3, in-flight), same age — only backlogRank should break the tie.
-  const sessions: Session[] = [
-    session({ id: "lo", desig: "LO", repoPath: "/repo-low", status: "running" }),
-    session({ id: "hi", desig: "HI", repoPath: "/repo-high", status: "running" }),
-  ];
-  const out = assembleHerdState({
-    sessions,
-    overnightDelta: { mergedPrs: [], archivedSessions: [] },
-    generatedFor: "2026-06-15",
-    now: NOW,
-    backlogRank: { "/repo-high": 0, "/repo-low": 1 },
-  });
-  expect(out.sessions.map((s) => s.sessionId)).toEqual(["hi", "lo"]);
-});
-
-test("assembleHerdState: backlogRank does NOT promote a Tier-3 above a Tier-1", () => {
-  const sessions: Session[] = [
-    // Tier-3 in a top-priority repo (rank 0)
-    session({ id: "t3", desig: "T3", repoPath: "/repo-high", status: "running" }),
-    // Tier-1 in a no-priority repo
-    session({ id: "t1", desig: "T1", repoPath: "/repo-none", status: "blocked" }),
-  ];
-  const out = assembleHerdState({
-    sessions,
-    overnightDelta: { mergedPrs: [], archivedSessions: [] },
-    generatedFor: "2026-06-15",
-    now: NOW,
-    backlogRank: { "/repo-high": 0 },
-  });
-  // Tier-1 must lead despite the Tier-3 living in the higher-priority repo.
-  expect(out.sessions[0]!.sessionId).toBe("t1");
-  expect(out.sessions[0]!.tier).toBe(1);
-});
-
-test("assembleHerdState: emitted sessions carry backlogRank (ranked + sentinel for unranked)", () => {
-  const sessions: Session[] = [
-    session({ id: "ranked", desig: "R", repoPath: "/repo-high", status: "running" }),
-    session({ id: "unranked", desig: "U", repoPath: "/repo-other", status: "running" }),
-  ];
-  const out = assembleHerdState({
-    sessions,
-    overnightDelta: { mergedPrs: [], archivedSessions: [] },
-    generatedFor: "2026-06-15",
-    now: NOW,
-    backlogRank: { "/repo-high": 3 },
-  });
-  const byId = Object.fromEntries(out.sessions.map((s) => [s.sessionId, s.backlogRank]));
-  expect(byId.ranked).toBe(3);
-  expect(byId.unranked).toBe(Number.MAX_SAFE_INTEGER);
-});
-
-test("assembleHerdState: backlogRank absent → all sessions get the sentinel, age tiebreaks", () => {
-  const sessions: Session[] = [
-    session({ id: "young", desig: "Y", status: "running", createdAt: NOW - 100 }),
-    session({ id: "old", desig: "O", status: "running", createdAt: NOW - 5000 }),
-  ];
-  const out = assembleHerdState({
-    sessions,
-    overnightDelta: { mergedPrs: [], archivedSessions: [] },
-    generatedFor: "2026-06-15",
-    now: NOW,
-  });
-  expect(out.sessions.every((s) => s.backlogRank === Number.MAX_SAFE_INTEGER)).toBe(true);
-  // Equal sentinel rank → oldest first.
-  expect(out.sessions.map((s) => s.sessionId)).toEqual(["old", "young"]);
-});
-
-test("buildRundownPrompt: states backlog-priority preference for focusNext", () => {
-  const out = assembleHerdState({
-    sessions: [session({ id: "s", desig: "S", status: "running" })],
-    overnightDelta: { mergedPrs: [], archivedSessions: [] },
-    generatedFor: "2026-06-15",
-    now: NOW,
-  });
-  const prompt = buildRundownPrompt(out);
-  expect(prompt).toContain("backlogRank");
-  expect(prompt).toContain("focusNext");
-  expect(prompt).toContain("higher-priority repos");
-});
-
-// ── fingerprint diff ─────────────────────────────────────────────────────────
-
-test("attentionFingerprint: only attention-bearing sessions, sorted signals", () => {
-  const fp = attentionFingerprint([
-    { sessionId: "a", signals: ["in-flight", "ci-red"] },
-    { sessionId: "b", signals: [] },
-  ]);
-  expect(fp).toEqual({ a: ["ci-red", "in-flight"] });
-});
-
-test("fingerprintDiffCount: appear / clear / change each count 1; identical → 0", () => {
-  const base = { x: ["in-flight"], y: ["awaiting-merge"] };
-  expect(fingerprintDiffCount(base, base)).toBe(0);
-  // ci-red appears on a new session z
-  expect(fingerprintDiffCount(base, { ...base, z: ["ci-red"] })).toBe(1);
-  // a bottleneck clears (y removed)
-  expect(fingerprintDiffCount(base, { x: ["in-flight"] })).toBe(1);
-  // a signal changes on x
-  expect(fingerprintDiffCount(base, { x: ["ci-red"], y: ["awaiting-merge"] })).toBe(1);
-});
-
 // ── merge-mark backstop parity (DRIFT lock) ──────────────────────────────────
 
 test("MERGE_MARK_BACKSTOP_MS matches the UI constant", () => {
@@ -503,30 +261,17 @@ const retainedAtCapGate: PlanGate = {
   updatedAt: 1000,
 };
 
-test("classifyAttention + assemble: executing session with retained gate has no plan-rework signal and no planRound", () => {
+test("classifyAttention: executing session with a retained gate has no plan-rework signal", () => {
   // An executing session whose retained gate is changes_requested at cap must NOT get the
-  // plan-rework signal and must NOT have planRound set. Both L91 and L251 must be guarded.
+  // plan-rework signal — the retained verdict is inert once planning is over.
   const executingSession = session({ planPhase: "executing", status: "idle" });
   const caches: ClassifyCaches = { gate: retainedAtCapGate };
 
   const attn = classifyAttention(executingSession, caches, NOW);
-  expect(attn.signals).not.toContain("plan-rework"); // L91 guard
-
-  // assembleHerdState to check planRound (L251 guard)
-  const out = assembleHerdState({
-    sessions: [executingSession],
-    gates: { s1: retainedAtCapGate },
-    overnightDelta: { mergedPrs: [], archivedSessions: [] },
-    generatedFor: "2026-06-19",
-    now: NOW,
-  });
-  const item = out.sessions.find((s) => s.sessionId === "s1");
-  // The session must still appear (it has an in-flight signal from idle status + some tier).
-  // planRound must be absent — the retained gate must not leak planRound into execution.
-  expect(item?.planRound).toBeUndefined(); // L251 guard
+  expect(attn.signals).not.toContain("plan-rework");
 });
 
-test("plan-rework: running suppresses the signal + planRound (agent's turn), regardless of stall; idle keeps both", () => {
+test("plan-rework: running suppresses the signal (agent's turn), regardless of stall; idle keeps it", () => {
   // A RUNNING session is the AGENT's turn (revising the plan), so it never gets plan-rework —
   // whether the streak is at-cap/stalled or mid-round (#1629). It falls to in-flight (Tier-3).
   const gate = { ...retainedAtCapGate };
@@ -547,25 +292,9 @@ test("plan-rework: running suppresses the signal + planRound (agent's turn), reg
   );
   expect(runningMidRound.signals).not.toContain("plan-rework");
   expect(runningMidRound.tier).toBe(3);
-  const runOut = assembleHerdState({
-    sessions: [session({ planPhase: "planning", status: "running" })],
-    gates: { s1: gate },
-    overnightDelta: { mergedPrs: [], archivedSessions: [] },
-    generatedFor: "2026-06-19",
-    now: NOW,
-  });
-  expect(runOut.sessions.find((s) => s.sessionId === "s1")?.planRound).toBeUndefined();
-  // IDLE genuinely-stalled session: plan-rework + planRound preserved (needs a human).
+  // IDLE genuinely-stalled session: plan-rework preserved (needs a human).
   const idle = classifyAttention(session({ planPhase: "planning", status: "idle" }), { gate }, NOW);
   expect(idle.signals).toContain("plan-rework");
-  const idleOut = assembleHerdState({
-    sessions: [session({ planPhase: "planning", status: "idle" })],
-    gates: { s1: gate },
-    overnightDelta: { mergedPrs: [], archivedSessions: [] },
-    generatedFor: "2026-06-19",
-    now: NOW,
-  });
-  expect(idleOut.sessions.find((s) => s.sessionId === "s1")?.planRound).toBe(3);
 });
 
 test("plan-rework: a dismissed gate suppresses the signal even when idle", () => {
@@ -626,23 +355,13 @@ test("critic-rework: verdict for an OLDER head (rework pushed, PR open at newer 
   ).toContain("critic-rework");
 });
 
-test("classifyAttention + assemble: planning session with same at-cap gate still gets plan-rework + planRound (guard not over-suppressing)", () => {
-  // Contrast: planPhase:"planning" with the same gate must still produce plan-rework and planRound.
+test("classifyAttention: planning session with the same at-cap gate still gets plan-rework (guard not over-suppressing)", () => {
+  // Contrast: planPhase:"planning" with the same gate must still produce plan-rework.
   const planningSession = session({ planPhase: "planning", status: "idle" });
   const caches: ClassifyCaches = { gate: retainedAtCapGate };
 
   const attn = classifyAttention(planningSession, caches, NOW);
   expect(attn.signals).toContain("plan-rework"); // still fires during planning
-
-  const out = assembleHerdState({
-    sessions: [planningSession],
-    gates: { s1: retainedAtCapGate },
-    overnightDelta: { mergedPrs: [], archivedSessions: [] },
-    generatedFor: "2026-06-19",
-    now: NOW,
-  });
-  const item = out.sessions.find((s) => s.sessionId === "s1");
-  expect(item?.planRound).toBe(3); // planRound still set during planning
 });
 
 // ── halt classification ──────────────────────────────────────────────────────
@@ -890,272 +609,6 @@ test("explainHold: only in-flight signal → null", () => {
 test("explainHold: no signals → null", () => {
   const hold = explainHold(session({ status: "done" }), {}, NOW);
   expect(hold).toBeNull();
-});
-
-// ── rundown attach: assembleHerdState sets hold ──────────────────────────────
-
-test("assembleHerdState: plan-rework session gets hold with correct code", () => {
-  const s = session({ planPhase: "planning", status: "idle" });
-  const out = assembleHerdState({
-    sessions: [s],
-    gates: { s1: { decision: "changes_requested", round: 1, cap: 3 } as any },
-    overnightDelta: { mergedPrs: [], archivedSessions: [] },
-    generatedFor: "2026-06-22",
-    now: NOW,
-  });
-  const item = out.sessions.find((s) => s.sessionId === "s1");
-  expect(item?.hold?.code).toBe("plan-rework");
-});
-
-// ── prompt render: why field ─────────────────────────────────────────────────
-
-test("buildRundownPrompt: plan-rework session renders English 'why', raw hold object absent", () => {
-  const s = session({ planPhase: "planning", status: "idle" });
-  const out = assembleHerdState({
-    sessions: [s],
-    gates: { s1: { decision: "changes_requested", round: 1, cap: 3 } as any },
-    overnightDelta: { mergedPrs: [], archivedSessions: [] },
-    generatedFor: "2026-06-22",
-    now: NOW,
-  });
-  const prompt = buildRundownPrompt(out);
-  // Should contain the rendered English phrase (not the raw hold code object)
-  expect(prompt).toContain("Plan review");
-  // The raw hold key must not be serialized into the prompt JSON
-  expect(prompt).not.toContain('"hold"');
-  // The "why" key should be present instead
-  expect(prompt).toContain('"why"');
-});
-
-test("buildRundownPrompt: prompt instructs model about the 'why' field and renders English phrase (not raw code)", () => {
-  // Use a plan-rework session so the assembled state carries a hold → "why" in prompt JSON.
-  const s = session({ planPhase: "planning", status: "idle" });
-  const out = assembleHerdState({
-    sessions: [s],
-    gates: { s1: { decision: "changes_requested", round: 1, cap: 3 } as any },
-    overnightDelta: { mergedPrs: [], archivedSessions: [] },
-    generatedFor: "2026-06-22",
-    now: NOW,
-  });
-  const prompt = buildRundownPrompt(out);
-  // Instruction prose mentions the "why" field
-  expect(prompt).toContain('"why"');
-  // Rendered English phrase present (from renderHold, not the raw hold object)
-  expect(prompt).toContain("Plan review");
-  // The "hold" object must NOT appear in prompt JSON — it's replaced by the "why" string
-  expect(prompt).not.toContain('"hold"');
-});
-
-// ── epics-to-land (#1045) ─────────────────────────────────────────────────────
-const epic = (over: Partial<import("../src/types").RundownEpicItem> = {}) => ({
-  repo: "/repo/a",
-  parent: 7,
-  title: "Epic A",
-  landingPr: 99,
-  stranded: false,
-  ...over,
-});
-
-test("assembleHerdState: epics passed through (default [] when absent)", () => {
-  const none = assembleHerdState({
-    sessions: [],
-    overnightDelta: { mergedPrs: [], archivedSessions: [] },
-    generatedFor: "2026-06-15",
-    now: NOW,
-  });
-  expect(none.epics).toEqual([]);
-
-  const out = assembleHerdState({
-    sessions: [],
-    epics: [epic(), epic({ parent: 8, title: "Epic B" })],
-    overnightDelta: { mergedPrs: [], archivedSessions: [] },
-    generatedFor: "2026-06-15",
-    now: NOW,
-  });
-  expect(out.epics.map((e) => e.parent)).toEqual([7, 8]);
-});
-
-test("assembleHerdState: epics sliced to RUNDOWN_EPICS_CAP", () => {
-  const many = Array.from({ length: 30 }, (_, i) => epic({ parent: i }));
-  const out = assembleHerdState({
-    sessions: [],
-    epics: many,
-    overnightDelta: { mergedPrs: [], archivedSessions: [] },
-    generatedFor: "2026-06-15",
-    now: NOW,
-  });
-  expect(out.epics.length).toBe(RUNDOWN_EPICS_CAP);
-});
-
-test("buildRundownPrompt: epics surfaced in dedicated block, NOT echoed in the JSON dump", () => {
-  const out = assembleHerdState({
-    sessions: [],
-    epics: [epic({ repo: "/repo/x", parent: 7, title: "Land me", landingPr: 99, stranded: true })],
-    overnightDelta: { mergedPrs: [], archivedSessions: [] },
-    generatedFor: "2026-06-15",
-    now: NOW,
-  });
-  const prompt = buildRundownPrompt(out);
-  // dedicated block present
-  expect(prompt).toContain("EPICS AWAITING LANDING");
-  expect(prompt).toContain("/repo/x #7");
-  expect(prompt).toContain("landing PR #99");
-  expect(prompt).toContain("STRANDED");
-  expect(prompt).toContain("MUST NOT repeat them in");
-  // the JSON herd-state dump must NOT carry an `epics` key (stripped to avoid double-injection)
-  const dump = prompt.slice(prompt.indexOf("Herd state (already significance-ranked)"));
-  expect(dump).not.toContain('"epics"');
-});
-
-test("buildRundownPrompt: fences the herd-state JSON dump as untrusted", () => {
-  const out = assembleHerdState({
-    sessions: [],
-    overnightDelta: { mergedPrs: [], archivedSessions: [] },
-    generatedFor: "2026-06-15",
-    now: NOW,
-  });
-  const prompt = buildRundownPrompt(out);
-  expect(prompt).toContain("⟦UNTRUSTED:herd state:");
-});
-
-test("buildRundownPrompt: no epic block when none", () => {
-  const out = assembleHerdState({
-    sessions: [],
-    overnightDelta: { mergedPrs: [], archivedSessions: [] },
-    generatedFor: "2026-06-15",
-    now: NOW,
-  });
-  expect(buildRundownPrompt(out)).not.toContain("EPICS AWAITING LANDING");
-});
-
-// ── paused-rebase epics (#1071) ─────────────────────────────────────────────────
-test("assembleHerdState: paused epic (pausedReason set) passes through to epics array", () => {
-  const out = assembleHerdState({
-    sessions: [],
-    epics: [epic({ pausedReason: "cap" }), epic({ parent: 8, pausedReason: "driver" })],
-    overnightDelta: { mergedPrs: [], archivedSessions: [] },
-    generatedFor: "2026-06-15",
-    now: NOW,
-  });
-  expect(out.epics).toHaveLength(2);
-  expect(out.epics.at(0)?.pausedReason).toBe("cap");
-  expect(out.epics.at(1)?.pausedReason).toBe("driver");
-});
-
-test("assembleHerdState: null pausedReason passes through (non-paused item)", () => {
-  const out = assembleHerdState({
-    sessions: [],
-    epics: [epic()],
-    overnightDelta: { mergedPrs: [], archivedSessions: [] },
-    generatedFor: "2026-06-15",
-    now: NOW,
-  });
-  expect(out.epics.at(0)?.pausedReason).toBeUndefined();
-});
-
-test("buildRundownPrompt: paused epic rendered with PAUSED tag and reason text", () => {
-  const out = assembleHerdState({
-    sessions: [],
-    epics: [epic({ pausedReason: "cap", landingPr: 55 })],
-    overnightDelta: { mergedPrs: [], archivedSessions: [] },
-    generatedFor: "2026-06-15",
-    now: NOW,
-  });
-  const prompt = buildRundownPrompt(out);
-  expect(prompt).toContain("EPICS AWAITING LANDING");
-  expect(prompt).toContain("PAUSED");
-  expect(prompt).toContain("rebase cap exhausted");
-  expect(prompt).toContain("landing PR #55");
-  // not echoed in the JSON dump
-  const dump = prompt.slice(prompt.indexOf("Herd state (already significance-ranked)"));
-  expect(dump).not.toContain('"epics"');
-});
-
-test("buildRundownPrompt: driver-paused epic renders driver reason", () => {
-  const out = assembleHerdState({
-    sessions: [],
-    epics: [epic({ pausedReason: "driver" })],
-    overnightDelta: { mergedPrs: [], archivedSessions: [] },
-    generatedFor: "2026-06-15",
-    now: NOW,
-  });
-  const prompt = buildRundownPrompt(out);
-  expect(prompt).toContain("merge driver unavailable");
-});
-
-test("buildRundownPrompt: conflict-paused epic renders conflict reason", () => {
-  const out = assembleHerdState({
-    sessions: [],
-    epics: [epic({ pausedReason: "conflict" })],
-    overnightDelta: { mergedPrs: [], archivedSessions: [] },
-    generatedFor: "2026-06-15",
-    now: NOW,
-  });
-  const prompt = buildRundownPrompt(out);
-  expect(prompt).toContain("genuine merge conflict");
-});
-
-test("buildRundownPrompt: mixed paused + ready epics both rendered in dedicated block", () => {
-  const out = assembleHerdState({
-    sessions: [],
-    epics: [
-      epic({ parent: 7, pausedReason: "cap" }),
-      epic({ parent: 8, stranded: true }), // ready, no pausedReason
-    ],
-    overnightDelta: { mergedPrs: [], archivedSessions: [] },
-    generatedFor: "2026-06-15",
-    now: NOW,
-  });
-  const prompt = buildRundownPrompt(out);
-  expect(prompt).toContain("PAUSED");
-  expect(prompt).toContain("rebase cap exhausted");
-  expect(prompt).toContain("STRANDED");
-  // both epics mentioned
-  expect(prompt).toContain("#7");
-  expect(prompt).toContain("#8");
-});
-
-// ─── operator-language injection (issue #1625) ──────────────────────────────
-
-// fenceUntrusted() mints a random per-call nonce, so two independent buildRundownPrompt calls
-// never come out byte-identical purely because of it. Normalize it out before comparing.
-const normalizeUntrustedNonce = (s: string): string =>
-  s.replace(/⟦(\/?)UNTRUSTED:([\w ]+):[0-9a-f]+⟧/g, "⟦$1UNTRUSTED:$2:NONCE⟧");
-
-// A herd with a halted-error session so an assembled `hold` is present — this exercises the
-// renderHold(hold, operatorLanguage) branch (else the byte-identity test would pass vacuously).
-const holdAssembled = () =>
-  assembleHerdState({
-    sessions: [session({ haltReason: "error" })],
-    overnightDelta: { mergedPrs: [], archivedSessions: [] },
-    generatedFor: "2026-07-11",
-    now: NOW,
-  });
-
-test("en is byte-identical: buildRundownPrompt with/without explicit operatorLanguage:'en'", () => {
-  const out = holdAssembled();
-  const withoutLang = normalizeUntrustedNonce(buildRundownPrompt(out));
-  const withEnLang = normalizeUntrustedNonce(buildRundownPrompt(out, "en"));
-  expect(withEnLang).toBe(withoutLang);
-  expect(withoutLang).not.toContain("German");
-  expect(withEnLang).not.toContain("German");
-  // Proves the fixture carries a hold so the renderHold branch is actually reached (non-vacuous).
-  expect(withoutLang).toContain("Halted on an error");
-});
-
-test("de: buildRundownPrompt appends the directive and renders the hold `why` line in German", () => {
-  const p = buildRundownPrompt(holdAssembled(), "de");
-  expect(p).toContain("German");
-  // operator-facing prose fields named
-  expect(p).toContain("overnight");
-  expect(p).toContain("train");
-  expect(p).toContain("`label`");
-  // machine-read fields called out as verbatim
-  expect(p).toContain("`sessionId`");
-  expect(p).toContain("`pr`");
-  // the threaded renderHold(hold, "de") produced the German copy in the herd-state dump
-  expect(p).toContain("Auf einem Fehler gestoppt");
-  expect(p).not.toContain("Halted on an error");
 });
 
 // ── pr-conflict: Tier 1, ahead of ci-red, busy-qualified ────────────────────────

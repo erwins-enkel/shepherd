@@ -24,12 +24,7 @@ import {
   addServedHostsToAllowlist,
 } from "./config";
 import { SessionStore } from "./store";
-import type {
-  Session,
-  SessionPreviewEvent,
-  SessionPreviewServeEvent,
-  RundownEpicItem,
-} from "./types";
+import type { Session, SessionPreviewEvent, SessionPreviewServeEvent } from "./types";
 import { WorktreeMgr } from "./worktree";
 import { matchAgent, tabLabelMap, type IHerdrDriver } from "./herdr";
 import { selectHerdrDriver, SocketHerdrDriver } from "./herdr-socket-driver";
@@ -130,7 +125,6 @@ import {
 import { runSessionUsageBackfill } from "./usage-backfill";
 import { PreviewService } from "./preview";
 import { listRepos, listReposPathForReal, reconcileRealPathsToRaw } from "./repos";
-import { anyLiveRepairSession, enrichLandingEpics, type CompletedEpic } from "./completed-epic";
 import { DistillerService, defaultScratch } from "./distiller";
 import { OptimizerService, defaultOptimizerScratch } from "./optimizer";
 import { MergeSuggestionService, defaultMergeScratch } from "./merge-suggest";
@@ -185,8 +179,6 @@ import { RecapService, type LandedWorkEvidence } from "./recap";
 import { PostMergeStepsService } from "./post-merge-steps";
 import { DeliveryFactsService } from "./delivery";
 import { BuildQueueReminderService } from "./build-queue-reminder";
-import { HerdDigestService } from "./herd-digest";
-import { readSnapshot, isStalled, DEFAULT_STALL } from "./stall";
 import { jsonlPathFor } from "./usage";
 import { detectPendingAuthUrl, detectLoginAuthUrl } from "./auth-url";
 import { readTranscriptTail } from "./activity";
@@ -348,7 +340,6 @@ for (const role of [
   "critic",
   "planner",
   "recap",
-  "rundown",
   "docAgent",
   "namer",
   "autopilot",
@@ -1839,8 +1830,6 @@ deferredStarts.push(() => {
     void standaloneCritic.tick().catch((err) => console.warn("[critic] tick failed:", err));
     void recapService.tick().catch((err) => console.warn("[recap] tick failed:", err)); // finalize in-flight recaps (restart-safe)
     void recapService.sweep().catch((err) => console.warn("[recap] sweep failed:", err)); // settled-idle auto-fire
-    void herdDigestService.tick().catch((err) => console.warn("[rundown] tick failed:", err)); // finalize in-flight digest (restart-safe)
-    void herdDigestService.sweep().catch((err) => console.warn("[rundown] sweep failed:", err)); // daily auto-spark
     if (config.docAgentEnabled) {
       void docAgent.tick().catch((err) => console.warn("[doc-agent] tick failed:", err)); // finalize: server stages/commits/pushes/opens PR
       void docAgent
@@ -2176,10 +2165,10 @@ const autoMerge = new AutoMergeService({
   rebaseCap: config.autoMergeRebaseCap,
 });
 
-// Per-session merge-train error flags, derived live from the automerge:status stream so
-// the Herd Rundown can fold a stuck train run into a session's attention signals without a
-// forge round-trip (AutoMergeService.snapshot() is async). A "merge_error"/"rebase_cap"
-// status marks its session; any other state for that session clears it.
+// Per-session merge-train error flags, derived live from the automerge:status stream so a
+// stuck train run is visible without a forge round-trip (AutoMergeService.snapshot() is
+// async). A "merge_error"/"rebase_cap" status marks its session; any other state for that
+// session clears it.
 const mergeErrorSessions = new Set<string>();
 events.subscribe((event, data) => {
   if (event !== "automerge:status") return;
@@ -2216,177 +2205,6 @@ deferredStarts.push(() => {
     if (maintenance.active) return;
     void autopilot.tick().catch((err) => console.warn("[autopilot] tick:", err));
   }, 30_000);
-});
-
-// Herd Rundown: a once-daily synthesized "what needs a human right now?" digest across the
-// whole live herd. All inputs are injected accessors over the same in-memory caches the rest
-// of the system reads, so the service never reaches into live state directly:
-//   snapshots          → the four per-session caches (git/reviews/gates/recaps)
-//   stalledSessionIds  → transcript-derived stall set (read ONLY inside generate(), never the
-//                        15s tick/sweep — a bounded sync transcript-tail read per active
-//                        running session, mirroring the poller's stall candidate)
-//   mergeTrainState    → live queued PRs (service.liveTrainPrs) + per-session train errors
-//                        (mergeErrorSessions, fed by the automerge:status stream above)
-// Landing-ready completed epics for the rundown (#1045). TTL-memoized: sweep()'s 15s tick keeps
-// calling generate()/reconcileEpics() while an epic sits open, and each call would otherwise probe
-// the forge. The cheap part (which epics are 'open') is a sync DB filter, computed EVERY call so a
-// just-landed epic drops immediately; only the forge probe is memoized (≈once/TTL) and the cache is
-// keyed on the open-epic set so any land/open busts it (TTL only bounds same-set CI-readiness flips).
-// Mirrors backlogPriority reading a kept-warm cache rather than a live round-trip.
-const EPIC_READY_TTL_MS = 5 * 60_000;
-let epicReadyCache: { key: string; ts: number; val: RundownEpicItem[] } | null = null;
-const landingReadyEpics = async (): Promise<RundownEpicItem[]> => {
-  const now = Date.now();
-  const openRows = store.listEpicCompleted().filter((r) => r.landingState === "open");
-  if (openRows.length === 0) {
-    epicReadyCache = null; // nothing open → drop any stale cache so a just-landed epic clears at once
-    return [];
-  }
-  // Cache key = the set of open epics + their pause states. A change (landed, opened, or pause
-  // reason flip) busts the cache; the TTL only throttles re-probing the forge for CI-readiness
-  // flips on the same set.
-  const key = openRows
-    .map((r) => `${r.repoPath}#${r.parentIssueNumber}:${r.landingRebasePauseReason ?? ""}`)
-    .sort()
-    .join(",");
-  if (epicReadyCache && epicReadyCache.key === key && now - epicReadyCache.ts < EPIC_READY_TTL_MS)
-    return epicReadyCache.val;
-
-  // Paused rows (#1071): non-null landingRebasePauseReason → surface immediately as Tier-1 items
-  // without a forge probe (pause reason is already in the DB; no CI-readiness gate applies).
-  const pausedItems: RundownEpicItem[] = openRows
-    .filter((r) => r.landingRebasePauseReason !== null)
-    .map((r) => ({
-      repo: r.repoPath,
-      parent: r.parentIssueNumber,
-      title: r.parentTitle,
-      landingPr: r.landingPrNumber,
-      stranded: false, // paused items are not "stranded" (different escalation path)
-      ciFailing: false,
-      pausedReason: r.landingRebasePauseReason as "cap" | "conflict" | "driver",
-    }));
-
-  // Ready rows: probe the forge (TTL-memoized) for CI-readiness; exclude already-paused rows
-  // (injected above) so each open row is surfaced under exactly one heading.
-  const epics: CompletedEpic[] = openRows
-    .filter((r) => r.landingRebasePauseReason === null)
-    .map(
-      ({
-        childrenJson,
-        landingAttempts,
-        landingRebaseCount,
-        landingRebaseDriverMisses,
-        ...rest
-      }) => {
-        void landingAttempts;
-        void landingRebaseCount;
-        void landingRebaseDriverMisses;
-        return { ...rest, children: JSON.parse(childrenJson) as CompletedEpic["children"] };
-      },
-    );
-  await enrichLandingEpics(epics, {
-    getEpicIntegrationBranch: (repoPath, parent) =>
-      store.getEpicIntegrationBranch(repoPath, parent),
-    resolveForge: (repoPath) => resolveForge(repoPath),
-    hasLiveRepairSession: (repoPath, integrationBranch) =>
-      anyLiveRepairSession(store.list(), repoPath, integrationBranch, now),
-    now,
-  });
-  const readyItems: RundownEpicItem[] = epics
-    .filter((e) => e.landingState === "open" && e.landingReady === true)
-    .map((e) => ({
-      repo: e.repoPath,
-      parent: e.parentIssueNumber,
-      title: e.parentTitle,
-      landingPr: e.landingPrNumber,
-      stranded: e.landingStranded === true,
-      ciFailing: false,
-    }));
-
-  // CI-failing rows (terminal red, not behind/conflicting, and NOT already claimed by a live repair
-  // session — those surface as repairingItems below instead): surface as a distinct Tier-1 item.
-  // `epics` already excludes paused rows; a red row has landingReady=false so it is not in
-  // readyItems either — so each open row lands under exactly one heading.
-  const ciFailingItems: RundownEpicItem[] = epics
-    .filter((e) => e.landingState === "open" && e.landingCiFailing === true)
-    .map((e) => ({
-      repo: e.repoPath,
-      parent: e.parentIssueNumber,
-      title: e.parentTitle,
-      landingPr: e.landingPrNumber,
-      stranded: false,
-      ciFailing: true,
-    }));
-
-  // Repairing rows: a genuinely-live landingRepair session is already fixing this landing's CI —
-  // non-actionable, so surfaced separately from ciFailingItems (mutually exclusive by construction:
-  // enrichLandingEpics sets landingCiFailing=false whenever landingRepairing=true).
-  const repairingItems: RundownEpicItem[] = epics
-    .filter((e) => e.landingState === "open" && e.landingRepairing === true)
-    .map((e) => ({
-      repo: e.repoPath,
-      parent: e.parentIssueNumber,
-      title: e.parentTitle,
-      landingPr: e.landingPrNumber,
-      stranded: false,
-      ciFailing: false,
-      repairing: true,
-    }));
-
-  const val: RundownEpicItem[] = [
-    ...pausedItems,
-    ...readyItems,
-    ...ciFailingItems,
-    ...repairingItems,
-  ];
-  epicReadyCache = { key, ts: now, val };
-  return val;
-};
-
-const herdDigestService = new HerdDigestService({
-  store,
-  herdr,
-  environment: () => roleEnv(config.rundownCli, config.rundownModel, config.rundownEffort),
-  // Live operator-language setting, read per spawn (#1586).
-  operatorLanguage: () => config.operatorLanguage,
-  isActive: () => presence.isActive(),
-  landingReadyEpics,
-  hasOpenLandingEpics: () => store.listEpicCompleted().some((r) => r.landingState === "open"),
-  onChange: (digest) => events.emit("herd:digest", { digest }),
-  snapshots: () => ({
-    git: prPoller.snapshot(),
-    reviews: reviewService.snapshot(),
-    gates: planGate.snapshot(),
-    recaps: recapService.snapshot(),
-  }),
-  stalledSessionIds: () => {
-    const now = Date.now();
-    const stalled = new Set<string>();
-    for (const s of store.list({ activeOnly: true })) {
-      if (s.status !== "running" || !s.claudeSessionId) continue;
-      const snap = readSnapshot(jsonlPathFor(s.worktreePath, s.claudeSessionId, s.spawnAccountDir));
-      if (snap && isStalled(snap, now, DEFAULT_STALL)) stalled.add(s.id);
-    }
-    return stalled;
-  },
-  mergeTrainState: () => ({
-    queuedPrs: service.liveTrainPrs(),
-    bySession: Object.fromEntries([...mergeErrorSessions].map((id) => [id, { error: true }])),
-  }),
-  // Backlog-priority rank per repoPath: rank the configured repos by their WARM cached
-  // open-issue count (descending — the same criterion the backlog overview ranks by),
-  // assigning 0,1,2,…. Reads `backlog.peek()` off the kept-warm cache only (no async
-  // forge round-trip); a repo with no cached counts sorts last. Called inside generate()
-  // (≤ once/day), so cheap-by-construction. `backlog` is declared later in this module
-  // but the closure only runs well after init, so the ref is safe.
-  backlogPriority: () => {
-    const ranked = listRepos(config.repoRoot)
-      .map((r) => ({ path: r.path, openIssues: backlog.peek(r.path)?.openIssues ?? -1 }))
-      .sort((a, b) => b.openIssues - a.openIssues);
-    const rank: Record<string, number> = {};
-    ranked.forEach((r, i) => (rank[r.path] = i));
-    return rank;
-  },
 });
 
 const holdService = new HoldReasonService({
@@ -3063,11 +2881,6 @@ const appDeps: AppDeps = {
   },
   recapCache: { snapshot: () => recapService.snapshot() },
   recap: { regenerate: (s) => recapService.regenerate(s) },
-  herdDigest: {
-    snapshot: () => herdDigestService.snapshot(),
-    currentFingerprint: () => herdDigestService.currentAttentionFingerprint(),
-    regenerate: () => herdDigestService.regenerate(),
-  },
   upNext: {
     snapshot: () => upNext.snapshot(),
     refresh: () => upNext.refresh(),

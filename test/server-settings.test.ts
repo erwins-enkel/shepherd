@@ -30,7 +30,6 @@ const ROLE_BASES = [
   "critic",
   "planner",
   "recap",
-  "rundown",
   "docAgent",
   "namer",
   "autopilot",
@@ -596,9 +595,6 @@ test("GET /api/settings includes every per-role cli + model + effort setting (ra
   config.recapCli = "claude";
   config.recapModel = "sonnet";
   config.recapEffort = "low";
-  config.rundownCli = "codex";
-  config.rundownModel = "gpt-5.5";
-  config.rundownEffort = "low";
   config.optimizerCli = "codex";
   config.optimizerModel = "gpt-5.5";
   config.optimizerEffort = "medium";
@@ -616,9 +612,6 @@ test("GET /api/settings includes every per-role cli + model + effort setting (ra
   expect(body.recapCli).toBe("claude");
   expect(body.recapModel).toBe("sonnet");
   expect(body.recapEffort).toBe("low");
-  expect(body.rundownCli).toBe("codex");
-  expect(body.rundownModel).toBe("gpt-5.5");
-  expect(body.rundownEffort).toBe("low");
   expect(body.optimizerCli).toBe("codex");
   expect(body.optimizerModel).toBe("gpt-5.5");
   expect(body.optimizerEffort).toBe("medium");

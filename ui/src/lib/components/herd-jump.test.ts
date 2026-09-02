@@ -45,7 +45,6 @@ function harness(locations: Map<string, RailLocation> = new Map()) {
   const effects: JumpEffects = {
     resetLensAndFilters: () => log.push("reset"),
     followRepo: (id) => log.push(`follow:${id}`),
-    leaveRundown: () => log.push("leaveRundown"),
     beforeHerdrUpdateJump: () => log.push("closeUpdateModal"),
   };
   return { deps, effects, log, collapsedEpics, collapsedStages, locations };
@@ -187,7 +186,6 @@ test("jumpToSession: effects run BEFORE locate, so a filter-hidden target become
 
 test.each([
   ["jumpToSession", ["reset", "follow:x"], "select:true:true"],
-  ["selectRundownItem", ["leaveRundown"], "select:true:true"],
   ["selectFromDeepLink", [], "select:true:true"],
   ["jumpFromHerdrUpdate", ["closeUpdateModal"], "select:true:true"],
   ["navigateFromViewport", [], "select:true:true"],

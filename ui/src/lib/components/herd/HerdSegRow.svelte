@@ -16,16 +16,18 @@
 
 <!-- Mobile-only segmented control: replaces the .fbtn filter row in flow
      mode. A direct child of the already-full-bleed .panel.flow, so it spans
-     the full phone width without its own negative margin. Six equal-width
-     segments (#1198 added Owed), 44px touch targets, no leading glyphs. Labels
-     are --fs-meta (11px), a DELIBERATE exception to the ≥16px label floor (NOT
-     an oversight): six equal segments on a 390px phone leave ~65px each (~60px
-     content after padding/border), but the longest label ("Nächstes", DE)
-     measures ~67px at 13px — it would truncate, breaking the "keep full text
-     labels" criterion. 11px shrinks it to ~57px so all six full labels fit
-     (matching the desktop HerdLensStrip's --fs-meta labels); contrast is held
-     high to compensate (active --color-amber 8.49:1, inactive --color-muted
-     5.27:1, both > 4.5:1 AA). -->
+     the full phone width without its own negative margin. Five equal-width
+     segments (#1198 added Owed; the Rundown segment was later removed), 44px
+     touch targets, no leading glyphs. Labels are --fs-meta (11px), a DELIBERATE
+     exception to the ≥16px label floor (NOT an oversight): the binding width is
+     no longer the 390px reference — five segments there leave ~78px each (~73px
+     content after padding/border), enough for the longest label ("Nächstes", DE,
+     ~67px at 13px). It binds on SMALL phones and fold covers: at ~320px five
+     segments give ~64px each (~59px content), where that same label truncates
+     at 13px but fits at 11px (~57px). Kept at 11px for that floor and to match
+     the desktop HerdLensStrip's --fs-meta labels; contrast is held high to
+     compensate (active --color-amber 8.49:1, inactive --color-muted 5.27:1,
+     both > 4.5:1 AA). -->
 <div class="seg-row" use:coachTarget={"mobile-seg-ctrl"}>
   <button
     type="button"
@@ -75,17 +77,6 @@
   <button
     type="button"
     class="seg-btn"
-    class:seg-active={statusFilter == null && filter === "rundown"}
-    title={m.herd_rundown_title()}
-    aria-pressed={statusFilter == null && filter === "rundown"}
-    onclick={() => {
-      filter = "rundown";
-      onstatusfilter?.(null);
-    }}>{m.herd_seg_rundown()}</button
-  >
-  <button
-    type="button"
-    class="seg-btn"
     class:seg-active={statusFilter == null && filter === "owed"}
     title={m.herd_owed_title()}
     aria-pressed={statusFilter == null && filter === "owed"}
@@ -100,15 +91,17 @@
 <style>
   /* Mobile-only segmented control: replaces the .fbtn filter row in flow mode.
      A direct child of the already-full-bleed .panel.flow, so it spans the full
-     phone width without its own negative margin. Six equal-width segments (#1198
-     added Owed), 44px touch targets. Labels are --fs-meta (11px) — a DELIBERATE
-     sub-16px exception, not an oversight: at the 390px reference six equal
-     segments give ~65px each (~60px content) and the longest label "Nächstes"
-     (DE) measures ~67px at 13px (it would truncate) vs ~57px at 11px (fits).
-     The ≥16px floor is waived for this one control to keep full text labels
-     (matching the desktop HerdLensStrip's 11px labels); high contrast (amber
-     active / muted inactive) compensates. A text-overflow:ellipsis below handles
-     even-narrower fold-cover widths. */
+     phone width without its own negative margin. Five equal-width segments (#1198
+     added Owed; the Rundown segment was later removed), 44px touch targets.
+     Labels are --fs-meta (11px) — a DELIBERATE sub-16px exception, not an
+     oversight. The 390px reference no longer binds: five segments give ~78px each
+     (~73px content), which fits "Nächstes" (DE, ~67px at 13px). The exception
+     earns its place on small phones / fold covers — at ~320px five segments give
+     ~64px each (~59px content), where that label truncates at 13px but fits at
+     11px (~57px). The ≥16px floor is waived for this one control to keep full
+     text labels (matching the desktop HerdLensStrip's 11px labels); high contrast
+     (amber active / muted inactive) compensates. A text-overflow:ellipsis below
+     handles anything narrower still. */
   .seg-row {
     display: flex;
     border-bottom: 1px solid var(--color-line);

@@ -732,7 +732,7 @@ export class ReviewService {
       streakReviews: 0,
       errorRound: 0,
       reviewedPatchIds: [],
-      // Operator took over: the rework classification (REWORK RUNNING / banner / rundown) stops
+      // Operator took over: the rework classification (REWORK RUNNING / banner) stops
       // counting this verdict as active rework even though decision stays changes_requested, and
       // attachReviewPush skips the emit below so the takeover doesn't re-notify.
       dismissed: true,
@@ -1847,7 +1847,7 @@ export class ReviewService {
     let orphansReaped = 0;
 
     for (const row of this.deps.store.listReviewerSpawns()) {
-      // Only handle uncompleted review rows; plan_gate/recap/rundown are handled elsewhere.
+      // Only handle uncompleted review rows; plan_gate/recap are handled elsewhere.
       if (row.kind !== "review" || row.completedAt != null) continue;
       // Defensive: if already tracked in-memory (shouldn't be at boot, but guard anyway).
       if (this.inflight.has(row.taskSessionId) || this.starting.has(row.taskSessionId)) continue;

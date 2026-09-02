@@ -666,7 +666,6 @@ describe("isShepherdHelperLabel", () => {
     ["plan-review TASK-09", "plan-gate reviewer"],
     ["pr-critic /home/x/repo#42", "standalone PR critic"],
     ["recap TASK-09", "recap generator"],
-    ["rundown", "herd-digest rundown (exact, liveness-gated)"],
     ["autopilot 643cfec7-1234-5678-abcd-ef0123456789", "autopilot LLM"],
     ["verify api key", "API-key verifier (multi-word exact)"],
     // #1852: prompt recommender — previously uncovered, leaked forever across restarts

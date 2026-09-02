@@ -179,8 +179,8 @@ function attributeSatellites(
  *
  * Deliberately independent of `attributeSatellites`: that path only counts a spawn when its
  * parent task is in the in-range task map, which silently drops the three unattributed
- * shapes — `rundown` (taskSessionId ""), `doc_agent` (repo path), and the standalone PR
- * critic ("pr:<repo>#<n>"). Here every completed spawn is counted by its kind, so those
+ * shapes — `doc_agent` (repo path), the standalone PR critic ("pr:<repo>#<n>"), and the
+ * retired `rundown` (taskSessionId ""). Here every completed spawn is counted by its kind, so those
  * surface. Because the filter axis differs (spawn time vs parent presence), the sum of this
  * tally is NOT comparable in any fixed direction to the per-task `satelliteUnits` total.
  */

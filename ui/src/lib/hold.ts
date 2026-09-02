@@ -56,7 +56,7 @@ export function holdLine(hold: HoldReason): string {
  *    - nextNeedsYou / CommandBar / common_needs_you → only `status === "blocked"`
  *    - tab-signal.svelte.ts                          → blocked · ci-red · ready-to-merge
  *    - Ready lens (shownSessions "ready")            → idle · blocked · done
- *  and NOT the server rundown's SIGNAL_TIER (src/rundown-core.ts), which ranks by
+ *  and NOT the server's SIGNAL_TIER (src/attention-core.ts), which ranks by
  *  URGENCY (e.g. critic-rework Tier 1, ready-merge Tier 3), not agency. The wash is
  *  "rein visuell" and must not drift into any of those behavioral paths.
  *

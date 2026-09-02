@@ -112,7 +112,7 @@ export interface TransientAgentArgvOptions {
   effort?: string | null;
   /** OPT-IN: emit the Codex `-o` last-message file so the CLI captures the agent's final message even
    *  when it answers in chat instead of writing the result file (see codex-last-message.ts). Set ONLY
-   *  by roles that actually READ that fallback (recap, autopilot, rundown, distiller, optimizer,
+   *  by roles that actually READ that fallback (recap, autopilot, distiller, optimizer,
    *  merge-suggest, and the reviewers). Roles that read only their own sentinel/result file — the
    *  namer (`.shepherd-name`), verify-key (`.shepherd-verify`), doc-agent (edits + sentinel) — leave
    *  it unset so they carry NO `-o`, and thus no Codex `-o`/version-floor dependency they don't need
@@ -161,7 +161,7 @@ interface KindPreset {
  *                .mcp.json, so the MCP gate never arises.
  *  - `writer-only` MIXED trust — do NOT assume untrusted input here. Some callers pass the operator's
  *                OWN text (namer: the task prompt; verify-key: a fixed sentinel), others pass untrusted
- *                text (autopilot: agent-stop tail; recap / herd-digest: session transcript). Bare
+ *                text (autopilot: agent-stop tail; recap: session transcript). Bare
  *                `Write` is acceptable across all of them because of the SANDBOX SHAPE — a disposable
  *                temp dir, dontAsk, and no exec/Edit/network on the allowlist — which holds regardless
  *                of input trust, NOT because the input is untrusted.
@@ -212,7 +212,7 @@ export function buildTransientAgentArgv(
   // The `-o` last-message file is emitted ONLY when the CALLER opts in (`captureLastMessage`) — i.e.
   // the role actually READS the fallback. Capture is a per-ROLE property, orthogonal to `kind` (which
   // governs the tool allowlist / MCP isolation): the shared `writer-only` kind covers both consumers
-  // (recap/autopilot/rundown) and non-consumers (namer, verify-key), so the kind alone can't decide.
+  // (recap/autopilot) and non-consumers (namer, verify-key), so the kind alone can't decide.
   // When capture is on, the NAME is chosen for the kind's trust posture:
   //   - `reviewer` runs in an UNTRUSTED checkout (the PR critics) → a PER-SPAWN unguessable name, so a
   //     PR can't pre-commit a file matching what the real run writes/reads (see codex-last-message.ts).

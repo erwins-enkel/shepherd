@@ -424,7 +424,7 @@ test("createSession: codex spawn emits -c model_reasoning_effort, clamping max �
   const argv: string[] = calls.start.argv;
   const cIdx = argv.indexOf("-c");
   expect(cIdx).toBeGreaterThan(argv.indexOf("--model"));
-  expect(argv[cIdx + 1]).toBe("model_reasoning_effort=high"); // codex has no max → clamp
+  expect(argv[cIdx + 1]).toBe("model_reasoning_effort=high"); // max lacks provider-wide support
   expect(store.get(s.id)?.effort).toBe("max"); // stored intent is the un-clamped tier
 });
 
@@ -2977,7 +2977,7 @@ test("resume re-emits the persisted --effort for a Claude session", async () => 
   ]);
 });
 
-test("resume re-emits Codex reasoning effort, clamping xhigh → high", async () => {
+test("resume re-emits Codex xhigh reasoning effort unchanged", async () => {
   const store = new SessionStore(":memory:");
   const calls: any = {};
   const svc = new SessionService({
@@ -3015,7 +3015,7 @@ test("resume re-emits Codex reasoning effort, clamping xhigh → high", async ()
     "--model",
     "gpt-5.5",
     "-c",
-    "model_reasoning_effort=high",
+    "model_reasoning_effort=xhigh",
   ]);
 });
 

@@ -372,9 +372,9 @@ const CLAUDE_MODELS = [
 export const MODELS = CLAUDE_MODELS;
 
 /** Reasoning-effort tiers exposed in the picker, ordered least→most effort. The value space is
- *  the Claude `--effort` domain (verified against the pinned `claude` CLI). Codex's narrower
- *  domain (`minimal|low|medium|high`) is handled by clamping at argv-build; `minimal` (below
- *  `low`, Codex-only) is not exposed here. `"default"` (settings) / `null` (session) = no flag. */
+ *  the Claude `--effort` domain (verified against the pinned `claude` CLI). Codex accepts through
+ *  `xhigh` across its available curated models; `max` is hidden and clamped at argv-build, while
+ *  `minimal` (below `low`) is not exposed. `"default"` (settings) / `null` (session) = no flag. */
 export const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
 
 /** Curated Codex CLI model aliases shown in the task dialog. The server accepts any safe Codex

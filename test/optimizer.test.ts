@@ -404,6 +404,8 @@ for (const entryPoint of ["optimizeOne", "optimizeAllFlagged"] as const) {
           "exec",
           "--sandbox",
           "workspace-write",
+          "--thread-source",
+          "shepherd_role",
           "-m",
           "gpt-5.5",
           "-c",

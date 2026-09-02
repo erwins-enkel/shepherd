@@ -180,11 +180,13 @@ test("classifyStop: codex provider spawns headless `codex exec` (no claude flags
     readVerdict: () => ({ kind: "gate", summary: "x" }),
   });
   await classifyStop(["Ready to start? (y/n)"], "task", deps, "l");
-  expect(calls.started.argv.slice(0, 6)).toEqual([
+  expect(calls.started.argv.slice(0, 8)).toEqual([
     "codex",
     "exec",
     "--sandbox",
     "workspace-write",
+    "--thread-source",
+    "shepherd_role",
     "-m",
     "gpt-5.5",
   ]);

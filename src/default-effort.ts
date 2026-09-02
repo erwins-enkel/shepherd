@@ -12,8 +12,9 @@
  *   - Claude 2.1.201 `--effort <low|medium|high|xhigh|max>` is LENIENT — it self-clamps/no-ops a
  *     tier the resolved model doesn't support (e.g. `--effort max --model haiku` runs clean), so
  *     Claude needs NO per-model capability map: pass the tier straight through.
- *   - Codex 0.142.5 `-c model_reasoning_effort=<minimal|low|medium|high>` has NO xhigh/max, so
- *     those two tiers clamp to `high` for Codex. `minimal` (below `low`) is not exposed.
+ *   - Codex 0.150.1 (rechecked against npm latest 0.152.1 on 2026-09-02) accepts `xhigh` across
+ *     every available Shepherd-curated model, but 5.5/5.4 do not advertise `max`. Pass `xhigh`
+ *     through and clamp `max` to `high`; `minimal` (unadvertised and below `low`) is not exposed.
  */
 
 import { EFFORTS, type AgentProvider } from "./types";
@@ -86,18 +87,19 @@ export function resolveDefaultEffortSetting(
  *
  * - null / unrecognised → null (no flag).
  * - Claude → pass the tier through (the CLI self-clamps unsupported model tiers).
- * - Codex → clamp `xhigh`/`max` down to `high` (Codex's domain tops out at `high`).
+ * - Codex → pass through `xhigh`; clamp `max` down to `high` for the provider-wide
+ *   compatibility floor measured against Codex 0.150.1 (see the contract comment above).
  */
 export function effortForSpawn(provider: AgentProvider, effort: string | null): string | null {
   if (effort === null || !EFFORT_VALUES.has(effort)) return null;
-  if (provider === "codex") return effort === "xhigh" || effort === "max" ? "high" : effort;
+  if (provider === "codex") return effort === "max" ? "high" : effort;
   return effort;
 }
 
-/** The effort tiers a provider actually accepts — Claude: all; Codex: no xhigh/max. Used by the
- *  UI picker (via the client mirror) and available server-side for guards. */
+/** The effort tiers a provider accepts across its curated models — Claude: all; Codex: no max.
+ *  Used by the UI picker (via the client mirror) and available server-side for guards. */
 export function effortsForProvider(provider: AgentProvider): readonly string[] {
-  return provider === "codex" ? EFFORTS.filter((e) => e !== "xhigh" && e !== "max") : EFFORTS;
+  return provider === "codex" ? EFFORTS.filter((e) => e !== "max") : EFFORTS;
 }
 
 /**

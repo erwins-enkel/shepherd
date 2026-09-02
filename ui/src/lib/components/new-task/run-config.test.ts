@@ -129,13 +129,15 @@ describe("normalizeRunConfig (validity correction, touched or not)", () => {
     expect(out.model).toBe("default");
   });
 
-  it("an unsupported effort tier snaps to default on Codex (xhigh)", () => {
-    const out = normalizeRunConfig(normalizeInput({ provider: "codex", effort: "xhigh" }));
+  it("an unsupported effort tier snaps to default on Codex (max)", () => {
+    const out = normalizeRunConfig(normalizeInput({ provider: "codex", effort: "max" }));
     expect(out.effort).toBe("default");
   });
 
-  it("a supported effort tier passes through", () => {
-    expect(normalizeRunConfig(normalizeInput({ effort: "xhigh" })).effort).toBe("xhigh");
+  it("a supported Codex xhigh effort passes through", () => {
+    expect(normalizeRunConfig(normalizeInput({ provider: "codex", effort: "xhigh" })).effort).toBe(
+      "xhigh",
+    );
   });
 });
 

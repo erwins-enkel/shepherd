@@ -269,7 +269,7 @@ test("POST /api/up-next/start rejects invalid provider/model/effort choices", as
   expect(createCalls).toHaveLength(0);
 });
 
-test("POST /api/up-next/start accepts Codex xhigh effort for argv-build clamping", async () => {
+test("POST /api/up-next/start accepts Codex xhigh effort for argv pass-through", async () => {
   const { app, createCalls } = harness();
   const res = await app.fetch(
     startReq([{ repoPath: repoDir, issueRef: { number: 7, url: "u", title: "t", body: "b" } }], {

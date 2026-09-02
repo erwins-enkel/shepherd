@@ -2222,8 +2222,8 @@ const CLAUDE_MODELS = [
 export const MODELS = CLAUDE_MODELS;
 
 /** Reasoning-effort tiers, least→most effort. Mirrors src/types.ts EFFORTS (the Claude `--effort`
- *  domain). Codex's narrower domain (no xhigh/max) is handled by the picker's provider filter +
- *  the server-side clamp. "default" (settings) / null (session) = no flag. */
+ *  domain). Codex accepts through xhigh; max is handled by the picker's provider filter and the
+ *  server-side clamp. "default" (settings) / null (session) = no flag. */
 export const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
 
 /** Curated Codex CLI model aliases shown in the task dialog. */

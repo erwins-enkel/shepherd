@@ -234,7 +234,7 @@ export function normalizeRoleModelToken(value: unknown): string | null {
  *   - cli <provider> → that provider; model "default" → null (provider default); model <alias> →
  *     the alias, clamped to null if it doesn't belong to the chosen provider (stale pairing guard).
  *   - effort → `normalizeEffort(roleEffort)`: "default"/invalid → null (no --effort flag, the role's
- *     natural default), a tier passes through (the Codex xhigh/max clamp is applied later, at the
+ *     natural default), a tier passes through (the Codex max clamp is applied later, at the
  *     argv boundary in `effortForSpawn`). Effort is orthogonal to the cli/model pair.
  * fable → opus[1m] substitution (spawnModelForAvailability) applies when fable is unavailable.
  */

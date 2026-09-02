@@ -53,7 +53,7 @@ test("Claude effort emits --effort between --model and --permission-mode", () =>
   expect(effIdx).toBeLessThan(argv.indexOf("--permission-mode"));
 });
 
-test("Codex effort routes to -c model_reasoning_effort with xhigh → high clamp", () => {
+test("Codex effort routes xhigh through to -c model_reasoning_effort", () => {
   const { argv } = buildTransientAgentArgv("reviewer", {
     provider: "codex",
     model: "gpt-5.5",
@@ -62,7 +62,7 @@ test("Codex effort routes to -c model_reasoning_effort with xhigh → high clamp
   });
   const cIdx = argv.indexOf("-c");
   expect(cIdx).toBeGreaterThan(-1);
-  expect(argv[cIdx + 1]).toBe("model_reasoning_effort=high");
+  expect(argv[cIdx + 1]).toBe("model_reasoning_effort=xhigh");
   expect(argv).not.toContain("--effort"); // Codex uses the -c surface, not --effort
 });
 
@@ -342,6 +342,20 @@ test("writer-only + model 'haiku' reproduces verify-key's historical argv shape"
 // matches the kind's trust posture: `reviewer` (untrusted checkout) → a PER-SPAWN unguessable name;
 // every other kind (disposable tmpdir) → the fixed name.
 
+test("codex: every role carries the explicit shepherd thread source", () => {
+  for (const kind of ALL_KINDS) {
+    const { argv } = buildTransientAgentArgv(kind, {
+      provider: "codex",
+      model: "gpt-5.5",
+      prompt: "DO_IT",
+    });
+    const sourceIdx = argv.indexOf("--thread-source");
+    expect(sourceIdx).toBeGreaterThan(-1);
+    expect(argv[sourceIdx + 1]).toBe("shepherd_role");
+    expect(argv.lastIndexOf("--thread-source")).toBe(sourceIdx);
+  }
+});
+
 test("codex: NO `-o` unless captureLastMessage is set (opt-in; default off for every kind)", () => {
   for (const kind of ALL_KINDS) {
     const { argv } = buildTransientAgentArgv(kind, {
@@ -358,6 +372,8 @@ test("codex: NO `-o` unless captureLastMessage is set (opt-in; default off for e
       "exec",
       "--sandbox",
       "workspace-write",
+      "--thread-source",
+      "shepherd_role",
       "-m",
       "gpt-5.5",
       "DO_IT",
@@ -385,6 +401,8 @@ test("codex + captureLastMessage → reviewer PER-SPAWN `-o`, other kinds the fi
       "exec",
       "--sandbox",
       "workspace-write",
+      "--thread-source",
+      "shepherd_role",
       "-m",
       "gpt-5.5",
       "-o",
@@ -416,6 +434,8 @@ test("codex + captureLastMessage → reviewer PER-SPAWN `-o`, other kinds the fi
       "exec",
       "--sandbox",
       "workspace-write",
+      "--thread-source",
+      "shepherd_role",
       "-o",
       nName,
       "DO_IT",

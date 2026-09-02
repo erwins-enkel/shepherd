@@ -1,12 +1,11 @@
 import { m } from "$lib/paraglide/messages";
 import { EFFORTS, type AgentProvider } from "$lib/types";
 
-/** The reasoning-effort tiers offered for a provider. Claude accepts all five; Codex's domain has
- *  no `xhigh`/`max`, so the picker hides them (provider-filter — deterministic since the provider
- *  is chosen explicitly). Model-level limits are handled by the server-side clamp, not the UI, so
- *  they are never hidden here. Mirrors the server's effortsForProvider. */
+/** The reasoning-effort tiers offered for a provider. Claude accepts all five; Codex 0.150.1
+ *  accepts through `xhigh` across every available curated model, so only `max` is hidden. Mirrors
+ *  the server's effortsForProvider. */
 export function providerEfforts(provider: AgentProvider): readonly string[] {
-  return provider === "codex" ? EFFORTS.filter((e) => e !== "xhigh" && e !== "max") : EFFORTS;
+  return provider === "codex" ? EFFORTS.filter((e) => e !== "max") : EFFORTS;
 }
 
 /** True when a tier is offerable for a provider. "default" (no effort flag) is always available. */

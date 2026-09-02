@@ -120,3 +120,22 @@ this headless spike; the design above does not hinge on their outcome (only on t
 - [ ] Multi-restore (restore → add work → archive → restore again) resumes the **latest** conversation.
 - [ ] Pane-death during a restored session → live `resume()` (`--last`) re-attaches the restored
       conversation, not the pre-restore one.
+
+## Issue #2136 source-field re-verification — 2026-09-02
+
+Exact `@openai/codex@0.150.1` (the compatibility gate) and npm `latest` resolved immediately before
+the run, `@openai/codex@0.152.1`, were each launched once as a PTY TUI and once as
+`exec --thread-source shepherd_role` in the same dedicated probe cwd. Newly written rollout headers
+(IDs, installation data, and paths redacted) were identical in the load-bearing fields:
+
+| launch               | 0.150.1                                                               | 0.152.1 |
+| -------------------- | --------------------------------------------------------------------- | ------- |
+| interactive TUI      | `originator=codex-tui`, `source=cli`, `thread_source=user`            | same    |
+| controlled exec role | `originator=codex_exec`, `source=exec`, `thread_source=shepherd_role` | same    |
+
+`cli_version` matched the invoked package in each controlled header. Therefore the restore predicate
+remains correct: select same-cwd `session_meta.source == "cli"`, not `thread_source`. The latter is
+descriptive tagging for a newly-created/forked exec thread and does not alter `source`. TUI startup
+can create ancillary `codex_exec` records for configured MCP servers, so discovery must continue to
+filter by `source` and choose the controlled/main rollout rather than assuming a bare one-record
+launch. Commands and limitations are recorded in `docs/research/codex-sdk-evaluation.md` §7.

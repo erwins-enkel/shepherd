@@ -118,6 +118,8 @@ test("llmName: codex provider spawns headless `codex exec` (no claude flags)", a
       "exec",
       "--sandbox",
       "workspace-write",
+      "--thread-source",
+      "shepherd_role",
       "-m",
       "gpt-5.5",
       namingPrompt("the mobile footer needs settings"),

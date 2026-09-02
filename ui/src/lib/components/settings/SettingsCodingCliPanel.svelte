@@ -295,7 +295,7 @@
         await saveRoleModel(role);
       }
       // Likewise, if the resolved provider no longer offers the current effort
-      // tier (e.g. switching to codex drops xhigh/max), snap back to "default".
+      // tier (e.g. switching to codex drops max), snap back to "default".
       if (!effortAvailableForProvider(roleGuidanceProvider(role), roleEffortV[role])) {
         roleEffortV[role] = "default";
         await saveRoleEffort(role);

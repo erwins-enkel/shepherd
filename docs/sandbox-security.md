@@ -163,6 +163,20 @@ still stand.
 Grep Glob Bash(git diff *) Bash(git log *) Bash(git show *) Bash(git status)
 Write --permission-mode dontAsk` (`src/transient-agent-argv.ts`,
   `buildTransientAgentArgv("reviewer", …)`).
+- **Transient helpers reach outside their scratch dir only via `--add-dir`.**
+  The `--allowedTools` allowlist decides WHICH tools may run, not WHERE they may
+  reach: a temp-cwd kind (`writer-ro` / `writer-only`) under `--permission-mode
+dontAsk` can otherwise read nothing but the files Shepherd itself wrote into
+  its disposable cwd. The opt-in `addDirs` option emits `--add-dir`
+  (`src/transient-agent-argv.ts`) and is the only thing that grants a helper
+  repo access. Claude Code has no read-only form of the flag, so an added
+  directory is also exposed to the preset's bare `Write` — callers pass only a
+  directory they accept as writable-in-the-worst-case. Codex spawns ignore it
+  (`--sandbox workspace-write` restricts writes and network, not reads). Today
+  the only caller is the New Task **shaping** round (`src/task-shape.ts`, a
+  `writer-ro` spawn over the operator's own rough prompt), and the repo path it
+  passes is containment-checked against `config.repoRoot` by the `POST
+/api/shape` route before the spawn.
 - **Research is the deliberately egress-UNCONFINED surface.** A research session
   that would resolve to `autonomous` is **downgraded to `standard`**
   (`src/service.ts` `researchSafeProfileOverride`, warns once),
@@ -186,5 +200,5 @@ Write --permission-mode dontAsk` (`src/transient-agent-argv.ts`,
 ## See also
 
 - `src/egress.ts`, `src/sandbox.ts`, `src/service.ts`, `src/autopilot.ts`,
-  `src/transient-agent-argv.ts`, `src/untrusted.ts`, `src/tool-guard-hook.ts`,
+  `src/transient-agent-argv.ts`, `src/task-shape.ts`, `src/untrusted.ts`, `src/tool-guard-hook.ts`,
   `scripts/tool-guard.mjs`.

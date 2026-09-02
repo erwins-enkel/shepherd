@@ -8,7 +8,7 @@ name: Eval — prompt gate
 #
 # THREE TRIGGERS, one job:
 #
-#   pull_request — a SMOKE gate (one trial per gating fixture, $1 ceiling per eval). Runs on EVERY PR and decides for itself whether there is anything to
+#   pull_request — a SMOKE gate (one trial per gating fixture, $6 ceiling per eval). Runs on EVERY PR and decides for itself whether there is anything to
 #     do, by comparing the freshly-rendered prompt fingerprints against the base's committed
 #     scripts/eval-fingerprints.json and running ONLY the evals whose hash moved. Path filtering is
 #     deliberately NOT used: a `paths:`-filtered job reports NO STATUS at all on PRs that don't

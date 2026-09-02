@@ -1113,3 +1113,40 @@ test("every workflow leg's spend ceiling clears what that leg is expected to cos
     );
   }
 });
+
+test("no prose states a spend ceiling the workflow does not actually set", () => {
+  // The ceiling guard above checks the FLAGS. It does not check the sentences describing them, so
+  // raising the PR leg from $1 to $6 left two stale "$1 ceiling" claims — the header comment in
+  // the very file that sets the flag, and the doc's summary line. Same class as the eval-count
+  // drift: a number written twice, one copy updated.
+  const workflow = readFileSync(
+    new URL("../.github/workflows/eval-prompts.yml", import.meta.url),
+    "utf8",
+  );
+  const doc = readFileSync(new URL("../docs/eval-harness.md", import.meta.url), "utf8");
+
+  // What the workflow actually sets, plus the harness default a leg may legitimately inherit or
+  // describe (DEFAULT_MAX_SPEND_USD — referenced when explaining why a leg needed its own flag).
+  const shipped = new Set(
+    [...workflow.matchAll(/--max-spend (\d+(?:\.\d+)?)/g)].map((m) => Number(m[1])),
+  );
+  shipped.add(parseArgs(testSpec(), []).maxSpend);
+  expect(shipped.size).toBeGreaterThan(1);
+
+  const claims: { where: string; value: number }[] = [];
+  for (const [where, text] of [
+    ["eval-prompts.yml", workflow],
+    ["eval-harness.md", doc],
+  ] as const) {
+    // "$N ceiling" and "--max-spend N" wherever they are written down.
+    for (const m of text.matchAll(/\$(\d+(?:\.\d+)?) ceiling|--max-spend (\d+(?:\.\d+)?)/g)) {
+      claims.push({ where, value: Number(m[1] ?? m[2]) });
+    }
+  }
+  expect(claims.length).toBeGreaterThan(3);
+
+  const stale = claims
+    .filter((c) => !shipped.has(c.value))
+    .map((c) => `${c.where}: claims $${c.value}, shipped ${[...shipped].join("/")}`);
+  expect(stale).toEqual([]);
+});

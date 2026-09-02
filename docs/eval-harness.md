@@ -262,7 +262,7 @@ otherwise edits inside that block move no hash and its eval never fires.
 
 - **Never in the hermetic gate.** `bun test ./test` stays free and offline; it covers the harness's
   pure logic only.
-- **Per-PR: a SMOKE gate, not the measurement.** `--gating-only --smoke --trials 1 --max-spend 1`.
+- **Per-PR: a SMOKE gate, not the measurement.** `--gating-only --smoke --trials 1 --max-spend 6`.
   It gates on **well-formedness only** — every trial must obtain a parseable verdict — and reports
   accuracy without gating on it. That split is forced by the arithmetic: the per-fixture rule is
   majority-correct, which needs an odd `T > 1` to mean anything, and `gate-commit-now`'s own

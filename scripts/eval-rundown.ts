@@ -3,7 +3,7 @@
 //
 // The rundown is the most self-contained of the four: `buildRundownPrompt` serializes the whole
 // herd state inline and the agent's only job is to write `.shepherd-rundown.json`. So this eval
-// declares `Write` only, runs single-turn, and needs no fixture environment.
+// declares `Write` only and needs no fixture environment.
 //
 // Both the prompt and the verdict parser are the REAL ones (`buildRundownPrompt`,
 // `parseRundownVerdict` from `src/rundown-core.ts` — a leaf module with no import-time side
@@ -116,8 +116,9 @@ export const SPEC: EvalSpec<RundownFixture> = {
   labels: LABELS,
   tools: [WRITE_TOOL],
   verdictFile: RUNDOWN_VERDICT_FILE,
-  // The prompt's contract is a single write with no inspection step, so a second turn would mean
-  // the model ignored it. One spare turn absorbs a stray narration-then-write.
+  // The prompt's contract is a single write with no inspection step. A text-only reply ends the
+  // loop on its own, so the second turn buys exactly one thing: a first write to the WRONG path is
+  // acknowledged and the model gets a chance to write the verdict file it was actually asked for.
   maxTurns: 2,
   maxTokens: MAX_TOKENS,
   buildPrompt: (fixture) => buildRundownPrompt(fixture.state, fixture.lang),

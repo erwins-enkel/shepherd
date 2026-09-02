@@ -230,6 +230,11 @@ export const PLAN_GATE_FIXTURES: PlanGateFixture[] = [
       files: {
         "src/backup-paths.ts":
           "export function backupPaths(): { dir: string } {\n  return { dir: `${process.env.HOME}/.shepherd/backups` };\n}\n",
+        // Both EXISTING files the plan names must resolve. Under the strong tier an unresolvable
+        // reference to committed code is a legitimate finding, so omitting one would manufacture
+        // the very failure this fixture exists to prove does NOT happen.
+        "src/server.ts":
+          'app.get("/api/health/disk", () => diskFree());\napp.get("/api/health/db", () => dbOk());\n',
       },
     },
     expectedDecision: "approve",

@@ -83,6 +83,8 @@ import {
 } from "./repos";
 import { resolveDefaultBranch, fastForwardDefaultBranch } from "./pull";
 import { analyzeReadiness } from "./readiness";
+import { composeTaskBrief } from "./intent-shape";
+import { normalizeRound } from "./task-shape";
 import { listCommands } from "./commands";
 import { codexHome } from "./codex-usage";
 import { listDirs, validateRoot, collapseHome } from "./dirs";
@@ -572,6 +574,16 @@ export interface AppDeps {
     provider: AgentProvider,
     model: string,
   ) => Promise<import("./prompt-recommend").RecommendResult>;
+  /** Run one New Task "shape this" round via a transient agent (issue #2158). `repoPath` is already
+   *  containment-checked by the route. Wired to shapeTask in index.ts; absent in tests that don't
+   *  exercise it → route 503s. */
+  shapeTask?: (
+    repoPath: string,
+    prompt: string,
+    provider: AgentProvider,
+    /** `null` = inherit the spawn default (the New Task picker's "default" arrives as null). */
+    model: string | null,
+  ) => Promise<import("./task-shape").ShapeResult>;
 }
 
 /** Wire DTO for GET /api/sessions/:id/usage (mirrored by ui/src/lib/types.ts SessionUsage —
@@ -6498,6 +6510,69 @@ export async function buildBacklogPayload(inputs: BacklogPayloadInputs): Promise
   return { pinnedPath, projects, totals: { openIssues: totalIssues, openPRs: totalPRs } };
 }
 
+// POST /api/shape — run the New Task "shape this" round (issue #2158): a transient agent reads the
+// operator's rough prompt plus the repo and returns a draft brief + clarifying questions. No session,
+// worktree, or branch is created — the round runs BEFORE anything is spawned on the task.
+// 200 {draft, block} on success; 422 {error} on an analysis failure; 503 when unwired.
+/** Validate the shape request body, or null when malformed. `model` is optional: a null/absent one
+ *  means "inherit the spawn default" — the New Task picker's "default" option is mapped to null
+ *  client-side, exactly as the session-spawn path does. An empty string is malformed, not a
+ *  default. */
+function parseShapeBody(
+  body: Record<string, unknown> | null,
+): { prompt: string; provider: AgentProvider; model: string | null } | null {
+  const { prompt, provider } = body ?? {};
+  const model = body?.model ?? null;
+  if (typeof prompt !== "string") return null;
+  if (provider !== "claude" && provider !== "codex") return null;
+  if (model !== null && (typeof model !== "string" || !model)) return null;
+  return { prompt, provider, model };
+}
+
+async function handleShape({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(req.method === "POST" && parts[0] === "api" && parts[1] === "shape" && !parts[2]))
+    return null;
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+  const input = parseShapeBody(body);
+  if (!input) {
+    return json(
+      { error: "body must be {repoPath, prompt, provider: 'claude'|'codex', model?: string}" },
+      400,
+    );
+  }
+  // The repo is handed to the agent as `--add-dir`, so it must be a real directory under the
+  // configured root — never a caller-supplied path we grant an agent access to unchecked.
+  const dir = safeRepoDir(typeof body?.repoPath === "string" ? body.repoPath : "", config.repoRoot);
+  if (!dir) return json({ error: "invalid repo" }, 400);
+  if (!deps.shapeTask) return json({ error: "unavailable" }, 503);
+  const result = await deps.shapeTask(dir, input.prompt, input.provider, input.model);
+  return "error" in result ? json({ error: result.error }, 422) : json(result);
+}
+
+// POST /api/shape/brief — compose the intent-shaped brief from a round the operator answered.
+// Pure: no spawn, no state. Answers are resolved fail-closed against the round's own questions
+// (the plan gate's resolver), so an answer that matches no question is dropped rather than trusted.
+async function handleShapeBrief({ req, parts }: Ctx): Promise<Response | null> {
+  if (!(
+    req.method === "POST" &&
+    parts[0] === "api" &&
+    parts[1] === "shape" &&
+    parts[2] === "brief"
+  ))
+    return null;
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+  const block = body?.block as { questions?: unknown } | undefined;
+  const round = normalizeRound({ draft: body?.draft, questions: block?.questions });
+  if (!round) return json({ error: "invalid round" }, 400);
+  const answers = Array.isArray(body?.answers) ? (body.answers as RawAnswer[]) : [];
+  const resolved = resolvePlanAnswers([round.block], answers);
+  return json({ brief: composeTaskBrief(round.draft, round.block.questions, resolved) });
+}
+
 // AI-readiness scorecard for one repo (Backlog "Readiness" mode). Deterministic
 // guardrail scan only — never executes the target repo's code.
 async function handleReadiness({ req, parts, url }: Ctx): Promise<Response | null> {
@@ -7795,6 +7870,8 @@ const ROUTE_HANDLERS = [
   handleRepoPull,
   handleSyncFork,
   handleDependabotRebase,
+  handleShape,
+  handleShapeBrief,
   handleReadiness,
   handleAdoptGitignore,
   handleBacklog,
@@ -8084,6 +8161,10 @@ export const slowRequestTimeoutSec = (req: Request, url: URL): number | null => 
   if (req.method !== "POST") return null;
   if (url.pathname === "/api/usage/refresh") return 60;
   if (/^\/api\/sessions\/[^/]+\/epic-draft\/approve$/.test(url.pathname)) return 255;
+  // /api/shape spawns a transient shaping agent and polls it for up to 180s (task-shape.ts); on the
+  // 10s default Bun severs the socket mid-round and the New Task card reports a failure for a round
+  // still running — the same bogus failure described for epic approve above.
+  if (url.pathname === "/api/shape") return 255;
   if (url.pathname === "/api/uploads") return 120;
   if (/^\/api\/sessions\/[^/]+\/scratchpad\/upload$/.test(url.pathname)) return 120;
   if (url.pathname === "/api/prs/merge") return MERGE_ROUTE_TIMEOUT_SEC;

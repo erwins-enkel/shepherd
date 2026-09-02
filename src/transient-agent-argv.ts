@@ -16,6 +16,8 @@ import type { AgentProvider } from "./types";
  *
  *   claude
  *     --session-id <uuid>          forced so the transcript lands at a predictable path
+ *     [--add-dir <dir…>]           emitted IFF opts.addDirs is non-empty — variadic, so it sits
+ *                                  where the NEXT token is a flag, never before the prompt
  *     --settings <json>            { disableAllHooks:true, tui:"default",
  *                                    [enableAllProjectMcpServers:true], ...apiKeySettingsFragment() }
  *     --disable-slash-commands
@@ -119,6 +121,15 @@ export interface TransientAgentArgvOptions {
    *  (nor, for the checkout-running kinds, a fixed `-o` target a committed symlink could redirect).
    *  Claude spawns ignore it (Claude has no `-o`). Default false. */
   captureLastMessage?: boolean;
+  /** Extra directories the agent may read, emitted as `--add-dir` (Claude only, issue #2158).
+   *  This is the ONLY thing that grants file access outside the spawn's cwd: the allowlist decides
+   *  WHICH tools may run, not WHERE they may reach, so a temp-cwd kind (`writer-ro`/`writer-only`)
+   *  without this can read nothing but the files Shepherd itself wrote into its scratch dir. Adding
+   *  a directory also exposes it to the preset's bare `Write` — Claude Code has no read-only form of
+   *  the flag — so pass only a directory the caller accepts as writable-in-the-worst-case. Codex
+   *  ignores it: `--sandbox workspace-write` restricts writes and network, not reads. Default: none,
+   *  so every existing caller's argv is byte-identical. */
+  addDirs?: string[];
   /** Pre-minted session id to pin, instead of the fresh `randomUUID()` this builder would generate.
    *  For a caller that needs the id BEFORE it can build the prompt — the plan gate keys its
    *  reviewer worktree path on this id, but its prompt depends on facts that only exist once that
@@ -251,6 +262,10 @@ export function buildTransientAgentArgv(
     "claude",
     "--session-id",
     sessionId,
+    // `--add-dir` rides HERE, where the next token is always a flag: it is variadic and would
+    // swallow a following positional (the trailing prompt) as another directory. Same placement
+    // rule the session spawn path follows (service.ts buildClaudeSpawnArgv / agent-skills.ts).
+    ...(opts.addDirs?.length ? ["--add-dir", ...opts.addDirs] : []),
     "--settings",
     JSON.stringify(settings),
     "--disable-slash-commands",

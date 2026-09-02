@@ -23,6 +23,7 @@
   // letting a load error read as "not a JS/TS repo".
   let loadError = $state(false);
   let copied = $state(false);
+  let copiedTemplate = $state(false);
 
   // Reload whenever the selected repo changes; ignore a stale response that lands
   // after the user has moved on (matches ActionsPanel's guarded-load pattern).
@@ -77,6 +78,8 @@
         return m.readiness_g_commit_lint_title();
       case "dead_code_audit":
         return m.readiness_g_dead_code_audit_title();
+      case "issue_templates":
+        return m.readiness_g_issue_templates_title();
     }
   }
 
@@ -106,6 +109,8 @@
         return m.readiness_g_commit_lint_removes();
       case "dead_code_audit":
         return m.readiness_g_dead_code_audit_removes();
+      case "issue_templates":
+        return m.readiness_g_issue_templates_removes();
     }
   }
 
@@ -134,12 +139,28 @@
     }
   }
 
+  async function copyTemplate() {
+    if (!report) return;
+    try {
+      await navigator.clipboard.writeText(report.issueTemplate);
+      copiedTemplate = true;
+      setTimeout(() => (copiedTemplate = false), 1500);
+    } catch {
+      // clipboard blocked — the template stays selectable in the block below.
+    }
+  }
+
   function sendToTask() {
     if (!report) return;
     const intro = report.hasAgentInstructions
       ? m.readiness_adopt_intro_merge()
       : m.readiness_adopt_intro_create();
-    onadopt(repoPath, buildAdoptPrompt(intro, report.claudeMd));
+    // The template rides along only when the repo lacks one — otherwise the adopt task would be
+    // told to add a template the repo already has.
+    const template = report.hasIssueTemplates
+      ? undefined
+      : { intro: m.readiness_adopt_template_intro(), body: report.issueTemplate };
+    onadopt(repoPath, buildAdoptPrompt(intro, report.claudeMd, template));
   }
 
   // Independent of `report`: this only needs `repoPath`, so it stays actionable
@@ -282,6 +303,23 @@
           <div class="merge-note">{m.readiness_claudemd_present_note()}</div>
         {/if}
         <pre class="claudemd">{report.claudeMd}</pre>
+      </div>
+
+      <!-- prescribed issue template (#2158): the same intent shape a shaped New Task carries, so a
+           drained issue arrives pre-structured. Verbatim artifact, like the house rules above. -->
+      <div class="section">
+        <div class="section-head claudemd-head">
+          <span>{m.readiness_template_heading()}</span>
+          <div class="cta-row">
+            <button class="cta" type="button" onclick={copyTemplate}>
+              {copiedTemplate ? m.readiness_copied() : m.readiness_copy()}
+            </button>
+          </div>
+        </div>
+        {#if report.hasIssueTemplates}
+          <div class="merge-note">{m.readiness_template_present_note()}</div>
+        {/if}
+        <pre class="claudemd">{report.issueTemplate}</pre>
       </div>
     </div>
   {/if}

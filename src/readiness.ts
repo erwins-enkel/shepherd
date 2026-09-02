@@ -17,6 +17,7 @@
 
 import { existsSync, readFileSync, readdirSync, type Dirent } from "node:fs";
 import { join } from "node:path";
+import { INTENT_ISSUE_TEMPLATE } from "./intent-shape";
 import { SHEPHERD_IGNORE_GLOB } from "./shepherd-exclude";
 
 export type GuardrailId =
@@ -31,7 +32,8 @@ export type GuardrailId =
   | "dead_code_audit"
   | "ci"
   | "dependency_automation"
-  | "agent_instructions";
+  | "agent_instructions"
+  | "issue_templates";
 
 export type PackageManager = "bun" | "pnpm" | "yarn" | "npm";
 
@@ -58,8 +60,16 @@ export interface ReadinessReport {
   checks: GuardrailCheck[];
   /** Whether the repo already ships agent house-rules (CLAUDE.md/AGENTS.md). */
   hasAgentInstructions: boolean;
+  /** Whether the repo already ships issue templates. Present ⇒ the guardrail is satisfied, so the
+   *  adopt task leaves the repo's templates alone and {@link ReadinessReport.issueTemplate} is
+   *  reference-only (the panel says so); absent ⇒ the prescription tells the agent to create it. */
+  hasIssueTemplates: boolean;
   /** Generated, stack-tailored house-rules snippet. Verbatim artifact — exempt from i18n. */
   claudeMd: string;
+  /** The prescribed intent-shaped issue template (issue #2158) — the same sections a shaped New
+   *  Task brief carries, so a DRAINED backlog issue arrives pre-structured. Verbatim artifact,
+   *  exempt from i18n; `""` on the not-applicable path. */
+  issueTemplate: string;
 }
 
 /** The file-probe surface shared by every ecosystem's scan context. */
@@ -98,14 +108,34 @@ interface EcosystemProfile<Ctx> {
 }
 
 // ── Language-agnostic detectors (shared verbatim by both profiles) ───────────────
-// These three guardrails are the same markers regardless of stack, so both the JS/TS
-// and Rust guardrail arrays reuse them — a single source of truth for their evidence.
+// These guardrails are the same markers regardless of stack — CI, dependency automation, agent
+// instructions and issue templates are repo/forge configuration, not toolchain — so both the JS/TS
+// and Rust guardrail arrays reuse them: a single source of truth for their evidence.
 
 const detectCi = (s: FileScan): string[] => {
   const ev: string[] = [];
   const wf = s.glob(".github/workflows", (n) => n.endsWith(".yml") || n.endsWith(".yaml"));
   if (wf.length) ev.push(`.github/workflows (${wf.length})`);
   if (s.has(".gitlab-ci.yml")) ev.push(".gitlab-ci.yml");
+  return ev;
+};
+
+/** Issue templates (issue #2158): the forge's intake shape. GitHub reads a directory of templates
+ *  or a single legacy file; GitLab reads `.gitlab/issue_templates/`. Any one of them counts —
+ *  the guardrail is "the repo tells an issue author what to write", not "which forge". */
+const detectIssueTemplates = (s: FileScan): string[] => {
+  const ev: string[] = [];
+  // `config.yml` is GitHub's CHOOSER config (blank-issues toggle + contact links), not a template —
+  // a directory holding only that one tells an issue author nothing.
+  const gh = s.glob(
+    ".github/ISSUE_TEMPLATE",
+    (n) => n !== "config.yml" && (n.endsWith(".md") || n.endsWith(".yml") || n.endsWith(".yaml")),
+  );
+  if (gh.length) ev.push(`.github/ISSUE_TEMPLATE (${gh.length})`);
+  for (const f of [".github/ISSUE_TEMPLATE.md", ".github/issue_template.md"])
+    if (s.has(f)) ev.push(f);
+  const gl = s.glob(".gitlab/issue_templates", (n) => n.endsWith(".md"));
+  if (gl.length) ev.push(`.gitlab/issue_templates (${gl.length})`);
   return ev;
 };
 
@@ -263,6 +293,11 @@ export const GUARDRAILS: GuardrailDef<RepoScan>[] = [
       if (s.has(".husky/commit-msg")) ev.push(".husky/commit-msg");
       return ev;
     },
+  },
+  {
+    id: "issue_templates",
+    weight: 4,
+    detect: detectIssueTemplates,
   },
   {
     id: "dead_code_audit",
@@ -527,6 +562,11 @@ export const RUST_GUARDRAILS: GuardrailDef<RustScan>[] = [
     },
   },
   {
+    id: "issue_templates",
+    weight: 4,
+    detect: detectIssueTemplates,
+  },
+  {
     id: "dead_code_audit",
     weight: 3,
     // cargo-machete / cargo udeps only — cargo-deny is a license/advisory checker, not an unused-code audit.
@@ -621,15 +661,17 @@ function runProfile<Ctx>(profile: EcosystemProfile<Ctx>, dir: string): Readiness
   const got = checks.reduce((s, c) => s + (c.present ? c.weight : 0), 0);
   const score = total === 0 ? 0 : Math.round((100 * got) / total);
 
-  const hasAgentInstructions = checks.find((c) => c.id === "agent_instructions")?.present ?? false;
+  const present = (id: GuardrailId) => checks.find((c) => c.id === id)?.present ?? false;
 
   return {
     applicable: true,
     ecosystem: profile.id,
     score,
     checks,
-    hasAgentInstructions,
+    hasAgentInstructions: present("agent_instructions"),
+    hasIssueTemplates: present("issue_templates"),
     claudeMd: generateClaudeMd(profile, ctx, checks),
+    issueTemplate: INTENT_ISSUE_TEMPLATE,
   };
 }
 
@@ -647,7 +689,9 @@ export function analyzeReadiness(dir: string): ReadinessReport {
       score: 0,
       checks: [],
       hasAgentInstructions: false,
+      hasIssueTemplates: false,
       claudeMd: "",
+      issueTemplate: "",
     }
   );
 }
@@ -731,6 +775,7 @@ const TOOLING_LABEL: Record<GuardrailId, string> = {
   lint_staged: "lint-staged on staged files",
   commit_lint: "Conventional-commit lint (commitlint)",
   dead_code_audit: "A dead-code/complexity audit (fallow/knip)",
+  issue_templates: "Intent-shaped issue templates",
 };
 
 /** Plain-text "back-and-forth this removes" per guardrail (verbatim artifact). */
@@ -752,6 +797,8 @@ const CHURN_PLAIN: Record<GuardrailId, string> = {
     "without it the whole tree is re-checked or skipped; staged-only keeps the hook fast.",
   commit_lint: "without it you correct commit message format by hand.",
   dead_code_audit: "without it dead exports and unused deps accrete and you spot them by eye.",
+  issue_templates:
+    "without them an issue reaches the agent as a one-liner and the session burns its first turns asking what you meant.",
 };
 
 /** Dev-add + exec verbs per package manager (verbatim — feed the generated artifact). */
@@ -770,6 +817,14 @@ export const PM_VERBS: Record<PackageManager, { add: string; exec: string }> = {
  * updates bun.lock on a bun repo (pnpm/yarn ARE served by the npm ecosystem —
  * only bun has a dedicated one).
  */
+/** Where the prescribed intent template goes. Shared verbatim by both profiles — the intake shape
+ *  is stack-independent (issue #2158); the artifact itself rides on the report as `issueTemplate`. */
+const ISSUE_TEMPLATE_NOTE = [
+  "Create `.github/ISSUE_TEMPLATE/task.md` holding the intent template (Problem / Outcome / " +
+    "Constraints / Non-goals / Open questions) so a drained issue arrives shaped; on GitLab use " +
+    "`.gitlab/issue_templates/Task.md` with the same body and no front matter.",
+];
+
 const PRESCRIPTION_NOTE: Partial<Record<GuardrailId, (s: RepoScan) => string[]>> = {
   dependency_automation: (s) => {
     if (s.pm === "bun") {
@@ -786,6 +841,7 @@ const PRESCRIPTION_NOTE: Partial<Record<GuardrailId, (s: RepoScan) => string[]>>
       `Create \`.github/dependabot.yml\` with \`package-ecosystem: "npm"\` (also correct for pnpm/yarn lockfiles).`,
     ];
   },
+  issue_templates: () => ISSUE_TEMPLATE_NOTE,
 };
 
 /**
@@ -808,6 +864,7 @@ export const INSTALL_STEPS: Record<GuardrailId, (v: { add: string; exec: string 
   agent_instructions: () => [],
   ci: () => [],
   dependency_automation: () => [],
+  issue_templates: () => [],
 };
 
 // ── Rust prescription tables (consumed by the rust profile) ─────────────────────────
@@ -824,6 +881,7 @@ const RUST_TOOLING_LABEL: Record<RustGuardrailId, string> = {
   dependency_automation: "Dependency automation (Dependabot/Renovate)",
   commit_lint: "Conventional-commit lint (cocogitto/commitlint)",
   dead_code_audit: "An unused-deps/dead-code audit (cargo-machete)",
+  issue_templates: "Intent-shaped issue templates",
 };
 
 /** Plain-text "back-and-forth this removes" per Rust guardrail (verbatim artifact). */
@@ -841,6 +899,8 @@ const RUST_CHURN_PLAIN: Record<RustGuardrailId, string> = {
     "without it dependency bumps pile up as manual busywork and stale-dep bugs reach you instead of an automated PR.",
   commit_lint: "without it you correct commit message format by hand.",
   dead_code_audit: "without it unused dependencies and dead code accrete and you spot them by eye.",
+  issue_templates:
+    "without them an issue reaches the agent as a one-liner and the session burns its first turns asking what you meant.",
 };
 
 /**
@@ -867,6 +927,7 @@ const RUST_PRESCRIPTION_NOTE: Partial<Record<RustGuardrailId, () => string[]>> =
   dead_code_audit: () => [
     "Run `cargo machete` in CI/the hook to catch unused dependencies (alternative: `cargo +nightly udeps`).",
   ],
+  issue_templates: () => ISSUE_TEMPLATE_NOTE,
 };
 
 /**
@@ -885,4 +946,5 @@ const RUST_INSTALL_STEPS: Record<RustGuardrailId, () => string[]> = {
   agent_instructions: () => [],
   ci: () => [],
   dependency_automation: () => [],
+  issue_templates: () => [],
 };

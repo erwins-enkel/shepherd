@@ -129,11 +129,13 @@ test("a fully-equipped repo (Shepherd-shaped) scores 100 with all guardrails pre
   write(".github/workflows/ci.yml", "name: ci");
   write(".github/dependabot.yml", "version: 2");
   write("CLAUDE.md", "# rules");
+  write(".github/ISSUE_TEMPLATE/task.md", "## Problem");
 
   const r = analyzeReadiness(dir);
   expect(r.score).toBe(100);
   expect(r.checks.every((c) => c.present)).toBe(true);
   expect(r.hasAgentInstructions).toBe(true);
+  expect(r.hasIssueTemplates).toBe(true);
   for (const c of r.checks) expect(c.evidence.length).toBeGreaterThan(0);
 });
 
@@ -327,4 +329,75 @@ test("a present guardrail emits no install command for itself", () => {
   write("package-lock.json", "{}");
   const r = analyzeReadiness(dir);
   expect(r.claudeMd).not.toContain("$ npm i -D eslint @eslint/js");
+});
+
+// ── intent-shaped issue templates (#2158) ────────────────────────────────────
+// The intake shape is stack-independent, so the detector is forge-shaped, not language-shaped.
+
+test("issue templates: detects the GitHub directory, the legacy single file, and GitLab", () => {
+  const cases: [string, string][] = [
+    [".github/ISSUE_TEMPLATE/task.md", ".github/ISSUE_TEMPLATE (1)"],
+    [".github/ISSUE_TEMPLATE/bug.yml", ".github/ISSUE_TEMPLATE (1)"],
+    [".github/ISSUE_TEMPLATE.md", ".github/ISSUE_TEMPLATE.md"],
+    [".gitlab/issue_templates/Task.md", ".gitlab/issue_templates (1)"],
+  ];
+  for (const [file, evidence] of cases) {
+    // One repo per case (the shared `dir` is per-test, and evidence counts must not accumulate).
+    const repo = mkdtempSync(join(tmpdir(), "shepherd-readiness-tpl-"));
+    const put = (rel: string) => {
+      const full = join(repo, rel);
+      mkdirSync(join(full, ".."), { recursive: true });
+      writeFileSync(full, "## Problem");
+    };
+    put("package.json");
+    writeFileSync(join(repo, "package.json"), JSON.stringify({ name: "x" }));
+    put(file);
+    const check = analyzeReadiness(repo).checks.find((c) => c.id === "issue_templates");
+    expect(check?.present).toBe(true);
+    expect(check?.evidence).toContain(evidence);
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("issue templates: the chooser config alone is not a template", () => {
+  pkg({ name: "x" });
+  write(".github/ISSUE_TEMPLATE/config.yml", "blank_issues_enabled: false");
+  expect(present("issue_templates", analyzeReadiness(dir))).toBe(false);
+});
+
+test("issue templates: a repo without any scores the guardrail absent and reports it", () => {
+  pkg({ name: "x" });
+  write(".github/workflows/ci.yml", "name: ci"); // a .github dir alone is not a template
+  const r = analyzeReadiness(dir);
+  expect(r.checks.find((c) => c.id === "issue_templates")?.present).toBe(false);
+  expect(r.hasIssueTemplates).toBe(false);
+});
+
+test("the prescribed template is the intent shape, and rides the generated house rules", () => {
+  pkg({ name: "x" });
+  const r = analyzeReadiness(dir);
+  for (const heading of ["Problem", "Outcome", "Constraints", "Non-goals", "Open questions"]) {
+    expect(r.issueTemplate).toContain(`## ${heading}`);
+  }
+  // Absent guardrail → the adopt list tells the agent where to put it.
+  expect(r.claudeMd).toContain(".github/ISSUE_TEMPLATE/task.md");
+});
+
+test("the artifact ships whether or not the repo has templates; only the prescription differs", () => {
+  // hasIssueTemplates gates the ADOPT prescription (and the panel note), never the artifact — the
+  // template stays visible to copy from either way.
+  pkg({ name: "x" });
+  write(".github/ISSUE_TEMPLATE/existing.md", "## Anything");
+  const r = analyzeReadiness(dir);
+  expect(r.hasIssueTemplates).toBe(true);
+  expect(r.issueTemplate).toContain("## Problem");
+  // Guardrail satisfied ⇒ the adopt list no longer names the file to create.
+  expect(r.claudeMd).not.toContain(".github/ISSUE_TEMPLATE/task.md");
+});
+
+test("a not-applicable repo reports no template rather than a stray artifact", () => {
+  const r = analyzeReadiness(dir); // no package.json / Cargo.toml written
+  expect(r.applicable).toBe(false);
+  expect(r.issueTemplate).toBe("");
+  expect(r.hasIssueTemplates).toBe(false);
 });

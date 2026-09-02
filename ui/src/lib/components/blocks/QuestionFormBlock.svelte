@@ -3,17 +3,23 @@
   import { m } from "$lib/paraglide/messages";
   import { answerPlanQuestions } from "$lib/api";
 
-  // `answerCtx` present → interactive (the planning-phase plan gate). Absent → read-only
-  // (recap / Done panels, or once the session has left the planning phase).
+  // Three modes. `answerCtx` present → interactive, answers POST to the planning-phase plan gate.
+  // `onanswer` present → interactive, answers are handed to the PARENT instead (the New Task
+  // shaping round, #2158 — it has no session to post to yet). Neither → read-only (recap / Done
+  // panels, or once the session has left the planning phase).
   let {
     block,
     answerCtx,
+    onanswer,
+    submitLabel,
   }: {
     block: Extract<VisualBlock, { type: "question-form" }>;
     answerCtx?: { sessionId: string; locked: boolean };
+    onanswer?: (answers: RawAnswer[]) => void;
+    submitLabel?: string;
   } = $props();
 
-  const interactive = $derived(!!answerCtx);
+  const interactive = $derived(!!answerCtx || !!onanswer);
 
   // Per-question answer state (one block per component instance → keying by q.id is collision-free).
   // Built via helpers so the initializers don't statically capture the reactive `block` prop —
@@ -75,7 +81,15 @@
   }
 
   async function submit() {
-    if (!answerCtx || !canSubmit) return;
+    if (!canSubmit) return;
+    // Callback mode: no request, no delivery state — the parent owns what happens next. Lock the
+    // form so a double-click can't emit the same round twice.
+    if (onanswer) {
+      submitted = true;
+      onanswer(buildAnswers());
+      return;
+    }
+    if (!answerCtx) return;
     submitting = true;
     errored = false;
     try {
@@ -146,7 +160,7 @@
 
   {#if interactive}
     <div class="qf-actions">
-      {#if submitted}
+      {#if submitted && answerCtx}
         <p class="qf-confirm" class:qf-confirm-warn={!delivered} role="status">
           {delivered ? m.qform_sent() : m.qform_sent_undelivered()}
         </p>
@@ -155,7 +169,7 @@
           <p class="qf-error" role="alert">{m.qform_submit_error()}</p>
         {/if}
         <button type="button" class="gbtn primary" onclick={submit} disabled={!canSubmit}>
-          {submitting ? m.qform_submitting() : m.qform_submit()}
+          {submitting ? m.qform_submitting() : (submitLabel ?? m.qform_submit())}
         </button>
       {/if}
     </div>

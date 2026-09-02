@@ -20,6 +20,8 @@ import {
   initEmptyCommit,
   getCommands,
   uploadFile,
+  shapeTask,
+  composeTaskBrief,
 } from "$lib/api";
 
 // Mock the API so the issue picker renders deterministically with no network.
@@ -38,6 +40,8 @@ vi.mock("$lib/api", async (importOriginal) => {
     initEmptyCommit: vi.fn(),
     getCommands: vi.fn(),
     uploadFile: vi.fn(),
+    shapeTask: vi.fn(),
+    composeTaskBrief: vi.fn(),
   };
 });
 
@@ -67,6 +71,8 @@ const mockBranchStatus = vi.mocked(branchStatus);
 const mockInitEmptyCommit = vi.mocked(initEmptyCommit);
 const mockGetCommands = vi.mocked(getCommands);
 const mockUploadFile = vi.mocked(uploadFile);
+const mockShapeTask = vi.mocked(shapeTask);
+const mockComposeTaskBrief = vi.mocked(composeTaskBrief);
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -133,6 +139,8 @@ beforeEach(async () => {
   mockInitEmptyCommit.mockReset();
   mockGetCommands.mockReset();
   mockUploadFile.mockReset();
+  mockShapeTask.mockReset();
+  mockComposeTaskBrief.mockReset();
   mockNormalizeRunConfig.mockImplementation(runConfigActual.normalizeRunConfig);
   // Safe defaults so any test that mounts the picker (PromptSources) gets resolved
   // promises, never `undefined`; individual tests override as needed.
@@ -4698,5 +4706,118 @@ describe("NewTask 7A keyboard-compose state", () => {
         restore();
       }
     });
+  });
+});
+
+// ── "shape this": the optional pre-spawn clarifying round (#2158) ────────────
+// The whole feature is inert until the button is clicked — these tests pin both halves: it does
+// nothing on its own, and when used it replaces the rough prompt with the composed brief.
+describe("NewTask shape round", () => {
+  const round = {
+    draft: { problem: "leaks", outcome: "no leaks", constraints: [], nonGoals: [] },
+    block: {
+      type: "question-form" as const,
+      id: "shape-questions",
+      questions: [
+        { id: "q1", prompt: "Which reaper?", kind: "single" as const, options: ["tab", "other"] },
+      ],
+    },
+  };
+  const shapeBtn = () =>
+    document.querySelector<HTMLButtonElement>(`button[aria-label="${m.newtask_shape_aria()}"]`);
+
+  beforeEach(() => {
+    mockListRepos.mockResolvedValue({ repos: [], recentWindowDays: 30 });
+  });
+
+  it("is disabled until there is a prompt to shape, and never runs by itself", async () => {
+    render(NewTask, { props: base({ initialRepoPath: "/repo" }) });
+    await expect.poll(() => shapeBtn()).toBeTruthy();
+    expect(shapeBtn()!.disabled).toBe(true);
+    expect(mockShapeTask).not.toHaveBeenCalled();
+  });
+
+  it("runs the round and replaces the prompt with the composed brief", async () => {
+    mockShapeTask.mockResolvedValue({ round });
+    mockComposeTaskBrief.mockResolvedValue(
+      "## Problem\nleaks\n\n## Clarifications\n- Which reaper?\n  → tab\n",
+    );
+    render(NewTask, { props: base({ initialRepoPath: "/repo", initialPrompt: "stop the leak" }) });
+    await expect.poll(() => shapeBtn()).toBeTruthy();
+    shapeBtn()!.click();
+
+    await expect.poll(() => document.querySelector(".shape")).toBeTruthy();
+    await expect.poll(() => mockShapeTask.mock.calls.length).toBe(1);
+    expect(mockShapeTask.mock.calls[0]![0]).toBe("/repo");
+    expect(mockShapeTask.mock.calls[0]![1]).toBe("stop the leak");
+    // The picker's literal "default" must never reach the CLI as `--model default`.
+    expect(mockShapeTask.mock.calls[0]![3]).not.toBe("default");
+
+    const radios = () => document.querySelectorAll<HTMLInputElement>('.shape input[type="radio"]');
+    await expect.poll(() => radios().length).toBe(2);
+    radios()[0]!.click();
+    await page.getByRole("button", { name: m.shape_use_brief() }).click();
+
+    const textarea = () => document.querySelector<HTMLTextAreaElement>("#nt-prompt")!;
+    await expect.poll(() => textarea().value).toContain("## Problem");
+    // The round closes once its brief has been taken.
+    expect(document.querySelector(".shape")).toBeNull();
+    // The field grows to fit the brief: autogrow must run AFTER the bind:value flush, or it sizes
+    // the textarea against the one-line prompt the brief replaced.
+    await expect
+      .poll(() => parseFloat(textarea().style.height || "0"))
+      .toBeGreaterThan(textarea().clientHeight - 1);
+    await expect.poll(() => textarea().scrollHeight - textarea().clientHeight).toBeLessThan(2);
+  });
+
+  it("surfaces a failed round without touching the operator's prompt", async () => {
+    mockShapeTask.mockResolvedValue({ error: "spawn-failed" });
+    render(NewTask, { props: base({ initialRepoPath: "/repo", initialPrompt: "stop the leak" }) });
+    await expect.poll(() => shapeBtn()).toBeTruthy();
+    shapeBtn()!.click();
+    await expect
+      .poll(() => document.querySelector(".shape")?.textContent)
+      .toContain(m.shape_err_spawn_failed());
+    expect(document.querySelector<HTMLTextAreaElement>("#nt-prompt")!.value).toBe("stop the leak");
+  });
+
+  it("reports a failed compose without silently keeping the rough prompt's place", async () => {
+    mockShapeTask.mockResolvedValue({ round });
+    mockComposeTaskBrief.mockResolvedValue(null);
+    render(NewTask, { props: base({ initialRepoPath: "/repo", initialPrompt: "stop the leak" }) });
+    await expect.poll(() => shapeBtn()).toBeTruthy();
+    shapeBtn()!.click();
+    const radios = () => document.querySelectorAll<HTMLInputElement>('.shape input[type="radio"]');
+    await expect.poll(() => radios().length).toBe(2);
+    radios()[0]!.click();
+    await page.getByRole("button", { name: m.shape_use_brief() }).click();
+    await expect
+      .poll(() => document.querySelector(".shape")?.textContent)
+      .toContain(m.shape_err_compose());
+    expect(document.querySelector<HTMLTextAreaElement>("#nt-prompt")!.value).toBe("stop the leak");
+  });
+
+  it("drops a dismissed round's late result instead of reopening the panel", async () => {
+    let release: (v: { round: typeof round }) => void = () => {};
+    mockShapeTask.mockReturnValue(
+      new Promise<{ round: typeof round }>((r) => (release = r)) as ReturnType<typeof shapeTask>,
+    );
+    render(NewTask, { props: base({ initialRepoPath: "/repo", initialPrompt: "stop the leak" }) });
+    await expect.poll(() => shapeBtn()).toBeTruthy();
+    shapeBtn()!.click();
+    await expect.poll(() => document.querySelector(".shape")).toBeTruthy();
+    await page.getByRole("button", { name: m.shape_discard() }).click();
+    await expect.poll(() => document.querySelector(".shape")).toBeNull();
+    release({ round });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(document.querySelector(".shape")).toBeNull();
+  });
+
+  it("is not offered for research or epic tasks (no code brief to write)", async () => {
+    render(NewTask, {
+      props: base({ initialRepoPath: "/repo", initialPrompt: "x", initialResearch: true }),
+    });
+    await expect.poll(() => document.querySelector("#nt-prompt")).toBeTruthy();
+    expect(shapeBtn()).toBeNull();
   });
 });

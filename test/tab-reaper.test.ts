@@ -670,6 +670,8 @@ describe("isShepherdHelperLabel", () => {
     ["verify api key", "API-key verifier (multi-word exact)"],
     // #1852: prompt recommender — previously uncovered, leaked forever across restarts
     ["recommend TASK-09", "prompt recommender"],
+    // #2158: New Task shaping round — no session yet, so the label carries a random suffix
+    ["shape a1b2c3d4", "New Task shaping round"],
   ];
 
   for (const [label, desc] of trueLabels) {
@@ -690,6 +692,7 @@ describe("isShepherdHelperLabel", () => {
     ["autopilot-mode", "hyphen instead of space — not an autopilot helper"],
     ["name-my-thing", "hyphen instead of space — not a namer helper"],
     ["recommend-tweaks", "hyphen instead of space — not a recommender helper"],
+    ["shape-the-intake", "hyphen instead of space — not a shaping helper"],
   ];
 
   for (const [label, desc] of falseLabels) {

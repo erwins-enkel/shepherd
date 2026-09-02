@@ -429,3 +429,55 @@ test("claude provider (default + explicit) still builds the claude argv", () => 
     buildTransientAgentArgv("reviewer", { provider: "claude", model: null, prompt: "p" }).argv[0],
   ).toBe("claude");
 });
+
+// ── addDirs (--add-dir, issue #2158) ──────────────────────────────────────────
+// The ONLY thing that grants a temp-cwd helper file access to a repo; the allowlist does not.
+
+test("addDirs emits --add-dir before --settings, never after the trailing prompt", () => {
+  for (const kind of ALL_KINDS) {
+    const { argv, sessionId } = buildTransientAgentArgv(kind, {
+      model: "opus",
+      prompt: "DO_IT",
+      addDirs: ["/repo/one", "/repo/two"],
+    });
+    expect(argv.slice(0, 7)).toEqual([
+      "claude",
+      "--session-id",
+      sessionId,
+      "--add-dir",
+      "/repo/one",
+      "/repo/two",
+      "--settings",
+    ]);
+    // The flag is variadic: anything after it up to the next flag is read as a directory, so the
+    // prompt positional must stay last and far away from it.
+    expect(argv.indexOf("--add-dir")).toBeLessThan(argv.indexOf("--settings"));
+    expect(argv.at(-1)).toBe("DO_IT");
+  }
+});
+
+test("no addDirs (or an empty one) leaves every kind's argv byte-identical", () => {
+  for (const kind of ALL_KINDS) {
+    const sessionId = "fixed-session-id";
+    const base = buildTransientAgentArgv(kind, { model: "opus", prompt: "DO_IT", sessionId });
+    const empty = buildTransientAgentArgv(kind, {
+      model: "opus",
+      prompt: "DO_IT",
+      sessionId,
+      addDirs: [],
+    });
+    expect(empty.argv).toEqual(base.argv);
+    expect(base.argv).not.toContain("--add-dir");
+  }
+});
+
+test("codex ignores addDirs (workspace-write restricts writes and network, not reads)", () => {
+  const { argv } = buildTransientAgentArgv("writer-ro", {
+    provider: "codex",
+    model: "gpt-5.5",
+    prompt: "DO_IT",
+    addDirs: ["/repo/one"],
+  });
+  expect(argv).not.toContain("--add-dir");
+  expect(argv).not.toContain("/repo/one");
+});

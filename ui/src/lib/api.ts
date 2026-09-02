@@ -75,6 +75,7 @@ import type {
   CompletedEpic,
   DistillerHealth,
   RawAnswer,
+  ShapeRound,
   DocAgentRun,
   HoldReason,
   AgentProvider,
@@ -1035,6 +1036,49 @@ export async function recommendPrompt(
   } | null;
   if (r.ok && data && typeof data.prompt === "string") return { prompt: data.prompt };
   return { error: data && typeof data.error === "string" ? data.error : "timeout" };
+}
+
+/** A shaped round, or a stable error slug the New Task card maps to a localized message.
+ *  Never throws — the card needs a distinct error state, not a crash. */
+export type ShapeResult = { round: ShapeRound } | { error: string };
+
+/**
+ * Run the New Task "shape this" round: a transient agent reads the rough prompt plus the repo and
+ * returns a draft brief + clarifying questions. Long-running (it spawns a real agent), so callers
+ * must show a loading state. No session is created — this runs before anything is spawned.
+ */
+export async function shapeTask(
+  repoPath: string,
+  prompt: string,
+  provider: AgentProvider,
+  /** `null` = let the spawn default apply. Callers must map the picker's literal "default" here. */
+  model: string | null,
+): Promise<ShapeResult> {
+  const r = await fetch("/api/shape", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ repoPath, prompt, provider, model }),
+  });
+  const data = (await r.json().catch(() => null)) as
+    (Partial<ShapeRound> & { error?: unknown }) | null;
+  if (r.ok && data?.draft && data.block) return { round: { draft: data.draft, block: data.block } };
+  return { error: data && typeof data.error === "string" ? data.error : "timeout" };
+}
+
+/** Compose the answered round into the intent-shaped brief that replaces the rough prompt. Pure
+ *  server-side composition (one definition shared with the readiness issue template), so this is a
+ *  cheap round-trip, not a second agent run. Returns null when composition fails. */
+export async function composeTaskBrief(
+  round: ShapeRound,
+  answers: RawAnswer[],
+): Promise<string | null> {
+  const r = await fetch("/api/shape/brief", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ draft: round.draft, block: round.block, answers }),
+  });
+  const data = (await r.json().catch(() => null)) as { brief?: unknown } | null;
+  return r.ok && data && typeof data.brief === "string" ? data.brief : null;
 }
 
 /**

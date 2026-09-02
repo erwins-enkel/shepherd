@@ -186,3 +186,66 @@ describe("QuestionFormBlock — interactive (answerCtx present)", () => {
       .toBeInTheDocument();
   });
 });
+
+// Callback mode (#2158): the New Task shaping round has no session to post answers to, so the form
+// hands them to the parent instead. The plan-gate path above must stay untouched by this.
+describe("QuestionFormBlock — callback mode (onanswer present)", () => {
+  const block = {
+    type: "question-form" as const,
+    id: "shape-questions",
+    questions: [
+      { id: "q1", prompt: "Which reaper?", kind: "single" as const, options: ["tab", "transient"] },
+      { id: "q2", prompt: "Out of scope?", kind: "freeform" as const },
+    ],
+  };
+
+  it("enables the form, uses the caller's submit label, and never posts to a session", async () => {
+    const onanswer = vi.fn();
+    const { container } = await render(QuestionFormBlock, {
+      block,
+      onanswer,
+      submitLabel: "Use brief",
+    });
+    const button = page.getByRole("button", { name: "Use brief" });
+    await expect.element(button).toBeDisabled();
+
+    const radios = container.querySelectorAll<HTMLInputElement>('input[type="radio"]');
+    await page.elementLocator(radios[0]!).click();
+    const text = container.querySelector<HTMLInputElement>('input[type="text"]')!;
+    await page.elementLocator(text).fill("herdr itself");
+    await expect.element(button).toBeEnabled();
+    await button.click();
+
+    expect(onanswer).toHaveBeenCalledTimes(1);
+    expect(onanswer.mock.calls[0]![0]).toEqual([
+      { blockId: "shape-questions", questionId: "q1", optionIndices: [0] },
+      { blockId: "shape-questions", questionId: "q2", text: "herdr itself" },
+    ]);
+    // The plan-gate transport must not fire for a round with no session.
+    expect(answerPlanQuestions).not.toHaveBeenCalled();
+    // No "sent to the planning agent" confirmation — there is no agent.
+    expect(container.textContent).not.toContain("Answers sent to the planning agent.");
+  });
+
+  it("locks after one emit so a double-click can't send the round twice", async () => {
+    const onanswer = vi.fn();
+    const { container } = await render(QuestionFormBlock, {
+      block: { ...block, questions: [block.questions[0]!] },
+      onanswer,
+      submitLabel: "Use brief",
+    });
+    const radios = container.querySelectorAll<HTMLInputElement>('input[type="radio"]');
+    await page.elementLocator(radios[0]!).click();
+    const button = page.getByRole("button", { name: "Use brief" });
+    await button.click();
+    await expect.element(button).toBeDisabled();
+    expect(onanswer).toHaveBeenCalledTimes(1);
+  });
+
+  it("stays read-only when neither answerCtx nor onanswer is given", async () => {
+    const { container } = await render(QuestionFormBlock, { block });
+    const inputs = container.querySelectorAll("input");
+    for (const input of inputs) expect(input.disabled).toBe(true);
+    expect(container.querySelector("button")).toBeNull();
+  });
+});

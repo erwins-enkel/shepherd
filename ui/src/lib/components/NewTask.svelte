@@ -12,6 +12,8 @@
     uploadFile,
     isPreviewBlocked,
     syncFork,
+    shapeTask as apiShapeTask,
+    composeTaskBrief,
   } from "$lib/api";
   import { toasts } from "$lib/toasts.svelte";
   import { handleImagePaste } from "$lib/clipboard";
@@ -24,6 +26,8 @@
     type SandboxProfile,
     type SlashCommand,
     type Steer,
+    type RawAnswer,
+    type ShapeRound as ShapeRoundData,
     MODELS_BY_PROVIDER,
   } from "$lib/types";
   import {
@@ -65,6 +69,8 @@
   import { selectedProviderCapacity } from "$lib/components/usage-gauges";
   import { elapsed } from "$lib/format";
   import { deriveReadiness } from "./new-task/readiness";
+  import { shapeBlocker, shapeErrorKey, type ShapeFailure } from "./new-task/shape";
+  import ShapeRound from "./ShapeRound.svelte";
   import {
     preselectModel,
     preselectEffort,
@@ -817,6 +823,78 @@
     }),
   );
   const showDualCta = $derived(readiness.advisories.includes("hold_likely"));
+
+  // ── "shape this": an OPTIONAL clarifying round before anything is spawned (#2158) ──
+  // A transient agent drafts a brief + the questions only the operator can settle; answering them
+  // replaces the rough prompt with an intent-shaped brief. Nothing here runs unless Shape is
+  // clicked — the freeform path is untouched.
+  let shapeStatus = $state<"idle" | "running" | "ready" | "error">("idle");
+  let shapeRound = $state<ShapeRoundData | null>(null);
+  let shapeErr = $state<ShapeFailure>("timeout");
+  // Monotonic round token: a round the operator dismissed (or superseded by starting another) must
+  // not land its result minutes later on top of whatever the card shows by then.
+  let shapeSeq = 0;
+  const shapeDisabled = $derived(
+    shapeBlocker({
+      promptEmpty: !prompt.trim(),
+      repoResolved: !!repoPath.trim(),
+      mode,
+      running: shapeStatus === "running",
+    }) !== null,
+  );
+
+  async function runShape() {
+    if (shapeDisabled) return;
+    const seq = ++shapeSeq;
+    shapeStatus = "running";
+    shapeRound = null;
+    // `model` is the PICKER's value, which includes the literal "default" — normalise it the way
+    // every other spawn path does (buildSpawnInput below) so the CLI never sees `--model default`.
+    const res = await apiShapeTask(
+      repoPath,
+      prompt,
+      agentProvider,
+      model !== "default" ? model : null,
+    );
+    // Dismissed, or superseded by a later round, while the agent was thinking.
+    if (seq !== shapeSeq) return;
+    if ("round" in res) {
+      shapeRound = res.round;
+      shapeStatus = "ready";
+    } else {
+      shapeErr = shapeErrorKey(res.error);
+      shapeStatus = "error";
+    }
+  }
+
+  async function useBrief(answers: RawAnswer[]) {
+    if (!shapeRound) return;
+    const seq = shapeSeq;
+    const brief = await composeTaskBrief(shapeRound, answers);
+    if (seq !== shapeSeq) return; // dismissed mid-compose
+    if (brief === null) {
+      shapeErr = "compose";
+      shapeStatus = "error";
+      return;
+    }
+    prompt = brief;
+    shapeSeq++;
+    shapeStatus = "idle";
+    shapeRound = null;
+    // Deferred like every other prompt-replacing site (pickIssue, injectSteer, …): the textarea is
+    // `bind:value={prompt}`, whose flush is a microtask, so measuring scrollHeight now would size
+    // the field to the OLD value and a multi-line brief would never grow it.
+    queueMicrotask(() => {
+      autogrow();
+      promptInput?.focus();
+    });
+  }
+
+  function dismissShape() {
+    shapeSeq++; // invalidate anything still in flight
+    shapeStatus = "idle";
+    shapeRound = null;
+  }
 
   function blockerCopy(blocker: NonNullable<typeof readiness.blocker>): string {
     switch (blocker) {
@@ -1882,6 +1960,42 @@
                     <Keycap id="attach" ctx={keymapCtx} absolute flash={hold.flash === "attach"} />
                   {/if}
                 </button>
+                <!-- Optional pre-spawn clarifying round (#2158). Sits with attach/dictate because
+                     it acts on the prompt itself. Hidden outside code mode (a research/epic task
+                     has no code brief) and on the mobile layout: the in-field toolbar's budget at
+                     375px is one labelled control beside the attachment chips, and a second
+                     control wraps the row (pinned by the mobile no-wrap test). Shaping is
+                     optional by design, so mobile keeps the freeform path. -->
+                {#if mode === "code" && !mobile}
+                  <button
+                    type="button"
+                    class="tool-btn"
+                    use:coachTarget={"nt-shape"}
+                    aria-label={m.newtask_shape_aria()}
+                    title={m.newtask_shape_hint()}
+                    onclick={runShape}
+                    disabled={shapeDisabled}
+                  >
+                    {#if shapeStatus === "running"}
+                      …
+                    {:else}
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        aria-hidden="true"
+                      >
+                        <path
+                          d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5L18 18M18 6l-2.5 2.5M8.5 15.5L6 18"
+                        />
+                      </svg>
+                    {/if}
+                    <span class="tool-label">{m.newtask_shape_label()}</span>
+                  </button>
+                {/if}
                 <span class="mic-slot">
                   <MicButton
                     bind:this={mic}
@@ -1969,6 +2083,16 @@
               t.value = "";
             }}
           />
+
+          {#if shapeStatus !== "idle"}
+            <ShapeRound
+              status={shapeStatus}
+              round={shapeRound ?? undefined}
+              errorKey={shapeErr}
+              onuse={useBrief}
+              ondismiss={dismissShape}
+            />
+          {/if}
 
           {#if issueRef && !relaunch}
             <div class="issue-ref">

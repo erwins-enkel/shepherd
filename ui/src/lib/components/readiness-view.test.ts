@@ -13,7 +13,9 @@ function report(checks: GuardrailCheck[]): ReadinessReport {
     score: 0,
     checks,
     hasAgentInstructions: false,
+    hasIssueTemplates: false,
     claudeMd: "# rules",
+    issueTemplate: "## Problem",
   };
 }
 
@@ -49,6 +51,23 @@ describe("buildAdoptPrompt", () => {
   it("joins the i18n intro with the verbatim snippet", () => {
     expect(buildAdoptPrompt("Make this repo AI-ready.", "# House rules")).toBe(
       "Make this repo AI-ready.\n\n# House rules",
+    );
+  });
+
+  it("appends the issue template under the caller's i18n'd lead-in", () => {
+    const p = buildAdoptPrompt("Intro.", "# House rules", {
+      intro: "Use exactly this template:",
+      body: "## Problem\n\n## Outcome",
+    });
+    expect(p).toBe(
+      "Intro.\n\n# House rules\n\nUse exactly this template:\n\n## Problem\n\n## Outcome",
+    );
+  });
+
+  it("omits the template section when there is none to prescribe", () => {
+    expect(buildAdoptPrompt("Intro.", "# House rules")).toBe("Intro.\n\n# House rules");
+    expect(buildAdoptPrompt("Intro.", "# House rules", { intro: "x", body: "   " })).toBe(
+      "Intro.\n\n# House rules",
     );
   });
 });

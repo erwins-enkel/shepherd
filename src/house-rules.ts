@@ -19,6 +19,13 @@ const HOUSE_RULES_INTRO =
 export const HOUSE_RULES_OVERHEAD =
   `<${HOUSE_RULES_TAG}>`.length + HOUSE_RULES_INTRO.length + `</${HOUSE_RULES_TAG}>`.length + 2;
 
+/** Default char budget for the rendered block (~25 max-length rules); `config.houseRulesBudgetChars`
+ *  is this value unless `SHEPHERD_HOUSE_RULES_BUDGET_CHARS` overrides it. It lives HERE, beside the
+ *  planner it bounds, so the reviewer-side injection (`ReviewService` / `StandalonePrCritic`) can
+ *  fall back to the same number without importing `./config` — that module reads the forge map off
+ *  disk at import time, which no critic unit test should have to pay for. */
+export const HOUSE_RULES_DEFAULT_BUDGET_CHARS = 4000;
+
 // ── ranking constants (env-overridable) ───────────────────────────────────────
 
 export const DAY_MS = 86_400_000;

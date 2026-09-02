@@ -1499,6 +1499,9 @@ const reviewService = new ReviewService({
   // global, UI-configurable max auto-address rounds before escalating to the human.
   // A thunk so a settings change takes effect on the next critic run, no restart.
   cap: () => config.prReviewCyclesCap,
+  // #2154: same budget the AUTHOR's house-rules block is planned against, so the critic sees the
+  // block the author actually got. A thunk for the same live-read reason as `cap`.
+  houseRulesBudgetChars: () => config.houseRulesBudgetChars,
   // Hard per-run deadline (SHEPHERD_REVIEW_TIMEOUT_MS). A plain number, not a thunk: it is read
   // once at construction because it is env-seeded, not a live UI setting.
   timeoutMs: config.reviewTimeoutMs,
@@ -1522,6 +1525,8 @@ const standaloneCritic = new StandalonePrCriticService({
   // Same per-role critic environment as reviewService (read per spawn → live settings).
   env: () => roleEnv(config.criticCli, config.criticModel, config.criticEffort),
   timeoutMs: config.reviewTimeoutMs,
+  // #2154: same budget as the session critic — see reviewService above.
+  houseRulesBudgetChars: () => config.houseRulesBudgetChars,
   repos: () => listRepos(config.repoRoot).map((r) => r.path),
   // Fresh per-sweep thunk (the service calls it each sweep, never caches) — branches
   // owned by a LIVE session, so a session-critic-owned PR is skipped when criticEnabled.

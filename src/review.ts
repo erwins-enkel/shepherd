@@ -35,6 +35,7 @@ import {
   defaultReadVerdict,
   defaultComputePatchId,
   defaultCollectBaseDelta,
+  defaultReadReviewPolicy,
   scopeFindings,
   effectiveRound,
   buildVerdictCore,
@@ -53,6 +54,11 @@ import { scrubStaleVerdictArtifacts } from "./codex-last-message";
 import { sanitizeRecapFailureDetail } from "./recap";
 import { isEpicChild } from "./epic-branch";
 import {
+  planHouseRulesInjection,
+  renderHouseRulesBlock,
+  HOUSE_RULES_DEFAULT_BUDGET_CHARS,
+} from "./house-rules";
+import {
   resolveAuxPatch,
   assembleAuxSpawn,
   type MembraneSeams,
@@ -67,6 +73,7 @@ import {
   planUsefulFloor,
   describeClamps,
   type ClampRecord,
+  type ClampSpec,
   type FitResult,
 } from "./prompt-fit";
 
@@ -262,6 +269,7 @@ export interface ReviewServiceDeps extends MembraneSeams {
     | "setReviewerSpawnOutcome"
     | "setReviewerSpawnProviderSessionId"
     | "listReviewerSpawns"
+    | "listActiveLearnings"
     | "putSpawnNotice"
     | "getSpawnNotice"
     | "clearSpawnNotice"
@@ -356,6 +364,14 @@ export interface ReviewServiceDeps extends MembraneSeams {
    *  UNTRUSTED intent-context. MUST read from `session.worktreePath`, NOT the critic's detached
    *  worktree — the plan file is git-excluded, so it can never exist in a fresh head checkout. */
   readPlan?: (worktreePath: string) => string | null;
+  /** Injectable reader for the repo's `REVIEW.md` review policy (#2154; default reads it from the
+   *  BASE COMMIT via read-only git). null when the repo has no policy on that base. MUST read the
+   *  base object, NOT the worktree — the worktree is the UNTRUSTED PR head, and the policy rides the
+   *  prompt unfenced (see defaultReadReviewPolicy). */
+  readReviewPolicy?: (worktreePath: string, baseSha: string) => Promise<string | null>;
+  /** Char budget for the house-rules block injected into the critic (#2154). A thunk so a live
+   *  config value takes effect on the next review; defaults to the shared house-rules default. */
+  houseRulesBudgetChars?: () => number;
 }
 
 export class ReviewService {
@@ -395,6 +411,8 @@ export class ReviewService {
     model: string | null,
   ) => Promise<SessionUsage | null>;
   private readPlan: (worktreePath: string) => string | null;
+  private readReviewPolicy: (worktreePath: string, baseSha: string) => Promise<string | null>;
+  private houseRulesBudgetFn: () => number;
   private worktreeExists: (p: string) => boolean;
 
   constructor(private deps: ReviewServiceDeps) {
@@ -418,6 +436,9 @@ export class ReviewService {
       deps.readUsage ??
       ((wt, id, provider, model) => reviewerUsage(wt, id, provider, model, this.codexResolver));
     this.readPlan = deps.readPlan ?? defaultReadPlan;
+    this.readReviewPolicy = deps.readReviewPolicy ?? defaultReadReviewPolicy;
+    this.houseRulesBudgetFn =
+      deps.houseRulesBudgetChars ?? (() => HOUSE_RULES_DEFAULT_BUDGET_CHARS);
     this.worktreeExists = deps.worktreeExists ?? existsSync;
   }
 
@@ -562,6 +583,13 @@ export class ReviewService {
     const epicBase = isEpicChild(session) ? session.baseBranch : null;
     const epic = await this.resolveEpicContext(epicBase, wt.worktreePath, baseSha);
 
+    // #2154 slice 1: the repo's own `REVIEW.md`, read from the BASE COMMIT — never from
+    // `wt.worktreePath`'s tree, which is the UNTRUSTED PR head (see defaultReadReviewPolicy for why
+    // that distinction is the whole security argument). No resolved baseSha ⇒ no policy, rather than
+    // a guess. Awaited, so it sits HERE with the issue-body / epic-delta fetches and BEFORE the
+    // `starting` re-check below, which must remain the LAST await-gated step before the spawn.
+    const reviewPolicy = await this.resolveReviewPolicy(wt.worktreePath, baseSha);
+
     // forget() (session archived) may have fired during any await above (author-notes, issue-body
     // fetch, or the epic base-delta collection); it clears our `starting` claim as a tombstone.
     // Abort (reaping the worktree we allocated) before spawning so we don't run for — and re-post a
@@ -592,6 +620,10 @@ export class ReviewService {
     // #1824 finding C: per-repo POSSIBLE-SMELLS lens flag (default OFF). Read here (not cached from
     // the criticEnabled gate above) so a toggle mid-session takes effect on the next review round.
     const smellLens = this.deps.store.getRepoConfig(session.repoPath).criticSmellLensEnabled;
+    // #2154 slice 2: the same house-rules block the AUTHOR of this diff was given, scoped by the
+    // files the diff actually touches. Synchronous store read, resolved here (not cached from the
+    // criticEnabled gate) so a learnings toggle takes effect on the next review round.
+    const houseRules = this.repoHouseRules(session.repoPath, files);
     // #1948: the rework round the critic is briefed with.
     const round = this.briefedRound(prior);
     const composePrompt = this.criticPromptComposer(
@@ -603,9 +635,10 @@ export class ReviewService {
       epic,
       smellLens,
       round,
+      houseRules,
     );
     const argvFor = (p: string): string[] => this.criticArgvFor(p, reviewerEnv, criticSessionId);
-    const argv = argvFor(composePrompt(plan));
+    const argv = argvFor(composePrompt(plan, false, reviewPolicy));
     // Fire plugin onSpawn hooks for this reviewer-style spawn (issue #1205) and bind any patched
     // env THROUGH the membrane (apiKeyPassthroughEnv handled inside). A hook that calls abortSpawn
     // cleanly skips the review (worktree reaped), mirroring the spawn-failure path below.
@@ -634,6 +667,7 @@ export class ReviewService {
     // the worktree is already reaped — whether it was refused pre-emptively or the spawn failed.
     const terminalId = await this.fitAndSpawn(session, git.headSha!, wt.worktreePath, {
       plan,
+      reviewPolicy,
       composePrompt,
       assemble: (p) => assembleAuxSpawn(patch, auxArgs, argvFor(p)),
     });
@@ -873,7 +907,8 @@ export class ReviewService {
     epic: EpicContext | null,
     smellLens: boolean,
     round: number,
-  ): (plan: string | null, planClamped?: boolean) => string {
+    houseRules: string | null,
+  ): (plan: string | null, planClamped: boolean, reviewPolicy: string | null) => string {
     // Shared with the plan reviewer: same read-only injection-contained sandbox (the PR diff is
     // UNTRUSTED). The prompt is the only critic-specific part. `diffBase` is the resolved base
     // commit (SHA) threaded from rebaseSkip, NOT session.baseBranch — so the review diffs the
@@ -886,14 +921,51 @@ export class ReviewService {
     // has a task); prReviewPrompt omits it, so the standalone-critic prompt stays byte-identical.
     // #1824 finding C: `smellLens` (per-repo flag, default OFF) appends the POSSIBLE-SMELLS lens.
     // Absent plan + no epic + smellLens off ⇒ the non-epic session-critic prompt is unchanged.
-    return (plan, planClamped = false) =>
+    // #2154: `reviewPolicy` is a ladder-varied argument (it is clampable); `houseRules` is captured
+    // (it is already bounded by the house-rules char budget, so it never clamps).
+    return (plan, planClamped, reviewPolicy) =>
       reviewPrompt(diffBase, session.prompt, priorFindings, authorNotes, issueBody, epic, {
         plan,
         smellLens,
         round,
         cap: this.cap,
         planClamped,
+        reviewPolicy,
+        houseRules,
       });
+  }
+
+  /** The repo's `REVIEW.md` as committed on `baseSha`, or null when git could not resolve a base
+   *  (#2154 slice 1). A method rather than an inline ternary in `begin()`: that method sits at its
+   *  cognitive-complexity bar (fallow health), and one more branch there costs more than it saves. */
+  private async resolveReviewPolicy(
+    worktreePath: string,
+    baseSha: string | null,
+  ): Promise<string | null> {
+    return baseSha ? await this.readReviewPolicy(worktreePath, baseSha) : null;
+  }
+
+  /** The `<shepherd-house-rules>` block for `repoPath` — the SAME block the author of this diff was
+   *  given — scoped to the files the diff actually touches (#2154 slice 2). null when the repo has
+   *  learnings off or there is nothing to inject.
+   *
+   *  `files` is strictly better scope input than the author side gets: `recordInjectedHouseRules`
+   *  has to guess the target paths by scraping the task text BEFORE the session runs, whereas by
+   *  review time the changed-file set is known exactly.
+   *
+   *  Deliberately does NOT call `recordInjectedLearnings`. `injectedCount` is the denominator of the
+   *  Wilson lower bound that auto-retires a rule (learnings-lifecycle), and the numerator is only
+   *  ever paid at the AUTHOR session's archive. Counting reviewer spawns there would inflate every
+   *  rule's denominator with pulls no reward can match, retiring rules that are doing their job. */
+  private repoHouseRules(repoPath: string, files: string[]): string | null {
+    if (!this.deps.store.getRepoConfig(repoPath).learningsEnabled) return null;
+    const { injected } = planHouseRulesInjection(
+      this.deps.store.listActiveLearnings(repoPath),
+      this.houseRulesBudgetFn(),
+      this.now(),
+      files,
+    );
+    return renderHouseRulesBlock(injected);
   }
 
   private reviewerEnv(): RoleEnvironment {
@@ -1529,11 +1601,21 @@ export class ReviewService {
     worktreePath: string,
     prompt: {
       plan: string | null;
-      composePrompt: (plan: string | null, planClamped?: boolean) => string;
+      reviewPolicy: string | null;
+      composePrompt: (
+        plan: string | null,
+        planClamped: boolean,
+        reviewPolicy: string | null,
+      ) => string;
       assemble: SpawnAssembler;
     },
   ): Promise<string | null> {
-    const fitted = fitCriticPrompt(prompt.plan, prompt.composePrompt, prompt.assemble);
+    const fitted = fitCriticPrompt(
+      prompt.plan,
+      prompt.reviewPolicy,
+      prompt.composePrompt,
+      prompt.assemble,
+    );
     if (!fitted.ok) {
       this.refuseOversizedSpawn(session, headSha, worktreePath, fitted);
       return null;
@@ -1892,45 +1974,57 @@ function defaultReadPlan(worktreePath: string): string | null {
 
 /** Fit the critic prompt inside the OS argv budget, or report a refusal (#1944).
  *
- *  THE PLAN IS THE ONLY CLAMPABLE BLOCK here. `task` and `issueBody` are human-authored ground
- *  truth — `stripPlanLineRefs`' doc exempts exactly those two from mutation for the same reason —
- *  and `priorFindings`/`authorNotes` are CONSUMED-ONCE: the next row is built only from this
- *  round's output, and `seenNoteIds` is derived before assembly and already marks those notes
- *  delivered, so a dropped one could never be re-raised or re-fed. The plan is also the only
- *  unbounded input at this site; `diffBase` is a SHA, not the diff.
+ *  THE PLAN AND THE REVIEW POLICY ARE THE ONLY CLAMPABLE BLOCKS here, in that order. `task` and
+ *  `issueBody` are human-authored ground truth — `stripPlanLineRefs`' doc exempts exactly those two
+ *  from mutation for the same reason — and `priorFindings`/`authorNotes` are CONSUMED-ONCE: the next
+ *  row is built only from this round's output, and `seenNoteIds` is derived before assembly and
+ *  already marks those notes delivered, so a dropped one could never be re-raised or re-fed. The
+ *  house-rules block (#2154) is likewise not listed: it is already bounded by the house-rules char
+ *  budget. `diffBase` is a SHA, not the diff.
+ *
+ *  ORDER IS THE POLICY DECISION: the plan gives way first. It is the larger and more redundant of
+ *  the two (the critic can re-derive intent from the task + issue body), whereas the review policy
+ *  is short, already hard-capped on read, and states rules that exist nowhere else in the prompt.
+ *
+ *  NEITHER BLOCK PRESENT — still measured. A plan-less, policy-less session (the common case) has
+ *  nothing CLAMPABLE, but its prompt is not thereby bounded: `session.prompt`, `issueBody`,
+ *  `priorFindings` and `authorNotes` can exceed the argv limit between them. Skipping the budget
+ *  would let the spawn die on E2BIG and land in begin's bare `catch` — no spawn_notices row, no
+ *  badge, no suppression, i.e. exactly the silent failure #1944 is about, on the branch most
+ *  sessions take. An empty `specs` list still enforces the terminal guarantee: it fits, or it
+ *  refuses `over-budget` and the operator sees it.
  *
  *  `planClamped` is DERIVED, never passed in: it is true exactly when the composed plan text
  *  differs from what the agent wrote, so an un-clamped prompt stays byte-identical to main. */
 function fitCriticPrompt(
   plan: string | null,
-  compose: (plan: string | null, planClamped?: boolean) => string,
+  reviewPolicy: string | null,
+  compose: (plan: string | null, planClamped: boolean, reviewPolicy: string | null) => string,
   assemble: SpawnAssembler,
 ): FitResult {
-  const budget = spawnBudget(assemble);
-
-  // NO PLAN — still measured. A plan-less session (the common case) has nothing CLAMPABLE, but its
-  // prompt is not thereby bounded: `session.prompt`, `issueBody`, `priorFindings` and `authorNotes`
-  // can exceed the argv limit between them. Early-returning `{ ok: true }` here would skip the
-  // budget entirely, let the spawn die on E2BIG, and land it in begin's bare `catch` — no
-  // spawn_notices row, no badge, no suppression, i.e. exactly the silent failure #1944 is about, on
-  // the branch most sessions take. An empty `specs` list still enforces the terminal guarantee: it
-  // fits, or it refuses `over-budget` and the operator sees it. (This mirrors standalone-critic,
-  // which always runs the ladder and simply skips a spec it cannot shrink.)
-  if (!plan) {
-    return fitAssembledPrompt({ ...budget, specs: [], compose: () => compose(null) });
+  const specs: ClampSpec[] = [];
+  if (plan) {
+    specs.push({
+      id: "plan",
+      kind: "text",
+      text: plan,
+      mode: "head-tail",
+      minUseful: planUsefulFloor(Buffer.byteLength(plan, "utf8")),
+    });
   }
-
+  // `head` (not `head-tail`): a policy is read top-down, so its opening rules are the ones worth
+  // keeping, and it carries no trailing section the prompt tells the critic to look for.
+  if (reviewPolicy) {
+    specs.push({ id: "reviewPolicy", kind: "text", text: reviewPolicy, mode: "head" });
+  }
   return fitAssembledPrompt({
-    ...budget,
-    specs: [
-      {
-        id: "plan",
-        kind: "text",
-        text: plan,
-        mode: "head-tail",
-        minUseful: planUsefulFloor(Buffer.byteLength(plan, "utf8")),
-      },
-    ],
-    compose: (v) => compose(v.plan as string, v.plan !== plan),
+    ...spawnBudget(assemble),
+    specs,
+    compose: (v) =>
+      compose(
+        plan ? (v.plan as string) : null,
+        plan ? v.plan !== plan : false,
+        reviewPolicy ? (v.reviewPolicy as string) : null,
+      ),
   });
 }

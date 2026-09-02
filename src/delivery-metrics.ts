@@ -9,6 +9,7 @@ import type {
   DeliverySample,
   DeliveryStats,
   DeliveryTaskRow,
+  PlanDrift,
   ReviewerSpawnRow,
   UsageRange,
 } from "./types";
@@ -37,6 +38,10 @@ interface TaskRounds {
   planRounds: number;
   /** Earliest review spawn, whatever its outcome — the review DID start. */
   firstReviewAt: number | null;
+  /** Plan drift as of the LAST review round that measured it (#2155) — the state of the diff
+   *  closest to merge, not an intermediate round's. null = never measured (no plan was shown, or
+   *  every round errored), which keeps the task out of the rate's denominator entirely. */
+  planDrift: PlanDrift | null;
 }
 
 const EMPTY_ROUNDS: TaskRounds = {
@@ -45,6 +50,7 @@ const EMPTY_ROUNDS: TaskRounds = {
   errors: 0,
   planRounds: 0,
   firstReviewAt: null,
+  planDrift: null,
 };
 
 /** Window start for a range; 0 for `all` so the caller filters on `>= 0` rather than on a
@@ -86,6 +92,9 @@ function rate(hits: number, total: number): DeliverySample {
 function applyReviewSpawn(t: TaskRounds, sp: ReviewerSpawnRow): void {
   // The review STARTED regardless of how it ended, so every spawn moves the first-review mark.
   if (t.firstReviewAt == null || sp.spawnedAt < t.firstReviewAt) t.firstReviewAt = sp.spawnedAt;
+  // Last non-null wins: spawns arrive in `spawnedAt` order, so the final measured round stands.
+  // A later round that measured nothing does NOT erase an earlier measurement.
+  if (sp.planDrift != null) t.planDrift = sp.planDrift;
   if (sp.outcome === "error") t.errors += 1;
   else if (sp.outcome === "clean" || sp.outcome === "changes_requested") {
     t.reviewRounds += 1;
@@ -144,6 +153,9 @@ function statsFor(tasks: TaskView[]): DeliveryStats {
   const gated = tasks.filter((t) => t.rounds.planRounds > 0);
   const reworkCycles = reviewed.map((t) => t.rounds.reviewRounds);
   const planRounds = gated.map((t) => t.rounds.planRounds);
+  // Only tasks the critic actually measured — one with no plan (or no verdict) is excluded, never
+  // silently counted as `none`, which would flatter the rate.
+  const drifted = tasks.filter((t) => t.rounds.planDrift != null);
   const ttfr = tasks.map((t) => t.timeToFirstReviewMs).filter((v): v is number => v != null);
   const lead = tasks.map((t) => t.leadTimeMs).filter((v): v is number => v != null);
   return {
@@ -155,6 +167,11 @@ function statsFor(tasks: TaskView[]): DeliveryStats {
     criticErrors: tasks.reduce((n, t) => n + t.rounds.errors, 0),
     planRoundsMedian: sample(planRounds, median),
     planReworkRate: rate(gated.filter((t) => t.rounds.planRounds > 1).length, gated.length),
+    planDriftRate: rate(
+      drifted.filter((t) => t.rounds.planDrift !== "none").length,
+      drifted.length,
+    ),
+    planDriftMajor: drifted.filter((t) => t.rounds.planDrift === "major").length,
     timeToFirstReviewMs: sample(ttfr, median),
     leadTimeMs: sample(lead, median),
   };

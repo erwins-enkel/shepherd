@@ -31,6 +31,7 @@ import type {
   EpicDraftContent,
   ReviewerSpawnRow,
   ReviewerSpawnOutcome,
+  PlanDrift,
   DeliveryFact,
   AgentProvider,
   PrReview,
@@ -364,6 +365,12 @@ function coerceReviewSummaryCode(v: string | null): ReviewSummaryCode | null {
   return v !== null && REVIEW_SUMMARY_CODES.has(v) ? (v as ReviewSummaryCode) : null;
 }
 
+/** Coerce a persisted plan-drift level (#2155): only the three known levels survive; anything else
+ *  (legacy row, a value written before the union changed) → null = "not measured". */
+function coercePlanDrift(v: string | null): PlanDrift | null {
+  return v === "none" || v === "minor" || v === "major" ? v : null;
+}
+
 /** Coerce a persisted tri-state flag: null/undefined stays null (inherit), else a real boolean. */
 function nullableBool(v: unknown): boolean | null {
   return v === null || v === undefined ? null : !!v;
@@ -676,6 +683,8 @@ type ReviewVerdictRow = {
   url: string | null;
   spawnAborted: number | null;
   dismissed: number | null;
+  planDrift: string | null;
+  planDriftNote: string | null;
   updatedAt: number;
 };
 
@@ -1155,7 +1164,8 @@ export const REVIEWER_SPAWNS_DDL = `CREATE TABLE IF NOT EXISTS reviewer_spawns (
   cacheWriteTokens  INTEGER,
   totalTokens       INTEGER,
   providerSessionId TEXT,
-  outcome           TEXT)`;
+  outcome           TEXT,
+  planDrift         TEXT)`;
 
 export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   private db: Database;
@@ -1307,6 +1317,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       seenNoteIds TEXT NOT NULL DEFAULT '[]',
       finalRoundPending INTEGER NOT NULL DEFAULT 0,
       finalRoundTimeoutMs INTEGER NOT NULL DEFAULT 900000,
+      planDrift TEXT, planDriftNote TEXT,
       url TEXT, updatedAt INTEGER NOT NULL)`);
     this.migrateReviewColumns();
     this.db.run(`CREATE TABLE IF NOT EXISTS pr_reviews (
@@ -3222,6 +3233,11 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       spawnAborted: r.spawnAborted ? true : undefined,
       // Optional flag: true only when the operator dismissed/took over this stalled rework.
       dismissed: r.dismissed ? true : undefined,
+      // Explicit like summaryCode: the raw column is validated, never spread through un-checked.
+      // Absent (undefined) rather than null when nothing was measured, mirroring spawnAborted /
+      // dismissed above — so a verdict that carries no measurement also carries no key.
+      planDrift: coercePlanDrift(r.planDrift) ?? undefined,
+      planDriftNote: r.planDriftNote ?? undefined,
     } as ReviewVerdict;
   }
 
@@ -3229,7 +3245,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     const r = this.db
       .query(
         `SELECT sessionId, headSha, patchId, decision, summary, summaryCode, body, findings, addressRound,
-                addressCap, streakReviews, reviewedPatchIds, errorRound, finalRoundPending, finalRoundTimeoutMs, seenNoteIds, url, spawnAborted, dismissed, updatedAt
+                addressCap, streakReviews, reviewedPatchIds, errorRound, finalRoundPending, finalRoundTimeoutMs, seenNoteIds, url, spawnAborted, dismissed, planDrift, planDriftNote, updatedAt
               FROM reviews WHERE sessionId = ?`,
       )
       .get(sessionId) as ReviewVerdictRow | null;
@@ -3237,10 +3253,13 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   }
 
   putReview(v: ReviewVerdict): void {
+    // Destructured with defaults rather than two more `??` in the parameter list below: both are
+    // optional on the verdict and NULL in the column, and the list is already at its budget.
+    const { planDrift = null, planDriftNote = null } = v;
     this.db.run(
       `INSERT INTO reviews (sessionId, headSha, patchId, decision, summary, summaryCode, body, findings, addressRound,
-         addressCap, streakReviews, reviewedPatchIds, errorRound, finalRoundPending, finalRoundTimeoutMs, seenNoteIds, url, spawnAborted, dismissed, updatedAt)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         addressCap, streakReviews, reviewedPatchIds, errorRound, finalRoundPending, finalRoundTimeoutMs, seenNoteIds, url, spawnAborted, dismissed, planDrift, planDriftNote, updatedAt)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(sessionId) DO UPDATE SET headSha=excluded.headSha, patchId=excluded.patchId,
          decision=excluded.decision,
          summary=excluded.summary, summaryCode=excluded.summaryCode,
@@ -3249,7 +3268,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
          streakReviews=excluded.streakReviews, reviewedPatchIds=excluded.reviewedPatchIds,
          errorRound=excluded.errorRound, finalRoundPending=excluded.finalRoundPending,
          finalRoundTimeoutMs=excluded.finalRoundTimeoutMs, seenNoteIds=excluded.seenNoteIds,
-         url=excluded.url, spawnAborted=excluded.spawnAborted, dismissed=excluded.dismissed, updatedAt=excluded.updatedAt`,
+         url=excluded.url, spawnAborted=excluded.spawnAborted, dismissed=excluded.dismissed,
+         planDrift=excluded.planDrift, planDriftNote=excluded.planDriftNote, updatedAt=excluded.updatedAt`,
       [
         v.sessionId,
         v.headSha,
@@ -3270,6 +3290,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         v.url ?? null,
         v.spawnAborted ? 1 : 0,
         v.dismissed ? 1 : 0,
+        planDrift,
+        planDriftNote,
         v.updatedAt,
       ],
     );
@@ -3311,7 +3333,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     const rows = this.db
       .query(
         `SELECT sessionId, headSha, patchId, decision, summary, summaryCode, body, findings, addressRound,
-                addressCap, streakReviews, reviewedPatchIds, errorRound, finalRoundPending, finalRoundTimeoutMs, seenNoteIds, url, spawnAborted, dismissed, updatedAt FROM reviews`,
+                addressCap, streakReviews, reviewedPatchIds, errorRound, finalRoundPending, finalRoundTimeoutMs, seenNoteIds, url, spawnAborted, dismissed, planDrift, planDriftNote, updatedAt FROM reviews`,
       )
       .all() as ReviewVerdictRow[];
     const out: Record<string, ReviewVerdict> = {};
@@ -4197,14 +4219,21 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     return n;
   }
 
-  /** Stamp a reviewer run's terminal outcome (#2151 R1). Separate from `completeReviewerSpawn`
-   *  on purpose: that one is called through the shared `captureUsage` helper by recap, rundown and
-   *  the doc agent too, none of which have a verdict to report. No-op on an unknown id. */
-  setReviewerSpawnOutcome(reviewerSessionId: string, outcome: ReviewerSpawnOutcome): void {
-    this.db.run(`UPDATE reviewer_spawns SET outcome = ? WHERE reviewerSessionId = ?`, [
-      outcome,
-      reviewerSessionId,
-    ]);
+  /** Stamp a reviewer run's terminal outcome (#2151 R1) and, for a review that was shown an
+   *  approved plan, its non-blocking plan-drift measurement (#2155). Separate from
+   *  `completeReviewerSpawn` on purpose: that one is called through the shared `captureUsage` helper
+   *  by recap, rundown and the doc agent too, none of which have a verdict to report. No-op on an
+   *  unknown id. `planDrift` is written on every call, so a caller with no measurement (the plan
+   *  gate, a plan-less review) leaves the column NULL = not measured. */
+  setReviewerSpawnOutcome(
+    reviewerSessionId: string,
+    outcome: ReviewerSpawnOutcome,
+    planDrift: PlanDrift | null = null,
+  ): void {
+    this.db.run(
+      `UPDATE reviewer_spawns SET outcome = ?, planDrift = ? WHERE reviewerSessionId = ?`,
+      [outcome, planDrift, reviewerSessionId],
+    );
   }
 
   // ── delivery facts (#2151 R1) ────────────────────────────────────────────────
@@ -4694,6 +4723,10 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // summaryCode: sentinel for a server-authored no-verdict reason, rendered per-locale in the UI.
     // Pre-existing rows backfill to NULL (render their stored `summary` prose verbatim).
     add("summaryCode", `summaryCode TEXT`);
+    // planDrift/planDriftNote (#2155): non-blocking plan-fidelity measurement. Pre-existing rows
+    // backfill to NULL = "not measured", which every consumer renders as nothing at all.
+    add("planDrift", `planDrift TEXT`);
+    add("planDriftNote", `planDriftNote TEXT`);
     // Migrate legacy `error` rows that baked the English summary in. They predate the four-way
     // split and recorded no cause, so they can only map to the generic timeout sentinel — which is
     // what the overwhelming majority of them were (the deadline is the common terminal state).
@@ -4749,6 +4782,9 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // Terminal state of the run, stamped once at finalize (#2151 R1). Legacy rows stay NULL and the
     // delivery metrics skip them — a NULL is "unknown", never "clean".
     add("outcome", `outcome TEXT`);
+    // Non-blocking plan-drift measurement (#2155). NULL on every legacy row and on every spawn that
+    // was shown no plan — the delivery metrics exclude those rather than reading them as `none`.
+    add("planDrift", `planDrift TEXT`);
   }
 
   // ── learnings ─────────────────────────────────────────────────────────────

@@ -39,6 +39,8 @@ import {
   scopeFindings,
   effectiveRound,
   buildVerdictCore,
+  normalizePlanDrift,
+  normalizePlanDriftNote,
   shouldSkipForPatchId,
   captureUsage,
   reapRun,
@@ -221,6 +223,9 @@ interface InFlight {
   priorReviewedPatchIds: string[]; // patch-ids reviewed on this streak before this run (churn/revert dedup set)
   priorSeenNoteIds: string[]; // seen-note set carried in (before this run's fetch)
   seenNoteIds: string[]; // priorSeen + notes fed to THIS run's critic; only "consumed" on a real verdict
+  /** #2155: an APPROVED PLAN block was in this run's prompt, so a plan-drift answer is meaningful.
+   *  False ⇒ the critic had nothing to measure against and any drift it reports is discarded. */
+  planShown: boolean;
   /** RAW `readAsync(terminalId, "visible")` buffer from the previous tick — NOT the collapsed
    *  single-line `readPaneTail()` shape. Backs the unchanged-buffer half of the stuck-pane test,
    *  so it must be the same shape the detector classifies. */
@@ -691,6 +696,7 @@ export class ReviewService {
       startedAt: this.now(),
       ...priorStreakState(prior),
       seenNoteIds,
+      planShown: Boolean(plan?.trim()),
     });
     // Persist the spawn row now (totals NULL until finalize) so review burn is attributable
     // even if the run crashes/times out before producing a verdict (issue #502).
@@ -1268,6 +1274,9 @@ export class ReviewService {
             : verdict.findings.length === 0
               ? "clean"
               : "changes_requested",
+          // #2155: the durable copy. The `reviews` row this verdict also lands on is deleted by
+          // archive(), and every task the delivery metrics count is an archived one.
+          verdict.planDrift,
         );
       } catch (err) {
         console.warn(`[review] outcome accounting failed for ${f.sessionId}:`, err);
@@ -1531,6 +1540,8 @@ export class ReviewService {
     cause: NoVerdictCause | null = null,
   ): ReviewVerdict {
     const core = buildVerdictCore(raw, f.baseSha, f.files, f.patchId, f.sessionId);
+    const drift =
+      f.planShown && core.decision !== "error" ? normalizePlanDrift(raw?.planDrift) : null;
     return {
       sessionId: f.sessionId,
       headSha: f.headSha,
@@ -1558,6 +1569,11 @@ export class ReviewService {
       finalRoundPending: false, // finalize() sets this on a real verdict
       finalRoundTimeoutMs: DEFAULT_FINAL_ROUND_TIMEOUT_MS, // live escalation timeout
       seenNoteIds: f.seenNoteIds, // carry the per-round note dedup set forward
+      // #2155 — non-blocking measurement, read by nothing in this loop. Two guards: a run that was
+      // shown no plan had nothing to compare against, and an `error` verdict measured nothing at
+      // all (there is no reviewed diff behind it), so both record null = not measured.
+      planDrift: drift,
+      planDriftNote: drift ? normalizePlanDriftNote(raw?.planDriftNote) : null,
       updatedAt: this.now(),
     };
   }

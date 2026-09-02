@@ -36,7 +36,7 @@ function seedMerged(store: SessionStore, id: string): void {
     model: null,
     spawnedAt: NOW - 3_000_000,
   });
-  store.setReviewerSpawnOutcome(`${id}-rev`, "clean");
+  store.setReviewerSpawnOutcome(`${id}-rev`, "clean", "minor");
 }
 
 test("GET /api/usage/delivery?range=7d → 200 with the full indicator set", async () => {
@@ -54,6 +54,9 @@ test("GET /api/usage/delivery?range=7d → 200 with the full indicator set", asy
   expect(body.totals.firstPassRate).toEqual({ value: 1, n: 1 });
   expect(body.totals.leadTimeMs.value).toBe(6_600_000);
   expect(body.totals.timeToFirstReviewMs.value).toBe(600_000);
+  // #2155: the drift measurement travels with the rest of the indicator set.
+  expect(body.totals.planDriftRate).toEqual({ value: 1, n: 1 });
+  expect(body.totals.planDriftMajor).toBe(0);
   expect(body.repos[0].repo).toBe("alpha");
   expect(body.tasks[0].desig).toBe("TASK-01");
   expect(Array.isArray(body.incidents)).toBe(true);
@@ -88,4 +91,5 @@ test("empty install returns nulls, not zeros", async () => {
   expect(body.measuringSince).toBeNull();
   expect(body.totals.firstPassRate.value).toBeNull();
   expect(body.totals.leadTimeMs.value).toBeNull();
+  expect(body.totals.planDriftRate.value).toBeNull();
 });

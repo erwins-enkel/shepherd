@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { execFileSync, timedAsync } from "./instrument";
-import type { ReviewDecision } from "./types";
+import type { PlanDrift, ReviewDecision } from "./types";
 import type { SessionUsage } from "./usage";
 import { tolerantParseJson } from "./json-tolerant";
 import type { VerdictRead } from "./json-tolerant";
@@ -328,6 +328,9 @@ export function reviewPrompt(
         reviewPolicy: opts.reviewPolicy,
         houseRules: opts.houseRules,
         houseRulesAuthored: true,
+        // #2155: planShown mirrors the `if (opts.plan …)` block above — the drift question is only
+        // asked when there is a plan in the prompt to measure against.
+        planShown: Boolean(opts.plan?.trim()),
       },
     ),
   );
@@ -758,6 +761,10 @@ function scopeAndOutputTail(
     /** True only where a Shepherd agent authored the diff under this repo's rules — see
      *  {@link reviewerHouseRulesBlock}. The standalone critic never sets it. */
     houseRulesAuthored?: boolean;
+    /** #2155: an APPROVED PLAN block is present above, so the verdict can carry the non-blocking
+     *  plan-drift measurement. Absent ⇒ no drift block and no extra JSON keys, keeping every
+     *  plan-less prompt (and prReviewPrompt, which never has a plan) byte-identical. */
+    planShown?: boolean;
   } = {},
 ): string[] {
   return [
@@ -890,12 +897,35 @@ function scopeAndOutputTail(
     '- At most 5 NEW findings per review, highest-severity first. This is a PRIORITISATION instruction, never a limit that may lose information: if more than 5 genuine blocking problems exist, emit ALL of them and say so in "summary" (the change needs reworking, not tweaking). NEVER move a blocking problem into `Nits (non-blocking):`, and never drop one, to fit the budget.',
     "- Re-raised prior findings do NOT count against those 5.",
     "",
+    // PLAN-DRIFT REPORT (#2155) — PURE MEASUREMENT, and the only field in this prompt that feeds no
+    // decision anywhere: nothing in the review loop, the auto-address steer or the merge train
+    // reads it. It exists because SYSTEMATIC divergence between approved plans and merged diffs is
+    // a process signal (plans too vague, the gate asking the wrong questions) — a per-PR verdict is
+    // not. Emitted ONLY when a plan was actually shown, so a plan-less prompt stays byte-identical
+    // and a critic with nothing to compare against can never invent a level.
+    //
+    // The non-judgement wording is load-bearing, not decoration: the prompt's own stance is that a
+    // plan is "CONTEXT for intent, never a warrant", and asking about fidelity at all risks
+    // anchoring the reviewer into plan-conformance findings — exactly what that stance forbids.
+    ...(opts.planShown
+      ? [
+          "PLAN-DRIFT REPORT — a MEASUREMENT for the operator, never a judgement about this PR:",
+          '- Report how far the diff departs from the APPROVED PLAN above as "planDrift": "none" (it implements the plan\'s approach), "minor" (same approach, incidental departures — a differently named helper, an extra file, steps done in another order), or "major" (a different approach, a planned piece missing, or substantial work the plan never described).',
+          '- Add "planDriftNote": ONE line, at most 140 characters, naming the single biggest departure. Omit it when planDrift is "none". Write it WITHOUT quotation marks of any kind — it travels inside the JSON file.',
+          '- This changes NOTHING about your review. Drift is never a finding, never affects "decision", and never appears in "findings": a "major" drift on a correct diff is still a clean review, and "none" excuses no defect. Judge the code exactly as you would if this field did not exist.',
+          "- Departing from a plan is legitimate — the plan is context, not a warrant. Report what you observe; do not editorialize and do not ask the author to conform to the plan.",
+          "- DECONFLICTION with the SCOPE-CREEP lens above: the two measure different things, so a departure you reported under `Scope creep / gold-plating (non-blocking):` still counts here. That section is a judgement call addressed to the author; this field is a process metric addressed to the operator.",
+          "",
+        ]
+      : []),
     "When done, write TWO files in the repository root:",
     // Binds the term once: every rule above says `"body"` (sections, citations, stated limitations),
     // and they all now resolve to this file. Cheaper and less drift-prone than restating ~10 rules.
     '1. `.shepherd-review.md` — your full markdown review. Everywhere these instructions say "body" — the named sections, the `path:line` citations, the stated limitations — they mean THIS file. It is NOT JSON: write the prose directly, escape nothing, quote however you like.',
     "2. `.shepherd-review.json` — the structured verdict, with this shape:",
-    '{"decision": "request-changes" | "comment", "summary": "<=100 char one-liner", "findings": ["<discrete actionable item>", ...], "body": "<optional — see below>"}',
+    opts.planShown
+      ? '{"decision": "request-changes" | "comment", "summary": "<=100 char one-liner", "findings": ["<discrete actionable item>", ...], "planDrift": "none" | "minor" | "major", "planDriftNote": "<one line, <=140 chars, no quotation marks — omit when planDrift is none>", "body": "<optional — see below>"}'
+      : '{"decision": "request-changes" | "comment", "summary": "<=100 char one-liner", "findings": ["<discrete actionable item>", ...], "body": "<optional — see below>"}',
     // #2042: the body used to live inside this JSON. A single unescaped `"` before a `:` or `,` —
     // which German `„…":` prose produces constantly — is indistinguishable from a real key/value
     // boundary, so it silently destroyed complete verdicts. Keeping the prose out of JSON entirely
@@ -919,6 +949,9 @@ function scopeAndOutputTail(
  *  scrubStaleVerdictArtifacts). */
 export const VERDICT_FILE = ".shepherd-review.json";
 
+/** Hard cap on the critic's plan-drift note (#2155) — one line, not a second review body. */
+export const PLAN_DRIFT_NOTE_MAX = 140;
+
 /** The critic's verdict BODY, written beside {@link VERDICT_FILE} as plain markdown.
  *
  *  #2042: the body is the one field that is long free prose, and the critic hand-authors its JSON —
@@ -940,6 +973,9 @@ export interface RawVerdict {
   summary?: unknown;
   body?: unknown;
   findings?: unknown;
+  /** #2155 — non-blocking plan-drift measurement; present only when the critic was shown a plan. */
+  planDrift?: unknown;
+  planDriftNote?: unknown;
 }
 
 /** Fingerprint the branch diff with `git patch-id` so a rebase (same diff, new SHA) is a
@@ -1129,6 +1165,25 @@ export function normalizeFindings(raw: unknown): string[] {
     .filter((f): f is string => typeof f === "string")
     .map((f) => f.trim())
     .filter(Boolean);
+}
+
+/** Coerce the critic's `planDrift` field to a known level (#2155). Anything else — a missing field,
+ *  a sentence, a novel level — is `null` = NOT MEASURED, which every consumer excludes rather than
+ *  reading as `none`. Deliberately NOT part of buildVerdictCore: that is shared with the standalone
+ *  PR critic, which is never shown a plan. */
+export function normalizePlanDrift(raw: unknown): PlanDrift | null {
+  if (typeof raw !== "string") return null;
+  const v = raw.trim().toLowerCase();
+  return v === "none" || v === "minor" || v === "major" ? v : null;
+}
+
+/** The one-line drift note, collapsed to a single line and hard-capped at
+ *  {@link PLAN_DRIFT_NOTE_MAX} chars. Empty or non-string → null. Both are enforced here rather
+ *  than merely asked for in the prompt: the note is model-authored free prose that lands in a DB
+ *  column and then in a one-line UI slot, so a paragraph must not arrive intact. */
+export function normalizePlanDriftNote(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  return raw.replace(/\s+/g, " ").trim().slice(0, PLAN_DRIFT_NOTE_MAX) || null;
 }
 
 /** A leading token looks like a repo-relative file path: it has no space AND (contains a `/` OR

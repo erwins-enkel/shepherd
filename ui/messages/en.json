@@ -3731,5 +3731,13 @@
   "issues_attempt_http": "HTTP {status}",
   "issues_attempt_unknown": "unknown error",
   "feat_issue_load_transports_title": "A failed issue load names the path that failed",
-  "feat_issue_load_transports_body": "Shepherd lists GitHub issues over two independent budgets — `gh issue list` on the GraphQL bucket and `gh api` on the REST bucket — and falls back from one to the other. When both give up, the New Task modal and the Issues panel no longer just say “couldn't load”: they list each transport that actually ran and why it stopped (rate limit, not signed in, HTTP status, gh missing, network). Hover a line for the full gh message. So a retry tells you whether to wait for a budget to reset or to fix your gh login."
+  "feat_issue_load_transports_body": "Shepherd lists GitHub issues over two independent budgets — `gh issue list` on the GraphQL bucket and `gh api` on the REST bucket — and falls back from one to the other. When both give up, the New Task modal and the Issues panel no longer just say “couldn't load”: they list each transport that actually ran and why it stopped (rate limit, not signed in, HTTP status, gh missing, network). Hover a line for the full gh message. So a retry tells you whether to wait for a budget to reset or to fix your gh login.",
+  "usage_delivery_plan_drift": "[[plan-drift|Plan drift]]",
+  "usage_delivery_plan_drift_major": "{n} task(s) diverged from the approved plan in approach, not just in detail.",
+  "feat_plan_drift_title": "Plan-drift report",
+  "feat_plan_drift_body": "The PR critic now also reports how far a merged change departed from the plan approved before it was written — none, minor or major, with a one-line note. It changes no review verdict: departing from a plan is legitimate. The Delivery tab shows the rate, because a repo that drifts constantly is usually writing vague plans rather than bad code.",
+  "gloss_plan_drift_term": "plan drift",
+  "gloss_plan_drift_def": "How far a merged change departed from the plan approved before it was written, as reported by the PR critic: none, minor or major. It never affects the review's verdict — departing from a plan is legitimate. It is measured because a repo that drifts constantly is usually writing vague plans, not writing bad code.",
+  "gitrail_plan_drift_minor": "Plan drift: minor — same approach as the approved plan, with incidental departures.",
+  "gitrail_plan_drift_major": "Plan drift: major — the change took a different route than the approved plan."
 }

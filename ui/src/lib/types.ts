@@ -816,9 +816,18 @@ export interface ReviewVerdict {
   // Operator dismissed / took over this stalled critic rework; the rework classification skips it.
   // Absent ⇒ false.
   dismissed?: boolean;
+  /** #2155 — how far this round's diff departed from the approved plan the critic was shown.
+   *  Absent = not measured (no plan, or the run errored). ADVISORY: it moves no decision, it is
+   *  shown in the review popover as a note and nowhere else. */
+  planDrift?: PlanDrift | null;
+  /** One line naming the biggest departure (<=140 chars); absent when nothing drifted. */
+  planDriftNote?: string | null;
   url?: string;
   updatedAt: number;
 }
+
+/** Mirror of PlanDrift in src/types.ts — keep in sync. */
+export type PlanDrift = "none" | "minor" | "major";
 /** The per-repo sandbox confinement profile. trusted = no sandbox (default);
  *  standard = filesystem/process membrane (interactive-only, unrestricted network);
  *  autonomous = same membrane + network-egress allowlist (Anthropic + forge),
@@ -1485,6 +1494,8 @@ export interface DeliveryStats {
   criticErrors: number; // critic runs that produced no verdict — never counted as rework
   planRoundsMedian: DeliverySample;
   planReworkRate: DeliverySample; // 0..1, over gated tasks only
+  planDriftRate: DeliverySample; // 0..1, over tasks the critic measured against a plan (#2155)
+  planDriftMajor: number; // of those, how many reported `major`
   timeToFirstReviewMs: DeliverySample;
   leadTimeMs: DeliverySample;
 }

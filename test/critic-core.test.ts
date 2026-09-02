@@ -20,6 +20,9 @@ import {
   roundBlock,
   effectiveRound,
   captureUsage,
+  normalizePlanDrift,
+  normalizePlanDriftNote,
+  PLAN_DRIFT_NOTE_MAX,
 } from "../src/critic-core";
 import { tolerantParseJson } from "../src/json-tolerant";
 import { allowedToolsFor } from "../src/transient-agent-argv";
@@ -231,6 +234,72 @@ test("reviewPrompt omits the plan block entirely when no plan is provided (byte-
 test("prReviewPrompt (standalone critic) never carries a plan block — it has no session plan", () => {
   const p = prReviewPrompt("BASE", "My PR", "body");
   expect(p).not.toContain("APPROVED PLAN");
+});
+
+// ── #2155 plan-drift report (session critic, plan-gated, non-blocking) ──────────────────────────
+
+test("reviewPrompt asks for planDrift ONLY when an approved plan is shown", () => {
+  const withPlan = reviewPrompt("BASE", "do the thing", [], [], null, null, {
+    plan: "## Goal\nship it",
+  });
+  expect(withPlan).toContain("PLAN-DRIFT REPORT");
+  expect(withPlan).toContain('"planDrift"');
+  expect(withPlan).toContain('"planDriftNote"');
+  // The non-judgement contract is the whole point: drift must never leak into the review's verdict.
+  expect(withPlan).toContain("never a finding");
+  expect(withPlan).toContain('never affects "decision"');
+  expect(withPlan).toContain("no quotation marks"); // #2042: the note rides in the JSON file
+});
+
+test("a plan-less reviewPrompt (and the standalone critic) never mentions plan drift", () => {
+  for (const p of [
+    reviewPrompt("BASE", "do the thing"),
+    reviewPrompt("BASE", "do the thing", [], [], null, null, { plan: "   " }),
+    prReviewPrompt("b", "t", "body"),
+  ]) {
+    expect(p).not.toContain("PLAN-DRIFT REPORT");
+    expect(p).not.toContain("planDrift");
+  }
+});
+
+test("the plan-drift block sits ABOVE the output contract and leaves the JSON shape's other keys alone", () => {
+  const p = reviewPrompt("BASE", "task", [], [], null, null, { plan: "plan text" });
+  expect(p.indexOf("PLAN-DRIFT REPORT")).toBeLessThan(p.indexOf("When done, write TWO files"));
+  const contract = p.slice(p.indexOf("When done, write TWO files"));
+  // The shape line grows by two keys; everything the parser/backstop keys off is untouched.
+  expect(contract).toContain('"decision": "request-changes" | "comment"');
+  expect(contract).toContain('"findings": ["<discrete actionable item>", ...]');
+  expect(contract).toContain('"body": "<optional — see below>"');
+});
+
+test("normalizePlanDrift accepts only the three levels; everything else is not-measured", () => {
+  expect(normalizePlanDrift("none")).toBe("none");
+  expect(normalizePlanDrift(" Minor ")).toBe("minor");
+  expect(normalizePlanDrift("MAJOR")).toBe("major");
+  for (const junk of [
+    undefined,
+    null,
+    "",
+    "catastrophic",
+    "the diff drifted a lot",
+    2,
+    {},
+    ["major"],
+  ]) {
+    expect(normalizePlanDrift(junk)).toBeNull();
+  }
+});
+
+test("normalizePlanDriftNote collapses to one line, caps at 140 chars, and nulls out empties", () => {
+  expect(normalizePlanDriftNote("  moved the helper  ")).toBe("moved the helper");
+  // A note that arrives as a paragraph must not stretch the one-line slot it renders into.
+  expect(normalizePlanDriftNote("built a service\n\nthe plan said a helper")).toBe(
+    "built a service the plan said a helper",
+  );
+  expect(normalizePlanDriftNote("x".repeat(500))).toBe("x".repeat(PLAN_DRIFT_NOTE_MAX));
+  for (const junk of [undefined, null, "   ", 7, {}]) {
+    expect(normalizePlanDriftNote(junk)).toBeNull();
+  }
 });
 
 // ── #1812 finding B: scope-creep lens (session critic only, two-way routing) ─────────────────────

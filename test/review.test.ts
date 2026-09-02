@@ -199,6 +199,7 @@ function makeDeps(
   const postedComments: { n: number; body: string }[] = []; // forge.comment() calls (post-merge critic)
   const recordedSpawns: any[] = []; // recordReviewerSpawn calls
   const completedSpawns: any[] = []; // completeReviewerSpawn calls
+  const spawnOutcomes: { id: string; outcome: string; planDrift: string | null }[] = []; // #2151/#2155
   const rec: { event?: string; body?: string } = {};
   const notices = new Map<string, any>();
   const noticeEvents: string[] = [];
@@ -225,6 +226,8 @@ function makeDeps(
       recordReviewerSpawn: (r: any) => recordedSpawns.push(r),
       completeReviewerSpawn: (id: string, u: any, at: number) =>
         completedSpawns.push({ id, u, at }),
+      setReviewerSpawnOutcome: (id: string, outcome: string, planDrift: string | null = null) =>
+        spawnOutcomes.push({ id, outcome, planDrift }),
       // #1944 sidecar — a real in-memory implementation so the wiring seams behave like production.
       putSpawnNotice(n: any) {
         const key = `${n.sessionId}:${n.kind}`;
@@ -334,6 +337,7 @@ function makeDeps(
     postedComments,
     recordedSpawns,
     completedSpawns,
+    spawnOutcomes,
     notices,
     noticeEvents,
     paneReads,
@@ -784,6 +788,105 @@ test("critic prompt omits the plan block when no plan exists (readPlan → null)
   const { deps: d, started } = makeDeps({ readPlan: () => null });
   await new ReviewService(d as any).consider(session(), OPEN_GREEN);
   expect(started[0]!.argv.at(-1)!).not.toContain("APPROVED PLAN");
+});
+
+// ── #2155 plan drift: measured, persisted, and inert ────────────────────────────────────────────
+
+test("a plan-shown verdict records planDrift on both the review row and the spawn row", async () => {
+  const {
+    deps: d,
+    reviews,
+    spawnOutcomes,
+  } = makeDeps({
+    readPlan: () => "## Goal\nship the widget",
+    readVerdict: () => ({
+      decision: "comment",
+      summary: "fine",
+      body: "b",
+      findings: [],
+      planDrift: "Major",
+      planDriftNote: "  built it as a service, plan said a helper  ",
+    }),
+  });
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  await svc.tick();
+  expect(reviews["s1"]?.planDrift).toBe("major");
+  expect(reviews["s1"]?.planDriftNote).toBe("built it as a service, plan said a helper");
+  // The durable copy: `reviews` dies at archive, and every task the delivery lens counts is archived.
+  expect(spawnOutcomes).toHaveLength(1);
+  expect(spawnOutcomes[0]).toMatchObject({ outcome: "clean", planDrift: "major" });
+});
+
+test("plan drift NEVER touches the verdict: a major-drift clean review stays clean", async () => {
+  const {
+    deps: d,
+    reviews,
+    steers,
+    rec,
+  } = makeDeps({
+    autoAddressEnabled: true,
+    readPlan: () => "## Goal\nship the widget",
+    readVerdict: () => ({
+      decision: "comment",
+      summary: "fine",
+      body: "b",
+      findings: [],
+      planDrift: "major",
+      planDriftNote: "different approach entirely",
+    }),
+  });
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  await svc.tick();
+  expect(reviews["s1"]?.decision).toBe("commented");
+  expect(reviews["s1"]?.findings).toEqual([]);
+  expect(reviews["s1"]?.streakReviews).toBe(0); // no rework streak advanced
+  expect(reviews["s1"]?.addressRound).toBe(0);
+  expect(steers).toHaveLength(0); // nothing steered back to the agent
+  expect(rec.event).toBe("COMMENT");
+});
+
+test("drift reported without a plan in the prompt is discarded (nothing to measure against)", async () => {
+  const {
+    deps: d,
+    reviews,
+    spawnOutcomes,
+  } = makeDeps({
+    readPlan: () => null,
+    readVerdict: () => ({
+      decision: "comment",
+      summary: "fine",
+      body: "b",
+      findings: [],
+      planDrift: "major",
+      planDriftNote: "invented",
+    }),
+  });
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  await svc.tick();
+  expect(reviews["s1"]?.planDrift).toBeNull();
+  expect(reviews["s1"]?.planDriftNote).toBeNull();
+  expect(spawnOutcomes[0]!.planDrift).toBeNull();
+});
+
+test("an error verdict measures no drift — there is no reviewed diff behind it", async () => {
+  const {
+    deps: d,
+    reviews,
+    spawnOutcomes,
+  } = makeDeps({
+    readPlan: () => "## Goal\nship the widget",
+    // No decision at all → buildVerdictCore resolves `error`.
+    readVerdict: () => ({ summary: "", body: "", findings: [], planDrift: "minor" }),
+  });
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  await svc.tick();
+  expect(reviews["s1"]?.decision).toBe("error");
+  expect(reviews["s1"]?.planDrift).toBeNull();
+  expect(spawnOutcomes[0]).toMatchObject({ outcome: "error", planDrift: null });
 });
 
 test("does not review the same head twice", async () => {

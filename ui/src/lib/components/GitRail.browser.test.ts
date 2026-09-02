@@ -1109,6 +1109,45 @@ describe("GitRail — review popover is a modal dialog with real focus semantics
     );
     expect(document.activeElement, "Shift+Tab wraps first → last").toBe(last);
   });
+
+  // #2155 — plan drift is a MEASUREMENT the operator may read, never a verdict. It renders as a
+  // muted note inside the popover (no chip, no badge) and disappears entirely when nothing drifted.
+  it("shows the plan-drift note when the diff departed from the approved plan", async () => {
+    reviews.apply({
+      id: baseProps.sessionId,
+      review: {
+        ...verdict,
+        planDrift: "major",
+        planDriftNote: "built a service, plan said helper",
+      },
+    });
+    gitStateFn.mockResolvedValue(openPrState);
+    await page.viewport(600, 900);
+    const h = host(600);
+    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
+
+    const { dialog } = await openReview(h);
+    const drift = dialog.querySelector(".rv-drift");
+    expect(drift, "drift note rendered").not.toBeNull();
+    expect(drift!.textContent).toContain("built a service, plan said helper");
+    // It must not have leaked into the verdict chip — the decision is what that reports.
+    expect(h.querySelector("button.verdict-chip")!.textContent).not.toContain("drift");
+  });
+
+  it("renders nothing for `none` drift or for an unmeasured verdict", async () => {
+    for (const review of [{ ...verdict, planDrift: "none" as const }, verdict]) {
+      reviews.apply({ id: baseProps.sessionId, review });
+      gitStateFn.mockResolvedValue(openPrState);
+      await page.viewport(600, 900);
+      const h = host(600);
+      const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+      await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
+
+      const { dialog } = await openReview(h);
+      expect(dialog.querySelector(".rv-drift")).toBeNull();
+    }
+  });
 });
 
 describe("GitRail — manual critic-review trigger", () => {

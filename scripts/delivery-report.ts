@@ -108,6 +108,12 @@ function rows(st: DeliveryStats): [string, string][] {
     ["Critic errors", String(st.criticErrors)],
     ["Plan rounds (median)", num(st.planRoundsMedian)],
     ["Plan rework rate", pct(st.planReworkRate)],
+    // #2155: over tasks the critic measured against an approved plan; `major` is called out because
+    // a rate alone hides whether the drift is incidental or a different approach altogether.
+    [
+      "Plan drift rate",
+      `${pct(st.planDriftRate)}${st.planDriftMajor > 0 ? ` — ${st.planDriftMajor} major` : ""}`,
+    ],
     ["Time to first review", dur(st.timeToFirstReviewMs)],
     ["Lead time", dur(st.leadTimeMs)],
   ];

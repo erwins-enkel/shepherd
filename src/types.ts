@@ -746,6 +746,13 @@ export interface ReviewVerdict {
   // consumers stop counting it as active rework and attachReviewPush skips it. Reset to false on any
   // new verdict (buildVerdict) and on forceReview. Absent ⇒ false.
   dismissed?: boolean;
+  /** Non-blocking plan-drift measurement for this round (#2155); null when no plan was shown to the
+   *  critic, the run errored, or the answer was unrecognized. Advisory ONLY — nothing in the review
+   *  loop reads it. The durable copy for metrics lives on `reviewer_spawns` (this row dies at
+   *  archive); this one backs the live review popover. */
+  planDrift?: PlanDrift | null;
+  /** The critic's one-line note on the biggest departure, <=140 chars; null when it reported none. */
+  planDriftNote?: string | null;
   updatedAt: number;
 }
 
@@ -961,12 +968,23 @@ export interface ReviewerSpawnRow {
    *  and for a spawn that never finalized (crashed / orphaned) — delivery metrics EXCLUDE those
    *  rather than counting them as rework rounds, which a raw spawn tally would. */
   outcome: ReviewerSpawnOutcome | null;
+  /** Non-blocking plan-fidelity measurement for a `review` spawn that was shown an approved plan
+   *  (#2155). NULL for every other kind, for a plan-less review, and for an errored run. Lives here
+   *  — not only on `reviews` — because `archive()` drops the review row, and the delivery metrics
+   *  read exclusively archive-decoupled tables. */
+  planDrift: PlanDrift | null;
 }
 
 /** Terminal state of one reviewer run. `review` kinds resolve to clean/changes_requested/error;
  *  `plan_gate` kinds to approved/rework/error. The other spawn kinds (recap, rundown, doc_agent)
  *  are never stamped — they have no verdict a delivery metric reads. */
 export type ReviewerSpawnOutcome = "clean" | "changes_requested" | "approved" | "rework" | "error";
+
+/** How far a merged diff departed from the APPROVED PLAN the critic was shown (#2155). Reported by
+ *  the critic as pure MEASUREMENT: it never becomes a finding, never moves a decision, and never
+ *  touches the rework loop. NULL means "not measured" — no plan was shown, the run errored, or the
+ *  critic answered with something unrecognized. */
+export type PlanDrift = "none" | "minor" | "major";
 
 // ── delivery metrics (#2151 R1) ─────────────────────────────────────────────
 
@@ -1018,6 +1036,12 @@ export interface DeliveryStats {
   planRoundsMedian: DeliverySample;
   /** Share (0..1) of gated merged tasks that needed more than one plan round. */
   planReworkRate: DeliverySample;
+  /** Share (0..1) of drift-measured merged tasks whose final review reported `minor` or `major`
+   *  (#2155). Denominator = tasks carrying a drift value at all, i.e. the critic was shown an
+   *  approved plan and answered; a task with no measurement is excluded, never counted as `none`. */
+  planDriftRate: DeliverySample;
+  /** Of those, how many reported `major`. */
+  planDriftMajor: number;
   /** Median ms from PR open to the first critic spawn. */
   timeToFirstReviewMs: DeliverySample;
   /** Median ms from session creation to merge settle. */

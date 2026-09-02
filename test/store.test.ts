@@ -612,6 +612,63 @@ test("reviews: upsert + read by session, snapshot all", () => {
   expect(store.getReview("s1")).toBeNull();
 });
 
+test("reviews: planDrift + note round-trip; unknown levels coerce away (#2155)", () => {
+  const store = new SessionStore(":memory:");
+  const base = {
+    sessionId: "s1",
+    headSha: "abc",
+    patchId: "pid",
+    decision: "commented" as const,
+    summary: "looks fine",
+    summaryCode: null,
+    body: "",
+    findings: [],
+    addressRound: 0,
+    addressCap: 3,
+    streakReviews: 0,
+    reviewedPatchIds: [],
+    errorRound: 0,
+    finalRoundPending: false,
+    finalRoundTimeoutMs: 900_000,
+    seenNoteIds: [],
+    updatedAt: 1,
+  };
+  // A verdict that measured nothing carries no key at all — never a bogus "none".
+  store.putReview(base);
+  expect(store.getReview("s1")?.planDrift).toBeUndefined();
+  expect(store.getReview("s1")?.planDriftNote).toBeUndefined();
+  for (const level of ["none", "minor", "major"] as const) {
+    store.putReview({ ...base, planDrift: level, planDriftNote: "moved the helper" });
+    expect(store.getReview("s1")?.planDrift).toBe(level);
+    expect(store.getReview("s1")?.planDriftNote).toBe("moved the helper");
+  }
+  // A level this build does not know must not reach the lens as a measurement.
+  store.putReview({ ...base, planDrift: "catastrophic" as never });
+  expect(store.getReview("s1")?.planDrift).toBeUndefined();
+});
+
+test("setReviewerSpawnOutcome records the plan-drift measurement beside the outcome (#2155)", () => {
+  const s = mk();
+  const rec = (id: string) =>
+    s.recordReviewerSpawn({
+      reviewerSessionId: id,
+      taskSessionId: "task-1",
+      kind: "review",
+      worktreePath: `/wt-${id}`,
+      model: null,
+      spawnedAt: 1000,
+    });
+  rec("rev-a");
+  rec("rev-b");
+  s.setReviewerSpawnOutcome("rev-a", "clean", "major");
+  // The plan-gate caller passes no drift; that row must stay unmeasured rather than inherit one.
+  s.setReviewerSpawnOutcome("rev-b", "clean");
+  const byId = (id: string) => s.listReviewerSpawns().find((r) => r.reviewerSessionId === id)!;
+  expect(byId("rev-a").planDrift).toBe("major");
+  expect(byId("rev-a").outcome).toBe("clean");
+  expect(byId("rev-b").planDrift).toBeNull();
+});
+
 test("reviews: summaryCode round-trips; unknown sentinels coerce to null", () => {
   const store = new SessionStore(":memory:");
   const base = {
@@ -1552,6 +1609,7 @@ test("recordReviewerSpawn then listReviewerSpawns returns the row with NULL toke
     totalTokens: null,
     providerSessionId: null,
     outcome: null,
+    planDrift: null,
   });
 });
 
@@ -1568,6 +1626,8 @@ test("reviewer_spawns FRESH schema (DDL alone, no migration) already has provide
   expect(cols).toContain("providerSessionId");
   // #2151 R1: same invariant for the delivery-metrics outcome column.
   expect(cols).toContain("outcome");
+  // #2155: and for the plan-drift measurement that rides beside it.
+  expect(cols).toContain("planDrift");
 });
 
 test("reviewer_spawns migration: an old table without providerSessionId gains a NULL column", () => {
@@ -1591,6 +1651,8 @@ test("reviewer_spawns migration: an old table without providerSessionId gains a 
     const row = store.listReviewerSpawns().find((r) => r.reviewerSessionId === "rev-old");
     expect(row).toBeDefined();
     expect(row!.providerSessionId).toBeNull();
+    // #2155: a legacy row reads as "not measured", never as `none`.
+    expect(row!.planDrift).toBeNull();
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

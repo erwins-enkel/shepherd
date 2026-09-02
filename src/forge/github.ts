@@ -12,6 +12,12 @@ import {
 import { classifyPr } from "./pr-kind";
 import { labelColorsFrom } from "./labels";
 import {
+  attachAttempts,
+  classifyGhError,
+  type GhFetchAttempt,
+  type GhTransport,
+} from "./gh-attempt";
+import {
   graphRateLimit,
   isGraphqlBucketCall,
   isRateLimitError,
@@ -823,21 +829,25 @@ export class GithubForge implements GitForge {
    *    itself (the default runner calls `graphRateLimit.noteLimitError`).
    *
    * Both failing rethrows the PREFERRED transport's error — it describes the path
-   * we expected to work, so it is the more useful diagnosis.
+   * we expected to work, so it is the more useful diagnosis. Every transport that
+   * actually ran and failed is recorded on that error ({@link attachAttempts}) so
+   * `/api/issues` can name the paths instead of leaving the operator to guess at a
+   * rate limit. The trail is built as we go, so it always describes what was really
+   * attempted — never a second transport that never ran.
    */
   async listIssues(): Promise<Issue[]> {
-    const restFirst = graphRateLimit.blocked();
-    const preferred = restFirst ? () => this.listIssuesRest() : () => this.listIssuesCli();
-    const fallback = restFirst ? () => this.listIssuesCli() : () => this.listIssuesRest();
-    try {
-      return await preferred();
-    } catch (err) {
+    const order: GhTransport[] = graphRateLimit.blocked() ? ["rest", "cli"] : ["cli", "rest"];
+    const attempts: GhFetchAttempt[] = [];
+    let preferredErr: unknown;
+    for (const [i, transport] of order.entries()) {
       try {
-        return await fallback();
-      } catch {
-        throw err;
+        return await (transport === "rest" ? this.listIssuesRest() : this.listIssuesCli());
+      } catch (err) {
+        attempts.push(classifyGhError(transport, err));
+        if (i === 0) preferredErr = err;
       }
     }
+    throw attachAttempts(preferredErr, attempts);
   }
 
   async getIssue(issueNumber: number): Promise<Issue | null> {

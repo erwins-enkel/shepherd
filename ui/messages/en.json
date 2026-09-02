@@ -3719,5 +3719,17 @@
   "gloss_lead_time_term": "lead time",
   "gloss_lead_time_def": "How long a task took end to end: from the moment the session was created to the moment its pull request merged. Borrowed from lean manufacturing, where it measures the delay between a request and its delivery.",
   "feat_delivery_metrics_title": "Delivery metrics",
-  "feat_delivery_metrics_body": "Usage has a new Delivery tab: first-pass rate, rework rounds, plan rework, time to first review and lead time — per repository and over time. The cost lenses tell you what a task spent; this one tells you whether the process is improving. Recording starts now, so the numbers fill in as tasks merge."
+  "feat_delivery_metrics_body": "Usage has a new Delivery tab: first-pass rate, rework rounds, plan rework, time to first review and lead time — per repository and over time. The cost lenses tell you what a task spent; this one tells you whether the process is improving. Recording starts now, so the numbers fill in as tasks merge.",
+  "issues_attempts_label": "Tried:",
+  "issues_transport_cli": "gh issue list (GraphQL)",
+  "issues_transport_rest": "gh api (REST)",
+  "issues_attempt_rate_limit": "rate limit",
+  "issues_attempt_auth": "not signed in",
+  "issues_attempt_not_found": "repo not found",
+  "issues_attempt_gh_missing": "gh not installed",
+  "issues_attempt_network": "network error",
+  "issues_attempt_http": "HTTP {status}",
+  "issues_attempt_unknown": "unknown error",
+  "feat_issue_load_transports_title": "A failed issue load names the path that failed",
+  "feat_issue_load_transports_body": "Shepherd lists GitHub issues over two independent budgets — `gh issue list` on the GraphQL bucket and `gh api` on the REST bucket — and falls back from one to the other. When both give up, the New Task modal and the Issues panel no longer just say “couldn't load”: they list each transport that actually ran and why it stopped (rate limit, not signed in, HTTP status, gh missing, network). Hover a line for the full gh message. So a retry tells you whether to wait for a budget to reset or to fix your gh login."
 }

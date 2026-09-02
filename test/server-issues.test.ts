@@ -6,6 +6,7 @@ import type { SessionStore } from "../src/store";
 import type { SessionService } from "../src/service";
 import type { EventHub } from "../src/events";
 import type { GitForge, Issue } from "../src/forge/types";
+import { attachAttempts, type GhFetchAttempt } from "../src/forge/gh-attempt";
 import { EMPTY_BACKLOG_COUNTS } from "../src/forge/types";
 import { config } from "../src/config";
 
@@ -122,7 +123,9 @@ test("GET /api/issues flags forge errors → {slug, issues:[], error}", async ()
   const res = await app.fetch(req(repoDir));
   expect(res.status).toBe(200);
   // Empty issues but error set, so the UI can say "couldn't load" instead of
-  // the indistinguishable "no open issues" (e.g. a rate-limited forge).
+  // the indistinguishable "no open issues" (e.g. a rate-limited forge). An error
+  // with no gh transport trail (Gitea/local, or a failure raised outside the
+  // listing) must leave the body exactly as it was — hence the whole-body compare.
   expect(await res.json()).toEqual({
     slug: "team/proj",
     webUrl: null,
@@ -131,6 +134,47 @@ test("GET /api/issues flags forge errors → {slug, issues:[], error}", async ()
     error: "fetch_failed",
     lightweight: false,
   });
+});
+
+// The gh transport trail is what lets the retry state say WHICH path failed instead of
+// guessing at a rate limit. It rides the thrown error, so the handler must pass it on.
+test("GET /api/issues reports the gh transports that failed", async () => {
+  const attempts: GhFetchAttempt[] = [
+    { transport: "cli", reason: "rate_limit", status: 403, detail: "gh: API rate limit exceeded" },
+    { transport: "rest", reason: "auth", status: 401, detail: "gh: Bad credentials" },
+  ];
+  const app = makeApp(
+    makeDeps(() =>
+      fakeForge({
+        listIssues: async () => {
+          throw attachAttempts(new Error("gh: API rate limit exceeded"), attempts);
+        },
+      }),
+    ),
+  );
+  const res = await app.fetch(req(repoDir));
+  const body = await res.json();
+  expect(body.error).toBe("fetch_failed");
+  expect(body.attempts).toEqual(attempts);
+});
+
+test("GET /api/issues reports a single transport when only one ran", async () => {
+  // A trail of one is a real outcome, not a truncated pair — the response must not
+  // imply a second transport was tried.
+  const attempts: GhFetchAttempt[] = [
+    { transport: "cli", reason: "gh_missing", detail: "spawn gh ENOENT" },
+  ];
+  const app = makeApp(
+    makeDeps(() =>
+      fakeForge({
+        listIssues: async () => {
+          throw attachAttempts(new Error("spawn gh ENOENT"), attempts);
+        },
+      }),
+    ),
+  );
+  const body = await (await app.fetch(req(repoDir))).json();
+  expect(body.attempts).toEqual(attempts);
 });
 
 // A lightweight repo's empty list and null slug are DELIBERATE. Without this flag the UI

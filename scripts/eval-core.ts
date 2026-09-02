@@ -840,7 +840,23 @@ export async function runEval<F extends EvalFixtureBase>(
 ): Promise<number> {
   const run = parseArgs(spec, argv);
   const tag = `[eval-${spec.name}]`;
+  // Declared out here and printed in the `finally` below: a run that ABORTS still spent money, and
+  // the first probe of this harness reported none because every abort returned before the report.
+  const spend = emptySpend();
+  try {
+    return await runEvalInner(spec, run, tag, spend, send);
+  } finally {
+    console.error(`${tag} spend: ${formatSpend(spend, run.model)}`);
+  }
+}
 
+async function runEvalInner<F extends EvalFixtureBase>(
+  spec: EvalSpec<F>,
+  run: RunOptions,
+  tag: string,
+  spend: Spend,
+  send?: Send,
+): Promise<number> {
   let transport = send;
   if (!transport) {
     const apiKey = process.env.ANTHROPIC_API_KEY ?? "";
@@ -874,7 +890,6 @@ export async function runEval<F extends EvalFixtureBase>(
   }
 
   const outcomes: TrialOutcome[][] = fixtures.map(() => []);
-  const spend = emptySpend();
   const attempt = (task: Task): Promise<TrialCapture> =>
     runTrial(transport, spec, task.fixture, task.prompt, run.model, run.temperature, spend);
   const overBudget = (): boolean => spendUsd(spend, run.model) >= run.maxSpend;
@@ -998,7 +1013,6 @@ export async function runEval<F extends EvalFixtureBase>(
   // `--json` emits BOTH: the human report on stderr, the JSON block on stdout. A caller that wants
   // both (the workflows do — the report for the log, the JSON for the doc's baseline tables) must
   // never have to run the eval twice, which would double a paid run's spend.
-  console.error(`${tag} spend: ${formatSpend(spend, run.model)}`);
   if (run.json) console.error(formatReport(spec, results, decision, run));
   console.log(
     run.json

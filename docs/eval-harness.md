@@ -1,8 +1,13 @@
 # Prompt eval harness
 
-Live-model evals for Shepherd's four high-leverage prompts — labelled fixtures, multi-trial,
+Live-model evals for Shepherd's high-leverage prompts — labelled fixtures, multi-trial,
 thresholded. Issue **#2156**, generalizing the stop-classifier eval (#1626/#1627) from one prompt to
-four and putting a gate on the PRs that change them.
+three and putting a gate on the PRs that change them.
+
+> #2156 also named the **rundown**. That feature was removed from main by **#2174** (`feat(herd)!:
+remove the Herd Rundown`), so its prompt no longer exists to measure; its eval, its ten fixtures
+> and its captured baseline were deleted with it. The harness is unchanged by that — the rundown was
+> one `EvalSpec` among several, which is the point of having a shared one.
 
 The classifier's own history, baseline and A/B methodology stay in
 **[`eval-stop-classifier.md`](./eval-stop-classifier.md)**; this document covers the shared harness
@@ -13,11 +18,9 @@ and the three sets added by #2156.
 | `stop-classifier` | `autopilot-classify-core.ts` → `classifierPrompt`    | `claude-haiku-4-5` | 12       | first `Write` wins           |
 | `plan-gate`       | `plan-gate.ts` → `planReviewPrompt`                  | `claude-sonnet-5`  | 12       | `.shepherd-plan-review.json` |
 | `critic`          | `critic-core.ts` → `reviewPrompt` / `prReviewPrompt` | `claude-sonnet-5`  | 12       | `.shepherd-review.json`      |
-| `rundown`         | `rundown-core.ts` → `buildRundownPrompt`             | `claude-sonnet-5`  | 10       | `.shepherd-rundown.json`     |
 
 Each eval pins the model its prompt actually runs on in production: haiku for the classifier
-(`classifyStop`'s default), sonnet for the rundown (`HerdDigestService`'s `RoleEnvironment`
-default), sonnet standing in for the operator's role model on plan-gate and critic
+(`classifyStop`'s default), sonnet standing in for the operator's role model on plan-gate and critic
 (`reviewerModel` / `criticModel`, both "default" ⇒ the operator default).
 
 ## How to run
@@ -26,9 +29,8 @@ default), sonnet standing in for the operator's role model on plan-gate and crit
 # Paid, live-model runs. Needs a key.
 ANTHROPIC_API_KEY=… bun run eval:plan-gate
 ANTHROPIC_API_KEY=… bun run eval:critic --json
-ANTHROPIC_API_KEY=… bun run eval:rundown --gating-only
 
-# Flags (all four evals): --trials N  --model <id>  --temperature <t>  --threshold <0..1>
+# Flags (all three evals): --trials N  --model <id>  --temperature <t>  --threshold <0..1>
 #                         --filter <id-substring>  --gating-only  --concurrency N
 #                         --max-spend <usd>  --json
 
@@ -88,8 +90,8 @@ model to inspect only what it needed and to stop as soon as it could decide — 
 inspection-budget instruction, i.e. guidance about _how_ to review, and it was removed for exactly
 that reason. What remains says nothing about findings, severity, or what any verdict should be.
 
-The classifier and rundown do NOT carry it: both obtained verdicts on every trial without one, and
-adding it would invalidate measurements already paid for.
+The classifier does NOT carry it: it obtained verdicts on every trial without one, and adding it
+would invalidate a measurement already paid for.
 
 **A broken harness fails in seconds, not in a full run.** The preflight trial runs alone and guards
 two things: a dead key, and a harness that cannot obtain a verdict at all. Two consecutive
@@ -188,33 +190,11 @@ deterministic `scopeFindings` backstop (out-of-diff findings dropped server-side
 unit-tested separately in the critic's own tests — leaving it out here keeps a prompt regression
 visible instead of masked by the backstop.
 
-### rundown (`scripts/eval-fixtures/rundown.ts`)
-
-The rundown's verdict is structured prose, so what is scored is its **decidable** contracts: which
-sessions it surfaces, which it must not, which sections it fills, and the epics it must not echo.
-"Do not claim all clear" is scored in its decidable form: with Tier-1 work present, `decisions` +
-`ciRework` must be non-empty between them.
-
-Fixtures are hand-authored `AssembledHerdState` values — the exact input `buildRundownPrompt`
-consumes. Deliberately not routed through `assembleHerdState()`: that function is deterministic and
-already unit-tested, so putting it in front would test the assembler rather than the prompt.
-
-| id                                  | gating | intent                                                 |
-| ----------------------------------- | ------ | ------------------------------------------------------ |
-| `tier1-blocked-decision`            | ✔      | surface the blocked session, not the routine one       |
-| `tier1-ci-red`                      | ✔      | CI red and unaddressed lands in the stuck bucket       |
-| `tier1-plan-question`               | ✔      | unanswered plan-gate question is a blocker             |
-| `critic-rework-over-budget`         | ✔      | REWORK past its retry budget is a stalled loop         |
-| `quiet-herd-no-manufacture`         | ✔      | routine in-flight work → both buckets stay empty       |
-| `epics-not-echoed`                  | ✔      | epics are surfaced separately; echoing them is the bug |
-| `truncated-tier2-no-all-clear`      | ✔      | elided Tier-2 sessions ⇒ must not read as all clear    |
-| `overnight-delta-reported`          | ✔      | merged PRs + archived sessions belong in `overnight`   |
-| `de-tier1-machine-fields-verbatim`  | ✔      | German prose, `sessionId`/`pr` verbatim                |
-| `backlog-rank-never-outranks-tier1` | —      | ordering is a soft preference in the prompt (baseline) |
-
 ## Baselines
 
-> **PENDING CAPTURE for plan-gate and critic — and until then they DO NOT GATE.** No run has yet
+> **PENDING CAPTURE for plan-gate and critic — and until then they DO NOT GATE.** They are now the
+> only two new evals in the set, so nothing measured ships from #2156 beyond the classifier's
+> confirmation. No run has yet
 > scored either prompt: the first hit the prose-instead-of-tools mode failure, the second exhausted
 > the turn budget, and the third could not run at all (workspace API usage limit, resets
 > 2026-10-01). Their floors below are therefore unobserved guesses, and blocking a PR on a number
@@ -235,30 +215,6 @@ already unit-tested, so putting it in front would test the assembler rather than
 | ----------- | ----------------- | ------ | ---------------- | ----------------------------- |
 | `plan-gate` | `claude-sonnet-5` | 5      | _never measured_ | `0.75` — unpinned, not gating |
 | `critic`    | `claude-sonnet-5` | 5      | _never measured_ | `0.75` — unpinned, not gating |
-| `rundown`   | `claude-sonnet-5` | 5      | **100% (45/45)** | `0.85` — pinned, gating       |
-
-### rundown — first live baseline
-
-`claude-sonnet-5`, temperature `1.0`, `--gating-only`, 2026-09-02. No mechanical failures anywhere
-(`no-tool` / `parse-fail` all 0), so every result below is a genuine verdict.
-
-| id                                 | T   | distribution | majority | correct |
-| ---------------------------------- | --- | ------------ | -------- | ------- |
-| `tier1-blocked-decision`           | 5   | ok:5         | ok       | 5/5     |
-| `tier1-ci-red`                     | 5   | ok:5         | ok       | 5/5     |
-| `tier1-plan-question`              | 5   | ok:5         | ok       | 5/5     |
-| `critic-rework-over-budget`        | 5   | ok:5         | ok       | 5/5     |
-| `quiet-herd-no-manufacture`        | 5   | ok:5         | ok       | 5/5     |
-| `epics-not-echoed`                 | 5   | ok:5         | ok       | 5/5     |
-| `truncated-tier2-no-all-clear`     | 5   | ok:5         | ok       | 5/5     |
-| `overnight-delta-reported`         | 5   | ok:5         | ok       | 5/5     |
-| `de-tier1-machine-fields-verbatim` | 5   | ok:5         | ok       | 5/5     |
-
-Gating accuracy **45/45 = 100%** → floor pinned at `round_down(1.000 − 0.15)` to the nearest 0.05 =
-**0.85**. A clean sweep on the first capture is a weak signal about difficulty: it says these
-contracts are currently held comfortably, not that the set is hard. The value is regression
-detection, and `backlog-rank-never-outranks-tier1` stays baseline-only because the prompt states
-that ordering as a preference rather than a contract.
 
 ### stop-classifier — confirmed on the shared harness
 
@@ -274,8 +230,8 @@ anything to do. It is deliberately not `paths:`-filtered: a path-filtered job re
 all** on PRs that don't touch those paths, and a required check that never reports blocks the PR
 forever (the same reasoning as `ci.yml`'s `site` job — #1859).
 
-Filtering on paths would also not bound the spend. `src/plan-gate.ts`, `src/critic-core.ts` and
-`src/rundown-core.ts` took 45 / 20 / 15 commits in a recent three-month window — roughly 25 PRs a
+Filtering on paths would also not bound the spend. `src/plan-gate.ts` and `src/critic-core.ts`
+took 45 and 20 commits in a recent three-month window — roughly 20 PRs a
 month — and almost none of that churn touches the prompt text.
 
 So the trigger is what actually matters: a change to the **rendered prompt**.
@@ -287,7 +243,7 @@ truncation, `en`/`de`), normalizes the result, and writes one SHA-256 per eval t
 `bun run check:eval-fingerprints` is wired into `ci.yml`'s verify job beside the docs-manifest and
 herdr-types freshness gates, so a prompt edit cannot ship with a stale fingerprint and skip its own
 eval. Because `UNTRUSTED_CONTENT_DIRECTIVE` is embedded verbatim in every rendered prompt, an edit
-to it moves all four fingerprints on its own.
+to it moves all three fingerprints on its own.
 
 **Normalization is load-bearing.** Every builder calls `fenceUntrusted` without a nonce, so each
 render embeds fresh 12-hex `randomFenceToken()` values — a raw hash would differ on every run and
@@ -315,7 +271,7 @@ otherwise edits inside that block move no hash and its eval never fires.
   `T=9` abstain fixture really does run once here; outside smoke mode the override still wins and
   those buckets keep their depth. The weekly run does the statistics at full depth. Sized after a PR run cost **$10.08**: the sets are large, the
   critic is multi-turn, and until `eval-fingerprints.json` exists on the default branch EVERY push
-  selects all four evals. One trial per fixture with a $1 ceiling each bounds a full four-eval push
+  selects all three evals. One trial per fixture with a $1 ceiling each bounds a full three-eval push
   to a few dollars worst case, and usually far less. A prompt change is a handful of PRs a year, not
   25 a month.
 - **Nightly** for the classifier (`eval-stop-classifier.yml`, haiku, ~54 calls ≈ pennies).
@@ -339,7 +295,7 @@ GitHub issue of a real misfire it was distilled from. The lifecycle catches harm
 traffic; a fixture prevents the same **class** from re-shipping.
 
 When a prompt misfires in production — a critic miss that ships a bug, a plan gate that blocks a
-sound plan, a rundown that goes quiet on a blocked session:
+sound plan, a classifier that stops abstaining on an ambiguous tail:
 
 1. **Capture the input while it exists.** The plan text, the diff (`git diff <base>...HEAD` from the
    PR), or the assembled herd state — plus the verdict that was actually produced.

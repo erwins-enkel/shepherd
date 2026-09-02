@@ -1,7 +1,7 @@
 // Generic live-model eval harness (issue #2156).
 //
 // The reusable half of the stop-classifier eval (#1626), lifted out so four prompts share one
-// runner: the autopilot stop-classifier, the plan-gate reviewer, the PR critic and the rundown.
+// runner: the autopilot stop-classifier, the plan-gate reviewer and the PR critic.
 // See `docs/eval-harness.md` for methodology, baselines, the pinned floors and the CI/cost
 // decision; `docs/eval-stop-classifier.md` still owns the classifier's own history.
 //
@@ -193,9 +193,8 @@ export const READONLY_TOOLS: ToolDef[] = [BASH_TOOL, READ_TOOL, GREP_TOOL];
  * It still says nothing about findings, severity, or what any verdict should be. Recorded as
  * caveat F in `docs/eval-harness.md`.
  *
- * The two single-tool evals do NOT carry it: the classifier scored 95.1% and the rundown produced a
- * parseable verdict on every single trial without it, so adding it would only invalidate
- * measurements already paid for.
+ * The classifier does NOT carry it: it scored 95.1% without one (single-tool, single-write), so
+ * adding it would only invalidate a measurement already paid for.
  */
 export const AGENT_SYSTEM_PROMPT = [
   "You are an autonomous agent working in a checked-out git worktree, not a chat assistant.",
@@ -279,7 +278,7 @@ export interface EvalSpec<F extends EvalFixtureBase> {
   headerLines?: (run: RunOptions) => string[];
   /** The label a fixture is EXPECTED to produce, for the report's `exp=` column and the JSON's
    *  `expected` field. Absent for evals whose correctness is a predicate set with no single
-   *  expected label (the rundown). */
+   *  expected label. */
   expectedLabel?: (fixture: F) => string;
   /** Extra per-fixture fields for the JSON report (e.g. the classifier's `lang`). */
   meta?: (fixture: F) => Record<string, unknown>;

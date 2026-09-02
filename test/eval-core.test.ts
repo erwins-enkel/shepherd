@@ -40,7 +40,6 @@ import { UNTRUSTED_CONTENT_DIRECTIVE } from "../src/untrusted";
 import { respondFromEnv, tokenize } from "../scripts/eval-fixtures/env";
 import { SPEC as CRITIC_SPEC, scoreCritic } from "../scripts/eval-critic";
 import { SPEC as PLAN_GATE_SPEC, scorePlanGate } from "../scripts/eval-plan-gate";
-import { SPEC as RUNDOWN_SPEC, scoreRundown } from "../scripts/eval-rundown";
 import { SPEC as CLASSIFIER_SPEC } from "../scripts/eval-stop-classifier";
 import { VERDICT_BODY_FILE, VERDICT_FILE } from "../src/critic-core";
 import { PLAN_VERDICT_FILE } from "../src/plan-gate";
@@ -341,63 +340,6 @@ test("the environment answers git diff, Read and Grep, and admits absence honest
 // Per-eval scorers
 // ---------------------------------------------------------------------------
 
-function rundownFixture(expect_: Record<string, unknown>) {
-  return { ...RUNDOWN_SPEC.fixtures[0]!, expect: expect_ } as (typeof RUNDOWN_SPEC.fixtures)[0];
-}
-
-const RUNDOWN_OK = { overnight: "", decisions: [], ciRework: [], train: "", focusNext: [] };
-
-test("rundown scorer: surfaced / leaked / silent / manufactured / epic-echo", () => {
-  const mustSurface = rundownFixture({ mustSurface: ["s-1"], mustSurfaceSomething: true });
-  expect(
-    scoreRundown(mustSurface, {
-      ...RUNDOWN_OK,
-      decisions: [{ label: "answer", sessionId: "s-1" }],
-    }),
-  ).toEqual({ label: "ok", correct: true });
-  expect(scoreRundown(mustSurface, RUNDOWN_OK).label).toBe("miss:not-surfaced");
-
-  const noLeak = rundownFixture({ mustNotSurface: ["s-2"] });
-  // A leak means the ATTENTION buckets. `focusNext` is where the prompt asks for routine follow-on
-  // work, so a routine session there is compliance — scoring it as a leak failed four fixtures on
-  // the first live run.
-  expect(
-    scoreRundown(noLeak, { ...RUNDOWN_OK, focusNext: [{ label: "routine", sessionId: "s-2" }] })
-      .label,
-  ).toBe("ok");
-  expect(
-    scoreRundown(noLeak, { ...RUNDOWN_OK, decisions: [{ label: "routine", sessionId: "s-2" }] })
-      .label,
-  ).toBe("miss:leaked");
-  expect(
-    scoreRundown(noLeak, { ...RUNDOWN_OK, ciRework: [{ label: "routine", sessionId: "s-2" }] })
-      .label,
-  ).toBe("miss:leaked");
-
-  const silent = rundownFixture({ mustSurfaceSomething: true });
-  expect(scoreRundown(silent, RUNDOWN_OK).label).toBe("miss:silent");
-
-  const quiet = rundownFixture({ empty: ["decisions"] });
-  expect(scoreRundown(quiet, { ...RUNDOWN_OK, decisions: [{ label: "made up" }] }).label).toBe(
-    "miss:manufactured",
-  );
-
-  const noEcho = rundownFixture({ noEpicEcho: [1904] });
-  expect(
-    scoreRundown(noEcho, { ...RUNDOWN_OK, focusNext: [{ label: "land epic #1904" }] }).label,
-  ).toBe("miss:epic-echo");
-
-  expect(scoreRundown(mustSurface, null).label).toBe("no-verdict");
-});
-
-test("rundown scorer runs the verdict through production's own parser and clamps", () => {
-  // `parseRundownVerdict` drops malformed items; a surfaced id inside one must not count.
-  const f = rundownFixture({ mustSurface: ["s-1"] });
-  expect(scoreRundown(f, { ...RUNDOWN_OK, decisions: [{ sessionId: "s-1" }] }).label).toBe(
-    "miss:not-surfaced",
-  );
-});
-
 test("plan-gate scorer enforces the prompt's approve/request-changes findings contract", () => {
   const f = PLAN_GATE_SPEC.fixtures.find((x) => x.expectedDecision === "approve")!;
   expect(scorePlanGate(f, { decision: "approve", findings: [] })).toEqual({
@@ -495,7 +437,7 @@ test("normalizeRender blanks nonce-shaped markers only", () => {
 test("every eval's canonical renders embed the untrusted directive verbatim", () => {
   // Therefore an edit to UNTRUSTED_CONTENT_DIRECTIVE necessarily moves all four fingerprints.
   const names = Object.keys(CASES);
-  expect(names.sort()).toEqual(["critic", "plan-gate", "rundown", "stop-classifier"]);
+  expect(names.sort()).toEqual(["critic", "plan-gate", "stop-classifier"]);
   for (const [name, cases] of Object.entries(CASES)) {
     expect(cases.length).toBeGreaterThan(1);
     for (const c of cases) {
@@ -540,7 +482,6 @@ const SPECS = [
   describeSpec(CLASSIFIER_SPEC),
   describeSpec(PLAN_GATE_SPEC),
   describeSpec(CRITIC_SPEC),
-  describeSpec(RUNDOWN_SPEC),
 ];
 
 test("every fixture set has unique ids, provenance, a note and at least one gating fixture", () => {
@@ -602,11 +543,6 @@ test("both prompt-driven evals cover their contract in both directions", () => {
     );
     expect(expected.size).toBe(2);
   }
-  // The rundown's decidable contracts run in both directions too: something must be surfaced, and
-  // routine work must not be.
-  const rundownGating = RUNDOWN_SPEC.fixtures.filter((f) => f.gating);
-  expect(rundownGating.some((f) => (f.expect.mustSurface ?? []).length > 0)).toBe(true);
-  expect(rundownGating.some((f) => (f.expect.empty ?? []).length > 0)).toBe(true);
 });
 
 // ---------------------------------------------------------------------------
@@ -694,10 +630,9 @@ test("the inspection-tool evals carry the agent framing; the single-tool evals d
   // critic and 50/55 plan-gate trials, zero transport errors.
   expect(CRITIC_SPEC.system).toBe(AGENT_SYSTEM_PROMPT);
   expect(PLAN_GATE_SPEC.system).toBe(AGENT_SYSTEM_PROMPT);
-  // The classifier scored 95.1% and the rundown produced a verdict on every trial WITHOUT it —
-  // adding it there would only invalidate measurements already paid for.
+  // The classifier scored 95.1% WITHOUT it — adding it there would only invalidate a measurement
+  // already paid for.
   expect(CLASSIFIER_SPEC.system).toBeUndefined();
-  expect(RUNDOWN_SPEC.system).toBeUndefined();
   // Mode-setting only: it must not smuggle in review guidance the eval is supposed to measure.
   expect(AGENT_SYSTEM_PROMPT).not.toMatch(/finding|verdict|approve|request-changes|severity/i);
 });
@@ -841,12 +776,11 @@ test("an observational eval says so in its report, so green is never read as a p
   expect(out).toContain("(observational — not gating)");
 });
 
-test("the two evals with no measured baseline are observational; the two with one gate", () => {
+test("the two evals with no measured baseline are observational; the classifier gates", () => {
   // Flip these in the SAME commit that pins the floor from a real run.
   expect(PLAN_GATE_SPEC.observational).toBe(true);
   expect(CRITIC_SPEC.observational).toBe(true);
   expect(CLASSIFIER_SPEC.observational).toBeUndefined();
-  expect(RUNDOWN_SPEC.observational).toBeUndefined();
 });
 
 test("no comment still claims AGENT_SYSTEM_PROMPT is mode-setting only", () => {
@@ -991,12 +925,6 @@ test("CASES actually meets the coverage invariant it states", () => {
   covers("critic", "carries NO content your fork point does not already have");
   covers("critic", "Sibling children have ALREADY MERGED");
   covers("critic", "the delta could NOT be enumerated here");
-  // pauseReasonLabel's three strings — the fixture set uses all three.
-  covers("rundown", "rebase cap exhausted");
-  covers("rundown", "genuine merge conflict");
-  covers("rundown", "merge driver unavailable");
-  // renderHold rewrites a held session into a `why` line.
-  covers("rundown", '"why"');
 });
 
 // ---------------------------------------------------------------------------

@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
 // Rendered-prompt fingerprints (issue #2156) — the PR gate's trigger.
 //
-// WHY NOT PATHS: `src/plan-gate.ts`, `src/critic-core.ts` and `src/rundown-core.ts` are busy
-// service modules (45 / 20 / 15 commits in a recent three-month window — roughly 25 PRs a month),
+// WHY NOT PATHS: `src/plan-gate.ts` and `src/critic-core.ts` are busy service modules (45 and 20
+// commits in a recent three-month window — roughly 20 PRs a month),
 // and almost none of that churn touches the prompt text. A path-triggered eval would spend $1-2 on
 // nearly every one of those PRs. So the gate triggers on what actually matters: a change to the
 // RENDERED PROMPT.
@@ -31,8 +31,6 @@ import { join } from "node:path";
 import { classifierPrompt } from "../src/autopilot-classify-core";
 import { planReviewPrompt } from "../src/plan-gate";
 import { prReviewPrompt, reviewPrompt } from "../src/critic-core";
-import { buildRundownPrompt } from "../src/rundown-core";
-import type { AssembledHerdState } from "../src/rundown-core";
 
 export const FINGERPRINTS_PATH = join(import.meta.dir, "eval-fingerprints.json");
 
@@ -68,10 +66,6 @@ const REVIEW_POLICY = "# REVIEW.md\n\nPrefer small PRs. Flag any new dependency.
 const HOUSE_RULES =
   "<shepherd-house-rules>\n- Guard every plan-phase branch.\n</shepherd-house-rules>";
 
-/** Hold reason, so `renderHold` — which rewrites a session's `hold` into a `why` line — is
- *  exercised. Untouched by any other case, so an edit to its prose would otherwise move no hash. */
-const HOLD = { code: "plan-question" as const };
-
 const EPIC = {
   base: "epic/2156-eval-harness",
   baseSha: "0f1e2d3c4b5a69788796a5b4c3d2e1f000112233",
@@ -81,45 +75,6 @@ const EPIC = {
     commits: ["feat(plan-gate): findings routing"],
     commitsTruncated: 1,
   },
-};
-
-const RUNDOWN_STATE: AssembledHerdState = {
-  generatedFor: "2026-01-01T00:00:00.000Z",
-  overnightDelta: { mergedPrs: [1, 2], archivedSessions: [{ id: "s-1", desig: "AAA" }] },
-  sessions: [
-    {
-      desig: "AAA",
-      sessionId: "s-1",
-      repo: "/repo",
-      tier: 1,
-      signals: ["blocked-decision"],
-      ageMs: 3600_000,
-      backlogRank: 0,
-      prNumber: 7,
-    },
-  ],
-  epics: [],
-  truncatedTier2: 0,
-  truncatedTier3: 0,
-};
-
-const RUNDOWN_STATE_FULL: AssembledHerdState = {
-  ...RUNDOWN_STATE,
-  // Covers all three epic renderings (paused / ready / CI-failing) plus the truncation notice.
-  epics: [
-    {
-      repo: "/repo",
-      parent: 10,
-      title: "Paused",
-      landingPr: 11,
-      stranded: false,
-      pausedReason: "cap",
-    },
-    { repo: "/repo", parent: 20, title: "Ready", landingPr: 21, stranded: true },
-    { repo: "/repo", parent: 30, title: "Red", landingPr: 31, stranded: false, ciFailing: true },
-  ],
-  truncatedTier2: 2,
-  truncatedTier3: 5,
 };
 
 /**
@@ -226,43 +181,6 @@ export const CASES: Record<string, Case[]> = {
           childCount: 4,
         }),
     },
-  ],
-  rundown: [
-    { name: "minimal", render: () => buildRundownPrompt(RUNDOWN_STATE, "en") },
-    // Epic blocks (paused / ready / CI-failing) + the truncation notice.
-    { name: "full", render: () => buildRundownPrompt(RUNDOWN_STATE_FULL, "en") },
-    // pauseReasonLabel has three strings and RUNDOWN_STATE_FULL only reaches "cap"; a held session
-    // reaches renderHold. Both are used by the fixture set, so both must move a hash when edited.
-    {
-      name: "pause-reasons-and-hold",
-      render: () =>
-        buildRundownPrompt(
-          {
-            ...RUNDOWN_STATE_FULL,
-            sessions: [{ ...RUNDOWN_STATE.sessions[0]!, hold: HOLD }],
-            epics: [
-              {
-                repo: "/repo",
-                parent: 40,
-                title: "Conflict",
-                landingPr: 41,
-                stranded: false,
-                pausedReason: "conflict",
-              },
-              {
-                repo: "/repo",
-                parent: 50,
-                title: "Driver",
-                landingPr: 51,
-                stranded: false,
-                pausedReason: "driver",
-              },
-            ],
-          },
-          "en",
-        ),
-    },
-    { name: "de", render: () => buildRundownPrompt(RUNDOWN_STATE_FULL, "de") },
   ],
 };
 

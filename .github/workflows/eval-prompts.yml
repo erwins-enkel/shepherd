@@ -1,7 +1,10 @@
 name: Eval — prompt gate
 
-# Live-model evals for Shepherd's four high-leverage prompts (issue #2156): the autopilot
-# stop-classifier, the plan-gate reviewer, the PR critic and the rundown.
+# Live-model evals for Shepherd's high-leverage prompts (issue #2156): the autopilot
+# stop-classifier, the plan-gate reviewer and the PR critic.
+#
+# #2156 also named the RUNDOWN. That feature was removed from main by #2174, so its prompt no
+# longer exists to measure and its eval was deleted with it.
 #
 # THREE TRIGGERS, one job:
 #
@@ -12,11 +15,11 @@ name: Eval — prompt gate
 #     touch those paths, and a required check that never reports blocks the PR from merging forever
 #     (the same reasoning as the `site` job in ci.yml — #1859).
 #
-#     Fingerprints, not paths, because src/plan-gate.ts, src/critic-core.ts and src/rundown-core.ts
-#     are busy service modules (45 / 20 / 15 commits in a recent three-month window) whose churn
-#     almost never touches the prompt text. A per-file trigger would spend $1-2 on ~25 PRs a month.
+#     Fingerprints, not paths, because src/plan-gate.ts and src/critic-core.ts are busy service
+#     modules (45 and 20 commits in a recent three-month window) whose churn almost never touches
+#     the prompt text. A per-file trigger would spend $1-2 on ~20 PRs a month.
 #
-#   schedule — weekly drift detection over the FULL fixture sets (gating + baseline), for the three
+#   schedule — weekly drift detection over the FULL fixture sets (gating + baseline), for the two
 #     sonnet evals. The classifier keeps its own nightly cron in eval-stop-classifier.yml (haiku,
 #     pennies), which also owns its #1627 A/B dispatch inputs.
 #
@@ -32,12 +35,12 @@ name: Eval — prompt gate
 on:
   pull_request:
   schedule:
-    # Mondays 06:00 UTC — the three sonnet evals, full fixture sets.
+    # Mondays 06:00 UTC — the two sonnet evals, full fixture sets.
     - cron: "0 6 * * 1"
   workflow_dispatch:
     inputs:
       evals:
-        description: "Which evals to run: 'all' or a space-separated subset (plan-gate critic rundown stop-classifier)"
+        description: "Which evals to run: 'all' or a space-separated subset (plan-gate critic stop-classifier)"
         required: false
         default: "all"
       trials:
@@ -104,10 +107,10 @@ jobs:
               || echo '{}' > /tmp/base-fingerprints.json
             selected="$(bun run scripts/gen-eval-fingerprints.ts --changed /tmp/base-fingerprints.json | tr '\n' ' ')"
           elif [ "$EVENT" = "schedule" ]; then
-            # The classifier has its own nightly cron; the weekly leg covers the three sonnet evals.
-            selected="plan-gate critic rundown"
+            # The classifier has its own nightly cron; the weekly leg covers the two sonnet evals.
+            selected="plan-gate critic"
           elif [ "${DISPATCH_EVALS:-all}" = "all" ] || [ -z "${DISPATCH_EVALS:-}" ]; then
-            selected="stop-classifier plan-gate critic rundown"
+            selected="stop-classifier plan-gate critic"
           else
             selected="$DISPATCH_EVALS"
           fi
@@ -116,8 +119,8 @@ jobs:
           validated=""
           for name in $selected; do
             case "$name" in
-              stop-classifier | plan-gate | critic | rundown) validated="$validated $name" ;;
-              *) echo "::error title=Unknown eval::'$name' is not one of stop-classifier, plan-gate, critic, rundown."; exit 1 ;;
+              stop-classifier | plan-gate | critic) validated="$validated $name" ;;
+              *) echo "::error title=Unknown eval::'$name' is not one of stop-classifier, plan-gate, critic."; exit 1 ;;
             esac
           done
           selected="$(echo "$validated" | xargs || true)"

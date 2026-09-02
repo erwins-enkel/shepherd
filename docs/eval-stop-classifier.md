@@ -1,7 +1,7 @@
 # Live-model eval — autopilot stop-classifier
 
-> Since **#2156** this eval runs on the shared harness in `scripts/eval-core.ts`, alongside three
-> more prompt evals (plan-gate reviewer, PR critic, rundown). The harness, the PR gate and the
+> Since **#2156** this eval runs on the shared harness in `scripts/eval-core.ts`, alongside two
+> more prompt evals (plan-gate reviewer, PR critic). The harness, the PR gate and the
 > incident→fixture procedure are documented in **[`eval-harness.md`](./eval-harness.md)**; this page
 > keeps the classifier's own methodology, baseline numbers and #1627 A/B history. Its behaviour is
 > unchanged by the refactor: one `Write` tool, single-turn, first write wins.

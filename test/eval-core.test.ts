@@ -550,7 +550,7 @@ test("both prompt-driven evals cover their contract in both directions", () => {
 // runEval: preflight, concurrency, retry
 // ---------------------------------------------------------------------------
 
-test("runEval aborts on a failing FIRST call rather than burning the rest of the spend", async () => {
+test("runEval aborts on a PERMANENTLY failing first call, without retrying it", async () => {
   let calls = 0;
   const send: Send = async () => {
     calls++;
@@ -558,9 +558,24 @@ test("runEval aborts on a failing FIRST call rather than burning the rest of the
   };
   const spec = testSpec({ fixtures: [FIXTURE, { ...FIXTURE, id: "t2" }] });
   expect(await runEval(spec, ["--trials", "3"], send)).toBe(EXIT.CANNOT_RUN);
-  // Exactly one attempt: no retry on the preflight, and no worker ever started.
+  // A dead key cannot recover, so it is not retried and no worker ever starts.
   expect(calls).toBe(1);
 });
+
+test("a TRANSIENT failure on the first call is retried, not treated as cannot-run", async () => {
+  // Without this the preflight had no retry at all: one 529 on the opening call returned
+  // CANNOT_RUN and the workflow green-skipped the entire gate — a transient blip silently
+  // disabling the check it exists to be.
+  let calls = 0;
+  const send: Send = async () => {
+    calls++;
+    if (calls <= 2) throw new Error("Anthropic API 529: overloaded_error");
+    return write("verdict.json", '{"label":"ok"}');
+  };
+  const spec = testSpec({ fixtures: [FIXTURE] });
+  expect(await runEval(spec, ["--trials", "2", "--threshold", "1"], send)).toBe(EXIT.PASS);
+  expect(calls).toBeGreaterThan(2);
+}, 20_000);
 
 test("a transport failure is retried with backoff before it can affect the run", async () => {
   let calls = 0;

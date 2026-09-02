@@ -965,24 +965,36 @@ async function runEvalInner<F extends EvalFixtureBase>(
   const first = tasks[0];
   if (first) {
     const captures: TrialCapture[] = [];
-    for (let tryNo = 1; tryNo <= 2; tryNo++) {
-      try {
-        captures.push(await attemptTrial(first));
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        if (isCannotRun(msg)) {
-          // The account cannot make calls at all (exhausted usage limit, dead key, rate limit that
-          // survived the retry). NOTHING was measured, so there is no verdict to gate on — say so
-          // and let the caller decide. Failing here would red every PR on a billing state.
-          console.error(
-            `${tag} CANNOT RUN — the eval never executed, so nothing was measured: ${msg}`,
-          );
-          return EXIT.CANNOT_RUN;
+    // TWO loops, deliberately. The inner one is the SAME retry policy every pooled trial gets —
+    // without it a single transient 529 on the very first call returned CANNOT_RUN and the
+    // workflow green-skipped the entire gate, which is a worse outcome than a slow start.
+    // The outer one is the verdict-less check: a second look before declaring the harness broken.
+    for (let look = 1; look <= 2; look++) {
+      let capture: TrialCapture | null = null;
+      let lastError = "";
+      for (let attempt = 1; attempt <= ATTEMPTS_PER_TRIAL && capture === null; attempt++) {
+        try {
+          capture = await attemptTrial(first);
+        } catch (err) {
+          lastError = err instanceof Error ? err.message : String(err);
+          if (isPermanent(lastError)) break;
+          if (attempt < ATTEMPTS_PER_TRIAL) {
+            console.error(`${tag} preflight attempt ${attempt} failed (retrying): ${lastError}`);
+            await new Promise((r) => setTimeout(r, RETRY_BACKOFF_MS[attempt - 1] ?? 6_000));
+          }
         }
-        console.error(`${tag} first call failed — aborting before spending on the rest: ${msg}`);
+      }
+      if (capture === null) {
+        // Survived the retries, or was permanent from the start. Either way nothing was measured,
+        // so there is no verdict to gate on — say so and let the caller decide. Failing here would
+        // red every PR on a billing state.
+        console.error(
+          `${tag} CANNOT RUN — the eval never executed, so nothing was measured: ${lastError}`,
+        );
         return EXIT.CANNOT_RUN;
       }
-      if (captures[captures.length - 1]!.toolUsed) break;
+      captures.push(capture);
+      if (capture.toolUsed) break;
     }
     const preflight = captures[captures.length - 1]!;
     if (!preflight.toolUsed) {

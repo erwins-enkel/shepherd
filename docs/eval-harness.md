@@ -117,10 +117,9 @@ retries entirely, since it cannot recover.
 
 **Trials run concurrently** (`--concurrency`, default 4). They are independent, and a critic trial
 is a multi-turn conversation, so running them one at a time takes hours — too slow to gate a PR.
-The very first trial runs alone as a preflight: a dead key or broken transport aborts before the
-rest of the spend. After that, a transport failure is **retried once** before it is allowed to
-become a data point — a 429 is not a verdict, and recording it as a mechanical miss would corrupt
-the measurement the eval exists to produce.
+The very first trial runs alone as a preflight, so a dead key aborts before the rest of the spend —
+but it gets the SAME three attempts as any other trial, because a transient blip on the opening call
+would otherwise return `CANNOT_RUN` and green-skip the whole gate.
 
 ### Pass/fail
 
@@ -277,12 +276,18 @@ otherwise edits inside that block move no hash and its eval never fires.
   to a few dollars worst case, and usually far less. A prompt change is a handful of PRs a year, not
   25 a month.
 - **Nightly** for the classifier (`eval-stop-classifier.yml`, haiku, ~54 calls ≈ pennies).
-  **Weekly** for the two sonnet evals over the full fixture sets (`eval-prompts.yml`, Mondays
-  06:00 UTC), ~$1–2 each.
+- **Weekly** for the two sonnet evals over the full fixture sets (`eval-prompts.yml`, Mondays
+  06:00 UTC) at `--trials 3 --max-spend 15`. This is the leg that MEASURES, so it has to be able to
+  finish: measured per-trial costs put a full critic set near **$14** at depth 5, and the default
+  $5 ceiling would have stopped it every time — discarding the partial results, so the run that
+  exists to capture the baselines could never capture them. `--trials 3` keeps a majority decidable
+  at roughly half the depth-5 cost, and the ceiling sits above the expected total so a normal run
+  completes while an abnormal one still stops. **Expected ~$11 a run, ~$48 a month.** Cadence and
+  depth are the cost levers.
 - **A gate that cannot run does not fail.** The eval exits `0` pass, `1` ran-and-missed, `2`
   could-not-run, `3` harness-broken (`EXIT` in `scripts/eval-core.ts`), and the workflow branches on
   those. Code `2` — no key (fork/Dependabot PRs), an exhausted API usage limit, a dead key, or rate
-  limiting that survived its retry — warns loudly and leaves the job green, because **nothing was
+  limiting that survived its retries — warns loudly and leaves the job green, because **nothing was
   measured**: it says nothing about the prompt, and failing on it would block every unrelated PR
   until the account can make calls again. Codes `1` and `3` fail the job.
 

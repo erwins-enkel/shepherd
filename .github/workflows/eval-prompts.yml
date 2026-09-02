@@ -153,6 +153,18 @@ jobs:
           fi
 
           flags=""
+          if [ "$EVENT" = "schedule" ]; then
+            # The weekly leg is the MEASUREMENT — it must be able to finish, and with the default
+            # $5 ceiling it never could: measured per-trial costs put a full critic set near $14,
+            # and crossing the ceiling discards the partial results, so the run that exists to
+            # capture the baselines could never capture them.
+            #
+            # --trials 3 keeps a majority decidable while roughly halving the depth-5 cost, and the
+            # ceiling sits above the expected total so a normal run completes and an abnormal one
+            # still stops. Expected ~$11 a run, ~$48 a month — the cadence and depth here are the
+            # cost levers if that is too much.
+            flags="$flags --trials 3 --max-spend 15"
+          fi
           if [ "$EVENT" = "pull_request" ]; then
             # The PR leg is a SMOKE gate, not the measurement. It answers "does this prompt still
             # produce a well-formed, sanely-directed verdict", and the weekly run does the

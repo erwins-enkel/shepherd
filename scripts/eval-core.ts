@@ -1,6 +1,6 @@
 // Generic live-model eval harness (issue #2156).
 //
-// The reusable half of the stop-classifier eval (#1626), lifted out so three prompts share one
+// The reusable half of the stop-classifier eval (#1626), lifted out so every prompt eval shares one
 // runner: the autopilot stop-classifier, the plan-gate reviewer and the PR critic.
 // See `docs/eval-harness.md` for methodology, baselines, the pinned floors and the CI/cost
 // decision; `docs/eval-stop-classifier.md` still owns the classifier's own history.

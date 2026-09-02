@@ -18,7 +18,7 @@
 // `FENCE_TOKEN_RE` (`/⟦\/?UNTRUSTED:[^⟧]*⟧/g`): that pattern also matches the bare `⟦UNTRUSTED:…⟧`
 // markers QUOTED inside `UNTRUSTED_CONTENT_DIRECTIVE`, so using it would blank the directive's own
 // prose and make edits to it invisible to the hash — silently losing the property that an edit to
-// the directive re-gates all three evals. Requiring the `:<12 hex>` segment leaves them intact.
+// the directive re-gates every eval. Requiring the `:<12 hex>` segment leaves them intact.
 //
 // Usage:
 //   bun run gen:eval-fingerprints            # rewrite scripts/eval-fingerprints.json

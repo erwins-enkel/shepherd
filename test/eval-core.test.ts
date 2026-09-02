@@ -436,7 +436,7 @@ test("normalizeRender blanks nonce-shaped markers only", () => {
 });
 
 test("every eval's canonical renders embed the untrusted directive verbatim", () => {
-  // Therefore an edit to UNTRUSTED_CONTENT_DIRECTIVE necessarily moves all three fingerprints.
+  // Therefore an edit to UNTRUSTED_CONTENT_DIRECTIVE necessarily moves every eval's fingerprint.
   const names = Object.keys(CASES);
   expect(names.sort()).toEqual(["critic", "plan-gate", "stop-classifier"]);
   for (const [name, cases] of Object.entries(CASES)) {
@@ -467,7 +467,7 @@ test("changedEvals reports only the evals whose hash moved, and fails open on a 
 // Fixture-set invariants
 // ---------------------------------------------------------------------------
 
-/** Erase the fixture type so the three specs can be checked in one loop. The `as F` cast is safe
+/** Erase the fixture type so every spec can be checked in one loop. The `as F` cast is safe
  *  because each closure only ever receives its own spec's fixtures. */
 function describeSpec<F extends EvalFixtureBase>(spec: EvalSpec<F>) {
   return {
@@ -1035,18 +1035,21 @@ test("no comment or doc claims an eval count that disagrees with CASES", () => {
     "docs/eval-harness.md",
   ];
   // Only phrasings that count THE EVALS. "three attempts", "three-month window", "four exit codes"
-  // and the like are about other things and must not be swept up.
+  // and the like are about other things and must not be swept up. `the other N` is included
+  // because it is how the count came back a third time — with no noun for the regex to anchor on.
   const CLAIM =
-    /\b(two|three|four|five)[- ](?:evals|prompts|fingerprints|specs|eval push)\b|\ball (two|three|four|five) (?:evals|prompts|fingerprints|specs)\b/gi;
+    /\b(two|three|four|five)[- ](?:evals|prompts|fingerprints|specs|eval push)\b|\ball (two|three|four|five) (?:evals|prompts|fingerprints|specs)\b|\bthe other (two|three|four|five)\b/gi;
   const wrong: string[] = [];
   for (const file of files) {
     const text = readFileSync(new URL(`../${file}`, import.meta.url), "utf8");
     for (const m of text.matchAll(CLAIM)) {
-      const word = (m[1] ?? m[2] ?? "").toLowerCase();
+      const word = (m[1] ?? m[2] ?? m[3] ?? "").toLowerCase();
       const n = WORDS[word];
       // The two sonnet evals are a genuine subset, not a claim about the whole set.
       if (n === undefined || /sonnet/i.test(m[0])) continue;
-      if (n !== expected) wrong.push(`${file}: "${m[0]}" (there are ${expected})`);
+      // "the other N" counts the set MINUS the one being contrasted with.
+      const claimed = /the other/i.test(m[0]) ? n + 1 : n;
+      if (claimed !== expected) wrong.push(`${file}: "${m[0]}" (there are ${expected})`);
     }
   }
   expect(wrong).toEqual([]);

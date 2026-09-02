@@ -30,7 +30,7 @@ Each eval pins the model its prompt actually runs on in production: haiku for th
 ANTHROPIC_API_KEY=… bun run eval:plan-gate
 ANTHROPIC_API_KEY=… bun run eval:critic --json
 
-# Flags (all three evals): --trials N  --model <id>  --temperature <t>  --threshold <0..1>
+# Flags (every eval):     --trials N  --model <id>  --temperature <t>  --threshold <0..1>
 #                         --filter <id-substring>  --gating-only  --concurrency N
 #                         --max-spend <usd>  --json
 
@@ -50,8 +50,8 @@ fingerprints — is unit-tested in `test/eval-core.test.ts` and runs for free in
 `scripts/eval-core.ts` runs every eval. Three things generalize out of the original
 stop-classifier script:
 
-**Verdicts are labels plus predicates.** The classifier scored an enum. The other three do not have
-one, so correctness is a per-fixture PREDICATE SET (`correct` = every predicate holds) and the
+**Verdicts are labels plus predicates.** The classifier scored an enum; the reviewer evals have no
+enum to score, so correctness is a per-fixture PREDICATE SET (`correct` = every predicate holds) and the
 `label` exists only for the report's distribution. The classifier's single
 `kind === expectedKind` predicate is the degenerate case, so its behaviour is unchanged.
 
@@ -243,7 +243,7 @@ truncation, `en`/`de`), normalizes the result, and writes one SHA-256 per eval t
 `bun run check:eval-fingerprints` is wired into `ci.yml`'s verify job beside the docs-manifest and
 herdr-types freshness gates, so a prompt edit cannot ship with a stale fingerprint and skip its own
 eval. Because `UNTRUSTED_CONTENT_DIRECTIVE` is embedded verbatim in every rendered prompt, an edit
-to it moves all three fingerprints on its own.
+to it moves every eval's fingerprint on its own.
 
 **Normalization is load-bearing.** Every builder calls `fenceUntrusted` without a nonce, so each
 render embeds fresh 12-hex `randomFenceToken()` values — a raw hash would differ on every run and
@@ -271,7 +271,7 @@ otherwise edits inside that block move no hash and its eval never fires.
   `T=9` abstain fixture really does run once here; outside smoke mode the override still wins and
   those buckets keep their depth. The weekly run does the statistics at full depth. Sized after a PR run cost **$10.08**: the sets are large, the
   critic is multi-turn, and until `eval-fingerprints.json` exists on the default branch EVERY push
-  selects all three evals. One trial per fixture with a $1 ceiling each bounds a full three-eval push
+  selects every eval. One trial per fixture with a $1 ceiling each bounds a whole-set push
   to a few dollars worst case, and usually far less. A prompt change is a handful of PRs a year, not
   25 a month.
 - **Nightly** for the classifier (`eval-stop-classifier.yml`, haiku, ~54 calls ≈ pennies).

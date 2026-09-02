@@ -158,8 +158,8 @@ jobs:
             # produce a well-formed, sanely-directed verdict", and the weekly run does the
             # statistics at full depth. Sized after a PR run cost $10.08: the fixture sets are
             # large, the critic is multi-turn, and until this file exists on main EVERY push
-            # selects all three evals. One trial per fixture and a $1 ceiling each bounds a full
-            # three-eval push to a few dollars worst case, and typically far less.
+            # selects every eval. One trial per fixture and a $1 ceiling each bounds a whole-set
+            # push to a few dollars worst case, and typically far less.
             # --smoke: gate on well-formedness, not on correctness. At one trial per fixture a
             # majority is a single sample — gate-commit-now's own baseline is `gate:4 finished:1`,
             # so a correctness gate here would red about one run in five on model noise. --trials

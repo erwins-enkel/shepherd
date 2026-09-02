@@ -152,16 +152,15 @@ is a genuine verdict, not a masked miss. `gate-spec-first` is shown at the botto
   reported) as a **known gap** and a prime before/after datum for #1627: watch whether the operator-language
   / robustness change nudges this toward `gate` (fix) or further toward `question` (regression).
 
-- **`de-ambiguous-unknown` — DEMOTED to non-gating baseline (#2156).** #1627 gated this as the
-  headline German abstain datum and it held then (and at 9/9 on the #1626-era capture). Two runs on
-  2026-09-02 recorded `unknown` **7/9** and then **4/9** (`gate:5 unknown:4` — majority lost). That
-  satisfies this document's own noise band in the bad direction: a ≥2-trial move that crosses the
-  majority boundary AND survives a confirmation run. Its English twin `ambiguous-unknown` scored
-  **9/9 on both runs**, so this is a real language-specific erosion of the abstain bucket — exactly
-  what #1627's input-robustness line exists to prevent — and not a mislabelled fixture. Per the
-  contingency rule it was demoted and recorded, not revised, and the floor was NOT lowered. The
-  fixture keeps running at `T=9` as the before/after datum for whoever closes the gap. Tracked in
-  **#2169**.
+- **`de-ambiguous-unknown` — demoted by #2156, RE-PROMOTED by #2177.** #1627 gated this as the
+  headline German abstain datum. Two runs on 2026-09-02 recorded `unknown` **7/9** then **4/9**
+  (`gate:5 unknown:4` — majority lost) while its English twin `ambiguous-unknown` held **9/9 on both
+  runs**, so this was a real language-specific erosion of the abstain bucket, not a mislabelled
+  fixture. Per the contingency rule it was demoted and recorded rather than revised, and the floor
+  was NOT lowered. That demotion is what surfaced **#2169**; **#2177** then rewrote the directive —
+  the closing clause was an abstract instruction about the model's own confidence, now a positive
+  no-ask test — and re-measured **27/27 = 100%** across two runs at `T=9`. It gates again on that
+  measurement, not on the assumption that the fix worked.
 
 > The contingency rule (applied above): (1) revise a fixture only if genuinely under-specified/mislabeled;
 > (2) else demote to non-gating baseline + record here; (3) never silently lower the floor to paper over a

@@ -270,18 +270,19 @@ test("fixture ids are unique", () => {
 
 test("every gating ambiguous→unknown fixture uses T≥9 (thick abstain-bucket confidence)", () => {
   const abstain = FIXTURES.filter((f) => f.expectedKind === "unknown" && f.gating);
-  // #1627 gated BOTH the English and German abstain fixtures. #2156 demoted the German one after
-  // two live runs recorded 7/9 then 4/9 — see the fixture's note and docs/eval-stop-classifier.md.
-  expect(abstain.length).toBeGreaterThanOrEqual(1);
+  // Both the English and German abstain fixtures gate: #1627 gated them, #2156 demoted the German
+  // one after it degraded to 4/9, and #2177 rewrote the directive and re-measured 27/27 at T=9.
+  expect(abstain.length).toBeGreaterThanOrEqual(2);
   for (const f of abstain) expect(f.trials ?? 0).toBeGreaterThanOrEqual(9);
 });
 
-test("the demoted German abstain fixture is RETAINED as a baseline, at full trial depth", () => {
-  // A demoted fixture must keep running and reporting: it is the before/after datum for whoever
-  // fixes the gap. Silently deleting it would erase the finding.
+test("the German abstain fixture gates again, at full trial depth", () => {
+  // It was demoted under #2156 when the old directive let it slip to 4/9, and re-promoted once
+  // #2177 rewrote that directive and measured 27/27 across two runs. Re-promotion follows a
+  // measurement, never an assumption that a fix worked.
   const de = FIXTURES.find((f) => f.id === "de-ambiguous-unknown");
   expect(de).toBeDefined();
-  expect(de?.gating).toBe(false);
+  expect(de?.gating).toBe(true);
   expect(de?.trials).toBeGreaterThanOrEqual(9);
 });
 
@@ -296,16 +297,14 @@ test("German fixtures both gate (the #1627 de path) and keep baseline before/aft
   expect(deBaseline.length).toBeGreaterThan(0);
 });
 
-test("the German gating fixtures still cover the gate and question buckets", () => {
+test("the German gating fixtures cover gate, question, and the unknown abstain bucket", () => {
   const deGatingKinds = new Set(
     FIXTURES.filter((f) => f.gating && f.lang === "de").map((f) => f.expectedKind),
   );
-  // The `unknown` bucket was gated by #1627 and demoted by #2156 (recorded known gap), so the de
-  // path still gates two of its three buckets rather than none.
-  for (const k of ["gate", "question"] as AutopilotKind[]) {
+  // The abstain bucket is the one #1627 exists to protect and #2177 repaired — it gates.
+  for (const k of ["gate", "question", "unknown"] as AutopilotKind[]) {
     expect(deGatingKinds).toContain(k);
   }
-  expect(deGatingKinds).not.toContain("unknown");
 });
 
 test("German gating fixtures run at T≥9 (temperature-1.0 noise band — no 1-trial flips)", () => {

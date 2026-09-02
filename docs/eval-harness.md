@@ -220,7 +220,9 @@ visible instead of masked by the backstop.
 
 The classifier ran twice on 2026-09-02 (`--gating-only`), confirming the refactor preserved its
 behaviour: **95.1% (58/61)** then **91.8% (56/61)** against its pinned floor of `0.80`, with
-`ambiguous-unknown` at 9/9 both times. The second run demoted one fixture — see
+`ambiguous-unknown` at 9/9 both times. The second run cost `de-ambiguous-unknown` its majority,
+which is the harness earning its keep on a prompt this work does not touch: it was demoted here,
+raised as #2169, repaired by #2177, and re-promoted on a fresh measurement. See
 [`eval-stop-classifier.md`](./eval-stop-classifier.md#known-current-classifier-gaps-contingency-rule).
 
 ## The PR gate — rendered-prompt fingerprints

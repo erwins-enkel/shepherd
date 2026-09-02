@@ -623,35 +623,37 @@ test("runEval aborts on a failing FIRST call rather than burning the rest of the
   expect(calls).toBe(1);
 });
 
-test("runEval retries a transport failure once before recording a mechanical miss", async () => {
+test("a transport failure is retried with backoff before it can affect the run", async () => {
   let calls = 0;
-  let injected = false;
+  let injected = 0;
   const send: Send = async () => {
     calls++;
-    // Let the preflight through, then fail exactly one later attempt: its retry must recover it,
-    // so a 429 never becomes a data point in the measurement.
-    if (calls > 1 && !injected) {
-      injected = true;
-      throw new Error("429 rate_limit_error");
+    // Let the preflight through, then fail two later attempts: the retries must recover them, so a
+    // transient 529 never becomes a data point.
+    if (calls > 1 && injected < 2) {
+      injected++;
+      throw new Error("Anthropic API 529: overloaded_error");
     }
     return write("verdict.json", '{"label":"ok"}');
   };
   const spec = testSpec({ fixtures: [FIXTURE] });
-  expect(await runEval(spec, ["--trials", "3", "--threshold", "1"], send)).toBe(0);
-  expect(injected).toBe(true);
-});
+  expect(await runEval(spec, ["--trials", "3", "--threshold", "1"], send)).toBe(EXIT.PASS);
+  expect(injected).toBe(2);
+}, 20_000);
 
-test("runEval records a mechanical miss when both attempts fail, without aborting", async () => {
+test("a trial that fails EVERY attempt invalidates the run instead of scoring as a miss", async () => {
+  // The failure that reported 42.3% for a prompt measured at 91.8% an hour earlier: a sustained
+  // 529 made ~30 of 52 trials fail, each recorded as a mechanical miss. A run that cannot execute
+  // its trials is not a bad result — it is not a result.
   let calls = 0;
   const send: Send = async () => {
     calls++;
     if (calls === 1) return write("verdict.json", '{"label":"ok"}');
-    throw new Error("503 overloaded");
+    throw new Error("Anthropic API 529: overloaded_error");
   };
   const spec = testSpec({ fixtures: [FIXTURE] });
-  // The second trial misses, so 1/2 correct is below a floor of 1 → exit 1, not the abort code 2.
-  expect(await runEval(spec, ["--trials", "2", "--threshold", "1", "--json"], send)).toBe(1);
-});
+  expect(await runEval(spec, ["--trials", "3", "--threshold", "1"], send)).toBe(EXIT.CANNOT_RUN);
+}, 30_000);
 
 test("runEval runs trials concurrently and still groups outcomes by fixture", async () => {
   let inFlight = 0;
@@ -779,10 +781,13 @@ test("a cannot-run failure INSIDE the pool aborts the run, not just at the prefl
   };
   const spec = testSpec({ fixtures: [FIXTURE, { ...FIXTURE, id: "t2" }] });
   expect(await runEval(spec, ["--trials", "4", "--concurrency", "2"], send)).toBe(EXIT.CANNOT_RUN);
-});
+  // A permanent condition is not retried — it cannot recover, and the backoff would be paid once
+  // per trial across the pool.
+  expect(calls).toBeLessThanOrEqual(3);
+}, 20_000);
 
-test("a NON-cannot-run failure inside the pool still becomes a mechanical miss", async () => {
-  // The fail-open above must not swallow genuine faults: a 500 is still a data point.
+test("a 500 that survives every retry also invalidates the run", async () => {
+  // Same rule regardless of the code: an unexecuted trial is never a data point.
   let calls = 0;
   const send: Send = async () => {
     calls++;
@@ -790,8 +795,8 @@ test("a NON-cannot-run failure inside the pool still becomes a mechanical miss",
     throw new Error("Anthropic API 500: internal server error");
   };
   const spec = testSpec({ fixtures: [FIXTURE] });
-  expect(await runEval(spec, ["--trials", "2", "--threshold", "1"], send)).toBe(EXIT.GATE_FAIL);
-});
+  expect(await runEval(spec, ["--trials", "2", "--threshold", "1"], send)).toBe(EXIT.CANNOT_RUN);
+}, 30_000);
 
 test("an observational eval does not fail the caller on a VERDICT-LESS run either", async () => {
   // The state plan-gate and critic have ended in twice. The guarantee has to cover every failure

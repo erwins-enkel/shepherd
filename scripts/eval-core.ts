@@ -754,10 +754,17 @@ const DEFAULT_MAX_SPEND_USD = 5;
 /** Default trials in flight. Modest on purpose: enough to turn an hours-long sequential run into
  *  minutes, low enough not to trip API rate limits on a small account. Override: `--concurrency`. */
 const DEFAULT_CONCURRENCY = 4;
-/** One retry per trial on a TRANSPORT failure, after this pause. A 429 or a dropped connection is
- *  not a verdict: without a retry it would be recorded as a mechanical miss and silently corrupt
- *  the measurement the eval exists to produce. */
-const RETRY_DELAY_MS = 2_000;
+/**
+ * Attempts per trial, and the backoff between them. A transport failure is not a verdict: recorded
+ * as a mechanical miss it silently corrupts the measurement the eval exists to produce.
+ *
+ * Sized from a real failure. One retry at 2s was not enough for a sustained `529 overloaded_error`:
+ * ~30 of 52 classifier trials failed twice, were scored as misses, and reported 42.3% for a prompt
+ * that had measured 91.8% an hour earlier. A run that cannot execute a third of its trials is not a
+ * bad result — it is not a result.
+ */
+const ATTEMPTS_PER_TRIAL = 3;
+const RETRY_BACKOFF_MS = [2_000, 6_000];
 
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_VERSION = "2023-06-01";
@@ -890,7 +897,7 @@ async function runEvalInner<F extends EvalFixtureBase>(
   }
 
   const outcomes: TrialOutcome[][] = fixtures.map(() => []);
-  const attempt = (task: Task): Promise<TrialCapture> =>
+  const attemptTrial = (task: Task): Promise<TrialCapture> =>
     runTrial(transport, spec, task.fixture, task.prompt, run.model, run.temperature, spend);
   const overBudget = (): boolean => spendUsd(spend, run.model) >= run.maxSpend;
 
@@ -905,7 +912,7 @@ async function runEvalInner<F extends EvalFixtureBase>(
     const captures: TrialCapture[] = [];
     for (let tryNo = 1; tryNo <= 2; tryNo++) {
       try {
-        captures.push(await attempt(first));
+        captures.push(await attemptTrial(first));
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         if (isCannotRun(msg)) {
@@ -955,31 +962,32 @@ async function runEvalInner<F extends EvalFixtureBase>(
       const task = tasks[next++];
       if (!task) return;
       let capture: TrialCapture | null = null;
-      for (let tryNo = 1; tryNo <= 2 && capture === null; tryNo++) {
+      let lastError = "";
+      for (let attempt = 1; attempt <= ATTEMPTS_PER_TRIAL && capture === null; attempt++) {
         try {
-          capture = await attempt(task);
+          capture = await attemptTrial(task);
         } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          if (tryNo === 1) {
-            // Transport failure, not a verdict — retry once before letting it become a data point.
+          lastError = err instanceof Error ? err.message : String(err);
+          // A permanent condition — exhausted usage limit, dead key, revoked permission — will not
+          // recover, so retrying it just burns the backoff once per trial across the whole pool.
+          if (isCannotRun(lastError)) break;
+          if (attempt < ATTEMPTS_PER_TRIAL) {
             console.error(
-              `${tag} ${task.fixture.id} trial ${task.trial + 1} error (retrying): ${msg}`,
+              `${tag} ${task.fixture.id} trial ${task.trial + 1} attempt ${attempt} failed ` +
+                `(retrying): ${lastError}`,
             );
-            await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
-            continue;
+            await new Promise((r) => setTimeout(r, RETRY_BACKOFF_MS[attempt - 1] ?? 6_000));
           }
-          if (isCannotRun(msg)) {
-            cannotRun = msg;
-            return;
-          }
-          console.error(`${tag} ${task.fixture.id} trial ${task.trial + 1} failed twice: ${msg}`);
         }
       }
-      outcomes[task.index]!.push(
-        capture === null
-          ? outcomeFrom(spec, task.fixture, { toolUsed: false, content: null, turns: 0 })
-          : outcomeFrom(spec, task.fixture, capture),
-      );
+      if (capture === null) {
+        // Survived every retry. Whatever the code — 529, 500, a dropped socket, an exhausted usage
+        // limit — the trial did not execute, and a run with unexecuted trials cannot be scored.
+        // Recording it as a miss is how a green prompt reports 42%.
+        cannotRun = lastError;
+        return;
+      }
+      outcomes[task.index]!.push(outcomeFrom(spec, task.fixture, capture));
     }
   };
   await Promise.all(
@@ -999,8 +1007,8 @@ async function runEvalInner<F extends EvalFixtureBase>(
 
   if (cannotRun !== null) {
     console.error(
-      `${tag} CANNOT RUN — the account stopped accepting calls part-way through, so the run is ` +
-        `INCOMPLETE and its partial results are discarded: ${cannotRun}`,
+      `${tag} CANNOT RUN — a trial failed ${ATTEMPTS_PER_TRIAL} times, so the run is INCOMPLETE ` +
+        `and its partial results are discarded rather than scored as misses: ${cannotRun}`,
     );
     return EXIT.CANNOT_RUN;
   }

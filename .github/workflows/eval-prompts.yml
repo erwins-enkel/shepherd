@@ -5,7 +5,7 @@ name: Eval — prompt gate
 #
 # THREE TRIGGERS, one job:
 #
-#   pull_request — the gate. Runs on EVERY PR and decides for itself whether there is anything to
+#   pull_request — a SMOKE gate (one trial per gating fixture, $1 ceiling per eval). Runs on EVERY PR and decides for itself whether there is anything to
 #     do, by comparing the freshly-rendered prompt fingerprints against the base's committed
 #     scripts/eval-fingerprints.json and running ONLY the evals whose hash moved. Path filtering is
 #     deliberately NOT used: a `paths:`-filtered job reports NO STATUS at all on PRs that don't
@@ -41,7 +41,7 @@ on:
         required: false
         default: "all"
       trials:
-        description: "Trials per fixture (default: each eval's own pinned default)"
+        description: "Trials per fixture (default: each eval's own pinned default; the PR leg pins 1)"
         required: false
         default: ""
       gating_only:
@@ -150,7 +150,15 @@ jobs:
           fi
 
           flags=""
-          if [ "$EVENT" = "pull_request" ] || [ "${GATING_ONLY:-false}" = "true" ]; then
+          if [ "$EVENT" = "pull_request" ]; then
+            # The PR leg is a SMOKE gate, not the measurement. It answers "does this prompt still
+            # produce a well-formed, sanely-directed verdict", and the weekly run does the
+            # statistics at full depth. Sized after a PR run cost $10.08: the fixture sets are
+            # large, the critic is multi-turn, and until this file exists on main EVERY push
+            # selects all four evals. One trial per fixture and a $1 ceiling each bounds a full
+            # four-eval push to a few dollars worst case, and typically far less.
+            flags="$flags --gating-only --trials 1 --max-spend 1"
+          elif [ "${GATING_ONLY:-false}" = "true" ]; then
             flags="$flags --gating-only"
           fi
           if [ -n "${TRIALS:-}" ]; then

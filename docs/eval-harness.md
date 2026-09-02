@@ -106,6 +106,13 @@ measurement. Raise the ceiling deliberately when a bigger run is actually intend
 Probe before you commit: `--filter <one-fixture> --trials 1` costs a few cents and answers the
 question that has failed twice — does the harness obtain a verdict at all?
 
+**A trial that cannot execute is never a data point.** Each trial gets three attempts with backoff;
+a failure that survives them invalidates the whole run (`CANNOT_RUN`) rather than being scored as a
+miss. This is not defensiveness — a sustained `529 overloaded_error` once made ~30 of 52 classifier
+trials fail, each recorded as a mechanical miss, and the run reported **42.3%** for a prompt that had
+measured **91.8%** an hour earlier. A permanent condition (exhausted usage limit, dead key) skips the
+retries entirely, since it cannot recover.
+
 **Trials run concurrently** (`--concurrency`, default 4). They are independent, and a critic trial
 is a multi-turn conversation, so running them one at a time takes hours — too slow to gate a PR.
 The very first trial runs alone as a preflight: a dead key or broken transport aborts before the
@@ -298,8 +305,13 @@ otherwise edits inside that block move no hash and its eval never fires.
 
 - **Never in the hermetic gate.** `bun test ./test` stays free and offline; it covers the harness's
   pure logic only.
-- **Per-PR, fingerprint-triggered.** `--gating-only` (baseline fixtures are for the recorded
-  distribution, not the gate). A prompt change is a handful of PRs a year, not 25 a month.
+- **Per-PR: a SMOKE gate, not the measurement.** `--gating-only --trials 1 --max-spend 1`. It
+  answers "does this prompt still produce a well-formed, sanely-directed verdict"; the weekly run
+  does the statistics at full depth. Sized after a PR run cost **$10.08**: the sets are large, the
+  critic is multi-turn, and until `eval-fingerprints.json` exists on the default branch EVERY push
+  selects all four evals. One trial per fixture with a $1 ceiling each bounds a full four-eval push
+  to a few dollars worst case, and usually far less. A prompt change is a handful of PRs a year, not
+  25 a month.
 - **Nightly** for the classifier (`eval-stop-classifier.yml`, haiku, ~54 calls ≈ pennies).
   **Weekly** for the three sonnet evals over the full fixture sets (`eval-prompts.yml`, Mondays
   06:00 UTC), ~$1–2 each.

@@ -26,9 +26,58 @@
 // is pure or transport-injected, and is unit-tested with no network and no key in
 // `test/eval-core.test.ts`.
 
+import { dollars } from "../src/pricing";
+
 // ---------------------------------------------------------------------------
 // Anthropic Messages API — the minimal shapes we read
 // ---------------------------------------------------------------------------
+
+/**
+ * Running spend meter. These runs are paid and have already surprised us once — a sequential
+ * first attempt burned ~$10 before anyone could see a number. So every run now counts its own
+ * tokens, prices them through the repo's canonical `dollars()` formula, and STOPS at a ceiling.
+ */
+export interface Spend {
+  calls: number;
+  input: number;
+  output: number;
+  cacheRead: number;
+}
+
+export function emptySpend(): Spend {
+  return { calls: 0, input: 0, output: 0, cacheRead: 0 };
+}
+
+export function addUsage(spend: Spend, response: AnthropicResponse): void {
+  spend.calls++;
+  const u = response.usage;
+  if (!u) return;
+  spend.input += u.input_tokens ?? 0;
+  spend.output += u.output_tokens ?? 0;
+  spend.cacheRead += u.cache_read_input_tokens ?? 0;
+}
+
+/** List-price USD for what a run has consumed so far, via `src/pricing.ts` — the same formula the
+ *  usage lens prices real sessions with, so the two can never quietly disagree. */
+export function spendUsd(spend: Spend, model: string): number {
+  return dollars(
+    {
+      input: spend.input,
+      output: spend.output,
+      cacheRead: spend.cacheRead,
+      cacheWrite5m: 0,
+      cacheWrite1h: 0,
+    },
+    model,
+  );
+}
+
+export function formatSpend(spend: Spend, model: string): string {
+  return (
+    `calls=${spend.calls} in=${spend.input.toLocaleString()} out=${spend.output.toLocaleString()} ` +
+    `≈ $${spendUsd(spend, model).toFixed(2)}`
+  );
+}
 
 export interface AnthropicContentBlock {
   type: string;
@@ -45,6 +94,14 @@ export interface AnthropicResponse {
   content?: AnthropicContentBlock[];
   /** "end_turn" | "tool_use" | "max_tokens" | … — kept for diagnosing a verdict-less trial. */
   stop_reason?: string | null;
+  /** Token counts, so a run can report what it actually cost instead of being estimated after
+   *  the fact. Absent on a response the API did not price (or in tests). */
+  usage?: {
+    input_tokens?: number;
+    output_tokens?: number;
+    cache_read_input_tokens?: number;
+    cache_creation_input_tokens?: number;
+  };
 }
 
 /** The transport. Injected so the whole loop is testable without network access. */
@@ -379,12 +436,14 @@ export async function runTrial<F extends EvalFixtureBase>(
   prompt: string,
   model: string,
   temperature: number,
+  spend?: Spend,
 ): Promise<TrialCapture> {
   const messages: unknown[] = [{ role: "user", content: prompt }];
   for (let turn = 1; turn <= spec.maxTurns; turn++) {
     const response = await send(
       buildRequestBody(spec.tools, spec.maxTokens, model, temperature, messages, spec.system),
     );
+    if (spend) addUsage(spend, response);
     const uses = toolUses(response);
     if (uses.length === 0) {
       return { toolUsed: false, content: null, turns: turn, ...diagnose(response) };
@@ -601,12 +660,14 @@ export function jsonReport<F extends EvalFixtureBase>(
   results: FixtureResult<F>[],
   decision: Decision,
   run: RunOptions,
+  spendReport?: Record<string, unknown>,
 ): Record<string, unknown> {
   return {
     model: run.model,
     temperature: run.temperature,
     gatingOnly: run.gatingOnly,
     flags: run.argv,
+    spend: spendReport,
     decision,
     results: results.map((r) => ({
       id: r.fixture.id,
@@ -638,6 +699,8 @@ export interface RunOptions {
   json: boolean;
   /** Run only the gating fixtures — what the PR gate uses; the schedule runs the full set. */
   gatingOnly: boolean;
+  /** Hard ceiling on list-price spend, in USD. The run STOPS when the meter crosses it. */
+  maxSpend: number;
   /** Trials in flight at once. Trials are independent, and a critic trial is a multi-turn
    *  conversation, so running them one at a time makes a full set take hours — far too slow for a
    *  PR gate. Bounded to stay well inside the API's rate limits. */
@@ -671,6 +734,7 @@ export function parseArgs<F extends EvalFixtureBase>(
     json: argv.includes("--json"),
     gatingOnly: argv.includes("--gating-only"),
     concurrency: Math.max(1, num("--concurrency", DEFAULT_CONCURRENCY)),
+    maxSpend: Math.max(0, num("--max-spend", DEFAULT_MAX_SPEND_USD)),
     argv,
   };
 }
@@ -683,6 +747,10 @@ export function selectFixtures<F extends EvalFixtureBase>(spec: EvalSpec<F>, run
   return fixtures;
 }
 
+/** Default hard spend ceiling per run, in list-price USD. Deliberately low: these runs are paid,
+ *  a full set costs a couple of dollars, and the first attempt burned ~$10 before anyone could see
+ *  a number. Raise it explicitly with `--max-spend` when a bigger run is actually intended. */
+const DEFAULT_MAX_SPEND_USD = 5;
 /** Default trials in flight. Modest on purpose: enough to turn an hours-long sequential run into
  *  minutes, low enough not to trip API rate limits on a small account. Override: `--concurrency`. */
 const DEFAULT_CONCURRENCY = 4;
@@ -806,8 +874,10 @@ export async function runEval<F extends EvalFixtureBase>(
   }
 
   const outcomes: TrialOutcome[][] = fixtures.map(() => []);
+  const spend = emptySpend();
   const attempt = (task: Task): Promise<TrialCapture> =>
-    runTrial(transport, spec, task.fixture, task.prompt, run.model, run.temperature);
+    runTrial(transport, spec, task.fixture, task.prompt, run.model, run.temperature, spend);
+  const overBudget = (): boolean => spendUsd(spend, run.model) >= run.maxSpend;
 
   // PREFLIGHT, deliberately alone and before the pool. It guards TWO failures, both of which
   // otherwise cost a whole paid run to discover:
@@ -866,7 +936,7 @@ export async function runEval<F extends EvalFixtureBase>(
   let cannotRun: string | null = null;
   const worker = async (): Promise<void> => {
     for (;;) {
-      if (cannotRun !== null) return;
+      if (cannotRun !== null || overBudget()) return;
       const task = tasks[next++];
       if (!task) return;
       let capture: TrialCapture | null = null;
@@ -901,6 +971,17 @@ export async function runEval<F extends EvalFixtureBase>(
     Array.from({ length: Math.min(run.concurrency, Math.max(tasks.length - 1, 1)) }, worker),
   );
 
+  if (overBudget()) {
+    // A deliberate budget stop, not an outage — but the run is INCOMPLETE either way, so its
+    // partial results are discarded rather than reported as a measurement.
+    console.error(
+      `${tag} STOPPED at the spend ceiling — the run is incomplete and its partial results are ` +
+        `discarded. ${formatSpend(spend, run.model)} (ceiling $${run.maxSpend.toFixed(2)}). ` +
+        `Re-run with --max-spend to raise it deliberately.`,
+    );
+    return EXIT.CANNOT_RUN;
+  }
+
   if (cannotRun !== null) {
     console.error(
       `${tag} CANNOT RUN — the account stopped accepting calls part-way through, so the run is ` +
@@ -917,10 +998,18 @@ export async function runEval<F extends EvalFixtureBase>(
   // `--json` emits BOTH: the human report on stderr, the JSON block on stdout. A caller that wants
   // both (the workflows do — the report for the log, the JSON for the doc's baseline tables) must
   // never have to run the eval twice, which would double a paid run's spend.
+  console.error(`${tag} spend: ${formatSpend(spend, run.model)}`);
   if (run.json) console.error(formatReport(spec, results, decision, run));
   console.log(
     run.json
-      ? JSON.stringify(jsonReport(spec, results, decision, run), null, 2)
+      ? JSON.stringify(
+          jsonReport(spec, results, decision, run, {
+            ...spend,
+            usd: Number(spendUsd(spend, run.model).toFixed(4)),
+          }),
+          null,
+          2,
+        )
       : formatReport(spec, results, decision, run),
   );
   if (decision.pass) return EXIT.PASS;

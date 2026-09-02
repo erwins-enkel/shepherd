@@ -29,7 +29,12 @@ ANTHROPIC_API_KEY=… bun run eval:critic --json
 ANTHROPIC_API_KEY=… bun run eval:rundown --gating-only
 
 # Flags (all four evals): --trials N  --model <id>  --temperature <t>  --threshold <0..1>
-#                         --filter <id-substring>  --gating-only  --concurrency N  --json
+#                         --filter <id-substring>  --gating-only  --concurrency N
+#                         --max-spend <usd>  --json
+
+# The cheap probe: ONE fixture, ONE trial — a few cents, and enough to prove the harness
+# obtains a verdict at all before committing to a full run.
+ANTHROPIC_API_KEY=… bun run eval:critic --filter bug-off-by-one --trials 1 --json
 ```
 
 Or dispatch **`.github/workflows/eval-prompts.yml`** (`evals`, `trials`, `gating_only` inputs).
@@ -91,6 +96,15 @@ two things: a dead key, and a harness that cannot obtain a verdict at all. Two c
 verdict-less preflights abort with the fixture, turn count, `stop_reason` and the prose the model
 returned instead. Discovering the mode failure above cost ~$10 and an hour once; it now costs a few
 cents and reports its own diagnosis.
+
+**Every run meters and caps its own spend.** These are paid runs, and the first attempt burned
+~$10 before anyone could see a number. So the harness counts its own tokens, prices them through
+`dollars()` in `src/pricing.ts` (the same formula the usage lens prices real sessions with), prints
+`spend: calls=… in=… out=… ≈ $…`on every run, and puts it in the`--json`block. A run **stops** at`--max-spend` (default **$5**) and discards its partial results, because an incomplete run is not a
+measurement. Raise the ceiling deliberately when a bigger run is actually intended.
+
+Probe before you commit: `--filter <one-fixture> --trials 1` costs a few cents and answers the
+question that has failed twice — does the harness obtain a verdict at all?
 
 **Trials run concurrently** (`--concurrency`, default 4). They are independent, and a critic trial
 is a multi-turn conversation, so running them one at a time takes hours — too slow to gate a PR.

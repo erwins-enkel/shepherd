@@ -2,8 +2,10 @@ import { test, expect } from "bun:test";
 import {
   AGENT_SYSTEM_PROMPT,
   EXIT,
+  addUsage,
   aggregate,
   buildRequestBody,
+  emptySpend,
   captureFrom,
   decide,
   formatReport,
@@ -16,6 +18,7 @@ import {
   runEval,
   runTrial,
   selectFixtures,
+  spendUsd,
   type AnthropicResponse,
   type EvalFixtureBase,
   type EvalSpec,
@@ -863,4 +866,52 @@ test("AGENT_SYSTEM_PROMPT carries no guidance about HOW to review", () => {
   // What it DOES say: act through tools, and your turns are finite.
   expect(AGENT_SYSTEM_PROMPT).toMatch(/ONLY through the provided tools/);
   expect(AGENT_SYSTEM_PROMPT).toMatch(/turns is limited/);
+});
+
+// ---------------------------------------------------------------------------
+// Spend meter + ceiling
+// ---------------------------------------------------------------------------
+
+test("the spend meter prices a run through the repo's canonical dollars() formula", () => {
+  const spend = emptySpend();
+  addUsage(spend, { usage: { input_tokens: 1_000_000, output_tokens: 100_000 } });
+  addUsage(spend, { usage: { input_tokens: 0, output_tokens: 0 } });
+  expect(spend.calls).toBe(2);
+  // sonnet list price: $3/Mtok in, $15/Mtok out -> 3 + 1.5.
+  expect(spendUsd(spend, "claude-sonnet-5")).toBeCloseTo(4.5, 5);
+  // A response the API did not price must not crash or invent tokens.
+  addUsage(spend, {});
+  expect(spend.calls).toBe(3);
+  expect(spendUsd(spend, "claude-sonnet-5")).toBeCloseTo(4.5, 5);
+});
+
+test("a run STOPS at the spend ceiling and discards its partial results", async () => {
+  // The control the first $10 run did not have. Each call bills ~$0.30 of sonnet output, so a
+  // $1 ceiling must stop the run well before its 20 trials complete.
+  let calls = 0;
+  const send: Send = async () => {
+    calls++;
+    return {
+      content: [
+        {
+          type: "tool_use",
+          id: "w",
+          name: "Write",
+          input: { file_path: "verdict.json", content: '{"label":"ok"}' },
+        },
+      ],
+      usage: { input_tokens: 10_000, output_tokens: 20_000 },
+    };
+  };
+  const spec = testSpec({ fixtures: [FIXTURE] });
+  expect(
+    await runEval(spec, ["--trials", "20", "--max-spend", "1", "--concurrency", "1"], send),
+  ).toBe(EXIT.CANNOT_RUN);
+  expect(calls).toBeLessThan(20);
+});
+
+test("the default spend ceiling is low enough to be a real guard", () => {
+  // A ceiling above a full run's cost would be decoration.
+  expect(parseArgs(testSpec(), []).maxSpend).toBeLessThanOrEqual(5);
+  expect(parseArgs(testSpec(), ["--max-spend", "12.5"]).maxSpend).toBe(12.5);
 });

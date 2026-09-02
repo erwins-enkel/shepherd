@@ -48,6 +48,14 @@ on:
         description: "'true' to run only the gating fixtures (what the PR gate does)"
         required: false
         default: "false"
+      filter:
+        description: "Run only fixtures whose id contains this substring — the cheap way to probe one case"
+        required: false
+        default: ""
+      max_spend:
+        description: "Hard spend ceiling per eval in USD (default 5). The run stops when it is crossed."
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -129,6 +137,8 @@ jobs:
           EVENT: ${{ github.event_name }}
           TRIALS: ${{ github.event.inputs.trials }}
           GATING_ONLY: ${{ github.event.inputs.gating_only }}
+          FILTER: ${{ github.event.inputs.filter }}
+          MAX_SPEND: ${{ github.event.inputs.max_spend }}
           SELECTED: ${{ steps.select.outputs.evals }}
         run: |
           set -uo pipefail
@@ -165,6 +175,20 @@ jobs:
           # the same policy as the no-key branch above, applied to the other ways "cannot run"
           # happens. The warning is loud, and the doc says a skipped gate must be dispatched
           # manually before a prompt change merges.
+          if [ -n "${FILTER:-}" ]; then
+            # Ids are [a-z0-9-]; validate before it reaches a command line (caller-controlled input).
+            case "$FILTER" in
+              *[!a-zA-Z0-9-]*) echo "::error title=Bad filter::'$FILTER' must be [A-Za-z0-9-]."; exit 1 ;;
+              *) flags="$flags --filter $FILTER" ;;
+            esac
+          fi
+          if [ -n "${MAX_SPEND:-}" ]; then
+            case "$MAX_SPEND" in
+              '' | *[!0-9.]*) echo "::error title=Bad max_spend::'$MAX_SPEND' is not a number."; exit 1 ;;
+              *) flags="$flags --max-spend $MAX_SPEND" ;;
+            esac
+          fi
+
           status=0
           skipped=""
           for name in $SELECTED; do

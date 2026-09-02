@@ -271,9 +271,16 @@ otherwise edits inside that block move no hash and its eval never fires.
 - **Nightly** for the classifier (`eval-stop-classifier.yml`, haiku, ~54 calls ≈ pennies).
   **Weekly** for the three sonnet evals over the full fixture sets (`eval-prompts.yml`, Mondays
   06:00 UTC), ~$1–2 each.
-- **Fork and Dependabot PRs have no key.** The job exits green with a loud warning rather than red:
-  this gate is a regression net for our own prompt edits, not a security boundary, and a check
-  nobody outside the repo can pass would block every fork PR.
+- **A gate that cannot run does not fail.** The eval exits `0` pass, `1` ran-and-missed, `2`
+  could-not-run, `3` harness-broken (`EXIT` in `scripts/eval-core.ts`), and the workflow branches on
+  those. Code `2` — no key (fork/Dependabot PRs), an exhausted API usage limit, a dead key, or rate
+  limiting that survived its retry — warns loudly and leaves the job green, because **nothing was
+  measured**: it says nothing about the prompt, and failing on it would block every unrelated PR
+  until the account can make calls again. Codes `1` and `3` fail the job.
+
+  The corollary is a rule this gate cannot enforce for itself: **a prompt change must not merge on a
+  skipped result.** When the warning appears, dispatch `eval-prompts.yml` once calls are possible
+  again and read the numbers before merging.
 
 ## Incidents become fixtures
 

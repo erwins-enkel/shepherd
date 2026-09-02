@@ -690,8 +690,35 @@ export function anthropicSend(apiKey: string): Send {
 }
 
 /**
- * Run the whole eval and exit with 0 (pass) / 1 (gating miss) / 2 (could not run). `send` is
- * injectable so a caller can drive the harness without network; the CLI path builds the real one.
+ * Exit codes, split so a CALLER can tell the three outcomes apart. The distinction is the whole
+ * point: a gate that reds because billing is exhausted says nothing about the prompt, and would
+ * block every unrelated PR until someone tops up.
+ */
+export const EXIT = {
+  /** Every gating fixture held. */
+  PASS: 0,
+  /** The eval RAN and the prompt missed — the real regression signal. */
+  GATE_FAIL: 1,
+  /** The eval COULD NOT RUN: no key, or an auth/billing/transport failure at the preflight.
+   *  Nothing was measured, so there is nothing to gate on. Callers should warn, not fail. */
+  CANNOT_RUN: 2,
+  /** The HARNESS is broken (no fixtures matched, or the preflight obtained no verdict at all).
+   *  Not a prompt result either — but it is our bug, and it must fail loudly. */
+  HARNESS_FAIL: 3,
+} as const;
+
+/** Does this transport error mean "the account cannot make calls right now"? Those are outages to
+ *  wait out, not prompt regressions: an exhausted usage limit, an invalid/expired key, a revoked
+ *  permission, or rate limiting that survived the retry. Matched on the API's own error text. */
+export function isCannotRun(message: string): boolean {
+  return /\b(401|403|429)\b|usage limits?|credit balance|quota|billing|rate.?limit|invalid x-api-key|authentication_error|permission_error/i.test(
+    message,
+  );
+}
+
+/**
+ * Run the whole eval. See {@link EXIT} for the exit codes. `send` is injectable so a caller can
+ * drive the harness without network; the CLI path builds the real one.
  */
 export async function runEval<F extends EvalFixtureBase>(
   spec: EvalSpec<F>,
@@ -709,7 +736,7 @@ export async function runEval<F extends EvalFixtureBase>(
         `${tag} no ANTHROPIC_API_KEY — cannot run the live eval. Set the key (or dispatch ` +
           `.github/workflows/eval-prompts.yml) and retry.`,
       );
-      return 2;
+      return EXIT.CANNOT_RUN;
     }
     transport = anthropicSend(apiKey);
   }
@@ -717,7 +744,7 @@ export async function runEval<F extends EvalFixtureBase>(
   const fixtures = selectFixtures(spec, run);
   if (fixtures.length === 0) {
     console.error(`${tag} no fixtures selected (--filter ${run.filter ?? "—"})`);
-    return 2;
+    return EXIT.HARNESS_FAIL;
   }
 
   // One task per trial, flattened across fixtures, so the pool below keeps every worker busy even
@@ -748,8 +775,17 @@ export async function runEval<F extends EvalFixtureBase>(
         captures.push(await attempt(first));
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+        if (isCannotRun(msg)) {
+          // The account cannot make calls at all (exhausted usage limit, dead key, rate limit that
+          // survived the retry). NOTHING was measured, so there is no verdict to gate on — say so
+          // and let the caller decide. Failing here would red every PR on a billing state.
+          console.error(
+            `${tag} CANNOT RUN — the eval never executed, so nothing was measured: ${msg}`,
+          );
+          return EXIT.CANNOT_RUN;
+        }
         console.error(`${tag} first call failed — aborting before spending on the rest: ${msg}`);
-        return 2;
+        return EXIT.CANNOT_RUN;
       }
       if (captures[captures.length - 1]!.toolUsed) break;
     }
@@ -763,7 +799,7 @@ export async function runEval<F extends EvalFixtureBase>(
           `stop_reason=${preflight.stopReason ?? "?"}\n` +
           `${tag}   model said instead: ${preflight.text || "(nothing)"}`,
       );
-      return 2;
+      return EXIT.HARNESS_FAIL;
     }
     outcomes[first.index]!.push(outcomeFrom(spec, first.fixture, preflight));
   }
@@ -815,7 +851,7 @@ export async function runEval<F extends EvalFixtureBase>(
       ? JSON.stringify(jsonReport(spec, results, decision, run), null, 2)
       : formatReport(spec, results, decision, run),
   );
-  return decision.pass ? 0 : 1;
+  return decision.pass ? EXIT.PASS : EXIT.GATE_FAIL;
 }
 
 /** CLI entry: run and exit. Kept separate from `runEval` so tests never call `process.exit`. */

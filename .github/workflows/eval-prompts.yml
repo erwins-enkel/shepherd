@@ -151,13 +151,35 @@ jobs:
             esac
           fi
 
+          # Exit codes (see EXIT in scripts/eval-core.ts):
+          #   0 pass · 1 the eval RAN and the prompt missed · 2 it COULD NOT RUN · 3 the harness broke
+          #
+          # 2 does NOT fail the job. An exhausted API usage limit, a dead key or a rate limit that
+          # survived its retry means nothing was measured — that says nothing about the prompt, and
+          # failing on it would block every unrelated PR until someone tops up the account. It is
+          # the same policy as the no-key branch above, applied to the other ways "cannot run"
+          # happens. The warning is loud, and the doc says a skipped gate must be dispatched
+          # manually before a prompt change merges.
           status=0
+          skipped=""
           for name in $SELECTED; do
             echo "::group::eval $name"
             # ONE run per eval. `--json` emits the human report on stderr (for this log) and the
             # JSON block on stdout (what the doc's baseline tables are transcribed from), so both
-            # artifacts come from a single paid pass. Its exit code is the gate.
-            bun run "eval:$name" $flags --json || status=1
+            # artifacts come from a single paid pass.
+            bun run "eval:$name" $flags --json
+            code=$?
             echo "::endgroup::"
+            case $code in
+              0) ;;
+              2) skipped="$skipped $name" ;;
+              *) status=1 ;;
+            esac
           done
+          if [ -n "$skipped" ]; then
+            echo "::warning title=Eval NOT run::These evals could not run (API usage limit, auth or" \
+                 "rate limiting) and therefore measured NOTHING:$skipped." \
+                 "A prompt change must not merge on this result — dispatch eval-prompts.yml once the" \
+                 "account can make calls again."
+          fi
           exit $status

@@ -1,10 +1,12 @@
 import { test, expect } from "bun:test";
 import {
   AGENT_SYSTEM_PROMPT,
+  EXIT,
   aggregate,
   buildRequestBody,
   captureFrom,
   decide,
+  isCannotRun,
   isVerdictWrite,
   majority,
   outcomeFrom,
@@ -612,7 +614,7 @@ test("runEval aborts on a failing FIRST call rather than burning the rest of the
     throw new Error("401 invalid x-api-key");
   };
   const spec = testSpec({ fixtures: [FIXTURE, { ...FIXTURE, id: "t2" }] });
-  expect(await runEval(spec, ["--trials", "3"], send)).toBe(2);
+  expect(await runEval(spec, ["--trials", "3"], send)).toBe(EXIT.CANNOT_RUN);
   // Exactly one attempt: no retry on the preflight, and no worker ever started.
   expect(calls).toBe(1);
 });
@@ -709,7 +711,8 @@ test("runEval aborts when the preflight obtains NO verdict, before spending on t
     };
   };
   const spec = testSpec({ fixtures: [FIXTURE, { ...FIXTURE, id: "t2" }] });
-  expect(await runEval(spec, ["--trials", "5"], send)).toBe(2);
+  // A harness failure, NOT "cannot run": our bug, so it must fail the gate loudly.
+  expect(await runEval(spec, ["--trials", "5"], send)).toBe(EXIT.HARNESS_FAIL);
   // Two attempts (one retry), then abort — not the 10 trials the run would otherwise have paid for.
   expect(calls).toBe(2);
 });
@@ -722,4 +725,38 @@ test("a verdict-less trial records why, so a log alone can diagnose it", async (
   const capture = await runTrial(send, spec, FIXTURE, "p", "m", 1);
   expect(capture.stopReason).toBe("end_turn");
   expect(capture.text).toContain("describe it instead");
+});
+
+test("an exhausted usage limit is CANNOT_RUN, not a gate failure", () => {
+  // The exact message the API returned when the workspace budget ran out mid-PR. Failing the gate
+  // on this would red every unrelated PR until someone tops the account up, while saying nothing
+  // whatsoever about the prompt.
+  expect(
+    isCannotRun(
+      'Anthropic API 400: {"type":"error","error":{"type":"invalid_request_error","message":"You have reached your specified workspace API usage limits. You will regain access on 2026-10-01 at 00:00 UTC."}}',
+    ),
+  ).toBe(true);
+  expect(isCannotRun("Anthropic API 401: invalid x-api-key")).toBe(true);
+  expect(isCannotRun("Anthropic API 429: rate_limit_error")).toBe(true);
+  expect(isCannotRun("Anthropic API 403: permission_error")).toBe(true);
+  // A genuine fault is NOT excused — those must still stop the run.
+  expect(isCannotRun("Anthropic API 500: internal server error")).toBe(false);
+  expect(isCannotRun("fetch failed: ECONNRESET")).toBe(false);
+});
+
+test("runEval reports CANNOT_RUN when the account cannot make calls at all", async () => {
+  const send: Send = async () => {
+    throw new Error(
+      "Anthropic API 400: You have reached your specified workspace API usage limits.",
+    );
+  };
+  expect(await runEval(testSpec(), ["--trials", "3"], send)).toBe(EXIT.CANNOT_RUN);
+});
+
+test("a filter that matches nothing is a HARNESS failure, not a silent skip", async () => {
+  expect(await runEval(testSpec(), ["--filter", "nope"], async () => ({}))).toBe(EXIT.HARNESS_FAIL);
+});
+
+test("the four exit codes stay distinct — the workflow branches on them", () => {
+  expect(new Set(Object.values(EXIT)).size).toBe(4);
 });

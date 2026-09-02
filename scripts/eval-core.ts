@@ -1,6 +1,6 @@
 // Generic live-model eval harness (issue #2156).
 //
-// The reusable half of the stop-classifier eval (#1626), lifted out so four prompts share one
+// The reusable half of the stop-classifier eval (#1626), lifted out so three prompts share one
 // runner: the autopilot stop-classifier, the plan-gate reviewer and the PR critic.
 // See `docs/eval-harness.md` for methodology, baselines, the pinned floors and the CI/cost
 // decision; `docs/eval-stop-classifier.md` still owns the classifier's own history.
@@ -868,13 +868,27 @@ export const EXIT = {
   HARNESS_FAIL: 3,
 } as const;
 
-/** Does this transport error mean "the account cannot make calls right now"? Those are outages to
- *  wait out, not prompt regressions: an exhausted usage limit, an invalid/expired key, a revoked
- *  permission, or rate limiting that survived the retry. Matched on the API's own error text. */
-export function isCannotRun(message: string): boolean {
-  return /\b(401|403|429)\b|usage limits?|credit balance|quota|billing|rate.?limit|invalid x-api-key|authentication_error|permission_error/i.test(
+/**
+ * PERMANENT for this run: the account will not start accepting calls again by waiting a few
+ * seconds. An exhausted usage limit, an invalid or expired key, a revoked permission. Retrying
+ * these just pays the backoff once per trial across the whole pool, so the worker gives up on them
+ * immediately.
+ *
+ * Deliberately NOT rate limiting: a 429 is the one case backoff exists for. Folding it in here made
+ * `isCannotRun`'s own "rate limiting that survived the retry" unreachable and let a single 429
+ * abort an entire run.
+ */
+export function isPermanent(message: string): boolean {
+  return /\b(401|403)\b|usage limits?|credit balance|quota|billing|invalid x-api-key|authentication_error|permission_error/i.test(
     message,
   );
+}
+
+/** Does this transport error mean "the account cannot make calls right now"? Those are outages to
+ *  wait out, not prompt regressions: everything {@link isPermanent} covers, plus rate limiting that
+ *  survived its retries. Matched on the API's own error text. */
+export function isCannotRun(message: string): boolean {
+  return isPermanent(message) || /\b429\b|rate.?limit/i.test(message);
 }
 
 /**
@@ -1009,9 +1023,9 @@ async function runEvalInner<F extends EvalFixtureBase>(
           capture = await attemptTrial(task);
         } catch (err) {
           lastError = err instanceof Error ? err.message : String(err);
-          // A permanent condition — exhausted usage limit, dead key, revoked permission — will not
-          // recover, so retrying it just burns the backoff once per trial across the whole pool.
-          if (isCannotRun(lastError)) break;
+          // A PERMANENT condition will not recover, so retrying it just burns the backoff once per
+          // trial across the pool. A 429 is explicitly not permanent — backoff is what it is for.
+          if (isPermanent(lastError)) break;
           if (attempt < ATTEMPTS_PER_TRIAL) {
             console.error(
               `${tag} ${task.fixture.id} trial ${task.trial + 1} attempt ${attempt} failed ` +

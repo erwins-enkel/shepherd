@@ -19,7 +19,7 @@ name: Eval — autopilot stop-classifier
 # reproducible way to capture a specific leg (notably the #1627 operator-language A/B).
 #
 # The two sonnet evals (plan-gate, critic) cost meaningfully more, so they run WEEKLY
-# from .github/workflows/eval-prompts.yml, which also owns the per-PR fingerprint gate for all four.
+# from .github/workflows/eval-prompts.yml, which also owns the per-PR fingerprint gate for all three.
 on:
   schedule:
     - cron: "0 6 * * *" # 06:00 UTC daily

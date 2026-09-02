@@ -11,7 +11,7 @@ remove the Herd Rundown`), so its prompt no longer exists to measure; its eval, 
 
 The classifier's own history, baseline and A/B methodology stay in
 **[`eval-stop-classifier.md`](./eval-stop-classifier.md)**; this document covers the shared harness
-and the three sets added by #2156.
+and the two sets added by #2156.
 
 | Eval              | Prompt builder                                       | Model              | Fixtures | Verdict file                 |
 | ----------------- | ---------------------------------------------------- | ------------------ | -------- | ---------------------------- |
@@ -275,7 +275,7 @@ otherwise edits inside that block move no hash and its eval never fires.
   to a few dollars worst case, and usually far less. A prompt change is a handful of PRs a year, not
   25 a month.
 - **Nightly** for the classifier (`eval-stop-classifier.yml`, haiku, ~54 calls ≈ pennies).
-  **Weekly** for the three sonnet evals over the full fixture sets (`eval-prompts.yml`, Mondays
+  **Weekly** for the two sonnet evals over the full fixture sets (`eval-prompts.yml`, Mondays
   06:00 UTC), ~$1–2 each.
 - **A gate that cannot run does not fail.** The eval exits `0` pass, `1` ran-and-missed, `2`
   could-not-run, `3` harness-broken (`EXIT` in `scripts/eval-core.ts`), and the workflow branches on

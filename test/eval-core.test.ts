@@ -10,6 +10,7 @@ import {
   decide,
   formatReport,
   isCannotRun,
+  isPermanent,
   isVerdictWrite,
   majority,
   outcomeFrom,
@@ -435,7 +436,7 @@ test("normalizeRender blanks nonce-shaped markers only", () => {
 });
 
 test("every eval's canonical renders embed the untrusted directive verbatim", () => {
-  // Therefore an edit to UNTRUSTED_CONTENT_DIRECTIVE necessarily moves all four fingerprints.
+  // Therefore an edit to UNTRUSTED_CONTENT_DIRECTIVE necessarily moves all three fingerprints.
   const names = Object.keys(CASES);
   expect(names.sort()).toEqual(["critic", "plan-gate", "stop-classifier"]);
   for (const [name, cases] of Object.entries(CASES)) {
@@ -466,7 +467,7 @@ test("changedEvals reports only the evals whose hash moved, and fails open on a 
 // Fixture-set invariants
 // ---------------------------------------------------------------------------
 
-/** Erase the fixture type so the four specs can be checked in one loop. The `as F` cast is safe
+/** Erase the fixture type so the three specs can be checked in one loop. The `as F` cast is safe
  *  because each closure only ever receives its own spec's fixtures. */
 function describeSpec<F extends EvalFixtureBase>(spec: EvalSpec<F>) {
   return {
@@ -669,6 +670,36 @@ test("a verdict-less trial records why, so a log alone can diagnose it", async (
   expect(capture.stopReason).toBe("end_turn");
   expect(capture.text).toContain("describe it instead");
 });
+
+test("a 429 is RETRIED, not treated as permanent — backoff is what it is for", async () => {
+  // Folding 429 into the permanent set made one rate-limit response abort an entire run, and made
+  // isCannotRun's own "rate limiting that survived the retry" unreachable.
+  expect(isPermanent("Anthropic API 429: rate_limit_error")).toBe(false);
+  expect(isCannotRun("Anthropic API 429: rate_limit_error")).toBe(true);
+  // Genuinely permanent conditions still short-circuit the retries.
+  for (const msg of [
+    "Anthropic API 401: invalid x-api-key",
+    "Anthropic API 403: permission_error",
+    "Anthropic API 400: You have reached your specified workspace API usage limits.",
+  ]) {
+    expect(isPermanent(msg)).toBe(true);
+  }
+
+  let calls = 0;
+  let injected = 0;
+  const send: Send = async () => {
+    calls++;
+    if (calls > 1 && injected < 2) {
+      injected++;
+      throw new Error("Anthropic API 429: rate_limit_error");
+    }
+    return write("verdict.json", '{"label":"ok"}');
+  };
+  const spec = testSpec({ fixtures: [FIXTURE] });
+  // A transient 429 must recover through the backoff rather than invalidating the run.
+  expect(await runEval(spec, ["--trials", "3", "--threshold", "1"], send)).toBe(EXIT.PASS);
+  expect(injected).toBe(2);
+}, 20_000);
 
 test("an exhausted usage limit is CANNOT_RUN, not a gate failure", () => {
   // The exact message the API returned when the workspace budget ran out mid-PR. Failing the gate
@@ -984,4 +1015,39 @@ test("a smoke report says what it gates on, so green is not read as a passed cor
   expect(out).toContain("SMOKE");
   expect(out).toContain("WELL-FORMEDNESS only");
   expect(out).toContain("NOT gated");
+});
+
+test("no comment or doc claims an eval count that disagrees with CASES", () => {
+  // Dropping the rundown left SEVEN stale "all four evals" claims across scripts, workflows and
+  // docs, and a reviewer had to find them. The count is derivable, so derive it: a number written
+  // next to "evals" in this surface has to match the number of evals that exist.
+  const expected = Object.keys(CASES).length;
+  // "one eval" is nearly always singular usage ("ONE run per eval"), not a claim about set size.
+  const WORDS: Record<string, number> = { two: 2, three: 3, four: 4, five: 5 };
+  const files = [
+    "scripts/eval-core.ts",
+    "scripts/gen-eval-fingerprints.ts",
+    "scripts/eval-critic.ts",
+    "scripts/eval-plan-gate.ts",
+    "scripts/eval-stop-classifier.ts",
+    ".github/workflows/eval-prompts.yml",
+    ".github/workflows/eval-stop-classifier.yml",
+    "docs/eval-harness.md",
+  ];
+  // Only phrasings that count THE EVALS. "three attempts", "three-month window", "four exit codes"
+  // and the like are about other things and must not be swept up.
+  const CLAIM =
+    /\b(two|three|four|five)[- ](?:evals|prompts|fingerprints|specs|eval push)\b|\ball (two|three|four|five) (?:evals|prompts|fingerprints|specs)\b/gi;
+  const wrong: string[] = [];
+  for (const file of files) {
+    const text = readFileSync(new URL(`../${file}`, import.meta.url), "utf8");
+    for (const m of text.matchAll(CLAIM)) {
+      const word = (m[1] ?? m[2] ?? "").toLowerCase();
+      const n = WORDS[word];
+      // The two sonnet evals are a genuine subset, not a claim about the whole set.
+      if (n === undefined || /sonnet/i.test(m[0])) continue;
+      if (n !== expected) wrong.push(`${file}: "${m[0]}" (there are ${expected})`);
+    }
+  }
+  expect(wrong).toEqual([]);
 });

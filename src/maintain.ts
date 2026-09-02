@@ -36,6 +36,7 @@ import type { BandReading, MaintainOutcome, MaintainRun, SignalKind } from "./ty
 import type { RoleEnvironment } from "./default-model";
 import { buildTransientAgentArgv } from "./transient-agent-argv";
 import { resolveAuxSpawn, type MembraneSeams } from "./spawn-membrane";
+import { reapTransientByLabel } from "./transient-tab-reaper";
 import {
   STARTUP_GRACE_MS,
   decideVerdictAction,
@@ -65,7 +66,7 @@ import {
 
 /** Herdr agent-name prefix. Unique per run (`__maintain__<8hex>`) so an orphaned pane from a prior
  *  lifetime can never squat the name a fresh spawn wants — the recurring `agent_name_taken` class. */
-const MAINTAIN_AGENT_LABEL = "__maintain__";
+export const MAINTAIN_AGENT_LABEL = "__maintain__";
 
 /** The label put on a filed issue, so the operator can filter the backlog for machine-opened work. */
 export const MAINTAIN_ISSUE_LABEL = "shepherd:maintain";
@@ -113,7 +114,10 @@ export type MaintainStore = Pick<
 >;
 
 export interface MaintainDeps extends MembraneSeams {
-  herdr: Pick<HerdrDriver, "start" | "stop" | "list" | "paneForegroundProcs">;
+  herdr: Pick<
+    HerdrDriver,
+    "start" | "stop" | "list" | "paneForegroundProcs" | "tabsAsync" | "closeTab"
+  >;
   worktree: Pick<WorktreeMgr, "createDetached" | "remove" | "ensureBaseRef" | "gitCommonDir">;
   store: MaintainStore;
   /** Shepherd's OWN checkout — the repo the diagnosis reads and the issue is filed against. */
@@ -261,7 +265,7 @@ export class MaintainService {
    *  breach, skip, spawn failure — counts as today's evaluation. */
   private claimToday(now: number): boolean {
     if (new Date(now).getHours() < this.sweepHour) return false;
-    // Presence-gated like the Herd Rundown: a spawn nobody is around to triage can wait a day.
+    // Presence-gated: a diagnosis spawn nobody is around to triage can wait a day.
     if (this.deps.isPresent && !this.deps.isPresent()) return false;
     const today = this.dayKey(now);
     if (this.deps.store.getSetting(SWEEP_DAY_KEY) === today) return false;
@@ -646,6 +650,13 @@ export class MaintainService {
    * immediately re-spawned.
    */
   async reapOrphans(): Promise<void> {
+    // Close the panes FIRST, and before any worktree is removed. A run interrupted by a restart
+    // still has a live `claude` in its tab: this process no longer owns its terminalId (MaintainRun
+    // persists only the agent name), so nothing else can reach it — `reapTransientByLabel` finds it
+    // by tab label instead. Removing the worktree first would leave that agent running with its cwd
+    // deleted underneath it. The owned set is empty because this only ever runs at boot, from
+    // `deferredStarts`, before this process has spawned anything.
+    await reapTransientByLabel(this.deps.herdr, MAINTAIN_AGENT_LABEL, new Set(), "[maintain]");
     for (const run of this.deps.store.listInflightMaintainRuns()) {
       if (this.inflight.has(run.bandKey)) continue;
       this.deps.store.finishMaintainRun(run.id, { outcome: "error", completedAt: this.now() });

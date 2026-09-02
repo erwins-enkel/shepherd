@@ -1,6 +1,6 @@
 /**
  * Pure helpers for the maintain loop (#2157, from #2151 R5) — no I/O, no DB, no spawn.
- * Mirrors `rundown-core.ts` / `critic-core.ts`: thresholds, evaluation, prompt, parse + clamp.
+ * Mirrors `critic-core.ts`: thresholds, evaluation, prompt, parse + clamp.
  *
  * Shepherd's Stage-6 machinery notifies and stops. This closes the loop with tiered thresholds on
  * Shepherd's OWN health data:

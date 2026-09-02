@@ -48,6 +48,11 @@ interface Harness {
   gitSha: { current: string };
   /** Whether the fake diagnosis pane still looks alive to isSpawnAlive. */
   agentAlive: { current: boolean };
+  /** Tabs herdr reports, and the ids reapTransientByLabel closed. */
+  tabs: { label: string; tabId: string }[];
+  closedTabs: string[];
+  /** Ordered trace of teardown calls, for the close-before-remove guarantee. */
+  order: string[];
   detached: { repoPath: string; branch: string; sha: string }[];
 }
 
@@ -67,6 +72,9 @@ function harness(over: Partial<MaintainDeps> = {}): Harness {
   const labelFails = { current: false };
   const gitSha = { current: "deadbeefcafe1234" };
   const agentAlive = { current: true };
+  const tabs: Harness["tabs"] = [];
+  const closedTabs: string[] = [];
+  const order: string[] = [];
   let nextIssue = 100;
 
   const forge = {
@@ -103,6 +111,11 @@ function harness(over: Partial<MaintainDeps> = {}): Harness {
           agentStatus: "idle",
         })),
       paneForegroundProcs: async () => (agentAlive.current ? ["claude"] : ["zsh"]),
+      tabsAsync: async () => tabs,
+      closeTab: async (tabId: string) => {
+        closedTabs.push(tabId);
+        order.push(`closeTab:${tabId}`);
+      },
     } as unknown as MaintainDeps["herdr"],
     worktree: {
       createDetached: async (repoPath: string, branch: string, sha: string, slug?: string) => {
@@ -115,6 +128,7 @@ function harness(over: Partial<MaintainDeps> = {}): Harness {
       },
       remove: (p: string) => {
         removed.push(p);
+        order.push(`remove:${p}`);
       },
       ensureBaseRef: async () => ({ baseRef: "deadbeefcafe" }),
       gitCommonDir: () => "/repos/shepherd/.git",
@@ -157,6 +171,9 @@ function harness(over: Partial<MaintainDeps> = {}): Harness {
     gitSha,
     detached,
     agentAlive,
+    tabs,
+    closedTabs,
+    order,
   };
 }
 
@@ -628,5 +645,65 @@ describe("diagnosis prompt window", () => {
     // first_pass_collapse is scored over the 30d delivery range; telling the agent 7 would put a
     // wrong window into the filed issue as its reasoning.
     expect(h.spawns[0]!.cwdPrompt.at(-1)!).toContain("the last 30 days");
+  });
+});
+
+describe("restart reconcile", () => {
+  it("closes the orphaned diagnosis tab, not just the worktree", async () => {
+    const prior = harness({ repoDelivery: collapsing });
+    await prior.svc.sweep();
+    const row = prior.store.listInflightMaintainRuns()[0]!;
+
+    const fresh = harness({ repoDelivery: collapsing });
+    fresh.store.insertMaintainRun(row);
+    // The prior lifetime's tab survives the restart; nothing in this process owns it.
+    fresh.tabs.push({ label: row.agentName, tabId: "tab-orphan" });
+    fresh.tabs.push({ label: "my-feature", tabId: "tab-user" });
+
+    await fresh.svc.reapOrphans();
+    // Without this the agent keeps running in a tab nothing ever closes.
+    expect(fresh.closedTabs).toEqual(["tab-orphan"]);
+    expect(fresh.removed).toContain(row.worktreePath);
+    expect(fresh.store.listInflightMaintainRuns()).toHaveLength(0);
+  });
+
+  it("closes the pane BEFORE deleting the worktree it is running in", async () => {
+    const prior = harness({ repoDelivery: collapsing });
+    await prior.svc.sweep();
+    const row = prior.store.listInflightMaintainRuns()[0]!;
+
+    const fresh = harness({ repoDelivery: collapsing });
+    fresh.store.insertMaintainRun(row);
+    fresh.tabs.push({ label: row.agentName, tabId: "tab-orphan" });
+
+    await fresh.svc.reapOrphans();
+    // Removing first would leave a live agent with its cwd deleted underneath it.
+    expect(fresh.order).toEqual(["closeTab:tab-orphan", `remove:${row.worktreePath}`]);
+  });
+
+  it("spares an ordinary user session tab", async () => {
+    const h = harness({ repoDelivery: collapsing });
+    h.tabs.push({ label: "maintain-the-thing", tabId: "tab-user" });
+    await h.svc.reapOrphans();
+    expect(h.closedTabs).toEqual([]);
+  });
+
+  it("survives herdr being unavailable at boot", async () => {
+    const prior = harness({ repoDelivery: collapsing });
+    await prior.svc.sweep();
+    const row = prior.store.listInflightMaintainRuns()[0]!;
+
+    const fresh = harness({
+      repoDelivery: collapsing,
+      herdr: {
+        tabsAsync: async () => {
+          throw new Error("herdr down");
+        },
+      } as unknown as MaintainDeps["herdr"],
+    });
+    fresh.store.insertMaintainRun(row);
+    // The tab reap is best-effort; the row must still settle so the band is not stuck in flight.
+    await fresh.svc.reapOrphans();
+    expect(fresh.store.listInflightMaintainRuns()).toHaveLength(0);
   });
 });

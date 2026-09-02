@@ -10,6 +10,7 @@ import {
 } from "../src/tab-reaper";
 import { PROBE_NAME } from "../src/usage-probe";
 import { DOC_AGENT_LABEL } from "../src/doc-agent";
+import { MAINTAIN_AGENT_LABEL } from "../src/maintain";
 import { DISTILL_LABEL } from "../src/distiller";
 import { OPTIMIZE_LABEL } from "../src/optimizer";
 import type { HerdrPane, HerdrTab } from "../src/herdr";
@@ -672,6 +673,10 @@ describe("isShepherdHelperLabel", () => {
     ["recommend TASK-09", "prompt recommender"],
     // #2158: New Task shaping round — no session yet, so the label carries a random suffix
     ["shape a1b2c3d4", "New Task shaping round"],
+    // #2157: maintain-loop diagnosis — same class; unregistered, a restart mid-diagnosis left an
+    // unattended agent in a tab no reaper could reach.
+    [MAINTAIN_AGENT_LABEL, "maintain diagnosis bare prefix (underscore marker)"],
+    [`${MAINTAIN_AGENT_LABEL}a1b2c3d4`, "maintain diagnosis unique label (prefix + 8hex suffix)"],
   ];
 
   for (const [label, desc] of trueLabels) {
@@ -693,6 +698,7 @@ describe("isShepherdHelperLabel", () => {
     ["name-my-thing", "hyphen instead of space — not a namer helper"],
     ["recommend-tweaks", "hyphen instead of space — not a recommender helper"],
     ["shape-the-intake", "hyphen instead of space — not a shaping helper"],
+    ["maintain", "slug form of MAINTAIN_AGENT_LABEL — must NOT be reaped"],
   ];
 
   for (const [label, desc] of falseLabels) {

@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import type { HerdrDriver, HerdrPane } from "./herdr";
 import { DOC_AGENT_LABEL } from "./doc-agent";
+import { MAINTAIN_AGENT_LABEL } from "./maintain";
 import { PROBE_NAME } from "./usage-probe";
 import { DISTILL_LABEL } from "./distiller";
 import { OPTIMIZE_LABEL } from "./optimizer";
@@ -58,6 +59,13 @@ export type ReapableHerdr = Pick<
  *  - {@link RECOMMEND_LABEL}`<desig>` — prompt recommender (prompt-recommend.ts, #1852)
  *  - {@link SHAPE_LABEL}`<n>`        — New Task shaping round (task-shape.ts, #2158)
  *  - {@link DOC_AGENT_LABEL}`<hex>`  — doc agent (doc-agent.ts, #2029)
+<<<<<<< HEAD
+||||||| parent of a6c3d1b3 (fix(maintain): close the orphaned diagnosis tab on the restart path)
+ *  - `rundown`           — herd-digest rundown (herd-digest.ts) — liveness-gated
+=======
+ *  - `rundown`           — herd-digest rundown (herd-digest.ts) — liveness-gated
+ *  - {@link MAINTAIN_AGENT_LABEL}`<hex>` — maintain-loop diagnosis (maintain.ts, #2157)
+>>>>>>> a6c3d1b3 (fix(maintain): close the orphaned diagnosis tab on the restart path)
  *
  *  **Read this against the TAB label, not a pane or agent label** (#2029). herdr 0.7.5 emits
  *  `label` on neither husk panes nor agent records; `tab.list` is the only surface that still
@@ -68,6 +76,7 @@ export function isShepherdHelperLabel(label: string): boolean {
     label === PROBE_NAME ||
     label.startsWith(DISTILL_LABEL) ||
     label.startsWith(DOC_AGENT_LABEL) ||
+    label.startsWith(MAINTAIN_AGENT_LABEL) ||
     label.startsWith(OPTIMIZE_LABEL) ||
     label.startsWith(MERGE_LABEL) ||
     label === VERIFY_KEY_LABEL ||

@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { effortBelowHigh } from "./effort-guidance";
+import { effortAvailableForProvider, effortBelowHigh, providerEfforts } from "./effort-guidance";
+
+describe("provider effort availability", () => {
+  it("offers xhigh but not max for Codex", () => {
+    expect(providerEfforts("codex")).toEqual(["low", "medium", "high", "xhigh"]);
+    expect(effortAvailableForProvider("codex", "xhigh")).toBe(true);
+    expect(effortAvailableForProvider("codex", "max")).toBe(false);
+  });
+});
 
 // Mirrors test/default-effort.test.ts (the canonical server helper). The critic guardrail (#1430)
 // treats any setting resolving below `high` — low, medium, AND "default" — as weakening PR review.

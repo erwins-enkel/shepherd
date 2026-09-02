@@ -1120,11 +1120,13 @@ test("generate: codex provider spawns headless `codex exec` (no claude flags)", 
   });
   await svc.regenerate(s);
   const argv = herdr.started[0]!.argv;
-  expect(argv.slice(0, 6)).toEqual([
+  expect(argv.slice(0, 8)).toEqual([
     "codex",
     "exec",
     "--sandbox",
     "workspace-write",
+    "--thread-source",
+    "shepherd_role",
     "-m",
     "gpt-5.5",
   ]);

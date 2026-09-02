@@ -324,6 +324,8 @@ test("distill spawn: a resolved Codex environment uses codex exec with its model
     "exec",
     "--sandbox",
     "workspace-write",
+    "--thread-source",
+    "shepherd_role",
     "-m",
     "gpt-5.5",
     "-c",

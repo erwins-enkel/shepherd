@@ -10,6 +10,8 @@
  *   working directory while blocking network egress and writes outside the workspace. This is the
  *   Codex analog of the Claude reviewer's read-only allowlist + `--permission-mode dontAsk` sandbox
  *   for inspecting UNTRUSTED input (a PR diff / agent-written plan).
+ * - `--thread-source shepherd_role` identifies every newly created helper thread explicitly. This
+ *   is separate from rollout `session_meta.source`, which remains `exec` for headless role spawns.
  * - The role PROMPT already instructs the agent to "write your verdict/result to <file>", so it is
  *   reused verbatim as the positional argument — the result contract is identical across CLIs.
  * - `-o <lastMessageFile>` makes the CLI write the agent's FINAL message to a file at exit,
@@ -31,7 +33,14 @@ export function codexRoleArgv(
   effort: string | null,
   lastMessageFile: string | null,
 ): string[] {
-  const argv = ["codex", "exec", "--sandbox", "workspace-write"];
+  const argv = [
+    "codex",
+    "exec",
+    "--sandbox",
+    "workspace-write",
+    "--thread-source",
+    "shepherd_role",
+  ];
   if (model) argv.push("-m", model);
   const tier = effortForSpawn("codex", effort);
   if (tier) argv.push("-c", `model_reasoning_effort=${tier}`);

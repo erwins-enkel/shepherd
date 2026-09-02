@@ -80,7 +80,7 @@
   });
 
   // Snap a now-unsupported effort tier back to "default" when the provider changes (e.g.
-  // switching to Codex drops an xhigh/max selection — mirrors NewTaskRunSettings).
+  // switching to Codex drops a max selection — mirrors NewTaskRunSettings).
   $effect(() => {
     if (!effortAvailableForProvider(agentProvider, effort)) effort = "default";
   });

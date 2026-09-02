@@ -286,3 +286,70 @@ closed as duplicates and as won't-fix alike, so the API field alone does not mea
 same session (§4); whether `xhigh`/`max`/`ultra` are accepted per model (§5); and whether a
 0.150.1-written `session_meta.source` still reads `"cli"` for an interactive spawn (§6, step 3). All
 three are named as spike/verify items rather than treated as established.
+
+## 7. Issue #2136 re-verification — 2026-09-02
+
+This supersedes the two unresolved assertions immediately above. `npm view @openai/codex
+dist-tags.latest` resolved to **0.152.1** immediately before the probe; the compatibility gate was
+the exact package **`@openai/codex@0.150.1`**. All runtime calls used this worktree as their cwd,
+short `Reply exactly OK.` prompts, `--sandbox read-only`, and before/after snapshots of
+`$CODEX_HOME/sessions/**/rollout-*.jsonl`. Session IDs, installation data, and paths are redacted.
+
+| exact CLI | controlled launch                    | `originator` | `source` | `thread_source` | cwd            |
+| --------- | ------------------------------------ | ------------ | -------- | --------------- | -------------- |
+| 0.150.1   | TUI                                  | `codex-tui`  | `cli`    | `user`          | same probe cwd |
+| 0.150.1   | `exec --thread-source shepherd_role` | `codex_exec` | `exec`   | `shepherd_role` | same probe cwd |
+| 0.152.1   | TUI                                  | `codex-tui`  | `cli`    | `user`          | same probe cwd |
+| 0.152.1   | `exec --thread-source shepherd_role` | `codex_exec` | `exec`   | `shepherd_role` | same probe cwd |
+
+The field separation is therefore measured, not inferred: custom `thread_source` labels a new exec
+thread and does **not** replace its process discriminator. Keep restore discovery keyed to
+`session_meta.source == "cli"`; activity resolution can remain `"exec" | "cli"`. The TUI startup did
+also create an ancillary `codex_exec` rollout with `thread_source="user"` while starting configured
+MCP servers, so probes select the controlled header by its launch/snapshot rather than assuming a
+TUI creates no other records.
+
+`codex exec --help` from both packages says `--thread-source <SOURCE>` is "Source classification for
+newly created or forked threads". The upstream thread metadata likewise stores session `source`
+separately from optional `thread_source` ([source](https://github.com/openai/codex/blob/main/codex-rs/state/src/model/thread_metadata.rs)).
+
+### Effort evidence and gate
+
+For each exact binary, an app-server stdio `initialize` / `initialized` / `model/list` exchange was
+used (rather than an SDK string union). Both queries returned the same live, account-scoped catalog
+below. `A` is advertised by `model/list`; `R` is a successful 0.150.1 `exec` boundary probe whose
+rollout recorded the requested effort. `minimal` was deliberately sent to Sol even though it was not
+advertised and was accepted (`R`); that parser/runtime observation is not permission to expose it.
+
+| Shepherd curated alias                                                    | 0.150.1 / 0.152.1 catalog                                                         | 0.150.1 boundary observation |
+| ------------------------------------------------------------------------- | --------------------------------------------------------------------------------- | ---------------------------- |
+| `gpt-5.6-sol`                                                             | A: low, medium, high, xhigh, max, ultra                                           | R: `minimal`, `ultra`        |
+| `gpt-5.6-terra`                                                           | A: low, medium, high, xhigh, max, ultra                                           | R: `ultra`                   |
+| `gpt-5.6-luna`                                                            | A: low, medium, high, xhigh, max                                                  | R: `max`                     |
+| `gpt-5.5`                                                                 | A: low, medium, high, xhigh                                                       | R: `xhigh`                   |
+| `gpt-5.4`                                                                 | A: low, medium, high, xhigh (catalog marks pending retirement)                    | R: `xhigh`                   |
+| `gpt-5.3-codex`, `gpt-5.1-codex`, `gpt-5-codex`, `gpt-5.1`, `gpt-5`, `o3` | unavailable in this account/catalog (a distinct `gpt-5.3-codex-spark` was listed) | not inferred/probed          |
+
+Thus the 0.150.1 all-available-model gate passes **xhigh** but fails for `max` (not advertised by
+5.5/5.4) and `ultra` (not advertised by Luna/5.5/5.4). `minimal` is absent from every advertised
+set despite the one acceptance probe. This is enough to lift an `xhigh` clamp if code changes are
+otherwise approved, but requires retaining provider-wide hiding/clamping of `max` and excluding
+`ultra` and `minimal`; later CLI support alone cannot change that decision. The latest comparison
+did not change the catalog or source-field conclusion.
+
+Reproducible forms (with a dedicated cwd and redacted header inspection):
+
+```sh
+npm view @openai/codex dist-tags.latest --json
+npx --yes @openai/codex@0.150.1 --no-alt-screen --dangerously-bypass-approvals-and-sandbox 'Reply exactly OK.'
+npx --yes @openai/codex@0.150.1 exec --sandbox read-only --thread-source shepherd_role \
+  -m gpt-5.6-sol -c model_reasoning_effort=ultra 'Reply exactly OK.'
+# Repeat with @openai/codex@0.152.1; snapshot rollout paths before/after each launch.
+```
+
+Limitations: `model/list` is live account metadata and aliases unavailable to this account are not
+negative capability claims. Boundary probes establish that the exact binary/backend accepted the
+request and persisted the requested effort, not that every unadvertised custom effort has a stable
+model contract. Official model documentation is likewise model-specific (for example,
+[GPT-5.3-Codex](https://developers.openai.com/api/docs/models/gpt-5.3-codex)); do not substitute a
+global SDK union for catalog plus runtime evidence.

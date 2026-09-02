@@ -76,8 +76,8 @@ describe("effortForSpawn (argv-build seam)", () => {
   test("Claude passes every tier through (CLI self-clamps unsupported models)", () => {
     for (const tier of EFFORTS) expect(effortForSpawn("claude", tier)).toBe(tier);
   });
-  test("Codex clamps xhigh/max → high, others pass through", () => {
-    expect(effortForSpawn("codex", "xhigh")).toBe("high");
+  test("Codex passes xhigh through, clamps max → high, and passes lower tiers through", () => {
+    expect(effortForSpawn("codex", "xhigh")).toBe("xhigh");
     expect(effortForSpawn("codex", "max")).toBe("high");
     expect(effortForSpawn("codex", "low")).toBe("low");
     expect(effortForSpawn("codex", "medium")).toBe("medium");
@@ -89,8 +89,8 @@ describe("effortsForProvider", () => {
   test("Claude exposes all tiers", () => {
     expect(effortsForProvider("claude")).toEqual(EFFORTS);
   });
-  test("Codex hides xhigh and max", () => {
-    expect(effortsForProvider("codex")).toEqual(["low", "medium", "high"]);
+  test("Codex exposes xhigh and hides max", () => {
+    expect(effortsForProvider("codex")).toEqual(["low", "medium", "high", "xhigh"]);
   });
 });
 

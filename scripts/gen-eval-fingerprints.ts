@@ -64,6 +64,14 @@ const NOTES = ["Reworked the cutoff to compare timestamps."];
 const TAIL = ["The rate limiter is implemented and the tests pass.", "Ready to commit now? (y/n)"];
 const DIFF_BASE = "origin/main";
 
+const REVIEW_POLICY = "# REVIEW.md\n\nPrefer small PRs. Flag any new dependency.";
+const HOUSE_RULES =
+  "<shepherd-house-rules>\n- Guard every plan-phase branch.\n</shepherd-house-rules>";
+
+/** Hold reason, so `renderHold` — which rewrites a session's `hold` into a `why` line — is
+ *  exercised. Untouched by any other case, so an edit to its prose would otherwise move no hash. */
+const HOLD = { code: "plan-question" as const };
+
 const EPIC = {
   base: "epic/2156-eval-harness",
   baseSha: "0f1e2d3c4b5a69788796a5b4c3d2e1f000112233",
@@ -117,7 +125,9 @@ const RUNDOWN_STATE_FULL: AssembledHerdState = {
 /**
  * The canonical render set, per eval. Coverage notes name the conditional block each case exists
  * for — when a builder grows a new conditional block, add a case here so edits inside it move the
- * hash. `test/eval-core.test.ts` asserts each flag actually changes its eval's fingerprint.
+ * hash, or that prose can be rewritten with the freshness gate staying green and the eval never
+ * running. `test/eval-core.test.ts` CHECKS this invariant rather than trusting it: it asserts that
+ * a string from each named block actually appears in some render.
  */
 export const CASES: Record<string, Case[]> = {
   "stop-classifier": [
@@ -154,6 +164,36 @@ export const CASES: Record<string, Case[]> = {
   ],
   critic: [
     { name: "session-minimal", render: () => reviewPrompt(DIFF_BASE, TASK) },
+    // #2154's two repo-policy blocks: reviewPolicyBlock and reviewerHouseRulesBlock. Neither is
+    // reachable from any other case, so without this an edit to either renders no hash change.
+    {
+      name: "session-repo-policy",
+      render: () =>
+        reviewPrompt(DIFF_BASE, TASK, [], [], null, null, {
+          reviewPolicy: REVIEW_POLICY,
+          houseRules: HOUSE_RULES,
+        }),
+    },
+    // epicBlock has THREE mutually exclusive headers, keyed on the base delta. `session-full`
+    // covers the known-stale one; these cover current-with-base and could-not-enumerate.
+    {
+      name: "session-epic-current",
+      render: () =>
+        reviewPrompt(DIFF_BASE, TASK, [], [], null, {
+          ...EPIC,
+          delta: { paths: [], pathsTruncated: 0, commits: [], commitsTruncated: 0 },
+        }),
+    },
+    {
+      name: "session-epic-unknown-delta",
+      render: () => reviewPrompt(DIFF_BASE, TASK, [], [], null, { ...EPIC, delta: null }),
+    },
+    // baseSha null -> the degraded mode that drops the base-inspection machinery entirely.
+    {
+      name: "session-epic-no-base-sha",
+      render: () =>
+        reviewPrompt(DIFF_BASE, TASK, [], [], null, { ...EPIC, baseSha: null, delta: null }),
+    },
     // Plan block + clamp note + prior findings + author notes + issue + epic + round + smell lens.
     {
       name: "session-full",
@@ -167,6 +207,14 @@ export const CASES: Record<string, Case[]> = {
         }),
     },
     { name: "pr-minimal", render: () => prReviewPrompt(DIFF_BASE, "Add --since", "") },
+    {
+      name: "pr-repo-policy",
+      render: () =>
+        prReviewPrompt(DIFF_BASE, "Add --since", ISSUE, null, null, {
+          reviewPolicy: REVIEW_POLICY,
+          houseRules: HOUSE_RULES,
+        }),
+    },
     // The epic-child block on the standalone critic.
     { name: "pr-epic", render: () => prReviewPrompt(DIFF_BASE, "Add --since", ISSUE, EPIC, null) },
     // The mutually-exclusive landing block.
@@ -183,6 +231,37 @@ export const CASES: Record<string, Case[]> = {
     { name: "minimal", render: () => buildRundownPrompt(RUNDOWN_STATE, "en") },
     // Epic blocks (paused / ready / CI-failing) + the truncation notice.
     { name: "full", render: () => buildRundownPrompt(RUNDOWN_STATE_FULL, "en") },
+    // pauseReasonLabel has three strings and RUNDOWN_STATE_FULL only reaches "cap"; a held session
+    // reaches renderHold. Both are used by the fixture set, so both must move a hash when edited.
+    {
+      name: "pause-reasons-and-hold",
+      render: () =>
+        buildRundownPrompt(
+          {
+            ...RUNDOWN_STATE_FULL,
+            sessions: [{ ...RUNDOWN_STATE.sessions[0]!, hold: HOLD }],
+            epics: [
+              {
+                repo: "/repo",
+                parent: 40,
+                title: "Conflict",
+                landingPr: 41,
+                stranded: false,
+                pausedReason: "conflict",
+              },
+              {
+                repo: "/repo",
+                parent: 50,
+                title: "Driver",
+                landingPr: 51,
+                stranded: false,
+                pausedReason: "driver",
+              },
+            ],
+          },
+          "en",
+        ),
+    },
     { name: "de", render: () => buildRundownPrompt(RUNDOWN_STATE_FULL, "de") },
   ],
 };

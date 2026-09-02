@@ -942,3 +942,52 @@ test("the fixture shell answers the orientation commands an agent opens with", (
   // Compound commands are evaluated piecewise, with `cd` dropped (there is one tree).
   expect(respondFromEnv(env, "Bash", { command: "cd /repo && pwd; echo done" })).toContain("done");
 });
+
+test("every path a critic fixture's diff touches resolves in its worktree", () => {
+  // The incoherent-worktree failure, generalized so it cannot come back one fixture at a time:
+  // `git diff` shows a patch for a file that `Read`/`ls` says is not there. `addedFiles()` covers
+  // CREATED files; a MODIFIED file's post-image cannot be recovered from the diff, so the fixture
+  // has to supply it.
+  for (const fixture of CRITIC_SPEC.fixtures) {
+    const diff = fixture.env.diff ?? "";
+    const touched = [...diff.matchAll(/^diff --git a\/\S+ b\/(\S+)$/gm)].map((m) => m[1]!);
+    expect(touched.length).toBeGreaterThan(0);
+    for (const path of touched) {
+      const read = respondFromEnv(fixture.env, "Read", { file_path: path });
+      expect(`${fixture.id}: ${path} -> ${read.slice(0, 40)}`).not.toContain("does not exist");
+    }
+    // And the tree must not look empty while a patch exists.
+    expect(respondFromEnv(fixture.env, "Bash", { command: "git ls-files" })).not.toBe(
+      "(no output)",
+    );
+  }
+});
+
+test("CASES actually meets the coverage invariant it states", () => {
+  // The invariant is only worth stating if it is checked: prose that no canonical case renders can
+  // be edited freely, leaving check:eval-fingerprints green and eval-prompts.yml running nothing.
+  // Each string below lives in exactly one conditional block of a prompt builder.
+  const rendered = Object.fromEntries(
+    Object.entries(CASES).map(([name, cases]) => [name, cases.map((c) => c.render()).join("\n")]),
+  );
+  const covers = (evalName: string, needle: string) =>
+    expect(`${evalName} covers: ${needle}`).toBe(
+      rendered[evalName]!.includes(needle)
+        ? `${evalName} covers: ${needle}`
+        : `${evalName} DOES NOT COVER: ${needle}`,
+    );
+
+  // #2154 repo-policy blocks — reachable only via opts.reviewPolicy / opts.houseRules.
+  covers("critic", "REVIEW.md");
+  covers("critic", "shepherd-house-rules");
+  // epicBlock's three mutually exclusive headers.
+  covers("critic", "carries NO content your fork point does not already have");
+  covers("critic", "Sibling children have ALREADY MERGED");
+  covers("critic", "the delta could NOT be enumerated here");
+  // pauseReasonLabel's three strings — the fixture set uses all three.
+  covers("rundown", "rebase cap exhausted");
+  covers("rundown", "genuine merge conflict");
+  covers("rundown", "merge driver unavailable");
+  // renderHold rewrites a held session into a `why` line.
+  covers("rundown", '"why"');
+});

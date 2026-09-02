@@ -104,6 +104,57 @@ export class PrettierFormatError extends Error {
   }
 }
 
+/** Repo-relative path of the COMMITTED Docs manifest the doc agent keeps fresh (issue #2163). */
+const DOCS_MANIFEST = "ui/src/lib/docs-manifest.ts";
+
+/** Repo-relative path of the generator that (re)writes {@link DOCS_MANIFEST}. Its absence is the
+ *  layout guard (sibling of {@link DOC_TREE_MARKER}): a managed repo without Shepherd's `ui/` tree
+ *  has no manifest to keep fresh, so the regen is skipped rather than failed. */
+const DOCS_MANIFEST_GENERATOR = "ui/scripts/gen-docs-manifest.ts";
+
+/** Regenerate {@link DOCS_MANIFEST} inside `worktreePath`.
+ *
+ * WHY: that manifest is a committed artifact derived from every committed docs page's frontmatter
+ * `description` + its H2/H3 headings — and `docs-site/scripts/sync-docs.mjs` publishes `CLAUDE.md`
+ * and every `.claude/rules/*.md` as such a page too. A doc edit that adds or renames a heading
+ * therefore leaves the manifest stale and `check:docs-manifest` red. Without this the red landed on
+ * the doc agent's OWN commit, two hops and one author away from the change that caused it (#2163).
+ *
+ * WHY THE PRETTIER PIN: the disposable worktree has NO node_modules — every transient agent spawns
+ * with `disableAllHooks` (transient-agent-argv.ts), so the repo's ensure-deps SessionStart hook
+ * never runs there. Bun would then silently satisfy the generator's bare `import("prettier")` by
+ * AUTO-INSTALLING prettier from its global cache: an unpinned version whose formatting can differ
+ * from the repo's, emitting a manifest that fails its own `--check` — i.e. re-creating the very
+ * failure this closes. `SHEPHERD_PRETTIER_MODULE` pins the server install's copy instead.
+ *
+ * `cwd` is SERVER_INSTALL_ROOT for the same reason as {@link defaultPrettierWrite}: prettier
+ * resolves the bare plugin specifiers in `.prettierrc` relative to cwd. That does NOT retarget the
+ * generator — it derives the repo root from its own `import.meta.url`, so running the WORKTREE's
+ * copy from a foreign cwd still reads and writes the worktree. `process.execPath` is this server's
+ * own bun binary, so the spawn does not depend on `bun` being on the service's PATH. */
+async function defaultGenDocs(args: { worktreePath: string }): Promise<void> {
+  await execFileP(process.execPath, ["run", join(args.worktreePath, DOCS_MANIFEST_GENERATOR)], {
+    cwd: SERVER_INSTALL_ROOT,
+    env: {
+      ...process.env,
+      SHEPHERD_PRETTIER_MODULE: join(SERVER_INSTALL_ROOT, "node_modules", "prettier", "index.mjs"),
+    },
+  });
+}
+
+/** Thrown by stageInScope when the Docs-manifest regen fails, so finalize can fail-closed the same
+ *  way it does for {@link PrettierFormatError}: abort the run (no commit/push/PR) and record an
+ *  `error` outcome. A skipped doc update beats a doc PR that lands `check:docs-manifest` red. */
+export class DocsManifestError extends Error {
+  constructor(
+    readonly repoPath: string,
+    options?: { cause?: unknown },
+  ) {
+    super(`docs-manifest regeneration failed for ${repoPath}`, options);
+    this.name = "DocsManifestError";
+  }
+}
+
 /** Prefix for ephemeral doc-agent herdr names. Each run appends 8 hex of a fresh UUID so an
  *  orphaned husk (after a restart) can NEVER squat a stable name — a re-spawn always gets a new
  *  name, so `agent_name_taken` is impossible by construction (the distiller's fix; see
@@ -256,6 +307,8 @@ export interface DocAgentDeps extends MembraneSeams {
   dayKey?: (now: number) => string;
   git?: (cwd: string, args: string[]) => Promise<string>;
   prettier?: (args: { cwd: string; configPath: string; files: string[] }) => Promise<void>;
+  /** Regenerate the committed Docs manifest in the worktree (default {@link defaultGenDocs}). */
+  genDocs?: (args: { worktreePath: string }) => Promise<void>;
   fileExists?: (p: string) => boolean;
   readSentinel?: (worktreePath: string) => string | null;
   /** Cached PR state per session (Task 2 wires it to `prPoller.get`). The re-target sweep reads it
@@ -292,10 +345,10 @@ export interface DocAgentDeps extends MembraneSeams {
  * list`).
  */
 function computeDocAgentOutcome(
-  result: { url: string | null; hadStagedChanges: boolean; prettierFailed: boolean },
+  result: { url: string | null; hadStagedChanges: boolean; stageFailed: boolean },
   act: boolean,
 ): DocAgentOutcome {
-  if (result.prettierFailed) return "error";
+  if (result.stageFailed) return "error";
   if (result.url !== null) return "pr";
   if (result.hadStagedChanges && !act) return "observe";
   return "nochange";
@@ -306,6 +359,7 @@ export class DocAgentService {
   private starting = new Set<string>();
   private git: (cwd: string, args: string[]) => Promise<string>;
   private prettier: (args: { cwd: string; configPath: string; files: string[] }) => Promise<void>;
+  private genDocs: (args: { worktreePath: string }) => Promise<void>;
   private now: () => number;
   private timeoutMs: number;
   private nightlyHour: number;
@@ -324,6 +378,7 @@ export class DocAgentService {
   constructor(private deps: DocAgentDeps) {
     this.git = deps.git ?? defaultGit;
     this.prettier = deps.prettier ?? defaultPrettierWrite;
+    this.genDocs = deps.genDocs ?? defaultGenDocs;
     this.now = deps.now ?? Date.now;
     this.timeoutMs = deps.timeoutMs ?? 20 * 60 * 1000;
     this.nightlyHour = deps.nightlyHour ?? 3;
@@ -845,6 +900,10 @@ export class DocAgentService {
    * Astro/Starlight-governed and must NEVER be passed to root prettier. Prettier is fail-closed: a
    * format OR verify failure throws {@link PrettierFormatError}, which finalize catches to abort the
    * run (no commit/push/PR) and record an `error` outcome. A skipped doc update beats a red PR.
+   *
+   * When the in-scope staging DID change something, {@link stageDocsManifest} then regenerates and
+   * stages the committed Docs manifest the edit may have made stale, under the same fail-closed
+   * posture, and the returned diff includes it.
    */
   private async stageInScope(f: InFlight): Promise<string> {
     const inScope = IN_SCOPE_PATHS.filter((p) => this.fileExists(join(f.worktreePath, p)));
@@ -866,18 +925,53 @@ export class DocAgentService {
       }
     }
     await this.git(f.worktreePath, ["add", "--", ...inScope]);
+    const staged = (await this.git(f.worktreePath, ["diff", "--cached", "--name-only"])).trim();
+    if (staged.length === 0) return staged; // nothing changed — no PR, and nothing to keep in sync
+    return (await this.stageDocsManifest(f)) ?? staged;
+  }
+
+  /**
+   * Regenerate the committed Docs manifest and stage it alongside the doc changes, so the doc
+   * agent's own commit can never carry the drift its edit just created (issue #2163). Returns the
+   * re-read staged list, or null when the repo has no generator (layout guard).
+   *
+   * Runs ONLY once the in-scope staging has produced changes. That saves a subprocess on the common
+   * no-op run, and — more importantly — stops a run whose docs are unchanged from opening a
+   * manifest-ONLY PR whenever `main`'s manifest is already stale for an unrelated reason.
+   *
+   * No path filter: the manifest's inputs span {@link IN_SCOPE_PATHS} *and* the sync-docs `PAGES`
+   * sources, so a second list deciding "is this a manifest input?" would have to track both and
+   * would rot silently. One unconditional regen on a run that already has changes is cheaper than
+   * that. The regen is idempotent, so staging it is a no-op when nothing actually drifted.
+   */
+  private async stageDocsManifest(f: InFlight): Promise<string | null> {
+    if (!this.fileExists(join(f.worktreePath, DOCS_MANIFEST_GENERATOR))) {
+      console.log(
+        `[doc-agent] ${f.repoPath} has no ${DOCS_MANIFEST_GENERATOR} — skipping docs-manifest regen`,
+      );
+      return null;
+    }
+    try {
+      await this.genDocs({ worktreePath: f.worktreePath });
+    } catch (err) {
+      // Fail-closed, same posture as prettier: finalize catches this, records an `error` outcome
+      // and cleans up. A skipped doc update beats a doc PR that lands check:docs-manifest red.
+      throw new DocsManifestError(f.repoPath, { cause: err });
+    }
+    await this.git(f.worktreePath, ["add", "--", DOCS_MANIFEST]);
     return (await this.git(f.worktreePath, ["diff", "--cached", "--name-only"])).trim();
   }
 
   /** Stage the in-scope docs and publish them. Returns the run's url (null if nothing
-   *  published / observe phase), whether anything was staged, and whether prettier aborted
-   *  the run (fail-closed). A non-PrettierFormatError propagates (handled by tick()). */
+   *  published / observe phase), whether anything was staged, and whether a fail-closed staging
+   *  abort (prettier or the docs-manifest regen) killed the run. Any other error propagates
+   *  (handled by tick()). */
   private async stageAndPublish(
     f: InFlight,
     sentinel: string | null,
-  ): Promise<{ url: string | null; hadStagedChanges: boolean; prettierFailed: boolean }> {
+  ): Promise<{ url: string | null; hadStagedChanges: boolean; stageFailed: boolean }> {
     const forge = this.deps.resolveForge(f.repoPath);
-    if (!forge) return { url: null, hadStagedChanges: false, prettierFailed: false };
+    if (!forge) return { url: null, hadStagedChanges: false, stageFailed: false };
     let stagedOut: string;
     try {
       stagedOut = await this.stageInScope(f);
@@ -887,22 +981,27 @@ export class DocAgentService {
           `[doc-agent] aborting run — prettier failed for ${f.repoPath}; refusing to commit unformatted docs (fail-closed): ${err.files.join(", ")}`,
           err.cause ?? err,
         );
-        return { url: null, hadStagedChanges: false, prettierFailed: true };
+        return { url: null, hadStagedChanges: false, stageFailed: true };
+      }
+      if (err instanceof DocsManifestError) {
+        console.error(
+          `[doc-agent] aborting run — ${DOCS_MANIFEST} regen failed for ${f.repoPath}; refusing to commit docs that would land check:docs-manifest red (fail-closed)`,
+          err.cause ?? err,
+        );
+        return { url: null, hadStagedChanges: false, stageFailed: true };
       }
       throw err; // unexpected — keep existing propagate-to-tick() behaviour
     }
-    if (stagedOut.length === 0)
-      return { url: null, hadStagedChanges: false, prettierFailed: false };
+    if (stagedOut.length === 0) return { url: null, hadStagedChanges: false, stageFailed: false };
     const url =
       f.mode === "retarget"
         ? await this.publishRetarget(f, sentinel, forge, stagedOut)
         : await this.publishStaged(f, sentinel, forge, stagedOut);
-    return { url, hadStagedChanges: true, prettierFailed: false };
+    return { url, hadStagedChanges: true, stageFailed: false };
   }
 
   private async finalize(f: InFlight, sentinel: string | null): Promise<void> {
-    let result:
-      { url: string | null; hadStagedChanges: boolean; prettierFailed: boolean } | undefined;
+    let result: { url: string | null; hadStagedChanges: boolean; stageFailed: boolean } | undefined;
     try {
       result = await this.stageAndPublish(f, sentinel);
     } finally {

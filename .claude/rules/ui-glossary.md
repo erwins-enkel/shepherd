@@ -17,3 +17,7 @@ Shepherd UI text can mark defined terms with a dashed underline; hovering or tap
 ## Gate
 
 `scripts/check-glossary.mjs` enforces referential integrity: every `[[id|…]]` marker resolves to a registry entry, every `termKey`/`bodyKey` exists in both locale catalogs, and every `external` term has both Wikipedia slugs. Structure only — prose quality is on author + review.
+
+**Documenting the term on the docs site also makes a generated file stale.** The docs-site glossary page (`docs-site/src/content/docs/reference/glossary.md`) gives each term its own `###` heading, and `ui/scripts/gen-docs-manifest.ts` derives the command bar's Docs-group keywords from every docs page's frontmatter `description` + its H2/H3 headings into the **committed** `ui/src/lib/docs-manifest.ts`. Adding or renaming a heading there makes that manifest stale and `check:docs-manifest` fails in `verify` — often on a later commit by a different author than the glossary change that caused it. Whoever edits the page runs `bun run gen:docs` from `ui/` and commits `ui/src/lib/docs-manifest.ts` in the same commit. The doc agent does this itself; a hand edit does not.
+
+The same applies to **this file**: `docs-site/scripts/sync-docs.mjs` publishes `CLAUDE.md` and every `.claude/rules/*.md` as a docs-site page, so adding or renaming a heading here feeds the manifest too. Body prose under an existing heading does not.

@@ -9,6 +9,7 @@ import {
   DOC_AGENT_LABEL,
   SERVER_INSTALL_ROOT,
   PrettierFormatError,
+  DocsManifestError,
   assertPrettierClean,
   defaultPrettierWrite,
   isDocRelevantMerge,
@@ -52,6 +53,12 @@ interface PrettierCall {
   gitOpsAtCall: string[];
 }
 
+interface GenDocsCall {
+  worktreePath: string;
+  /** Snapshot of gitCalls op-target pairs at the instant genDocs was called (ordering assertions). */
+  gitCallsAtCall: string[][];
+}
+
 interface SpawnRow {
   reviewerSessionId: string;
   taskSessionId: string;
@@ -72,6 +79,7 @@ interface Harness {
   svc: DocAgentService;
   gitCalls: GitCall[];
   prettierCalls: PrettierCall[];
+  genDocsCalls: GenDocsCall[];
   starts: { name: string; cwd: string }[];
   closedTabs: string[];
   removedWorktrees: string[];
@@ -183,6 +191,10 @@ function mkHarness(opts?: {
   forEachRefStdout?: string;
   /** When true, the injected prettier stub throws (exercises the best-effort failure path). */
   prettierThrows?: boolean;
+  /** When true, the injected genDocs stub throws (exercises the fail-closed manifest path). */
+  genDocsThrows?: boolean;
+  /** Whether ui/scripts/gen-docs-manifest.ts exists in the worktree (the regen layout guard). */
+  manifestGeneratorPresent?: boolean;
   /** Sessions the re-target sweep iterates (store.list()). */
   sessions?: Session[];
   /** Cached PR state per session id (the gitState seam). */
@@ -230,6 +242,8 @@ function mkHarness(opts?: {
     defaultBranchThrows: false,
     forEachRefStdout: "",
     prettierThrows: false,
+    genDocsThrows: false,
+    manifestGeneratorPresent: true,
     sessions: [] as Session[],
     gitStateById: {} as Record<string, GitState | undefined>,
     markerFiles: {} as Record<string, string>,
@@ -246,6 +260,7 @@ function mkHarness(opts?: {
 
   const gitCalls: GitCall[] = [];
   const prettierCalls: PrettierCall[] = [];
+  const genDocsCalls: GenDocsCall[] = [];
   const starts: { name: string; cwd: string }[] = [];
   const startArgs: { name: string; cwd: string; argv: string[] }[] = [];
   const markers = new Map<string, string>(Object.entries(o.markerFiles));
@@ -469,11 +484,19 @@ function mkHarness(opts?: {
       prettierCalls.push({ ...args, gitOpsAtCall: gitCalls.map((c) => c.args[0]!) });
       if (o.prettierThrows) throw new Error("prettier failed (stub)");
     },
+    genDocs: async (args) => {
+      genDocsCalls.push({
+        worktreePath: args.worktreePath,
+        gitCallsAtCall: gitCalls.map((c) => c.args),
+      });
+      if (o.genDocsThrows) throw new Error("gen:docs failed (stub)");
+    },
     detectBackend: () => null,
     membraneEnv: () => ({ claudeDir: "/c", home: "/h", nodeBinReal: "/n", extraEnv: {} }),
     runSpawnHooks: o.runSpawnHooks as DocAgentDeps["runSpawnHooks"],
     fileExists: (p: string) => {
       if (p.endsWith("docs-site/src/content/docs")) return o.docTreePresent;
+      if (p.endsWith("ui/scripts/gen-docs-manifest.ts")) return o.manifestGeneratorPresent;
       return o.inScopeFilesPresent;
     },
     readSentinel: () => o.sentinel,
@@ -501,6 +524,7 @@ function mkHarness(opts?: {
     svc,
     gitCalls,
     prettierCalls,
+    genDocsCalls,
     starts,
     closedTabs,
     removedWorktrees,
@@ -1114,6 +1138,92 @@ test("prettier regression: docs-site paths are never passed to prettier", async 
   for (const f of call.files) {
     expect(f).not.toContain("docs-site");
   }
+});
+
+// ── docs-manifest regen (#2163) ────────────────────────────────────────────────
+// The manifest is a COMMITTED artifact derived from every docs page's frontmatter description +
+// H2/H3 headings, so a doc edit that touches a heading leaves it stale and check:docs-manifest red
+// — historically on the doc agent's own commit. finalize now regenerates + stages it.
+
+const MANIFEST = "ui/src/lib/docs-manifest.ts";
+
+/** The `git add -- <path>` calls issued during a run, as their single path argument. */
+function addedPaths(gitCalls: { args: string[] }[]): string[] {
+  return gitCalls.filter((c) => c.args[0] === "add").flatMap((c) => c.args.slice(2));
+}
+
+test("docs-manifest: regenerated and staged once the in-scope staging produced changes", async () => {
+  const h = mkHarness({ act: true });
+  await h.svc.consider("/repo");
+  await h.svc.tick();
+
+  expect(h.genDocsCalls).toHaveLength(1);
+  expect(h.genDocsCalls[0]!.worktreePath).toMatch(/^\/wt\/docs-update-[0-9a-f]{8}$/);
+  expect(addedPaths(h.gitCalls)).toContain(MANIFEST);
+  // The run still publishes normally, with the manifest carried in the same commit.
+  expect(h.finalizes[0]!.outcome).toBe("pr");
+});
+
+test("docs-manifest: NOT regenerated when the in-scope staging changed nothing", async () => {
+  const h = mkHarness({ act: true, stagedNames: "" });
+  await h.svc.consider("/repo");
+  await h.svc.tick();
+
+  // No subprocess on a no-op run, and no manifest-only PR when main's manifest is stale already.
+  expect(h.genDocsCalls).toHaveLength(0);
+  expect(addedPaths(h.gitCalls)).not.toContain(MANIFEST);
+  expect(h.finalizes[0]!.outcome).toBe("nochange");
+});
+
+test("docs-manifest ordering: regen runs AFTER the in-scope add and BEFORE the manifest add", async () => {
+  const h = mkHarness({ act: true });
+  await h.svc.consider("/repo");
+  await h.svc.tick();
+
+  const at = h.genDocsCalls[0]!.gitCallsAtCall;
+  // The in-scope add has already happened (so the regen sees the agent's edits on disk)…
+  expect(at.some((args) => args[0] === "add" && args.includes("docs/external-task-api.md"))).toBe(
+    true,
+  );
+  // …and the manifest add has not (it is staged only after a successful regen).
+  expect(at.some((args) => args[0] === "add" && args.includes(MANIFEST))).toBe(false);
+});
+
+test("docs-manifest: regen skipped (run still publishes) when the repo has no generator", async () => {
+  const h = mkHarness({ act: true, manifestGeneratorPresent: false });
+  await h.svc.consider("/repo");
+  await h.svc.tick();
+
+  expect(h.genDocsCalls).toHaveLength(0);
+  expect(addedPaths(h.gitCalls)).not.toContain(MANIFEST);
+  expect(h.finalizes[0]!.outcome).toBe("pr");
+});
+
+test("DocsManifestError: is exported, carries repoPath + cause, name is set correctly", () => {
+  const cause = new Error("exit 1");
+  const err = new DocsManifestError("/repo", { cause });
+  expect(err).toBeInstanceOf(DocsManifestError);
+  expect(err.name).toBe("DocsManifestError");
+  expect(err.repoPath).toBe("/repo");
+  expect(err.cause).toBe(cause);
+  expect(err.message).toContain("/repo");
+});
+
+test("docs-manifest failure path: a failing regen ABORTS the run (no commit/push/PR), records error, cleans up (fail-closed)", async () => {
+  const h = mkHarness({ act: true, genDocsThrows: true });
+  await h.svc.consider("/repo");
+  await h.svc.tick();
+
+  // fail-closed: a doc PR that lands check:docs-manifest red is worse than a skipped doc update
+  expect(h.gitCalls.some((c) => c.args[0] === "commit")).toBe(false);
+  expect(h.gitCalls.some((c) => c.args[0] === "push")).toBe(false);
+  expect(h.openPrInputs).toHaveLength(0);
+
+  expect(h.finalizes).toEqual([{ repoPath: "/repo", url: null, outcome: "error" }]);
+
+  // cleanup still ran
+  expect(h.removedWorktrees).toHaveLength(1);
+  expect(h.stoppedTerminals).toHaveLength(1);
 });
 
 // ── real-prettier tests: the ignore-path fix + fail-closed --check guard ────────

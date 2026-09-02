@@ -5,6 +5,7 @@ import {
   keywordsOf,
   fmValue,
   splitFrontmatter,
+  prettierModuleSpecifier,
 } from "./gen-docs-manifest";
 
 describe("gen-docs-manifest — slugFor", () => {
@@ -53,5 +54,21 @@ describe("gen-docs-manifest — keywordsOf", () => {
 
   it("drops empty parts", () => {
     expect(keywordsOf("", ["Only heading"])).toBe("only heading");
+  });
+});
+
+describe("gen-docs-manifest — prettierModuleSpecifier", () => {
+  it("defaults to the bare specifier so humans and CI resolve the installed prettier", () => {
+    expect(prettierModuleSpecifier({})).toBe("prettier");
+  });
+
+  it("honours SHEPHERD_PRETTIER_MODULE so a caller with no node_modules can pin a prettier", () => {
+    expect(
+      prettierModuleSpecifier({ SHEPHERD_PRETTIER_MODULE: "/srv/node_modules/prettier/index.mjs" }),
+    ).toBe("/srv/node_modules/prettier/index.mjs");
+  });
+
+  it("falls back to the bare specifier when the override is set but empty", () => {
+    expect(prettierModuleSpecifier({ SHEPHERD_PRETTIER_MODULE: "" })).toBe("prettier");
   });
 });

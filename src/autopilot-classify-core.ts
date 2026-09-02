@@ -51,6 +51,20 @@ export function preClassify(tail: string[]): AutopilotVerdict | null {
  *  - INPUT: input-robustness — a German/mixed tail must NOT erode the `unknown` abstain bucket, and
  *    a non-English tail is never itself a reason to guess a confident kind. Injected next to the
  *    terminal-tail fence (it governs how to READ the tail).
+ *
+ *    Issue #2169 rewrote this line after `de-ambiguous-unknown` lost its `unknown` majority. Its
+ *    first form closed with "never upgrade an uncertain read to a confident `gate` or `question`
+ *    just to avoid abstaining" — an abstract instruction about confidence that named `gate` twice
+ *    inside a negation, and measured no better than injecting nothing at all (22/27 vs 24/27
+ *    `unknown` on the eroding fixture). It is now a POSITIVE, checkable test the model can apply
+ *    to the tail in front of it: `gate` and `question` both presuppose the agent RAISED something,
+ *    so a tail that only narrates progress cannot be either. Measured 45/45 on that fixture with
+ *    no bucket trading — see docs/eval-stop-classifier.md.
+ *
+ *    The final clause ("if such a tail also does not clearly report finished or delivered work") is
+ *    LOAD-BEARING, not hedging: without it the rule reads as "no question asked -> unknown", which
+ *    would swallow the legitimately question-free `finished` and `complete` tails (`de-finished-pr`
+ *    asks nothing either). It scopes the no-ask rule to the two kinds that presuppose an ask.
  *  - OUTPUT: render `summary` in German while PINNING `kind` to the exact English enum — a
  *    translated/off-enum kind silently collapses to `unknown` via `normalize`'s `KINDS.includes`.
  *    Injected next to the enum block (before the terminal "then stop" line) so it is not discounted
@@ -59,9 +73,10 @@ export function preClassify(tail: string[]): AutopilotVerdict | null {
 const CLASSIFIER_INPUT_ROBUSTNESS_DE =
   "The terminal tail above may be written in German or a mix of German and English. Classify by " +
   "what the agent actually MEANS, not by matching English phrasing — a non-English tail is never " +
-  "itself a reason to choose a kind. When the wording leaves the agent's intent genuinely unclear, " +
-  'prefer "unknown"; never upgrade an uncertain read to a confident "gate" or "question" just to ' +
-  "avoid abstaining.";
+  'itself a reason to choose a kind. Both "gate" and "question" require the agent to have actually ' +
+  "RAISED something: a tail that only narrates progress or announces that it is carrying on has " +
+  "asked you nothing, so it is neither. If such a tail also does not clearly report finished or " +
+  'delivered work, answer "unknown".';
 const CLASSIFIER_OUTPUT_LANGUAGE_DE =
   "Write the `summary` field in German. Keep `kind` as one of the exact English enum values above " +
   '("gate" | "question" | "finished" | "complete" | "unknown") — Shepherd matches it literally, and ' +

@@ -25,8 +25,9 @@ jobs:
     # The local pre-push hook no longer shares this job's shell body — it runs the
     # same gate set in parallel lanes via scripts/pre-push.ts. When you add/remove/
     # reorder a step here, mirror it there (and vice-versa). Deliberate differences:
-    # the hook scopes prettier/eslint to the push delta and pins fallow to 2.100.0;
-    # CI keeps the whole-repo checks. Keep the fallow version in sync across both.
+    # the hook scopes prettier/eslint to the push delta and pins fallow@2.100.0;
+    # CI keeps the whole-repo checks. The pin is gated: scripts/check-fallow-pin.mjs
+    # fails when any site names a different version.
     # Don't run the full suite on release-please's generated PR: it only bumps the
     # version + CHANGELOG, so verify is wasted minutes. That PR DOES trigger this
     # workflow — see release-please.yml. Skip ONLY when BOTH the head branch carries
@@ -164,8 +165,8 @@ jobs:
         # (#851) — a Svelte-appropriate bar so new components aren't churned against the
         # library-default 20/15. The #756 line-shift mis-attribution that forced the old
         # 2.97 pin was re-tested against 2.100 and does NOT reproduce (inherited template
-        # findings now attribute correctly across line shifts). Keep this version in sync
-        # with .husky/pre-push and CONTRIBUTING.md.
+        # findings now attribute correctly across line shifts). Every site naming this
+        # version is gated by scripts/check-fallow-pin.mjs — bump them together.
         if: github.event_name == 'pull_request'
         run: bunx fallow@2.100.0 audit --base origin/${{ github.base_ref }} --fail-on-issues
 

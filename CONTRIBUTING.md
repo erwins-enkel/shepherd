@@ -76,7 +76,7 @@ and failed pushes. Independent work runs in parallel (bounded by your core count
 lane teeing to its own `.test-logs/` file, with a per-lane wall-clock **timeout backstop**
 so a hung child can never wedge the push. The checks (per lane) are:
 
-- **gates:** branch-hygiene · feature-catalog · generated-docs · glossary · announcement-versions · model-mirror · herdr-types
+- **gates:** branch-hygiene · feature-catalog · generated-docs · glossary · announcement-versions · model-mirror · fallow-pin · herdr-types
 - **prettier:** `prettier --check` over the push **delta** (see note)
 - **eslint:** root + extension eslint over the push **delta** (see note)
 - **tsc:** `bun run typecheck` (root `tsc --noEmit`)
@@ -95,8 +95,8 @@ so a hung child can never wedge the push. The checks (per lane) are:
 >   offline? The hook falls back to whole-repo lint and skips fallow.)
 > - **Same checks, different scoping.** Because the hook no longer shares `ci.yml`'s shell
 >   body, the two gate definitions can drift — when you change a CI step, mirror it in
->   `scripts/pre-push.ts` (there's a sync banner in both files). Keep the `fallow@2.100.0`
->   pin in sync across the hook, `ci.yml`, and this file.
+>   `scripts/pre-push.ts` (there's a sync banner in both files). The `fallow@2.100.0` pin is
+>   gated across every site by `bun run check:fallow-pin` — bump them together.
 >
 > **Concurrency is core-aware.** Lane fan-out and per-tool worker counts are bounded so
 > `laneCap × workers ≤ cores` — no oversubscription on a modest box. Override the lane cap
@@ -114,7 +114,7 @@ so a hung child can never wedge the push. The checks (per lane) are:
 > type errors. Bun runs `.ts` by stripping types, so it never type-checks — only
 > `tsc` does.
 
-> **fallow is pinned to `2.100.0`** (not `@latest`) so analyzer changes are adopted
+> **the fallow pin is `fallow@2.100.0`** (not `@latest`) so analyzer changes are adopted
 > deliberately, not on a random run. The synthetic Svelte `<template>` complexity metric
 > (fallow 2.98+) is adopted via `health.thresholdOverrides` in `.fallowrc.jsonc`
 > ([#851](https://github.com/erwins-enkel/shepherd/issues/851)) — a Tier-1 global bar
@@ -129,8 +129,8 @@ so a hung child can never wedge the push. The checks (per lane) are:
 > reproduce** — fallow attributes inherited template findings correctly across line
 > shifts and complexity changes; the audit's new-only gate fires only when a template is
 > a finding in HEAD that was not one in the base. A genuinely new oversized template will
-> still trip as _introduced_ (the gate working) — fix or grandfather it. Keep the version
-> in sync with `.github/workflows/ci.yml` and `.husky/pre-push`.
+> still trip as _introduced_ (the gate working) — fix or grandfather it. Every site naming
+> the pin is gated by `bun run check:fallow-pin`, so a one-sided bump fails the build.
 
 Run any of these manually at any time:
 
@@ -140,6 +140,7 @@ bun run typecheck            # root tsc --noEmit (src + test)
 bun run format               # prettier --write across the repo
 bun test ./test              # core test suite
 bun run check:model-mirror   # model/effort lists identical in src/types.ts ↔ ui/src/lib/types.ts
+bun run check:fallow-pin     # the pinned fallow version identical at every site
 cd ui && bun run check       # svelte-check (ui types)
 cd ui && bun run check:i18n  # locale-catalog parity (en ↔ de)
 cd ui && bun run test        # ui test suite (vitest)

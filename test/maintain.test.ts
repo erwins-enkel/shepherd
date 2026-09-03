@@ -1140,7 +1140,7 @@ describe("tier 3 — worktree protection", () => {
 
 describe("reportFromFailedExit", () => {
   it("keeps the report from a non-zero exit — fallow exits 1 whenever it finds anything", () => {
-    // Verified against fallow 2.100.0: `dead-code` exits 1 both before AND after a fix while
+    // Verified against fallow@2.100.0: `dead-code` exits 1 both before AND after a fix while
     // non-auto-fixable findings remain. Discarding that output would leave the band permanently
     // reading "no data" and tier 3 permanently unreachable.
     expect(reportFromFailedExit({ code: 1, stdout: '{"kind":"dead-code"}' })).toBe(

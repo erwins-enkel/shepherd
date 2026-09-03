@@ -49,7 +49,11 @@ Shepherd's isolated, read-only review agent that inspects a PR's diff once CI is
 green and posts a verdict. Its built-in lenses are the floor; a repository can
 add passes and known exclusions with a committed `REVIEW.md`, and the repo's
 house rules are shown to the critic alongside them — see
-[Review policy](/reference/review-policy/).
+[Review policy](/reference/review-policy/). Every point it raises carries a
+severity: **important** is blocking work, sent back to the agent; **nit** is
+non-blocking and only appears in the posted review's `Nits (non-blocking):`
+section. A verdict that raises nothing important is a comment, never a request
+for changes.
 
 ### Merge train
 

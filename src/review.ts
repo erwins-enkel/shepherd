@@ -101,10 +101,11 @@ function steerText(findings: string[], prNumber: number, epicBase: string | null
     "",
     ...findings.map((f, i) => `${i + 1}. ${f}`),
     "",
-    // #1948: the critic now routes nits to a `Nits (non-blocking):` body section instead of into
-    // findings. Say so, or an agent that reads the posted review will treat those as required work
-    // and re-push for them — reintroducing through the body the churn the routing change removed.
-    "Any `Nits (non-blocking):` section in the posted review is OPTIONAL — it is not part of this list and does not need a fix or a reply.",
+    // #1948/#2165: the critic declares non-blocking points as `nit`-severity findings, which the
+    // server renders into the posted review's `Nits (non-blocking):` section — they are NOT in the
+    // list above. Say so, or an agent that reads the posted review will treat those as required
+    // work and re-push for them, reintroducing through the body the churn severity exists to stop.
+    "The `Nits (non-blocking):` section of the posted review is OPTIONAL — it is not part of this list and does not need a fix or a reply.",
     "",
   ];
   if (epicBase) {
@@ -1620,6 +1621,9 @@ export class ReviewService {
       summaryCode: cause?.code ?? null,
       body: core.body,
       findings: core.findings,
+      // #2165 — the full declared list (important + capped nits). `findings` above stays the
+      // blocking projection of it, which is what every consumer in this loop gates on.
+      findingsMeta: core.findingsMeta,
       addressRound: 0, // publishVerdict() overwrites with the streak round (finalize()'s error path holds priorRound)
       addressCap: this.cap, // surface the live cap so the UI badge need not mirror it
       // streakReviews increments on ANY finalized verdict with findings (regardless of

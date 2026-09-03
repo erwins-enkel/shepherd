@@ -65,13 +65,33 @@ Concretely:
   spends attention on.
 - An exclusion **may never** suppress a correctness or security defect the critic actually verified
   in the diff.
-- Anything raised under the policy is routed like any other point: blocking problems become
-  findings, everything else becomes a non-blocking note. The policy adds passes, not a new kind of
+- Anything raised under the policy is routed like any other point: it becomes a finding, carrying
+  the severity and pass the critic declares for it. The policy adds passes, not a new kind of
   output.
 
 The file is capped at about 8 KB. A longer one is truncated with a visible marker rather than
 silently cut — but a review policy that runs past a page is probably documentation in the wrong
 place.
+
+## Severity: Important and Nit
+
+Every point the critic raises is declared with a **severity** and a **pass**.
+
+- **Important** is work the author must do: a correctness bug, a security issue, a broken contract,
+  a missing catalog counterpart, or a change that does not do what the task asked. Only important
+  findings are sent back to the agent, count toward the rework budget, and hold up the merge train.
+  A verdict that raises nothing important is a comment, never a request for changes.
+- **Nit** is everything non-blocking — a naming preference, a stylistic choice, a refactor you would
+  like but the task did not require. Nits are recorded and posted in the review's
+  `Nits (non-blocking):` section, and they are never sent back as work. At most five survive per
+  review; the rest are discarded, so the critic is asked to pick the five worth reading.
+
+The **pass** names where the point came from — `bug`, `security`, `compliance` (a repo policy, house
+rule, or catalog requirement) or `scope`. It is classification only: nothing gates on it.
+
+A repository's policy can state which classes of issue matter more here, but it cannot change what
+the two severities mean, and an exclusion still may never suppress a verified correctness or
+security defect.
 
 ## House rules reach the reviewer
 

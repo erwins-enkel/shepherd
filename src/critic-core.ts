@@ -11,7 +11,13 @@ import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { execFileSync, timedAsync } from "./instrument";
-import type { PlanDrift, ReviewDecision } from "./types";
+import type {
+  CriticFinding,
+  FindingPass,
+  FindingSeverity,
+  PlanDrift,
+  ReviewDecision,
+} from "./types";
 import type { PrStatus } from "./forge/types";
 import type { SessionUsage } from "./usage";
 import { tolerantParseJson } from "./json-tolerant";
@@ -289,7 +295,7 @@ export function reviewPrompt(
       // `reviews.findings` across a deploy, so without this every nit recorded under the old
       // "a non-blocking nit STILL goes in findings" contract is re-raised verbatim on the first
       // review after that contract changed — and nothing converges any faster.
-      'A prior point that FINDINGS ROUTING below does not admit as blocking is likewise DROPPED — do not re-raise it in "findings". You MAY restate it once under `Nits (non-blocking):`. Saying in "body" that you dropped it, and why, IS compliance with the re-raise instruction above, not a violation of it.',
+      'A prior point that FINDINGS ROUTING below does not admit as blocking is likewise DROPPED — do not re-raise it as an "important" finding. You MAY restate it once with "severity": "nit". Saying in "body" that you dropped it, and why, IS compliance with the re-raise instruction above, not a violation of it.',
       "",
     );
   }
@@ -304,7 +310,7 @@ export function reviewPrompt(
   // ROUND block (#1948) — session critic ONLY, and deliberately in this preamble rather than in
   // scopeAndOutputTail: the tail is shared verbatim with prReviewPrompt (a test asserts byte
   // identity), and the standalone critic has no rework loop to be late in.
-  lines.push(...roundBlock(opts.round, opts.cap, "Nits (non-blocking):", "the author"));
+  lines.push(...roundBlock(opts.round, opts.cap, 'a finding with "severity": "nit"', "the author"));
   // The judging clause is the ONE line that differs between the session critic ("satisfies that
   // task") and the standalone PR critic ("bugs/security/quality, intent as context") — everything
   // after it (the verdict-output contract) is identical, so it's factored into the shared tail.
@@ -880,23 +886,33 @@ function scopeAndOutputTail(
     // every existing prompt byte-identical.
     ...reviewPolicyBlock(opts.reviewPolicy),
     ...reviewerHouseRulesBlock(opts.houseRules, opts.houseRulesAuthored),
-    // FINDINGS ROUTING (#1948). The tail used to mandate the exact opposite — "A non-blocking nit
-    // STILL goes in findings" — which contradicted the three lenses above and their stated reason:
-    // ANY entry in `findings` advances the streak (buildVerdict), is auto-addressed (runAutoAddress
-    // fires on non-empty findings REGARDLESS of decision), and is re-raised every round by the
-    // re-raise rule. A wording nit therefore looped until the streak ceiling paused the PR. So
-    // `findings` is now blocking-only, and nits get the same non-blocking body routing the lenses use.
-    'FINDINGS ROUTING — what belongs in "findings" and what does not:',
-    '- "findings" is for changes the author MUST make: a correctness bug, a security issue, a broken or violated contract, a missing locale/catalog counterpart, or a diff that does not do what the task/intent above requires. Any such defect is a finding REGARDLESS of how small it looks.',
-    '- A NON-BLOCKING nit — a naming or wording preference, a stylistic choice, a comment you would phrase differently, a refactor you would like but the task did not require — does NOT go in "findings". Report it in a SINGLE "body" section headed exactly `Nits (non-blocking):`, ONE LINE PER DISTINCT ITEM, and it NEVER makes the decision "request-changes". Each must concern a file in the diff per the SCOPE rule above.',
-    '- COMMENTS specifically: do NOT raise a finding asking for a comment to be reworded or expanded, or for more explanation of code that is already correct — that is a nit. A comment that is factually WRONG about what the code does IS a defect: raise it in "findings".',
-    // Advisory cap. Deliberately NOT enforced server-side: the repo's deterministic backstops
-    // (scopeFindings here, MAX_ADDS_PER_RUN in distiller.ts) each enforce a DECIDABLE predicate,
-    // whereas "is this finding blocking?" is not decidable from the verdict text. Truncating would
-    // cut blind and could discard a real blocker while keeping a nit — so the cap is worded so that
-    // it can never lose information instead.
-    '- At most 5 NEW findings per review, highest-severity first. This is a PRIORITISATION instruction, never a limit that may lose information: if more than 5 genuine blocking problems exist, emit ALL of them and say so in "summary" (the change needs reworking, not tweaking). NEVER move a blocking problem into `Nits (non-blocking):`, and never drop one, to fit the budget.',
+    // FINDINGS ROUTING (#1948, restated as severity in #2165). The reason the routing exists is
+    // unchanged: a BLOCKING item advances the streak (buildVerdict), is auto-addressed
+    // (runAutoAddress fires on non-empty findings REGARDLESS of decision) and is re-raised every
+    // round, so a wording nit treated as blocking looped until the streak ceiling paused the PR.
+    // #1948 kept nits out of `findings` entirely, at the price of them being prose only. #2165
+    // brings them back into the array as DECLARED DATA and moves the split server-side: only
+    // `severity: "important"` reaches ReviewVerdict.findings (see buildVerdictCore), so a nit is
+    // recorded and rendered without ever touching the loop. The three lenses above keep their own
+    // body sections — their items are judgement calls about the diff's shape, not review nits.
+    'FINDINGS ROUTING — every entry in "findings" is an OBJECT: {"text": "<the finding>", "severity": "important" | "nit", "pass": "bug" | "security" | "compliance" | "scope"}.',
+    '- "severity": "important" is for changes the author MUST make: a correctness bug, a security issue, a broken or violated contract, a missing locale/catalog counterpart, or a diff that does not do what the task/intent above requires. Any such defect is important REGARDLESS of how small it looks. Only important findings are sent to the author, and only they can make the decision "request-changes".',
+    '- "severity": "nit" is for a NON-BLOCKING point — a naming or wording preference, a stylistic choice, a comment you would phrase differently, a refactor you would like but the task did not require. It is recorded and shown to the reader, never sent back as work, and it NEVER makes the decision "request-changes". Each must still concern a file in the diff per the SCOPE rule above.',
+    '- "pass" names which review pass the point came out of: "bug" (correctness), "security", "compliance" (a repo policy, house rule, or catalog/locale requirement), or "scope" (the diff does not do what the task asked, or contradicts an explicit boundary). When two fit, pick the one that made you raise it.',
+    '- Getting severity right matters more than either other field: an important point marked "nit" is never fixed, and a nit marked "important" costs the author a rework round. When you genuinely cannot decide, it is important.',
+    "- COMMENTS specifically: do NOT raise an important finding asking for a comment to be reworded or expanded, or for more explanation of code that is already correct — that is a nit. A comment that is factually WRONG about what the code does IS a defect: raise it as important.",
+    // Advisory cap on IMPORTANT findings, deliberately NOT enforced server-side: the repo's
+    // deterministic backstops (scopeFindings here, MAX_ADDS_PER_RUN in distiller.ts) each enforce a
+    // DECIDABLE predicate, whereas whether a finding the critic CLAIMS is blocking really is one
+    // cannot be decided from the verdict text. Truncating would cut blind and could discard a real
+    // blocker — so this cap is worded so that it can never lose information instead. (The nit cap
+    // below is the decidable counterpart, and IS enforced.)
+    '- At most 5 NEW important findings per review, highest-severity first. This is a PRIORITISATION instruction, never a limit that may lose information: if more than 5 genuine blocking problems exist, emit ALL of them and say so in "summary" (the change needs reworking, not tweaking). NEVER demote a blocking problem to "nit", and never drop one, to fit the budget.',
     "- Re-raised prior findings do NOT count against those 5.",
+    // Enforced server-side (NIT_CAP in buildVerdictCore), unlike the advisory line above: once
+    // severity is declared, "is this a nit?" is decidable from the verdict alone, so the excess is
+    // truncated rather than trusted. Stated here so the critic prioritises instead of being cut.
+    '- At most 5 "nit" findings per review, most useful first. Anything past the fifth is DISCARDED by the server, so choose which five are worth the reader\'s attention. This cap NEVER applies to important findings.',
     "",
     // PLAN-DRIFT REPORT (#2155) — PURE MEASUREMENT, and the only field in this prompt that feeds no
     // decision anywhere: nothing in the review loop, the auto-address steer or the merge train
@@ -925,8 +941,8 @@ function scopeAndOutputTail(
     '1. `.shepherd-review.md` — your full markdown review. Everywhere these instructions say "body" — the named sections, the `path:line` citations, the stated limitations — they mean THIS file. It is NOT JSON: write the prose directly, escape nothing, quote however you like.',
     "2. `.shepherd-review.json` — the structured verdict, with this shape:",
     opts.planShown
-      ? '{"decision": "request-changes" | "comment", "summary": "<=100 char one-liner", "findings": ["<discrete actionable item>", ...], "planDrift": "none" | "minor" | "major", "planDriftNote": "<one line, <=140 chars, no quotation marks — omit when planDrift is none>", "body": "<optional — see below>"}'
-      : '{"decision": "request-changes" | "comment", "summary": "<=100 char one-liner", "findings": ["<discrete actionable item>", ...], "body": "<optional — see below>"}',
+      ? '{"decision": "request-changes" | "comment", "summary": "<=100 char one-liner", "findings": [{"text": "<discrete actionable item>", "severity": "important" | "nit", "pass": "bug" | "security" | "compliance" | "scope"}, ...], "planDrift": "none" | "minor" | "major", "planDriftNote": "<one line, <=140 chars, no quotation marks — omit when planDrift is none>", "body": "<optional — see below>"}'
+      : '{"decision": "request-changes" | "comment", "summary": "<=100 char one-liner", "findings": [{"text": "<discrete actionable item>", "severity": "important" | "nit", "pass": "bug" | "security" | "compliance" | "scope"}, ...], "body": "<optional — see below>"}',
     // #2042: the body used to live inside this JSON. A single unescaped `"` before a `:` or `,` —
     // which German `„…":` prose produces constantly — is indistinguishable from a real key/value
     // boundary, so it silently destroyed complete verdicts. Keeping the prose out of JSON entirely
@@ -937,11 +953,11 @@ function scopeAndOutputTail(
     // captureLastMessage in review.ts and the fallback in defaultReadVerdict). For that provider the
     // sidecar cannot exist, so dropping `body` from the shape would post a review with no text in it.
     'OMIT "body" when you wrote `.shepherd-review.md` — the file always wins. Include it ONLY if you cannot write files at all (you are answering in chat rather than editing a worktree): then put the full markdown review in "body" and escape every `"` inside it as `\\"`.',
-    'Escaping matters ONLY in the JSON file, and — when you wrote the markdown file — it is short: inside "summary" and each "findings" entry every `"` must be written `\\"`. If that feels error-prone, phrase them without quotation marks; the markdown file is where quoting is free.',
-    'The "findings" array lists every discrete change the author must make — one entry per point, routed per FINDINGS ROUTING above. Use [] when everything you found is non-blocking (report those in the body sections named above) or there is genuinely nothing to address; "request-changes" requires at least one finding.',
+    'Escaping matters ONLY in the JSON file, and — when you wrote the markdown file — it is short: inside "summary" and each finding\'s "text" every `"` must be written `\\"`. If that feels error-prone, phrase them without quotation marks; the markdown file is where quoting is free.',
+    'The "findings" array lists every point you are raising — one entry per point, each classified per FINDINGS ROUTING above. Use [] when there is genuinely nothing to raise; "request-changes" requires at least one "important" finding. The `Nits (non-blocking):` section of the posted review is generated from your "nit" entries — do NOT write that section into `.shepherd-review.md` yourself.',
     // Ordering is load-bearing: the server finalizes as soon as the JSON parses, so the JSON must be
     // written LAST — otherwise a tick landing between the two writes finalizes with an empty body.
-    'Use "request-changes" ONLY for blocking problems (does not satisfy the task, logic bug, security hole). Otherwise use "comment". Never approve. Write `.shepherd-review.md` FIRST and `.shepherd-review.json` LAST — the JSON file is the completion signal — then stop.',
+    'Use "request-changes" ONLY for blocking problems (does not satisfy the task, logic bug, security hole), i.e. only when you raised at least one "important" finding — a verdict carrying nothing but nits is a "comment". Never approve. Write `.shepherd-review.md` FIRST and `.shepherd-review.json` LAST — the JSON file is the completion signal — then stop.',
   ];
 }
 
@@ -1159,13 +1175,43 @@ export function normalizeDecision(d: unknown): ReviewDecision | null {
   return null;
 }
 
-/** Coerce the critic's `findings` field to a clean string[] (drops junk, never throws). */
-export function normalizeFindings(raw: unknown): string[] {
+/** Hard cap on `nit`-severity findings per review (#2165). Unlike the advisory "at most 5 NEW
+ *  findings" line in the prompt — which is deliberately unenforced because "is this blocking?" is
+ *  not decidable from the verdict text — this one IS decidable once the critic declares severity,
+ *  so it is enforced server-side. Only nits are ever truncated; a blocking finding can never be
+ *  lost to it. Every drop is logged (same no-silent-loss rule as the scope backstop). */
+export const NIT_CAP = 5;
+
+/** Coerce one `findings` entry to a {@link CriticFinding}, or null to drop it (never throws).
+ *
+ *  Tolerance is load-bearing, not politeness. A verdict persisted BEFORE #2165 is re-raised
+ *  verbatim on the next round, and a critic running an older prompt (or a Codex critic answering
+ *  in chat) still emits bare strings — so `string` stays a first-class input shape and defaults to
+ *  `important`/`bug`. Every unknown value fails toward BLOCKING for the same reason the scope
+ *  backstop keeps unattributed findings: silently demoting a real defect to a non-blocking nit is
+ *  the one failure mode this feature must not have. */
+function normalizeFindingEntry(raw: unknown): CriticFinding | null {
+  if (typeof raw === "string") {
+    const text = raw.trim();
+    return text ? { text, severity: "important", pass: "bug" } : null;
+  }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const o = raw as { text?: unknown; severity?: unknown; pass?: unknown };
+  if (typeof o.text !== "string") return null;
+  const text = o.text.trim();
+  if (!text) return null;
+  // Unknown/absent severity → `important`: a finding we cannot classify still blocks.
+  const severity: FindingSeverity = o.severity === "nit" ? "nit" : "important";
+  const pass: FindingPass =
+    o.pass === "security" || o.pass === "compliance" || o.pass === "scope" ? o.pass : "bug";
+  return { text, severity, pass };
+}
+
+/** Coerce the critic's `findings` field to clean {@link CriticFinding}s (#2165). Drops junk, never
+ *  throws. Bare strings are accepted per {@link normalizeFindingEntry}. */
+export function normalizeFindingEntries(raw: unknown): CriticFinding[] {
   if (!Array.isArray(raw)) return [];
-  return raw
-    .filter((f): f is string => typeof f === "string")
-    .map((f) => f.trim())
-    .filter(Boolean);
+  return raw.map(normalizeFindingEntry).filter((f): f is CriticFinding => f !== null);
 }
 
 /** Coerce the critic's `planDrift` field to a known level (#2155). Anything else — a missing field,
@@ -1329,11 +1375,46 @@ export function scopeBackstop(
   return { decision, scoped: kept };
 }
 
-/** The normalize + scopeBackstop + summary-fallback portion of building a verdict, shared by
- *  the session critic and the standalone PR critic. PURE: takes the raw verdict, the resolved
- *  base/file set, this run's patch-id, and a log label; returns the resolved fields each caller
- *  assembles into its own full verdict. `patchId` is '' for an error verdict (a transient
- *  failure to retry — a content-identical rebase must re-review rather than inherit it). */
+/** The heading the rendered nit block carries in the posted review body. Kept BYTE-IDENTICAL to
+ *  the section the critic used to hand-write (#1948), because it is the string the author-facing
+ *  steer, the PR reader and any operator search all already know. */
+const NITS_HEADING = "Nits (non-blocking):";
+
+/** Re-select the entries whose text survived the (string-shaped) scope backstop. Attribution is a
+ *  pure function of the finding text, so entries sharing a text share its verdict and a set lookup
+ *  reproduces the backstop's decision exactly — which is why the backstop, and its tests, stay
+ *  string-shaped. */
+function keepScoped(entries: CriticFinding[], scoped: string[]): CriticFinding[] {
+  const keptTexts = new Set(scoped);
+  return entries.filter((e) => keptTexts.has(e.text));
+}
+
+/** Truncate nits to {@link NIT_CAP}, logging every drop (the scope backstop's no-silent-loss rule).
+ *  Only ever called with nits, so nothing blocking can be lost here. */
+function applyNitCap(nits: CriticFinding[], logLabel: string): CriticFinding[] {
+  if (nits.length <= NIT_CAP) return nits;
+  for (const dropped of nits.slice(NIT_CAP))
+    console.warn(
+      `[review] dropped nit past the cap of ${NIT_CAP} for ${logLabel}: ${dropped.text}`,
+    );
+  return nits.slice(0, NIT_CAP);
+}
+
+/** Append the `Nits (non-blocking):` section to the critic's review body (#2165). The section did
+ *  not disappear when nits became structured — it moved from critic-authored prose to
+ *  server-rendered markdown, so a human reading the PR sees what they saw before, and the pass tag
+ *  makes the taxonomy visible where it is otherwise invisible. No nits ⇒ the body is untouched, so
+ *  an older critic's review posts byte-identically. NOT i18n'd: this is PR-facing English review
+ *  prose, like the steer text and the critic marker beside it. */
+function composeReviewBody(body: string, nits: CriticFinding[]): string {
+  if (nits.length === 0) return body;
+  const block = [`**${NITS_HEADING}**`, "", ...nits.map((n) => `- [${n.pass}] ${n.text}`)].join(
+    "\n",
+  );
+  // A body-less verdict (a Codex critic that wrote no sidecar) must not open with a blank line.
+  return body ? `${body}\n\n${block}` : block;
+}
+
 export function buildVerdictCore(
   raw: RawVerdict | null,
   baseSha: string | null,
@@ -1345,6 +1426,7 @@ export function buildVerdictCore(
   summary: string;
   body: string;
   findings: string[];
+  findingsMeta: CriticFinding[];
   patchId: string;
 } {
   const decision = normalizeDecision(raw?.decision);
@@ -1353,19 +1435,46 @@ export function buildVerdictCore(
     raw && typeof raw.summary === "string"
       ? raw.summary.slice(0, 100)
       : "critic did not produce a verdict";
-  const parsed = normalizeFindings(raw?.findings);
-  const { decision: resolved, scoped } = scopeBackstop(baseSha, files, initial, parsed, logLabel);
-  // a blocking verdict with no usable findings list still has something to address;
-  // fall back to its summary so the loop doesn't mistake it for "clean". (A request-changes
-  // emptied by the backstop was already flipped to `commented` above, so this fallback won't
-  // re-inflate it — `resolved` is no longer changes_requested in that case.)
-  const findings =
-    scoped.length || resolved !== "changes_requested" ? scoped : summary ? [summary] : [];
+  const entries = normalizeFindingEntries(raw?.findings);
+  // The scope backstop runs on the entry TEXTS — nits included: an out-of-diff nit is as out of
+  // scope as an out-of-diff blocker — and `keepScoped` maps its verdict back onto the entries.
+  const { decision: scopedDecision, scoped } = scopeBackstop(
+    baseSha,
+    files,
+    initial,
+    entries.map((e) => e.text),
+    logLabel,
+  );
+  const kept = keepScoped(entries, scoped);
+  const important = kept.filter((e) => e.severity === "important");
+  const nits = applyNitCap(
+    kept.filter((e) => e.severity === "nit"),
+    logLabel,
+  );
+  // Decision flip, extending the backstop's own (which only sees the emptied-by-scope case): a
+  // `request-changes` whose entries are ALL non-blocking must not persist as a blocking verdict —
+  // it would post REQUEST_CHANGES, steer a rework round and advance the streak for a set of nits,
+  // which is precisely the loop severity exists to prevent. Guarded on `entries.length > 0` so the
+  // summary fallback below keeps its existing job for a findings-free request-changes.
+  const resolved: ReviewDecision =
+    scopedDecision === "changes_requested" && entries.length > 0 && important.length === 0
+      ? "commented"
+      : scopedDecision;
+  // A blocking verdict with no usable findings list still has something to address: fall back to
+  // its summary so the loop doesn't mistake it for "clean". Only reachable when the critic declared
+  // NOTHING — a request-changes emptied by the backstop, or left with nothing but nits, was already
+  // flipped to `commented` above. Synthesizing an entry (rather than only a text) is what keeps
+  // `findings === findingsMeta.filter(important).map(text)` true unconditionally.
+  const blocking: CriticFinding[] =
+    resolved === "changes_requested" && important.length === 0 && summary
+      ? [{ text: summary, severity: "important", pass: "bug" }]
+      : important;
   return {
     decision: resolved,
     summary,
-    body: raw && typeof raw.body === "string" ? raw.body : "",
-    findings,
+    body: composeReviewBody(raw && typeof raw.body === "string" ? raw.body : "", nits),
+    findings: blocking.map((e) => e.text),
+    findingsMeta: [...blocking, ...nits],
     // Fingerprint of this run's diff; a later identical head skips re-review. NOT recorded
     // for an error verdict (timeout/unparseable): that's a transient failure to retry, so a
     // content-identical rebase must re-review rather than inherit the stale error.

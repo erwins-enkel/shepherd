@@ -274,14 +274,6 @@ export async function readSessionUsage(
   }
 }
 
-/** Read + accumulate one session's JSONL. Missing/unreadable file → zeroed usage. */
-export async function sessionTokens(path: string): Promise<SessionUsage> {
-  const file = Bun.file(path);
-  if (!(await file.exists())) return emptyUsage();
-  const text = await file.text();
-  return accumulate(text.split("\n"));
-}
-
 // ── Account-wide incremental index ─────────────────────────────────────────────
 
 interface FileState {

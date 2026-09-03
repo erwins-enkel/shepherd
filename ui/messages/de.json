@@ -192,8 +192,6 @@
   "drain_queue_empty": "Warteschlange ist leer",
   "drain_queue_error": "Warteschlange konnte nicht geladen werden",
   "drain_queue_item_aria": "Issue #{number} in der Forge öffnen",
-  "autopip_label": "Auto",
-  "autopip_title": "Automatisch aus Queue-Issue #{number} gestartet",
   "feat_critic_title": "Automatisiertes Code-Review",
   "feat_critic_body": "Der [[critic|Kritiker]] prüft den Diff jedes [[pr|Pull Requests]] und fordert Änderungen an oder hinterlässt Kommentare, wie ein unermüdlicher Reviewer bei jedem PR.",
   "feat_auto_address_title": "Kritiker-Befunde automatisch beheben",

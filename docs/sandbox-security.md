@@ -158,7 +158,8 @@ still stand.
 - **Autonomous task agents** run `--dangerously-skip-permissions`, but behind
   **both** the filesystem and the egress membrane. `standard` auto-spawns are
   refused outright (`src/sandbox.ts` `autoHoldReason`).
-- **Unattended reviewers** (PR critic + plan-gate) run **read-only**, not
+- **Unattended reviewers** (PR critic, plan-gate, and the maintain loop's tier-2
+  diagnosis agent — `src/maintain.ts`) run **read-only**, not
   skip-permissions: `--safe-mode --disable-slash-commands --allowedTools Read
 Grep Glob Bash(git diff *) Bash(git log *) Bash(git show *) Bash(git status)
 Write --permission-mode dontAsk` (`src/transient-agent-argv.ts`,
@@ -211,5 +212,5 @@ dontAsk` can otherwise read nothing but the files Shepherd itself wrote into
 ## See also
 
 - `src/egress.ts`, `src/sandbox.ts`, `src/service.ts`, `src/autopilot.ts`,
-  `src/transient-agent-argv.ts`, `src/task-shape.ts`, `src/untrusted.ts`, `src/tool-guard-hook.ts`,
+  `src/transient-agent-argv.ts`, `src/task-shape.ts`, `src/maintain.ts`, `src/untrusted.ts`, `src/tool-guard-hook.ts`,
   `scripts/tool-guard.mjs`.

@@ -93,6 +93,14 @@ that reason. What remains says nothing about findings, severity, or what any ver
 The classifier does NOT carry it: it obtained verdicts on every trial without one, and adding it
 would invalidate a measurement already paid for.
 
+**Smoke gates on a RECOGNISABLE verdict, not merely a parseable one.** `parseVerdict` accepts any
+JSON object, so `{"foo": 1}` is `toolUsed` and `parseOk` and means nothing — and that is the shape a
+prompt regression takes: the model still writes JSON, just not the contract's. Each scorer therefore
+reports `unrecognised` when the verdict carries no decision the contract admits, and the smoke gate
+fails on it alongside `no-tool` and `parse-fail`. A genuine abstain is explicitly not that: the
+classifier's `kind: "unknown"` is a real answer, even though `normalize` collapses it and a garbage
+verdict to the same value.
+
 **A broken harness fails in seconds, not in a full run.** The preflight trial runs alone and guards
 two things: a dead key, and a harness that cannot obtain a verdict at all. Two consecutive
 verdict-less preflights abort with the fixture, turn count, `stop_reason` and the prose the model
@@ -303,7 +311,10 @@ otherwise edits inside that block move no hash and its eval never fires.
   its partial results and green-skips, spending money to measure nothing every time. A prompt change
   is a handful of PRs a year, not 25 a month.
 
-- **Nightly** for the classifier (`eval-stop-classifier.yml`, haiku, ~54 calls ≈ pennies).
+- **Nightly** for the classifier (`eval-stop-classifier.yml`, haiku, ~54 calls ≈ pennies). One run
+  per night: `--json` emits the report on stderr and the JSON on stdout, so the block transcribed
+  into the baseline table is the same sample whose exit code decided pass/fail. Two steps would pay
+  twice and, on a nondeterministic eval, transcribe a different run than the one that was judged.
 - **Weekly** for the two sonnet evals over the full fixture sets (`eval-prompts.yml`, Mondays
   06:00 UTC) at `--trials 3 --max-spend 15`. This is the leg that MEASURES, so it has to be able to
   finish: measured per-trial costs put a full critic set near **$14** at depth 5, and the default

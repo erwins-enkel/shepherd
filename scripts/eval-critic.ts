@@ -70,11 +70,12 @@ const LABELS = [
 ];
 
 export function scoreCritic(fixture: CriticFixture, raw: Record<string, unknown> | null): Score {
-  if (raw === null) return { label: "no-verdict", correct: false };
+  if (raw === null) return { label: "no-verdict", correct: false, unrecognised: true };
   // The REAL production normalizers: `normalizeDecision` maps the prompt's two literals onto the
   // stored `ReviewDecision` (and rejects anything else), `normalizeFindings` coerces the array.
   const decision = normalizeDecision(raw.decision);
-  if (decision === null) return { label: "no-verdict", correct: false };
+  // Parsed, but no decision the contract admits — the shape a prompt regression takes.
+  if (decision === null) return { label: "no-verdict", correct: false, unrecognised: true };
 
   // #2165: findings are OBJECTS with a severity, and only `important` ones can make the decision
   // `request-changes` — a `comment` verdict may legitimately carry nits.

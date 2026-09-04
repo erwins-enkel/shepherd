@@ -78,6 +78,7 @@ test("no tool call → toolUsed=false, parseOk=false (a no-tool miss, not an abs
     parseOk: false,
     label: "unknown",
     correct: false,
+    unrecognised: false,
   });
 });
 
@@ -92,12 +93,19 @@ test("Write tool called with unparseable content → toolUsed=true but parseOk=f
     parseOk: false,
     label: "unknown",
     correct: false,
+    unrecognised: false,
   });
 });
 
 test("a genuine unknown verdict is distinct from a mechanical failure", () => {
   const genuine = outcomeFor(F, toolUseResponse('{"kind":"unknown","summary":"can\'t tell"}'));
-  expect(genuine).toEqual({ toolUsed: true, parseOk: true, label: "unknown", correct: false });
+  expect(genuine).toEqual({
+    toolUsed: true,
+    parseOk: true,
+    label: "unknown",
+    correct: false,
+    unrecognised: false,
+  });
   // Same normalized kind as the no-tool / parse-fail cases, but toolUsed/parseOk tell them apart.
   const noTool = outcomeFor(F, { content: [{ type: "text", text: "hmm" }] });
   expect(noTool.label).toBe("unknown");
@@ -130,7 +138,7 @@ function outcome(
   parseOk = true,
   expected: AutopilotKind = F.expectedKind,
 ): TrialOutcome {
-  return { label: kind, correct: kind === expected, toolUsed, parseOk };
+  return { label: kind, correct: kind === expected, toolUsed, parseOk, unrecognised: false };
 }
 
 test("aggregate records full kind counts, majority, correctness, and mechanical tallies", () => {

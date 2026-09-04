@@ -60,21 +60,15 @@ jobs:
       - name: Install deps
         run: bun install --frozen-lockfile
 
-      # Human-readable report to the log (exit code reflects pass/fail against the pinned floor).
+      # ONE run. `--json` emits the human-readable report on stderr (for this log) and the JSON
+      # block on stdout — the block the baseline numbers in docs/eval-stop-classifier.md are
+      # transcribed from. Two steps meant the nightly paid for two INDEPENDENT samples and the JSON
+      # you copied was never the run whose exit code decided pass/fail; on a nondeterministic eval
+      # those are different results. The exit code here is the verdict.
+      #
       # NOTE the `|| 'default'` on each input: `github.event.inputs.*` are EMPTY on a `schedule`
       # run, and an empty `--trials ""` would ask for zero trials.
-      - name: Run eval (report)
+      - name: Run eval
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: bun run eval:stop-classifier --trials "${{ github.event.inputs.trials || '5' }}" --model "${{ github.event.inputs.model || 'claude-haiku-4-5' }}" ${{ github.event.inputs.operator_language_off == 'true' && '--operator-language-off' || '' }}
-
-      # Machine-readable JSON (per-fixture kind distributions + no-tool/parse-fail counts) —
-      # this is what you copy into docs/eval-stop-classifier.md. `if: always()` so the JSON is
-      # emitted even when the report step exits non-zero (a real gating miss must still be
-      # inspectable for the contingency rule). `|| true` keeps the job's overall status from
-      # being masked by this convenience step.
-      - name: Run eval (JSON for the doc)
-        if: always()
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: bun run eval:stop-classifier --trials "${{ github.event.inputs.trials || '5' }}" --model "${{ github.event.inputs.model || 'claude-haiku-4-5' }}" ${{ github.event.inputs.operator_language_off == 'true' && '--operator-language-off' || '' }} --json || true
+        run: bun run eval:stop-classifier --trials "${{ github.event.inputs.trials || '5' }}" --model "${{ github.event.inputs.model || 'claude-haiku-4-5' }}" ${{ github.event.inputs.operator_language_off == 'true' && '--operator-language-off' || '' }} --json

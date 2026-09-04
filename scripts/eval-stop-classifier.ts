@@ -328,9 +328,14 @@ export const SPEC: EvalSpec<Fixture> = {
     ),
   score: (fixture, raw) => {
     // `normalize` collapses a missing/garbage verdict AND a genuine model `unknown` into the same
-    // `{kind:"unknown"}`; the harness's separate toolUsed/parseOk tallies keep them distinguishable.
+    // `{kind:"unknown"}`. The distinction matters for the smoke gate, so recover it here: a verdict
+    // is unrecognised when its `kind` is absent or outside the enum. A real `kind: "unknown"` is a
+    // verdict, not a malformation.
     const kind = normalize(raw as RawVerdict | null).kind;
-    return { label: kind, correct: kind === fixture.expectedKind };
+    const declared = (raw as RawVerdict | null)?.kind;
+    const unrecognised =
+      typeof declared !== "string" || !ALL_KINDS.includes(declared as AutopilotKind);
+    return { label: kind, correct: kind === fixture.expectedKind, unrecognised };
   },
 };
 

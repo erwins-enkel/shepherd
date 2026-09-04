@@ -77,10 +77,11 @@ export function scorePlanGate(
   fixture: PlanGateFixture,
   raw: Record<string, unknown> | null,
 ): Score {
-  if (raw === null) return { label: "no-verdict", correct: false };
+  if (raw === null) return { label: "no-verdict", correct: false, unrecognised: true };
   const verdict = raw as RawPlanVerdict;
   const decision = normalizePlanDecision(verdict.decision);
-  if (decision === null) return { label: "no-verdict", correct: false };
+  // Parsed, but no decision the contract admits — the shape a prompt regression takes.
+  if (decision === null) return { label: "no-verdict", correct: false, unrecognised: true };
 
   const findings = planFindings(verdict.findings);
   // The prompt's hard contract, applied to EVERY fixture: approve iff nothing remains in

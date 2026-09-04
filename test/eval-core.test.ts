@@ -44,7 +44,11 @@ import { UNTRUSTED_CONTENT_DIRECTIVE } from "../src/untrusted";
 import { respondFromEnv, tokenize } from "../scripts/eval-fixtures/env";
 import { SPEC as CRITIC_SPEC, scoreCritic } from "../scripts/eval-critic";
 import { SPEC as PLAN_GATE_SPEC, scorePlanGate } from "../scripts/eval-plan-gate";
-import { SPEC as CLASSIFIER_SPEC } from "../scripts/eval-stop-classifier";
+import {
+  SPEC as CLASSIFIER_SPEC,
+  outcomeFor,
+  type Fixture as ClassifierFixture,
+} from "../scripts/eval-stop-classifier";
 import { VERDICT_BODY_FILE, VERDICT_FILE } from "../src/critic-core";
 import { PLAN_VERDICT_FILE } from "../src/plan-gate";
 
@@ -161,6 +165,7 @@ test("stopping at the first Write would capture prose — the regression this gu
     parseOk: false,
     label: "no-verdict",
     correct: false,
+    unrecognised: false,
   });
 });
 
@@ -215,9 +220,16 @@ test("unparseable verdict content is parse-fail, distinct from a no-tool miss", 
     parseOk: false,
     label: "no-verdict",
     correct: false,
+    unrecognised: false,
   });
   const noTool = outcomeFrom(spec, FIXTURE, captureFrom({ content: [] }, "verdict.json"));
-  expect(noTool).toEqual({ toolUsed: false, parseOk: false, label: "no-verdict", correct: false });
+  expect(noTool).toEqual({
+    toolUsed: false,
+    parseOk: false,
+    label: "no-verdict",
+    correct: false,
+    unrecognised: false,
+  });
 });
 
 test("isVerdictWrite matches on the trailing path segment, and only for Write", () => {
@@ -245,8 +257,14 @@ test("parseVerdict rejects non-objects so a bare array never scores as a verdict
 // Aggregation + decision, label-agnostic
 // ---------------------------------------------------------------------------
 
-function outcome(label: string, correct: boolean, toolUsed = true, parseOk = true): TrialOutcome {
-  return { label, correct, toolUsed, parseOk };
+function outcome(
+  label: string,
+  correct: boolean,
+  toolUsed = true,
+  parseOk = true,
+  unrecognised = false,
+): TrialOutcome {
+  return { label, correct, toolUsed, parseOk, unrecognised };
 }
 
 test("aggregate counts an unlisted label rather than dropping it", () => {
@@ -1287,4 +1305,42 @@ test("the spend line reports the cache hit rate the usage email is about", () =>
   expect(spendUsd(spend, "claude-sonnet-5")).toBeGreaterThan(
     spendUsd({ ...spend, cacheWrite: 0, cacheRead: 0 }, "claude-sonnet-5"),
   );
+});
+
+const F_CLASSIFIER = CLASSIFIER_SPEC.fixtures[0]! as ClassifierFixture;
+const classifierWrite = (content: string): AnthropicResponse => ({
+  content: [{ type: "tool_use", id: "w", name: "Write", input: { file_path: "v.json", content } }],
+});
+
+test("smoke FAILS a verdict that parses but carries no recognisable decision", async () => {
+  // The regression this gate exists to catch: the model still writes JSON, just not the contract's.
+  // parseVerdict accepts any object, so `{"foo":1}` is toolUsed+parseOk and would have passed on
+  // noTool/parseFail alone — while the scorer was already calling it no-verdict.
+  const send: Send = async () => write("verdict.json", '{"foo":1}');
+  const spec = testSpec({
+    fixtures: [FIXTURE],
+    score: (_f, raw) =>
+      raw !== null && typeof raw.label === "string"
+        ? { label: String(raw.label), correct: true }
+        : { label: "no-verdict", correct: false, unrecognised: true },
+  });
+  const outcome = outcomeFrom(spec, FIXTURE, captureFrom(await send({}), "verdict.json"));
+  expect(outcome).toMatchObject({ toolUsed: true, parseOk: true, unrecognised: true });
+  expect(smokeDecide([aggregate(FIXTURE, [outcome], ["no-verdict"])]).pass).toBe(false);
+  expect(await runEval(spec, ["--trials", "1", "--smoke"], send)).toBe(EXIT.GATE_FAIL);
+});
+
+test("a genuine abstain is a verdict, not a malformation", () => {
+  // The classifier's `kind: "unknown"` is a real, deliberate answer — flagging it would fail the
+  // smoke gate on the most conservative thing the prompt can do.
+  const abstain = outcomeFor(
+    F_CLASSIFIER,
+    classifierWrite('{"kind":"unknown","summary":"cannot tell"}'),
+  );
+  expect(abstain).toMatchObject({ toolUsed: true, parseOk: true, unrecognised: false });
+  // A kind outside the enum IS a malformation, even though normalize() collapses both to unknown.
+  const garbage = outcomeFor(F_CLASSIFIER, classifierWrite('{"kind":"maybe","summary":"x"}'));
+  expect(garbage).toMatchObject({ label: "unknown", unrecognised: true });
+  const noKind = outcomeFor(F_CLASSIFIER, classifierWrite('{"summary":"x"}'));
+  expect(noKind).toMatchObject({ label: "unknown", unrecognised: true });
 });

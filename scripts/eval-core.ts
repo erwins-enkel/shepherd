@@ -244,6 +244,8 @@ export interface TrialOutcome {
   parseOk: boolean;
   label: string;
   correct: boolean;
+  /** The verdict parsed but carried no recognisable decision — see {@link Score.unrecognised}. */
+  unrecognised: boolean;
 }
 
 /** A scorer's reading of one verdict: the display label plus whether the fixture's predicates hold.
@@ -251,6 +253,16 @@ export interface TrialOutcome {
 export interface Score {
   label: string;
   correct: boolean;
+  /**
+   * The verdict was not RECOGNISABLE — no usable decision/kind field, whatever else it contained.
+   *
+   * Distinct from `parseOk`: `parseVerdict` accepts any JSON object, so `{"foo": 1}` parses
+   * cleanly and then means nothing. That is the most likely shape of a prompt regression (the
+   * model still writes JSON, just not the contract's), and without this the smoke gate — the one
+   * thing a PR can actually fail on — passes it. A genuine abstain is NOT unrecognised: the
+   * classifier's `kind: "unknown"` is a real verdict.
+   */
+  unrecognised?: boolean;
 }
 
 export interface EvalSpec<F extends EvalFixtureBase> {
@@ -569,8 +581,15 @@ export function outcomeFrom<F extends EvalFixtureBase>(
   capture: TrialCapture,
 ): TrialOutcome {
   const raw = capture.toolUsed ? parseVerdict(capture.content) : null;
-  const { label, correct } = spec.score(fixture, raw);
-  return { toolUsed: capture.toolUsed, parseOk: raw !== null, label, correct };
+  const { label, correct, unrecognised } = spec.score(fixture, raw);
+  return {
+    toolUsed: capture.toolUsed,
+    parseOk: raw !== null,
+    label,
+    correct,
+    // A verdict that never arrived is not "unrecognised" — noTool/parseFail already name that.
+    unrecognised: raw !== null && unrecognised === true,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -584,6 +603,8 @@ export interface FixtureResult<F extends EvalFixtureBase> {
   counts: Record<string, number>;
   noTool: number;
   parseFail: number;
+  /** Trials whose verdict parsed but carried no recognisable decision. */
+  unrecognised: number;
   majorityLabel: string | null;
   correct: number;
   majorityCorrect: boolean;
@@ -606,8 +627,10 @@ export function aggregate<F extends EvalFixtureBase>(
   const counts: Record<string, number> = Object.fromEntries(labels.map((l) => [l, 0]));
   let noTool = 0;
   let parseFail = 0;
+  let unrecognised = 0;
   let correct = 0;
   for (const o of outcomes) {
+    if (o.unrecognised) unrecognised++;
     // An unknown label still counts — a scorer that emits an unlisted label must not vanish from
     // the distribution.
     counts[o.label] = (counts[o.label] ?? 0) + 1;
@@ -623,6 +646,7 @@ export function aggregate<F extends EvalFixtureBase>(
     counts,
     noTool,
     parseFail,
+    unrecognised,
     majorityLabel: majority(counts, trials),
     correct,
     majorityCorrect: correct > trials / 2,
@@ -655,8 +679,12 @@ export function smokeDecide<F extends EvalFixtureBase>(
   results: FixtureResult<F>[],
 ): { pass: boolean; malformed: string[] } {
   const malformed = results
-    .filter((r) => r.noTool > 0 || r.parseFail > 0)
-    .map((r) => `${r.fixture.id}(no-tool:${r.noTool} parse-fail:${r.parseFail})`);
+    .filter((r) => r.noTool > 0 || r.parseFail > 0 || r.unrecognised > 0)
+    .map(
+      (r) =>
+        `${r.fixture.id}(no-tool:${r.noTool} parse-fail:${r.parseFail} ` +
+        `unrecognised:${r.unrecognised})`,
+    );
   return { pass: malformed.length === 0, malformed };
 }
 
@@ -728,6 +756,7 @@ export function formatReport<F extends EvalFixtureBase>(
       const flags = [
         r.noTool > 0 ? `no-tool:${r.noTool}` : "",
         r.parseFail > 0 ? `parse-fail:${r.parseFail}` : "",
+        r.unrecognised > 0 ? `unrecognised:${r.unrecognised}` : "",
       ]
         .filter(Boolean)
         .join(" ");
@@ -787,6 +816,7 @@ export function jsonReport<F extends EvalFixtureBase>(
       counts: r.counts,
       noTool: r.noTool,
       parseFail: r.parseFail,
+      unrecognised: r.unrecognised,
       majorityLabel: r.majorityLabel,
       correct: r.correct,
       majorityCorrect: r.majorityCorrect,

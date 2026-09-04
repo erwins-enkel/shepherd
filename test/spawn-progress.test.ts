@@ -92,9 +92,18 @@ test("cancel aborts the signal handed to herdr's poll loop", async () => {
 
 test("a sealed spawn refuses cancellation — the agent is already up", () => {
   const { tracker } = makeTracker("spawn-abc12345");
-  tracker.seal();
+  expect(tracker.seal()).toBe(true);
   expect(tracker.cancel()).toBe(false);
   expect(tracker.signal.aborted).toBe(false);
+});
+
+test("seal refuses when a cancel got there first — exactly one side wins", () => {
+  const { tracker } = makeTracker("spawn-abc12345");
+  expect(tracker.cancel()).toBe(true);
+  // The driver may still have handed back a live agent; the caller must unwind, not persist.
+  expect(tracker.seal()).toBe(false);
+  // And the decision is stable: a second seal cannot talk its way past the cancel.
+  expect(tracker.seal()).toBe(false);
 });
 
 test("registry cancels by id, reports too_late once sealed and unknown after release", () => {

@@ -1185,6 +1185,11 @@ export class HerdrDriver implements IHerdrDriver {
       if (!paneId) throw new Error(`herdr: tab create returned no root pane for ${name}`);
       const wrapped = buildWrappedArgv(argv, env);
       await this.runInReadyPane(paneId, wrapped);
+      // Second defined checkpoint. It matters most for the SANDBOXED branch below, which resolves
+      // through a quick registration rather than a poll loop and would otherwise hand back a live
+      // agent for a spawn the operator already cancelled. Throwing here lands in the catch, which
+      // closes the tab — taking the process that `pane run` just launched with it.
+      if (opts?.signal?.aborted) throw new SpawnCanceled();
       // A sandboxed spawn wraps the agent in `bwrap`, whose pane foreground hides `claude` from
       // herdr's detection — herdr can NEVER auto-detect it, so we must externally register it (and
       // Shepherd owns its lifecycle state via #1891). A TRUSTED spawn's foreground IS the agent

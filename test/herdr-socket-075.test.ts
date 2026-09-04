@@ -13,6 +13,7 @@ import { HerdrSocketError, type HerdrSocketClient } from "../src/herdr-socket-cl
 import { setDetectedHerdrVersion } from "../src/herdr-capabilities";
 import { OversizedArgvError } from "../src/argv-limit";
 import { readTypedScript } from "./helpers/spawn-script";
+import { SpawnCanceled } from "../src/spawn-progress";
 
 // ── captured 0.7.5 (protocol 17) reply fixtures (shared with test/herdr-075.test.ts) ────────────
 // The socket client returns `res.result`, so the driver receives the INNER result object — unwrap
@@ -158,6 +159,39 @@ describe("SocketHerdrDriver — 0.7.5 (protocol 17) external-registration spawn"
     // still typed the argv + resolved via agent.list
     expect(rec.some((r) => r.method === "pane.send_text")).toBe(true);
     expect(rec.some((r) => r.method === "agent.list")).toBe(true);
+  });
+
+  it("start() SANDBOXED: a cancel after the run rolls the tab back, registering nothing", async () => {
+    // Socket sibling of the CLI driver's checkpoint test: the sandboxed branch resolves through a
+    // quick registration, so without a check right after the run it would hand back a live agent
+    // for a spawn the operator had already cancelled.
+    const controller = new AbortController();
+    const { rec, client } = mkClient({ onSendText: () => controller.abort() });
+    const driver = new SocketHerdrDriver(client, noCli, async () => {});
+
+    await expect(
+      driver.start("review-task-09", "/wt/a", ["bwrap", "--", "claude", "go"], undefined, {
+        signal: controller.signal,
+      }),
+    ).rejects.toBeInstanceOf(SpawnCanceled);
+
+    expect(rec.some((r) => r.method === "pane.report_agent_session")).toBe(false);
+    expect(rec.some((r) => r.method === "tab.close")).toBe(true);
+  });
+
+  it("start(): a cancel before anything is created never reaches tab.create", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const { rec, client } = mkClient();
+    const driver = new SocketHerdrDriver(client, noCli, async () => {});
+
+    await expect(
+      driver.start("review-task-09", "/wt/a", ["claude", "go"], undefined, {
+        signal: controller.signal,
+      }),
+    ).rejects.toBeInstanceOf(SpawnCanceled);
+
+    expect(rec.some((r) => r.method === "tab.create")).toBe(false);
   });
 
   it("start() SANDBOXED: rolls back the freshly created tab when registration fails", async () => {

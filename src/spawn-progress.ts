@@ -121,9 +121,19 @@ export class SpawnPhaseTracker {
     }
   }
 
-  /** Past the point of no return: the agent is up, so cancelling would tear down a live session. */
-  seal(): void {
+  /**
+   * Claim the point of no return: the agent is up, so cancelling past here would tear down a live
+   * session. Returns false when a cancel got there first — the caller then owes the operator the
+   * teardown the cancel route already promised them.
+   *
+   * This is the ONE place the race is decided. `seal()` and `cancel()` both read and write the
+   * same two flags with no `await` between the read and the write, so on a single-threaded loop
+   * exactly one of them can win, whatever the driver did in between.
+   */
+  seal(): boolean {
+    if (this.#controller.signal.aborted) return false;
     this.#sealed = true;
+    return true;
   }
 
   /** False when the spawn is already sealed (or already cancelled) — the caller reports "too late". */

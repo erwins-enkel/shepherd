@@ -3745,9 +3745,18 @@ export class SessionService {
           signal: phases.signal,
         }),
       );
-      // Point of no return: the agent is up. Cancelling past here would tear down a live session,
-      // so the cancel route reports "too late" from now on.
-      phases.seal();
+      // Point of no return — unless a cancel got here first. The drivers check the signal at their
+      // own defined points, but a cancel can always land in the gap between the last of those and
+      // this line, and on that path `herdr.start` hands back a LIVE agent. The cancel route has
+      // already told the operator the start was abandoned, so honour that rather than persisting a
+      // session they believe never existed: stop the agent, then unwind (the catch below rolls the
+      // worktree back). `seal()` decides the race atomically — see SpawnPhaseTracker.seal.
+      if (!phases.seal()) {
+        await this.deps.herdr.stop(outcome.terminalId).catch((e) => {
+          console.warn(`[create] cancelled spawn: stopping ${outcome.terminalId} failed: ${e}`);
+        });
+        throw new SpawnCanceled();
+      }
       const session = this.deps.store.create({
         id: sessionId,
         name,

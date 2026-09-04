@@ -231,6 +231,10 @@ export class SocketHerdrDriver implements IHerdrDriver {
     try {
       if (!rootPaneId) throw new Error(`herdr: tab.create returned no root pane for ${name}`);
       await this.runInReadyPane(rootPaneId, buildWrappedArgv(argv, env));
+      // Second defined checkpoint — same rationale as the CLI driver: the sandboxed branch below
+      // resolves without a poll loop, so this is where a cancel catches it. The catch closes the
+      // tab, taking the just-launched process with it.
+      if (opts?.signal?.aborted) throw new SpawnCanceled();
       // Sandboxed spawns (bwrap in argv) hide `claude` from herdr's detection → must be externally
       // registered + Shepherd-owned. Trusted spawns are auto-detected by herdr → register nothing and
       // let herdr own the status (≤0.7.4 parity); a register/pin would freeze it. Mirrors

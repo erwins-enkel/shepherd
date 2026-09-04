@@ -38,6 +38,7 @@ function makeService(
   herdrStart: (opts?: { signal?: AbortSignal }) => Promise<typeof AGENT>,
 ) {
   const removed: string[] = [];
+  const stopped: string[] = [];
   const service = new SessionService({
     store,
     namer: async () => "repo-task",
@@ -59,10 +60,11 @@ function makeService(
         _env?: Record<string, string>,
         opts?: { signal?: AbortSignal },
       ) => herdrStart(opts),
+      stop: async (terminalId: string) => void stopped.push(terminalId),
       list: () => [],
     } as never,
   });
-  return { service, removed };
+  return { service, removed, stopped };
 }
 
 /** Tracker that records the phases announced to a watching dialog. */
@@ -132,6 +134,41 @@ test("cancelling during the agent wait rolls the worktree back and persists no s
 
   expect(removed).toEqual(["/wt/repo-task"]);
   expect(store.list()).toHaveLength(0);
+});
+
+test("a cancel that beat the seal tears down the agent that was already started", async () => {
+  const store = new SessionStore(":memory:");
+  // Stands in for the SANDBOXED resolve, which returns through a quick registration rather than a
+  // poll loop: it hands back a live agent for a spawn the cancel route has already reported as
+  // cancelled. Persisting that session would contradict what the operator was told.
+  const { service, removed, stopped } = makeService(store, async () => {
+    expect(cancelSpawn(SPAWN_ID)).toBe("canceled");
+    return AGENT;
+  });
+  const { tracker } = watchedTracker();
+  registerSpawn(tracker);
+
+  await expect(service.create(INPUT, tracker)).rejects.toBeInstanceOf(SpawnCanceled);
+
+  expect(stopped).toEqual([AGENT.terminalId]);
+  expect(removed).toEqual(["/wt/repo-task"]);
+  expect(store.list()).toHaveLength(0);
+});
+
+test("a cancel the driver honoured needs no agent teardown — none was started", async () => {
+  const store = new SessionStore(":memory:");
+  const { service, removed, stopped } = makeService(store, async (opts) => {
+    expect(cancelSpawn(SPAWN_ID)).toBe("canceled");
+    if (opts?.signal?.aborted) throw new SpawnCanceled();
+    return AGENT;
+  });
+  const { tracker } = watchedTracker();
+  registerSpawn(tracker);
+
+  await expect(service.create(INPUT, tracker)).rejects.toBeInstanceOf(SpawnCanceled);
+
+  expect(stopped).toEqual([]);
+  expect(removed).toEqual(["/wt/repo-task"]);
 });
 
 test("a cancel before the worktree exists leaves nothing to roll back", async () => {

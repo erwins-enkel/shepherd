@@ -2139,14 +2139,18 @@
     force?: boolean;
     spawnId?: string;
   }) {
+    // The spawn id is TRANSPORT, not task data: it rides a header on create and must never reach
+    // a request body. Stripped here, above the branches, because every one of them serializes
+    // this object verbatim — and `validateCreate`'s key allowlist (which also guards the held
+    // update PATCH) rejects an unknown key outright. Hence also why it isn't a body field to
+    // begin with: the create body is what a usage-hold persists as a held task, and a replayed
+    // id would address a spawn that is long gone.
+    const { spawnId, ...taskInput } = input;
     // Edit-held path persists the new input back onto the still-held task; relaunch-elsewhere
     // branches to submitRelaunch; otherwise the normal New Task create.
-    if (editHeldId !== null) return submitEditHeld(editHeldId, input);
-    if (relaunchOriginalId !== null) return submitRelaunch(relaunchOriginalId, input);
-    // The spawn id travels as a header, not in the create body: the body is what a usage-hold
-    // persists as a held task, and a replayed id would address a spawn that is long gone.
-    const { spawnId, ...createInput } = input;
-    const r = await createSession(createInput, spawnId);
+    if (editHeldId !== null) return submitEditHeld(editHeldId, taskInput);
+    if (relaunchOriginalId !== null) return submitRelaunch(relaunchOriginalId, taskInput);
+    const r = await createSession(taskInput, spawnId);
     if ("held" in r) {
       // Held tasks are queued (visible via the TopBar badge); close the composer like a
       // normal submit so the populated prompt can't be re-clicked into a duplicate hold.

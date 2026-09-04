@@ -4889,12 +4889,16 @@ describe("NewTask spawn progress", () => {
 
   it("passes the spawn id to onsubmit so the create can be correlated and cancelled", async () => {
     pinSpawnId();
-    const onsubmit = vi.fn(() => deferred<void>().promise);
+    let submittedInput: { spawnId?: string } | null = null;
+    const onsubmit = vi.fn((input: { spawnId?: string }) => {
+      submittedInput = input;
+      return deferred<void>().promise;
+    });
     render(NewTask, { props: base({ onsubmit, initialRepoPath: "/repo/spawn" }) });
 
     await submitTask(onsubmit);
 
-    expect(onsubmit.mock.calls[0]![0]).toMatchObject({ spawnId: SPAWN_ID });
+    expect(submittedInput).toMatchObject({ spawnId: SPAWN_ID });
   });
 
   it("stays quiet on a normal start and only explains itself once the wait drags on", async () => {

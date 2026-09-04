@@ -42,10 +42,11 @@ export interface Spend {
   input: number;
   output: number;
   cacheRead: number;
+  cacheWrite: number;
 }
 
 export function emptySpend(): Spend {
-  return { calls: 0, input: 0, output: 0, cacheRead: 0 };
+  return { calls: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 }
 
 export function addUsage(spend: Spend, response: AnthropicResponse): void {
@@ -55,6 +56,7 @@ export function addUsage(spend: Spend, response: AnthropicResponse): void {
   spend.input += u.input_tokens ?? 0;
   spend.output += u.output_tokens ?? 0;
   spend.cacheRead += u.cache_read_input_tokens ?? 0;
+  spend.cacheWrite += u.cache_creation_input_tokens ?? 0;
 }
 
 /** List-price USD for what a run has consumed so far, via `src/pricing.ts` — the same formula the
@@ -65,7 +67,7 @@ export function spendUsd(spend: Spend, model: string): number {
       input: spend.input,
       output: spend.output,
       cacheRead: spend.cacheRead,
-      cacheWrite5m: 0,
+      cacheWrite5m: spend.cacheWrite,
       cacheWrite1h: 0,
     },
     model,
@@ -73,9 +75,14 @@ export function spendUsd(spend: Spend, model: string): number {
 }
 
 export function formatSpend(spend: Spend, model: string): string {
+  // cacheRead is the number the Anthropic usage email is about: if it stays 0 while a run repeats
+  // the same prefix, a breakpoint is missing or the prefix is under the model's minimum.
+  const cached = spend.cacheRead + spend.input;
+  const hitRate = cached === 0 ? 0 : Math.round((spend.cacheRead / cached) * 100);
   return (
     `calls=${spend.calls} in=${spend.input.toLocaleString()} out=${spend.output.toLocaleString()} ` +
-    `≈ $${spendUsd(spend, model).toFixed(2)}`
+    `cache(read=${spend.cacheRead.toLocaleString()} write=${spend.cacheWrite.toLocaleString()} ` +
+    `hit=${hitRate}%) ≈ $${spendUsd(spend, model).toFixed(2)}`
   );
 }
 
@@ -401,6 +408,50 @@ export function captureFrom(response: AnthropicResponse, verdictFile?: string): 
   return { toolUsed: content !== null, content, turns: 1 };
 }
 
+/**
+ * Minimum cacheable prefix, in tokens, per model. A prefix under this silently does not cache —
+ * no error, `cache_creation_input_tokens` just stays 0 forever — so it is worth checking rather
+ * than discovering. NOT monotonic across generations: 512 on the newest, 4096 on Haiku 4.5.
+ */
+const MIN_CACHEABLE_TOKENS: { match: RegExp; min: number }[] = [
+  { match: /opus-5|fable|mythos-5/i, min: 512 },
+  { match: /opus-4-7/i, min: 2048 },
+  { match: /opus-4-6|opus-4-5|haiku/i, min: 4096 },
+  { match: /sonnet|opus/i, min: 1024 },
+];
+
+export function minCacheableTokens(model: string): number {
+  return MIN_CACHEABLE_TOKENS.find((r) => r.match.test(model))?.min ?? 1024;
+}
+
+/** Rough token estimate — chars/4. Only ever used to decide whether a prefix is worth marking, so
+ *  approximate is fine; being wrong costs a missed cache, never a wrong result. */
+function estimateTokens(text: string): number {
+  return Math.ceil(text.length / 4);
+}
+
+/**
+ * Is this eval's stable prefix (tools + system + the fixture prompt) long enough to cache on its
+ * model? The breakpoint sits at the END of the first user message, so all three render into it.
+ *
+ * The stop-classifier deliberately fails this: ~776 tokens against Haiku 4.5's 4096 minimum. It
+ * gets no marker, which is the honest outcome — a marker there would look like caching and do
+ * nothing.
+ */
+export function prefixIsCacheable<F extends EvalFixtureBase>(
+  spec: EvalSpec<F>,
+  prompt: string,
+  model: string,
+): boolean {
+  const prefix =
+    estimateTokens(JSON.stringify(spec.tools)) +
+    estimateTokens(spec.system ?? "") +
+    estimateTokens(prompt);
+  return prefix >= minCacheableTokens(model);
+}
+
+const EPHEMERAL = { type: "ephemeral" } as const;
+
 export function buildRequestBody(
   tools: ToolDef[],
   maxTokens: number,
@@ -437,7 +488,27 @@ export async function runTrial<F extends EvalFixtureBase>(
   temperature: number,
   spend?: Spend,
 ): Promise<TrialCapture> {
-  const messages: unknown[] = [{ role: "user", content: prompt }];
+  // TWO breakpoints, both earning their keep (the API allows 4):
+  //
+  //   1. End of the FIRST user message. Render order is tools -> system -> messages, so this one
+  //      marker caches tools + system + the fixture prompt together — ~3.2K tokens for the critic.
+  //      That prefix is byte-identical across every trial of the same fixture, so trials 2..T read
+  //      it instead of resending it.
+  //   2. The last block of the most recently appended turn, moved forward each turn. Within a
+  //      trial each turn otherwise resends the whole conversation: a 7-turn critic trial billed
+  //      41K input tokens, most of it repeat.
+  //
+  // Skipped entirely when the prefix is under the model's minimum — a marker there would look like
+  // caching and do nothing.
+  const cacheable = prefixIsCacheable(spec, prompt, model);
+  /** The conversation breakpoint from the previous turn, cleared when the next one is placed. */
+  let movingBreakpoint: Record<string, unknown> | null = null;
+  const messages: unknown[] = [
+    {
+      role: "user",
+      content: cacheable ? [{ type: "text", text: prompt, cache_control: EPHEMERAL }] : prompt,
+    },
+  ];
   for (let turn = 1; turn <= spec.maxTurns; turn++) {
     const response = await send(
       buildRequestBody(spec.tools, spec.maxTokens, model, temperature, messages, spec.system),
@@ -468,17 +539,25 @@ export async function runTrial<F extends EvalFixtureBase>(
     // WRITE (the critic's `.shepherd-review.md`) is acknowledged as a successful write — the
     // fixture environment never stores it, because nothing scores against it.
     messages.push({ role: "assistant", content: response.content ?? [] });
-    messages.push({
-      role: "user",
-      content: uses.map((block) => ({
-        type: "tool_result",
-        tool_use_id: block.id ?? "",
-        content:
-          (isWrite(block)
-            ? "File written successfully."
-            : (spec.respond?.(fixture, block.name ?? "", inputOf(block)) ?? "(no output)")) + nudge,
-      })),
-    });
+    const results = uses.map((block) => ({
+      type: "tool_result",
+      tool_use_id: block.id ?? "",
+      content:
+        (isWrite(block)
+          ? "File written successfully."
+          : (spec.respond?.(fixture, block.name ?? "", inputOf(block)) ?? "(no output)")) + nudge,
+    }));
+    // MOVE the conversation breakpoint rather than adding one: the API allows at most 4 per
+    // request, and a turn-per-marker run would 400 from the fifth turn on (the critic runs up to
+    // 18). Clearing the previous marker costs nothing — the cache ENTRY it wrote survives for its
+    // TTL, and reads always match the longest cached prefix, so incremental reuse is unaffected.
+    const last = results[results.length - 1];
+    if (cacheable && last) {
+      if (movingBreakpoint) delete (movingBreakpoint as { cache_control?: unknown }).cache_control;
+      Object.assign(last, { cache_control: EPHEMERAL });
+      movingBreakpoint = last;
+    }
+    messages.push({ role: "user", content: results });
   }
   return { toolUsed: false, content: null, turns: spec.maxTurns, stopReason: "turn-budget" };
 }

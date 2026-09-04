@@ -266,6 +266,14 @@ export function buildRequestBody(
     system.push({
       type: "text",
       text: `Reference documentation (for answering "question" issues only):\n\n${docs}`,
+      // Cache the whole system prefix — instructions + docs are byte-identical for every issue,
+      // only the user turn varies, and the docs are the large part. Marked on the LAST system
+      // block so tools + system cache together (render order is tools -> system -> messages).
+      //
+      // Only when docs are attached, and deliberately so: `claude-haiku-4-5` needs a 4096-token
+      // prefix to cache at all, which SYSTEM_INSTRUCTIONS alone does not reach. A marker on the
+      // docs-less path would look like caching and silently do nothing.
+      cache_control: { type: "ephemeral" },
     });
   }
   return {

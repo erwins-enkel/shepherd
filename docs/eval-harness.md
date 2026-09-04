@@ -99,6 +99,21 @@ verdict-less preflights abort with the fixture, turn count, `stop_reason` and th
 returned instead. Discovering the mode failure above cost ~$10 and an hour once; it now costs a few
 cents and reports its own diagnosis.
 
+**Prompt caching is on where it can work.** Two breakpoints per request: one at the end of the
+first user message — render order is `tools` → `system` → `messages`, so a single marker there
+caches tools + system + the fixture prompt together, a prefix identical across every trial of that
+fixture — and one **moving** breakpoint on the last block of the latest turn, so a multi-turn
+critic trial stops re-billing its whole conversation each turn. The conversation marker moves
+rather than accumulating: the API allows at most **4** per request and the critic runs up to 18
+turns, so one-per-turn would fail from the fifth turn on.
+
+It is skipped entirely when the stable prefix is under the model's minimum, because a marker there
+would look like caching and do nothing. The minimums are **not monotonic** — 512 tokens on the
+newest models, 1024 on Sonnet 5, but **4096 on Haiku 4.5** — which is why the stop-classifier
+(~776 tokens on haiku) gets no marker at all while the two sonnet evals do. The spend line reports
+`cache(read=… write=… hit=…%)`: if that hit rate stays at 0% across a run that repeats a prefix, a
+breakpoint is missing or the prefix is under the minimum.
+
 **Every run meters and caps its own spend.** These are paid runs, and the first attempt burned
 ~$10 before anyone could see a number. So the harness counts its own tokens, prices them through
 `dollars()` in `src/pricing.ts` (the same formula the usage lens prices real sessions with), prints

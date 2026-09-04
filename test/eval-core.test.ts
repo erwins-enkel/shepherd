@@ -9,8 +9,11 @@ import {
   captureFrom,
   decide,
   formatReport,
+  formatSpend,
   isCannotRun,
   isPermanent,
+  minCacheableTokens,
+  prefixIsCacheable,
   isVerdictWrite,
   majority,
   outcomeFrom,
@@ -1149,4 +1152,122 @@ test("no prose states a spend ceiling the workflow does not actually set", () =>
     .filter((c) => !shipped.has(c.value))
     .map((c) => `${c.where}: claims $${c.value}, shipped ${[...shipped].join("/")}`);
   expect(stale).toEqual([]);
+});
+
+// ---------------------------------------------------------------------------
+// Prompt caching
+// ---------------------------------------------------------------------------
+
+/** Collect every cache_control marker in a request's messages, with where it sits. */
+function breakpoints(messages: unknown): string[] {
+  const out: string[] = [];
+  (messages as { content?: unknown }[]).forEach((msg, i) => {
+    if (!Array.isArray(msg.content)) return;
+    msg.content.forEach((block: Record<string, unknown>, j: number) => {
+      if (block.cache_control) out.push(`msg${i}.block${j}:${String(block.type)}`);
+    });
+  });
+  return out;
+}
+
+async function captureTurns(spec: EvalSpec<never>, turns: number) {
+  const snaps: unknown[][] = [];
+  const send: Send = async (body) => {
+    snaps.push(structuredClone(body.messages) as unknown[]);
+    return snaps.length < turns
+      ? {
+          content: [
+            {
+              type: "tool_use",
+              id: `t${snaps.length}`,
+              name: "Bash",
+              input: { command: "git diff" },
+            },
+          ],
+        }
+      : {
+          content: [
+            {
+              type: "tool_use",
+              id: "w",
+              name: "Write",
+              input: { file_path: spec.verdictFile ?? "v.json", content: "{}" },
+            },
+          ],
+        };
+  };
+  const fixture = spec.fixtures[0]!;
+  await runTrial(
+    send,
+    spec,
+    fixture,
+    spec.buildPrompt(fixture, parseArgs(spec, [])),
+    spec.defaultModel,
+    1,
+  );
+  return snaps;
+}
+
+test("caching never exceeds the API's 4-breakpoint limit, however long the run", async () => {
+  // The bug this caught: adding one marker per turn 400s from the fifth turn on, and the critic
+  // runs up to 18. The conversation breakpoint MOVES instead of accumulating.
+  const snaps = await captureTurns(CRITIC_SPEC as unknown as EvalSpec<never>, 9);
+  expect(snaps.length).toBe(9);
+  for (const messages of snaps) expect(breakpoints(messages).length).toBeLessThanOrEqual(4);
+  // Turn 1: the prompt prefix only. Later turns: that plus ONE moving conversation breakpoint.
+  expect(breakpoints(snaps[0]!)).toEqual(["msg0.block0:text"]);
+  expect(breakpoints(snaps[1]!).length).toBe(2);
+  expect(breakpoints(snaps[8]!).length).toBe(2);
+  // The moving one is always on the LAST message, so each turn extends the cached prefix.
+  const last = breakpoints(snaps[8]!).at(-1)!;
+  expect(last.startsWith(`msg${(snaps[8]!.length - 1).toString()}.`)).toBe(true);
+});
+
+test("a prefix under the model's minimum gets no marker at all", async () => {
+  // The classifier is ~776 tokens against Haiku 4.5's 4096 minimum. A marker there would look
+  // like caching and silently do nothing — `cache_creation_input_tokens` would just stay 0.
+  const snaps = await captureTurns(CLASSIFIER_SPEC as unknown as EvalSpec<never>, 1);
+  expect(breakpoints(snaps[0]!)).toEqual([]);
+  expect(
+    prefixIsCacheable(
+      CLASSIFIER_SPEC,
+      CLASSIFIER_SPEC.buildPrompt(CLASSIFIER_SPEC.fixtures[0]!, parseArgs(CLASSIFIER_SPEC, [])),
+      CLASSIFIER_SPEC.defaultModel,
+    ),
+  ).toBe(false);
+  // The two sonnet evals clear their 1024 minimum comfortably.
+  for (const spec of [CRITIC_SPEC, PLAN_GATE_SPEC] as unknown as EvalSpec<EvalFixtureBase>[]) {
+    const prompt = spec.buildPrompt(spec.fixtures[0]!, parseArgs(spec, []));
+    expect(prefixIsCacheable(spec, prompt, spec.defaultModel)).toBe(true);
+  }
+});
+
+test("the per-model minimums are the documented ones, and not monotonic", () => {
+  // 512 on the newest models but 4096 on Haiku 4.5 — getting this backwards silently disables
+  // caching on the model that needs the longest prefix.
+  expect(minCacheableTokens("claude-opus-5")).toBe(512);
+  expect(minCacheableTokens("claude-sonnet-5")).toBe(1024);
+  expect(minCacheableTokens("claude-opus-4-7")).toBe(2048);
+  expect(minCacheableTokens("claude-haiku-4-5")).toBe(4096);
+  expect(minCacheableTokens("claude-opus-4-6")).toBe(4096);
+});
+
+test("the spend line reports the cache hit rate the usage email is about", () => {
+  const spend = emptySpend();
+  addUsage(spend, {
+    usage: {
+      input_tokens: 1000,
+      output_tokens: 100,
+      cache_read_input_tokens: 9000,
+      cache_creation_input_tokens: 500,
+    },
+  });
+  const line = formatSpend(spend, "claude-sonnet-5");
+  expect(line).toContain("read=9,000");
+  expect(line).toContain("write=500");
+  expect(line).toContain("hit=90%"); // 9000 / (9000 + 1000)
+  // Cache writes are billed at 1.25x and reads at 0.1x — both must reach the price formula.
+  expect(spendUsd(spend, "claude-sonnet-5")).toBeGreaterThan(
+    spendUsd({ ...spend, cacheWrite: 0, cacheRead: 0 }, "claude-sonnet-5"),
+  );
 });

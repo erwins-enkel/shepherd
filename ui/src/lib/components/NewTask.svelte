@@ -14,8 +14,11 @@
     syncFork,
     shapeTask as apiShapeTask,
     composeTaskBrief,
+    cancelSpawn,
+    ApiError,
   } from "$lib/api";
   import { toasts } from "$lib/toasts.svelte";
+  import { getLocale } from "$lib/i18n";
   import { handleImagePaste } from "$lib/clipboard";
   import {
     type Issue,
@@ -28,6 +31,8 @@
     type Steer,
     type RawAnswer,
     type ShapeRound as ShapeRoundData,
+    type SpawnPhase,
+    type SpawnProgress,
     MODELS_BY_PROVIDER,
   } from "$lib/types";
   import {
@@ -122,6 +127,7 @@
     usageLimits = null,
     holdLikely = false,
     fableAvailable = true,
+    spawnProgress = null,
   }: {
     onsubmit: (input: {
       repoPath: string;
@@ -145,6 +151,8 @@
       research: boolean;
       epicAuthoring: boolean;
       force?: boolean;
+      /** Correlates this create with its `spawn:progress` events + the cancel route. */
+      spawnId?: string;
     }) => Promise<void> | void;
     onclose?: () => void;
     onclone?: () => void;
@@ -175,6 +183,9 @@
     usageLimits?: UsageLimits | null;
     holdLikely?: boolean;
     fableAvailable?: boolean;
+    /** Live phase of the spawn this dialog is waiting on, from the `spawn:progress` WS event.
+     *  Passed in rather than read off the store so this component stays store-free. */
+    spawnProgress?: SpawnProgress | null;
   } = $props();
 
   /** Short editable seed so the user only adds deltas; the body rides out-of-band. */
@@ -275,6 +286,102 @@
   function reason(e: unknown, fallback: string): string {
     const msg = e instanceof Error ? e.message.trim() : "";
     return msg || fallback;
+  }
+
+  // ── spawn progress ──────────────────────────────────────────────────────────
+  // The create request answers only once the agent is running, and the bulk of that is spent
+  // waiting for the agent to boot (see src/spawn-progress.ts). Until it answers this dialog can
+  // only say "starting…", so these track WHAT it is waiting on — and, past the threshold, offer a
+  // way out. The threshold is deliberately generous: a healthy start finishes well inside it, so
+  // the panel only ever appears when there is something to explain.
+  const SPAWN_SLOW_MS = 10_000;
+  /** Set for the lifetime of one in-flight create; the key both the events and the cancel use. */
+  let spawnId = $state<string | null>(null);
+  let spawnStartedAt = $state(0);
+  let spawnNow = $state(0);
+  let spawnCanceling = $state(false);
+  /** A cancelled start is not a failure — this renders a neutral note, never the error banner. */
+  let spawnCanceled = $state(false);
+
+  /** Progress for OUR create only: the event is broadcast, so another tab's spawn arrives here too. */
+  const spawn = $derived(spawnId && spawnProgress?.spawnId === spawnId ? spawnProgress : null);
+  const spawnElapsedMs = $derived(spawnStartedAt ? Math.max(0, spawnNow - spawnStartedAt) : 0);
+  const spawnSlow = $derived(submitting && spawnElapsedMs >= SPAWN_SLOW_MS);
+
+  // Runs only while a create is in flight. 250ms so the seconds counter ticks over cleanly
+  // without the display lagging a beat behind the real elapsed time.
+  $effect(() => {
+    if (!submitting) return;
+    spawnNow = Date.now();
+    const timer = setInterval(() => (spawnNow = Date.now()), 250);
+    return () => clearInterval(timer);
+  });
+
+  function phaseLabel(phase: SpawnPhase): string {
+    switch (phase) {
+      case "base":
+        return m.newtask_spawn_phase_base();
+      case "worktree":
+        return m.newtask_spawn_phase_worktree();
+      case "prompt":
+        return m.newtask_spawn_phase_prompt();
+      case "launch":
+        return m.newtask_spawn_phase_launch();
+      case "agent":
+        return m.newtask_spawn_phase_agent();
+    }
+  }
+
+  /** Why this phase can take a while — the answer to "why is it still going?". */
+  function phaseWhy(phase: SpawnPhase): string {
+    switch (phase) {
+      case "base":
+        return m.newtask_spawn_why_base();
+      case "worktree":
+        return m.newtask_spawn_why_worktree();
+      case "prompt":
+        return m.newtask_spawn_why_prompt();
+      case "launch":
+        return m.newtask_spawn_why_launch();
+      case "agent":
+        return m.newtask_spawn_why_agent();
+    }
+  }
+
+  /** One decimal, in the viewer's locale — "1,2 s" in German, "1.2 s" in English. */
+  function phaseSeconds(ms: number): string {
+    const n = new Intl.NumberFormat(getLocale(), {
+      minimumFractionDigits: 1,
+      maximumFractionDigits: 1,
+    }).format(ms / 1000);
+    return m.newtask_spawn_seconds({ seconds: n });
+  }
+
+  function clock(ms: number): string {
+    const total = Math.floor(ms / 1000);
+    return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
+  }
+
+  /** Footer line while submitting: the live phase when we have one, else the plain label —
+   *  a dropped WS connection costs the phase name, never the elapsed counter. */
+  const spawnStatusText = $derived(
+    submitting
+      ? `${spawn ? phaseLabel(spawn.phase) : m.newtask_spawning()} · ${clock(spawnElapsedMs)}`
+      : m.newtask_spawning(),
+  );
+
+  /** Ask the server to abandon this start. A `false` answer means the agent came up first, so the
+   *  spawn is completing after all — re-enable the button rather than pretend it stopped. */
+  async function cancelCurrentSpawn() {
+    const id = spawnId;
+    if (!id || spawnCanceling) return;
+    spawnCanceling = true;
+    const stopped = await cancelSpawn(id);
+    if (!stopped) spawnCanceling = false;
+  }
+
+  function isSpawnCanceled(err: unknown): boolean {
+    return err instanceof ApiError && err.code === "spawn_canceled";
   }
   let repos = $state<RepoEntry[]>([]);
   // Day count the server computed recentAgentCount over; drives the picker's label.
@@ -909,7 +1016,7 @@
       case "uploading":
         return m.newtask_uploading();
       case "submitting":
-        return m.newtask_spawning();
+        return spawnStatusText;
     }
   }
 
@@ -1426,8 +1533,9 @@
     return touched ? value : null;
   }
 
-  function buildSpawnInput(finalPrompt: string, force: boolean) {
+  function buildSpawnInput(finalPrompt: string, force: boolean, id: string) {
     return {
+      spawnId: id,
       repoPath: repoPath.trim(),
       baseBranch: baseBranch.trim() || "main",
       prompt: finalPrompt,
@@ -1495,10 +1603,20 @@
       });
       return;
     }
+    // One id per attempt: it correlates the phase events and is what the cancel route addresses.
+    const id = crypto.randomUUID();
+    spawnId = id;
+    spawnStartedAt = Date.now();
+    spawnNow = spawnStartedAt;
+    spawnCanceled = false;
     try {
-      await onsubmit(buildSpawnInput(finalPrompt, force));
+      await onsubmit(buildSpawnInput(finalPrompt, force, id));
     } catch (err) {
-      if (isPreviewBlocked(err)) {
+      if (isSpawnCanceled(err)) {
+        // The operator's own doing, and the server already rolled the worktree back. Say so
+        // plainly and leave the prompt standing rather than raising an error.
+        spawnCanceled = true;
+      } else if (isPreviewBlocked(err)) {
         error = (err as Error).message;
       } else {
         error = spawnFailureMessage(err);
@@ -1508,6 +1626,9 @@
       // Clear submitting on every path (matters for the error path: the dialog stays
       // open showing the error and the buttons must re-enable for a retry).
       submitting = false;
+      spawnId = null;
+      spawnStartedAt = 0;
+      spawnCanceling = false;
     }
   }
 
@@ -2174,6 +2295,41 @@
             />
           {/if}
 
+          {#if spawnSlow}
+            <div class="spawn" role="status" aria-label={m.newtask_spawn_progress_aria()}>
+              <span class="spawn-note">{m.newtask_spawn_slow()}</span>
+              <div class="spawn-now">
+                <span class="spawn-phase"
+                  >{spawn ? phaseLabel(spawn.phase) : m.newtask_spawning()}</span
+                >
+                <span class="spawn-clock">{clock(spawnElapsedMs)}</span>
+              </div>
+              {#if spawn}
+                <p class="spawn-why">{phaseWhy(spawn.phase)}</p>
+                {#if spawn.completed.length > 0}
+                  <ul class="spawn-done">
+                    {#each spawn.completed as done (done.phase)}
+                      <li>
+                        <span class="spawn-tick" aria-hidden="true">✓</span>
+                        <span class="spawn-done-label">{phaseLabel(done.phase)}</span>
+                        <span class="spawn-ms">{phaseSeconds(done.ms)}</span>
+                      </li>
+                    {/each}
+                  </ul>
+                {/if}
+              {/if}
+              <button
+                type="button"
+                class="spawn-cancel"
+                disabled={spawnCanceling}
+                onclick={cancelCurrentSpawn}
+                >{spawnCanceling ? m.newtask_spawn_canceling() : m.newtask_spawn_cancel()}</button
+              >
+            </div>
+          {/if}
+          {#if spawnCanceled}
+            <div class="spawn-canceled" role="status">{m.newtask_spawn_canceled()}</div>
+          {/if}
           {#if error}
             <div class="err" role="alert">
               <span>{error}</span>
@@ -3058,6 +3214,83 @@
     color: var(--color-muted);
   }
 
+  .spawn {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    align-items: flex-start;
+    background: var(--color-inset);
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
+    padding: 8px 10px;
+    font-size: var(--fs-meta);
+  }
+  .spawn-note {
+    color: var(--color-amber);
+    letter-spacing: 0.06em;
+  }
+  .spawn-now {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    width: 100%;
+  }
+  .spawn-phase {
+    color: var(--color-ink-bright);
+  }
+  .spawn-clock {
+    margin-left: auto;
+    color: var(--color-muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .spawn-why {
+    margin: 0;
+    color: var(--color-muted);
+  }
+  .spawn-done {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .spawn-done li {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    color: var(--color-faint);
+  }
+  .spawn-tick {
+    color: var(--color-green);
+  }
+  .spawn-ms {
+    margin-left: auto;
+    font-variant-numeric: tabular-nums;
+  }
+  .spawn-cancel {
+    background: transparent;
+    border: 1px solid var(--color-line-bright);
+    border-radius: 2px;
+    color: var(--color-amber);
+    font: inherit;
+    font-size: var(--fs-meta);
+    letter-spacing: 0.06em;
+    padding: 3px 8px;
+    cursor: pointer;
+  }
+  .spawn-cancel:hover:not(:disabled) {
+    border-color: var(--color-amber);
+  }
+  .spawn-cancel:disabled {
+    color: var(--color-faint);
+    cursor: default;
+  }
+  .spawn-canceled {
+    color: var(--color-muted);
+    font-size: var(--fs-meta);
+  }
   .err {
     color: var(--color-red);
     font-size: var(--fs-meta);

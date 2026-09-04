@@ -3,7 +3,15 @@ import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
 import { overwriteGetLocale } from "$lib/paraglide/runtime";
-import type { Issue, RepoConfig, RepoEntry, SlashCommand, Steer } from "$lib/types";
+import type {
+  Issue,
+  RepoConfig,
+  RepoEntry,
+  SlashCommand,
+  SpawnPhase,
+  SpawnProgress,
+  Steer,
+} from "$lib/types";
 import { m } from "$lib/paraglide/messages";
 import { steers } from "$lib/steers.svelte";
 import { viewerCache } from "$lib/viewer-cache.svelte";
@@ -22,6 +30,8 @@ import {
   uploadFile,
   shapeTask,
   composeTaskBrief,
+  cancelSpawn,
+  ApiError,
 } from "$lib/api";
 
 // Mock the API so the issue picker renders deterministically with no network.
@@ -42,6 +52,7 @@ vi.mock("$lib/api", async (importOriginal) => {
     uploadFile: vi.fn(),
     shapeTask: vi.fn(),
     composeTaskBrief: vi.fn(),
+    cancelSpawn: vi.fn(),
   };
 });
 
@@ -73,6 +84,7 @@ const mockGetCommands = vi.mocked(getCommands);
 const mockUploadFile = vi.mocked(uploadFile);
 const mockShapeTask = vi.mocked(shapeTask);
 const mockComposeTaskBrief = vi.mocked(composeTaskBrief);
+const mockCancelSpawn = vi.mocked(cancelSpawn);
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -141,6 +153,8 @@ beforeEach(async () => {
   mockUploadFile.mockReset();
   mockShapeTask.mockReset();
   mockComposeTaskBrief.mockReset();
+  mockCancelSpawn.mockReset();
+  mockCancelSpawn.mockResolvedValue(true);
   mockNormalizeRunConfig.mockImplementation(runConfigActual.normalizeRunConfig);
   // Safe defaults so any test that mounts the picker (PromptSources) gets resolved
   // promises, never `undefined`; individual tests override as needed.
@@ -4819,5 +4833,176 @@ describe("NewTask shape round", () => {
     });
     await expect.poll(() => document.querySelector("#nt-prompt")).toBeTruthy();
     expect(shapeBtn()).toBeNull();
+  });
+});
+
+describe("NewTask spawn progress", () => {
+  // The dialog generates one spawn id per attempt; pinning it lets a test hand the component the
+  // matching `spawn:progress` payload up front instead of racing the submit to read it back.
+  const SPAWN_ID = "11111111-2222-3333-4444-555555555555" as ReturnType<typeof crypto.randomUUID>;
+  let uuidSpy: ReturnType<typeof vi.spyOn> | undefined;
+
+  function pinSpawnId() {
+    uuidSpy = vi.spyOn(crypto, "randomUUID").mockReturnValue(SPAWN_ID);
+  }
+
+  afterEach(() => {
+    uuidSpy?.mockRestore();
+    uuidSpy = undefined;
+  });
+
+  function progress(
+    phase: SpawnPhase,
+    completed: { phase: SpawnPhase; ms: number }[] = [],
+  ): SpawnProgress {
+    return { spawnId: SPAWN_ID, phase, startedAt: Date.now(), completed };
+  }
+
+  /** Fill the prompt and press Run; resolves once the component has called onsubmit. */
+  async function submitTask(onsubmit: ReturnType<typeof vi.fn>) {
+    const promptField = document.querySelector<HTMLTextAreaElement>("#nt-prompt")!;
+    promptField.value = "flatten it";
+    promptField.dispatchEvent(new Event("input", { bubbles: true }));
+    const run = document.querySelector<HTMLButtonElement>("button.run")!;
+    await expect.poll(() => run.disabled).toBe(false);
+    run.click();
+    await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
+  }
+
+  it("names the running phase in the footer instead of a bare 'spawning'", async () => {
+    pinSpawnId();
+    const onsubmit = vi.fn(() => deferred<void>().promise);
+    render(NewTask, {
+      props: base({
+        onsubmit,
+        initialRepoPath: "/repo/spawn",
+        spawnProgress: progress("agent", [{ phase: "base", ms: 1200 }]),
+      }),
+    });
+
+    await submitTask(onsubmit);
+
+    await expect
+      .poll(() => document.querySelector(".readiness")?.textContent ?? "")
+      .toContain(m.newtask_spawn_phase_agent());
+  });
+
+  it("passes the spawn id to onsubmit so the create can be correlated and cancelled", async () => {
+    pinSpawnId();
+    const onsubmit = vi.fn(() => deferred<void>().promise);
+    render(NewTask, { props: base({ onsubmit, initialRepoPath: "/repo/spawn" }) });
+
+    await submitTask(onsubmit);
+
+    expect(onsubmit.mock.calls[0]![0]).toMatchObject({ spawnId: SPAWN_ID });
+  });
+
+  it("stays quiet on a normal start and only explains itself once the wait drags on", async () => {
+    pinSpawnId();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-07-24T12:00:00Z"));
+    const onsubmit = vi.fn(() => deferred<void>().promise);
+    render(NewTask, {
+      props: base({
+        onsubmit,
+        initialRepoPath: "/repo/spawn",
+        spawnProgress: progress("agent", [
+          { phase: "base", ms: 1200 },
+          { phase: "worktree", ms: 400 },
+        ]),
+      }),
+    });
+
+    await submitTask(onsubmit);
+    expect(document.querySelector(".spawn")).toBeNull();
+
+    vi.setSystemTime(new Date("2026-07-24T12:00:11Z"));
+    await expect.poll(() => document.querySelector(".spawn")).toBeTruthy();
+
+    const panel = document.querySelector<HTMLElement>(".spawn")!;
+    expect(panel.textContent).toContain(m.newtask_spawn_slow());
+    // Why this phase is slow, plus what already finished and how long each took.
+    expect(panel.textContent).toContain(m.newtask_spawn_why_agent());
+    expect(panel.textContent).toContain(m.newtask_spawn_phase_base());
+    expect(panel.textContent).toContain(m.newtask_spawn_seconds({ seconds: "1.2" }));
+    expect(panel.textContent).toContain(m.newtask_spawn_seconds({ seconds: "0.4" }));
+  });
+
+  it("cancels the in-flight spawn by its id", async () => {
+    pinSpawnId();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-07-24T12:00:00Z"));
+    const onsubmit = vi.fn(() => deferred<void>().promise);
+    render(NewTask, {
+      props: base({ onsubmit, initialRepoPath: "/repo/spawn", spawnProgress: progress("agent") }),
+    });
+
+    await submitTask(onsubmit);
+    vi.setSystemTime(new Date("2026-07-24T12:00:11Z"));
+    await expect.poll(() => document.querySelector(".spawn-cancel")).toBeTruthy();
+
+    document.querySelector<HTMLButtonElement>(".spawn-cancel")!.click();
+
+    await expect.poll(() => mockCancelSpawn.mock.calls.length).toBe(1);
+    expect(mockCancelSpawn).toHaveBeenCalledWith(SPAWN_ID);
+  });
+
+  it("re-arms the cancel button when the agent came up first", async () => {
+    pinSpawnId();
+    mockCancelSpawn.mockResolvedValue(false);
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-07-24T12:00:00Z"));
+    const onsubmit = vi.fn(() => deferred<void>().promise);
+    render(NewTask, {
+      props: base({ onsubmit, initialRepoPath: "/repo/spawn", spawnProgress: progress("agent") }),
+    });
+
+    await submitTask(onsubmit);
+    vi.setSystemTime(new Date("2026-07-24T12:00:11Z"));
+    await expect.poll(() => document.querySelector(".spawn-cancel")).toBeTruthy();
+    document.querySelector<HTMLButtonElement>(".spawn-cancel")!.click();
+
+    await expect
+      .poll(() => document.querySelector<HTMLButtonElement>(".spawn-cancel")?.disabled)
+      .toBe(false);
+  });
+
+  it("treats a cancelled start as a neutral outcome, keeping the prompt and raising no error", async () => {
+    pinSpawnId();
+    const onsubmit = vi
+      .fn()
+      .mockRejectedValue(new ApiError(409, "spawn canceled", "spawn_canceled", true));
+    render(NewTask, { props: base({ onsubmit, initialRepoPath: "/repo/spawn" }) });
+
+    await submitTask(onsubmit);
+
+    await expect.poll(() => document.querySelector(".spawn-canceled")).toBeTruthy();
+    expect(document.querySelector(".spawn-canceled")!.textContent).toContain(
+      m.newtask_spawn_canceled(),
+    );
+    expect(document.querySelector(".err")).toBeNull();
+    expect(document.querySelector<HTMLTextAreaElement>("#nt-prompt")!.value).toBe("flatten it");
+    // Buttons are live again, so the operator can just press Run once more.
+    await expect
+      .poll(() => document.querySelector<HTMLButtonElement>("button.run")?.disabled)
+      .toBe(false);
+  });
+
+  it("still counts up when no progress event arrives (dropped WS connection)", async () => {
+    pinSpawnId();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-07-24T12:00:00Z"));
+    const onsubmit = vi.fn(() => deferred<void>().promise);
+    render(NewTask, { props: base({ onsubmit, initialRepoPath: "/repo/spawn" }) });
+
+    await submitTask(onsubmit);
+    vi.setSystemTime(new Date("2026-07-24T12:00:11Z"));
+
+    await expect.poll(() => document.querySelector(".spawn")).toBeTruthy();
+    const panel = document.querySelector<HTMLElement>(".spawn")!;
+    // No phase name to show, but the elapsed clock and the escape hatch are still there.
+    expect(panel.textContent).toContain("0:11");
+    expect(panel.querySelector(".spawn-cancel")).toBeTruthy();
+    expect(panel.querySelector(".spawn-why")).toBeNull();
   });
 });

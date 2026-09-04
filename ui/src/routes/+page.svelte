@@ -2137,12 +2137,16 @@
     research: boolean;
     epicAuthoring: boolean;
     force?: boolean;
+    spawnId?: string;
   }) {
     // Edit-held path persists the new input back onto the still-held task; relaunch-elsewhere
     // branches to submitRelaunch; otherwise the normal New Task create.
     if (editHeldId !== null) return submitEditHeld(editHeldId, input);
     if (relaunchOriginalId !== null) return submitRelaunch(relaunchOriginalId, input);
-    const r = await createSession(input);
+    // The spawn id travels as a header, not in the create body: the body is what a usage-hold
+    // persists as a held task, and a replayed id would address a spawn that is long gone.
+    const { spawnId, ...createInput } = input;
+    const r = await createSession(createInput, spawnId);
     if ("held" in r) {
       // Held tasks are queued (visible via the TopBar badge); close the composer like a
       // normal submit so the populated prompt can't be re-clicked into a duplicate hold.

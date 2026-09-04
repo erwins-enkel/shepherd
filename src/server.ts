@@ -10,6 +10,14 @@ import {
   TerminalUnsupportedError,
 } from "./service";
 import { WorktreeMissingBaseError, WorktreeRestoreError } from "./worktree";
+import {
+  SpawnCanceled,
+  SpawnPhaseTracker,
+  cancelSpawn,
+  isValidSpawnId,
+  registerSpawn,
+  releaseSpawn,
+} from "./spawn-progress";
 import { LearningsService } from "./learnings-service";
 import { RepoConfigService } from "./repo-config-service";
 import type { MaintainBlock, StandardCreateInput } from "./types";
@@ -2232,6 +2240,9 @@ function terminalErrorResponse(e: unknown): Response | null {
 function createErrorResponse(e: unknown): Response {
   const t = terminalErrorResponse(e);
   if (t) return t;
+  // The operator cancelled a slow start. Not a failure: the worktree is already rolled back and
+  // the dialog reopens with the prompt intact, so it carries a code rather than an error banner.
+  if (e instanceof SpawnCanceled) return json({ error: e.message, code: "spawn_canceled" }, 409);
   if (e instanceof SandboxAutoRefused) return json({ error: e.holdReason }, 403);
   if (e instanceof WorktreeMissingBaseError) return json({ error: e.message }, 422);
   const msg = e instanceof Error ? e.message : "create failed";
@@ -2278,6 +2289,38 @@ function tryHoldNewTask(body: unknown, value: StandardCreateInput, deps: AppDeps
   return persistHeldTask(value, deps, "usage");
 }
 
+/**
+ * Header a client sends to watch (and cancel) its own spawn. Deliberately a header rather than a
+ * body field: `validateCreate`'s value is what a usage-hold PERSISTS as a held task, so a spawn id
+ * living in the body would be replayed — stale — whenever that task is finally spawned.
+ */
+const SPAWN_ID_HEADER = "x-shepherd-spawn-id";
+
+/** Phase tracker for one create. With a valid spawn id the caller gets live `spawn:progress` events
+ *  and can cancel; without one the spawn is still measured and still logs its phase line. */
+function spawnTrackerFor(req: Request, deps: AppDeps): SpawnPhaseTracker {
+  const raw = req.headers.get(SPAWN_ID_HEADER) ?? "";
+  const spawnId = isValidSpawnId(raw) ? raw : undefined;
+  return new SpawnPhaseTracker({
+    spawnId,
+    emit: spawnId ? (progress) => deps.events.emit("spawn:progress", progress) : undefined,
+  });
+}
+
+// ── cancel an in-flight spawn: POST /api/spawns/:spawnId/cancel ──
+//
+// Separate from the create request on purpose — that request is the thing being cancelled, and it
+// is still open. Answers 200 either way: `canceled: false` means the agent came up first, which is
+// an outcome, not an error.
+async function handleSpawnCancel({ req, parts }: Ctx): Promise<Response | null> {
+  if (parts[0] !== "api" || parts[1] !== "spawns") return null;
+  if (req.method !== "POST" || !parts[2] || parts[3] !== "cancel" || parts[4]) return null;
+  if (!isValidSpawnId(parts[2])) return json({ error: "invalid spawn id" }, 400);
+  const outcome = cancelSpawn(parts[2]);
+  if (outcome === "unknown") return json({ error: "no such spawn in flight" }, 404);
+  return json({ canceled: outcome === "canceled" });
+}
+
 // POST /api/sessions — create a session.
 async function handleSessionCreate({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (!(req.method === "POST" && !parts[2])) return null;
@@ -2306,9 +2349,11 @@ async function handleSessionCreate({ req, parts, deps }: Ctx): Promise<Response 
   const held = tryHoldNewTask(body, result.value, deps);
   if (held) return held;
 
+  const tracker = spawnTrackerFor(req, deps);
+  registerSpawn(tracker);
   let s;
   try {
-    s = await deps.service.create(result.value);
+    s = await deps.service.create(result.value, tracker);
   } catch (e) {
     // Plugin-refused create: park in held_tasks as a capacity hold for retry.
     if (e instanceof SandboxAutoRefused && e.cause instanceof PluginSpawnAborted) {
@@ -2317,6 +2362,8 @@ async function handleSessionCreate({ req, parts, deps }: Ctx): Promise<Response 
     // create shells out to herdr (and git); surface the real reason instead of a
     // bare 500 so the New Task dialog can show it.
     return createErrorResponse(e);
+  } finally {
+    releaseSpawn(tracker.spawnId);
   }
   deps.events.emit("session:new", s);
   // A human linked an issue: stamp the drain claim so the board reflects it's being
@@ -7857,6 +7904,7 @@ const ROUTE_HANDLERS = [
   handleEpicDraft,
   handleTaskExport,
   handleSessions,
+  handleSpawnCancel,
   handleExperimentCompare,
   handleSessionGit,
   handleUsageLimits,

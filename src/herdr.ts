@@ -13,6 +13,7 @@ import { maintenance } from "./maintenance";
 import { spawnCommandLine } from "./spawn-script";
 import { compileCacheDir, agentTmpDir } from "./tmp-sweep";
 import { claudeSpawnPinned } from "./mise-claude";
+import { SpawnCanceled } from "./spawn-progress";
 import type { HerdrState, LivenessState, SessionStatus } from "./types";
 import type { RequestPaneAgentState } from "./generated/herdr-protocol";
 
@@ -817,6 +818,18 @@ export async function stopViaRecordedTab(
 }
 
 /**
+ * Per-spawn options for `start()`.
+ *
+ * `signal` exists for ONE reason: a trusted spawn resolves by waiting for herdr's own detection
+ * (`resolveByAutoDetect`), which can sit for the full 30s budget. Without a signal reaching that
+ * loop, "cancel" in the New Task dialog could only take effect between phases — i.e. never, during
+ * the one phase an operator actually wants to escape.
+ */
+export interface HerdrStartOptions {
+  signal?: AbortSignal;
+}
+
+/**
  * Public method surface of `HerdrDriver`, extracted so the socket-backed
  * driver (`SocketHerdrDriver`, issue #1529) implements the same contract behind the existing seam —
  * callers keep using `Pick<HerdrDriver, …>` today; nothing about them changes.
@@ -842,6 +855,7 @@ export interface IHerdrDriver {
     cwd: string,
     argv: string[],
     env?: Record<string, string>,
+    opts?: HerdrStartOptions,
   ): Promise<HerdrAgent>;
   /** Write literal text to an agent's PTY (issue #1567: async — socket-backed when
    *  `SHEPHERD_HERDR_SOCKET=1`, else non-blocking CLI). Callers that deliver a multi-send
@@ -1098,6 +1112,7 @@ export class HerdrDriver implements IHerdrDriver {
     cwd: string,
     argv: string[],
     env?: Record<string, string>,
+    opts?: HerdrStartOptions,
   ): Promise<HerdrAgent> {
     // Refuse loudly on a herdr too new to spawn on at all (see HerdrSpawnUnsupportedError / #1889).
     // Steering/reading existing agents still works.
@@ -1106,7 +1121,7 @@ export class HerdrDriver implements IHerdrDriver {
       // 0.7.5 (protocol 17) can't launch the wrapped argv through `agent start`; use the
       // external-registration path instead (#1890). ≤0.7.4 keeps the byte-identical legacy path.
       herdrUsesExternalRegistrationSpawn()
-        ? this.startImpl075(name, cwd, argv, env)
+        ? this.startImpl075(name, cwd, argv, env, opts)
         : this.startImpl(name, cwd, argv, env),
     );
   }
@@ -1149,8 +1164,12 @@ export class HerdrDriver implements IHerdrDriver {
     cwd: string,
     argv: string[],
     env?: Record<string, string>,
+    opts?: HerdrStartOptions,
   ): Promise<HerdrAgent> {
     await this.ensureWorkspace(cwd);
+    // Cancellation is checked at DEFINED points only — here (nothing created yet) and once per
+    // auto-detect poll — never midway through a sub-step, so a cancel can't strand half a spawn.
+    if (opts?.signal?.aborted) throw new SpawnCanceled();
     // Dedicated full-width tab per agent (same rationale as the ≤0.7.4 path). No --env: the wrapped
     // argv carries every env var itself (the `env …` shim, or bwrap `--setenv`), so the shell pane's
     // own environment is irrelevant to the launched process.
@@ -1176,7 +1195,7 @@ export class HerdrDriver implements IHerdrDriver {
       const sandboxed = argv.includes("bwrap");
       const agent = sandboxed
         ? await this.resolveByRegistration(paneId, sanitizeHerdrAgentName(name))
-        : await this.resolveByAutoDetect(paneId, name);
+        : await this.resolveByAutoDetect(paneId, name, opts?.signal);
       // Retain the authoritative spawn handle (#1852): the tab is ours even if the process inside
       // dies before it next appears in `agent list`.
       this.ledger.record(agent.terminalId, tabId, name);
@@ -1210,11 +1229,20 @@ export class HerdrDriver implements IHerdrDriver {
    * hands full status ownership to herdr — identical to the ≤0.7.4 model — so working/idle/blocked
    * track natively with no client push. Bounded poll (herdr's own `agent start --kind` uses a 30s
    * readiness budget, mirrored here); each `listAsync` is a real round-trip, paced by `sleep`.
+   *
+   * This is the wait an operator sees as "starting…" in the New Task dialog, so `signal` is checked
+   * once per round: without it a cancel could only take effect after this loop had already run its
+   * full budget, which is precisely what makes the wait feel like a hang.
    */
-  private async resolveByAutoDetect(paneId: string, name: string): Promise<HerdrAgent> {
+  private async resolveByAutoDetect(
+    paneId: string,
+    name: string,
+    signal?: AbortSignal,
+  ): Promise<HerdrAgent> {
     const DEADLINE_MS = 30_000;
     const POLL_MS = 500;
     for (let waited = 0; waited <= DEADLINE_MS; waited += POLL_MS) {
+      if (signal?.aborted) throw new SpawnCanceled();
       const agent = (await this.listAsync()).find((a) => a.paneId === paneId);
       if (agent?.terminalId) return agent;
       await this.sleep(POLL_MS);

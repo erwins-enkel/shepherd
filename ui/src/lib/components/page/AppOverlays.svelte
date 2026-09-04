@@ -539,6 +539,7 @@
        currently filtered to, else NewTask falls back to the most-recently-used repo. -->
   <NewTask
     {onsubmit}
+    spawnProgress={store.spawnProgress}
     relaunch={relaunchOriginal}
     {editHeld}
     initialRepoPath={newTaskInitialRepo}

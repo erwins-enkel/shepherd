@@ -15,14 +15,6 @@
 /** The measured sections of a spawn, in the order `create()` runs them. */
 export type SpawnPhase = "base" | "worktree" | "prompt" | "launch" | "agent";
 
-export const SPAWN_PHASES: readonly SpawnPhase[] = [
-  "base",
-  "worktree",
-  "prompt",
-  "launch",
-  "agent",
-] as const;
-
 /** How a spawn ended, as stamped on the log line. */
 export type SpawnOutcomeStatus = "ok" | "failed" | "canceled";
 

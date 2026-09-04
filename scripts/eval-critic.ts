@@ -72,7 +72,8 @@ const LABELS = [
 export function scoreCritic(fixture: CriticFixture, raw: Record<string, unknown> | null): Score {
   if (raw === null) return { label: "no-verdict", correct: false, unrecognised: true };
   // The REAL production normalizers: `normalizeDecision` maps the prompt's two literals onto the
-  // stored `ReviewDecision` (and rejects anything else), `normalizeFindings` coerces the array.
+  // stored `ReviewDecision` (and rejects anything else), `normalizeFindingEntries` coerces the
+  // findings array into typed entries (#2165 replaced the string-array `normalizeFindings`).
   const decision = normalizeDecision(raw.decision);
   // Parsed, but no decision the contract admits — the shape a prompt regression takes.
   if (decision === null) return { label: "no-verdict", correct: false, unrecognised: true };

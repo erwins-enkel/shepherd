@@ -446,8 +446,10 @@ export const CRITIC_FIXTURES: CriticFixture[] = [
       },
     },
     expectedDecision: "commented",
-    // A naming/spacing preference is a `Nits (non-blocking):` body item, never a finding.
-    findingsMustNotMatch: [/nit/i, /prefer/i, /style/i],
+    // NOTE no findingsMustNotMatch. Before #2165 a naming preference had to go in a body section
+    // and a finding here was the failure; now `severity: "nit"` is exactly where it belongs, and
+    // only `important` findings can force `request-changes`. So the assertion that matters is the
+    // decision itself — which the scorer already ties to the absence of an important finding.
   },
   {
     id: "scope-out-of-diff-not-raised",

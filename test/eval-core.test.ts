@@ -377,28 +377,42 @@ test("plan-gate scorer applies the fixture's findings predicates", () => {
   ).toBe(false);
 });
 
-test("critic scorer uses production's normalizers and the two-value decision contract", () => {
+test("critic scorer uses production's normalizers and the severity contract", () => {
+  // #2165: findings are objects with a severity, and only `important` ones can make the decision
+  // `request-changes`.
   const bug = CRITIC_SPEC.fixtures.find((f) => f.id === "bug-off-by-one")!;
+  const important = (text: string) => ({ text, severity: "important", pass: "bug" });
+  const nit = (text: string) => ({ text, severity: "nit", pass: "scope" });
+
   expect(
     scoreCritic(bug, {
       decision: "request-changes",
-      findings: ["src/paginate.ts: the final partial page is dropped."],
+      findings: [important("src/paginate.ts: the final partial page is dropped.")],
     }),
   ).toEqual({ label: "changes_requested", correct: true });
-  // Right decision, but the planted defect is never named.
+  // The planted defect filed as a NIT is a miss: the prompt is explicit that an important point
+  // marked nit is never fixed.
   expect(
-    scoreCritic(bug, { decision: "request-changes", findings: ["Consider adding a doc comment."] })
-      .correct,
+    scoreCritic(bug, {
+      decision: "request-changes",
+      findings: [nit("src/paginate.ts: the final partial page is dropped.")],
+    }).correct,
   ).toBe(false);
   // "approve" is not a legal critic decision.
   expect(scoreCritic(bug, { decision: "approve", findings: [] }).label).toBe("no-verdict");
+
   const clean = CRITIC_SPEC.fixtures.find((f) => f.id === "clean-extract-helper")!;
   expect(scoreCritic(clean, { decision: "comment", findings: [] })).toEqual({
     label: "commented",
     correct: true,
   });
-  // A "comment" carrying findings contradicts the routing rules.
-  expect(scoreCritic(clean, { decision: "comment", findings: ["nit: rename it"] }).label).toBe(
+  // A `comment` carrying NITS is now correct — that is what the severity split is for.
+  expect(scoreCritic(clean, { decision: "comment", findings: [nit("rename it")] })).toEqual({
+    label: "commented",
+    correct: true,
+  });
+  // A `comment` carrying an IMPORTANT finding still contradicts the contract.
+  expect(scoreCritic(clean, { decision: "comment", findings: [important("real bug")] }).label).toBe(
     "commented:bad-findings",
   );
 });
@@ -406,12 +420,15 @@ test("critic scorer uses production's normalizers and the two-value decision con
 test("critic scorer honours findingsMustNotMatch (the SCOPE rule fixture)", () => {
   const scope = CRITIC_SPEC.fixtures.find((f) => f.id === "scope-out-of-diff-not-raised")!;
   expect(scoreCritic(scope, { decision: "comment", findings: [] }).correct).toBe(true);
-  expect(
-    scoreCritic(scope, {
-      decision: "request-changes",
-      findings: ["src/deliveries.ts: swallows the parse error."],
-    }).correct,
-  ).toBe(false);
+  // Forbidden at ANY severity — the SCOPE rule binds nits too.
+  for (const severity of ["important", "nit"]) {
+    expect(
+      scoreCritic(scope, {
+        decision: severity === "important" ? "request-changes" : "comment",
+        findings: [{ text: "src/deliveries.ts: swallows the parse error.", severity, pass: "bug" }],
+      }).correct,
+    ).toBe(false);
+  }
 });
 
 // ---------------------------------------------------------------------------

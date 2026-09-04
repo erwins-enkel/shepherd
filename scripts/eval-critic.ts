@@ -19,7 +19,7 @@
 import {
   VERDICT_FILE,
   normalizeDecision,
-  normalizeFindings,
+  normalizeFindingEntries,
   prReviewPrompt,
   reviewPrompt,
 } from "../src/critic-core";
@@ -76,13 +76,18 @@ export function scoreCritic(fixture: CriticFixture, raw: Record<string, unknown>
   const decision = normalizeDecision(raw.decision);
   if (decision === null) return { label: "no-verdict", correct: false };
 
-  const findings = normalizeFindings(raw.findings);
-  // The prompt's hard contract: `request-changes` requires at least one finding; `comment` with a
-  // populated findings array contradicts the routing rules (blocking items are what findings ARE).
-  const contractOk = decision === "changes_requested" ? findings.length > 0 : findings.length === 0;
+  // #2165: findings are OBJECTS with a severity, and only `important` ones can make the decision
+  // `request-changes` — a `comment` verdict may legitimately carry nits.
+  const findings = normalizeFindingEntries(raw.findings);
+  const important = findings.filter((f) => f.severity === "important");
+  const contractOk =
+    decision === "changes_requested" ? important.length > 0 : important.length === 0;
+  // A planted defect must be caught as IMPORTANT: the prompt is explicit that "an important point
+  // marked nit is never fixed", so a bug filed as a nit is a miss, not a partial credit.
   const routingOk =
-    (fixture.findingsMustMatch ?? []).every((re) => findings.some((f) => re.test(f))) &&
-    (fixture.findingsMustNotMatch ?? []).every((re) => !findings.some((f) => re.test(f)));
+    (fixture.findingsMustMatch ?? []).every((re) => important.some((f) => re.test(f.text))) &&
+    // A forbidden point is forbidden at ANY severity — the SCOPE rule binds nits too.
+    (fixture.findingsMustNotMatch ?? []).every((re) => !findings.some((f) => re.test(f.text)));
 
   const findingsOk = contractOk && routingOk;
   return {

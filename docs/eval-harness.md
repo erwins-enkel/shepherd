@@ -199,6 +199,13 @@ scores as badly as one that blocks nothing.
 | `pr-intent-is-context-not-spec`  | commented         | ✔      | standalone critic: incompleteness vs intent is not a finding |
 | `re-review-note-does-not-excuse` | changes_requested | —      | author note claims a fix the diff lacks (compound)           |
 
+Since #2165 findings are objects carrying a `severity`, and **only `important` ones can make the
+decision `request-changes`** — a `comment` verdict may legitimately carry nits. The scorer follows
+that: the decision contract keys off important findings alone, a `findingsMustMatch` pattern must be
+satisfied by an **important** finding (a planted bug filed as a nit is a miss, because the prompt is
+explicit that "an important point marked nit is never fixed"), and a `findingsMustNotMatch` pattern
+is forbidden at **any** severity, since the SCOPE rule binds nits too.
+
 Scoring reads the **raw** findings the prompt produced. Production additionally applies the
 deterministic `scopeFindings` backstop (out-of-diff findings dropped server-side), which is
 unit-tested separately in the critic's own tests — leaving it out here keeps a prompt regression

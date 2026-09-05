@@ -1,5 +1,52 @@
 # Changelog
 
+## [2.0.0](https://github.com/erwins-enkel/shepherd/compare/v1.47.0...v2.0.0) (2026-09-05)
+
+
+### ⚠ BREAKING CHANGES
+
+* **herd:** SHEPHERD_RUNDOWN_CLI / SHEPHERD_RUNDOWN_MODEL / SHEPHERD_RUNDOWN_EFFORT are gone, GET|POST /api/herd/digest now 404, and the herd_digests table is dropped on first boot.
+
+### Features
+
+* **critic:** machine-readable severity for findings — Important/Nit, named passes, nit cap ([#2165](https://github.com/erwins-enkel/shepherd/issues/2165)) ([#2183](https://github.com/erwins-enkel/shepherd/issues/2183)) ([334d3be](https://github.com/erwins-enkel/shepherd/commit/334d3be48a6309e64828dc06bf0811985ffed767))
+* **critic:** per-repo REVIEW.md + house rules in the reviewer ([#2166](https://github.com/erwins-enkel/shepherd/issues/2166)) ([15b72e6](https://github.com/erwins-enkel/shepherd/commit/15b72e61d4e312b28aa05449ede13519800bb768))
+* **gates:** gate the fallow version pin across every site ([#2182](https://github.com/erwins-enkel/shepherd/issues/2182)) ([#2185](https://github.com/erwins-enkel/shepherd/issues/2185)) ([572f31b](https://github.com/erwins-enkel/shepherd/commit/572f31b96128d3cfc62529212c335255bb380880))
+* **herd:** remove the Herd Rundown ([#2174](https://github.com/erwins-enkel/shepherd/issues/2174)) ([eda3c83](https://github.com/erwins-enkel/shepherd/commit/eda3c8375612b016b1a33bf34b2a67fb469127a0))
+* **herdr:** support herdr 0.8.2 ([#2126](https://github.com/erwins-enkel/shepherd/issues/2126)) ([ab98121](https://github.com/erwins-enkel/shepherd/commit/ab98121af9adf5ab99d7c03bce2accfb4590da59))
+* **issues:** name the gh transports behind a failed issue load ([#2160](https://github.com/erwins-enkel/shepherd/issues/2160)) ([e40cfab](https://github.com/erwins-enkel/shepherd/commit/e40cfab1d731a00929380de48ee74aecf1d4647e))
+* **maintain:** tier 3 opens a PR for the dead-code fix class ([#2171](https://github.com/erwins-enkel/shepherd/issues/2171)) ([#2179](https://github.com/erwins-enkel/shepherd/issues/2179)) ([0ba04bb](https://github.com/erwins-enkel/shepherd/commit/0ba04bb809adc90caa224a2f82863c98f9bb4b38))
+* **maintain:** tiered thresholds that open work ([#2157](https://github.com/erwins-enkel/shepherd/issues/2157)) ([#2172](https://github.com/erwins-enkel/shepherd/issues/2172)) ([c50eeb4](https://github.com/erwins-enkel/shepherd/commit/c50eeb42768b426de2429aafa21bdc98567fdf63))
+* **newtask:** optional "shape this" clarifying round + issue-template prescription ([#2158](https://github.com/erwins-enkel/shepherd/issues/2158)) ([#2173](https://github.com/erwins-enkel/shepherd/issues/2173)) ([5d37eb2](https://github.com/erwins-enkel/shepherd/commit/5d37eb29af0c043a40f73ecafe2c80b9c7a4b222))
+* **review:** non-blocking plan-drift report fed to the delivery lens ([#2155](https://github.com/erwins-enkel/shepherd/issues/2155)) ([#2164](https://github.com/erwins-enkel/shepherd/issues/2164)) ([1190022](https://github.com/erwins-enkel/shepherd/commit/1190022dcefba17881bc3387e49d352c2c01af58))
+* **ui:** handle open PRs when decommissioning ([#2137](https://github.com/erwins-enkel/shepherd/issues/2137)) ([74813ef](https://github.com/erwins-enkel/shepherd/commit/74813ef75e7fdce6eed781125d4d4f674bc6d0b1))
+* **usage:** delivery-metrics lens ([#2151](https://github.com/erwins-enkel/shepherd/issues/2151) R1) ([#2153](https://github.com/erwins-enkel/shepherd/issues/2153)) ([266ef76](https://github.com/erwins-enkel/shepherd/commit/266ef76ec3f433c864057d92ba71c390edef7a67))
+* **usage:** first-push CI green rate ([#2159](https://github.com/erwins-enkel/shepherd/issues/2159)) ([#2170](https://github.com/erwins-enkel/shepherd/issues/2170)) ([037c062](https://github.com/erwins-enkel/shepherd/commit/037c062db011de8bdff3c5e62d1dc04a0c5b1fe9))
+
+
+### Bug Fixes
+
+* **classifier:** make the German abstain rule a positive no-ask test ([#2169](https://github.com/erwins-enkel/shepherd/issues/2169)) ([#2177](https://github.com/erwins-enkel/shepherd/issues/2177)) ([4d92a77](https://github.com/erwins-enkel/shepherd/commit/4d92a773528c05ffffb86c55f33b6ed0ea5447d7))
+* **codex:** reverify source and effort behavior ([#2178](https://github.com/erwins-enkel/shepherd/issues/2178)) ([14cbac9](https://github.com/erwins-enkel/shepherd/commit/14cbac972621b3ac901142b9d385144402a0693c))
+* **commands:** surface Claude Code's bundled skills and nested command dirs ([#2138](https://github.com/erwins-enkel/shepherd/issues/2138)) ([13cca6f](https://github.com/erwins-enkel/shepherd/commit/13cca6f05a2c0c666f0793ab451f695e42f877b8))
+* **doc-agent:** regen the docs manifest a doc edit makes stale ([#2163](https://github.com/erwins-enkel/shepherd/issues/2163)) ([#2167](https://github.com/erwins-enkel/shepherd/issues/2167)) ([b51241b](https://github.com/erwins-enkel/shepherd/commit/b51241bf0eff3275111840150c2e1cbfb7cc1791))
+* name lightweight mode, add an inline issue-retry link, and fall back between both gh transports ([#2139](https://github.com/erwins-enkel/shepherd/issues/2139)) ([3227a31](https://github.com/erwins-enkel/shepherd/commit/3227a317ff64104dbaf748a4cbc9a25274b454bd))
+* **pricing:** use Fable 5.1's cache-read price, pin claude-fable-5-1, guard the Fable family ([#2150](https://github.com/erwins-enkel/shepherd/issues/2150)) ([00699bd](https://github.com/erwins-enkel/shepherd/commit/00699bd0b4f3277f8440a897d7e3bdb143126800))
+* **pwa:** sheep icon set with a legal maskable variant ([#2144](https://github.com/erwins-enkel/shepherd/issues/2144)) ([baea454](https://github.com/erwins-enkel/shepherd/commit/baea454c3b60d5a0fa949f2c5000c620ba42ff5a))
+* **review:** never review or persist a stale head ([#2175](https://github.com/erwins-enkel/shepherd/issues/2175)) ([#2176](https://github.com/erwins-enkel/shepherd/issues/2176)) ([55c51f3](https://github.com/erwins-enkel/shepherd/commit/55c51f368ea43bdae20c3feee2bf71ff3d2c1089))
+* **ui:** stop the StatusPip close test racing a real stray cursor ([#2180](https://github.com/erwins-enkel/shepherd/issues/2180)) ([#2186](https://github.com/erwins-enkel/shepherd/issues/2186)) ([d53a7c1](https://github.com/erwins-enkel/shepherd/commit/d53a7c17115f856ff0edb06c86d84067ee613280))
+
+
+### Documentation
+
+* **research:** ai-native sdlc playbook — what transfers to shepherd ([#2149](https://github.com/erwins-enkel/shepherd/issues/2149)) ([2427abc](https://github.com/erwins-enkel/shepherd/commit/2427abcdac1b5ad1b1d8ffbc65010d25dec51f0b))
+* **research:** evaluate @openai/codex-sdk for the Codex integration ([#2132](https://github.com/erwins-enkel/shepherd/issues/2132)) ([a21e20e](https://github.com/erwins-enkel/shepherd/commit/a21e20ef875dcad5365e7843eafc133d08c5609e))
+* **spike:** evaluate Codex app-server control plane ([#2152](https://github.com/erwins-enkel/shepherd/issues/2152)) ([c1e195f](https://github.com/erwins-enkel/shepherd/commit/c1e195f851d71a32b3d4143721995b4aef239fb4))
+* sync docs to recent source changes ([#2125](https://github.com/erwins-enkel/shepherd/issues/2125)) ([21c82d9](https://github.com/erwins-enkel/shepherd/commit/21c82d91fe76ff789b08f495938532910ce41fdb))
+* sync docs to recent source changes ([#2131](https://github.com/erwins-enkel/shepherd/issues/2131)) ([bd21bbe](https://github.com/erwins-enkel/shepherd/commit/bd21bbe9378eb9cbde66a5b1cad4fa284c29c22a))
+* sync docs to recent source changes ([#2148](https://github.com/erwins-enkel/shepherd/issues/2148)) ([9e5ef1c](https://github.com/erwins-enkel/shepherd/commit/9e5ef1c81e03001632ad1f07b9ade02492293d98))
+* sync docs to recent source changes ([#2162](https://github.com/erwins-enkel/shepherd/issues/2162)) ([b8cfef9](https://github.com/erwins-enkel/shepherd/commit/b8cfef9866eac6032ed9507512b0bf52a9ace720))
+
 ## [1.47.0](https://github.com/erwins-enkel/shepherd/compare/v1.46.0...v1.47.0) (2026-08-25)
 
 

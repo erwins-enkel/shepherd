@@ -2,20 +2,27 @@ name: Eval — autopilot stop-classifier
 
 # Live-model eval for the autopilot stop-classifier (issue #1626).
 #
-# workflow_dispatch ONLY — a manual, opt-in, PAID run (one Haiku call per trial, ~54 per
-# run). It is deliberately NOT part of any PR/gated CI: `bun test ./test` stays hermetic and
-# free (it covers only the harness's pure logic, in test/eval-stop-classifier.test.ts). This
-# job exists so anyone with dispatch rights can capture/refresh the baseline reproducibly on
+# NIGHTLY schedule + workflow_dispatch — a PAID run (one Haiku call per trial, ~54 per run).
+# `bun test ./test` stays hermetic and free (it covers only the harness's pure logic, in
+# test/eval-stop-classifier.test.ts). This job exists so the classifier prompt has standing drift
+# detection, and so anyone with dispatch rights can capture/refresh the baseline reproducibly on
 # ubuntu-latest using the repo's existing ANTHROPIC_API_KEY secret (the same secret the
 # issue-triage workflow uses). Its run log — especially the --json block — is the source the
 # baseline numbers in docs/eval-stop-classifier.md are transcribed from.
 #
-# A recurring nightly is intentionally left OFF (no `schedule:`) so no paid job runs without
-# an explicit human trigger. To opt into a nightly later, add e.g.:
-#   schedule:
-#     - cron: "0 6 * * *"   # 06:00 UTC daily
-# and confirm the added spend is acceptable.
+# The PER-PR gate for this prompt lives in .github/workflows/eval-prompts.yml (#2156), which runs
+# it only when the rendered classifier prompt actually changes.
+#
+# The NIGHTLY schedule is on (#2156). It costs pennies — one Haiku call per trial, ~54 per run
+# over the full fixture set — and it is what turns this from an instrument you have to remember to
+# use into standing drift detection on the classifier prompt. The dispatch inputs below stay the
+# reproducible way to capture a specific leg (notably the #1627 operator-language A/B).
+#
+# The two sonnet evals (plan-gate, critic) cost meaningfully more, so they run WEEKLY
+# from .github/workflows/eval-prompts.yml, which also owns the per-PR fingerprint gate for every eval.
 on:
+  schedule:
+    - cron: "0 6 * * *" # 06:00 UTC daily
   workflow_dispatch:
     inputs:
       trials:
@@ -53,19 +60,15 @@ jobs:
       - name: Install deps
         run: bun install --frozen-lockfile
 
-      # Human-readable report to the log (exit code reflects pass/fail against the pinned floor).
-      - name: Run eval (report)
+      # ONE run. `--json` emits the human-readable report on stderr (for this log) and the JSON
+      # block on stdout — the block the baseline numbers in docs/eval-stop-classifier.md are
+      # transcribed from. Two steps meant the nightly paid for two INDEPENDENT samples and the JSON
+      # you copied was never the run whose exit code decided pass/fail; on a nondeterministic eval
+      # those are different results. The exit code here is the verdict.
+      #
+      # NOTE the `|| 'default'` on each input: `github.event.inputs.*` are EMPTY on a `schedule`
+      # run, and an empty `--trials ""` would ask for zero trials.
+      - name: Run eval
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: bun run eval:stop-classifier --trials "${{ github.event.inputs.trials }}" --model "${{ github.event.inputs.model }}" ${{ github.event.inputs.operator_language_off == 'true' && '--operator-language-off' || '' }}
-
-      # Machine-readable JSON (per-fixture kind distributions + no-tool/parse-fail counts) —
-      # this is what you copy into docs/eval-stop-classifier.md. `if: always()` so the JSON is
-      # emitted even when the report step exits non-zero (a real gating miss must still be
-      # inspectable for the contingency rule). `|| true` keeps the job's overall status from
-      # being masked by this convenience step.
-      - name: Run eval (JSON for the doc)
-        if: always()
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: bun run eval:stop-classifier --trials "${{ github.event.inputs.trials }}" --model "${{ github.event.inputs.model }}" ${{ github.event.inputs.operator_language_off == 'true' && '--operator-language-off' || '' }} --json || true
+        run: bun run eval:stop-classifier --trials "${{ github.event.inputs.trials || '5' }}" --model "${{ github.event.inputs.model || 'claude-haiku-4-5' }}" ${{ github.event.inputs.operator_language_off == 'true' && '--operator-language-off' || '' }} --json

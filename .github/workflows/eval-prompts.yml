@@ -1,0 +1,250 @@
+name: Eval — prompt gate
+
+# Live-model evals for Shepherd's high-leverage prompts (issue #2156): the autopilot
+# stop-classifier, the plan-gate reviewer and the PR critic.
+#
+# #2156 also named the RUNDOWN. That feature was removed from main by #2174, so its prompt no
+# longer exists to measure and its eval was deleted with it.
+#
+# THREE TRIGGERS, one job:
+#
+#   pull_request — a SMOKE gate (one trial per gating fixture, $6 ceiling per eval). Runs on EVERY PR and decides for itself whether there is anything to
+#     do, by comparing the freshly-rendered prompt fingerprints against the base's committed
+#     scripts/eval-fingerprints.json and running ONLY the evals whose hash moved. Path filtering is
+#     deliberately NOT used: a `paths:`-filtered job reports NO STATUS at all on PRs that don't
+#     touch those paths, and a required check that never reports blocks the PR from merging forever
+#     (the same reasoning as the `site` job in ci.yml — #1859).
+#
+#     Fingerprints, not paths, because src/plan-gate.ts and src/critic-core.ts are busy service
+#     modules (45 and 20 commits in a recent three-month window) whose churn almost never touches
+#     the prompt text. A per-file trigger would spend $1-2 on ~20 PRs a month.
+#
+#   schedule — weekly drift detection over the FULL fixture sets (gating + baseline), for the two
+#     sonnet evals. The classifier keeps its own nightly cron in eval-stop-classifier.yml (haiku,
+#     pennies), which also owns its #1627 A/B dispatch inputs.
+#
+#   workflow_dispatch — run one eval, or all of them, on demand.
+#
+# COST: the PR leg runs `--gating-only` (baseline fixtures are for the recorded distribution, not
+# the gate). The weekly leg runs everything. See docs/eval-harness.md for the per-run numbers.
+#
+# NO KEY, NO FAILURE: forks and Dependabot PRs cannot see ANTHROPIC_API_KEY. The job then exits
+# GREEN with a loud warning rather than red — this gate is a regression net for our own prompt
+# edits, not a security boundary, and a check nobody outside the repo can pass would just block
+# every fork PR.
+on:
+  pull_request:
+  schedule:
+    # Mondays 06:00 UTC — the two sonnet evals, full fixture sets.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      evals:
+        description: "Which evals to run: 'all' or a space-separated subset (plan-gate critic stop-classifier)"
+        required: false
+        default: "all"
+      trials:
+        description: "Trials per fixture (default: each eval's own pinned default; the PR leg pins 1)"
+        required: false
+        default: ""
+      gating_only:
+        description: "'true' to run only the gating fixtures (what the PR gate does)"
+        required: false
+        default: "false"
+      filter:
+        description: "Run only fixtures whose id contains this substring — the cheap way to probe one case"
+        required: false
+        default: ""
+      max_spend:
+        description: "Hard spend ceiling per eval in USD (default 5). The run stops when it is crossed."
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  # Per-ref, and cancel superseded PR runs: a force-push should not leave two paid runs racing.
+  group: eval-prompts-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  eval:
+    name: eval-prompts
+    # Skip release-please's generated PR, mirroring ci.yml's jobs.
+    if: ${{ !(startsWith(github.head_ref, 'release-please--') && (github.event.pull_request.user.login == 'shepherd-release-please[bot]' || github.event.pull_request.user.login == 'github-actions[bot]')) }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          # The PR leg reads the base commit's fingerprint file via `git show`, so it needs history.
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: latest
+
+      - name: Install deps
+        run: bun install --frozen-lockfile
+
+      # Decide what to run. On a PR: only the evals whose RENDERED fingerprint differs from the
+      # base's committed one (rendered, not committed, so a stale commit cannot talk the gate out of
+      # running; the freshness gate in ci.yml keeps the two in step anyway). A base with no
+      # fingerprint file at all yields every eval — fail-open, because skipping a gate on unknown
+      # state is the outcome worth paying to avoid.
+      - name: Select evals
+        id: select
+        env:
+          EVENT: ${{ github.event_name }}
+          DISPATCH_EVALS: ${{ github.event.inputs.evals }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = "pull_request" ]; then
+            git show "$BASE_SHA:scripts/eval-fingerprints.json" > /tmp/base-fingerprints.json 2>/dev/null \
+              || echo '{}' > /tmp/base-fingerprints.json
+            selected="$(bun run scripts/gen-eval-fingerprints.ts --changed /tmp/base-fingerprints.json | tr '\n' ' ')"
+          elif [ "$EVENT" = "schedule" ]; then
+            # The classifier has its own nightly cron; the weekly leg covers the two sonnet evals.
+            selected="plan-gate critic"
+          elif [ "${DISPATCH_EVALS:-all}" = "all" ] || [ -z "${DISPATCH_EVALS:-}" ]; then
+            selected="stop-classifier plan-gate critic"
+          else
+            selected="$DISPATCH_EVALS"
+          fi
+          # Allowlist every name before it reaches a `bun run` argument: `evals` is a
+          # workflow_dispatch input, so it is caller-controlled text, not trusted data.
+          validated=""
+          for name in $selected; do
+            case "$name" in
+              stop-classifier | plan-gate | critic) validated="$validated $name" ;;
+              *) echo "::error title=Unknown eval::'$name' is not one of stop-classifier, plan-gate, critic."; exit 1 ;;
+            esac
+          done
+          selected="$(echo "$validated" | xargs || true)"
+          echo "evals=$selected" >> "$GITHUB_OUTPUT"
+          if [ -z "$selected" ]; then
+            echo "No prompt fingerprint changed — nothing to evaluate."
+          else
+            echo "Will run: $selected"
+          fi
+
+      # `--gating-only` on the PR leg and when a dispatch asks for it; the weekly run covers the
+      # full set so the recorded baseline distributions stay current.
+      - name: Run selected evals
+        if: steps.select.outputs.evals != ''
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          EVENT: ${{ github.event_name }}
+          TRIALS: ${{ github.event.inputs.trials }}
+          GATING_ONLY: ${{ github.event.inputs.gating_only }}
+          FILTER: ${{ github.event.inputs.filter }}
+          MAX_SPEND: ${{ github.event.inputs.max_spend }}
+          SELECTED: ${{ steps.select.outputs.evals }}
+        run: |
+          set -uo pipefail
+          if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
+            echo "::warning title=Eval skipped::No ANTHROPIC_API_KEY available (fork or Dependabot PR)." \
+                 "The prompt eval could not run for: $SELECTED. A maintainer must dispatch" \
+                 ".github/workflows/eval-prompts.yml before merging a prompt change."
+            exit 0
+          fi
+
+          flags=""
+          if [ "$EVENT" = "schedule" ]; then
+            # The weekly leg is the MEASUREMENT — it must be able to finish, and with the default
+            # $5 ceiling it never could: measured per-trial costs put a full critic set near $14,
+            # and crossing the ceiling discards the partial results, so the run that exists to
+            # capture the baselines could never capture them.
+            #
+            # --trials 3 keeps a majority decidable while roughly halving the depth-5 cost, and the
+            # ceiling sits above the expected total so a normal run completes and an abnormal one
+            # still stops. Expected ~$11 a run, ~$48 a month — the cadence and depth here are the
+            # cost levers if that is too much.
+            flags="$flags --trials 3 --max-spend 15"
+          fi
+          if [ "$EVENT" = "pull_request" ]; then
+            # The PR leg is a SMOKE gate, not the measurement. It answers "does this prompt still
+            # produce a well-formed, sanely-directed verdict"; the weekly run does the statistics.
+            #
+            # --smoke: gate on well-formedness, not on correctness. At one trial per fixture a
+            # majority is a single sample — gate-commit-now's own baseline is `gate:4 finished:1`,
+            # so a correctness gate here would red about one run in five on model noise. --trials
+            # also CAPS per-fixture overrides in smoke mode, so a T=9 fixture really runs once.
+            #
+            # The ceiling has to sit ABOVE the expected total or the run stops, discards its
+            # partial results and green-skips — spending money to measure nothing, every time, and
+            # silently skipping a gating eval once OBSERVATIONAL is flipped off. Measured per-trial
+            # costs: critic ~$0.27, plan-gate ~$0.08, classifier pennies. One trial across each
+            # gating set is therefore ~$3.00 / ~$0.90 / ~$0.02. $6 clears the largest with room
+            # while still stopping a genuine runaway (a prompt that burns its full turn budget on
+            # every fixture costs several times that).
+            flags="$flags --gating-only --smoke --trials 1 --max-spend 6"
+          elif [ "${GATING_ONLY:-false}" = "true" ]; then
+            flags="$flags --gating-only"
+          fi
+          if [ -n "${TRIALS:-}" ]; then
+            # Digits only — another caller-controlled dispatch input reaching a command line.
+            case "$TRIALS" in
+              '' | *[!0-9]*) echo "::error title=Bad trials input::'$TRIALS' is not a positive integer."; exit 1 ;;
+              *) flags="$flags --trials $TRIALS" ;;
+            esac
+          fi
+
+          # Exit codes (see EXIT in scripts/eval-core.ts):
+          #   0 pass · 1 the eval RAN and the prompt missed · 2 it COULD NOT RUN · 3 the harness broke
+          #
+          # An eval with no measured baseline reports but never returns a FAILING code at all (see
+          # `observational` in scripts/eval-core.ts) — not 1 for a scoring miss, and not 3 for a
+          # harness that obtained no verdict, which is the state plan-gate and critic are actually
+          # in. They run and report here without being able to block a PR.
+          #
+          # 2 does NOT fail the job. An exhausted API usage limit, a dead key or a rate limit that
+          # survived its retry means nothing was measured — that says nothing about the prompt, and
+          # failing on it would block every unrelated PR until someone tops up the account. It is
+          # the same policy as the no-key branch above, applied to the other ways "cannot run"
+          # happens. The warning is loud, and the doc says a skipped gate must be dispatched
+          # manually before a prompt change merges.
+          if [ -n "${FILTER:-}" ]; then
+            # Ids are [a-z0-9-]; validate before it reaches a command line (caller-controlled input).
+            case "$FILTER" in
+              *[!a-zA-Z0-9-]*) echo "::error title=Bad filter::'$FILTER' must be [A-Za-z0-9-]."; exit 1 ;;
+              *) flags="$flags --filter $FILTER" ;;
+            esac
+          fi
+          if [ -n "${MAX_SPEND:-}" ]; then
+            case "$MAX_SPEND" in
+              '' | *[!0-9.]*) echo "::error title=Bad max_spend::'$MAX_SPEND' is not a number."; exit 1 ;;
+              *) flags="$flags --max-spend $MAX_SPEND" ;;
+            esac
+          fi
+
+          status=0
+          skipped=""
+          for name in $SELECTED; do
+            echo "::group::eval $name"
+            # ONE run per eval. `--json` emits the human report on stderr (for this log) and the
+            # JSON block on stdout (what the doc's baseline tables are transcribed from), so both
+            # artifacts come from a single paid pass.
+            # NOTE the `|| code=$?` form. GitHub runs a step as `bash -e <script>`, so errexit is
+            # ON and `set -uo pipefail` above does NOT clear it: a bare `bun run …` returning 2
+            # kills the shell before the next line, and the job fails on the very code that is
+            # supposed to mean "green with a warning". A command on the left of `||` is exempt.
+            code=0
+            bun run "eval:$name" $flags --json || code=$?
+            echo "::endgroup::"
+            case $code in
+              0) ;;
+              2) skipped="$skipped $name" ;;
+              *) status=1 ;;
+            esac
+          done
+          if [ -n "$skipped" ]; then
+            echo "::warning title=Eval NOT run::These evals could not run (API usage limit, auth or" \
+                 "rate limiting) and therefore measured NOTHING:$skipped." \
+                 "A prompt change must not merge on this result — dispatch eval-prompts.yml once the" \
+                 "account can make calls again."
+          fi
+          exit $status

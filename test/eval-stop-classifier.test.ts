@@ -1,18 +1,22 @@
 import { test, expect } from "bun:test";
 import {
   FIXTURES,
+  SPEC,
   WRITE_TOOL,
-  tolerantParse,
   extractVerdict,
-  outcomeFromResponse,
+  outcomeFor,
+  type Fixture,
+} from "../scripts/eval-stop-classifier";
+import {
   aggregate,
-  majority,
   decide,
   formatReport,
-  type Fixture,
-  type TrialOutcome,
+  majority,
+  parseArgs,
+  tolerantParse,
   type AnthropicResponse,
-} from "../scripts/eval-stop-classifier";
+  type TrialOutcome,
+} from "../scripts/eval-core";
 import type { AutopilotKind } from "../src/types";
 
 // These tests are HERMETIC: they import only the eval script (which imports the leaf module
@@ -69,7 +73,13 @@ test("no tool call → toolUsed=false, parseOk=false (a no-tool miss, not an abs
   expect(parseOk).toBe(false);
   expect(raw).toBeNull();
   // normalize(null) → unknown, but the outcome retains toolUsed=false so it is distinguishable.
-  expect(outcomeFromResponse(resp)).toEqual({ toolUsed: false, parseOk: false, kind: "unknown" });
+  expect(outcomeFor(F, resp)).toEqual({
+    toolUsed: false,
+    parseOk: false,
+    label: "unknown",
+    correct: false,
+    unrecognised: false,
+  });
 });
 
 test("Write tool called with unparseable content → toolUsed=true but parseOk=false", () => {
@@ -78,17 +88,27 @@ test("Write tool called with unparseable content → toolUsed=true but parseOk=f
   expect(toolUsed).toBe(true);
   expect(parseOk).toBe(false);
   expect(raw).toBeNull();
-  expect(outcomeFromResponse(resp)).toEqual({ toolUsed: true, parseOk: false, kind: "unknown" });
+  expect(outcomeFor(F, resp)).toEqual({
+    toolUsed: true,
+    parseOk: false,
+    label: "unknown",
+    correct: false,
+    unrecognised: false,
+  });
 });
 
 test("a genuine unknown verdict is distinct from a mechanical failure", () => {
-  const genuine = outcomeFromResponse(
-    toolUseResponse('{"kind":"unknown","summary":"can\'t tell"}'),
-  );
-  expect(genuine).toEqual({ toolUsed: true, parseOk: true, kind: "unknown" });
+  const genuine = outcomeFor(F, toolUseResponse('{"kind":"unknown","summary":"can\'t tell"}'));
+  expect(genuine).toEqual({
+    toolUsed: true,
+    parseOk: true,
+    label: "unknown",
+    correct: false,
+    unrecognised: false,
+  });
   // Same normalized kind as the no-tool / parse-fail cases, but toolUsed/parseOk tell them apart.
-  const noTool = outcomeFromResponse({ content: [{ type: "text", text: "hmm" }] });
-  expect(noTool.kind).toBe("unknown");
+  const noTool = outcomeFor(F, { content: [{ type: "text", text: "hmm" }] });
+  expect(noTool.label).toBe("unknown");
   expect(genuine.parseOk).not.toBe(noTool.parseOk);
 });
 
@@ -100,12 +120,9 @@ test("tolerantParse returns null on garbage (never repairs into a spurious verdi
 
 // --- aggregate: kind distribution + no-tool / parse-fail tallies ---
 
-function outcome(kind: AutopilotKind, toolUsed = true, parseOk = true): TrialOutcome {
-  return { kind, toolUsed, parseOk };
-}
-
 const F: Fixture = {
   id: "x",
+  origin: "synthetic",
   taskPrompt: "t",
   tail: ["l"],
   expectedKind: "gate",
@@ -114,31 +131,51 @@ const F: Fixture = {
   note: "",
 };
 
+/** A synthetic trial outcome. `correct` is derived against `expected`, mirroring SPEC.score. */
+function outcome(
+  kind: AutopilotKind,
+  toolUsed = true,
+  parseOk = true,
+  expected: AutopilotKind = F.expectedKind,
+): TrialOutcome {
+  return { label: kind, correct: kind === expected, toolUsed, parseOk, unrecognised: false };
+}
+
 test("aggregate records full kind counts, majority, correctness, and mechanical tallies", () => {
-  const r = aggregate(F, [
-    outcome("gate"),
-    outcome("gate"),
-    outcome("question"),
-    outcome("unknown", false, false), // no-tool miss normalized to unknown
-    outcome("unknown", true, false), // parse-fail normalized to unknown
-  ]);
+  const r = aggregate(
+    F,
+    [
+      outcome("gate"),
+      outcome("gate"),
+      outcome("question"),
+      outcome("unknown", false, false), // no-tool miss normalized to unknown
+      outcome("unknown", true, false), // parse-fail normalized to unknown
+    ],
+    SPEC.labels,
+  );
   expect(r.counts).toEqual({ gate: 2, question: 1, finished: 0, complete: 0, unknown: 2 });
   expect(r.noTool).toBe(1);
   expect(r.parseFail).toBe(1);
   expect(r.correct).toBe(2); // expected=gate
-  expect(r.majorityKind).toBeNull(); // 2/5 gate is not > half
+  expect(r.majorityLabel).toBeNull(); // 2/5 gate is not > half
   expect(r.majorityCorrect).toBe(false);
 });
 
 test("majority requires strictly more than half", () => {
-  const counts = { gate: 3, question: 2, finished: 0, complete: 0, unknown: 0 };
+  const counts: Record<string, number> = {
+    gate: 3,
+    question: 2,
+    finished: 0,
+    complete: 0,
+    unknown: 0,
+  };
   expect(majority(counts, 5)).toBe("gate");
   expect(majority({ gate: 2, question: 2, finished: 0, complete: 0, unknown: 1 }, 5)).toBeNull();
 });
 
 test("aggregate: a clean majority-correct fixture", () => {
-  const r = aggregate(F, [outcome("gate"), outcome("gate"), outcome("gate")]);
-  expect(r.majorityKind).toBe("gate");
+  const r = aggregate(F, [outcome("gate"), outcome("gate"), outcome("gate")], SPEC.labels);
+  expect(r.majorityLabel).toBe("gate");
   expect(r.majorityCorrect).toBe(true);
   expect(r.correct).toBe(3);
 });
@@ -149,7 +186,8 @@ function resultFor(fixture: Partial<Fixture>, kinds: AutopilotKind[]) {
   const fx: Fixture = { ...F, ...fixture } as Fixture;
   return aggregate(
     fx,
-    kinds.map((k) => outcome(k)),
+    kinds.map((k) => outcome(k, true, true, fx.expectedKind)),
+    SPEC.labels,
   );
 }
 
@@ -200,13 +238,22 @@ test("decide ignores baseline fixtures entirely in the accuracy denominator", ()
 test("formatReport renders gating/baseline segments and flags mechanical misses", () => {
   const results = [
     resultFor({ id: "g1", gating: true, expectedKind: "gate" }, ["gate", "gate", "gate"]),
-    aggregate({ ...F, id: "g2", gating: true, expectedKind: "unknown" }, [
-      outcome("unknown", false, false),
-      outcome("unknown"),
-      outcome("gate"),
-    ]),
+    aggregate(
+      { ...F, id: "g2", gating: true, expectedKind: "unknown" } satisfies Fixture,
+      [
+        outcome("unknown", false, false, "unknown"),
+        outcome("unknown", true, true, "unknown"),
+        outcome("gate", true, true, "unknown"),
+      ],
+      SPEC.labels,
+    ),
   ];
-  const out = formatReport(results, decide(results, 0.6), "claude-haiku-4-5");
+  const out = formatReport(
+    SPEC,
+    results,
+    decide(results, 0.6),
+    parseArgs(SPEC, ["--model", "claude-haiku-4-5"]),
+  );
   expect(out).toContain("GATING");
   expect(out).toContain("g1");
   expect(out).toContain("no-tool:1");
@@ -231,9 +278,20 @@ test("fixture ids are unique", () => {
 
 test("every gating ambiguous→unknown fixture uses T≥9 (thick abstain-bucket confidence)", () => {
   const abstain = FIXTURES.filter((f) => f.expectedKind === "unknown" && f.gating);
-  // Both the English and German abstain fixtures gate (#1627).
+  // Both the English and German abstain fixtures gate: #1627 gated them, #2156 demoted the German
+  // one after it degraded to 4/9, and #2177 rewrote the directive and re-measured 27/27 at T=9.
   expect(abstain.length).toBeGreaterThanOrEqual(2);
   for (const f of abstain) expect(f.trials ?? 0).toBeGreaterThanOrEqual(9);
+});
+
+test("the German abstain fixture gates again, at full trial depth", () => {
+  // It was demoted under #2156 when the old directive let it slip to 4/9, and re-promoted once
+  // #2177 rewrote that directive and measured 27/27 across two runs. Re-promotion follows a
+  // measurement, never an assumption that a fix worked.
+  const de = FIXTURES.find((f) => f.id === "de-ambiguous-unknown");
+  expect(de).toBeDefined();
+  expect(de?.gating).toBe(true);
+  expect(de?.trials).toBeGreaterThanOrEqual(9);
 });
 
 test("German fixtures both gate (the #1627 de path) and keep baseline before/after data", () => {
@@ -251,6 +309,7 @@ test("the German gating fixtures cover gate, question, and the unknown abstain b
   const deGatingKinds = new Set(
     FIXTURES.filter((f) => f.gating && f.lang === "de").map((f) => f.expectedKind),
   );
+  // The abstain bucket is the one #1627 exists to protect and #2177 repaired — it gates.
   for (const k of ["gate", "question", "unknown"] as AutopilotKind[]) {
     expect(deGatingKinds).toContain(k);
   }

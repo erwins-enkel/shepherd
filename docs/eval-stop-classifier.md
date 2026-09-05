@@ -1,5 +1,11 @@
 # Live-model eval — autopilot stop-classifier
 
+> Since **#2156** this eval runs on the shared harness in `scripts/eval-core.ts`, alongside two
+> more prompt evals (plan-gate reviewer, PR critic). The harness, the PR gate and the
+> incident→fixture procedure are documented in **[`eval-harness.md`](./eval-harness.md)**; this page
+> keeps the classifier's own methodology, baseline numbers and #1627 A/B history. Its behaviour is
+> unchanged by the refactor: one `Write` tool, single-turn, first write wins.
+
 Part 2a of epic #1616 (issue #1626). A `bun`-runnable eval that measures the **classification
 quality** of the autopilot stop-classifier (`classifierPrompt` / `normalize`, now in the leaf
 module `src/autopilot-classify-core.ts`) against a labelled fixture set, so the operator-language
@@ -47,8 +53,9 @@ ANTHROPIC_API_KEY=… bun run eval:stop-classifier --trials 9 --operator-languag
 ANTHROPIC_API_KEY=… bun run eval:stop-classifier --trials 9 --json                            # after
 ```
 
-Or dispatch **`.github/workflows/eval-stop-classifier.yml`** (workflow_dispatch-only, `ubuntu-latest`,
-uses the repo's existing `ANTHROPIC_API_KEY` secret) and read the numbers from its run log. It takes
+Or dispatch **`.github/workflows/eval-stop-classifier.yml`** (`ubuntu-latest`, uses the repo's
+existing `ANTHROPIC_API_KEY` secret) and read the numbers from its run log. That workflow also runs
+**nightly** at 06:00 UTC since #2156 — see [CI-placement](#ci-placement--cost-decision) below. It takes
 an `operator_language_off` input (`"true"`/`"false"`, default `"false"`) that maps to the
 `--operator-language-off` flag, so both A/B legs are reproducible from CI. **Note:** because
 `workflow_dispatch` inputs are validated against the workflow file on the **default branch**, the
@@ -57,8 +64,8 @@ _after_ leg by dispatch (default inputs) and use the recorded #1626 German basel
 or run both legs locally with a key.
 
 The harness's **pure logic** (parse/aggregate/decide + fixture invariants) is unit-tested in
-`test/eval-stop-classifier.test.ts` and runs for free in the normal gated `bun test ./test` — no
-network, no key.
+`test/eval-stop-classifier.test.ts` and `test/eval-core.test.ts`, and runs for free in the normal
+gated `bun test ./test` — no network, no key.
 
 ## Encoded decisions
 
@@ -145,6 +152,16 @@ is a genuine verdict, not a masked miss. `gate-spec-first` is shown at the botto
   reported) as a **known gap** and a prime before/after datum for #1627: watch whether the operator-language
   / robustness change nudges this toward `gate` (fix) or further toward `question` (regression).
 
+- **`de-ambiguous-unknown` — demoted by #2156, RE-PROMOTED by #2177.** #1627 gated this as the
+  headline German abstain datum. Two runs on 2026-09-02 recorded `unknown` **7/9** then **4/9**
+  (`gate:5 unknown:4` — majority lost) while its English twin `ambiguous-unknown` held **9/9 on both
+  runs**, so this was a real language-specific erosion of the abstain bucket, not a mislabelled
+  fixture. Per the contingency rule it was demoted and recorded rather than revised, and the floor
+  was NOT lowered. That demotion is what surfaced **#2169**; **#2177** then rewrote the directive —
+  the closing clause was an abstract instruction about the model's own confidence, now a positive
+  no-ask test — and re-measured **27/27 = 100%** across two runs at `T=9`. It gates again on that
+  measurement, not on the assumption that the fix worked.
+
 > The contingency rule (applied above): (1) revise a fixture only if genuinely under-specified/mislabeled;
 > (2) else demote to non-gating baseline + record here; (3) never silently lower the floor to paper over a
 > gap. `ambiguous-unknown` held majority at `T=9`, so no demotion was needed there.
@@ -173,8 +190,10 @@ sees is byte-identical).
   it exactly with `--operator-language-off`.
 - **After (German directive live)** — captured under **[#2169](#german-abstain-bucket-rewrite-2169)**,
   which also rewrote the directive being measured. Every German gating fixture is majority-correct at
-  `T=9` and gating accuracy is `27/27 = 100%` across two runs. This eval is **manual/nightly, never a
-  per-PR gate** (paid, keyed, nondeterministic).
+  `T=9` and gating accuracy is `27/27 = 100%` across two runs. The run is paid, keyed and
+  nondeterministic, so it stays scheduled/dispatched rather than a per-PR correctness gate — but
+  since #2156 a prompt change like this one does trip the per-PR fingerprint gate, which runs the
+  eval in smoke mode (see [`eval-harness.md`](./eval-harness.md)).
 
 ### Noise band (react to signal, not model noise)
 
@@ -354,11 +373,17 @@ deliberately diverge and declare the `Write` tool.
 
 ## CI-placement + cost decision
 
-- **Not in gated CI.** The live eval is paid, nondeterministic, and needs a key — it must never run in the
-  per-PR gate. `bun test ./test` stays hermetic and free; it covers only the harness's pure logic.
-- **Manual / nightly.** Run locally with a key, or dispatch `eval-stop-classifier.yml`
-  (`workflow_dispatch`-only, `ubuntu-latest`, existing `ANTHROPIC_API_KEY` secret). A recurring nightly
-  `schedule:` is intentionally left off (commented) so no paid job runs without a human trigger.
+- **Not in the hermetic gate.** `bun test ./test` stays hermetic and free; it covers only the harness's
+  pure logic.
+- **Nightly (#2156).** `eval-stop-classifier.yml` now carries a `schedule:` at 06:00 UTC, plus its
+  `workflow_dispatch` inputs for reproducing a specific leg (notably the #1627 A/B). At ~54 Haiku calls
+  a run this costs pennies, and it turns the eval from an instrument someone has to remember to use
+  into standing drift detection.
+- **Per-PR, fingerprint-triggered (#2156).** `eval-prompts.yml` runs the classifier's GATING fixtures on
+  any PR whose rendered classifier prompt changes — decided by the committed fingerprint in
+  `scripts/eval-fingerprints.json`, not by changed paths. An unrelated edit to
+  `src/autopilot-classify-core.ts` costs nothing; a prompt edit cannot dodge the gate without also
+  failing `check:eval-fingerprints`. See [`eval-harness.md`](./eval-harness.md).
 - **Not on `ci/self-hosted-runner`.** Because we chose the direct-API path, the run needs only a key on
   `ubuntu-latest` (mirroring `issue-triage.yml`). Self-hosted (where subscription OAuth lives) would only
   be warranted for a subscription-fidelity variant, which we deliberately don't build.

@@ -2031,8 +2031,22 @@ export interface UpNextSnapshot {
   failedRepoCount: number;
 }
 
+/** One measured section of an in-flight spawn (server: src/spawn-progress.ts). */
+export type SpawnPhase = "base" | "worktree" | "prompt" | "launch" | "agent";
+
+/** Live progress of one `POST /api/sessions` the New Task dialog is waiting on: the phase now
+ *  running, plus every phase already done with its duration. Keyed by the spawn id the dialog
+ *  itself generated, so a second tab's spawn is ignored rather than mistaken for its own. */
+export interface SpawnProgress {
+  spawnId: string;
+  phase: SpawnPhase;
+  startedAt: number;
+  completed: { phase: SpawnPhase; ms: number }[];
+}
+
 export type WsEvent =
   | { event: "session:new"; data: Session }
+  | { event: "spawn:progress"; data: SpawnProgress }
   | {
       event: "session:status";
       data: { id: string; status: SessionStatus; hasScratchpadFiles?: boolean } & Partial<Session>;

@@ -1464,3 +1464,36 @@ test("SAFE_ID's allowance of constructor/prototype rests on real descriptor fact
   expect(Object.getPrototypeOf(s.claudeAlive)).toBe(Object.prototype);
   expect(Object.getPrototypeOf({})).toBe(Object.prototype);
 });
+
+test("spawn:progress lands as transient state for the New Task dialog", () => {
+  const s = new HerdStore();
+  expect(s.spawnProgress).toBeNull();
+
+  s.apply({
+    event: "spawn:progress",
+    data: {
+      spawnId: "11111111-2222-3333-4444-555555555555",
+      phase: "agent",
+      startedAt: 1000,
+      completed: [{ phase: "base", ms: 1200 }],
+    },
+  });
+
+  expect(s.spawnProgress?.phase).toBe("agent");
+  expect(s.spawnProgress?.completed).toEqual([{ phase: "base", ms: 1200 }]);
+
+  // Last one wins — there is no history to keep, only the phase now running.
+  s.apply({
+    event: "spawn:progress",
+    data: {
+      spawnId: "11111111-2222-3333-4444-555555555555",
+      phase: "agent",
+      startedAt: 2000,
+      completed: [
+        { phase: "base", ms: 1200 },
+        { phase: "worktree", ms: 400 },
+      ],
+    },
+  });
+  expect(s.spawnProgress?.completed).toHaveLength(2);
+});

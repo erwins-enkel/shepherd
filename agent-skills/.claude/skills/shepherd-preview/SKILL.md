@@ -13,9 +13,9 @@ enabled, onto the tailnet). It finds the server by port.
 Start it **from this worktree**. That is the case the preview is built around, and it keeps the
 server next to the code you are changing.
 
-Prototyping from your scratchpad works too — Shepherd recognises a server you started there by the
-session marker every process you spawn inherits, so it is no longer invisible. It is still the
-second-best option: nothing in the scratchpad ends up in the PR.
+Prototyping from your scratchpad works too: Shepherd finds a server you start there by the session
+marker every process you spawn inherits. It is still the second-best option — nothing in the
+scratchpad ends up in the PR.
 
 ## Pointing the preview at a specific port
 

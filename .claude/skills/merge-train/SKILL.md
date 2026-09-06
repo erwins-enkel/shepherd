@@ -15,7 +15,7 @@ not the exception.
 
 ## Stages
 
-Work the stages in order. Create a TodoWrite item per stage.
+Work the stages in order.
 
 ### 1. Gather
 
@@ -111,16 +111,15 @@ re-synthesize and re-present.
 
 ### 6. Merge on approval
 
-> **NEVER move the home base's checked-out branch.** The primary working
-> directory (where the Shepherd server runs and the New Task form reads its
-> default base branch) is the **home base**. Shepherd cuts every new task branch
-> from the home base's checked-out `HEAD`, so a `git checkout` / `git switch` /
-> `git checkout -B` there silently re-bases any task spawned **mid-train** onto a
-> throwaway branch (`mt-…`) instead of `main`/`dev`. That task then loses its
-> autopilot/critic/plan-gate wiring because its base ref vanishes when the train
-> finishes and the branch is deleted — and the New Task form is opaque, so the
-> operator won't notice. Do **all** rebasing in an **isolated scratch worktree**;
-> the home base stays on its original branch for the entire train.
+> **Don't move the home base's checked-out branch.** The primary working
+> directory — where the Shepherd server runs — is the **home base**, and it is a
+> live checkout the operator and any non-isolated session share. Do all rebasing
+> in an **isolated scratch worktree**; the home base stays on its original branch
+> for the entire train. New tasks base off the repo default branch
+> (`origin/HEAD`), so a stray checkout usually won't re-base them — but where
+> `origin/HEAD` is unset the checked-out branch is the fallback, and a task
+> spawned mid-train would then cut from a throwaway `mt-…` branch that vanishes
+> when the train finishes.
 
 **Set up once, before the loop** — capture the home-base branch and add a
 scratch worktree (never reused by Shepherd sessions):
@@ -170,7 +169,7 @@ Report a final summary: what merged, what was held, and any follow-ups.
   off main, zero merge commits relative to `origin/main`.
 - **i18n parity** — `cd ui && bun run check:i18n`: any new user-facing string
   needs matching keys in **both** `ui/messages/en.json` and `de.json`.
-- **Tests/lint** — root: `bun install && bun run lint && bun test`; UI:
+- **Tests/lint** — root: `bun install && bun run lint && bun run test`; UI:
   `cd ui && bun install && bun run check && bun run test` (vitest, not `bun test`).
   Run only when a verdict is uncertain and the diff warrants local verification;
   otherwise trust CI rollup.
@@ -183,4 +182,4 @@ Report a final summary: what merged, what was held, and any follow-ups.
 - Re-evaluate after every merge; concurrent agents make a stale plan dangerous.
 - A red gate removes a PR from the train; it never gets bypassed.
 - Never move the home base's checked-out branch — rebase in an isolated scratch
-  worktree so tasks spawned mid-train still cut from the correct base.
+  worktree.

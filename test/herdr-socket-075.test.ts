@@ -206,6 +206,78 @@ describe("SocketHerdrDriver — 0.7.5 (protocol 17) external-registration spawn"
     expect(rec).toContainEqual({ method: "tab.close", params: { tab_id: "t_075" } });
   });
 
+  // ── agent_name_taken squatter eviction keys on the TAB label too (#2033) ──────
+  //
+  // Socket sibling of the CLI driver's coverage. 0.7.5 sends no `agent.name`, so the old
+  // `a.name === agentName` filter selected the empty set: nothing evicted, all three attempts
+  // re-collided, and the spawn failed with `agent_name_taken` instead of self-healing.
+
+  /** The squatter (`t_sq`), plus OUR OWN freshly-created pane — both tabs carry the same label. */
+  const collidingAgents = () => [
+    {
+      agent: "review-task-09",
+      agent_status: "working",
+      cwd: "/wt/a",
+      pane_id: "p_sq",
+      tab_id: "t_sq",
+      terminal_id: "term_sq",
+      workspace_id: "w1",
+    },
+    {
+      agent: "review-task-09",
+      agent_status: "working",
+      cwd: "/wt/a",
+      pane_id: "p_075",
+      tab_id: "t_075",
+      terminal_id: "term_075",
+      workspace_id: "w1",
+    },
+  ];
+  const collidingTabs = () => [
+    { tab_id: "t_sq", label: "review TASK-09", workspace_id: "w1" },
+    { tab_id: "t_075", label: "review TASK-09", workspace_id: "w1" },
+  ];
+
+  it("start() SANDBOXED: a register collision evicts the squatter by TAB label, then retries", async () => {
+    let reports = 0;
+    const { rec, client } = mkClient({
+      agents: collidingAgents,
+      tabs: collidingTabs,
+      onReport: () => {
+        if (++reports === 1) throw new HerdrSocketError("agent_name_taken", "name in use");
+      },
+    });
+    const driver = new SocketHerdrDriver(client, noCli, async () => {});
+
+    const agent = await driver.start("review TASK-09", "/wt/a", ["bwrap", "--", "claude", "go"]);
+
+    // The squatter is resolvable ONLY via its tab label — `agent.name` is absent on every record.
+    expect(rec).toContainEqual({ method: "tab.close", params: { tab_id: "t_sq" } });
+    expect(reports).toBe(2); // the retry actually made progress
+    expect(agent.terminalId).toBe("term_075");
+  });
+
+  it("start() SANDBOXED: the eviction never closes the tab the spawn just created", async () => {
+    // Our own tab was labelled with the same name moments earlier, so it matches by construction.
+    let reports = 0;
+    const { rec, client } = mkClient({
+      agents: collidingAgents,
+      tabs: collidingTabs,
+      onReport: () => {
+        if (++reports === 1) throw new HerdrSocketError("agent_name_taken", "name in use");
+      },
+    });
+    const driver = new SocketHerdrDriver(client, noCli, async () => {});
+
+    await driver.start("review TASK-09", "/wt/a", ["bwrap", "--", "claude", "go"]);
+
+    const closed = rec
+      .filter((r) => r.method === "tab.close")
+      .map((r) => (r.params as { tab_id: string }).tab_id);
+    expect(closed).toContain("t_sq");
+    expect(closed).not.toContain("t_075");
+  });
+
   it("start() records the spawn handle: a later stop() closes the recorded tab (agent-list-free)", async () => {
     // tab.list label matches the start name so the recorded-tab-first close fires without agent.list
     const { rec, client } = mkClient({

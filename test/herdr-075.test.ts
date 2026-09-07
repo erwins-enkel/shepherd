@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test, expect, beforeEach, afterEach } from "bun:test";
 import {
+  agentsHoldingName,
   classifyPaneWrite,
   HerdrDriver,
   matchAgent,
@@ -427,6 +428,177 @@ test("the label source is memoized: one read arbitrates a whole contended pass",
   ];
   matchAgents(sessions, UNNAMED_AGENTS, src);
   expect(calls).toBe(1);
+});
+
+// ── agent_name_taken squatter eviction keys on the TAB label too (#2033) ──────
+//
+// 0.7.5 sends no `agent.name`, so `agents.filter((a) => a.name === name)` selected the empty set:
+// nothing was evicted, all three attempts re-collided, and the spawn failed with `agent_name_taken`
+// instead of self-healing. The name survives on the TAB label, which `tab create --label` was given
+// raw — compared in the sanitized space the registration actually binds.
+
+/** The squatter (`t_sq`) plus OUR OWN freshly-created pane (`p_075`/`t_075`). Both tabs carry the
+ *  same label, so the self-eviction guard is what keeps the spawn from closing its own tab. */
+const COLLIDING_AGENTS = JSON.stringify({
+  result: {
+    type: "agent_list",
+    agents: [
+      {
+        agent: "review-task-09",
+        agent_status: "working",
+        cwd: "/wt/a",
+        pane_id: "p_sq",
+        tab_id: "t_sq",
+        terminal_id: "term_sq",
+        workspace_id: "w1",
+      },
+      {
+        agent: "review-task-09",
+        agent_status: "working",
+        cwd: "/wt/a",
+        pane_id: "p_075",
+        tab_id: "t_075",
+        terminal_id: "term_075",
+        workspace_id: "w1",
+      },
+    ],
+  },
+});
+
+const COLLIDING_TABS = JSON.stringify({
+  result: {
+    type: "tab_list",
+    tabs: [
+      { tab_id: "t_sq", label: "review TASK-09", agent_status: "working", workspace_id: "w1" },
+      { tab_id: "t_075", label: "review TASK-09", agent_status: "working", workspace_id: "w1" },
+    ],
+  },
+});
+
+function nameTaken(): Error {
+  return Object.assign(new Error("herdr CLI error"), {
+    stderr: JSON.stringify({ error: { code: "agent_name_taken", message: "name in use" } }),
+  });
+}
+
+/** A 0.7.5 sandboxed spawn whose first registration collides; `attempts` counts the register calls. */
+function collidingDriver(collisions: number) {
+  let attempts = 0;
+  const { d, calls } = mkDriver((args) => {
+    if (args[0] === "pane" && args[1] === "report-agent-session") {
+      attempts++;
+      if (attempts <= collisions) throw nameTaken();
+      return REPORT_SESSION;
+    }
+    if (args[0] === "agent" && args[1] === "list") return COLLIDING_AGENTS;
+    if (args[0] === "tab" && args[1] === "list") return COLLIDING_TABS;
+    return route(args);
+  });
+  return { d, calls, attempts: () => attempts };
+}
+
+/** The ≤0.7.4 shape: herdr populates `name` on every record. */
+const NAMED_AGENTS: HerdrAgent[] = [
+  { ...UNNAMED_AGENTS[0]!, name: "review TASK-09" },
+  { ...UNNAMED_AGENTS[1]!, name: "review TASK-10" },
+];
+
+test("agentsHoldingName: a `name` hit wins outright and never reads the labels", () => {
+  const labels = () => {
+    throw new Error("labels must not be read when `name` already matched");
+  };
+  expect(agentsHoldingName(NAMED_AGENTS, "review TASK-09", labels).map((a) => a.tabId)).toEqual([
+    "tA",
+  ]);
+});
+
+test("agentsHoldingName: the label branch is a FALL-THROUGH, not a version switch", () => {
+  // Deliberate, and a real behaviour change on a herdr that still sends `name`: when NOTHING holds
+  // the name, the label is consulted anyway. herdr's own `agent_name_taken` names candidates with
+  // `status=Unknown` — a holder absent from `agent list` — and before #2033 that spawn was
+  // guaranteed to fail with nothing evicted. The label space searched is Shepherd's own.
+  const orphaned: HerdrAgent[] = [{ ...NAMED_AGENTS[0]!, name: "renamed-out-of-band" }];
+  expect(
+    agentsHoldingName(orphaned, "review TASK-09", () => TAB_LABELS).map((a) => a.tabId),
+  ).toEqual(["tA"]);
+  // …but a name nobody holds on ANY surface still evicts nothing.
+  expect(agentsHoldingName(NAMED_AGENTS, "nobody", () => TAB_LABELS)).toEqual([]);
+});
+
+test("agentsHoldingName: falls back to the TAB label in herdr's sanitized name space", () => {
+  // The raw label is what `tab create` was given; the registration bound `review-task-09`.
+  expect(agentsHoldingName(UNNAMED_AGENTS, "review TASK-09", () => TAB_LABELS)).toHaveLength(1);
+  expect(agentsHoldingName(UNNAMED_AGENTS, "review TASK-09", () => TAB_LABELS)[0]!.tabId).toBe(
+    "tA",
+  );
+  // Sanitized-space equality: the caller may hold either form of the same name.
+  expect(agentsHoldingName(UNNAMED_AGENTS, "review-task-10", () => TAB_LABELS)[0]!.tabId).toBe(
+    "tB",
+  );
+});
+
+test("agentsHoldingName: no labels → empty set, never a broader match", () => {
+  // A failed `tab list` must NARROW the match. Widening it would close an unrelated agent's tab.
+  expect(agentsHoldingName(UNNAMED_AGENTS, "review TASK-09", () => undefined)).toEqual([]);
+});
+
+test("agentsHoldingName: never keys on `agent` — the bare KIND must not alias a name", () => {
+  // Both UNNAMED_AGENTS report `agent: "claude"` (trusted auto-detection). A session that sanitizes
+  // to `claude` must not sweep up every claude in the fleet.
+  expect(agentsHoldingName(UNNAMED_AGENTS, "claude", () => TAB_LABELS)).toEqual([]);
+});
+
+test("start (0.7.5, SANDBOXED): a register collision evicts the squatter by TAB label, then retries", async () => {
+  const { d, calls, attempts } = collidingDriver(1);
+  const agent = await d.start("review TASK-09", "/wt/a", ["bwrap", "--", "claude", "go"]);
+
+  // The squatter — resolvable ONLY via its tab label — was evicted, and the retry made progress.
+  expect(calls).toContainEqual(["tab", "close", "t_sq"]);
+  expect(attempts()).toBe(2);
+  expect(agent.terminalId).toBe("term_075");
+});
+
+test("start (0.7.5, SANDBOXED): the eviction never closes the tab the spawn just created", async () => {
+  // Our own tab was labelled with the same name moments earlier, so it matches the label branch by
+  // construction. Without the self-eviction guard the retry would close the pane it is spawning into.
+  const { d, calls } = collidingDriver(1);
+  await d.start("review TASK-09", "/wt/a", ["bwrap", "--", "claude", "go"]);
+
+  const closed = calls.filter((c) => c[0] === "tab" && c[1] === "close").map((c) => c[2]);
+  expect(closed).toContain("t_sq");
+  expect(closed).not.toContain("t_075");
+});
+
+test("start (0.7.5, SANDBOXED): a persistent collision still rolls the tab back and throws", async () => {
+  // Eviction is bounded — three attempts, then the spawn fails loudly and leaves no husk behind.
+  const { d, calls, attempts } = collidingDriver(99);
+  await expect(
+    d.start("review TASK-09", "/wt/a", ["bwrap", "--", "claude", "go"]),
+  ).rejects.toThrow();
+  expect(attempts()).toBe(3);
+  expect(calls).toContainEqual(["tab", "close", "t_075"]); // OUR tab, rolled back on the failure path
+});
+
+test("start (0.7.5, SANDBOXED): a failing tab list narrows the eviction instead of widening it", async () => {
+  // No labels and no `agent.name` → nothing is identifiable, so nothing is closed. The spawn fails
+  // exactly as it does today; it must never fall back to closing whatever else is in the list.
+  let attempts = 0;
+  const { d, calls } = mkDriver((args) => {
+    if (args[0] === "pane" && args[1] === "report-agent-session") {
+      attempts++;
+      throw nameTaken();
+    }
+    if (args[0] === "agent" && args[1] === "list") return COLLIDING_AGENTS;
+    if (args[0] === "tab" && args[1] === "list") throw new Error("herdr: tab list unavailable");
+    return route(args);
+  });
+  await expect(
+    d.start("review TASK-09", "/wt/a", ["bwrap", "--", "claude", "go"]),
+  ).rejects.toThrow();
+  expect(attempts).toBe(3);
+  expect(calls.filter((c) => c[0] === "tab" && c[1] === "close").map((c) => c[2])).not.toContain(
+    "t_sq",
+  );
 });
 
 test("stop (0.7.5): closes the recorded tab of a started agent", async () => {

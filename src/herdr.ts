@@ -521,6 +521,64 @@ export function sanitizeHerdrAgentName(raw: string): string {
 }
 
 /**
+ * The agents that HOLD herdr agent name `rawName` — the squatters an `agent_name_taken` retry has
+ * to evict before it can re-attempt (#2033). `rawName` is the raw, human-facing name: ≤0.7.4 binds
+ * it verbatim through `agent start`, and the 0.7.5+ register path binds
+ * {@link sanitizeHerdrAgentName}(rawName).
+ *
+ * Two branches, in order:
+ *  1. `name` matches → those agents, and the labels are never read. Wherever herdr still populates
+ *     `name` AND something holds it, the result is exactly what the pre-#2033 filter returned.
+ *  2. NO `name` matched → the TAB label, compared in herdr's own 0.7.5 name space (`sanitize` on
+ *     both sides): 0.7.5 emits no `agent.name` at all, and `tab create --label` carries the RAW
+ *     name while the register call binds the SANITIZED one — sanitized-space equality is what makes
+ *     the two surfaces comparable. Deliberately NOT keyed on `agent`: that field holds the bare
+ *     agent KIND (`"claude"`) for trusted auto-detected agents, so matching it would both alias the
+ *     kind and miss an auto-detected squatter, which reports the kind rather than its name.
+ *
+ * Note branch 2 is a FALL-THROUGH, not a version switch, so on a herdr that does send `name` this
+ * is a SUPERSET of the old behaviour: a collision whose holder is absent from `agent list` (herdr's
+ * own error calls such a candidate `status=Unknown`) now evicts the tab carrying that label, where
+ * before it evicted nothing and the spawn was guaranteed to fail. That is the intent — the label
+ * space searched is Shepherd's own — but it IS a behaviour change on ≤0.7.4, not a no-op.
+ *
+ * No labels available (a herdr read failed, or the caller has no source) → empty set, never a
+ * broader match: a failed read must not widen what gets closed.
+ *
+ * `labels` is read AT MOST ONCE, and only on the collision path — a successful spawn pays nothing.
+ * Callers must exclude their OWN freshly-created handle from the result: the tab was created with
+ * `label: name` moments earlier, so it matches branch 2 by construction.
+ */
+export function agentsHoldingName(
+  agents: HerdrAgent[],
+  rawName: string,
+  labels: TabLabelSource,
+): HerdrAgent[] {
+  const byName = agents.filter((a) => a.name === rawName);
+  if (byName.length > 0) return byName;
+  const map = labels();
+  if (!map) return [];
+  const wanted = sanitizeHerdrAgentName(rawName);
+  return agents.filter((a) => {
+    const label = map.get(a.tabId);
+    return label !== undefined && sanitizeHerdrAgentName(label) === wanted;
+  });
+}
+
+/** Read `tab_id` → label for an {@link agentsHoldingName} lookup, best-effort: a failed `tab list`
+ *  yields `undefined`, which NARROWS the match to the `name` branch rather than widening it.
+ *  Shared by both drivers' collision retries, and only ever called from inside one (#2033). */
+export async function readTabLabels(
+  driver: Pick<IHerdrDriver, "tabsAsync">,
+): Promise<ReadonlyMap<string, string> | undefined> {
+  try {
+    return tabLabelMap(await driver.tabsAsync());
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Resolve a herdr `terminal_id` to its `pane_id` from an `agent list` snapshot. On herdr 0.7.5 the
  * driver's read/send/relabel must target `pane_id` — `terminal_id` and label are rejected as
  * `agent_not_found` — but Shepherd keys sessions on `terminal_id`, so this lookup is load-bearing.
@@ -1061,8 +1119,14 @@ export class HerdrDriver implements IHerdrDriver {
           // Non-name-taken error → propagate immediately; or attempts exhausted → propagate
           throw err;
         }
-        // Evict squatter(s) by name — never by regex-parsing the error string
-        const squatters = (await this.listAsync()).filter((a) => a.name === name);
+        // Evict squatter(s) by name — never by regex-parsing the error string. Resolved through
+        // `agentsHoldingName`, so an `agent list` that carries no `name` still identifies them by
+        // TAB label (#2033). OUR just-created tab is excluded: it was labelled with the same name
+        // moments ago, so it matches the label branch by construction.
+        const labels = await readTabLabels(this);
+        const squatters = agentsHoldingName(await this.listAsync(), name, () => labels).filter(
+          (a) => a.tabId !== tabId,
+        );
         for (const sq of squatters) await this.closeTab(sq.tabId, { allowLastTab: true });
       }
     }
@@ -1199,7 +1263,7 @@ export class HerdrDriver implements IHerdrDriver {
       // exactly as it did on ≤0.7.4 — resolving the spawn by waiting for auto-detection instead.
       const sandboxed = argv.includes("bwrap");
       const agent = sandboxed
-        ? await this.resolveByRegistration(paneId, sanitizeHerdrAgentName(name))
+        ? await this.resolveByRegistration(paneId, name)
         : await this.resolveByAutoDetect(paneId, name, opts?.signal);
       // Retain the authoritative spawn handle (#1852): the tab is ours even if the process inside
       // dies before it next appears in `agent list`.
@@ -1216,14 +1280,14 @@ export class HerdrDriver implements IHerdrDriver {
    * --state working`), which both surfaces it in `agent list` immediately AND establishes Shepherd's
    * lifecycle authority (herdr can't detect the bwrap'd agent, so Shepherd owns its state — #1891).
    * Resolve from the live list, joining on the pane_id we ran in; its terminal_id is Shepherd's key.
+   * Takes the RAW name and sanitizes at the RPC boundary below, so the collision retry keeps the
+   * raw form its TAB-label lookup needs (#2033).
    */
-  private async resolveByRegistration(paneId: string, agentName: string): Promise<HerdrAgent> {
-    await this.registerAgentWithCollisionRetry(paneId, agentName);
+  private async resolveByRegistration(paneId: string, rawName: string): Promise<HerdrAgent> {
+    await this.registerAgentWithCollisionRetry(paneId, rawName);
     const agent = (await this.listAsync()).find((a) => a.paneId === paneId);
     if (!agent || !agent.terminalId) {
-      throw new Error(
-        `herdr: agent list has no registered agent for pane ${paneId} (${agentName})`,
-      );
+      throw new Error(`herdr: agent list has no registered agent for pane ${paneId} (${rawName})`);
     }
     return agent;
   }
@@ -1296,11 +1360,15 @@ export class HerdrDriver implements IHerdrDriver {
    * ≤0.7.4 name-collision breaker but at the REGISTER step — on 0.7.5 the `--agent` name is bound
    * here, not at spawn, and our tab/pane/`claude` are already live — so a collision re-runs ONLY the
    * register pair (never tab-create/pane-run) after evicting same-named squatters. Whether
-   * `report-agent(-session)` even emits `agent_name_taken` is unverified; because `agentName` is
-   * sanitized AND de-duped upstream (`uniqueName`) and each spawn registers a freshly-created pane, a
-   * real collision is expected to be rare/absent, and the retry collapses to a single pass otherwise.
+   * `report-agent(-session)` even emits `agent_name_taken` is unverified — measured by the
+   * `herdr:compat` L10 probe since #2033; because the name is sanitized below AND de-duped upstream
+   * (`uniqueName`) and each spawn registers a freshly-created pane, a real collision is expected to
+   * be rare/absent, and the retry collapses to a single pass otherwise.
    */
-  private async registerAgentWithCollisionRetry(paneId: string, agentName: string): Promise<void> {
+  private async registerAgentWithCollisionRetry(paneId: string, rawName: string): Promise<void> {
+    // herdr's name grammar is bound HERE, not at spawn — so this is the sanitize boundary. The raw
+    // name is kept for the collision lookup below, which reads TAB labels (raw) (#2033).
+    const agentName = sanitizeHerdrAgentName(rawName);
     // Opaque per-pane associator: claude's own session id is unknown at spawn, and herdr only echoes
     // this back on the agent record — keeping agent_status fresh via a real session id is a separate
     // child (#1889). Stable + unique per spawn (one pane per spawn).
@@ -1334,8 +1402,14 @@ export class HerdrDriver implements IHerdrDriver {
       } catch (err) {
         if (!isNameTakenError(err) || attempt === MAX_ATTEMPTS - 1) throw err;
         // Evict squatter(s) by name — never by regex-parsing the error string — then re-run the
-        // register pair against our existing pane.
-        const squatters = (await this.listAsync()).filter((a) => a.name === agentName);
+        // register pair against our existing pane. Keyed through `agentsHoldingName` on the RAW
+        // name: 0.7.5 sends no `agent.name`, so the squatter is identified by its TAB label (which
+        // carries the raw name) compared in the sanitized space the registration binds (#2033).
+        // OUR OWN pane is excluded — its tab carries the same label.
+        const labels = await readTabLabels(this);
+        const squatters = agentsHoldingName(await this.listAsync(), rawName, () => labels).filter(
+          (a) => a.paneId !== paneId,
+        );
         for (const sq of squatters) await this.closeTab(sq.tabId, { allowLastTab: true });
       }
     }

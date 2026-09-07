@@ -4,6 +4,7 @@ import {
   HerdrDriver,
   HerdrSpawnUnsupportedError,
   TabLedger,
+  agentsHoldingName,
   buildWrappedArgv,
   classifyPaneWrite,
   createSerializer,
@@ -15,6 +16,7 @@ import {
   parseProcs,
   parseReadText,
   parseTabs,
+  readTabLabels,
   resolvePaneId,
   sanitizeHerdrAgentName,
   stopViaRecordedTab,
@@ -241,7 +243,7 @@ export class SocketHerdrDriver implements IHerdrDriver {
       // `HerdrDriver.startImpl075`.
       const sandboxed = argv.includes("bwrap");
       const agent = sandboxed
-        ? await this.resolveByRegistration(rootPaneId, sanitizeHerdrAgentName(name))
+        ? await this.resolveByRegistration(rootPaneId, name)
         : await this.resolveByAutoDetect(rootPaneId, name, opts?.signal);
       // Retain the authoritative spawn handle (#1852) — the tab is ours even if the process inside
       // dies before it next appears in `agent.list`.
@@ -254,14 +256,13 @@ export class SocketHerdrDriver implements IHerdrDriver {
   }
 
   /** Sandboxed resolve: externally register (surfaces the bwrap'd agent + establishes Shepherd's
-   *  lifecycle authority) then resolve from the live list. Socket sibling of the CLI driver's. */
-  private async resolveByRegistration(paneId: string, agentName: string): Promise<HerdrAgent> {
-    await this.registerAgentWithCollisionRetry(paneId, agentName);
+   *  lifecycle authority) then resolve from the live list. Socket sibling of the CLI driver's —
+   *  including its RAW-name contract: the sanitize happens at the RPC boundary below (#2033). */
+  private async resolveByRegistration(paneId: string, rawName: string): Promise<HerdrAgent> {
+    await this.registerAgentWithCollisionRetry(paneId, rawName);
     const agent = (await this.listAsync()).find((a) => a.paneId === paneId);
     if (!agent || !agent.terminalId) {
-      throw new Error(
-        `herdr: agent list has no registered agent for pane ${paneId} (${agentName})`,
-      );
+      throw new Error(`herdr: agent list has no registered agent for pane ${paneId} (${rawName})`);
     }
     return agent;
   }
@@ -335,7 +336,10 @@ export class SocketHerdrDriver implements IHerdrDriver {
    * tab-create/pane-run). The opaque per-pane `agent_session_id` (`shepherd-<paneId>`) is stable +
    * unique per spawn (one pane per spawn).
    */
-  private async registerAgentWithCollisionRetry(paneId: string, agentName: string): Promise<void> {
+  private async registerAgentWithCollisionRetry(paneId: string, rawName: string): Promise<void> {
+    // The name grammar is bound HERE, so this is the sanitize boundary; the raw name is kept for
+    // the TAB-label collision lookup below (#2033). Mirrors the CLI driver.
+    const agentName = sanitizeHerdrAgentName(rawName);
     const agentSessionId = `shepherd-${paneId}`;
     const MAX_ATTEMPTS = 3;
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
@@ -356,8 +360,13 @@ export class SocketHerdrDriver implements IHerdrDriver {
       } catch (err) {
         if (!isNameTakenError(err) || attempt === MAX_ATTEMPTS - 1) throw err;
         // Evict squatter(s) by name — never by regex-parsing the error string — then re-run the
-        // register pair against our existing pane.
-        const squatters = (await this.listAsync()).filter((a) => a.name === agentName);
+        // register pair against our existing pane. Keyed on the RAW name through
+        // `agentsHoldingName`, so a 0.7.5 `agent.list` without `name` still resolves them by TAB
+        // label (#2033). OUR OWN pane is excluded — its tab carries the same label.
+        const labels = await readTabLabels(this);
+        const squatters = agentsHoldingName(await this.listAsync(), rawName, () => labels).filter(
+          (a) => a.paneId !== paneId,
+        );
         for (const sq of squatters) await this.closeTab(sq.tabId, { allowLastTab: true });
       }
     }
@@ -445,8 +454,13 @@ export class SocketHerdrDriver implements IHerdrDriver {
         return res?.agent;
       } catch (err) {
         if (!isNameTakenError(err) || attempt === MAX_ATTEMPTS - 1) throw err;
-        // Evict squatter(s) by name — never by regex-parsing the error string
-        const squatters = (await this.listAsync()).filter((a) => a.name === name);
+        // Evict squatter(s) by name — never by regex-parsing the error string. Via
+        // `agentsHoldingName` so an `agent.list` without `name` still identifies them by TAB label
+        // (#2033); OUR just-created tab is excluded — it carries the same label.
+        const labels = await readTabLabels(this);
+        const squatters = agentsHoldingName(await this.listAsync(), name, () => labels).filter(
+          (a) => a.tabId !== tabId,
+        );
         for (const sq of squatters) await this.closeTab(sq.tabId, { allowLastTab: true });
       }
     }

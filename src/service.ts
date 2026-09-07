@@ -220,6 +220,7 @@ export interface ServiceDeps {
     HerdrDriver,
     | "start"
     | "list"
+    | "tabs"
     | "stop"
     | "send"
     | "relabel"
@@ -4349,6 +4350,34 @@ export class SessionService {
   }
 
   /**
+   * Every name a live herdr already answers to — the set {@link uniqueName} suffixes around.
+   *
+   * The UNION of two surfaces, because no single one covers every herdr: ≤0.7.4 puts the name on
+   * the agent record, while 0.7.5+ sends no `agent.name` at all and the name survives only as the
+   * TAB label (#2033). Reading agent names alone made this de-duper a no-op on every 0.7.5 host —
+   * which is what let two live sessions share a name and turned the repaired `agent_name_taken`
+   * eviction into a hazard for the live sibling.
+   *
+   * Best-effort by contract: a failed `tab list` degrades the naming to the agent-name half, it
+   * never fails session creation. Tab labels also cover Shepherd's helper tabs, which only makes
+   * the set more conservative.
+   */
+  private takenHerdrNames(): Set<string> {
+    const names = new Set(
+      this.deps.herdr
+        .list()
+        .map((a) => a.name)
+        .filter((n): n is string => !!n),
+    );
+    try {
+      for (const t of this.deps.herdr.tabs()) if (t.label) names.add(t.label);
+    } catch {
+      /* best-effort: the agent-name half alone */
+    }
+    return names;
+  }
+
+  /**
    * Derive a herdr-unique agent name from `base`. The namer maps a prompt to a name
    * deterministically, so resubmitting a similar prompt yields the same base — and herdr
    * rejects a second agent with a name already in use (`agent_name_taken`), which would
@@ -4374,12 +4403,7 @@ export class SessionService {
    * agent name, branch, and worktree path all in sync on the suffixed value.
    */
   private uniqueName(base: string, herd?: string, repoPath?: string): string {
-    const liveNames = new Set(
-      this.deps.herdr
-        .list()
-        .map((a) => a.name)
-        .filter(Boolean),
-    );
+    const liveNames = this.takenHerdrNames();
     // A candidate is taken if a live agent owns the name OR (when repoPath is given) the
     // matching branch already exists. Both are cheap; branchExists is a bounded `git rev-parse`.
     const isTaken = (candidate: string): boolean =>

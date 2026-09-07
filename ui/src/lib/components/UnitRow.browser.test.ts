@@ -200,6 +200,24 @@ describe("UnitRow runtime environment", () => {
       `TASK-01 · opus · ${m.effort_label_medium()}`,
     );
   });
+
+  it("shows Codex max intent as the effective high effort before runtime telemetry arrives", () => {
+    render(UnitRow, {
+      session: session({
+        id: "codex-clamped-effort",
+        agentProvider: "codex",
+        model: "gpt-6-astra",
+        effort: "max",
+      }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+    });
+
+    expect(document.querySelector(".meta-text")?.textContent?.replace(/\s+/g, " ").trim()).toBe(
+      `TASK-01 · gpt-6-astra · ${m.effort_label_high()}`,
+    );
+  });
 });
 
 describe("UnitRow merging badge", () => {

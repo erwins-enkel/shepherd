@@ -191,8 +191,13 @@
         ? modelLabel(session.model)
         : m.newtask_model_default(),
   );
+  // Mirror src/default-effort.ts → effortForSpawn(): the row describes the effective
+  // environment, while the session keeps the operator's unclamped intent for future relaunches.
+  const configuredEffort = $derived(
+    session.agentProvider === "codex" && session.effort === "max" ? "high" : session.effort,
+  );
   const environmentEffort = $derived(
-    effortLabel(activity?.runtimeEffort ?? session.effort ?? m.effort_default()),
+    effortLabel(activity?.runtimeEffort ?? configuredEffort ?? m.effort_default()),
   );
   function toggleRepoFilter() {
     // Non-additive: a plain click resets the filter to this repo (or clears it when this repo

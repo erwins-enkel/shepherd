@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
-import { cdp, page } from "vitest/browser";
+import { page } from "vitest/browser";
 import "../../app.css";
 import { overwriteGetLocale } from "$lib/paraglide/runtime";
 import { m } from "$lib/paraglide/messages";
@@ -57,8 +57,8 @@ function props(count: number) {
   };
 }
 
-beforeEach(async () => {
-  await cdp().send("Emulation.setTouchEmulationEnabled", { enabled: true });
+beforeEach(() => {
+  expect(window.matchMedia("(pointer: coarse)").matches).toBe(true);
   overwriteGetLocale(() => "de");
   vi.mocked(listIssues).mockResolvedValue({
     slug: "organization-with-a-long-name/repository-with-a-long-name",
@@ -103,7 +103,6 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await cdp().send("Emulation.setTouchEmulationEnabled", { enabled: false });
   overwriteGetLocale(() => "en");
   document.body.innerHTML = "";
   await page.viewport(1280, 900);

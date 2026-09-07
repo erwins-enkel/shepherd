@@ -4032,35 +4032,33 @@ describe("NewTask mobile sources sheet", () => {
 
   it("scrolls on a touch swipe in landscape without selecting or opening the context menu", async () => {
     const session = cdp();
-    await session.send("Emulation.setTouchEmulationEnabled", { enabled: true });
-    try {
-      await page.viewport(852, 393);
-      seedIssues(Array.from({ length: 50 }, (_, i) => mkIssue(i + 1)));
-      render(NewTask, { props: { onsubmit: vi.fn(), initialRepoPath: "/repo" } });
-      await expect.poll(() => srcBtn()).toBeTruthy();
-      await page.elementLocator(srcBtn()!).click();
-      await expect.poll(() => document.querySelectorAll(".sheet .issue-list-row").length).toBe(50);
-      const body = document.querySelector<HTMLElement>(".sheet .ps-body")!;
-      const r = body.getBoundingClientRect();
-      const x = r.left + r.width / 2;
-      const y = r.bottom - 20;
+    // Touch events can be dispatched without changing Chromium's pointer/hover capabilities.
+    mockPointer(true);
+    await page.viewport(852, 393);
+    seedIssues(Array.from({ length: 50 }, (_, i) => mkIssue(i + 1)));
+    render(NewTask, { props: { onsubmit: vi.fn(), initialRepoPath: "/repo" } });
+    await expect.poll(() => srcBtn()).toBeTruthy();
+    await page.elementLocator(srcBtn()!).click();
+    await expect.poll(() => document.querySelectorAll(".sheet .issue-list-row").length).toBe(50);
+    const body = document.querySelector<HTMLElement>(".sheet .ps-body")!;
+    const r = body.getBoundingClientRect();
+    const x = r.left + r.width / 2;
+    const y = r.bottom - 20;
+    await session.send("Input.dispatchTouchEvent", {
+      type: "touchStart",
+      touchPoints: [{ x, y }],
+    });
+    for (const dy of [20, 40, 60, 80]) {
       await session.send("Input.dispatchTouchEvent", {
-        type: "touchStart",
-        touchPoints: [{ x, y }],
+        type: "touchMove",
+        touchPoints: [{ x, y: y - dy }],
       });
-      for (const dy of [20, 40, 60, 80]) {
-        await session.send("Input.dispatchTouchEvent", {
-          type: "touchMove",
-          touchPoints: [{ x, y: y - dy }],
-        });
-      }
-      await session.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
-      await expect.poll(() => body.scrollTop).toBeGreaterThan(0);
-      expect(psWrap()).not.toBeNull();
-      expect(document.querySelector(".issue-ref, [role=menu]")).toBeNull();
-    } finally {
-      await session.send("Emulation.setTouchEmulationEnabled", { enabled: false });
     }
+    await session.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    await expect.poll(() => body.scrollTop).toBeGreaterThan(0);
+    expect(psWrap()).not.toBeNull();
+    expect(document.querySelector(".issue-ref, [role=menu]")).toBeNull();
+    expect(window.matchMedia("(hover: hover) and (pointer: fine)").matches).toBe(true);
   });
 
   it("keeps the command search visible while the keyboard-shortened list scrolls", async () => {

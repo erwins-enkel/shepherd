@@ -1,6 +1,7 @@
 import { test, expect } from "bun:test";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { SessionStore } from "../src/store";
 import { StatusPoller } from "../src/poller";
 import { makeApp } from "../src/server";
@@ -10,6 +11,7 @@ import { DEFAULT_STALL } from "../src/stall";
 import { maintenance } from "../src/maintenance";
 import { config } from "../src/config";
 import type { ReviewVerdict, PlanGate } from "../src/types";
+import { CodexTranscriptLocator } from "../src/codex-activity";
 
 const baseSession = {
   name: "x",
@@ -28,6 +30,99 @@ const baseSession = {
  *  synchronous tick — so its onActivity/onBlock effects (incl. the resume
  *  block-clear) land on a later microtask. Flush a cycle before asserting them. */
 const flush = () => new Promise((r) => setTimeout(r, 0));
+
+test("default probe emits Codex runtime model and effort via session:activity", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "poller-codex-activity-"));
+  const rolloutPath = join(dir, "rollout.jsonl");
+  try {
+    const store = new SessionStore(":memory:");
+    const session = store.create({ ...baseSession, agentProvider: "codex" });
+    const events: Array<{ event: string; data: { id: string; activity: unknown } }> = [];
+    let clock = Date.parse("2026-09-07T10:10:00.000Z");
+    const records = [
+      {
+        timestamp: "2026-09-07T10:00:00.000Z",
+        type: "turn_context",
+        payload: { model: "gpt-6-astra", effort: "high" },
+      },
+    ];
+    writeFileSync(rolloutPath, records.map((record) => JSON.stringify(record)).join("\n"));
+    const locator = new CodexTranscriptLocator({
+      now: () => clock,
+      find: () => ({ id: "rollout-1", path: rolloutPath }),
+    });
+    const herdr = withListAsync({
+      list: (): HerdrAgent[] => [
+        {
+          agent: "codex",
+          agentStatus: "working",
+          cwd: baseSession.worktreePath,
+          paneId: "p",
+          tabId: "t",
+          name: "",
+          terminalId: baseSession.herdrAgentId,
+          workspaceId: "w",
+        },
+      ],
+      read: () => "working",
+      readAsync: async () => "working",
+    });
+    const poller = new StatusPoller(
+      store,
+      herdr,
+      () => {},
+      () => {},
+      1000,
+      3000,
+      classifyBlocked,
+      () => clock,
+      undefined,
+      DEFAULT_STALL,
+      7000,
+      () => {},
+      (id, activity) => events.push({ event: "session:activity", data: { id, activity } }),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      locator,
+    );
+    poller.captureCodexSessionId = () => false;
+
+    await poller.tick();
+    await flush();
+    records.push({
+      timestamp: "2026-09-07T10:00:10.000Z",
+      type: "turn_context",
+      payload: { model: "gpt-6-astra", effort: "high" },
+    });
+    writeFileSync(rolloutPath, records.map((record) => JSON.stringify(record)).join("\n"));
+    clock += 8000;
+    await poller.tick();
+
+    expect(events).toContainEqual({
+      event: "session:activity",
+      data: {
+        id: session.id,
+        activity: {
+          lastActivityTs: Date.parse("2026-09-07T10:00:10.000Z"),
+          summary: null,
+          recentTs: [],
+          recentErrTs: [],
+          runtimeModel: "gpt-6-astra",
+          runtimeEffort: "high",
+        },
+      },
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 /**
  * tick() (issue #1529) now reads agents over the socket via `listAsync()`, not the
@@ -2429,6 +2524,41 @@ test("hooks: freshness guard suppresses the interim activity emit while push is 
     await flush();
     const interimEmits = h.activities.filter((a) => a.activity.summary === null);
     expect(interimEmits).toHaveLength(0);
+  } finally {
+    config.hooksSignals = orig;
+  }
+});
+
+test("hooks: fresh push activity keeps runtime identity discovered by the transcript probe", async () => {
+  const orig = config.hooksSignals;
+  config.hooksSignals = true;
+  try {
+    const h = hookHarness({
+      probe: () => ({
+        snapshot: null,
+        activity: {
+          lastActivityTs: h.now(),
+          summary: "$ bun run test",
+          recentTs: [],
+          recentErrTs: [],
+          runtimeModel: "gpt-6-astra",
+          runtimeEffort: "high",
+        },
+      }),
+    });
+
+    h.poller.ingestActivity(h.id, { toolName: "Read", status: "ok", ts: h.now() });
+    await h.poller.tick(); // prime transcript liveness while the hook signal is fresh
+
+    h.advance(8000);
+    h.poller.ingestActivity(h.id, { toolName: "Read", status: "ok", ts: h.now() });
+    await h.poller.tick();
+
+    expect(h.activities.at(-1)?.activity).toMatchObject({
+      summary: "Read",
+      runtimeModel: "gpt-6-astra",
+      runtimeEffort: "high",
+    });
   } finally {
     config.hooksSignals = orig;
   }

@@ -146,6 +146,62 @@ function loadPreviewMode(repoPath: string, mode: "ask" | "inline" | "tab" = "ask
   repoConfig.settled = { ...repoConfig.settled, [repoPath]: true };
 }
 
+describe("UnitRow runtime environment", () => {
+  it("shows the concrete Codex runtime model and effort", () => {
+    render(UnitRow, {
+      session: session({ id: "codex-runtime", agentProvider: "codex" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+      activity: {
+        lastActivityTs: Date.now(),
+        summary: null,
+        recentTs: [],
+        recentErrTs: [],
+        runtimeModel: "gpt-6-astra",
+        runtimeEffort: "high",
+      },
+    });
+
+    expect(document.querySelector(".meta-text")?.textContent?.replace(/\s+/g, " ").trim()).toBe(
+      `TASK-01 · GPT-6 Astra · ${m.effort_label_high()}`,
+    );
+  });
+
+  it("shows the concrete Claude model and falls back to the configured effort", () => {
+    render(UnitRow, {
+      session: session({ id: "claude-runtime", model: "opus", effort: "high" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+      activity: {
+        lastActivityTs: Date.now(),
+        summary: null,
+        recentTs: [],
+        recentErrTs: [],
+        runtimeModel: "claude-opus-5-1",
+      },
+    });
+
+    expect(document.querySelector(".meta-text")?.textContent?.replace(/\s+/g, " ").trim()).toBe(
+      `TASK-01 · Opus 5.1 · ${m.effort_label_high()}`,
+    );
+  });
+
+  it("uses the configured model and effort before runtime telemetry arrives", () => {
+    render(UnitRow, {
+      session: session({ id: "configured", model: "opus", effort: "medium" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+    });
+
+    expect(document.querySelector(".meta-text")?.textContent?.replace(/\s+/g, " ").trim()).toBe(
+      `TASK-01 · opus · ${m.effort_label_medium()}`,
+    );
+  });
+});
+
 describe("UnitRow merging badge", () => {
   it("shows MERGING for a merging session, not READY", async () => {
     const now = Date.now();

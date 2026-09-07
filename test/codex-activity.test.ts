@@ -1,6 +1,7 @@
 import { describe, test, expect } from "bun:test";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 import {
   parseCodexUsage,
   parseCodexActivity,
@@ -130,6 +131,38 @@ describe("readCodexTranscriptSignals", () => {
     const r = readCodexTranscriptSignals(join(import.meta.dir, "fixtures/does-not-exist.jsonl"));
     expect(r.snapshot).toBeNull();
     expect(r.activity).toBeNull();
+  });
+
+  test("reports model and effort from the newest turn context", () => {
+    const dir = mkdtempSync(join(tmpdir(), "codex-runtime-identity-"));
+    const path = join(dir, "rollout.jsonl");
+    try {
+      const records = [
+        {
+          timestamp: "2026-09-07T10:00:00.000Z",
+          type: "session_meta",
+          payload: { provenance: { type: "model", model: "gpt-6-sol" } },
+        },
+        {
+          timestamp: "2026-09-07T10:01:00.000Z",
+          type: "turn_context",
+          payload: { model: "gpt-6-terra", effort: "medium" },
+        },
+        {
+          timestamp: "2026-09-07T10:02:00.000Z",
+          type: "turn_context",
+          payload: { model: "gpt-6-astra", effort: "high" },
+        },
+      ];
+      writeFileSync(path, records.map((record) => JSON.stringify(record)).join("\n"));
+
+      const { activity } = readCodexTranscriptSignals(path);
+
+      expect(activity?.runtimeModel).toBe("gpt-6-astra");
+      expect(activity?.runtimeEffort).toBe("high");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

@@ -4,9 +4,9 @@ import { m } from "$lib/paraglide/messages";
  * Friendly display label for a model alias — the RECORD label.
  *
  * Use this wherever the value being rendered was STORED AT SPAWN/SUBMIT TIME: a
- * session card, the status bar, the plan panel, the review-in-flight banner, the
- * viewport, experiment groups. For a run that already happened, the only honest
- * label is what that run was configured with.
+ * session card before runtime telemetry arrives, the status bar, the plan panel,
+ * the review-in-flight banner, the viewport, experiment groups. For a run that
+ * already happened, the only honest label is what that run was configured with.
  *
  * This is why the floating aliases ("opus", "sonnet", …) deliberately render as
  * the bare token here and NOT as "Opus (latest)": `opus` resolves to whatever the
@@ -37,6 +37,28 @@ export function modelLabel(alias: string): string {
     default:
       return alias;
   }
+}
+
+/** Friendly label for a concrete model id reported by a provider's runtime log. */
+export function runtimeModelLabel(model: string): string {
+  const claude = /^claude-(fable|opus|sonnet|haiku)-(\d+)(?:-(\d+))?$/.exec(
+    model.replace(/-\d{8}$/, ""),
+  );
+  if (claude) {
+    const family = claude[1]![0]!.toUpperCase() + claude[1]!.slice(1);
+    return `${family} ${claude[2]}${claude[3] ? `.${claude[3]}` : ""}`;
+  }
+
+  const gpt = /^gpt-(\d+(?:\.\d+)?)(?:-(.+))?$/.exec(model);
+  if (gpt) {
+    const variant = gpt[2]
+      ?.split("-")
+      .map((part) => (part ? part[0]!.toUpperCase() + part.slice(1) : part))
+      .join(" ");
+    return `GPT-${gpt[1]}${variant ? ` ${variant}` : ""}`;
+  }
+
+  return modelLabel(model);
 }
 
 /**

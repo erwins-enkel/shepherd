@@ -1,4 +1,5 @@
 import { parseActivity, latestRecordTs, readTranscriptTail, type ActivityEntry } from "./activity";
+import { eachJsonlObject } from "./jsonl";
 import { snapshotFrom, DEFAULT_STALL, type ActivitySnapshot } from "./stall";
 
 /** Per-agent liveness + current-activity signal pushed to UI clients. */
@@ -13,7 +14,13 @@ export interface SessionActivity {
   recentTs: number[];
   /** Subset of `recentTs` whose tool-use errored; the client tints those slices red. */
   recentErrTs: number[];
+  /** Concrete model reported by the provider transcript, when available. */
+  runtimeModel?: string;
+  /** Concrete reasoning-effort tier reported by the provider transcript, when available. */
+  runtimeEffort?: string;
 }
+
+type RuntimeIdentity = Pick<SessionActivity, "runtimeModel" | "runtimeEffort">;
 
 /**
  * Tools that represent internal bookkeeping rather than observable agent work.
@@ -52,6 +59,7 @@ export const STRIP_WINDOW_MS = DEFAULT_STALL.stallMs;
 export function signalFrom(
   entries: ActivityEntry[],
   lastActivityTs: number,
+  identity: RuntimeIdentity = {},
 ): SessionActivity | null {
   const summary = latestMeaningfulSummary(entries);
   // no signal yet — transcript exists but contains no parseable activity
@@ -64,12 +72,25 @@ export function signalFrom(
     recentTs.push(e.ts);
     if (e.status === "error") recentErrTs.push(e.ts);
   }
-  return { lastActivityTs, summary, recentTs, recentErrTs };
+  return { lastActivityTs, summary, recentTs, recentErrTs, ...identity };
+}
+
+/** Newest real model named by a Claude assistant record. Synthetic control records do not
+ * represent an inference model and must not replace the last concrete value. */
+function claudeRuntimeIdentity(text: string): RuntimeIdentity {
+  let runtimeModel: string | undefined;
+  for (const value of eachJsonlObject(text)) {
+    const record = value as { type?: unknown; message?: unknown };
+    if (record.type !== "assistant") continue;
+    const model = (record.message as { model?: unknown } | undefined)?.model;
+    if (typeof model === "string" && model !== "<synthetic>") runtimeModel = model;
+  }
+  return runtimeModel ? { runtimeModel } : {};
 }
 
 /** Pure: derive an activity signal from already-read transcript text. */
 export function signalFromText(text: string): SessionActivity | null {
-  return signalFrom(parseActivity(text), latestRecordTs(text));
+  return signalFrom(parseActivity(text), latestRecordTs(text), claudeRuntimeIdentity(text));
 }
 
 /**
@@ -108,5 +129,8 @@ export function readTranscriptSignals(path: string): {
   }
   const entries = parseActivity(text);
   const lastTs = latestRecordTs(text);
-  return { snapshot: snapshotFrom(entries, lastTs), activity: signalFrom(entries, lastTs) };
+  return {
+    snapshot: snapshotFrom(entries, lastTs),
+    activity: signalFrom(entries, lastTs, claudeRuntimeIdentity(text)),
+  };
 }

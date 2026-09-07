@@ -44,6 +44,14 @@ function resultLine(id: string, ts: string, is_error = false): string {
   });
 }
 
+function assistantModelLine(model: string, ts: string): string {
+  return JSON.stringify({
+    type: "assistant",
+    timestamp: ts,
+    message: { role: "assistant", model, content: [{ type: "text", text: "done" }] },
+  });
+}
+
 // ── latestMeaningfulSummary ───────────────────────────────────────────────────
 
 test("latestMeaningfulSummary returns null for empty entries", () => {
@@ -190,6 +198,15 @@ test("signalFromText derives heartbeat + meaningful summary from text", () => {
   expect(signal).not.toBeNull();
   expect(signal!.lastActivityTs).toBe(Date.parse("2026-05-31T10:05:00.000Z"));
   expect(signal!.summary).toBe("edited poller.ts");
+});
+
+test("signalFromText reports the newest real Claude model and ignores synthetic records", () => {
+  const text = [
+    assistantModelLine("claude-opus-5-1", "2026-09-07T10:00:00.000Z"),
+    assistantModelLine("<synthetic>", "2026-09-07T10:01:00.000Z"),
+  ].join("\n");
+
+  expect(signalFromText(text)?.runtimeModel).toBe("claude-opus-5-1");
 });
 
 test("readTranscriptSignals: one read yields both snapshot + activity", () => {

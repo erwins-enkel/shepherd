@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { modelGuidance, modelGuidanceAlias, modelOptionLabel } from "./model-guidance";
-import { configuredModelLabel, modelLabel } from "./model-label";
+import { configuredModelLabel, modelLabel, runtimeModelLabel } from "./model-label";
 import { isFableModel, modelAvailableForProvider } from "./provider-models";
 
 describe("modelGuidance", () => {
@@ -137,5 +137,21 @@ describe("record vs configured labels", () => {
     for (const alias of ["sonnet", "sonnet[1m]", "haiku"]) {
       expect(configuredModelLabel(alias)).toBe(modelLabel(alias));
     }
+  });
+});
+
+describe("runtime model labels", () => {
+  it("formats concrete Codex model slugs", () => {
+    expect(runtimeModelLabel("gpt-6-astra")).toBe("GPT-6 Astra");
+    expect(runtimeModelLabel("gpt-5.6-sol")).toBe("GPT-5.6 Sol");
+  });
+
+  it("formats concrete Claude model slugs", () => {
+    expect(runtimeModelLabel("claude-opus-5-1")).toBe("Opus 5.1");
+    expect(runtimeModelLabel("claude-sonnet-4-8-20260901")).toBe("Sonnet 4.8");
+  });
+
+  it("leaves unknown runtime model ids intact", () => {
+    expect(runtimeModelLabel("future-model-alpha")).toBe("future-model-alpha");
   });
 });

@@ -338,7 +338,8 @@ test("writer-only + model 'haiku' reproduces verify-key's historical argv shape"
 // file-based result contract is identical, so the caller's verdict reading is unchanged; only the
 // argv differs. None of the Claude-only flags (--settings/--safe-mode/--allowedTools) leak.
 
-// The config-isolation block every Codex role carries (issue #2134) — the Codex peer of Claude's
+// The full leading block every Codex role argv carries: the sandbox pair, the `--thread-source`
+// classification (#2136), then the config-isolation flags (#2134) — the Codex peer of Claude's
 // disableAllHooks + --disable-slash-commands + --safe-mode. Spelled out here BY HAND, exactly like
 // READONLY_GIT above: importing it from src would derive the expectation from the implementation
 // and turn this byte-identity gate into a tautology.
@@ -436,7 +437,7 @@ test("codex + captureLastMessage → reviewer PER-SPAWN `-o`, other kinds the fi
 // across every kind: unlike Claude's per-kind mcpIsolated split, Codex has no --allowedTools to make
 // a loaded MCP server inert, so dropping the user config is the only lever and every kind gets it.
 
-test("codex: every kind carries the isolation block, right after the sandbox pair", () => {
+test("codex: every kind carries the full leading block — sandbox, thread source, isolation", () => {
   for (const kind of ALL_KINDS) {
     for (const model of [null, "gpt-5.5"]) {
       for (const capture of [false, true]) {

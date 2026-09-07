@@ -413,6 +413,23 @@ test("research: null rejected", () => {
   if (!r.ok) expect(r.error).toMatch(/research/);
 });
 
+// spawnId is TRANSPORT (the X-Shepherd-Spawn-Id header), never task data. This allowlist also
+// guards the held-task update PATCH, so a client that leaked the id into a body would break
+// editing a held task — pin the rejection so the header stays the only carrier.
+test("spawnId in the body is rejected — it belongs in the header", () => {
+  const r = validateCreate(
+    {
+      repoPath: validRepo,
+      baseBranch: "main",
+      prompt: "go",
+      spawnId: "11111111-2222-3333-4444-555555555555",
+    },
+    root,
+  );
+  expect(r.ok).toBe(false);
+  if (!r.ok) expect(r.error).toMatch(/unknown key: spawnId/);
+});
+
 test("unknown key is rejected", () => {
   const r = validateCreate(
     { repoPath: validRepo, baseBranch: "main", prompt: "go", evil: "x" },

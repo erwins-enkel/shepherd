@@ -56,6 +56,7 @@ import {
   worktreeUploadsDir,
 } from "./uploads";
 import { slugifyManual, isHeuristicNameStrong, NAMER_LABEL } from "./namer";
+import { SpawnCanceled, SpawnPhaseTracker } from "./spawn-progress";
 import {
   clampCodexModelForAuth,
   modelCompatibleWithProvider,
@@ -2603,6 +2604,9 @@ export class SessionService {
       /** For the plugin onSpawn descriptor (issue #1124); advisory, never mutated. */
       model?: string | null;
       agentProvider?: string;
+      /** Operator cancellation, checked inside herdr's auto-detect poll loop. Interactive
+       *  create only — resume/drain/relaunch pass none and behave exactly as before. */
+      signal?: AbortSignal;
     },
   ): Promise<SpawnOutcome> {
     const repoConfig = this.deps.store.getRepoConfig(ctx.repoPath);
@@ -2718,7 +2722,9 @@ export class SessionService {
       [SESSION_MARKER_ENV]: ctx.sessionId,
       [AGENT_API_URL_ENV]: agentApiUrl,
     };
-    const agent = await this.deps.herdr.start(ctx.name, ctx.worktreePath, wrapped, spawnEnv);
+    const agent = await this.deps.herdr.start(ctx.name, ctx.worktreePath, wrapped, spawnEnv, {
+      signal: ctx.signal,
+    });
     // Start the egress drop-watcher AFTER herdr.start (the agent is now running).
     if (egressOn && egressAllowlist && egressDnsLog) {
       this.deps.egressWatcher?.start(ctx.sessionId, {
@@ -3659,17 +3665,41 @@ export class SessionService {
     }
   }
 
-  async create(input: CreateSessionInput): Promise<Session> {
+  /**
+   * Create an agent session. Answers only once the agent is actually running — the New Task dialog
+   * holds its "starting…" state for exactly this call, so `tracker` exists to say what it is doing
+   * meanwhile (see src/spawn-progress.ts). A caller that passes none still gets the measurement:
+   * every spawn leaves one `[create] spawn …` line naming where its time went.
+   */
+  async create(input: CreateSessionInput, tracker?: SpawnPhaseTracker): Promise<Session> {
     // Clean-terminal kind (union arm): a bare operator shell in the MAIN checkout, pane-direct.
     // None of the agent-create machinery below (worktree, prompt, argv, plan gate) applies —
-    // and the narrowed TerminalCreateInput has no prompt/baseBranch members to misuse.
+    // and the narrowed TerminalCreateInput has no prompt/baseBranch members to misuse. It spawns
+    // no agent, so it is outside the phase model too.
     if (input.terminal === true) return this.createTerminalSession(input);
+    const phases = tracker ?? new SpawnPhaseTracker();
+    try {
+      const session = await this.createAgentSession(input, phases);
+      phases.finish("ok");
+      return session;
+    } catch (e) {
+      phases.finish(e instanceof SpawnCanceled ? "canceled" : "failed");
+      throw e;
+    }
+  }
+
+  private async createAgentSession(
+    input: StandardCreateInput,
+    phases: SpawnPhaseTracker,
+  ): Promise<Session> {
     await this.assertIssueAuthorTrusted(input);
     const repoBasename = input.repoPath.split("/").filter(Boolean).at(-1) ?? "";
     const herdSlug = repoBasename ? slugifyManual(repoBasename) : undefined;
     const name = this.uniqueName(await this.deps.namer(input.prompt), herdSlug, input.repoPath);
-    const baseRef = await this.resolveBaseRef(input);
-    const wt = this.deps.worktree.create(input.repoPath, baseRef, name);
+    const baseRef = await phases.phase("base", () => this.resolveBaseRef(input));
+    const wt = await phases.phase("worktree", () =>
+      this.deps.worktree.create(input.repoPath, baseRef, name),
+    );
     // The worktree is created before the agent can start, so any failure past this
     // point (e.g. herdr `tab create` rejecting) would otherwise leave an orphan
     // worktree with no session row. Roll it back so a failed create leaves nothing.
@@ -3684,7 +3714,7 @@ export class SessionService {
         dropped: droppedImages,
         injectionHits,
         attachments,
-      } = await this.composePromptArg(input, wt.worktreePath);
+      } = await phases.phase("prompt", () => this.composePromptArg(input, wt.worktreePath));
       const {
         agentProvider,
         resolvedInput,
@@ -3693,19 +3723,40 @@ export class SessionService {
         planGateOn,
         profileOverride,
         argv,
-      } = await this.resolveCreateLaunch(input, wt, promptArg, sessionId, claudeSessionId);
+      } = await phases.phase("launch", () =>
+        this.resolveCreateLaunch(input, wt, promptArg, sessionId, claudeSessionId),
+      );
       // Auto-refuse surfaces as a throw so the create() caller (route 4xx / drain catch) sees it.
-      const outcome = await this.prepareSpawnOrThrow(argv, {
-        sessionId,
-        name,
-        worktreePath: wt.worktreePath,
-        repoPath: input.repoPath,
-        isolated: wt.isolated,
-        auto: spawnInput.auto,
-        profileOverride,
-        model: spawnInput.model,
-        agentProvider,
-      });
+      // The longest phase by far: `herdr.start` waits for herdr to auto-detect a trusted agent,
+      // which in practice means waiting out the agent CLI's own startup (bounded at 30s). The
+      // tracker's signal rides along so a cancel lands INSIDE that poll loop, not only between
+      // phases.
+      const outcome = await phases.phase("agent", () =>
+        this.prepareSpawnOrThrow(argv, {
+          sessionId,
+          name,
+          worktreePath: wt.worktreePath,
+          repoPath: input.repoPath,
+          isolated: wt.isolated,
+          auto: spawnInput.auto,
+          profileOverride,
+          model: spawnInput.model,
+          agentProvider,
+          signal: phases.signal,
+        }),
+      );
+      // Point of no return — unless a cancel got here first. The drivers check the signal at their
+      // own defined points, but a cancel can always land in the gap between the last of those and
+      // this line, and on that path `herdr.start` hands back a LIVE agent. The cancel route has
+      // already told the operator the start was abandoned, so honour that rather than persisting a
+      // session they believe never existed: stop the agent, then unwind (the catch below rolls the
+      // worktree back). `seal()` decides the race atomically — see SpawnPhaseTracker.seal.
+      if (!phases.seal()) {
+        await this.deps.herdr.stop(outcome.terminalId).catch((e) => {
+          console.warn(`[create] cancelled spawn: stopping ${outcome.terminalId} failed: ${e}`);
+        });
+        throw new SpawnCanceled();
+      }
       const session = this.deps.store.create({
         id: sessionId,
         name,

@@ -19,6 +19,7 @@ import {
   sanitizeHerdrAgentName,
   stopViaRecordedTab,
   type HerdrAgent,
+  type HerdrStartOptions,
   type HerdrTab,
   type IHerdrDriver,
 } from "./herdr";
@@ -30,6 +31,7 @@ import {
   herdrUsesExternalRegistrationSpawn,
 } from "./herdr-capabilities";
 import { spawnCommandLine } from "./spawn-script";
+import { SpawnCanceled } from "./spawn-progress";
 
 /**
  * Socket-backed `IHerdrDriver` (issues #1529, #1553, #1567): routes the async read surface —
@@ -184,6 +186,7 @@ export class SocketHerdrDriver implements IHerdrDriver {
     cwd: string,
     argv: string[],
     env?: Record<string, string>,
+    opts?: HerdrStartOptions,
   ): Promise<HerdrAgent> {
     // Same unsupported-herdr guard as the CLI driver (defensive: the socket only activates on a
     // supported protocol, but the version ceiling is the source of truth). See #1889.
@@ -193,7 +196,7 @@ export class SocketHerdrDriver implements IHerdrDriver {
       // external-registration path instead (#1892), mirroring `HerdrDriver.startImpl075`.
       // ≤0.7.4 keeps the legacy `agent.start` path.
       herdrUsesExternalRegistrationSpawn()
-        ? this.startImpl075(name, cwd, argv, env)
+        ? this.startImpl075(name, cwd, argv, env, opts)
         : this.startImpl(name, cwd, argv, env),
     );
   }
@@ -212,8 +215,12 @@ export class SocketHerdrDriver implements IHerdrDriver {
     cwd: string,
     argv: string[],
     env?: Record<string, string>,
+    opts?: HerdrStartOptions,
   ): Promise<HerdrAgent> {
     await this.ensureWorkspace(cwd);
+    // Checked at DEFINED points only — here (nothing created yet) and once per auto-detect poll —
+    // so a cancel can never strand half a spawn. Mirrors `HerdrDriver.startImpl075`.
+    if (opts?.signal?.aborted) throw new SpawnCanceled();
     const created = await this.client.request("tab.create", { cwd, label: name, focus: false });
     const tabId = created?.tab?.tab_id;
     const rootPaneId = created?.root_pane?.pane_id;
@@ -224,6 +231,10 @@ export class SocketHerdrDriver implements IHerdrDriver {
     try {
       if (!rootPaneId) throw new Error(`herdr: tab.create returned no root pane for ${name}`);
       await this.runInReadyPane(rootPaneId, buildWrappedArgv(argv, env));
+      // Second defined checkpoint — same rationale as the CLI driver: the sandboxed branch below
+      // resolves without a poll loop, so this is where a cancel catches it. The catch closes the
+      // tab, taking the just-launched process with it.
+      if (opts?.signal?.aborted) throw new SpawnCanceled();
       // Sandboxed spawns (bwrap in argv) hide `claude` from herdr's detection → must be externally
       // registered + Shepherd-owned. Trusted spawns are auto-detected by herdr → register nothing and
       // let herdr own the status (≤0.7.4 parity); a register/pin would freeze it. Mirrors
@@ -231,7 +242,7 @@ export class SocketHerdrDriver implements IHerdrDriver {
       const sandboxed = argv.includes("bwrap");
       const agent = sandboxed
         ? await this.resolveByRegistration(rootPaneId, sanitizeHerdrAgentName(name))
-        : await this.resolveByAutoDetect(rootPaneId, name);
+        : await this.resolveByAutoDetect(rootPaneId, name, opts?.signal);
       // Retain the authoritative spawn handle (#1852) — the tab is ours even if the process inside
       // dies before it next appears in `agent.list`.
       this.ledger.record(agent.terminalId, tabId, name);
@@ -256,11 +267,17 @@ export class SocketHerdrDriver implements IHerdrDriver {
   }
 
   /** Trusted resolve: register nothing; wait (bounded) for herdr's own detection to surface the
-   *  agent, handing it full status ownership (≤0.7.4 parity). Socket sibling of the CLI driver's. */
-  private async resolveByAutoDetect(paneId: string, name: string): Promise<HerdrAgent> {
+   *  agent, handing it full status ownership (≤0.7.4 parity). Socket sibling of the CLI driver's —
+   *  including the per-round `signal` check that lets the operator escape this wait. */
+  private async resolveByAutoDetect(
+    paneId: string,
+    name: string,
+    signal?: AbortSignal,
+  ): Promise<HerdrAgent> {
     const DEADLINE_MS = 30_000;
     const POLL_MS = 500;
     for (let waited = 0; waited <= DEADLINE_MS; waited += POLL_MS) {
+      if (signal?.aborted) throw new SpawnCanceled();
       const agent = (await this.listAsync()).find((a) => a.paneId === paneId);
       if (agent?.terminalId) return agent;
       await this.sleep(POLL_MS);

@@ -236,16 +236,36 @@ export async function listSessions(): Promise<Session[]> {
   return r.json();
 }
 
+/** Header that opts a create into live phase progress + cancellation. A header, not a body field:
+ *  the create body is what a usage-hold persists as a held task, and a spawn id replayed from
+ *  there would be stale. Server side: SPAWN_ID_HEADER in src/server.ts. */
+const SPAWN_ID_HEADER = "X-Shepherd-Spawn-Id";
+
 export async function createSession(
   input: CreateInput & { force?: boolean },
+  spawnId?: string,
 ): Promise<Session | HeldResult> {
   const r = await fetch("/api/sessions", {
     method: "POST",
-    headers: JSON_HEADERS,
+    headers: spawnId ? { ...JSON_HEADERS, [SPAWN_ID_HEADER]: spawnId } : JSON_HEADERS,
     body: JSON.stringify(input),
   });
   if (!r.ok) throw await failed(r, "create");
   return r.json();
+}
+
+/** Ask the server to abandon an in-flight spawn. Returns whether it actually stopped: `false`
+ *  means the agent came up first, so the session is being created after all. Never throws — a
+ *  cancel that cannot be delivered leaves the dialog waiting, which is the honest fallback. */
+export async function cancelSpawn(spawnId: string): Promise<boolean> {
+  try {
+    const r = await fetch(`/api/spawns/${encodeURIComponent(spawnId)}/cancel`, { method: "POST" });
+    if (!r.ok) return false;
+    const body = (await r.json()) as { canceled?: boolean };
+    return body.canceled === true;
+  } catch {
+    return false;
+  }
 }
 
 /** List tasks that are currently held (waiting for usage to reset). */

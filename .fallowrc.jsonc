@@ -313,11 +313,11 @@
       },
       {
         "files": ["src/service.ts"],
-        "functions": ["create"],
+        "functions": ["createAgentSession"],
         "maxCyclomatic": 25,
         "maxCognitive": 25,
         "maxCrap": 1000,
-        "reason": "Codex provider creation branches through the existing session-create orchestration; keep capped until create is split by provider lifecycle."
+        "reason": "Codex provider creation branches through the existing session-create orchestration; keep capped until create is split by provider lifecycle. Renamed from `create` when spawn-phase tracking split the thin wrapper off the body — this cap follows the body, whose complexity is unchanged."
       },
       {
         "files": ["src/service.ts"],

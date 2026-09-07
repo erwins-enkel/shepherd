@@ -23,6 +23,7 @@ import type {
   BlockReason,
   DrainStatus,
   AutoMergeStatus,
+  SpawnProgress,
   BuildQueue,
   Epic,
   CompletedEpic,
@@ -149,6 +150,9 @@ export class HerdStore {
   /** Live automerge status keyed by repoPath; bootstrapped via GET /api/automerge,
    *  updated in real-time by the `automerge:status` WS event. */
   autoMerge = $state<Record<string, AutoMergeStatus>>({});
+  /** Phase of the spawn a New Task dialog is currently waiting on (`spawn:progress`). No
+   *  bootstrap and no history — it exists only for the seconds a create request is open. */
+  spawnProgress = $state<SpawnProgress | null>(null);
   /** Live build queue keyed by sessionId; bootstrapped via GET /api/sessions/:id/queue,
    *  updated in real-time by the `queue:update` WS event. */
   buildQueues = $state<Record<string, BuildQueue>>({});
@@ -853,6 +857,11 @@ export class HerdStore {
         return true;
       case "plugin-update:status":
         this.pluginUpdates = ev.data;
+        return true;
+      case "spawn:progress":
+        // Transient, never persisted: the New Task dialog reads it while its create request is in
+        // flight and matches on its own spawn id. A stale value simply stops matching.
+        this.spawnProgress = ev.data;
         return true;
     }
     return false;

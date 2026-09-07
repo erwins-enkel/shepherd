@@ -12,6 +12,7 @@ import {
   type HerdrAgent,
 } from "../src/herdr";
 import { setDetectedHerdrVersion } from "../src/herdr-capabilities";
+import { SpawnCanceled } from "../src/spawn-progress";
 import { readTypedScript } from "./helpers/spawn-script";
 
 // ── captured 0.7.5 (protocol 17) reply fixtures ──────────────────────────────
@@ -224,6 +225,58 @@ test("start (0.7.5, TRUSTED): auto-detect polls the agent list until the agent a
   const agent = await d.start("x", "/wt/a", ["claude", "go"]);
   expect(agent.terminalId).toBe("term_075");
   expect(listCalls).toBeGreaterThanOrEqual(3);
+});
+
+test("start (0.7.5, SANDBOXED): a cancel after pane run rolls the tab back, registering nothing", async () => {
+  // The sandboxed branch resolves through a quick registration, not a poll loop, so without a
+  // checkpoint right after `pane run` it would hand back a live agent for a spawn the operator
+  // had already cancelled — and the session would be persisted behind their back.
+  const controller = new AbortController();
+  const { d, calls } = mkDriver((args) => {
+    if (args[0] === "pane" && args[1] === "run") controller.abort();
+    return route(args);
+  });
+
+  await expect(
+    d.start("flatten", "/wt/a", ["bwrap", "--", "claude", "go"], undefined, {
+      signal: controller.signal,
+    }),
+  ).rejects.toBeInstanceOf(SpawnCanceled);
+
+  expect(calls.some((c) => c[1] === "report-agent-session")).toBe(false);
+  // The tab — and the process `pane run` just launched inside it — is torn down.
+  expect(calls.some((c) => c[0] === "tab" && c[1] === "close" && c[2] === "t_075")).toBe(true);
+});
+
+test("start (0.7.5): a cancel before anything is created touches herdr at all only to look around", async () => {
+  const controller = new AbortController();
+  controller.abort();
+  const { d, calls } = mkDriver(route);
+
+  await expect(
+    d.start("flatten", "/wt/a", ["claude", "go"], undefined, { signal: controller.signal }),
+  ).rejects.toBeInstanceOf(SpawnCanceled);
+
+  expect(calls.some((c) => c[0] === "tab" && c[1] === "create")).toBe(false);
+});
+
+test("start (0.7.5, TRUSTED): a cancel during auto-detection rolls the tab back", async () => {
+  const controller = new AbortController();
+  const { d, calls } = mkDriver((args) => {
+    if (args[0] === "pane" && args[1] === "run") return route(args);
+    // Never surface the agent, so the resolve sits in its poll loop where the cancel lands.
+    if (args[0] === "agent" && args[1] === "list") {
+      controller.abort();
+      return JSON.stringify({ result: { agents: [] } });
+    }
+    return route(args);
+  });
+
+  await expect(
+    d.start("flatten", "/wt/a", ["claude", "go"], undefined, { signal: controller.signal }),
+  ).rejects.toBeInstanceOf(SpawnCanceled);
+
+  expect(calls.some((c) => c[0] === "tab" && c[1] === "close" && c[2] === "t_075")).toBe(true);
 });
 
 test("start (0.7.5, SANDBOXED): rolls the tab back if registration keeps failing", async () => {

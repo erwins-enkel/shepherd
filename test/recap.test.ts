@@ -1120,13 +1120,18 @@ test("generate: codex provider spawns headless `codex exec` (no claude flags)", 
   });
   await svc.regenerate(s);
   const argv = herdr.started[0]!.argv;
-  expect(argv.slice(0, 8)).toEqual([
+  expect(argv.slice(0, 13)).toEqual([
     "codex",
     "exec",
     "--sandbox",
     "workspace-write",
     "--thread-source",
     "shepherd_role",
+    "--skip-git-repo-check",
+    "--ignore-user-config",
+    "--ignore-rules",
+    "-c",
+    'project_doc_fallback_filenames=["CLAUDE.md"]',
     "-m",
     "gpt-5.5",
   ]);

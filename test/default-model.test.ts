@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, test, expect, describe } from "bun:test";
 import {
   normalizeDefaultCodexModelSetting,
+  resolvePersistedDefaultCodexModel,
   normalizeDefaultModelSetting,
   normalizeRepoDefaultModelSetting,
   resolveDefaultModelSetting,
@@ -77,6 +78,17 @@ describe("normalizeDefaultCodexModelSetting", () => {
     expect(normalizeDefaultCodexModelSetting("auto")).toBeNull();
     expect(normalizeDefaultCodexModelSetting("gpt-6-unknown")).toBeNull();
     expect(normalizeDefaultCodexModelSetting(null)).toBeNull();
+  });
+});
+
+describe("resolvePersistedDefaultCodexModel", () => {
+  test.each([
+    [null, "gpt-5.6-sol"],
+    ["gpt-5.5", "gpt-5.5"],
+    ["default", "default"],
+    ["invalid-model", "default"],
+  ])("stored %s resolves to %s", (saved, expected) => {
+    expect(resolvePersistedDefaultCodexModel(saved, "gpt-5.6-sol")).toBe(expected);
   });
 });
 

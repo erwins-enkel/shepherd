@@ -48,6 +48,11 @@ export function normalizeDefaultCodexModelSetting(value: unknown): string | null
   return CODEX_SETTING_VALUES.has(value) ? value : null;
 }
 
+/** A persisted choice overrides the config seed; invalid stored data uses the provider default. */
+export function resolvePersistedDefaultCodexModel(saved: string | null, seed: string): string {
+  return saved === null ? seed : (normalizeDefaultCodexModelSetting(saved) ?? "default");
+}
+
 /**
  * Map a SETTING string to the spawn-ready model value passed to service.create().
  * "auto" and "default" both resolve to null (no --model flag).

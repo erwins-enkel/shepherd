@@ -235,7 +235,7 @@
   let model = $state(
     safeInitial ??
       preselectModel(
-        agentProvider === "codex" ? (defaultCodexModel ?? "gpt-5.5") : defaultModel,
+        agentProvider === "codex" ? (defaultCodexModel ?? "gpt-5.6-sol") : defaultModel,
         agentProvider,
         fableAvailable,
       ),
@@ -788,7 +788,7 @@
   function modelSettingFor(provider: AgentProvider): string {
     const override = repoPath ? repoConfig.defaultModelFor(repoPath) : "inherit";
     const setting =
-      provider === "codex" ? (defaultCodexModel ?? "gpt-5.5") : (defaultModel ?? "auto");
+      provider === "codex" ? (defaultCodexModel ?? "gpt-5.6-sol") : (defaultModel ?? "auto");
     return override !== "inherit" &&
       (override === "auto" ||
         override === "default" ||

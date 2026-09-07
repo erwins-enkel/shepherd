@@ -1829,8 +1829,8 @@ describe("NewTask Codex model picker", () => {
     expect(options).toContain("gpt-5.5");
     expect(options.slice(0, 5)).toEqual([
       "default",
-      "gpt-5.5",
       "gpt-5.6-sol",
+      "gpt-6-astra",
       "gpt-5.6-terra",
       "gpt-5.6-luna",
     ]);
@@ -1878,8 +1878,8 @@ describe("NewTask Codex model picker", () => {
 
     await expect
       .poll(() => Array.from(modelSelect().options).map((o) => o.value))
-      .toContain("gpt-5.4");
-    modelSelect().value = "gpt-5.4";
+      .toContain("gpt-6-astra");
+    modelSelect().value = "gpt-6-astra";
     modelSelect().dispatchEvent(new Event("change", { bubbles: true }));
 
     await fillPromptAndClickRun();
@@ -1887,7 +1887,7 @@ describe("NewTask Codex model picker", () => {
     await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
     expect(onsubmit.mock.calls[0]?.[0]).toMatchObject({
       agentProvider: "codex",
-      model: "gpt-5.4",
+      model: "gpt-6-astra",
     });
   });
 
@@ -3066,7 +3066,7 @@ describe("NewTask manual provider change (preserved reset semantics)", () => {
     // Manual provider change: unconditional reset to the new provider's default.
     providerSel().value = "codex";
     providerSel().dispatchEvent(new Event("change", { bubbles: true }));
-    await expect.poll(() => modelSel().value).toBe("gpt-5.5");
+    await expect.poll(() => modelSel().value).toBe("gpt-5.6-sol");
   });
 });
 

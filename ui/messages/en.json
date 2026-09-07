@@ -1,5 +1,7 @@
 {
   "$schema": "https://inlang.com/schema/inlang-message-format",
+  "feat_codex_astra_title": "GPT-6 Astra is selectable",
+  "feat_codex_astra_body": "Choose GPT-6 Astra in the Codex model pickers. GPT-5.6 Sol is now Shepherd's built-in Codex default; your saved model choices stay as they are.",
   "app_shell_heading": "Shepherd mission control",
   "common_loading": "loading…",
   "common_close": "close",

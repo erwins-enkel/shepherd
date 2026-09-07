@@ -3785,5 +3785,8 @@
   "newtask_spawn_seconds": "{seconds} s",
   "newtask_spawn_progress_aria": "Fortschritt beim Start der Aufgabe",
   "feat_spawn_progress_title": "Sehen, warum ein Start dauert",
-  "feat_spawn_progress_body": "Neue Aufgabe nennt jetzt den Schritt, an dem der Start gerade steht — Basis-Branch aktualisieren, Worktree anlegen, auf den Agent warten — und sagt bei langer Wartezeit, warum, samt Abbrechen."
+  "feat_spawn_progress_body": "Neue Aufgabe nennt jetzt den Schritt, an dem der Start gerade steht — Basis-Branch aktualisieren, Worktree anlegen, auf den Agent warten — und sagt bei langer Wartezeit, warum, samt Abbrechen.",
+  "usage_delivery_evidence_repo_mismatch": "Fremde Repo-Evidenz abgewiesen",
+  "feat_learnings_evidence_repo_title": "Learnings prüfen die Herkunft ihrer Evidenz",
+  "feat_learnings_evidence_repo_body": "Neue Regelvorschläge mit nachweislich fremder Repo-Evidenz werden vollständig abgewiesen. Die Vorfälle erscheinen in der Signalstatistik. Unbekannte oder abgelaufene Signal-IDs gelten nicht als Herkunftskonflikt; bestehende Regeln bleiben unverändert."
 }

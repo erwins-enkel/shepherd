@@ -76,6 +76,17 @@ import { normalizeRule } from "./learning-rule";
 import { trimRuleToLimit } from "./learning-shape";
 import type { GitState } from "./forge/types";
 
+/** A rejected evidence write; its diagnostic signal is persisted before this is thrown. */
+export class LearningEvidenceRepoMismatchError extends Error {
+  constructor(
+    readonly repoPath: string,
+    readonly foreignEvidence: { id: string; repoPath: string }[],
+  ) {
+    super(`Learning evidence belongs to another repository: ${repoPath}`);
+    this.name = "LearningEvidenceRepoMismatchError";
+  }
+}
+
 /** Tolerantly parse a persisted JSON column, falling back to `fallback` on any error. */
 function safeJsonParse<T>(raw: string | null | undefined, fallback: T): T {
   if (typeof raw !== "string" || raw === "") return fallback;
@@ -4923,6 +4934,27 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     };
   }
 
+  /** Reject the whole write on proven foreign evidence. Missing/pruned ids are unknown,
+   *  not proof of a repo mismatch. Keep the diagnostic outside a rolled-back learning write. */
+  private assertLearningEvidenceRepo(
+    repoPath: string,
+    rule: string,
+    evidence: string[],
+    operation: "add" | "accrue",
+  ): void {
+    const foreignEvidence = this.getSignalsByIds(evidence)
+      .filter((signal) => signal.repoPath !== repoPath)
+      .map((signal) => ({ id: signal.id, repoPath: signal.repoPath }));
+    if (foreignEvidence.length === 0) return;
+    this.addSignal({
+      repoPath,
+      sessionId: null,
+      kind: "evidence_repo_mismatch",
+      payload: JSON.stringify({ operation, rule, foreignEvidence, citedCount: evidence.length }),
+    });
+    throw new LearningEvidenceRepoMismatchError(repoPath, foreignEvidence);
+  }
+
   /** Resolve signal ids to their distinct kind + session sets for durable diversity tracking.
    *  kinds = distinct signal.kind values; sessions = distinct non-null/non-empty sessionIds,
    *  capped at 50 to bound row growth. Used by addLearning and accrueProposedEvidence. */
@@ -4943,6 +4975,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     evidence: string[];
     scopeGlobs?: string[];
   }): Learning {
+    this.assertLearningEvidenceRepo(input.repoPath, input.rule, input.evidence, "add");
     const now = Date.now();
     const { kinds, sessions } = this.resolveDiversity(input.evidence);
     const l: Learning = {
@@ -5536,6 +5569,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     const existingSet = new Set(cur.evidence);
     const fresh = signalIds.filter((s) => typeof s === "string" && s && !existingSet.has(s));
     if (fresh.length === 0) return null;
+    this.assertLearningEvidenceRepo(cur.repoPath, cur.rule, fresh, "accrue");
     const newEvidence = [...cur.evidence, ...fresh];
     const { kinds: freshKinds, sessions: freshSessions } = this.resolveDiversity(fresh);
     // Read existing diversity sets from the raw row to avoid double-parsing via hydrate.

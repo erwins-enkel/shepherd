@@ -2,10 +2,10 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { readRoleResultText, CODEX_LAST_MESSAGE_FILE } from "./codex-last-message";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import type { SessionStore } from "./store";
+import { LearningEvidenceRepoMismatchError, type SessionStore } from "./store";
 import type { HerdrDriver } from "./herdr";
 import { HerdrUnavailableError } from "./herdr";
-import type { Signal, SignalKind } from "./types";
+import type { Learning, Signal, SignalKind } from "./types";
 import { sanitizeScopeGlobs } from "./house-rules";
 import { apiKeyFailClosed, apiKeyPassthroughEnv } from "./spawn-auth";
 import { buildTransientAgentArgv } from "./transient-agent-argv";
@@ -25,12 +25,14 @@ const PROPOSALS_FILE = ".shepherd-learnings.json";
  *  `egress_drop` (a blocked-host name) and `backup_stale` (#1080, a host-global backup-health
  *  alert) are operational, not code-review signals — feeding them to the rule-proposal LLM would
  *  pollute the corpus and count toward the distill threshold. `injection_detected` and
- *  `untrusted_author` are security telemetry for the same reason. */
+ *  `untrusted_author` are security telemetry for the same reason. `evidence_repo_mismatch`
+ *  diagnoses rejected citations and must not feed the distiller's own learning corpus. */
 const NON_LEARNING_SIGNAL_KINDS: ReadonlySet<SignalKind> = new Set<SignalKind>([
   "egress_drop",
   "backup_stale",
   "injection_detected",
   "untrusted_author",
+  "evidence_repo_mismatch",
 ]);
 
 /**
@@ -454,14 +456,18 @@ export class DistillerService {
         );
         continue;
       }
+      const rule = trimRuleToLimit(r.rule);
+      const learning = this.applyEvidenceWrite(() =>
+        this.deps.store.addLearning({
+          repoPath: f.repoPath,
+          rule,
+          rationale: typeof r.rationale === "string" ? r.rationale : "",
+          evidence,
+          scopeGlobs: sanitizeScopeGlobs(r.scopeGlobs),
+        }),
+      );
+      if (!learning) continue;
       have.add(key);
-      this.deps.store.addLearning({
-        repoPath: f.repoPath,
-        rule: trimRuleToLimit(r.rule),
-        rationale: typeof r.rationale === "string" ? r.rationale : "",
-        evidence,
-        scopeGlobs: sanitizeScopeGlobs(r.scopeGlobs),
-      });
       added++;
     }
     return added;
@@ -502,9 +508,23 @@ export class DistillerService {
       const evidence = Array.isArray(e.evidence)
         ? e.evidence.filter((s): s is string => typeof s === "string" && f.signalIds.has(s))
         : [];
-      if (this.deps.store.accrueProposedEvidence(id, evidence) !== null) reaffirmed++;
+      if (
+        this.applyEvidenceWrite(() => this.deps.store.accrueProposedEvidence(id, evidence)) !== null
+      )
+        reaffirmed++;
     }
     return reaffirmed;
+  }
+
+  /** The store records the incident; treat only its provenance rejection as a skipped write. */
+  private applyEvidenceWrite(write: () => Learning | null): Learning | null {
+    try {
+      return write();
+    } catch (error) {
+      if (!(error instanceof LearningEvidenceRepoMismatchError)) throw error;
+      console.warn(`[distill] rejected foreign evidence for ${error.repoPath}`, error);
+      return null;
+    }
   }
 }
 

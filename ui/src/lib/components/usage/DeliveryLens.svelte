@@ -256,7 +256,11 @@
         <div class="rows">
           {#each metrics.incidents as incident (incident.kind)}
             <div class="row incident-row">
-              <span class="repo-name">{incident.kind}</span>
+              <span class="repo-name"
+                >{incident.kind === "evidence_repo_mismatch"
+                  ? m.usage_delivery_evidence_repo_mismatch()
+                  : incident.kind}</span
+              >
               <span class="numeric"
                 >{m.usage_delivery_incident_count({
                   occurrences: incident.occurrences,

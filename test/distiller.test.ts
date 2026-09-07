@@ -10,7 +10,7 @@ import {
   LEARNING_FACT_SHAPE,
   LEARNING_RULE_MAX_CHARS,
 } from "../src/learning-shape";
-import { SessionStore } from "../src/store";
+import { LearningEvidenceRepoMismatchError, SessionStore } from "../src/store";
 import { config } from "../src/config";
 import { __setApiKeyConfigDirProvisionForTest } from "../src/spawn-auth";
 import { HerdrUnavailableError } from "../src/herdr";
@@ -92,6 +92,191 @@ test("consider does nothing below the signal threshold", async () => {
   await d.consider("/r");
   expect(started.length).toBe(0);
 });
+
+test("repo evidence: distiller skips foreign citations, records one incident and cleans up", async () => {
+  const store = new SessionStore(":memory:");
+  seedSignals(store, "/r", 3);
+  const foreign = store.addSignal({
+    repoPath: "/other",
+    sessionId: "s2",
+    kind: "critic",
+    payload: "b",
+  });
+  let changes = 0;
+  const { deps, started } = mkDeps(
+    store,
+    {
+      rules: [{ rule: "bad", evidence: [store.listSignals("/r")[0]!.id, foreign.id] }],
+    },
+    () => {
+      changes++;
+    },
+  );
+  const stopped: string[] = [];
+  const removed: string[] = [];
+  deps.herdr.stop = async (id) => {
+    stopped.push(id);
+  };
+  deps.scratch.remove = (dir) => {
+    removed.push(dir);
+  };
+  const warn = spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    const d = new DistillerService(deps);
+    await d.consider("/r");
+    await d.tick();
+    await d.tick(); // finalization must not repeat the rejection or its cleanup
+    expect(store.listLearnings("/r")).toEqual([]);
+    expect(
+      store.listSignals("/r").filter((sig) => sig.kind === "evidence_repo_mismatch"),
+    ).toHaveLength(1);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]![0]).toContain("/r");
+    expect(changes).toBe(0);
+    expect(stopped).toEqual(["dist1"]);
+    expect(removed).toEqual([started[0]!.dir]);
+  } finally {
+    warn.mockRestore();
+  }
+});
+
+test("repo evidence: rejected adds do not consume the success limit or poison dedup", async () => {
+  const store = new SessionStore(":memory:");
+  seedSignals(store, "/r", 3);
+  const own = store.listSignals("/r")[0]!;
+  const foreign = store.addSignal({
+    repoPath: "/other",
+    sessionId: null,
+    kind: "critic",
+    payload: "b",
+  });
+  let changes = 0;
+  const { deps } = mkDeps(
+    store,
+    {
+      rules: [
+        ...Array.from({ length: 6 }, (_, i) => ({ rule: `RULE ${i}`, evidence: [foreign.id] })),
+        ...Array.from({ length: 6 }, (_, i) => ({ rule: `rule ${i}`, evidence: [own.id] })),
+      ],
+    },
+    () => {
+      changes++;
+    },
+  );
+  const warn = spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    const d = new DistillerService(deps);
+    await d.consider("/r");
+    await d.tick();
+    const saved = store.listLearnings("/r");
+    expect(saved.map((l) => l.rule).sort()).toEqual([
+      "rule 0",
+      "rule 1",
+      "rule 2",
+      "rule 3",
+      "rule 4",
+    ]);
+    expect(saved.every((l) => l.evidence.length === 1 && l.evidence[0] === own.id)).toBe(true);
+    expect(
+      store.listSignals("/r").filter((sig) => sig.kind === "evidence_repo_mismatch"),
+    ).toHaveLength(6);
+    expect(changes).toBe(1);
+  } finally {
+    warn.mockRestore();
+  }
+});
+
+test("repo evidence: mismatch telemetry affects neither threshold nor written corpus", async () => {
+  const store = new SessionStore(":memory:");
+  seedSignals(store, "/r", 2);
+  for (let i = 0; i < 10; i++) {
+    store.addSignal({
+      repoPath: "/r",
+      sessionId: null,
+      kind: "evidence_repo_mismatch",
+      payload: "incident",
+    });
+  }
+  const { deps, started } = mkDeps(store, { rules: [] });
+  const corpusIds: string[] = [];
+  deps.writeSignals = (_dir, signals) => {
+    corpusIds.push(...signals.map((sig) => sig.id));
+  };
+  const d = new DistillerService(deps);
+  await d.consider("/r");
+  expect(started).toHaveLength(0);
+  seedSignals(store, "/r", 1);
+  await d.consider("/r");
+  expect(started).toHaveLength(1);
+  expect(corpusIds.sort()).toEqual(
+    store
+      .listSignals("/r")
+      .filter((sig) => sig.kind === "reply")
+      .map((sig) => sig.id)
+      .sort(),
+  );
+  await d.tick();
+});
+
+test("repo evidence: reaffirm continues after a typed store rejection", async () => {
+  const store = new SessionStore(":memory:");
+  seedSignals(store, "/r", 3);
+  const sig = store.listSignals("/r")[0]!;
+  const first = store.addLearning({ repoPath: "/r", rule: "first", rationale: "", evidence: [] });
+  const second = store.addLearning({ repoPath: "/r", rule: "second", rationale: "", evidence: [] });
+  const { deps } = mkDeps(store, {
+    reaffirm: [
+      { id: first.id, evidence: [sig.id] },
+      { id: second.id, evidence: [sig.id] },
+    ],
+  });
+  // The run filter normally prevents this; simulate the store rejecting the first write.
+  const accrue = spyOn(store, "accrueProposedEvidence").mockImplementationOnce(() => {
+    throw new LearningEvidenceRepoMismatchError("/r", [{ id: sig.id, repoPath: "/other" }]);
+  });
+  const warn = spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    const d = new DistillerService(deps);
+    await d.consider("/r");
+    await d.tick();
+    expect(store.getLearning(first.id)!.evidence).toEqual([]);
+    expect(store.getLearning(second.id)!.evidence).toEqual([sig.id]);
+    expect(warn).toHaveBeenCalledTimes(1);
+  } finally {
+    accrue.mockRestore();
+    warn.mockRestore();
+  }
+});
+
+for (const method of ["addLearning", "accrueProposedEvidence"] as const) {
+  test(`repo evidence: distiller does not swallow unrelated ${method} failures`, async () => {
+    const store = new SessionStore(":memory:");
+    seedSignals(store, "/r", 3);
+    const sig = store.listSignals("/r")[0]!;
+    const existing = store.addLearning({
+      repoPath: "/r",
+      rule: "existing",
+      rationale: "",
+      evidence: [],
+    });
+    const { deps } = mkDeps(
+      store,
+      method === "addLearning"
+        ? { rules: [{ rule: "new", evidence: [sig.id] }] }
+        : { reaffirm: [{ id: existing.id, evidence: [sig.id] }] },
+    );
+    const write = spyOn(store, method).mockImplementation(() => {
+      throw new Error("database unavailable");
+    });
+    try {
+      const d = new DistillerService(deps);
+      await d.consider("/r");
+      await expect(d.tick()).rejects.toThrow("database unavailable");
+    } finally {
+      write.mockRestore();
+    }
+  });
+}
 
 test("automatic consideration respects the persisted per-repository interval", async () => {
   const store = new SessionStore(":memory:");

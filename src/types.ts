@@ -1302,7 +1302,8 @@ export type SignalKind =
   | "egress_drop"
   | "backup_stale"
   | "injection_detected"
-  | "untrusted_author";
+  | "untrusted_author"
+  | "evidence_repo_mismatch";
 
 export interface Signal {
   id: string;

@@ -380,10 +380,11 @@ export const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
 /** Curated Codex CLI model aliases shown in the task dialog. The server accepts any safe Codex
  *  model alias because the installed Codex CLI may learn new names before Shepherd does. */
 export const CODEX_MODELS = [
-  "gpt-5.5",
   "gpt-5.6-sol",
+  "gpt-6-astra",
   "gpt-5.6-terra",
   "gpt-5.6-luna",
+  "gpt-5.5",
   "gpt-5.4",
   "gpt-5.3-codex",
   "gpt-5.1-codex",

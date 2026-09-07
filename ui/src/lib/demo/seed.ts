@@ -987,7 +987,7 @@ function buildSettings(): Settings {
     autoReviveEnabled: false,
     sessionHousekeepingEnabled: true,
     defaultModel: "auto",
-    defaultCodexModel: "gpt-5.5",
+    defaultCodexModel: "gpt-5.6-sol",
     defaultEffort: "default",
     operatorLanguage: "en",
     criticCli: "inherit",

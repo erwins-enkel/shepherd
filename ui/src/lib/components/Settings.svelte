@@ -180,8 +180,8 @@
   let defaultModel = $state("auto"); // raw default-model setting (auto|default|<alias>)
   let defaultModelSaved = "auto";
   let defaultModelBusy = $state(false);
-  let defaultCodexModel = $state("gpt-5.5");
-  let defaultCodexModelSaved = "gpt-5.5";
+  let defaultCodexModel = $state("gpt-5.6-sol");
+  let defaultCodexModelSaved = "gpt-5.6-sol";
   let defaultCodexModelBusy = $state(false);
   let defaultAgentProvider = $state<AgentProvider>("claude");
   let defaultAgentProviderSaved: AgentProvider = "claude";
@@ -293,7 +293,7 @@
       payload = s; // the section panels seed their own state from this
       defaultModel = s.defaultModel ?? "auto";
       defaultModelSaved = defaultModel;
-      defaultCodexModel = s.defaultCodexModel ?? "gpt-5.5";
+      defaultCodexModel = s.defaultCodexModel ?? "gpt-5.6-sol";
       defaultCodexModelSaved = defaultCodexModel;
       defaultAgentProvider = s.defaultAgentProvider ?? "claude";
       defaultAgentProviderSaved = s.defaultAgentProvider ?? "claude";

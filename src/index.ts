@@ -162,7 +162,7 @@ import { resolveNodeHost, TailscaleServeService } from "./tailscale";
 import {
   drainSpawnModel,
   modelForProviderOrDefault,
-  normalizeDefaultCodexModelSetting,
+  resolvePersistedDefaultCodexModel,
   normalizeDefaultModelSetting,
   normalizeFableAvailable,
   normalizeRoleCli,
@@ -329,9 +329,7 @@ if (savedDm !== null) {
   if (v !== null) config.defaultModel = v;
 }
 const savedDcm = store.getSetting("defaultCodexModel");
-if (savedDcm !== null) {
-  config.defaultCodexModel = normalizeDefaultCodexModelSetting(savedDcm) ?? "default";
-}
+config.defaultCodexModel = resolvePersistedDefaultCodexModel(savedDcm, config.defaultCodexModel);
 const savedDe = store.getSetting("defaultEffort");
 if (savedDe !== null) {
   const v = normalizeDefaultEffortSetting(savedDe);

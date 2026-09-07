@@ -537,7 +537,7 @@ describe("UpNextPanel provider picker", () => {
           .map((o) => o.value)
           .slice(0, 5),
       )
-      .toEqual(["default", "gpt-5.5", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"]);
+      .toEqual(["default", "gpt-5.6-sol", "gpt-6-astra", "gpt-5.6-terra", "gpt-5.6-luna"]);
     await expect.poll(() => Array.from(model.options).map((o) => o.value)).toContain("gpt-5.4");
     model.value = "gpt-5.4";
     model.dispatchEvent(new Event("change", { bubbles: true }));

@@ -134,6 +134,16 @@ muss geklärt werden, welche gewollten Nutzer-/Projektstandards, Skills und MCP-
 Rollen weiterhin erben sollen. `--dangerously-bypass-hook-trust` wäre keine Isolation, sondern
 würde Hooks gerade ohne Rückfrage freigeben.
 
+**Erledigt am 07.09.2026** ([#2134](https://github.com/erwins-enkel/shepherd/issues/2134)): Jede
+Codex-Rolle bekommt jetzt `--ignore-user-config`, `--ignore-rules`, `--skip-git-repo-check` und
+`-c project_doc_fallback_filenames=["CLAUDE.md"]`; `--dangerously-bypass-hook-trust` wurde aus dem
+oben genannten Grund verworfen. Die Antwort auf die offene Frage lautet: geerbt bleibt allein die
+Projektanweisung (`CLAUDE.md`), die eine Claude-Rolle ebenfalls liest — MCP-Server, Connector-Apps,
+Hooks, Execpolicy sowie Modell- und Effort-Vorgaben werden verworfen. Zwei Messbefunde gehören dazu:
+`--ignore-user-config` macht `--skip-git-repo-check` zwingend (die `[projects.*]`-Trust-Einträge
+liegen in genau der Datei, die nicht mehr geladen wird), und `$CODEX_HOME/AGENTS.md` wird weiterhin
+geladen. Siehe `src/codex-role-argv.ts` und `docs/sandbox-security.md` §R4.
+
 ## 5. Explizit markierte Revalidierungen
 
 ### Claude 2.1.220: beide Annahmen bestätigt

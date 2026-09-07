@@ -217,6 +217,14 @@ session by id, without a PTY write and without resume-then-steer.
   `doc` — coupled to `enableAllProjectMcpServers` so the two cannot drift apart
   (`src/transient-agent-argv.ts:170-173,245,258`). 0.150.1 offers `--ignore-user-config`,
   `--ignore-rules` and `--dangerously-bypass-hook-trust` to close the Codex side of the gap.
+  **Closed 2026-09-07** (issue #2134): every Codex role now carries `--ignore-user-config`,
+  `--ignore-rules`, `--skip-git-repo-check` and `-c project_doc_fallback_filenames=["CLAUDE.md"]`.
+  `--dangerously-bypass-hook-trust` was rejected — it grants hooks rather than removing them. Two
+  findings from that work are worth carrying forward: `--ignore-user-config` makes
+  `--skip-git-repo-check` mandatory (the `[projects.*]` trust entries live in the file it stops
+  loading, so a tmpdir role otherwise dies at spawn), and it does **not** drop
+  `$CODEX_HOME/AGENTS.md`, which still loads. See `src/codex-role-argv.ts` and
+  `docs/sandbox-security.md` §R4.
 - **Codex is growing its own remote control.** `codex remote-control {start,stop,pair}` with
   pairing codes, plus `codex --remote ws://…`, is first-party remote driving of local sessions. Not
   a threat to Shepherd's orchestration, but it is adjacent enough to be worth watching.
@@ -244,14 +252,20 @@ session by id, without a PTY write and without resume-then-steer.
    classification for newly created helper threads (not resumes) and verified on 0.150.1 and
    0.152.1 that it remains separate from `session_meta.source`: helper roles retain `source="exec"`,
    while interactive sessions retain the load-bearing `source="cli"` restore discriminator (§7).
-4. **Close the role-isolation gap** with `--ignore-user-config` / `--ignore-rules` (§5).
+4. **Keep role spawns isolated from the operator's user config.** Issue #2134 landed
+   `--ignore-user-config`, `--ignore-rules`, `--skip-git-repo-check` and
+   `-c project_doc_fallback_filenames=["CLAUDE.md"]` uniformly across all four transient kinds, and
+   pinned `--ephemeral` + `--dangerously-bypass-hook-trust` as negatives. `--skip-git-repo-check` is
+   not optional there: the `[projects.*]` trust entries live in the very file `--ignore-user-config`
+   stops loading, so a tmpdir role otherwise dies at spawn. See `src/codex-role-argv.ts` and
+   `docs/sandbox-security.md` §R4.
 5. **Spike `codex app-server`** (a #1175-shaped go/no-go): can Shepherd start a thread through the
    daemon, learn its id at start, attach an interactive `codex --remote` pane to that same thread,
    and receive `ThreadStatus` / `ThreadTokenUsage` / `TurnSteer` against it? A yes retires the
    rollout scrapers, unblocks non-isolated restore (#1476) and `/fork` staleness at once — and does
    so _without_ leaving the interactive-session substrate. A no costs one spike.
 
-Step 3 is complete. Steps 2 and 4 remain small and independent. Step 1 is small only once its
+Steps 3 and 4 are complete. Step 2 remains small and independent. Step 1 is small only once its
 transport is settled, and step 5 is the one worth a plan.
 
 ---

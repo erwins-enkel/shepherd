@@ -9,7 +9,7 @@
  * Static half (no server): schema diff + #2032 record-shape gate from `api schema --json`,
  * plus a `--help` surface diff over every subcommand Shepherd drives. Live half: candidate and
  * baseline each run as an ISOLATED headless server (own HOME/XDG/socket — the operator's
- * daemon is never touched) and the L1–L9 probes are measured A/B. Output: a markdown report
+ * daemon is never touched) and the L1–L10 probes are measured A/B. Output: a markdown report
  * at docs/herdr-compat/<candidate>.md (committed by the eventual bump PR) and exit 1 iff any
  * check FAILs (REVIEW items are triage work, not machine verdicts).
  */
@@ -226,6 +226,28 @@ function liveChecks({ base, cand }: AB, l9: { ran: boolean; exit: number | null 
     details: l9.ran
       ? `Exit code ${l9.exit} against the candidate's isolated server.`
       : "Did not run (no workspace or earlier failure) — run it by hand against a candidate server.",
+  });
+
+  checks.push({
+    id: "L10",
+    title: "duplicate --agent registration collides (squatter eviction, #2033)",
+    verdict:
+      cand.duplicateNameRejected === null
+        ? "REVIEW"
+        : cand.duplicateNameRejected === base.duplicateNameRejected &&
+            cand.duplicateNameErrorCode === base.duplicateNameErrorCode
+          ? "PASS"
+          : "REVIEW",
+    details:
+      abTable([
+        ["duplicate rejected", show(base.duplicateNameRejected), show(cand.duplicateNameRejected)],
+        ["error code", show(base.duplicateNameErrorCode), show(cand.duplicateNameErrorCode)],
+      ]) +
+      (cand.duplicateNameRejected === true
+        ? "\n\nThe register-path `agent_name_taken` retry is LIVE: its squatter eviction (#2033, keyed on the tab label) is what keeps a colliding spawn self-healing."
+        : cand.duplicateNameRejected === false
+          ? "\n\nThis herdr ACCEPTS a duplicate registration, so the register-path collision retry is defensive only — harmless, and it guards a herdr that starts refusing. A flip either way is a behaviour change worth a look."
+          : "\n\nNot measured — re-run, or exercise it by hand before trusting the register-path collision retry."),
   });
 
   const notes = [

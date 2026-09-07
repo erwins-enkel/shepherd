@@ -3419,6 +3419,7 @@ function makeOrphanDeps(
     sessions?: Record<string, any>;
     reviews?: Record<string, any>;
     agents?: any[];
+    tabs?: any[];
     worktreeExists?: (p: string) => boolean;
     readUsage?: (wt: string, id: string) => Promise<any>;
   } = {},
@@ -3428,6 +3429,7 @@ function makeOrphanDeps(
   const closedTabs: string[] = [];
   const removedWorktrees: string[] = [];
   const agents = opts.agents ?? [];
+  const tabs = opts.tabs ?? [];
 
   const deps = {
     store: {
@@ -3449,6 +3451,7 @@ function makeOrphanDeps(
       start: async () => ({ terminalId: "rt" }) as any,
       stop: async () => {},
       list: () => agents,
+      tabs: () => tabs,
       closeTab: async (tabId: string) => closedTabs.push(tabId),
     },
     worktree: {
@@ -3517,6 +3520,52 @@ test("reapOrphans: true orphan (worktree present), error verdict — reaps, drop
   expect(droppedReviews).toEqual(["s1"]);
   // taskId in re-kick set
   expect(result).toContain("s1");
+});
+
+test("reapOrphans: resolves the squatter by TAB label when herdr sends no agent.name (#2033)", async () => {
+  // The 0.7.5 record shape: no `name` at all. Its cwd is deliberately NOT the orphan worktree, so
+  // only the tab label can resolve it — the cwd fallback would find nothing and the still-alive
+  // critic would keep holding the name "review TASK-01".
+  const row = {
+    reviewerSessionId: "rev-2033",
+    taskSessionId: "s1",
+    kind: "review",
+    worktreePath: "/orphan-wt",
+    completedAt: null,
+    spawnedAt: 0,
+  };
+  const { deps, closedTabs } = makeOrphanDeps([row], {
+    sessions: { s1: session({ id: "s1", desig: "TASK-01" }) },
+    agents: [{ agent: "review-task-01", tabId: "tab-99", terminalId: "rt-99", cwd: "/other-wt" }],
+    tabs: [{ tabId: "tab-99", label: "review TASK-01", agentStatus: "working", workspaceId: "w1" }],
+    worktreeExists: (p) => p === "/orphan-wt",
+  });
+  const svc = new ReviewService(deps as any);
+  await svc.reapOrphans();
+
+  expect(closedTabs).toEqual(["tab-99"]);
+});
+
+test("reapOrphans: a tab label for a DIFFERENT reviewer is never mistaken for the squatter", async () => {
+  // Eviction must stay precise: an unrelated reviewer's tab keeps running.
+  const row = {
+    reviewerSessionId: "rev-2033b",
+    taskSessionId: "s1",
+    kind: "review",
+    worktreePath: "/orphan-wt",
+    completedAt: null,
+    spawnedAt: 0,
+  };
+  const { deps, closedTabs } = makeOrphanDeps([row], {
+    sessions: { s1: session({ id: "s1", desig: "TASK-01" }) },
+    agents: [{ agent: "review-task-77", tabId: "tab-77", terminalId: "rt-77", cwd: "/other-wt" }],
+    tabs: [{ tabId: "tab-77", label: "review TASK-77", agentStatus: "working", workspaceId: "w1" }],
+    worktreeExists: (p) => p === "/orphan-wt",
+  });
+  const svc = new ReviewService(deps as any);
+  await svc.reapOrphans();
+
+  expect(closedTabs).toEqual([]);
 });
 
 test("reapOrphans: readUsage returns null → NULL usage booked (unknown, not 0), full reap for error-verdict orphan", async () => {

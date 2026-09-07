@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { SessionStore } from "./store";
-import type { HerdrDriver, HerdrAgent } from "./herdr";
+import { agentsHoldingName, tabLabelMap, type HerdrDriver, type HerdrAgent } from "./herdr";
 import type { WorktreeMgr } from "./worktree";
 import type { GitForge, GitState, PrStatus } from "./forge/types";
 import { CRITIC_REVIEW_MARKER, AUTHOR_RESPONSE_MARKER } from "./forge/types";
@@ -289,7 +289,7 @@ export interface ReviewServiceDeps extends MembraneSeams {
   // wait-for-the-deadline behavior. Tests exercising that layer MUST provide it.
   herdr: Pick<
     HerdrDriver,
-    "start" | "stop" | "list" | "closeTab" | "paneForegroundProcs" | "readAsync"
+    "start" | "stop" | "list" | "tabs" | "closeTab" | "paneForegroundProcs" | "readAsync"
   >;
   worktree: Pick<WorktreeMgr, "createDetached" | "remove" | "gitCommonDir">;
   resolveForge: (repoPath: string) => GitForge | null;
@@ -1882,13 +1882,23 @@ export class ReviewService {
   }
 
   /** Find a live herdr agent that was spawned for a review run, resolved by NAME first
-   *  ("review TASK-<n>"), falling back to the worktree cwd. ONE `list()` call per
-   *  invocation. An empty/falsy `label` (session gone) skips the name match entirely —
-   *  an unnamed agent (name="") would otherwise match every gone-session lookup and
-   *  close an unrelated agent. Returns undefined when no live agent matches. */
+   *  ("review TASK-<n>"), falling back to the worktree cwd. An empty/falsy `label` (session gone)
+   *  skips the name match entirely — it would otherwise match every gone-session lookup and close
+   *  an unrelated agent. The name match runs through `agentsHoldingName`, so on a herdr that sends
+   *  no `agent.name` the reviewer is still found by its TAB label instead of silently degrading to
+   *  the cwd fallback (#2033). Tab labels are read best-effort and only when there is a label to
+   *  match. Returns undefined when no live agent matches. */
   private findSquatter(label: string, cwd: string): HerdrAgent | undefined {
     const agents = this.deps.herdr.list();
-    const byName = label ? agents.find((a) => a.name === label) : undefined;
+    const byName = label
+      ? agentsHoldingName(agents, label, () => {
+          try {
+            return tabLabelMap(this.deps.herdr.tabs());
+          } catch {
+            return undefined;
+          }
+        })[0]
+      : undefined;
     return byName ?? agents.find((a) => a.cwd === cwd);
   }
 

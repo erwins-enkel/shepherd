@@ -6,7 +6,7 @@
  * them into verdicts. Observations are facts ("what did this herdr do"), never judgements —
  * when a step can't be measured the field stays null/"undetermined" rather than guessing.
  *
- * The catalog (ids L1–L8 here; L9 = scripts/verify-herdr-terminal.ts, run by the caller):
+ * The catalog (ids L1–L8 and L10 here; L9 = scripts/verify-herdr-terminal.ts, run by the caller):
  *  L1  tab.list returns a non-null label for every tab            (reaper keying, #2029)
  *  L2  an agentless tab reports agent_status "unknown"            (husk detection, #2029)
  *  L3  pane process-info returns foreground procs for a shell     (fail-closed spare, #2029)
@@ -16,6 +16,7 @@
  *  L7  report-agent --state idle: does it land on idle or done?   (herdr #1716 / sandbox floor)
  *  L8  `status server` stays parseable (status: running + version line) — the surface this
  *      SOP's isolated servers, the downgrade script and operator diagnostics read
+ *  L10 a DUPLICATE `--agent` registration: does herdr reject it, and with which code? (#2033)
  */
 
 import type { IsolatedServer } from "./isolated-server";
@@ -42,6 +43,12 @@ export interface LiveObservations {
   statusAfterIdle: string | null;
   /** L8: `status server` exits 0, says "status: running" and carries a parseable version. */
   statusParseable: boolean | null;
+  /** L10: did re-binding an already-registered `--agent` name on a second pane get refused?
+   *  null = the probe could not run it. */
+  duplicateNameRejected: boolean | null;
+  /** L10: the `error.code` of that refusal (`agent_name_taken` is what the retries assume);
+   *  null when nothing was refused, or the refusal carried no JSON error envelope. */
+  duplicateNameErrorCode: string | null;
   /** Anything worth carrying into the report verbatim. */
   notes: string[];
 }
@@ -52,6 +59,16 @@ interface JsonObject {
 const obj = (v: unknown): JsonObject =>
   typeof v === "object" && v !== null ? (v as JsonObject) : {};
 const arr = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
+
+/** The `error.code` of a herdr CLI JSON error envelope, or null when the text is not one. */
+function errorCode(raw: string): string | null {
+  try {
+    const code = obj(obj(JSON.parse(raw)).error).code;
+    return typeof code === "string" ? code : null;
+  } catch {
+    return null;
+  }
+}
 
 /** run() and throw on non-zero exit — for herdr commands that print nothing on success. */
 async function runOk(server: IsolatedServer, argv: string[]): Promise<void> {
@@ -88,6 +105,8 @@ export async function runProbes(
     statusAfterWorking: null,
     statusAfterIdle: null,
     statusParseable: null,
+    duplicateNameRejected: null,
+    duplicateNameErrorCode: null,
     notes: [],
   };
 
@@ -163,6 +182,97 @@ export async function runProbes(
     if (afterIdle) o.statusAfterIdle = String(afterIdle.agent_status ?? "");
   } catch (err) {
     o.notes.push(`spawn replay failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  // L10: does a DUPLICATE `--agent` registration actually collide? (#2033)
+  //
+  // Both drivers carry an `agent_name_taken` retry at the REGISTER step that evicts the squatter
+  // holding the name — on the assumption that herdr refuses a second registration under a name in
+  // use, which the code itself records as unverified. Either answer is fine for Shepherd (a herdr
+  // that accepts the duplicate simply makes the retry defensive); a CHANGE between versions is what
+  // needs a human.
+  //
+  // SELF-CONTAINED on purpose: it registers its OWN name on a fresh pane and holds it at `working`,
+  // rather than reusing L6's agent. L7 has already pushed that one to `idle` by now, and a herdr
+  // that releases a finished agent's name would make this probe answer "no collision" for the wrong
+  // reason — as it also would whenever L6's registration failed and the name was never bound.
+  try {
+    const squatName = "shepherd-compat-squat";
+    /** Fresh tab + pane running something long-lived, ready to be registered against. */
+    const livePane = async (label: string): Promise<string> => {
+      const tab = obj(
+        obj(
+          await server.runJson([
+            "tab",
+            "create",
+            "--cwd",
+            server.workDir,
+            "--label",
+            label,
+            "--no-focus",
+          ]),
+        ).result,
+      );
+      const paneId = String(obj(tab.root_pane).pane_id);
+      await runOk(server, ["pane", "run", paneId, "sleep 300"]);
+      return paneId;
+    };
+    const register = (paneId: string): string[][] => [
+      [
+        "pane",
+        "report-agent-session",
+        paneId,
+        "--source",
+        "shepherd",
+        "--agent",
+        squatName,
+        "--agent-session-id",
+        `shepherd-${paneId}`,
+      ],
+      [
+        "pane",
+        "report-agent",
+        paneId,
+        "--source",
+        "shepherd",
+        "--agent",
+        squatName,
+        "--state",
+        "working",
+      ],
+    ];
+
+    // The squatter: bound to `squatName` and left WORKING, exactly the state a stale Shepherd agent
+    // is in when the next spawn collides with it.
+    const heldPane = await livePane(squatName);
+    for (const argv of register(heldPane)) await runOk(server, argv);
+
+    // The colliding spawn. The refusal can surface on either half of the register pair.
+    //
+    // The verdict is accumulated LOCALLY and published only once the pair has actually been run
+    // through: writing `false` up front would let a throw part-way (a dead server, a failed run)
+    // land in the report as "this herdr ACCEPTS duplicates" — a measurement nobody made. An abort
+    // must leave the field null, which the report renders as "not measured".
+    const dupPane = await livePane(`${squatName}-dup`);
+    let rejected = false;
+    let rejectionCode: string | null = null;
+    for (const argv of register(dupPane)) {
+      const res = await server.run(argv);
+      const code = errorCode(res.stdout) ?? errorCode(res.stderr);
+      if (res.exitCode !== 0 || code !== null) {
+        rejected = true;
+        rejectionCode = code;
+        break;
+      }
+    }
+    o.duplicateNameRejected = rejected;
+    o.duplicateNameErrorCode = rejectionCode;
+  } catch (err) {
+    // `duplicateNameRejected` is published only after the duplicate registration has been run
+    // through, so an abort here leaves it null — "not measured", which is what the report shows.
+    o.notes.push(
+      `duplicate-name probe failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 
   // L2 + L3 + L4 on a fresh agentless tab.

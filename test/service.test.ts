@@ -946,6 +946,101 @@ test("syncWorktreeBranch de-dupes the adopted name against live tab labels", () 
   expect(row.name).toBe("refresh-on-wake-2"); // display name de-duped
 });
 
+test("syncWorktreeBranch de-dupes against a TAB label when herdr sends no agent.name (#2033)", () => {
+  // The 0.7.5 shape: the sibling's record carries only the bare KIND under `agent` and no `name`,
+  // so the agent-name half of the taken set is empty. Reading it alone made this de-duper a no-op
+  // on every 0.7.5 host — two live sessions could then share a name, which is exactly the state the
+  // repaired `agent_name_taken` eviction must never be handed.
+  const store = new SessionStore(":memory:");
+  const s = store.create({
+    name: "view-refresh",
+    prompt: "x",
+    repoPath: "/r",
+    baseBranch: "main",
+    branch: "shepherd/view-refresh",
+    worktreePath: "/wt",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_a",
+  });
+  const service = new SessionService({
+    store,
+    namer: async () => "x",
+    worktree: { currentBranch: () => "shepherd/refresh-on-wake" } as any,
+    herdr: {
+      relabel: async () => {},
+      list: () => [{ agent: "claude", tabId: "t1" }],
+      tabs: () => [{ tabId: "t1", label: "refresh-on-wake" }],
+    } as any,
+  });
+
+  expect(service.syncWorktreeBranch(s.id)).toBe("shepherd/refresh-on-wake");
+  expect(store.get(s.id)!.name).toBe("refresh-on-wake-2"); // suffixed off the tab label alone
+});
+
+test("syncWorktreeBranch de-dupes in SANITIZED space — a punctuation twin is already taken", () => {
+  // herdr 0.7.5+ binds `sanitizeHerdrAgentName(name)`, so `Refresh On Wake` and `refresh-on-wake`
+  // are ONE name to herdr. De-duping raw let both go live; the second one's spawn then collided
+  // and its eviction closed the first — the hazard this de-dupe exists to prevent.
+  const store = new SessionStore(":memory:");
+  const s = store.create({
+    name: "view-refresh",
+    prompt: "x",
+    repoPath: "/r",
+    baseBranch: "main",
+    branch: "shepherd/view-refresh",
+    worktreePath: "/wt",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_a",
+  });
+  const service = new SessionService({
+    store,
+    namer: async () => "x",
+    worktree: { currentBranch: () => "shepherd/refresh-on-wake" } as any,
+    herdr: {
+      relabel: async () => {},
+      list: () => [],
+      // Differs from the adopted slug only by case and punctuation — same herdr name.
+      tabs: () => [{ tabId: "t1", label: "Refresh On Wake" }],
+    } as any,
+  });
+
+  expect(service.syncWorktreeBranch(s.id)).toBe("shepherd/refresh-on-wake");
+  expect(store.get(s.id)!.name).toBe("refresh-on-wake-2");
+});
+
+test("syncWorktreeBranch: a failing tab read degrades the de-dupe, it never fails the rename", () => {
+  // Best-effort by contract: a herdr hiccup must not take session naming down with it.
+  const store = new SessionStore(":memory:");
+  const s = store.create({
+    name: "view-refresh",
+    prompt: "x",
+    repoPath: "/r",
+    baseBranch: "main",
+    branch: "shepherd/view-refresh",
+    worktreePath: "/wt",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_a",
+  });
+  const service = new SessionService({
+    store,
+    namer: async () => "x",
+    worktree: { currentBranch: () => "shepherd/refresh-on-wake" } as any,
+    herdr: {
+      relabel: async () => {},
+      list: () => [],
+      tabs: () => {
+        throw new Error("herdr: tab list unavailable");
+      },
+    } as any,
+  });
+
+  expect(service.syncWorktreeBranch(s.id)).toBe("shepherd/refresh-on-wake");
+  expect(store.get(s.id)!.name).toBe("refresh-on-wake"); // nothing taken → the bare slug stands
+});
+
 test("syncWorktreeBranch is a no-op when the live branch matches the stored one", () => {
   const store = new SessionStore(":memory:");
   const s = store.create({

@@ -16,7 +16,12 @@ import {
 } from "./agent-control";
 import type { WorktreeMgr } from "./worktree";
 import type { HerdrAgent, HerdrDriver } from "./herdr";
-import { createSerializer, matchAgents, needsAccountRedrive } from "./herdr";
+import {
+  createSerializer,
+  matchAgents,
+  needsAccountRedrive,
+  sanitizeHerdrAgentName,
+} from "./herdr";
 import { config } from "./config";
 import {
   operatorLanguageBlock,
@@ -220,6 +225,7 @@ export interface ServiceDeps {
     HerdrDriver,
     | "start"
     | "list"
+    | "tabs"
     | "stop"
     | "send"
     | "relabel"
@@ -4349,6 +4355,42 @@ export class SessionService {
   }
 
   /**
+   * Every name a live herdr already answers to, in SANITIZED form — the set {@link uniqueName}
+   * suffixes around.
+   *
+   * The UNION of two surfaces, because no single one covers every herdr: ≤0.7.4 puts the name on
+   * the agent record, while 0.7.5+ sends no `agent.name` at all and the name survives only as the
+   * TAB label (#2033). Reading agent names alone made this de-duper a no-op on every 0.7.5 host —
+   * which is what let two live sessions share a name and turned the repaired `agent_name_taken`
+   * eviction into a hazard for the live sibling.
+   *
+   * Compared in SANITIZED space because that is the space herdr 0.7.5+ actually binds: the register
+   * call passes `sanitizeHerdrAgentName(name)`, so `fix login` and `fix-login` are ONE name to
+   * herdr even though they are two distinct raw labels. De-duping raw let both go live, and the
+   * second one's spawn then collided and evicted the first — the very hazard this function exists
+   * to prevent. Sanitized comparison is a superset of the raw one (equal raw implies equal
+   * sanitized), so it never de-dupes less than before; at worst it suffixes a punctuation twin that
+   * ≤0.7.4 would have tolerated, which is cheap and safe.
+   *
+   * Best-effort by contract: a failed `tab list` degrades the naming to the agent-name half, it
+   * never fails session creation. Tab labels also cover Shepherd's helper tabs, which only makes
+   * the set more conservative.
+   */
+  private takenHerdrNames(): Set<string> {
+    const taken = new Set<string>();
+    const add = (raw: string | undefined): void => {
+      if (raw) taken.add(sanitizeHerdrAgentName(raw));
+    };
+    for (const a of this.deps.herdr.list()) add(a.name);
+    try {
+      for (const t of this.deps.herdr.tabs()) add(t.label);
+    } catch {
+      /* best-effort: the agent-name half alone */
+    }
+    return taken;
+  }
+
+  /**
    * Derive a herdr-unique agent name from `base`. The namer maps a prompt to a name
    * deterministically, so resubmitting a similar prompt yields the same base — and herdr
    * rejects a second agent with a name already in use (`agent_name_taken`), which would
@@ -4374,16 +4416,11 @@ export class SessionService {
    * agent name, branch, and worktree path all in sync on the suffixed value.
    */
   private uniqueName(base: string, herd?: string, repoPath?: string): string {
-    const liveNames = new Set(
-      this.deps.herdr
-        .list()
-        .map((a) => a.name)
-        .filter(Boolean),
-    );
+    const liveNames = this.takenHerdrNames();
     // A candidate is taken if a live agent owns the name OR (when repoPath is given) the
     // matching branch already exists. Both are cheap; branchExists is a bounded `git rev-parse`.
     const isTaken = (candidate: string): boolean =>
-      liveNames.has(candidate) ||
+      liveNames.has(sanitizeHerdrAgentName(candidate)) ||
       (!!repoPath && this.deps.worktree.branchExists(repoPath, `shepherd/${candidate}`));
 
     if (!isTaken(base)) return base;

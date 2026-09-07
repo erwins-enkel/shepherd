@@ -52,10 +52,11 @@ shipped stable).
 2. **Run the check:** `bun run herdr:compat -- --candidate <version>`. Static half: schema diff,
    the #2032 record-shape gate (`TabInfo`/`PaneInfo`/`AgentInfo` required/nullable drift = FAIL),
    and a `--help` diff over every subcommand Shepherd invokes. Live half: candidate vs. baseline
-   (= current ceiling) as isolated servers, probes L1–L9 (reaper assumptions from #2029/#2032,
+   (= current ceiling) as isolated servers, probes L1–L10 (reaper assumptions from #2029/#2032,
    tab-id reuse #569, last-tab behaviour #1760, the external-registration spawn replay #1890,
-   the #1716 idle probe, the status surface, and the terminal contract via
-   `scripts/verify-herdr-terminal.ts`). Report: `docs/herdr-compat/<version>.md`, exit 1 on FAIL.
+   the #1716 idle probe, the status surface, the terminal contract via
+   `scripts/verify-herdr-terminal.ts`, and whether a duplicate `--agent` registration collides
+   #2033). Report: `docs/herdr-compat/<version>.md`, exit 1 on FAIL.
 3. **Triage every REVIEW, fix or consciously accept every FAIL.** Behavioural changes get code
    (as #2056's last-tab guard did) and a test pinning the new behaviour.
 4. **Regenerate the vendored protocol** against the candidate:

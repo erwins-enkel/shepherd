@@ -17,7 +17,7 @@
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.10",
-    "@types/bun": "^1.4.0",
+    "@types/bun": "^1.4.1",
     "starlight-llms-txt": "^0.11.0",
     "starlight-typedoc": "^0.23.1",
     "typedoc": "^0.28.20",

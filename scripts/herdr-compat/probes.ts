@@ -248,20 +248,28 @@ export async function runProbes(
     for (const argv of register(heldPane)) await runOk(server, argv);
 
     // The colliding spawn. The refusal can surface on either half of the register pair.
+    //
+    // The verdict is accumulated LOCALLY and published only once the pair has actually been run
+    // through: writing `false` up front would let a throw part-way (a dead server, a failed run)
+    // land in the report as "this herdr ACCEPTS duplicates" — a measurement nobody made. An abort
+    // must leave the field null, which the report renders as "not measured".
     const dupPane = await livePane(`${squatName}-dup`);
-    o.duplicateNameRejected = false;
+    let rejected = false;
+    let rejectionCode: string | null = null;
     for (const argv of register(dupPane)) {
       const res = await server.run(argv);
       const code = errorCode(res.stdout) ?? errorCode(res.stderr);
       if (res.exitCode !== 0 || code !== null) {
-        o.duplicateNameRejected = true;
-        o.duplicateNameErrorCode = code;
+        rejected = true;
+        rejectionCode = code;
         break;
       }
     }
+    o.duplicateNameRejected = rejected;
+    o.duplicateNameErrorCode = rejectionCode;
   } catch (err) {
-    // `duplicateNameRejected` is assigned only after the squatter is bound and holding, so an abort
-    // here leaves it null — "not measured", which is exactly what the report must show.
+    // `duplicateNameRejected` is published only after the duplicate registration has been run
+    // through, so an abort here leaves it null — "not measured", which is what the report shows.
     o.notes.push(
       `duplicate-name probe failed: ${err instanceof Error ? err.message : String(err)}`,
     );

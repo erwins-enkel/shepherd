@@ -9,7 +9,7 @@
  * Static half (no server): schema diff + #2032 record-shape gate from `api schema --json`,
  * plus a `--help` surface diff over every subcommand Shepherd drives. Live half: candidate and
  * baseline each run as an ISOLATED headless server (own HOME/XDG/socket — the operator's
- * daemon is never touched) and the L1–L9 probes are measured A/B. Output: a markdown report
+ * daemon is never touched) and the L1–L10 probes are measured A/B. Output: a markdown report
  * at docs/herdr-compat/<candidate>.md (committed by the eventual bump PR) and exit 1 iff any
  * check FAILs (REVIEW items are triage work, not machine verdicts).
  */

@@ -512,17 +512,35 @@ test("agentsHoldingName: a `name` hit wins outright and never reads the labels",
   ]);
 });
 
-test("agentsHoldingName: the label branch is a FALL-THROUGH, not a version switch", () => {
-  // Deliberate, and a real behaviour change on a herdr that still sends `name`: when NOTHING holds
-  // the name, the label is consulted anyway. herdr's own `agent_name_taken` names candidates with
-  // `status=Unknown` — a holder absent from `agent list` — and before #2033 that spawn was
-  // guaranteed to fail with nothing evicted. The label space searched is Shepherd's own.
+test("agentsHoldingName: where herdr populates `name`, a miss evicts NOTHING (version switch)", () => {
+  // Not a fall-through. The label comparison is necessarily coarser than herdr's ≤0.7.4 raw name
+  // space — `sanitize` is lossy, so two genuinely different live sessions (`fix login` vs
+  // `fix-login`) share one sanitized label. If a raw-name miss fell through to labels, a collision
+  // on one would evict the OTHER live session's tab. Where herdr tells us the names, believe it.
   const orphaned: HerdrAgent[] = [{ ...NAMED_AGENTS[0]!, name: "renamed-out-of-band" }];
-  expect(
-    agentsHoldingName(orphaned, "review TASK-09", () => TAB_LABELS).map((a) => a.tabId),
-  ).toEqual(["tA"]);
-  // …but a name nobody holds on ANY surface still evicts nothing.
+  expect(agentsHoldingName(orphaned, "review TASK-09", () => TAB_LABELS)).toEqual([]);
   expect(agentsHoldingName(NAMED_AGENTS, "nobody", () => TAB_LABELS)).toEqual([]);
+});
+
+test("agentsHoldingName: a punctuation twin is never evicted for its sibling's collision", () => {
+  // The concrete hazard behind the version switch: `uniqueName` now de-dupes in sanitized space so
+  // these two cannot both go live, but the eviction must not depend on that holding.
+  const twins: HerdrAgent[] = [
+    { ...UNNAMED_AGENTS[0]!, name: "fix login" },
+    { ...UNNAMED_AGENTS[1]!, name: "fix-login" },
+  ];
+  const labels = new Map([
+    ["tA", "fix login"],
+    ["tB", "fix-login"],
+  ]);
+  expect(agentsHoldingName(twins, "fix login", () => labels).map((a) => a.tabId)).toEqual(["tA"]);
+  expect(agentsHoldingName(twins, "fix-login", () => labels).map((a) => a.tabId)).toEqual(["tB"]);
+});
+
+test("agentsHoldingName: an empty agent list still reaches the label branch (husk-only tabs)", () => {
+  // `some()` over no records is false, so a collision whose holder left no agent record at all is
+  // still resolvable by label — and no live agent can be harmed, because there are none.
+  expect(agentsHoldingName([], "review TASK-09", () => TAB_LABELS)).toEqual([]);
 });
 
 test("agentsHoldingName: falls back to the TAB label in herdr's sanitized name space", () => {

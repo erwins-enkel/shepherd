@@ -526,21 +526,24 @@ export function sanitizeHerdrAgentName(raw: string): string {
  * it verbatim through `agent start`, and the 0.7.5+ register path binds
  * {@link sanitizeHerdrAgentName}(rawName).
  *
- * Two branches, in order:
- *  1. `name` matches → those agents, and the labels are never read. Wherever herdr still populates
- *     `name` AND something holds it, the result is exactly what the pre-#2033 filter returned.
- *  2. NO `name` matched → the TAB label, compared in herdr's own 0.7.5 name space (`sanitize` on
- *     both sides): 0.7.5 emits no `agent.name` at all, and `tab create --label` carries the RAW
- *     name while the register call binds the SANITIZED one — sanitized-space equality is what makes
- *     the two surfaces comparable. Deliberately NOT keyed on `agent`: that field holds the bare
- *     agent KIND (`"claude"`) for trusted auto-detected agents, so matching it would both alias the
- *     kind and miss an auto-detected squatter, which reports the kind rather than its name.
+ * A VERSION SWITCH, not a fall-through: which surface herdr populates decides which one is read.
+ *  1. ANY record carries `name` → this herdr populates the field, so its name space is
+ *     authoritative and is used EXCLUSIVELY — strict equality, labels never read. A record without
+ *     `name` in such a list genuinely holds no name. ≤0.7.4 always lands here, so its eviction is
+ *     byte-identical to before.
+ *  2. NO record carries `name` (0.7.5+, which emits it for nobody) → the TAB label, compared in
+ *     herdr's own name space (`sanitize` on both sides): `tab create --label` carries the RAW name
+ *     while the register call binds the SANITIZED one, so sanitized equality is what makes the two
+ *     surfaces comparable. Deliberately NOT keyed on `agent`: that field holds the bare agent KIND
+ *     (`"claude"`) for trusted auto-detected agents, so matching it would both alias the kind and
+ *     miss an auto-detected squatter, which reports the kind rather than its name.
  *
- * Note branch 2 is a FALL-THROUGH, not a version switch, so on a herdr that does send `name` this
- * is a SUPERSET of the old behaviour: a collision whose holder is absent from `agent list` (herdr's
- * own error calls such a candidate `status=Unknown`) now evicts the tab carrying that label, where
- * before it evicted nothing and the spawn was guaranteed to fail. That is the intent — the label
- * space searched is Shepherd's own — but it IS a behaviour change on ≤0.7.4, not a no-op.
+ * The switch is load-bearing, and an earlier revision of this function got it wrong. Branch 2's
+ * comparison is necessarily COARSER than herdr's ≤0.7.4 space: `sanitize` is lossy, so two
+ * genuinely different live sessions (`fix login`, `fix-login`) share one sanitized label. Letting
+ * branch 2 run as a mere fallback wherever branch 1 found nothing would let a raw-name collision
+ * evict the unrelated live session that merely sanitizes alike. Where herdr tells us the names, we
+ * believe it and evict nothing rather than guess from a coarser surface.
  *
  * No labels available (a herdr read failed, or the caller has no source) → empty set, never a
  * broader match: a failed read must not widen what gets closed.
@@ -554,8 +557,8 @@ export function agentsHoldingName(
   rawName: string,
   labels: TabLabelSource,
 ): HerdrAgent[] {
-  const byName = agents.filter((a) => a.name === rawName);
-  if (byName.length > 0) return byName;
+  // One record carrying the field is proof this herdr populates it — see the version switch above.
+  if (agents.some((a) => a.name !== undefined)) return agents.filter((a) => a.name === rawName);
   const map = labels();
   if (!map) return [];
   const wanted = sanitizeHerdrAgentName(rawName);

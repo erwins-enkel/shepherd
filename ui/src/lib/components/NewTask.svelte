@@ -2621,6 +2621,7 @@
         onclose={() => (activeSheet = null)}
       >
         <PromptSources
+          compactIssues={false}
           {repoPath}
           {issueData}
           {epicParents}
@@ -3986,11 +3987,20 @@
     :global(.sheet:has(.ps-wrap) .ps-wrap) {
       flex: 1;
       min-height: 0;
+      min-width: 0;
       display: flex;
       flex-direction: column;
     }
     :global(.sheet:has(.ps-wrap) .ps-head) {
       flex-shrink: 0;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+    }
+    :global(.sheet:has(.ps-wrap) .open-count) {
+      justify-self: end;
+    }
+    :global(.sheet:has(.ps-wrap) .tabs) {
+      grid-column: 2;
     }
     :global(.sheet:has(.ps-wrap) .ps-body) {
       flex: 1;

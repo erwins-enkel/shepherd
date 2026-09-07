@@ -553,6 +553,35 @@ describe("PromptSources label chips (responsive 1↔2 cap)", () => {
 });
 
 describe("PromptSources collapsed rows + show-all expansion", () => {
+  it("keeps all matching issues available across tab and repo changes in browse mode", async () => {
+    mockListIssues.mockResolvedValue({
+      slug: "owner/repo",
+      webUrl: null,
+      issues: Array.from({ length: 50 }, (_, i) => issue(i + 1)),
+      viewer: null,
+    });
+    mockGetCommands.mockResolvedValue({ commands: [command(1)] });
+    const issueData = makeIssueData("/repo");
+    const props = {
+      repoPath: "/repo",
+      issueData,
+      onpick: noop,
+      onpickissue: noop,
+      compactIssues: false,
+    };
+    const view = await render(PromptSources, props);
+    const rowCount = () => document.querySelectorAll(".issue-source-row").length;
+    await expect.poll(rowCount).toBe(50);
+    expect(document.querySelector(".more-row")).toBeNull();
+    await page.getByRole("button", { name: m.promptsources_commands_tab(), exact: true }).click();
+    await page.getByRole("button", { name: m.promptsources_issues_tab(), exact: true }).click();
+    await expect.poll(rowCount).toBe(50);
+    await view.rerender({ ...props, repoPath: "/other" });
+    await issueData.load("/other");
+    await expect.poll(rowCount).toBe(50);
+    expect(document.querySelector(".more-row")).toBeNull();
+  });
+
   it("collapses to 3 rows with an expander; activating it reveals all and collapses back", async () => {
     mockListIssues.mockResolvedValue({
       slug: "owner/repo",

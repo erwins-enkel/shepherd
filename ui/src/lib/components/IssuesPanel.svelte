@@ -627,6 +627,7 @@
   }
 
   .issues-header {
+    overflow-wrap: anywhere;
     padding: 6px 12px;
     margin-bottom: 8px; /* gap below the border to the flush sticky filter — margin (outside the border), not padding */
     font-size: var(--fs-micro);
@@ -706,7 +707,14 @@
     text-decoration: underline;
   }
 
-  @media (max-width: 768px) {
+  @media (max-width: 768px), (pointer: coarse) {
+    .issue-filter {
+      font-size: var(--fs-lg);
+      min-height: 44px;
+    }
+    .filter-bar :global(.filter-chip) {
+      min-height: 44px;
+    }
     .issues-list {
       -webkit-overflow-scrolling: touch;
     }

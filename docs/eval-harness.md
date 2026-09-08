@@ -122,6 +122,19 @@ newest models, 1024 on Sonnet 5, but **4096 on Haiku 4.5** — which is why the 
 `cache(read=… write=… hit=…%)`: if that hit rate stays at 0% across a run that repeats a prefix, a
 breakpoint is missing or the prefix is under the minimum.
 
+**Measured** (2026-09-08). Caching works exactly as intended — a **100% hit rate**, with 1,542
+uncached input tokens against 5.5M cached across a full critic set. What it saves depends entirely
+on what the eval spends its money on:
+
+| run                                           | before caching | after  | saving   |
+| --------------------------------------------- | -------------- | ------ | -------- |
+| `bug-off-by-one`, 1 trial (6-7 calls)         | $0.171         | $0.073 | **57%**  |
+| full critic gating set, T=5 (~17 calls/trial) | ~$14.85        | ~$10   | **~33%** |
+
+The gap is the point: **caching cannot touch output tokens**, and the critic is output-bound once
+its input collapses — $5.01 of an $8.23 run was output. The 57% figure came from the cheapest
+fixture in the set and does not generalise; quote the full-set number when estimating a run.
+
 **Every run meters and caps its own spend.** These are paid runs, and the first attempt burned
 ~$10 before anyone could see a number. So the harness counts its own tokens, prices them through
 `dollars()` in `src/pricing.ts` (the same formula the usage lens prices real sessions with), prints

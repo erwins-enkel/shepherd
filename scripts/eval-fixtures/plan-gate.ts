@@ -193,21 +193,28 @@ export const PLAN_GATE_FIXTURES: PlanGateFixture[] = [
     origin: "synthetic",
     gating: true,
     lang: "en",
+    // The plan claims NOTHING about code that is not in the env below. Two live runs showed why
+    // that matters: earlier drafts asserted an "existing operator cookie gate" and an "existing
+    // staleness alert", neither of which the worktree contained, and the reviewer correctly
+    // blocked both times. Under the strong tier an unresolvable reference to committed code IS a
+    // finding — so a fixture testing "proposed symbols are never findings" must not smuggle in a
+    // false claim about existing ones, or it measures the wrong rule.
     note: "Symbols the plan proposes to ADD are never findings on resolution grounds.",
     task: "Add a health endpoint that reports the SQLite backup's freshness.",
     plan: [
       "## Goal",
       "Expose `GET /api/health/backup` returning the age of the newest backup and a boolean",
-      "`stale` flag, so the existing staleness alert has a queryable source.",
+      "`stale` flag, so backup freshness is queryable.",
       "",
       "## Approach",
       "Add `backupFreshness()` to a new leaf module `src/backup-health.ts` that stats the newest",
       "file under the backup dir (path from the existing `backupPaths()` in `src/backup-paths.ts`)",
-      "and returns `{ newestAtMs, ageMs, stale }`. Register the route in `src/server.ts` beside the",
+      "and returns `{ newestAtMs, ageMs, stale }`. `stale` is `ageMs` past a `STALE_AFTER_MS`",
+      "constant defined in that same new module. Register the route in `src/server.ts` beside the",
       "other read-only health routes.",
       "",
       "## Out of scope",
-      "- Changing the backup schedule, retention, or the alert threshold itself.",
+      "- Changing the backup schedule or retention.",
       "- Authentication changes — the route sits behind the existing operator cookie gate.",
       "",
       "## Testing seams",
@@ -233,8 +240,25 @@ export const PLAN_GATE_FIXTURES: PlanGateFixture[] = [
         // Both EXISTING files the plan names must resolve. Under the strong tier an unresolvable
         // reference to committed code is a legitimate finding, so omitting one would manufacture
         // the very failure this fixture exists to prove does NOT happen.
-        "src/server.ts":
-          'app.get("/api/health/disk", () => diskFree());\napp.get("/api/health/db", () => dbOk());\n',
+        // The plan's Out of Scope says the route "sits behind the existing operator cookie gate".
+        // Under the strong tier (anchor.ahead=0) an unresolvable reference to COMMITTED code is a
+        // legitimate finding, so a worktree without that gate makes the plan's claim false and the
+        // reviewer right to block — the first live run flagged exactly that, in 2 of 5 trials. The
+        // gate therefore has to exist here, or the fixture is testing the wrong thing.
+        "src/server.ts": [
+          'import { requireOperator } from "./operator-auth";',
+          "",
+          "app.use(requireOperator);",
+          'app.get("/api/health/disk", () => diskFree());',
+          'app.get("/api/health/db", () => dbOk());',
+        ].join("\n"),
+        "src/operator-auth.ts": [
+          "/** The single-operator cookie gate every /api route sits behind. */",
+          "export function requireOperator(req: Request, res: Response, next: Next): void {",
+          "  if (!validSessionCookie(req)) return res.status(401).end();",
+          "  next();",
+          "}",
+        ].join("\n"),
       },
     },
     expectedDecision: "approve",

@@ -9,10 +9,12 @@
     canOpen,
     canToggleDraft,
     showMerge = false,
+    showRequestReview = false,
     mergeArmed = false,
     autoFocus = true,
     busy = false,
     onopen,
+    onrequestreview,
     onmerge,
     ontoggledraft,
     onclose,
@@ -23,10 +25,12 @@
     canOpen: boolean;
     canToggleDraft: boolean;
     showMerge?: boolean;
+    showRequestReview?: boolean;
     mergeArmed?: boolean;
     autoFocus?: boolean;
     busy?: boolean;
     onopen: () => void;
+    onrequestreview?: () => void;
     onmerge?: () => void;
     ontoggledraft: () => void;
     onclose: () => void;
@@ -143,6 +147,19 @@
   >
     <span class="pm-icon" aria-hidden="true">↗</span>{m.prbadge_open_pr()}
   </button>
+  {#if showRequestReview}
+    <button
+      class="pm-item"
+      type="button"
+      role="menuitem"
+      tabindex="-1"
+      disabled={busy}
+      aria-busy={busy}
+      onclick={onrequestreview}
+    >
+      <span class="pm-icon" aria-hidden="true">◎</span>{m.prreview_menu_action()}
+    </button>
+  {/if}
   {#if showMerge}
     <button
       class="pm-item"

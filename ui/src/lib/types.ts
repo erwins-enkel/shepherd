@@ -408,6 +408,9 @@ export type MergeStateStatus =
   "behind" | "blocked" | "clean" | "dirty" | "draft" | "has_hooks" | "unknown" | "unstable";
 
 export interface PrStatus {
+  authorLogin?: string;
+  isFork?: boolean;
+  requestedReviewers?: string[];
   state: "none" | "open" | "merged" | "closed";
   number?: number;
   url?: string;
@@ -1019,9 +1022,9 @@ export interface GitState extends PrStatus {
   /** Who is up once the PR is open + green, when it isn't the operator (computed
    *  server-side from `.shepherd/roles.json`). Absent = the operator's turn. */
   handoff?: "reviewer" | "merger";
-  /** The login to display for {@link handoff} (e.g. "scoop"). */
+  /** The responsible login; absent for a fork waiting on unnamed maintainers. */
   handoffWho?: string;
-  /** Role-scoped active requested-changes block for the configured reviewer. */
+  /** Active changes requested by the configured reviewer, or a maintainer on an unconfigured fork. */
   reviewBlock?: {
     reviewer: string;
     state: "changes_requested";

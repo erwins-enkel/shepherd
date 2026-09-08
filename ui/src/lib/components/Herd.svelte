@@ -388,17 +388,16 @@
   // group shares one (the common case: one repo, one merger). The herd can span
   // repos, so a mixed group falls back to a name-less header.
   function uniqueWho(list: Session[]): string | null {
-    let who: string | null = null;
-    for (const s of list) {
-      const w = git[s.id]?.handoffWho;
-      if (!w) continue;
-      if (who === null) who = w;
-      else if (who !== w) return null; // mixed repos → no single name in the header
-    }
-    return who;
+    const names = new Set(list.map((s) => git[s.id]?.handoffWho ?? null));
+    return names.size === 1 ? ([...names][0] ?? null) : null;
+  }
+  function allAnonymous(list: Session[]): boolean {
+    return list.every((s) => !git[s.id]?.handoffWho);
   }
   const reviewerWho = $derived(uniqueWho(partition.waitingOnReviewer));
   const mergerWho = $derived(uniqueWho(partition.waitingOnMerger));
+  const reviewerAnonymous = $derived(allAnonymous(partition.waitingOnReviewer));
+  const mergerAnonymous = $derived(allAnonymous(partition.waitingOnMerger));
 
   // Shared row-context bundle — passed to HerdGroup (and later HerdEpicGroups) so the
   // parent builds it once and each group reads from it. All fields wire straight from
@@ -502,7 +501,11 @@
               who: reviewerWho,
               count: partition.waitingOnReviewer.length,
             })
-          : m.herd_waiting_reviewer_group_multi({ count: partition.waitingOnReviewer.length }),
+          : reviewerAnonymous
+            ? m.herd_waiting_reviewer_group_maintainers({
+                count: partition.waitingOnReviewer.length,
+              })
+            : m.herd_waiting_reviewer_group_multi({ count: partition.waitingOnReviewer.length }),
         withPreview: false,
       },
       partition.waitingOnMerger.length > 0 && {
@@ -511,7 +514,11 @@
         headClass: "waiting-head",
         countLabel: mergerWho
           ? m.herd_waiting_merger_group({ who: mergerWho, count: partition.waitingOnMerger.length })
-          : m.herd_waiting_merger_group_multi({ count: partition.waitingOnMerger.length }),
+          : mergerAnonymous
+            ? m.herd_waiting_merger_group_maintainers({
+                count: partition.waitingOnMerger.length,
+              })
+            : m.herd_waiting_merger_group_multi({ count: partition.waitingOnMerger.length }),
         withPreview: false,
       },
       partition.draftAwaitingSignoff.length > 0 && {

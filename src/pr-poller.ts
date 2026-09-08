@@ -109,6 +109,9 @@ export function gitStateChanged(prev: GitState | undefined, git: GitState): bool
     prev.mergeable !== git.mergeable ||
     prev.mergeStateStatus !== git.mergeStateStatus ||
     prev.isDraft !== git.isDraft ||
+    prev.isFork !== git.isFork ||
+    prev.authorLogin !== git.authorLogin ||
+    !sameSet(prev.requestedReviewers, git.requestedReviewers) ||
     prev.headSha !== git.headSha ||
     prev.baseRefName !== git.baseRefName ||
     prev.latestReview?.submittedAt !== git.latestReview?.submittedAt ||

@@ -41,13 +41,12 @@ export function parseRoles(json: string): RepoRoles {
  *  - Else a foreign merger → waiting on the merger.
  *  - Else the operator ("self", i.e. today's "Your turn"). `inferred: false`.
  *
- *  When the repo is fully unconfigured (no `.shepherd/roles.json` → no roles):
- *  infer a **merger only** from the PR itself, so a green PR awaiting someone
- *  else's merge doesn't falsely read as "your turn" (#539). The merger is the
- *  case-insensitively lowest foreign requested reviewer (gh's array order is not
- *  contractual, so sort for determinism), else a foreign approver, else self. No
- *  "reviewer" handoff is ever synthesized from inference; an inferred merger is
- *  flagged `inferred: true` so the issue-log stays opt-in to configured roles.
+ *  When a normal repo is fully unconfigured (no `.shepherd/roles.json` → no
+ *  roles), infer a merger from the PR itself so a green PR awaiting someone
+ *  else's merge doesn't falsely read as "your turn" (#539). Recognized forks use
+ *  a separate inference: pending requests stay reviewer handoffs, while unnamed
+ *  review/merge waits identify the upstream maintainer role without inventing a
+ *  login. Every fork result is inferred so the issue-log stays opt-in.
  *
  *  Any human approve counts as "reviewed" (Human-in-the-loop); the critic's own
  *  review is already filtered out upstream (`latestHumanReview`). */
@@ -57,6 +56,10 @@ export function computeHandoff(
   latestReview: PrStatus["latestReview"],
   requestedReviewers: string[] = [],
   reviewBlock?: PrReviewBlock,
+  context: {
+    isFork?: boolean;
+    reviewerStates?: Record<string, PrReviewerState>;
+  } = {},
 ): { handoff: HandoffRole; handoffWho: string | null; inferred: boolean } {
   // GitHub logins are case-insensitive, so compare folded — else a free-text
   // entry whose casing differs from the operator's own login would mis-read as
@@ -64,6 +67,14 @@ export function computeHandoff(
   const meLc = me?.toLowerCase() ?? null;
   if (roles.reviewer || roles.merger)
     return configuredHandoff(roles, meLc, latestReview, reviewBlock);
+  if (context.isFork)
+    return inferredForkHandoff(
+      meLc,
+      latestReview,
+      requestedReviewers,
+      reviewBlock,
+      context.reviewerStates,
+    );
   return inferredHandoff(meLc, latestReview, requestedReviewers);
 }
 
@@ -101,6 +112,33 @@ function inferredHandoff(
   const merger = lowestForeignRequestedReviewer ?? foreignApprover ?? null;
   if (merger) return { handoff: "merger", handoffWho: merger, inferred: true };
   return { handoff: "self", handoffWho: null, inferred: false };
+}
+
+/** Fork PRs target an upstream whose maintainers Shepherd cannot name reliably.
+ *  Preserve a pending request when GitHub supplies one, otherwise describe the
+ *  maintainer role without inventing a login. */
+function inferredForkHandoff(
+  meLc: string | null,
+  latestReview: PrStatus["latestReview"],
+  requestedReviewers: string[],
+  reviewBlock: PrReviewBlock | undefined,
+  reviewerStates: Record<string, PrReviewerState> | undefined,
+): { handoff: HandoffRole; handoffWho: string | null; inferred: true } {
+  if (reviewBlock) return { handoff: "self", handoffWho: null, inferred: true };
+
+  const requested =
+    requestedReviewers
+      .filter((login) => login.toLowerCase() !== meLc)
+      .sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()))[0] ?? null;
+  if (requested) return { handoff: "reviewer", handoffWho: requested, inferred: true };
+
+  const approved =
+    reviewerStates === undefined
+      ? latestReview?.state === "approved"
+      : Object.values(reviewerStates).some((review) => review.state === "approved");
+  return approved
+    ? { handoff: "merger", handoffWho: null, inferred: true }
+    : { handoff: "reviewer", handoffWho: null, inferred: true };
 }
 
 const git = (repoPath: string, args: string[], input?: string): string =>
@@ -172,6 +210,18 @@ function stateForReviewer(
   return null;
 }
 
+function inferredForkReviewBlock(
+  reviewerStates: Record<string, PrReviewerState> | undefined,
+): PrReviewBlock | undefined {
+  const blocks = Object.entries(reviewerStates ?? {})
+    .filter(([, review]) => review.state === "changes_requested")
+    .sort(([a], [b]) => a.toLowerCase().localeCompare(b.toLowerCase()));
+  const [reviewer, state] = blocks[0] ?? [];
+  return reviewer && state
+    ? { reviewer, state: "changes_requested", latestAt: state.latestAt }
+    : undefined;
+}
+
 /** Annotate a GitState with `handoff`/`handoffWho` (+ `handoffInferred` when the
  *  handoff was auto-inferred from the PR's reviewers rather than configured roles).
  *  Always returns a clean state (any stale handoff is stripped first), so re-running
@@ -203,27 +253,35 @@ export function annotateHandoff(
   delete base.handoffInferred;
   delete base.reviewBlock;
   const roles = readRepoRoles(repoPath);
+  const unconfiguredFork = !roles.reviewer && !roles.merger && !!base.isFork;
+  const handoffEligible =
+    base.state === "open" &&
+    !(unconfiguredFork && base.isDraft) &&
+    checksCleared(base.checks, noCi);
   const scoped = stateForReviewer(base.reviewerStates, roles.reviewer);
   const reviewBlock =
-    scoped?.state.state === "changes_requested"
-      ? ({
-          reviewer: scoped.login,
-          state: "changes_requested",
-          latestAt: scoped.state.latestAt,
-        } as const)
-      : undefined;
+    unconfiguredFork && handoffEligible
+      ? inferredForkReviewBlock(base.reviewerStates)
+      : scoped?.state.state === "changes_requested"
+        ? ({
+            reviewer: scoped.login,
+            state: "changes_requested",
+            latestAt: scoped.state.latestAt,
+          } as const)
+        : undefined;
   if (reviewBlock) base.reviewBlock = reviewBlock;
-  if (base.state !== "open" || !checksCleared(base.checks, noCi)) return base;
+  if (!handoffEligible) return base;
   const { handoff, handoffWho, inferred } = computeHandoff(
     roles,
     me,
     base.latestReview,
     base.requestedReviewers,
     reviewBlock,
+    { isFork: base.isFork, reviewerStates: base.reviewerStates },
   );
+  if (inferred) base.handoffInferred = true;
   if (handoff === "self") return base;
-  const next = handoffWho ? { ...base, handoff, handoffWho } : { ...base, handoff };
-  return inferred ? { ...next, handoffInferred: true } : next;
+  return handoffWho ? { ...base, handoff, handoffWho } : { ...base, handoff };
 }
 
 /** Write `.shepherd/roles.json` and push it to the repo's default branch WITHOUT

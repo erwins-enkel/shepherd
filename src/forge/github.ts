@@ -382,13 +382,18 @@ export function reviewerStatesFromReviews(
       delete states[author];
       continue;
     }
-    if (state === "commented" && states[author]?.state === "changes_requested") continue;
+    if (
+      state === "commented" &&
+      (states[author]?.state === "changes_requested" || states[author]?.state === "approved")
+    )
+      continue;
     states[author] = { state, latestAt: ts };
   }
   return states;
 }
 
 interface GhPr {
+  author?: { login?: string };
   number: number;
   url: string;
   title: string;
@@ -1240,6 +1245,8 @@ export class GithubForge implements GitForge {
       number: pr.number,
       url: pr.url,
       title: pr.title,
+      authorLogin: pr.author?.login,
+      isFork: this.isFork,
       createdAt: Number.isFinite(createdAt) ? createdAt : undefined,
       mergeable: mapMergeable(pr.mergeable),
       mergeStateStatus: mapMergeStateStatus(pr.mergeStateStatus),
@@ -1334,6 +1341,8 @@ export class GithubForge implements GitForge {
       number: pr.number,
       url: pr.html_url ?? `https://github.com/${this.slug}/pull/${pr.number}`,
       title: pr.title ?? "",
+      authorLogin: pr.user?.login ?? undefined,
+      isFork: this.isFork,
       createdAt: Number.isFinite(createdAt) ? createdAt : undefined,
       mergeable: typeof pr.mergeable === "boolean" ? pr.mergeable : null,
       mergeStateStatus: mapMergeStateStatus(pr.mergeable_state ?? undefined),
@@ -1468,7 +1477,7 @@ export class GithubForge implements GitForge {
         "--state",
         "all",
         "--json",
-        "number,url,title,state,createdAt,mergeable,mergeStateStatus,isDraft,statusCheckRollup,headRefOid,baseRefName,reviews,reviewRequests,headRepositoryOwner",
+        "number,url,title,state,author,createdAt,mergeable,mergeStateStatus,isDraft,statusCheckRollup,headRefOid,baseRefName,reviews,reviewRequests,headRepositoryOwner",
         "--limit",
         this.forkOwner ? "30" : "1",
       ]);
@@ -1687,25 +1696,56 @@ export class GithubForge implements GitForge {
     await this.run(["repo", "sync", this.forkSlug, "--source", this.slug]);
   }
 
-  async listCollaborators(): Promise<{ logins: string[]; unavailable: boolean }> {
+  async listCollaborators(): Promise<{
+    logins: string[];
+    unavailable: boolean;
+    source?: "collaborators" | "assignees";
+  }> {
+    for (const source of ["collaborators", "assignees"] as const) {
+      try {
+        const out = await this.run([
+          "api",
+          "--paginate",
+          `repos/${this.slug}/${source}`,
+          "--jq",
+          ".[].login",
+        ]);
+        const people = new Map<string, string>();
+        for (const line of out.split("\n")) {
+          const login = line.trim();
+          if (login && !people.has(login.toLowerCase())) people.set(login.toLowerCase(), login);
+        }
+        const logins = [...people.values()].sort((a, b) =>
+          a.toLowerCase().localeCompare(b.toLowerCase()),
+        );
+        return { logins, unavailable: false, source };
+      } catch {
+        // Contributors may read assignees even when GitHub refuses collaborators.
+      }
+    }
+    return { logins: [], unavailable: true };
+  }
+
+  async requestReview(prNumber: number, reviewer: string): Promise<void> {
     try {
-      // --paginate so a repo with >30 collaborators isn't silently truncated.
-      const out = await this.run([
+      await this.run([
         "api",
-        "--paginate",
-        `repos/${this.slug}/collaborators`,
-        "--jq",
-        ".[].login",
+        "--method",
+        "POST",
+        `repos/${this.slug}/pulls/${prNumber}/requested_reviewers`,
+        "-f",
+        `reviewers[]=${reviewer}`,
       ]);
-      const logins = out
-        .split("\n")
-        .map((l) => l.trim())
-        .filter(Boolean);
-      return { logins, unavailable: false };
-    } catch {
-      // The endpoint needs push access; GitHub 403s otherwise → let the dialog
-      // fall back to free-text rather than show an empty/partial list.
-      return { logins: [], unavailable: true };
+    } catch (error) {
+      const { status } = classifyGhError("rest", error);
+      throw new Error(
+        status === 403
+          ? "review_request_forbidden"
+          : status === 422
+            ? "review_request_invalid_reviewer"
+            : "review_request_failed",
+        { cause: error },
+      );
     }
   }
 

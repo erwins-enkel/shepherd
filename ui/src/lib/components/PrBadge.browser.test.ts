@@ -39,6 +39,39 @@ describe("PrBadge", () => {
       .toBeInTheDocument();
   });
 
+  it("opens the explicit review request popover without sending a request", async () => {
+    const fetch = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            prNumber: 12,
+            repoSlug: "acme/upstream",
+            isFork: true,
+            logins: ["alice"],
+            source: "collaborators",
+            unavailable: false,
+            requestedReviewers: [],
+            authorLogin: "owner",
+            defaultReviewer: null,
+            isDraft: false,
+          }),
+        ),
+    );
+    vi.stubGlobal("fetch", fetch);
+    render(PrBadge, { props: { git: git(), sessionId: "s1" } });
+
+    await page.getByRole("button", { name: m.prbadge_button_title({ label: "PR #12" }) }).click();
+    await page.getByRole("menuitem", { name: m.prreview_menu_action() }).click();
+
+    expect(document.querySelector("[role='menu']")).toBeNull();
+    await expect.element(page.getByRole("dialog", { name: m.prreview_title() })).toBeVisible();
+    await expect
+      .element(page.getByRole("combobox", { name: m.roles_reviewer_label() }))
+      .toBeVisible();
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(fetch).toHaveBeenCalledWith("/api/sessions/s1/git/reviewers");
+  });
+
   it("does not open the action menu on mouse hover", async () => {
     render(PrBadge, { props: { git: git(), sessionId: "s1" } });
 

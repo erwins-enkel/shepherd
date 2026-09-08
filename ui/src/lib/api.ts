@@ -2228,6 +2228,39 @@ export async function putRepoConfig(
   return r.json();
 }
 
+export interface PrReviewerOptions {
+  prNumber: number;
+  repoSlug: string | null;
+  isFork: boolean;
+  logins: string[];
+  source?: "collaborators" | "assignees";
+  unavailable: boolean;
+  requestedReviewers: string[];
+  authorLogin: string | null;
+  defaultReviewer: string | null;
+  isDraft: boolean;
+}
+
+export async function getPrReviewers(id: string): Promise<PrReviewerOptions> {
+  return getJson(`/api/sessions/${encodeURIComponent(id)}/git/reviewers`, "review-request");
+}
+
+export async function requestPrReview(
+  id: string,
+  prNumber: number,
+  reviewer: string,
+): Promise<{ ok: true; refreshPending?: boolean }> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(id)}/git/request-review`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ prNumber, reviewer }),
+  });
+  flagIfUnauthorized(res.status);
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(data?.code ?? "review_request_failed");
+  return data;
+}
+
 export async function getRepoRoles(
   repoPath: string,
 ): Promise<{ roles: RepoRoles; me: string | null }> {
@@ -2258,9 +2291,14 @@ export async function putRepoRoles(
   };
 }
 
-export async function getRepoCollaborators(
-  repoPath: string,
-): Promise<{ logins: string[]; me: string | null; collaboratorsUnavailable: boolean }> {
+export async function getRepoCollaborators(repoPath: string): Promise<{
+  logins: string[];
+  me: string | null;
+  collaboratorsUnavailable: boolean;
+  source?: "collaborators" | "assignees";
+  repoSlug: string | null;
+  isFork: boolean;
+}> {
   return getJson(
     `/api/repo-collaborators?repo=${encodeURIComponent(repoPath)}`,
     "repo-collaborators",

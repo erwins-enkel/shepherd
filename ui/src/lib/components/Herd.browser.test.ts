@@ -151,6 +151,37 @@ describe("Herd merging group", () => {
   });
 });
 
+describe("Herd inferred fork handoff groups", () => {
+  it("labels anonymous reviewer and merger handoffs as maintainer waits", async () => {
+    render(Herd, {
+      ...base,
+      sessions: [session({ id: "review" }), session({ id: "merge" })],
+      git: {
+        review: { ...openPr, handoff: "reviewer" },
+        merge: { ...openPr, handoff: "merger" },
+      },
+    });
+
+    await expect.element(page.getByText("Waiting on maintainer review (1)")).toBeInTheDocument();
+    await expect.element(page.getByText("Waiting on maintainers to merge (1)")).toBeInTheDocument();
+  });
+
+  it("uses a neutral group label when named and anonymous handoffs are mixed", async () => {
+    render(Herd, {
+      ...base,
+      sessions: [session({ id: "named" }), session({ id: "anonymous" })],
+      git: {
+        named: { ...openPr, handoff: "reviewer", handoffWho: "scoop" },
+        anonymous: { ...openPr, handoff: "reviewer" },
+      },
+    });
+
+    await expect.element(page.getByText("Waiting on review (2)")).toBeInTheDocument();
+    await expect.element(page.getByText(/scoop's review/i)).not.toBeInTheDocument();
+    await expect.element(page.getByText(/maintainer review/i)).not.toBeInTheDocument();
+  });
+});
+
 describe("Herd merge-train link", () => {
   it("shows the Merge train link when a ready-to-merge session has an open PR", async () => {
     render(Herd, {

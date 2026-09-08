@@ -125,6 +125,61 @@ test("configured roles present → inference inert, inferred:false", () => {
   expect(r.inferred).toBe(false);
 });
 
+test("configured fork keeps explicit role semantics", () => {
+  const r = computeHandoff(
+    { reviewer: "scoop", merger: "scoop" },
+    "kai",
+    undefined,
+    ["alice"],
+    undefined,
+    { isFork: true },
+  );
+  expect(r).toEqual({ handoff: "reviewer", handoffWho: "scoop", inferred: false });
+});
+
+// ── fork inference (unconfigured recognized fork) ────────────────────────────
+
+test("unconfigured fork + pending foreign reviewer → inferred reviewer handoff", () => {
+  const r = computeHandoff(unconfigured, "kai", undefined, ["Zed", "alice", "KAI"], undefined, {
+    isFork: true,
+  });
+  expect(r).toEqual({ handoff: "reviewer", handoffWho: "alice", inferred: true });
+});
+
+test("unconfigured fork + approval and no pending reviewer → anonymous maintainer merge", () => {
+  const r = computeHandoff(unconfigured, "kai", approved, [], undefined, { isFork: true });
+  expect(r).toEqual({ handoff: "merger", handoffWho: null, inferred: true });
+});
+
+test("unconfigured fork + dismissed approval → anonymous maintainer review", () => {
+  const r = computeHandoff(unconfigured, "kai", approved, [], undefined, {
+    isFork: true,
+    reviewerStates: {},
+  });
+  expect(r).toEqual({ handoff: "reviewer", handoffWho: null, inferred: true });
+});
+
+test("unconfigured fork + no approval or pending reviewer → anonymous maintainer review", () => {
+  const r = computeHandoff(unconfigured, "kai", undefined, [], undefined, { isFork: true });
+  expect(r).toEqual({ handoff: "reviewer", handoffWho: null, inferred: true });
+});
+
+test("unconfigured fork + active changes request → inferred self handoff", () => {
+  const r = computeHandoff(
+    unconfigured,
+    "kai",
+    approved,
+    [],
+    {
+      reviewer: "alice",
+      state: "changes_requested",
+      latestAt: 2,
+    },
+    { isFork: true },
+  );
+  expect(r).toEqual({ handoff: "self", handoffWho: null, inferred: true });
+});
+
 test("parseRoles: valid, partial, empty, and garbage", () => {
   expect(parseRoles('{"reviewer":"scoop","merger":"scoop"}')).toEqual({
     reviewer: "scoop",
@@ -210,6 +265,55 @@ test("annotateHandoff clears previous reviewBlock when a fresh empty replay arri
     );
     expect(g.reviewBlock).toBeUndefined();
     expect(g.handoff).toBe("reviewer");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("annotateHandoff gives an unconfigured fork's active human changes request to self", () => {
+  const dir = repoWithRoles(unconfigured);
+  try {
+    const g = annotateHandoff(
+      gitState({
+        number: 7,
+        checks: "success",
+        isFork: true,
+        latestReview: approved,
+        requestedReviewers: ["zed"],
+        reviewerStates: {
+          scoop: { state: "approved", latestAt: 1 },
+          alice: { state: "changes_requested", latestAt: 2 },
+        },
+      }),
+      dir,
+      "kai",
+    );
+    expect(g.reviewBlock).toEqual({
+      reviewer: "alice",
+      state: "changes_requested",
+      latestAt: 2,
+    });
+    expect(g.handoff).toBeUndefined();
+    expect(g.handoffInferred).toBe(true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("annotateHandoff does not attach fork handoffs to drafts or non-green PRs", () => {
+  const dir = repoWithRoles(unconfigured);
+  try {
+    for (const state of [
+      gitState({ checks: "success", isDraft: true, isFork: true }),
+      gitState({ checks: "pending", isFork: true }),
+      gitState({ checks: "failure", isFork: true }),
+      gitState({ state: "closed", checks: "success", isFork: true }),
+    ]) {
+      const g = annotateHandoff(state, dir, "kai");
+      expect(g.handoff).toBeUndefined();
+      expect(g.handoffWho).toBeUndefined();
+      expect(g.handoffInferred).toBeUndefined();
+    }
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -1842,7 +1842,7 @@ function repushHandoff(deps: AppDeps, dir: string, me: string | null): void {
 
 // /api/repo-collaborators?repo=<path> — logins for the roles dialog's people
 // picker, plus the operator's own login. `collaboratorsUnavailable` lets the
-// dialog fall back to free-text when the host won't list them (e.g. GitHub 403).
+// dialog explain unavailable suggestions when neither source can be read.
 async function handleRepoCollaborators({ req, parts, url, deps }: Ctx): Promise<Response | null> {
   if (!(parts[0] === "api" && parts[1] === "repo-collaborators" && !parts[2])) return null;
   if (req.method !== "GET") return null;
@@ -1851,7 +1851,14 @@ async function handleRepoCollaborators({ req, parts, url, deps }: Ctx): Promise<
   const forge = deps.resolveForge?.(dir) ?? null;
   const me = (await forge?.currentUser?.()) ?? null;
   const list = (await forge?.listCollaborators?.()) ?? { logins: [], unavailable: true };
-  return json({ logins: list.logins, me, collaboratorsUnavailable: list.unavailable });
+  return json({
+    logins: list.logins,
+    source: list.source,
+    me,
+    collaboratorsUnavailable: list.unavailable,
+    repoSlug: forge?.slug ?? null,
+    isFork: forge?.isFork ?? false,
+  });
 }
 
 // POST /api/doc-agent?repo= — manually trigger the PR-gated AI doc agent (issue #882).
@@ -4206,6 +4213,90 @@ async function forgeClosePr(forge: GitForge, session: Session, deps: AppDeps): P
   return json(await refreshSessionGit(forge, session, deps));
 }
 
+function reviewRequestError(error: unknown): Response {
+  const code = error instanceof Error ? error.message : "";
+  const status =
+    code === "review_request_forbidden"
+      ? 403
+      : code === "review_request_invalid_reviewer"
+        ? 422
+        : 502;
+  return json({ code: status === 502 ? "review_request_failed" : code }, status);
+}
+
+async function forgeReviewers(forge: GitForge, session: Session): Promise<Response> {
+  if (forge.kind !== "github" || !forge.requestReview) {
+    return json({ code: "review_request_unsupported" }, 400);
+  }
+  try {
+    const cur = await forge.prStatus(session.branch ?? "");
+    if (cur.state !== "open" || !cur.number) {
+      return json({ code: "review_request_stale" }, 409);
+    }
+    const list = (await forge.listCollaborators?.()) ?? { logins: [], unavailable: true };
+    return json({
+      ...list,
+      prNumber: cur.number,
+      repoSlug: forge.slug,
+      isFork: forge.isFork ?? false,
+      requestedReviewers: cur.requestedReviewers ?? [],
+      authorLogin: cur.authorLogin ?? null,
+      defaultReviewer: readRepoRoles(session.repoPath).reviewer,
+      isDraft: cur.isDraft ?? false,
+    });
+  } catch (error) {
+    return reviewRequestError(error);
+  }
+}
+
+async function forgeRequestReview(
+  forge: GitForge,
+  session: Session,
+  req: Request,
+  deps: AppDeps,
+): Promise<Response> {
+  if (forge.kind !== "github" || !forge.requestReview) {
+    return json({ code: "review_request_unsupported" }, 400);
+  }
+  const body = (await req.json().catch(() => null)) as {
+    prNumber?: unknown;
+    reviewer?: unknown;
+  } | null;
+  const reviewer = body?.reviewer;
+  if (
+    typeof body?.prNumber !== "number" ||
+    !Number.isSafeInteger(body.prNumber) ||
+    body.prNumber < 1 ||
+    typeof reviewer !== "string" ||
+    !/^[a-z\d](?:[a-z\d]|-(?=[a-z\d])){0,38}$/i.test(reviewer)
+  ) {
+    return json({ code: "review_request_invalid" }, 400);
+  }
+  try {
+    const cur = await forge.prStatus(session.branch ?? "");
+    if (cur.state !== "open" || !cur.number || cur.number !== body.prNumber) {
+      return json({ code: "review_request_stale" }, 409);
+    }
+    if (cur.isDraft) return json({ code: "review_request_draft" }, 409);
+    if (cur.authorLogin?.toLowerCase() === reviewer.toLowerCase()) {
+      return json({ code: "review_request_invalid" }, 400);
+    }
+    if (cur.requestedReviewers?.some((login) => login.toLowerCase() === reviewer.toLowerCase())) {
+      return json({ ok: true });
+    }
+    await forge.requestReview(cur.number, reviewer);
+  } catch (error) {
+    return reviewRequestError(error);
+  }
+  try {
+    await refreshSessionGit(forge, session, deps);
+    return json({ ok: true });
+  } catch {
+    // The notification succeeded. Do not turn a refresh failure into a retry of the write.
+    return json({ ok: true, refreshPending: true });
+  }
+}
+
 async function dispatchForgeAction(
   forge: GitForge,
   session: Session,
@@ -4214,6 +4305,7 @@ async function dispatchForgeAction(
   const { req, parts, deps } = ctx;
   if (req.method === "GET") {
     if (!parts[4]) return await forgeGitStateResponse(forge, session, deps);
+    if (parts[4] === "reviewers" && !parts[5]) return forgeReviewers(forge, session);
     return null;
   }
   if (req.method === "POST") {
@@ -4224,6 +4316,7 @@ async function dispatchForgeAction(
       redeploy: () => forgeRedeploy(forge, session),
       ready: () => forgeSetDraftState(forge, session, false, deps),
       draft: () => forgeSetDraftState(forge, session, true, deps),
+      "request-review": () => (!parts[5] ? forgeRequestReview(forge, session, req, deps) : null),
     };
     const action = actions[parts[4] as keyof typeof actions];
     if (action) return action();

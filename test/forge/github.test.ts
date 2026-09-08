@@ -80,6 +80,15 @@ test("reviewerStatesFromReviews: later comment does not clear requested changes"
   });
 });
 
+test("reviewerStatesFromReviews: later comment preserves an active approval", () => {
+  expect(
+    reviewerStatesFromReviews([
+      review("scoop", "APPROVED", "2026-01-01T00:00:00Z"),
+      review("scoop", "COMMENTED", "2026-01-01T01:00:00Z"),
+    ]),
+  ).toEqual({ scoop: { state: "approved", latestAt: Date.parse("2026-01-01T00:00:00Z") } });
+});
+
 test("reviewerStatesFromReviews: dismissed clears requested changes", () => {
   expect(
     reviewerStatesFromReviews([
@@ -2274,6 +2283,8 @@ const EXPECTED_STATUSES: Map<string, PrStatus> = new Map([
       number: 1,
       url: "https://github.com/o/r/pull/1",
       title: "feat: alpha",
+      authorLogin: "alice",
+      isFork: false,
       createdAt: Date.parse("2026-01-02T03:04:05Z"),
       mergeable: true,
       mergeStateStatus: "clean",
@@ -2301,6 +2312,8 @@ const EXPECTED_STATUSES: Map<string, PrStatus> = new Map([
       number: 2,
       url: "https://github.com/o/r/pull/2",
       title: "fix: beta",
+      authorLogin: "dave",
+      isFork: false,
       createdAt: Date.parse("2026-01-03T00:00:00Z"),
       mergeable: false,
       mergeStateStatus: "dirty",

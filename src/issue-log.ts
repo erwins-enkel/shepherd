@@ -10,11 +10,12 @@ import { checksCleared } from "./checks-gate";
  * and one when the PR merges — so the issue's timeline records who the work was
  * parked on and when it landed.
  *
- * A handoff may now also be auto-inferred from the PR's requested reviewers when a
- * repo has no `.shepherd/roles.json` (GitState.handoffInferred = true). The outward
- * issue comment is intentionally gated to explicitly-configured (non-inferred)
- * handoffs — auto-inference drives the in-app herd grouping, but does not write to
- * the public issue timeline unless the operator opted in via roles config.
+ * A handoff (or a fork's human review block) may also be auto-inferred from PR
+ * metadata when a repo has no `.shepherd/roles.json`
+ * (GitState.handoffInferred = true). The outward issue comment is intentionally
+ * gated to explicitly-configured (non-inferred) responsibility — auto-inference
+ * drives the in-app herd grouping, but does not write to the public issue timeline
+ * unless the operator opted in via roles config.
  *
  * Deliberately STATELESS over the current GitState (no prev-state comparison):
  * dedup lives in the persisted `issue_log` stamps, so each transition comments
@@ -41,10 +42,15 @@ export function issueLogEntries(
   if (git.number == null) return [];
   const out: IssueLogEntry[] = [];
   // handoff is only annotated on an open+green PR (annotateHandoff), but re-check
-  // the full condition so a stale/hand-rolled GitState can't comment early. An
-  // auto-inferred handoff (no roles.json) is excluded — the outward comment is
-  // opt-in to explicitly-configured roles (see module doc).
-  if (git.state === "open" && checksCleared(git.checks, git.noCi ?? false) && git.reviewBlock) {
+  // the full condition so a stale/hand-rolled GitState can't comment early.
+  // Auto-inferred responsibility (including a fork's review block) is excluded —
+  // the outward comment is opt-in to explicitly-configured roles (see module doc).
+  if (
+    git.state === "open" &&
+    checksCleared(git.checks, git.noCi ?? false) &&
+    git.reviewBlock &&
+    !git.handoffInferred
+  ) {
     const key = `changes-requested:${git.number}`;
     if (!alreadyLogged(key))
       out.push({

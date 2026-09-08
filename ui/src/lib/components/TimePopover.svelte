@@ -96,8 +96,16 @@
         }
       : null,
   );
-  // Handed off but with no foreign reviewer/merger named: neutrally flag it as ready
-  // to merge (we can't pin the merge on the operator).
+  const waitingOnMaintainers = $derived(
+    handedOff && git?.handoff && !git.handoffWho && waitSince
+      ? {
+          role: git.handoff,
+          tier: waitTier(nowMs - waitSince),
+          ago: formatAgo(nowMs - waitSince),
+        }
+      : null,
+  );
+  // Handed off with no computed role: neutrally flag it as ready to merge.
   const awaitingMerge = $derived(handedOff && !git?.handoff);
 
   const REVIEW_MSG = {
@@ -150,6 +158,12 @@
           who: waiting.who,
           ago: waiting.ago,
         })}
+      </div>
+    {:else if waitingOnMaintainers}
+      <div class="tp-line tp-wait tp-wait--{waitingOnMaintainers.tier}">
+        {(waitingOnMaintainers.role === "reviewer"
+          ? m.timetip_waiting_maintainer_review
+          : m.timetip_waiting_maintainer_merge)({ ago: waitingOnMaintainers.ago })}
       </div>
     {:else if awaitingMerge}
       <div class="tp-line tp-wait">{m.timetip_ready_to_merge()}</div>

@@ -167,6 +167,8 @@ const FLAT_OPTIONAL_GIT_FIELDS = {
   headSha: (value: unknown) => typeof value === "string",
   requestedReviewers: isStringArray,
   isDraft: (value: unknown) => typeof value === "boolean",
+  isFork: (value: unknown) => typeof value === "boolean",
+  authorLogin: (value: unknown) => typeof value === "string",
   mergeStateStatus: (value: unknown) => PERSISTED_MERGE_STATES.has(value),
   baseRefName: (value: unknown) => typeof value === "string",
   noCi: (value: unknown) => typeof value === "boolean",

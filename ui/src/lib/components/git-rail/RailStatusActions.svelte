@@ -3,6 +3,7 @@
   import type { CriticChip } from "../critic-badge";
   import ReadyToggle from "../ReadyToggle.svelte";
   import PrBadgeMenu from "../PrBadgeMenu.svelte";
+  import PrReviewRequestPopover from "../PrReviewRequestPopover.svelte";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
   import { m } from "$lib/paraglide/messages";
 
@@ -82,18 +83,53 @@
   }
 
   const canToggleDraft = $derived(git.kind === "github" || git.kind === "gitea");
+  const canRequestReview = $derived(git.kind === "github");
+  const prLabel = $derived(m.prbadge_open({ number: git.number ?? 0 }));
   let prButton = $state<HTMLButtonElement>();
   let prMenuAnchor = $state<DOMRect | null>(null);
+  let reviewPopover = $state<{
+    anchor: DOMRect;
+    sessionId: string;
+    prNumber: number;
+    prUrl?: string;
+  } | null>(null);
+  const prMenuOpen = $derived(!!prMenuAnchor || !!reviewPopover);
 
   function closePrMenu() {
     prMenuAnchor = null;
   }
 
+  function closeReviewPopover() {
+    reviewPopover = null;
+  }
+
   function togglePrMenu(e: MouseEvent) {
     e.stopPropagation();
-    if (prMenuAnchor) closePrMenu();
+    if (reviewPopover) closeReviewPopover();
+    else if (prMenuAnchor) closePrMenu();
     else if (prButton) prMenuAnchor = prButton.getBoundingClientRect();
   }
+
+  function openReviewRequest() {
+    if (!canRequestReview || !git.number || !prButton) return;
+    const anchor = prButton.getBoundingClientRect();
+    closePrMenu();
+    reviewPopover = {
+      anchor,
+      sessionId,
+      prNumber: git.number,
+      prUrl: git.url,
+    };
+  }
+
+  $effect(() => {
+    if (
+      reviewPopover &&
+      (reviewPopover.sessionId !== sessionId || reviewPopover.prNumber !== git.number)
+    ) {
+      reviewPopover = null;
+    }
+  });
 
   function openPr() {
     closePrMenu();
@@ -228,13 +264,11 @@
       bind:this={prButton}
       type="button"
       class="status-chip info"
-      class:open={!!prMenuAnchor}
-      title={m.prbadge_open({ number: git.number ?? 0 })}
-      aria-label={m.prbadge_button_title({
-        label: m.prbadge_open({ number: git.number ?? 0 }),
-      })}
-      aria-haspopup="menu"
-      aria-expanded={!!prMenuAnchor}
+      class:open={prMenuOpen}
+      title={prLabel}
+      aria-label={m.prbadge_button_title({ label: prLabel })}
+      aria-haspopup={reviewPopover ? "dialog" : "menu"}
+      aria-expanded={prMenuOpen}
       onclick={togglePrMenu}
       ><span class="dot" aria-hidden="true"></span>{m.gitrail_pr_link()}</button
     >
@@ -342,10 +376,23 @@
     isDraft={git.isDraft === true}
     canOpen={!!git.url}
     {canToggleDraft}
+    showRequestReview={canRequestReview}
     {busy}
     onopen={openPr}
+    onrequestreview={openReviewRequest}
     ontoggledraft={toggleDraftState}
     onclose={closePrMenu}
+  />
+{/if}
+
+{#if reviewPopover}
+  <PrReviewRequestPopover
+    anchor={reviewPopover.anchor}
+    opener={prButton}
+    sessionId={reviewPopover.sessionId}
+    prNumber={reviewPopover.prNumber}
+    prUrl={reviewPopover.prUrl}
+    onclose={closeReviewPopover}
   />
 {/if}
 

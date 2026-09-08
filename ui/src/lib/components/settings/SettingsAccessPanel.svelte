@@ -32,12 +32,14 @@
 
   /** One line per level, describing what the token will and will not reach. Shown for the
    *  SELECTED scope so the operator reads the consequence before minting, not after. */
-  const scopeLabel = (s: TokenScope) =>
+  const scopeLabel = (s: string) =>
     s === "read"
       ? m.settings_access_scope_read()
       : s === "submit"
         ? m.settings_access_scope_submit()
-        : m.settings_access_scope_full();
+        : s === "full"
+          ? m.settings_access_scope_full()
+          : m.settings_access_scope_unknown();
   const scopeHint = (s: TokenScope) =>
     s === "read"
       ? m.settings_access_scope_read_hint()

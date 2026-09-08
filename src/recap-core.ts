@@ -223,28 +223,32 @@ export function buildUiMarkupDigest(
   const maxChars = limits.maxChars ?? RECAP_UI_MARKUP_MAX_CHARS;
 
   const selected = files
-    .map((file, order) => ({ file, order }))
+    .map((file, order) => ({ file, order, after: afterSide(file.hunks) }))
+    // The post-change side is rendered BEFORE selection, because emptiness is part of the
+    // selection rule and it costs a file its slot: a component emptied but KEPT (status still
+    // `modified`, hunks non-empty, every line a deletion) has no resulting screen. Emitting its
+    // header alone would put the section — and the instruction to ground a wireframe on it — over
+    // a fence holding no markup, which is the invent-a-screen pressure this change exists to remove.
     .filter(
-      ({ file }) =>
+      ({ file, after }) =>
         isViewFile(file.path) &&
         file.status !== "deleted" &&
         !file.binary &&
         !file.truncated &&
-        file.hunks.length > 0,
+        after.trim() !== "",
     )
     .sort((a, b) => b.file.additions - a.file.additions || a.order - b.order)
     .slice(0, maxFiles);
 
   const blocks: string[] = [];
   let total = 0;
-  for (const { file } of selected) {
+  for (const { file, after } of selected) {
     const header = `${file.path} (${file.status})`;
     // Whatever is left of the section budget, never more than one file's share. Below the marker's
     // own length there is no room for content worth reading, so stop rather than emit a stub.
     const room = Math.min(maxFileChars, maxChars - total - header.length - 2);
     if (room < MIN_UI_MARKUP_FILE_CHARS) break;
-    const body = clipMarkup(afterSide(file.hunks), room);
-    const block = `${header}\n${body}`;
+    const block = `${header}\n${clipMarkup(after, room)}`;
     blocks.push(block);
     total += block.length + 2;
   }

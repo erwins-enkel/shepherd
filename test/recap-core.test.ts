@@ -1155,6 +1155,22 @@ test("#2209 buildUiMarkupDigest: skips what cannot ground a mockup", () => {
   // `diff.ts` drops hunks past its per-file line cap — silence beats inventing the missing half.
   expect(buildUiMarkupDigest([viewFile("ui/c.svelte", { truncated: true })])).toBe("");
   expect(buildUiMarkupDigest([viewFile("ui/d.svelte", { hunks: [] })])).toBe("");
+  // A component emptied but KEPT: status stays `modified` and the hunks are non-empty, yet every
+  // line is a deletion — there is no resulting screen, so a bare header must not be emitted over
+  // an empty fence. It must not cost a slot either: the next real file takes its place.
+  const gutted = viewFile("ui/e.svelte", {
+    additions: 0,
+    hunks: [{ header: "@@ -1,2 +0,0 @@", lines: [uiLine("del", "<div>gone</div>")] }],
+  });
+  expect(buildUiMarkupDigest([gutted])).toBe("");
+  const withNeighbours = buildUiMarkupDigest(
+    [gutted, viewFile("ui/f.svelte"), viewFile("ui/g.svelte"), viewFile("ui/h.svelte")],
+    { maxFiles: 3 },
+  );
+  expect(withNeighbours).not.toContain("ui/e.svelte");
+  for (const p of ["ui/f.svelte", "ui/g.svelte", "ui/h.svelte"]) {
+    expect(withNeighbours).toContain(p);
+  }
   expect(buildUiMarkupDigest([viewFile("src/store.ts")])).toBe("");
   expect(buildUiMarkupDigest([])).toBe("");
 });

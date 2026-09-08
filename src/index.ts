@@ -2636,7 +2636,13 @@ const herdrUpdates = new HerdrUpdateService({
   // shepherd stays up now — push the recomputed status (clears the badge) and a
   // terminal ✓/✗ result the modal renders instead of waiting for a page reload.
   onStatus: (status) => events.emit("herdr-update:status", status),
-  onDone: (result) => events.emit("herdr-update:done", result),
+  onDone: (result) => {
+    events.emit("herdr-update:done", result);
+    void diagnostics
+      .check(Date.now())
+      .then((snapshot) => events.emit("diagnostics:status", snapshot))
+      .catch((err) => console.warn("[herdr-update] diagnostics refresh failed:", err));
+  },
   // Gate the sandboxed-idle advisory (#1716) on whether this operator actually runs sandboxed
   // sessions: the default profile is non-trusted, OR a live session is genuinely sandboxed. (A
   // repo configured sandboxed but with no live session isn't caught here — an accepted gap; the

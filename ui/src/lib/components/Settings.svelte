@@ -551,7 +551,7 @@
         <SettingsDiagnosePanel
           {initialDiagnostics}
           {query}
-          onherdrdowngrade={() => onherdrupdate?.()}
+          onherdrupdate={() => onherdrupdate?.()}
         />
       </div>
     </SettingsShell>

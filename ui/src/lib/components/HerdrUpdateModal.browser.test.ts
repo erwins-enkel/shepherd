@@ -10,9 +10,12 @@ vi.mock("$lib/api", async (orig) => ({
   applyHerdrUpdate: vi.fn(() => new Promise(() => {})),
   applyHerdrDowngrade: vi.fn(() => new Promise(() => {})),
   applyHerdrSandboxDowngrade: vi.fn(() => new Promise(() => {})),
+  getHerdrUpdate: vi.fn(() => new Promise(() => {})),
+  restartHerdrServer: vi.fn(() => new Promise(() => {})),
 }));
 
 import HerdrUpdateModal from "./HerdrUpdateModal.svelte";
+import { getHerdrUpdate, restartHerdrServer } from "$lib/api";
 
 const update: HerdrUpdateStatus = {
   current: "0.6.9",
@@ -24,6 +27,12 @@ const update: HerdrUpdateStatus = {
 
 afterEach(async () => {
   vi.clearAllMocks();
+  vi.mocked(getHerdrUpdate)
+    .mockReset()
+    .mockImplementation(() => new Promise(() => {}));
+  vi.mocked(restartHerdrServer)
+    .mockReset()
+    .mockImplementation(() => new Promise(() => {}));
   document.body.innerHTML = "";
   await page.viewport(1280, 900);
 });
@@ -117,9 +126,7 @@ describe("HerdrUpdateModal", () => {
     expect(document.querySelector(".status.fail")?.textContent).toBe(
       m.herdrupdate_done_fail({ current: "0.6.9" }),
     );
-    expect(document.querySelector(".status.fail + .err")?.textContent).toBe(
-      "herdr was not updated",
-    );
+    expect(document.querySelector(".details .log")?.textContent).toBe("herdr was not updated");
   });
 
   it.each([
@@ -143,6 +150,240 @@ describe("HerdrUpdateModal", () => {
       expect(document.querySelector(".versions")).toBeNull();
     },
   );
+  it("explains an incomplete installed update and only repairs after explicit confirmation", async () => {
+    const { restartHerdrServer } = await import("$lib/api");
+    vi.mocked(restartHerdrServer).mockClear();
+    const runtime = {
+      state: "restart_required" as const,
+      installedVersion: "0.9.0",
+      serverVersion: "0.8.2",
+      reason: "protocol_mismatch" as const,
+    };
+    render(HerdrUpdateModal, {
+      props: {
+        update: {
+          ...update,
+          current: "0.9.0",
+          latest: "0.9.0",
+          updateAvailable: false,
+          phase: "idle",
+          runtime,
+          result: {
+            ok: false,
+            from: "0.8.2",
+            to: "0.9.0",
+            errorCode: "restart_required",
+            handoffPaneLimit: 64,
+          },
+        },
+      },
+    });
+    await expect.element(page.getByText(m.herdrupdate_repair_warning())).toBeVisible();
+    await expect.element(page.getByText(m.herdrupdate_repair_limit({ count: 64 }))).toBeVisible();
+    expect(restartHerdrServer).not.toHaveBeenCalled();
+    await page.getByRole("button", { name: m.herdrupdate_restart_confirm(), exact: true }).click();
+    expect(restartHerdrServer).toHaveBeenCalledExactlyOnceWith(runtime);
+    await expect.element(page.getByText(m.herdrupdate_repair_restarting())).toBeVisible();
+  });
+
+  it("does not let an old done event finish a repair being verified", async () => {
+    render(HerdrUpdateModal, {
+      props: {
+        update: { ...update, phase: "verifying", result: null },
+        done: { ok: true, from: "0.8.2", to: "0.9.0" },
+      },
+    });
+    await expect.element(page.getByText(m.herdrupdate_repair_verifying())).toBeVisible();
+    await expect
+      .element(page.getByRole("button", { name: m.herdrupdate_confirm_plain(), exact: true }))
+      .not.toBeInTheDocument();
+  });
+  it("reloads repair needs on open without a new release and declining has no mutation", async () => {
+    const snapshot: HerdrUpdateStatus = {
+      ...update,
+      current: "0.9.0",
+      latest: "0.9.0",
+      updateAvailable: false,
+      phase: "idle",
+      revision: 2,
+      runtime: { state: "restart_required", installedVersion: "0.9.0", serverVersion: "0.8.2" },
+    };
+    vi.mocked(getHerdrUpdate).mockResolvedValue(snapshot);
+    const onclose = vi.fn();
+    const first = await render(HerdrUpdateModal, {
+      props: { update: { ...snapshot, revision: 1, runtime: undefined }, onclose },
+    });
+    await expect.element(page.getByText(m.herdrupdate_repair_warning())).toBeVisible();
+    await page.getByRole("button", { name: m.herdrupdate_later(), exact: true }).click();
+    expect(onclose).toHaveBeenCalledOnce();
+    expect(restartHerdrServer).not.toHaveBeenCalled();
+    await first.unmount();
+    await render(HerdrUpdateModal, { props: { update: snapshot } });
+    await expect
+      .element(page.getByRole("button", { name: m.herdrupdate_restart_confirm(), exact: true }))
+      .toBeVisible();
+    expect(getHerdrUpdate).toHaveBeenCalledTimes(2);
+    expect(restartHerdrServer).not.toHaveBeenCalled();
+  });
+
+  it("polls a confirmed repair to verified success when websocket events are missed", async () => {
+    const snapshot: HerdrUpdateStatus = {
+      ...update,
+      current: "0.9.0",
+      latest: "0.9.0",
+      updateAvailable: false,
+      phase: "idle",
+      revision: 1,
+      runtime: { state: "restart_required", installedVersion: "0.9.0", serverVersion: "0.8.2" },
+    };
+    vi.mocked(getHerdrUpdate)
+      .mockResolvedValueOnce(snapshot)
+      .mockResolvedValueOnce({ ...snapshot, revision: 2, phase: "verifying" })
+      .mockResolvedValue({
+        ...snapshot,
+        revision: 3,
+        runtime: { state: "ready", installedVersion: "0.9.0", serverVersion: "0.9.0" },
+        result: { ok: true, from: "0.8.2", to: "0.9.0" },
+      });
+    vi.mocked(restartHerdrServer).mockResolvedValue(undefined);
+    const view = await render(HerdrUpdateModal, { props: { update: snapshot } });
+    await page.getByRole("button", { name: m.herdrupdate_restart_confirm(), exact: true }).click();
+    await expect.element(page.getByText(m.herdrupdate_repair_verifying())).toBeVisible();
+    await expect.element(page.getByText(m.herdrupdate_repair_ready())).toBeVisible();
+    expect(restartHerdrServer).toHaveBeenCalledOnce();
+    const count = vi.mocked(getHerdrUpdate).mock.calls.length;
+    await view.unmount();
+    await new Promise((resolve) => setTimeout(resolve, 2100));
+    expect(getHerdrUpdate).toHaveBeenCalledTimes(count);
+  });
+
+  it("keeps polling after an accepted repair when the first GET and websocket events are lost", async () => {
+    const snapshot: HerdrUpdateStatus = {
+      ...update,
+      current: "0.9.0",
+      latest: "0.9.0",
+      updateAvailable: false,
+      phase: "idle",
+      revision: 1,
+      runtime: { state: "restart_required", installedVersion: "0.9.0", serverVersion: "0.8.2" },
+    };
+    vi.mocked(getHerdrUpdate)
+      .mockResolvedValueOnce(snapshot)
+      .mockRejectedValueOnce(new Error("connection interrupted"))
+      .mockResolvedValue({
+        ...snapshot,
+        revision: 3,
+        runtime: { state: "ready", installedVersion: "0.9.0", serverVersion: "0.9.0" },
+        result: { ok: true, from: "0.8.2", to: "0.9.0" },
+      });
+    vi.mocked(restartHerdrServer).mockResolvedValue(undefined);
+    await render(HerdrUpdateModal, { props: { update: snapshot } });
+    await page.getByRole("button", { name: m.herdrupdate_restart_confirm(), exact: true }).click();
+    await expect.element(page.getByText(m.herdrupdate_repair_restarting())).toBeVisible();
+    await expect.element(page.getByText(m.herdrupdate_repair_ready())).toBeVisible();
+    expect(restartHerdrServer).toHaveBeenCalledOnce();
+  });
+
+  it("rechecks an unknown runtime without stopping anything and clears transient probe errors", async () => {
+    const snapshot: HerdrUpdateStatus = {
+      ...update,
+      current: "0.9.0",
+      latest: "0.9.0",
+      updateAvailable: false,
+      phase: "idle",
+      revision: 1,
+      runtime: { state: "unknown", installedVersion: "0.9.0", serverVersion: null },
+    };
+    vi.mocked(getHerdrUpdate)
+      .mockRejectedValueOnce(new Error("connection lost"))
+      .mockResolvedValue({
+        ...snapshot,
+        revision: 2,
+        runtime: { state: "ready", installedVersion: "0.9.0", serverVersion: "0.9.0" },
+      });
+    await render(HerdrUpdateModal, { props: { update: snapshot } });
+    await expect
+      .poll(() => document.querySelector(".err")?.textContent)
+      .toBe(m.herdrupdate_repair_unknown());
+    await page.getByRole("button", { name: m.herdrupdate_repair_check(), exact: true }).click();
+    await expect.element(page.getByText(m.herdrupdate_repair_ready())).toBeVisible();
+    expect(document.querySelector(".err")).toBeNull();
+    expect(restartHerdrServer).not.toHaveBeenCalled();
+  });
+
+  it("allows retrying a persisted downgrade failure after reopening", async () => {
+    const { applyHerdrDowngrade } = await import("$lib/api");
+    vi.mocked(applyHerdrDowngrade).mockClear();
+    const snapshot: HerdrUpdateStatus = {
+      ...update,
+      current: "0.9.1",
+      latest: "0.9.1",
+      currentUnsupported: true,
+      downgradeTarget: "0.9.0",
+      updateAvailable: false,
+      phase: "idle",
+      revision: 1,
+      result: { ok: false, from: "0.9.1", to: "0.9.1", error: "manifest unavailable" },
+    };
+    vi.mocked(getHerdrUpdate).mockResolvedValue(snapshot);
+    await render(HerdrUpdateModal, { props: { update: snapshot } });
+    await page
+      .getByRole("button", {
+        name: m.herdrupdate_downgrade_confirm({ target: "0.9.0" }),
+        exact: true,
+      })
+      .click();
+    expect(applyHerdrDowngrade).toHaveBeenCalledOnce();
+  });
+
+  it("keeps a failed repair actionable with its technical error collapsed", async () => {
+    const snapshot: HerdrUpdateStatus = {
+      ...update,
+      phase: "idle",
+      revision: 1,
+      runtime: { state: "restart_required", installedVersion: "0.9.0", serverVersion: "0.8.2" },
+      result: {
+        ok: false,
+        from: "0.8.2",
+        to: "0.9.0",
+        errorCode: "restart_failed",
+        error: "selected herdr server stop failed",
+      },
+    };
+    await render(HerdrUpdateModal, { props: { update: snapshot } });
+    await expect.element(page.getByText(m.herdrupdate_repair_failed())).toBeVisible();
+    expect(document.querySelector<HTMLDetailsElement>("details")!.open).toBe(false);
+    await page.getByRole("button", { name: m.herdrupdate_restart_confirm(), exact: true }).click();
+    expect(restartHerdrServer).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    [390, 844],
+    [1280, 900],
+  ])("keeps the repair explanation and confirmation usable at %ix%i", async (width, height) => {
+    await page.viewport(width, height);
+    await render(HerdrUpdateModal, {
+      props: {
+        update: {
+          ...update,
+          phase: "idle",
+          runtime: { state: "restart_required", installedVersion: "0.9.0", serverVersion: "0.8.2" },
+          result: {
+            ok: false,
+            from: "0.8.2",
+            to: "0.9.0",
+            errorCode: "restart_required",
+            handoffPaneLimit: 64,
+          },
+        },
+      },
+    });
+    const card = document.querySelector<HTMLElement>(".card")!;
+    expect(card.scrollWidth).toBeLessThanOrEqual(card.clientWidth);
+    await expect
+      .element(page.getByRole("button", { name: m.herdrupdate_restart_confirm(), exact: true }))
+      .toBeVisible();
+  });
 
   it("keeps modal chrome from creating stray scrollbars with an active update log", async () => {
     await page.viewport(800, 600);
@@ -302,7 +543,8 @@ describe("HerdrUpdateModal", () => {
     expect(document.querySelector('[role="dialog"]')?.getAttribute("aria-label")).toBe(
       m.herdrupdate_downgrade_failed_title(),
     );
-    const errEl = document.querySelector(".status.fail + .err");
+    await page.getByText(m.herdrupdate_repair_details()).click();
+    const errEl = document.querySelector(".details .log");
     expect(errEl).not.toBeNull();
     expect(errEl!.textContent).toContain("herdr.dev manifest has no 0.7.4 asset for linux-x86_64");
   });

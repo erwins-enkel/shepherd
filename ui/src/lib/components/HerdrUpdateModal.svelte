@@ -1,7 +1,14 @@
 <script lang="ts">
-  import { tick } from "svelte";
-  import type { HerdrUpdateStatus } from "$lib/types";
-  import { applyHerdrUpdate, applyHerdrDowngrade, applyHerdrSandboxDowngrade } from "$lib/api";
+  import { tick, untrack } from "svelte";
+  import type { HerdrUpdateStatus, HerdrUpdateResult } from "$lib/types";
+  import {
+    applyHerdrUpdate,
+    applyHerdrDowngrade,
+    applyHerdrSandboxDowngrade,
+    getHerdrUpdate,
+    restartHerdrServer,
+    ApiError,
+  } from "$lib/api";
   import { dialog } from "$lib/a11yDialog";
   import { m } from "$lib/paraglide/messages";
 
@@ -13,22 +20,76 @@
     onconfirm,
     onclose,
     onjump,
+    onstatus,
+    connectionEpoch = 0,
   }: {
     update: HerdrUpdateStatus;
     /** The running sessions the herdr restart would interrupt — listed so the
      *  operator can jump to each and wrap it up before updating. */
     sessions?: { id: string; desig: string; name: string }[];
     log?: string[];
-    done?: { ok: boolean; from: string | null; to: string | null; error?: string } | null;
+    done?: HerdrUpdateResult | null;
+    onstatus?: (status: HerdrUpdateStatus) => void;
+    connectionEpoch?: number;
     onconfirm?: () => void;
     onclose?: () => void;
     /** Jump to a running session (closes this modal, selects the session). */
     onjump?: (id: string) => void;
   } = $props();
 
+  let refreshed = $state<HerdrUpdateStatus | null>(null);
+  const status = $derived(
+    refreshed && (refreshed.revision ?? 0) >= (update.revision ?? 0) ? refreshed : update,
+  );
+  let requesting = $state(false);
+  let awaitingStatus = $state(false);
+  let repairing = $state(false);
+  let refreshPending = false;
+  let refreshError = $state<string | null>(null);
+  const outcome = $derived(
+    status.phase !== undefined ? (requesting ? null : (status.result ?? null)) : done,
+  );
+  const recovery = $derived(
+    !status.currentUnsupported && status.runtime && status.runtime.state !== "ready",
+  );
+  const restartNeeded = $derived(recovery && status.runtime?.state === "restart_required");
+  const canRepair = $derived(recovery && (restartNeeded || status.runtime?.state === "offline"));
   const count = $derived(sessions.length);
 
+  async function refresh() {
+    if (refreshPending) return;
+    refreshPending = true;
+    const followsAcceptedAction = awaitingStatus;
+    try {
+      const next = await getHerdrUpdate();
+      refreshError = null;
+      if (followsAcceptedAction) awaitingStatus = false;
+      if ((next.revision ?? 0) >= (status.revision ?? 0)) {
+        refreshed = next;
+        onstatus?.(next);
+      }
+    } catch {
+      refreshError = m.herdrupdate_repair_unknown();
+    } finally {
+      refreshPending = false;
+    }
+  }
+
+  $effect(() => {
+    void connectionEpoch;
+    void untrack(refresh);
+    const timer = setInterval(() => {
+      if (busy) void refresh();
+    }, 2_000);
+    return () => clearInterval(timer);
+  });
+
   let submitting = $state(false);
+  const busy = $derived(
+    status.phase !== undefined
+      ? requesting || awaitingStatus || status.phase !== "idle"
+      : submitting && !done,
+  );
   let error = $state<string | null>(null);
   let logEl = $state<HTMLPreElement | null>(null);
 
@@ -43,7 +104,7 @@
   // off the critical path; the (browser-only) sanitizer never runs during SSR.
   let renderedNotes = $state("");
   $effect(() => {
-    const body = update.notes;
+    const body = status.notes;
     if (!body) {
       renderedNotes = "";
       return;
@@ -82,7 +143,7 @@
 
   // Stranded install (#1898): the INSTALLED herdr is unsupported — the modal's job
   // flips from "offer the upgrade" to "offer the rescue downgrade".
-  const stranded = $derived(!!update.currentUnsupported);
+  const stranded = $derived(!!status.currentUnsupported);
   // Which flavor ran, so the ✓ message reads "Downgraded…" instead of "Updated…".
   let downgrading = $state(false);
 
@@ -90,19 +151,26 @@
   // the Tier-1 bar, #1898): the title/instructions/versions/blocked text all
   // branch on `stranded`, and were each an inline ternary or if/else-if pair.
   const title = $derived.by(() => {
-    if (!done) return stranded ? m.herdrupdate_downgrade_title() : m.herdrupdate_title();
+    if (recovery) return m.herdrupdate_repair_title();
+    if (!outcome || busy) return stranded ? m.herdrupdate_downgrade_title() : m.herdrupdate_title();
     if (downgrading) {
-      return done.ok
+      return outcome.ok
         ? m.herdrupdate_downgrade_done_title()
         : m.herdrupdate_downgrade_failed_title();
     }
-    return done.ok ? m.herdrupdate_done_title() : m.herdrupdate_failed_title();
+    return outcome.ok ? m.herdrupdate_done_title() : m.herdrupdate_failed_title();
   });
   const instructionsText = $derived(
     stranded ? m.herdrupdate_downgrade_instructions() : m.herdrupdate_instructions(),
   );
-  const displayedCurrent = $derived(done?.from ?? update.current);
-  const displayedTarget = $derived(done?.to ?? (stranded ? update.downgradeTarget : update.latest));
+  const displayedCurrent = $derived(
+    (busy ? status.operation?.from : null) ?? outcome?.from ?? status.current,
+  );
+  const displayedTarget = $derived(
+    (busy ? status.operation?.to : null) ??
+      outcome?.to ??
+      (stranded ? status.downgradeTarget : status.latest),
+  );
   const versionsText = $derived(
     displayedCurrent && displayedTarget
       ? m.herdrupdate_versions({ current: displayedCurrent, latest: displayedTarget })
@@ -113,14 +181,14 @@
       ? {
           title: m.herdrupdate_stranded_title(),
           body: m.herdrupdate_stranded_body({
-            current: update.current ?? "?",
-            target: update.downgradeTarget ?? "",
+            current: status.current ?? "?",
+            target: status.downgradeTarget ?? "",
           }),
         }
-      : update.latestUnsupported
+      : status.latestUnsupported
         ? {
             title: m.herdrupdate_unsupported_title(),
-            body: m.herdrupdate_unsupported_body({ latest: update.latest ?? "" }),
+            body: m.herdrupdate_unsupported_body({ latest: status.latest ?? "" }),
           }
         : null,
   );
@@ -130,7 +198,13 @@
   // Busy only while the update is in flight; a terminal `done` result ends it so
   // the operator can read the ✓/✗ outcome and close. (No page reload anymore —
   // shepherd stays up, so the modal must resolve itself.)
-  const busy = $derived(submitting && !done);
+  const busyMessage = $derived(
+    status.phase === "verifying"
+      ? m.herdrupdate_repair_verifying()
+      : repairing || status.phase === "restarting"
+        ? m.herdrupdate_repair_restarting()
+        : m.herdrupdate_busy(),
+  );
 
   /** Dismiss on a genuine backdrop click (not a click that bubbled up from the card),
    *  and only while nothing is in flight. Named (rather than the inline arrow every
@@ -144,17 +218,36 @@
    *  same busy/error lifecycle, different endpoint + done-message flavor. */
   async function submit(action: () => Promise<void>, isDowngrade: boolean, failLabel: string) {
     submitting = true;
+    requesting = true;
     downgrading = isDowngrade;
     error = null;
     try {
       await action();
+      if (status.phase !== undefined) awaitingStatus = true;
       onconfirm?.();
     } catch (e) {
-      error = e instanceof Error ? e.message : failLabel;
+      error =
+        e instanceof ApiError && e.code === "runtime_changed"
+          ? m.herdrupdate_repair_changed()
+          : repairing
+            ? m.herdrupdate_repair_failed()
+            : e instanceof Error
+              ? e.message
+              : failLabel;
       submitting = false;
       downgrading = false;
+    } finally {
+      requesting = false;
+      if (status.phase !== undefined) void refresh();
     }
   }
+  async function confirmRepair() {
+    const runtime = status.runtime;
+    if (!runtime || !canRepair || busy) return;
+    repairing = true;
+    await submit(() => restartHerdrServer(runtime), false, m.herdrupdate_repair_failed());
+  }
+
   const confirm = () => submit(applyHerdrUpdate, false, "update failed");
   const confirmDowngrade = () => submit(applyHerdrDowngrade, true, "downgrade failed");
 
@@ -163,28 +256,91 @@
   // NON-blocking — unlike `blocked`, it doesn't hide the normal upgrade button; it adds an extra
   // downgrade action + an info note. Suppressed while a blocking state is showing (that flow already
   // offers its own downgrade).
-  const sandboxAdvisory = $derived(!!update.sandboxIdleRegressed && !blocked);
+  const sandboxAdvisory = $derived(!!status.sandboxIdleRegressed && !blocked);
   const confirmSandboxDowngrade = () =>
     submit(applyHerdrSandboxDowngrade, true, "downgrade failed");
 
-  // Done-state text, hoisted out of the template for the same reason as above.
   const doneMessage = $derived(
-    !done
+    !outcome
       ? null
-      : done.ok
-        ? downgrading
-          ? m.herdrupdate_downgrade_done_ok({ target: done.to ?? "" })
-          : m.herdrupdate_done_ok({ latest: done.to ?? update.latest ?? "" })
-        : m.herdrupdate_done_fail({ current: done.to ?? update.current ?? "" }),
+      : outcome.ok
+        ? status.runtime?.state === "ready"
+          ? m.herdrupdate_repair_ready()
+          : downgrading
+            ? m.herdrupdate_downgrade_done_ok({ target: outcome.to ?? "" })
+            : m.herdrupdate_done_ok({ latest: outcome.to ?? status.latest ?? "" })
+        : outcome.errorCode === "restart_required"
+          ? m.herdrupdate_repair_pending()
+          : outcome.errorCode
+            ? m.herdrupdate_repair_failed()
+            : m.herdrupdate_done_fail({ current: outcome.to ?? status.current ?? "" }),
   );
-  // A pre-flight refusal (bad manifest, URL divergence, unsupported platform) never
-  // runs the script, so it leaves no audit-log block and no log line — done.error is
-  // the ONLY place the reason exists. Server-authored, shown verbatim like a log line;
-  // reuses the existing `.err` styling used for client-side POST errors below.
-  const doneError = $derived(done && !done.ok ? done.error : null);
+  const doneError = $derived(outcome && !outcome.ok ? outcome.error : null);
   const confirmLabel = $derived(
     count > 0 ? m.herdrupdate_confirm({ count }) : m.herdrupdate_confirm_plain(),
   );
+
+  const recoveryText = $derived(
+    restartNeeded
+      ? m.herdrupdate_repair_pending()
+      : status.runtime?.state === "offline"
+        ? m.herdrupdate_repair_offline()
+        : m.herdrupdate_repair_unknown(),
+  );
+  const recoveryVersions = $derived(
+    m.herdrupdate_repair_versions({
+      installed: status.runtime?.installedVersion ?? "?",
+      server: status.runtime?.serverVersion ?? "?",
+    }),
+  );
+  const recoveryReason = $derived(
+    outcome?.handoffPaneLimit
+      ? m.herdrupdate_repair_limit({ count: outcome.handoffPaneLimit })
+      : m.herdrupdate_repair_reason(),
+  );
+  const showVersions = $derived(versionsText && !recovery);
+  const showRecovery = $derived(recovery && !busy);
+  const showAdvisory = $derived(sandboxAdvisory && !submitting && !recovery);
+  const showNotes = $derived(status.notes && !stranded && !recovery);
+  const showInstructions = $derived(!recovery && (status.updateAvailable || stranded));
+  const showSessions = $derived(count > 0 && !busy);
+  const sessionsLabel = $derived(
+    recovery ? m.herdrupdate_repair_tasks() : m.herdrupdate_sessions_label(),
+  );
+  const showOutcome = $derived(
+    outcome && (!restartNeeded || outcome.errorCode !== "restart_required"),
+  );
+  const showReady = $derived(
+    status.runtime?.state === "ready" && !status.updateAvailable && !stranded,
+  );
+  const showDetails = $derived(doneError || log.length > 0);
+  const visibleError = $derived(error ?? refreshError);
+  const closeLabel = $derived(outcome?.ok ? m.common_close() : m.herdrupdate_later());
+  const showSandboxAction = $derived(!outcome && !busy && sandboxAdvisory && !recovery);
+  const showRecheck = $derived(!busy && outcome && !outcome.ok && !recovery);
+  const sandboxLabel = $derived(
+    m.herdrupdate_sandbox_downgrade_confirm({ target: status.sandboxDowngradeTarget ?? "" }),
+  );
+  const primaryAction = $derived.by(() => {
+    if (busy) return null;
+    if (canRepair)
+      return {
+        run: confirmRepair,
+        downgrade: false,
+        label: restartNeeded ? m.herdrupdate_restart_confirm() : m.herdrupdate_repair_start(),
+      };
+    if (recovery) return { run: refresh, downgrade: false, label: m.herdrupdate_repair_check() };
+    if (outcome?.ok) return null;
+    if (stranded)
+      return {
+        run: confirmDowngrade,
+        downgrade: true,
+        label: m.herdrupdate_downgrade_confirm({ target: status.downgradeTarget ?? "" }),
+      };
+    if (!status.latestUnsupported && status.updateAvailable)
+      return { run: confirm, downgrade: false, label: confirmLabel };
+    return null;
+  });
 
   // Auto-scroll the log pane to bottom whenever new lines arrive.
   $effect(() => {
@@ -218,9 +374,20 @@
       >
     </div>
 
-    {#if versionsText}
+    {#if showVersions}
       <div class="summary">
         <span class="versions">{versionsText}</span>
+      </div>
+    {/if}
+
+    {#if showRecovery}
+      <div class="recovery" role="status">
+        <p>{recoveryText}</p>
+        <p>{recoveryVersions}</p>
+        {#if restartNeeded}
+          <p>{recoveryReason}</p>
+          <p class="warning">{m.herdrupdate_repair_warning()}</p>
+        {/if}
       </div>
     {/if}
 
@@ -235,21 +402,21 @@
       </div>
     {/if}
 
-    {#if sandboxAdvisory && !submitting}
+    {#if showAdvisory}
       <!-- Two-path advisory (#1716): supported herdr, but sandboxed agents can't report idle here.
            Informational (not an alert); the normal upgrade action stays available below. -->
       <div class="advisory">
         <span class="advisory-title">{m.herdrupdate_sandbox_advisory_title()}</span>
         <span class="advisory-body"
           >{m.herdrupdate_sandbox_advisory_body({
-            current: update.current ?? "?",
-            target: update.sandboxDowngradeTarget ?? "",
+            current: status.current ?? "?",
+            target: status.sandboxDowngradeTarget ?? "",
           })}</span
         >
       </div>
     {/if}
 
-    {#if update.notes && !stranded}
+    {#if showNotes}
       <div class="notes-label micro">{m.herdrupdate_notes_label()}</div>
       {#if renderedNotes}
         <!-- eslint-disable-next-line svelte/no-at-html-tags -- sanitized via DOMPurify above -->
@@ -257,24 +424,28 @@
       {:else}
         <!-- Fallback before the markdown imports resolve, or if they fail:
              show the raw notes as plain text rather than an empty box. -->
-        <pre class="notes notes-raw">{update.notes}</pre>
+        <pre class="notes notes-raw">{status.notes}</pre>
       {/if}
     {/if}
 
-    <a class="all-notes" href={HERDR_RELEASES_URL} target="_blank" rel="noopener noreferrer"
-      >{m.herdrupdate_all_notes_link()} ↗</a
-    >
+    {#if showInstructions}
+      <a class="all-notes" href={HERDR_RELEASES_URL} target="_blank" rel="noopener noreferrer"
+        >{m.herdrupdate_all_notes_link()} ↗</a
+      >
 
-    <div class="instructions">
-      {instructionsText}
-    </div>
+      <div class="instructions">
+        {instructionsText}
+      </div>
+    {/if}
 
-    {#if count > 0}
-      <div class="warning">{m.herdrupdate_warning({ count })}</div>
+    {#if showSessions}
+      {#if !recovery}<div class="warning">{m.herdrupdate_warning({ count })}</div>{/if}
       {#if !submitting}
         <!-- List the interrupted sessions so the operator can jump to each and
              wrap it up first, instead of guessing what the bare count refers to. -->
-        <div class="sessions-label micro">{m.herdrupdate_sessions_label()}</div>
+        <div class="sessions-label micro">
+          {sessionsLabel}
+        </div>
         <ul class="sessions">
           {#each sessions as s (s.id)}
             <li>
@@ -294,57 +465,71 @@
       {/if}
     {/if}
 
-    {#if submitting}
-      {#if done}
-        <div class="status" class:ok={done.ok} class:fail={!done.ok} aria-live="polite">
-          {doneMessage}
-        </div>
-        {#if doneError}
-          <div class="err">{doneError}</div>
-        {/if}
-      {:else}
-        <div class="status" aria-live="polite">{m.herdrupdate_busy()}</div>
-      {/if}
-      {#if log.length > 0}
-        <div class="log-label micro">{m.herdrupdate_log_label()}</div>
-        <pre class="log" bind:this={logEl}>{log.join("\n")}</pre>
-      {/if}
+    {#if busy}
+      <div class="status" aria-live="polite">{busyMessage}</div>
+    {:else if showOutcome && outcome}
+      <div class="status" class:ok={outcome.ok} class:fail={!outcome.ok} aria-live="polite">
+        {doneMessage}
+      </div>
+    {:else if showReady}
+      <div class="status ok" aria-live="polite">{m.herdrupdate_repair_ready()}</div>
     {/if}
-    {#if error}<div class="err">{error}</div>{/if}
+    {#if showDetails}
+      <details class="details">
+        <summary>{m.herdrupdate_repair_details()}</summary>
+        {#if doneError}<pre class="log">{doneError}</pre>{/if}
+        {#if log.length > 0}<pre class="log" bind:this={logEl}>{log.join("\n")}</pre>{/if}
+      </details>
+    {/if}
+    {#if visibleError}<div class="err">{visibleError}</div>{/if}
 
     <div class="actions">
-      {#if done}
-        <button type="button" class="later" onclick={() => onclose?.()}>{m.common_close()}</button>
-      {:else if !busy}
-        <button type="button" class="later" onclick={() => onclose?.()}
-          >{m.herdrupdate_later()}</button
+      {#if !busy}
+        <button type="button" class="later" onclick={() => onclose?.()}>{closeLabel}</button>
+      {/if}
+      {#if primaryAction}
+        <button
+          type="button"
+          class="run"
+          class:downgrade={primaryAction.downgrade}
+          onclick={primaryAction.run}>{primaryAction.label}</button
         >
       {/if}
-      {#if !done && stranded}
-        <button type="button" class="run downgrade" onclick={confirmDowngrade} disabled={busy}>
-          {m.herdrupdate_downgrade_confirm({ target: update.downgradeTarget ?? "" })}
-        </button>
-      {:else if !done && !update.latestUnsupported}
-        <button type="button" class="run" onclick={confirm} disabled={busy}>
-          {confirmLabel}
-        </button>
-      {/if}
-      {#if !done && sandboxAdvisory}
-        <!-- Non-blocking opt-out, shown ALONGSIDE the upgrade button above (two paths). -->
+      {#if showSandboxAction}
         <button
           type="button"
           class="run downgrade sandbox-downgrade"
-          onclick={confirmSandboxDowngrade}
-          disabled={busy}
+          onclick={confirmSandboxDowngrade}>{sandboxLabel}</button
         >
-          {m.herdrupdate_sandbox_downgrade_confirm({ target: update.sandboxDowngradeTarget ?? "" })}
-        </button>
+      {/if}
+      {#if showRecheck}
+        <button type="button" class="run" onclick={() => void refresh()}
+          >{m.herdrupdate_repair_check()}</button
+        >
       {/if}
     </div>
   </div>
 </div>
 
 <style>
+  .recovery,
+  .details {
+    padding: 12px 18px;
+    font-size: var(--fs-base);
+    overflow-wrap: anywhere;
+  }
+  .recovery p {
+    margin: 0 0 12px;
+  }
+  .details {
+    min-height: 0;
+    overflow: auto;
+  }
+  .details summary {
+    cursor: pointer;
+    color: var(--color-muted);
+  }
+
   .overlay {
     position: fixed;
     inset: 0;
@@ -650,9 +835,6 @@
   }
   .status.fail {
     color: var(--color-red);
-  }
-  .log-label {
-    margin-bottom: -8px;
   }
   .log {
     flex: 1 1 96px;

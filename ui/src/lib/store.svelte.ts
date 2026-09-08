@@ -10,6 +10,7 @@ import type {
   UsageLimits,
   UpdateStatus,
   HerdrUpdateStatus,
+  HerdrUpdateResult,
   CodexUpdateStatus,
   CodexUpdateResult,
   PluginUpdatesStatus,
@@ -83,12 +84,7 @@ export class HerdStore {
    *  Seeded by a bootstrap GET /api/plugins; live-updated by the `plugin:status` event. */
   plugins = $state<PluginInfo[]>([]);
   herdrUpdateLog = $state<string[]>([]);
-  herdrUpdateDone = $state<{
-    ok: boolean;
-    from: string | null;
-    to: string | null;
-    error?: string;
-  } | null>(null);
+  herdrUpdateDone = $state<HerdrUpdateResult | null>(null);
   codexUpdateLog = $state<string[]>([]);
   codexUpdateDone = $state<CodexUpdateResult | null>(null);
   /** Worst-of diagnostics state; "ok" until a snapshot lands. */
@@ -698,24 +694,27 @@ export class HerdStore {
     }
   }
 
+  setHerdrUpdate(status: HerdrUpdateStatus): void {
+    if ((status.revision ?? 0) < (this.herdrUpdate?.revision ?? 0)) return;
+    this.herdrUpdate = status;
+    if (status.phase !== undefined) this.herdrUpdateDone = status.result ?? null;
+  }
+
   /** Handle the three herdr self-update channel events (status / log / done). Returns true
    *  when it handled `ev`, false otherwise — split out of applyGlobalEvent so that dispatch
    *  switch stays under the complexity gate. */
   private applyHerdrUpdateEvent(ev: WsEvent): boolean {
     switch (ev.event) {
       case "herdr-update:status":
-        this.herdrUpdate = ev.data;
+        this.setHerdrUpdate(ev.data);
         return true;
       case "herdr-update:log":
         this.herdrUpdateLog = [...this.herdrUpdateLog, ev.data.line].slice(-200);
         return true;
       case "herdr-update:done":
-        this.herdrUpdateDone = ev.data as {
-          ok: boolean;
-          from: string | null;
-          to: string | null;
-          error?: string;
-        };
+        // Modern status snapshots carry the result with its phase/revision. A late
+        // legacy done event must not finish a newer operation.
+        if (this.herdrUpdate?.phase === undefined) this.herdrUpdateDone = ev.data;
         return true;
       default:
         return false;

@@ -587,9 +587,6 @@
   let deploy = $state<DeployState | null>(null);
   let deployPollTimer: ReturnType<typeof setTimeout> | null = null;
   let showHerdrUpdate = $state(false);
-  // set once the operator confirms the herdr update; herdr+shepherd restart drops
-  // the WS and the store auto-reconnects, refreshing state once the new build is live.
-  let herdrUpdating = $state(false);
   let showCodexUpdate = $state(false);
   // set once the operator confirms the codex update; the install runs server-side
   // and the modal resolves itself via the codex-update:done event.
@@ -969,7 +966,12 @@
   // store.epics) and writes it back via setEpic, which would otherwise loop.
   $effect(() => {
     const epoch = store.connectionEpoch;
-    if (epoch > 1) untrack(() => resync({ force: true }));
+    if (epoch > 1) {
+      untrack(() => resync({ force: true }));
+      void getHerdrUpdate()
+        .then((status) => store.setHerdrUpdate(status))
+        .catch(() => {});
+    }
   });
 
   // Fetch backlog when the overview is empty, or when the operator opens the
@@ -1702,7 +1704,6 @@
       },
       beforeHerdrUpdateJump: () => {
         showHerdrUpdate = false;
-        herdrUpdating = false;
         store.herdrUpdateDone = null;
       },
     },
@@ -1745,7 +1746,7 @@
       .then((u) => store.setUpdate(u))
       .catch(() => {});
     getHerdrUpdate()
-      .then((u) => (store.herdrUpdate = u))
+      .then((u) => store.setHerdrUpdate(u))
       .catch(() => {});
     getCodexUpdate()
       .then((u) => (store.codexUpdate = u))
@@ -3170,15 +3171,12 @@
   onupdateconfirm={onUpdateConfirm}
   onupdateclose={closeUpdate}
   {showHerdrUpdate}
-  {herdrUpdating}
   onherdrupdateconfirm={() => {
-    herdrUpdating = true;
     store.herdrUpdateDone = null; // fresh run: clear any prior result
     store.herdrUpdateLog = [];
   }}
   onherdrupdateclose={() => {
     showHerdrUpdate = false;
-    herdrUpdating = false;
     store.herdrUpdateDone = null;
   }}
   onherdrupdatejump={(id) => void jumpHandlers.jumpFromHerdrUpdate(id)}

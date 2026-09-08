@@ -103,6 +103,8 @@
     onclose,
     onclone,
     onfork,
+    onherdrrepair,
+    suspended = false,
     onnewproject,
     initialPrompt,
     initialRepoPath,
@@ -157,6 +159,8 @@
     onclose?: () => void;
     onclone?: () => void;
     onfork?: () => void;
+    onherdrrepair?: () => void;
+    suspended?: boolean;
     onnewproject?: () => void;
     initialPrompt?: string;
     initialRepoPath?: string;
@@ -275,8 +279,16 @@
   let sandboxProfile = $state<"default" | SandboxProfile>(initialSandboxProfile ?? "default");
   let submitting = $state(false);
   let error = $state<string | null>(null);
+  let herdrRepairRequired = $state(false);
   // re-invokes whichever action last failed (upload or create) from an inline Retry
   let retry = $state<(() => void) | null>(null);
+  const errorAction = $derived(
+    herdrRepairRequired && onherdrrepair
+      ? { run: onherdrrepair, label: m.diagnostics_herdr_repair() }
+      : retry
+        ? { run: retry, label: m.common_retry() }
+        : null,
+  );
   // True while the first-task confirm step is shown (unconfirmed repo intercept)
   let confirmStep = $state(false);
   // Carries the `force` flag across the confirm step so confirming a first-task repo
@@ -1108,6 +1120,7 @@
 
   // Cmd/Ctrl+V of a screenshot: upload any image on the clipboard.
   function onPaste(e: ClipboardEvent) {
+    if (suspended) return;
     handleImagePaste(e, addFiles);
   }
 
@@ -1403,8 +1416,14 @@
   // blur/pointerdown live on window (they describe events OUTSIDE the dialog),
   // so they must be removed when the card unmounts — $effect's cleanup does it.
   $effect(() => {
-    if (!cardEl) return;
+    if (!cardEl || suspended) return;
     return hold.attach(cardEl);
+  });
+
+  $effect(() => {
+    if (!suspended && herdrRepairRequired) {
+      void tick().then(() => cardEl?.querySelector<HTMLButtonElement>(".err button")?.focus());
+    }
   });
 
   const hold = createHoldReveal({
@@ -1416,7 +1435,7 @@
     // render at their anchors, so a layout that mounts fewer controls simply
     // shows fewer caps; nothing points at something that isn't there.
     // The only guard left is the key sheet, which owns the keyboard while open.
-    active: () => !sheetOpen,
+    active: () => !sheetOpen && !suspended,
   });
 
   /** True while the keycaps are showing — drives the scrim and every <Keycap>. */
@@ -1494,6 +1513,7 @@
 
   // Form-level keydown: the single dispatch point for the whole dialog.
   function onFormKeydown(e: KeyboardEvent) {
+    if (suspended) return;
     hold.onKeydown(e);
     if (e.repeat || e.isComposing) return;
 
@@ -1582,7 +1602,8 @@
   }
 
   async function doSpawn(force = false, expectedUploadRevision = uploadQueueRevision) {
-    if (!uploadsSettledSince(expectedUploadRevision)) return;
+    if (suspended || !uploadsSettledSince(expectedUploadRevision)) return;
+    herdrRepairRequired = false;
     submitting = true;
     error = null;
     retry = null;
@@ -1616,6 +1637,9 @@
         // The operator's own doing, and the server already rolled the worktree back. Say so
         // plainly and leave the prompt standing rather than raising an error.
         spawnCanceled = true;
+      } else if (err instanceof ApiError && err.code === "herdr_restart_required") {
+        herdrRepairRequired = true;
+        error = m.newtask_herdr_restart();
       } else if (isPreviewBlocked(err)) {
         error = (err as Error).message;
       } else {
@@ -2333,9 +2357,9 @@
           {#if error}
             <div class="err" role="alert">
               <span>{error}</span>
-              {#if retry}
-                <button type="button" class="retry" onclick={() => retry?.()}
-                  >{m.common_retry()}</button
+              {#if errorAction}
+                <button type="button" class="retry" onclick={errorAction.run}
+                  >{errorAction.label}</button
                 >
               {/if}
             </div>

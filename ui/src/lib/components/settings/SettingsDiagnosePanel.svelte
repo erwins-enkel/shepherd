@@ -22,14 +22,14 @@
   let {
     initialDiagnostics = null,
     query = "",
-    onherdrdowngrade,
+    onherdrupdate,
   }: {
     /** Pre-seeded diagnostics checks from the store; loaded fresh on tab open if absent. */
     initialDiagnostics?: DiagnosticCheck[] | null;
     /** Active settings-search query — highlights the panel\'s indexed labels. */
     query?: string;
-    /** Open the herdr-update modal (one-click downgrade for a stranded herdr, #1898). */
-    onherdrdowngrade?: () => void;
+    /** Open the shared herdr recovery/update modal. */
+    onherdrupdate?: () => void;
   } = $props();
 
   // Diagnose tab — local checks + re-run state.
@@ -102,7 +102,7 @@
   <span class="micro"><HighlightText text={m.diagnostics_title()} {query} /></span>
   <p class="hint"><HighlightText text={m.diagnostics_subtitle()} {query} /></p>
 </div>
-<DiagnoseRows checks={diagChecks} onfix={fixCheck} {onherdrdowngrade} />
+<DiagnoseRows checks={diagChecks} onfix={fixCheck} {onherdrupdate} />
 <!-- Client-only: install/standalone state can't come from /api/diagnostics, so this
      row renders independently of the server snapshot's load/fail/empty state. -->
 <PwaInstallRow />

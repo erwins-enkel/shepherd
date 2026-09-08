@@ -27,6 +27,7 @@ import type {
   DeployState,
   DirtyStatus,
   HerdrUpdateStatus,
+  HerdrRuntimeStatus,
   CodexUpdateStatus,
   CodexReleaseNotesResult,
   DiagnosticsSnapshot,
@@ -138,7 +139,7 @@ export function isPreviewBlocked(e: unknown): boolean {
  *  would render a BLANK toast instead of the generic failure. Hence the truthiness check. */
 function apiError(
   status: number,
-  body: { error?: string } | null | undefined,
+  body: { error?: string; code?: string } | null | undefined,
   fallback: string,
 ): Error {
   flagIfUnauthorized(status);
@@ -148,7 +149,7 @@ function apiError(
   if (status === 403 && body?.error === ORIGIN_HOST_BLOCK) {
     return new ApiError(status, m.error_origin_host_not_allowed(), undefined, true);
   }
-  return new ApiError(status, body?.error || fallback, undefined, !!body?.error);
+  return new ApiError(status, body?.error || fallback, body?.code, !!body?.error);
 }
 
 /** A failed API call that carries the HTTP `status` and the server's stable `code`
@@ -250,7 +251,9 @@ export async function createSession(
     headers: spawnId ? { ...JSON_HEADERS, [SPAWN_ID_HEADER]: spawnId } : JSON_HEADERS,
     body: JSON.stringify(input),
   });
-  if (!r.ok) throw await failed(r, "create");
+  if (!r.ok) {
+    throw await failed(r, "create");
+  }
   return r.json();
 }
 
@@ -1802,6 +1805,19 @@ export async function fixDiagnostic(checkId: string): Promise<DiagnosticsSnapsho
   });
   if (!r.ok) throw await failed(r, "diagnostics fix");
   return r.json();
+}
+
+/** The explicit UI confirmation includes the exact local versions the operator saw. */
+export async function restartHerdrServer(runtime: HerdrRuntimeStatus): Promise<void> {
+  await postJson(
+    "/api/herdr-update/restart",
+    {
+      confirmed: true,
+      installedVersion: runtime.installedVersion,
+      serverVersion: runtime.serverVersion,
+    },
+    "herdr repair",
+  );
 }
 
 /** Trigger `herdr update` (restarts herdr → ends live sessions → restarts shepherd). */

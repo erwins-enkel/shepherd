@@ -1671,7 +1671,37 @@ export interface DirtyStatus {
 }
 
 /** Informational herdr-version update check (no auto-apply). */
+export interface HerdrRuntimeStatus {
+  state: "ready" | "restart_required" | "offline" | "unknown";
+  installedVersion: string | null;
+  serverVersion: string | null;
+  reason?: "version_mismatch" | "protocol_mismatch" | "unreachable" | "probe_failed";
+}
+
+export interface HerdrUpdateResult {
+  ok: boolean;
+  from: string | null;
+  to: string | null;
+  serverVersion?: string | null;
+  error?: string;
+  errorCode?:
+    | "restart_required"
+    | "offline"
+    | "probe_failed"
+    | "update_failed"
+    | "restart_failed"
+    | "timeout";
+  handoffPaneLimit?: number;
+}
+
 export interface HerdrUpdateStatus {
+  /** Observed local runtime, independent of the release manifest. */
+  runtime?: HerdrRuntimeStatus;
+  phase?: "idle" | "updating" | "restarting" | "verifying";
+  operation?: { from: string | null; to: string | null };
+  result?: HerdrUpdateResult | null;
+  /** Monotonic snapshot order: a late HTTP response must not overwrite newer progress. */
+  revision?: number;
   current: string | null;
   latest: string | null;
   updateAvailable: boolean;
@@ -2111,7 +2141,7 @@ export type WsEvent =
   | { event: "herdr-update:log"; data: { line: string } }
   | {
       event: "herdr-update:done";
-      data: { ok: boolean; from: string | null; to: string | null; error?: string };
+      data: HerdrUpdateResult;
     }
   | { event: "codex-update:status"; data: CodexUpdateStatus }
   | { event: "codex-update:log"; data: { line: string } }

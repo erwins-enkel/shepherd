@@ -3,7 +3,7 @@ import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../../app.css";
 import AppOverlays from "./AppOverlays.svelte";
-import type { HerdStore } from "$lib/store.svelte";
+import { HerdStore } from "$lib/store.svelte";
 import type {
   AgentProvider,
   BacklogPayload,
@@ -17,6 +17,7 @@ import { steers } from "$lib/steers.svelte";
 import { repos } from "$lib/repos.svelte";
 import { steersSettingsOpen } from "../../../routes/steers-settings-open";
 import { m } from "$lib/paraglide/messages";
+import { ApiError, restartHerdrServer, uploadFile } from "$lib/api";
 
 // The redesigned NewTask is responsive (rail vs. mobile sheet); vitest-browser's
 // default viewport is mobile-width, so pin desktop for these desktop-DOM suites.
@@ -33,9 +34,30 @@ afterEach(() => {
 // NewTask calls listRepos() on mount; stub it so the dialog mounts without a server.
 // Keep every other $lib/api export real (AppOverlays imports many for the
 // learnings drawer, but those only fire on interaction, not on mount).
-vi.mock("$lib/api", async (orig) => ({
-  ...((await orig()) as object),
-  listRepos: vi.fn().mockResolvedValue({ repos: [], recentWindowDays: 30 }),
+vi.mock("$lib/api", async (original) => ({
+  ...(await original<typeof import("$lib/api")>()),
+  listRepos: vi.fn(async () => ({ repos: [], recentWindowDays: 30 })),
+  listBranches: vi.fn(async () => ({ current: "main", branches: ["main"], default: "main" })),
+  branchStatus: vi.fn(async () => ({
+    behind: 0,
+    ahead: 0,
+    diverged: false,
+    hasUpstream: true,
+    localExists: true,
+  })),
+  getRepoConfig: vi.fn(async () => ({
+    automationConfirmed: true,
+    automationRowExists: true,
+    planGateEnabled: false,
+    autopilotEnabled: false,
+  })),
+  getCommands: vi.fn(async () => ({ commands: [] })),
+  listIssues: vi.fn(async () => ({ issues: [], slug: null, webUrl: null, viewer: null })),
+  getTodo: vi.fn(async () => ({ exists: false, content: "" })),
+  getEpics: vi.fn(async () => ({ epics: [], subIssues: [] })),
+  getHerdrUpdate: vi.fn(() => new Promise(() => {})),
+  restartHerdrServer: vi.fn(),
+  uploadFile: vi.fn(async (file: File) => `/staged/${file.name}`),
 }));
 
 // store is only read by overlay blocks that are not shown in these tests (update,
@@ -58,7 +80,6 @@ function baseProps(): Props {
     onupdateconfirm: vi.fn(),
     onupdateclose: vi.fn(),
     showHerdrUpdate: false,
-    herdrUpdating: false,
     onherdrupdateconfirm: vi.fn(),
     onherdrupdateclose: vi.fn(),
     onherdrupdatejump: vi.fn(),
@@ -420,11 +441,7 @@ describe("AppOverlays — command bar wiring", () => {
   });
 });
 
-// e22ca449 widened the herdr-update render gate to
-// `updateAvailable || currentUnsupported || herdrUpdating` — currentUnsupported is what makes
-// the #1898 downgrade rescue reachable at all: on a stranded install current === latest, so
-// updateAvailable is false and the OR's first arm never fires. Lock the gate so a future
-// refactor can't quietly drop that clause and strand the modal unreachable again.
+// Explicit opens also refresh runtime when the installed version is already current.
 describe("AppOverlays — herdr-update modal gate (#1898 stranded downgrade)", () => {
   beforeEach(() => vi.clearAllMocks());
 
@@ -456,16 +473,104 @@ describe("AppOverlays — herdr-update modal gate (#1898 stranded downgrade)", (
     expect(document.querySelector(".run.downgrade")).not.toBeNull();
   });
 
-  it("renders nothing when the install is neither behind nor stranded", () => {
+  it("allows an explicit open to refresh runtime even when no release is available", () => {
     const props = baseProps();
     props.showHerdrUpdate = true;
-    // updateAvailable: false, currentUnsupported: false (via herdrStore defaults),
-    // and herdrUpdating stays false from baseProps() — none of the OR's three arms fire.
     props.store = herdrStore({});
 
     render(AppOverlays, props);
 
     expect(document.querySelector(".run.downgrade")).toBeNull();
-    expect(page.getByRole("dialog").elements()).toHaveLength(0);
+    expect(page.getByRole("dialog").elements()).toHaveLength(1);
   });
+});
+
+it("preserves the real composer through recovery and restores focus without submitting twice", async () => {
+  const store = new HerdStore();
+  store.setHerdrUpdate({
+    current: "0.9.0",
+    latest: "0.9.0",
+    updateAvailable: false,
+    notes: null,
+    checkedAt: 1,
+    phase: "idle",
+    revision: 1,
+    runtime: { state: "restart_required", installedVersion: "0.9.0", serverVersion: "0.8.2" },
+  });
+  const onsubmit = vi
+    .fn()
+    .mockRejectedValueOnce(new ApiError(409, "protocol_mismatch", "herdr_restart_required", true))
+    .mockResolvedValue(undefined);
+  const props: Props = {
+    ...baseProps(),
+    store,
+    settings: null,
+    showNew: true,
+    showHerdrUpdate: false,
+    composeRepoPath: "/repo/recovery",
+    composeBaseBranch: "main",
+    composePrompt: "Preserve this draft",
+    composeImages: [{ path: "/staged/draft.png", name: "draft.png" }],
+    composeModel: "sonnet",
+    decomLeftovers: [],
+    onsubmit,
+    onsettingsherdrupdate: () => view.rerender({ ...props, showHerdrUpdate: true }),
+    onherdrupdateclose: () => view.rerender(props),
+  };
+  const view = await render(AppOverlays, { props });
+  const prompt = document.querySelector<HTMLTextAreaElement>("#nt-prompt")!;
+  const run = document.querySelector<HTMLButtonElement>("button.run")!;
+  await expect.poll(() => run.disabled).toBe(false);
+  run.click();
+  await page.getByRole("button", { name: m.diagnostics_herdr_repair(), exact: true }).click();
+  await expect.element(page.getByText(m.herdrupdate_repair_warning())).toBeVisible();
+  expect(document.querySelector("#nt-prompt")).toBe(prompt);
+  expect(prompt.closest("[hidden][inert]")).not.toBeNull();
+  const clipboard = new DataTransfer();
+  clipboard.items.add(new File(["png"], "hidden-paste.png", { type: "image/png" }));
+  const paste = new ClipboardEvent("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(paste, "clipboardData", { value: clipboard });
+  window.dispatchEvent(paste);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(uploadFile).not.toHaveBeenCalled();
+  prompt.dispatchEvent(
+    new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true, bubbles: true }),
+  );
+  expect(onsubmit).toHaveBeenCalledOnce();
+  expect(restartHerdrServer).not.toHaveBeenCalled();
+  await page.getByRole("button", { name: m.herdrupdate_later(), exact: true }).click();
+  await expect.poll(() => prompt.closest("[hidden]")).toBeNull();
+  await expect.poll(() => document.activeElement?.textContent).toBe(m.diagnostics_herdr_repair());
+  expect(prompt.value).toBe("Preserve this draft");
+  expect(document.body.textContent).toContain("draft.png");
+  expect(onsubmit).toHaveBeenCalledOnce();
+  run.click();
+  await expect.poll(() => onsubmit.mock.calls.length).toBe(2);
+  expect(onsubmit.mock.calls[1]![0]).toMatchObject({
+    prompt: "Preserve this draft",
+    images: ["/staged/draft.png"],
+    model: "sonnet",
+    baseBranch: "main",
+  });
+});
+
+it("still opens a closable recovery dialog if bootstrap status was unavailable", async () => {
+  const store = new HerdStore();
+  const props = {
+    ...baseProps(),
+    store,
+    showNew: true,
+    showHerdrUpdate: true,
+    composePrompt: "Unsaved draft",
+  };
+  props.onherdrupdateclose = () => {
+    void view.rerender({ ...props, showHerdrUpdate: false });
+  };
+  const view = await render(AppOverlays, props);
+  await expect
+    .element(page.getByRole("button", { name: m.herdrupdate_repair_check(), exact: true }))
+    .toBeVisible();
+  await page.getByRole("button", { name: m.herdrupdate_later(), exact: true }).click();
+  await expect.poll(() => document.querySelector("#nt-prompt")?.closest("[hidden]")).toBeNull();
+  expect(document.querySelector<HTMLTextAreaElement>("#nt-prompt")!.value).toBe("Unsaved draft");
 });

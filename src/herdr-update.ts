@@ -12,9 +12,11 @@ import { compareSemver } from "./semver";
 import { herdrAssetKey, herdrReleaseUrl, sanitizeVersion } from "./herdr-install";
 import { runScriptChild } from "./script-child";
 import { readInstalledVersion, readActualVersion } from "./version-probe";
-import type { HerdrUpdateStatus } from "./types";
+import type { HerdrUpdateStatus, HerdrUpdateResult } from "./types";
+import { probeHerdrRuntime, type HerdrRuntimeStatus } from "./herdr-runtime";
+import { runHerdrRecovery } from "./herdr-recovery";
 
-export type { HerdrUpdateStatus };
+export type { HerdrUpdateStatus, HerdrUpdateResult };
 // Re-exported so existing importers (diagnostics, plugin-update, codex-update) keep their
 // `from "./herdr-update"` path; the implementation now lives in the leaf semver.ts (so
 // herdr-capabilities.ts can share it without an import cycle).
@@ -80,26 +82,9 @@ export function buildUpdateScript(
   // pane. Not stopping means a failed update usually leaves the live server +
   // panes untouched.
   //
-  // Recovery (#1558): `herdr update` exits 0 even when it leaves NO running server, so
-  // gating recovery on `rc != 0` (as we used to) skipped the exact bug. So we ALWAYS run
-  // `herdr agent list` after the update, regardless of rc.
-  //
-  // That call VERIFIES; it does not repair. An earlier version of this comment claimed any
-  // herdr CLI call auto-spawns the daemon (sourced to the 0.6.x-era "herdr update without a
-  // shepherd restart" design doc). That is FALSE on 0.7.x: against a dead socket `herdr
-  // agent list` exits 1 with ENOENT and spawns nothing — verified in a clean instance
-  // (#1574). The `setsid … server` fallback below is therefore NOT a belt-and-braces
-  // leftover; it is the ONLY thing that recovers a host whose server did not come back.
-  //
-  // Grace + retry: a still-binding server — an in-flight `--handoff`, or a self-
-  // managed systemd unit with `Restart=always` coming up — must not be mistaken for
-  // "down". The retry loop lets it bind first, so a systemd-managed server wins and
-  // the fallback below is never entered.
-  //
-  // Last-resort fallback: the ONLY repair path (see above — nothing auto-spawns). Relaunch a
-  // detached server so orphaned targets reattach. On a host provisioned by deploy/provision.ts
-  // this is normally unreachable: `deploy/herdr.service` (Restart=always) wins the retry race
-  // above. It still covers hand-rolled installs with no unit.
+  // A failed handoff can leave a LIVE older server behind. Runtime verification and
+  // offline-only recovery belong to the service, which can distinguish that from a
+  // missing daemon. Never launch another server solely because agent list failed.
   return [
     `LOG=${q}`,
     'mkdir -p "$(dirname "$LOG")"',
@@ -108,22 +93,6 @@ export function buildUpdateScript(
     `  echo '${UPDATE_LOG_PREFIX} running herdr update --handoff'`,
     `  ${h} update --handoff; rc=$?`,
     `  echo "${UPDATE_LOG_PREFIX} herdr update exited rc=$rc"`,
-    // Unconditional (NOT gated on rc): `herdr update` can exit 0 having left NO running
-    // server (#1558), so this call VERIFIES reachability on every path. It does not repair —
-    // nothing auto-spawns (#1574); the fallback below is the only repair. Grace+retry lets an
-    // in-flight --handoff or a systemd `Restart=always` unit bind first before we conclude
-    // "unreachable".
-    "  ok=0",
-    "  for attempt in 1 2 3; do",
-    `    if timeout 10 ${h} agent list >/dev/null 2>&1; then ok=1; break; fi`,
-    "    sleep 2",
-    "  done",
-    '  if [ "$ok" -eq 1 ]; then',
-    `    echo '${UPDATE_LOG_PREFIX} herdr server reachable after update'`,
-    "  else",
-    `    echo '${UPDATE_LOG_PREFIX} herdr server unreachable after retries — relaunching a detached server so orphaned sessions reattach'`,
-    `    setsid ${h} server </dev/null >/dev/null 2>&1 &`,
-    "  fi",
     '} 2>&1 | tee -a "$LOG"',
   ].join("\n");
 }
@@ -239,16 +208,6 @@ function sandboxFlags(
   };
 }
 
-/** Terminal outcome of an apply(), emitted once via onDone. Drives the modal's
- *  ✓/✗ state. Success is decided by a re-read `herdr --version`, NOT the child's
- *  exit code (`herdr update` exits 0 even when it prints "Herdr was not updated"). */
-export interface HerdrUpdateResult {
-  ok: boolean;
-  from: string | null;
-  to: string | null;
-  error?: string;
-}
-
 /** Subset of herdr.dev/latest.json Shepherd reads: the latest release (version/notes)
  *  plus the per-version `releases` map used to resolve versioned artifacts (#1898). */
 export interface HerdrManifest {
@@ -258,6 +217,12 @@ export interface HerdrManifest {
 }
 
 export interface HerdrUpdateDeps {
+  probeRuntime?: (signal?: AbortSignal) => Promise<HerdrRuntimeStatus>;
+  runRecovery?: (
+    restart: boolean,
+    signal: AbortSignal,
+    expected: HerdrRuntimeStatus,
+  ) => Promise<void>;
   /** inject point for tests; defaults to running the herdr binary's --version */
   versionRunner?: () => string;
   /** inject point for tests; defaults to fetching herdr.dev/latest.json */
@@ -285,7 +250,7 @@ export interface HerdrUpdateDeps {
   /** the terminal result, emitted exactly once per apply(); default: no-op */
   onDone?: (result: HerdrUpdateResult) => void;
   /** maintenance gate; defaults to the shared process singleton */
-  maintenance?: { begin(): void; end(): void };
+  maintenance?: { readonly active?: boolean; begin(): void; end(): void };
   /** watchdog ceiling before a hung `herdr update` is force-killed (default 5min) */
   watchdogMs?: number;
   /** Whether this operator runs sandboxed sessions — gates the sandboxed-idle advisory (#1716) so
@@ -306,9 +271,9 @@ export interface HerdrUpdateDeps {
  *
  * `apply()` spawns `herdr update --handoff` as a managed child of shepherd (no
  * systemd-run, no shepherd restart). Shepherd stays up — no 502.
- * Success is determined by re-reading `herdr --version` after the child exits,
- * not by exit code (`herdr update` exits 0 even when it prints "Herdr was not
- * updated"). The terminal result is emitted via onDone.
+ * Updates succeed only when the installed target matches the running server and
+ * agent calls work. A successful binary install alone leaves a repairable state.
+ * The terminal result is emitted via onDone.
  */
 export class HerdrUpdateService {
   private versionRunner: () => string;
@@ -322,13 +287,30 @@ export class HerdrUpdateService {
   private onLog: (line: string) => void;
   private onStatus: (status: HerdrUpdateStatus) => void;
   private onDone: (result: HerdrUpdateResult) => void;
-  private maintenance: { begin(): void; end(): void };
+  private maintenance: { readonly active?: boolean; begin(): void; end(): void };
   private watchdogMs: number;
   private sandboxedInUse: () => boolean;
   private last: HerdrUpdateStatus | null = null;
   private applying = false;
+  private runtime?: HerdrRuntimeStatus;
+  private phase: NonNullable<HerdrUpdateStatus["phase"]> = "idle";
+  private result: HerdrUpdateResult | null = null;
+  private operation?: { from: string | null; to: string | null };
+  private revision = Date.now();
+  private runtimeRead: Promise<HerdrUpdateStatus> | null = null;
+  private probeRuntime: (signal?: AbortSignal) => Promise<HerdrRuntimeStatus>;
+  private runRecovery: (
+    restart: boolean,
+    signal: AbortSignal,
+    expected: HerdrRuntimeStatus,
+  ) => Promise<void>;
 
   constructor(deps: HerdrUpdateDeps = {}) {
+    this.probeRuntime = deps.probeRuntime ?? ((signal) => probeHerdrRuntime({ signal }));
+    this.runRecovery =
+      deps.runRecovery ??
+      ((restart, signal, expected) =>
+        runHerdrRecovery({ restart, signal, expected, logPath: config.herdrUpdateLogPath }));
     this.versionRunner =
       deps.versionRunner ??
       (() => execFileSync(config.herdrBin, ["--version"], { encoding: "utf8" }));
@@ -380,7 +362,69 @@ export class HerdrUpdateService {
 
   /** Last computed status, or null before the first check. */
   current(): HerdrUpdateStatus | null {
-    return this.last;
+    return this.last
+      ? {
+          ...this.last,
+          runtime: this.runtime,
+          phase: this.phase,
+          operation: this.operation,
+          result: this.result,
+          revision: this.revision,
+        }
+      : null;
+  }
+
+  private publish(): void {
+    this.revision++;
+    const status = this.current();
+    if (status) this.onStatus(status);
+  }
+
+  private recordRuntime(runtime: HerdrRuntimeStatus): void {
+    this.runtime = runtime;
+    this.last = {
+      latest: null,
+      notes: null,
+      checkedAt: Date.now(),
+      ...this.last,
+      current: runtime.installedVersion,
+      updateAvailable:
+        !!runtime.installedVersion &&
+        !!this.last?.latest &&
+        compareSemver(this.last.latest, runtime.installedVersion) > 0,
+      ...supportFlags(runtime.installedVersion),
+    };
+  }
+
+  /** Refresh local facts without depending on the release service. Coalesce open dialogs. */
+  async status(): Promise<HerdrUpdateStatus> {
+    this.last ??= {
+      current: null,
+      latest: null,
+      updateAvailable: false,
+      notes: null,
+      checkedAt: Date.now(),
+    };
+    if (this.applying) return this.current()!;
+    if (this.runtimeRead) return this.runtimeRead;
+    const revision = this.revision;
+    this.runtimeRead = (async () => {
+      const runtime = await this.probeRuntime();
+      if (!this.applying && revision === this.revision) {
+        this.recordRuntime(runtime);
+        if (
+          runtime.state === "ready" &&
+          runtime.serverVersion === runtime.installedVersion &&
+          this.result?.errorCode === "restart_required"
+        )
+          this.result = null;
+        this.publish();
+      }
+      return this.current()!;
+    })().finally(() => {
+      this.runtimeRead = null;
+    });
+    return this.runtimeRead;
   }
 
   /** Re-read the installed version after the child ran (it decides success and is what
@@ -395,7 +439,7 @@ export class HerdrUpdateService {
    *  endpoint can answer 202; progress streams via onLog and the terminal
    *  outcome via onDone. Guards against a double-launch while one is in flight. */
   apply(): { started: boolean } {
-    if (this.applying) return { started: false };
+    if (this.applying || this.maintenance.active) return { started: false };
     // Never upgrade INTO an unsupported herdr from inside Shepherd: a herdr newer than Shepherd
     // supports can't spawn agents, so applying it would leave the operator unable to spawn. The
     // modal also warns + hides the run button; this is the server-side backstop against a direct POST.
@@ -407,6 +451,10 @@ export class HerdrUpdateService {
       return { started: false };
     }
     this.applying = true;
+    this.operation = { from: this.last?.current ?? null, to: this.last?.latest ?? null };
+    this.phase = "updating";
+    this.result = null;
+    this.publish();
     console.warn(
       `[herdr-update] applying ${this.last?.current ?? "?"} -> ${this.last?.latest ?? "?"}; ` +
         `Shepherd stays up (audit log: ${config.herdrUpdateLogPath})`,
@@ -425,53 +473,184 @@ export class HerdrUpdateService {
   private async runOnce(): Promise<void> {
     const from = this.last?.current ?? null;
     const to = this.last?.latest ?? null;
-    let watchdog: ReturnType<typeof setTimeout> | undefined;
+    const ctrl = new AbortController();
+    const watchdog = setTimeout(() => ctrl.abort(), this.watchdogMs);
     let result: HerdrUpdateResult;
+    let handoffPaneLimit: number | undefined;
     try {
       this.maintenance.begin();
-      const ctrl = new AbortController();
-      watchdog = setTimeout(() => ctrl.abort(), this.watchdogMs);
-      await this.runUpdate((line) => this.onLog(line), ctrl.signal);
-      // Re-read the installed version once: it decides success AND is the version
-      // every failure branch reports as "what we're actually on" (never the
-      // target, which we know we did not reach). `herdr update` swaps the running
-      // binary, so this also refreshes the detected version the driver's spawn
-      // guard reads (keeps the ceiling accurate without a Shepherd restart).
+      await this.runUpdate((line) => {
+        const limit = /live handoff supports at most (\d+) panes/.exec(line);
+        if (limit) handoffPaneLimit = Number(limit[1]);
+        this.onLog(line);
+      }, ctrl.signal);
       const after = this.settleAfterScript(from);
-      if (ctrl.signal.aborted) {
-        result = { ok: false, from, to: after, error: "herdr update timed out" };
-      } else {
-        const ok = !!after && !!to && after === to;
-        this.last = {
-          current: after,
-          latest: to,
-          updateAvailable: !!after && !!to && compareSemver(to, after) > 0,
-          latestUnsupported: !isHerdrVersionSupported(to),
-          ...supportFlags(after),
-          notes: null,
-          checkedAt: Date.now(),
-          error: ok ? undefined : "herdr was not updated",
-        };
-        this.onStatus(this.last);
-        result = ok
-          ? { ok: true, from, to }
-          : { ok: false, from, to: after, error: "herdr was not updated" };
+      this.phase = "verifying";
+      this.publish();
+      this.runtime = await this.probeRuntime(ctrl.signal);
+      if (!ctrl.signal.aborted && this.runtime.state === "offline") {
+        await this.runRecovery(false, ctrl.signal, this.runtime);
+        this.runtime = await this.probeRuntime(ctrl.signal);
       }
+      result = this.verifiedResult(from, to, after, ctrl.signal);
+      if (handoffPaneLimit && result.errorCode === "restart_required")
+        result.handoffPaneLimit = handoffPaneLimit;
     } catch (err) {
-      // runUpdate itself threw (e.g. spawn failed) — re-read the actual version
-      // so we don't claim the target either.
       result = {
         ok: false,
         from,
         to: this.actualVersion(from),
+        errorCode: ctrl.signal.aborted ? "timeout" : "update_failed",
         error: err instanceof Error ? err.message : "herdr update failed",
       };
     } finally {
       clearTimeout(watchdog);
       this.maintenance.end();
       this.applying = false;
+      this.phase = "idle";
     }
+    this.finish(result);
+  }
+
+  private verifiedResult(
+    from: string | null,
+    target: string | null,
+    installed: string | null,
+    signal: AbortSignal,
+  ): HerdrUpdateResult {
+    const runtime = this.runtime;
+    const ok =
+      !signal.aborted &&
+      !!target &&
+      installed === target &&
+      runtime?.state === "ready" &&
+      runtime.installedVersion === target &&
+      runtime.serverVersion === target;
+    const errorCode = signal.aborted
+      ? "timeout"
+      : runtime?.state === "restart_required"
+        ? "restart_required"
+        : runtime?.state === "offline"
+          ? "offline"
+          : installed !== target
+            ? "update_failed"
+            : "probe_failed";
+    return {
+      ok,
+      from,
+      to: installed,
+      serverVersion: runtime?.serverVersion ?? null,
+      ...(ok ? {} : { errorCode }),
+    };
+  }
+
+  private finish(result: HerdrUpdateResult): void {
+    this.result = result;
+    if (this.last)
+      this.last = {
+        ...this.last,
+        current: result.to,
+        updateAvailable:
+          !!result.to && !!this.last.latest && compareSemver(this.last.latest, result.to) > 0,
+        ...supportFlags(result.to),
+      };
+    this.publish();
     this.onDone(result);
+  }
+
+  /** Reserve the shared operation guard before checking the confirmed snapshot. */
+  async restartServer(expected: {
+    installedVersion: string | null;
+    serverVersion: string | null;
+  }): Promise<{ started: boolean; error?: string }> {
+    if (this.applying || this.maintenance.active) return { started: false, error: "in_progress" };
+    this.applying = true;
+    try {
+      this.maintenance.begin();
+      const runtime = await this.probeRuntime();
+      this.recordRuntime(runtime);
+      if (
+        !runtime.installedVersion ||
+        !isHerdrVersionSupported(runtime.installedVersion) ||
+        runtime.state === "unknown"
+      ) {
+        this.maintenance.end();
+        this.applying = false;
+        this.publish();
+        return { started: false, error: "runtime_unavailable" };
+      }
+      if (runtime.state === "ready" && runtime.serverVersion === runtime.installedVersion) {
+        this.finish({
+          ok: true,
+          from: runtime.serverVersion,
+          to: runtime.installedVersion,
+          serverVersion: runtime.serverVersion,
+        });
+        this.maintenance.end();
+        this.applying = false;
+        return { started: true };
+      }
+      if (
+        expected.installedVersion !== runtime.installedVersion ||
+        expected.serverVersion !== runtime.serverVersion
+      ) {
+        this.maintenance.end();
+        this.applying = false;
+        this.publish();
+        return { started: false, error: "runtime_changed" };
+      }
+      this.operation = { from: runtime.serverVersion, to: runtime.installedVersion };
+      this.phase = "restarting";
+      this.result = null;
+      this.publish();
+      void this.runRestart(runtime);
+      return { started: true };
+    } catch (err) {
+      this.maintenance.end();
+      this.applying = false;
+      this.publish();
+      return { started: false, error: err instanceof Error ? err.message : "probe_failed" };
+    }
+  }
+
+  private async runRestart(before: HerdrRuntimeStatus): Promise<void> {
+    const ctrl = new AbortController();
+    const watchdog = setTimeout(() => ctrl.abort(), this.watchdogMs);
+    let result: HerdrUpdateResult;
+    try {
+      await this.runRecovery(before.state !== "offline", ctrl.signal, before);
+      this.phase = "verifying";
+      this.publish();
+      this.runtime = await this.probeRuntime(ctrl.signal);
+      result = this.verifiedResult(
+        before.serverVersion,
+        before.installedVersion,
+        this.runtime.installedVersion,
+        ctrl.signal,
+      );
+    } catch (err) {
+      // The worker may have stopped the old daemon before failing. Never retain stale facts.
+      this.runtime = await this.probeRuntime().catch(() => ({
+        state: "unknown" as const,
+        installedVersion: before.installedVersion,
+        serverVersion: null,
+        reason: "probe_failed" as const,
+      }));
+      result = {
+        ok: false,
+        from: before.serverVersion,
+        to: this.runtime.installedVersion,
+        serverVersion: this.runtime.serverVersion,
+        errorCode: ctrl.signal.aborted ? "timeout" : "restart_failed",
+        error: err instanceof Error ? err.message : "herdr restart failed",
+      };
+    } finally {
+      clearTimeout(watchdog);
+      this.maintenance.end();
+      this.applying = false;
+      this.phase = "idle";
+    }
+    this.finish(result);
   }
 
   /** Resolve the versioned artifact URL for `target`: the hardcoded template AND the
@@ -501,7 +680,7 @@ export class HerdrUpdateService {
    *  onLog, terminal outcome via onDone. Refuses when the installed version is
    *  already supported (nothing to rescue) or while a run is in flight. */
   downgrade(target: string = HERDR_LAST_SUPPORTED_VERSION): { started: boolean } {
-    if (this.applying) return { started: false };
+    if (this.applying || this.maintenance.active) return { started: false };
     // Re-read the ACTUAL installed version rather than trusting `this.last.current`
     // (the periodic check(), up to 6h stale): if the operator manually pinned lower
     // out-of-band since the last check, gating on the stale cache would still pass
@@ -519,6 +698,11 @@ export class HerdrUpdateService {
       return { started: false };
     }
     this.applying = true;
+    this.runtime = undefined;
+    this.operation = { from: current, to: target };
+    this.phase = "updating";
+    this.result = null;
+    this.publish();
     console.warn(
       `[herdr-update] downgrading ${current} -> ${target}; ` +
         `Shepherd stays up (audit log: ${config.herdrUpdateLogPath})`,
@@ -559,7 +743,7 @@ export class HerdrUpdateService {
           checkedAt: Date.now(),
           error: ok ? undefined : "herdr was not downgraded",
         };
-        this.onStatus(this.last);
+        this.publish();
         result = ok
           ? { ok: true, from, to }
           : { ok: false, from, to: installed, error: "herdr was not downgraded" };
@@ -584,21 +768,24 @@ export class HerdrUpdateService {
       clearTimeout(watchdog);
       this.maintenance.end();
       this.applying = false;
+      this.phase = "idle";
     }
-    this.onDone(result);
+    this.finish(result);
   }
 
   /** Re-read the installed herdr version and the latest published one, then
    *  compare. On any failure returns updateAvailable:false with an error set. */
   async check(now: number): Promise<HerdrUpdateStatus> {
+    const revision = this.revision;
     try {
       const currentMatch = SEMVER_RE.exec(this.versionRunner());
-      const current = currentMatch ? currentMatch[1]! : null;
+      let current = currentMatch ? currentMatch[1]! : null;
       // Keep the driver's spawn guard in sync with what's actually installed (catches an
       // out-of-band `herdr update` between boot and this periodic check).
       setDetectedHerdrVersion(current);
 
       const latestRaw = await this.fetchLatest();
+      if (revision !== this.revision && this.last) current = this.last.current;
       const latestMatch = latestRaw?.version ? SEMVER_RE.exec(latestRaw.version) : null;
       const latest = latestMatch ? latestMatch[1]! : null;
 
@@ -629,6 +816,7 @@ export class HerdrUpdateService {
         error: e instanceof Error ? e.message : "herdr update check failed",
       };
     }
-    return this.last;
+    this.publish();
+    return this.current()!;
   }
 }

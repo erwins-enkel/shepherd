@@ -744,6 +744,26 @@ test("POST /api/sessions creates, GET lists", async () => {
   expect(list.length).toBe(1);
 });
 
+test("POST /api/sessions translates a protocol conflict into the herdr recovery code", async () => {
+  const deps = makeDeps();
+  deps.service = {
+    create: async () => {
+      throw new Error(
+        'Command failed: herdr tab create: {"error":{"code":"protocol_mismatch","client_protocol":22,"server_protocol":20}}',
+      );
+    },
+  } as any;
+  const res = await postSessions(makeApp(deps), {
+    repoPath: validRepo,
+    baseBranch: "main",
+    prompt: "go",
+  });
+  expect(res.status).toBe(409);
+  const body = await res.json();
+  expect(body.code).toBe("herdr_restart_required");
+  expect(body.error).not.toContain("client_protocol");
+});
+
 test("POST /api/sessions surfaces a herdr failure with its real message (not a bare status)", async () => {
   const deps = makeDeps();
   // mirror herdr rejecting `tab create` — the create path throws past validation

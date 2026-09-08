@@ -5072,6 +5072,31 @@ describe("NewTask spawn progress", () => {
       .toBe(false);
   });
 
+  it("keeps the draft and offers herdr repair for a protocol conflict", async () => {
+    const onsubmit = vi
+      .fn()
+      .mockRejectedValue(
+        new ApiError(409, "raw protocol_mismatch", "herdr_restart_required", true),
+      );
+    const onherdrrepair = vi.fn();
+    render(NewTask, {
+      props: base({
+        onsubmit,
+        onherdrrepair,
+        initialRepoPath: "/repo/spawn",
+        initialImages: [{ path: "/saved/draft.png", name: "draft.png" }],
+      }),
+    });
+    await submitTask(onsubmit);
+    await expect.element(page.getByText(m.newtask_herdr_restart())).toBeVisible();
+    expect(document.querySelector(".err")!.textContent).not.toContain("protocol_mismatch");
+    await page.getByRole("button", { name: m.diagnostics_herdr_repair() }).click();
+    expect(onherdrrepair).toHaveBeenCalledTimes(1);
+    expect(onsubmit).toHaveBeenCalledTimes(1);
+    expect(document.querySelector<HTMLTextAreaElement>("#nt-prompt")!.value).toBe("flatten it");
+    expect(document.body.textContent).toContain("draft.png");
+  });
+
   it("treats a cancelled start as a neutral outcome, keeping the prompt and raising no error", async () => {
     pinSpawnId();
     const onsubmit = vi

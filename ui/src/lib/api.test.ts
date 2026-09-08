@@ -1,9 +1,31 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fetchCodexReleaseNotes, getBuildQueues, getCommands } from "./api";
+import { createSession, fetchCodexReleaseNotes, getBuildQueues, getCommands } from "./api";
 
 vi.mock("$lib/auth.svelte", () => ({
   auth: { unauthenticated: false, checked: false },
 }));
+
+it("preserves the herdr recovery code from a failed task creation", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = vi.fn(async () =>
+    Response.json(
+      { error: "herdr_restart_required", code: "herdr_restart_required" },
+      { status: 409 },
+    ),
+  );
+  try {
+    await expect(
+      createSession({
+        repoPath: "/repo",
+        baseBranch: "main",
+        model: null,
+        prompt: "keep my draft",
+      }),
+    ).rejects.toMatchObject({ code: "herdr_restart_required", status: 409 });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
 
 describe("getBuildQueues", () => {
   const originalFetch = globalThis.fetch;

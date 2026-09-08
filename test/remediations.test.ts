@@ -272,10 +272,10 @@ describe("herdr_outdated: update + handoff, not a bare reinstall (#1578)", () =>
     );
   });
 
-  it("updates AND hands off with recovery — not the reverted install+live-handoff design", () => {
+  it("attempts handoff without an unverified daemon relaunch", () => {
     const cmd = REMEDIATIONS.diagnostics_hint_herdr_outdated!;
     expect(cmd).toContain("update --handoff"); // atomic update + handoff
-    expect(cmd).toContain("setsid"); // detached-relaunch recovery so a failed handoff can't strand the host
+    expect(cmd).not.toContain("setsid"); // only the service may recover a verified offline daemon
     // The first-cut design used `herdr server live-handoff` behind a reachability poll (the
     // OLD daemon answers before AND after → false success). Guard against its return.
     expect(cmd).not.toContain("live-handoff");
@@ -290,59 +290,25 @@ describe("herdr_outdated: update + handoff, not a bare reinstall (#1578)", () =>
   });
 });
 
-describe("herdr_outdated is behaviorally recover-on-fail, not just shaped right (#1578)", () => {
-  // Execute the SAME generator the production entry uses (buildUpdateScript), with the audit
-  // log redirected into the sandbox so the test never writes the dev's ~/.shepherd. The
-  // structural test above pins that the entry IS buildUpdateScript(config.herdrUpdateLogPath);
-  // the log path doesn't affect the update/handoff/recovery control flow exercised here.
-  // herdr-update.test.ts asserts the STRING shape — these are the first tests that RUN it.
-  //
-  // Safety: NEVER runs the real network `herdr update` or the real herdr binary. The herdrBin
-  // is pinned to bare `herdr`, which runInSandbox's PATH resolves to the sandbox stub.
-  const scriptFor = (logPath: string) => buildUpdateScript(logPath, null, null, "herdr");
-
-  it("a reachable server after update settles WITHOUT relaunching (also the no-op case)", () => {
-    // A no-op `herdr update` whose OLD server still answers `agent list` exits 0 at the SHELL
-    // layer — the shell CANNOT distinguish it from a real update (false success). That is
-    // caught one layer up by DiagnosticsService.fix()'s re-probe of `herdr --version` (see
-    // test/diagnostics.test.ts). Here we only assert the shell reaches the reachable branch.
+describe("herdr update shell never starts a competing daemon", () => {
+  it("logs a failed handoff without stopping or starting a server", () => {
     const { dir, logPath, writeStub } = makeSandbox();
-    writeStub(`#!/bin/sh\nexit 0\n`); // update: ok; agent list: ok (server answers)
+    writeStub(`#!/bin/sh
+case "$1" in
+  update) echo 'live handoff supports at most 64 panes'; exit 0 ;;
+  *) echo 'UNEXPECTED SERVER MUTATION'; exit 1 ;;
+esac
+`);
     try {
-      const r = runInSandbox(scriptFor(logPath), dir);
-      expect(r.status).toBe(0);
+      const result = runInSandbox(buildUpdateScript(logPath, null, null, "herdr"), dir);
+      expect(result.status).toBe(0);
       const log = readFileSync(logPath, "utf8");
-      expect(log).toContain("reachable after update");
-      expect(log).not.toContain("unreachable after retries");
+      expect(log).toContain("live handoff supports at most 64 panes");
+      expect(log).not.toContain("UNEXPECTED SERVER MUTATION");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   });
-
-  it("a handoff that leaves NO running server triggers the detached relaunch recovery", () => {
-    const { dir, logPath, writeStub } = makeSandbox();
-    // `herdr update` exits 0 even when it left no running server (#1558), but the server never
-    // answers — the grace+retry loop exhausts and the setsid fallback relaunch fires so the
-    // host is never stranded offline (review point 2). The relaunch marker is echoed to the
-    // durable log BEFORE the backgrounded setsid, so asserting on the log is race-free.
-    writeStub(
-      `#!/bin/sh\n` +
-        `case "$1" in\n` +
-        `  update) exit 0 ;;\n` +
-        `  agent) exit 1 ;;\n` + // never reachable → forces the fallback
-        `  server) exit 0 ;;\n` +
-        `esac\nexit 0\n`,
-    );
-    try {
-      runInSandbox(scriptFor(logPath), dir);
-      const log = readFileSync(logPath, "utf8");
-      expect(log).toContain("unreachable after retries");
-      expect(log).toContain("relaunching");
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-    // buildUpdateScript's grace loop sleeps 3×2s before the fallback — allow for it.
-  }, 15_000);
 });
 
 // ── claude/codex install: mise-managed hosts must not get a second copy ────────

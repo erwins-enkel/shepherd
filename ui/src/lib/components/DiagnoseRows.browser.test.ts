@@ -14,6 +14,22 @@ const check = (over: Partial<DiagnosticCheck> = {}): DiagnosticCheck => ({
 });
 
 describe("DiagnoseRows fix button gating", () => {
+  it("opens the shared recovery view without running a shell fix for a mismatched server", async () => {
+    const onherdrupdate = vi.fn();
+    const onfix = vi.fn();
+    render(DiagnoseRows, {
+      props: {
+        onherdrupdate,
+        onfix,
+        checks: [check({ id: "herdr", hintKey: "diagnostics_hint_herdr_restart" })],
+      },
+    });
+    await page.getByRole("button", { name: m.diagnostics_herdr_repair() }).click();
+    expect(onherdrupdate).toHaveBeenCalledOnce();
+    expect(onfix).not.toHaveBeenCalled();
+    expect(document.querySelector("code.cmd")).toBeNull();
+  });
+
   it("shows Fix only on a non-ok check WITH remediation", async () => {
     render(DiagnoseRows, {
       props: {
@@ -363,10 +379,10 @@ describe("DiagnoseRows host_capacity guidance", () => {
 
 describe("herdr downgrade button (#1898)", () => {
   it("offers the downgrade on the stranded-herdr row and fires the callback", async () => {
-    const onherdrdowngrade = vi.fn();
+    const onherdrupdate = vi.fn();
     render(DiagnoseRows, {
       props: {
-        onherdrdowngrade,
+        onherdrupdate,
         checks: [
           check({ id: "herdr", state: "error", hintKey: "diagnostics_hint_herdr_unsupported" }),
         ],
@@ -376,7 +392,7 @@ describe("herdr downgrade button (#1898)", () => {
     expect(btn).not.toBeNull();
     expect(btn!.textContent?.trim()).toBe(m.diagnostics_herdr_downgrade());
     btn!.click();
-    expect(onherdrdowngrade).toHaveBeenCalledOnce();
+    expect(onherdrupdate).toHaveBeenCalledOnce();
   });
 
   it("renders NO downgrade button without the callback, and none on other herdr states", () => {
@@ -392,7 +408,7 @@ describe("herdr downgrade button (#1898)", () => {
     document.body.innerHTML = "";
     render(DiagnoseRows, {
       props: {
-        onherdrdowngrade: vi.fn(),
+        onherdrupdate: vi.fn(),
         checks: [check({ id: "herdr", state: "ok", hintKey: "diagnostics_hint_herdr_ok" })],
       },
     });

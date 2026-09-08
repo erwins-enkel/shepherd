@@ -3789,5 +3789,7 @@
   "feat_spawn_progress_body": "New Task now names the step it is on while a task starts — updating the base branch, creating the worktree, waiting for the agent — and if it drags on, it says why and offers to cancel.",
   "usage_delivery_evidence_repo_mismatch": "Foreign repo evidence rejected",
   "feat_learnings_evidence_repo_title": "Learnings check evidence provenance",
-  "feat_learnings_evidence_repo_body": "New rule proposals citing evidence known to belong to another repo are rejected in full. Incidents appear in signal statistics. Unknown or expired signal IDs are not treated as provenance conflicts; existing rules remain unchanged."
+  "feat_learnings_evidence_repo_body": "New rule proposals citing evidence known to belong to another repo are rejected in full. Incidents appear in signal statistics. Unknown or expired signal IDs are not treated as provenance conflicts; existing rules remain unchanged.",
+  "feat_herdr_090_title": "herdr 0.9.0 is supported",
+  "feat_herdr_090_body": "You can now update herdr to 0.9.0 from Shepherd. Agent startup, terminal controls and cleanup were checked against isolated 0.8.2 and 0.9.0 servers. The existing sandbox status advisory still applies."
 }

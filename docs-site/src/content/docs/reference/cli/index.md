@@ -3,7 +3,7 @@ title: "CLI reference"
 description: "Operator-facing herdr CLI commands, generated from live --help."
 ---
 
-Shepherd drives the [`herdr`](https://herdr.dev) interactive-pane manager for you, so most herdr commands are internal plumbing you never run by hand. This reference covers the **operator-facing** commands — the ones you might run directly when managing a Shepherd host. Each page below is the command's own `--help` output (command-level, not every leaf flag), pinned to herdr **0.8.2**.
+Shepherd drives the [`herdr`](https://herdr.dev) interactive-pane manager for you, so most herdr commands are internal plumbing you never run by hand. This reference covers the **operator-facing** commands — the ones you might run directly when managing a Shepherd host. Each page below is the command's own `--help` output (command-level, not every leaf flag), pinned to herdr **0.9.0**.
 
 _Generated from live `herdr --help` — do not edit by hand; run `bun run gen:cli` to regenerate._
 
@@ -17,6 +17,7 @@ Usage: herdr [options]
        herdr completion zsh
        herdr update [--handoff]
        herdr channel set <stable|preview>
+       herdr machine <subcommand> ...
        herdr server stop
        herdr server reload-config
        herdr api <subcommand> ...
@@ -42,6 +43,7 @@ Common commands:
   herdr server reload-config       Reload config.toml in the running server
   herdr config reset-keys          Back up config.toml and remove custom keybindings
   herdr channel <subcommand>       Manage the stable or preview update channel
+  herdr machine <subcommand>       Manage saved SSH machines
   herdr api <subcommand>           Inspect socket API metadata and live runtime state
   herdr workspace <subcommand>     Workspace helpers over the socket API
   herdr worktree <subcommand>      Git worktree helpers over the socket API
@@ -56,7 +58,6 @@ Advanced commands:
   herdr server                     Run as headless server
 
 Options:
-  --no-session        Run monolithically (no server/client, escape hatch)
   --session <name>    Use or create a named persistent session
   --remote <target>   Attach through SSH to a remote Herdr server
   --remote-keybindings <local|server>

@@ -576,6 +576,29 @@ describe("selectHerdrDriver", () => {
     expect(client.close).not.toHaveBeenCalled();
   });
 
+  it.each([16, 17, 19, 20, 22])("default allowlist admits protocol %i", async (protocol) => {
+    const client = fakePingClient(() => Promise.resolve({ protocol }));
+    const driver = await selectHerdrDriver({
+      enabled: true,
+      makeCli: () => fakeCli() as unknown as HerdrDriver,
+      makeClient: () => client as unknown as HerdrSocketClient,
+    });
+    expect(driver).toBeInstanceOf(SocketHerdrDriver);
+    expect(client.close).not.toHaveBeenCalled();
+  });
+
+  it.each([18, 21, 23])("default allowlist rejects unverified protocol %i", async (protocol) => {
+    const cli = fakeCli() as unknown as HerdrDriver;
+    const client = fakePingClient(() => Promise.resolve({ protocol }));
+    const driver = await selectHerdrDriver({
+      enabled: true,
+      makeCli: () => cli,
+      makeClient: () => client as unknown as HerdrSocketClient,
+    });
+    expect(driver).toBe(cli);
+    expect(client.close).toHaveBeenCalledTimes(1);
+  });
+
   it("enabled:true, unsupported protocol returns the cli; client.close called once", async () => {
     const cliInstance = fakeCli() as unknown as HerdrDriver;
     const client = fakePingClient(() => Promise.resolve({ protocol: 99 }));

@@ -420,6 +420,26 @@ export type RequestNotificationShowSound = "none" | "done" | "request";
 export type RequestPaneAgentState = "idle" | "working" | "blocked" | "unknown";
 /**
  * This interface was referenced by `HerdrProtocol`'s JSON-Schema
+ * via the `definition` "RequestPaneCopyMotion".
+ */
+export type RequestPaneCopyMotion =
+  | "line_end"
+  | "first_non_blank"
+  | "next_word_start"
+  | "previous_word_start"
+  | "next_word_end"
+  | "next_big_word_start"
+  | "previous_big_word_start"
+  | "next_big_word_end"
+  | "previous_paragraph"
+  | "next_paragraph";
+/**
+ * This interface was referenced by `HerdrProtocol`'s JSON-Schema
+ * via the `definition` "RequestPaneCopySearchDirection".
+ */
+export type RequestPaneCopySearchDirection = "forward" | "backward";
+/**
+ * This interface was referenced by `HerdrProtocol`'s JSON-Schema
  * via the `definition` "RequestPaneDirection".
  */
 export type RequestPaneDirection = "left" | "right" | "up" | "down";
@@ -735,6 +755,11 @@ export type SuccessResponsePluginPlatform = "linux" | "macos" | "windows";
 export type SuccessResponsePopupSize = number | string;
 /**
  * This interface was referenced by `HerdrProtocol`'s JSON-Schema
+ * via the `definition` "SuccessResponseIntegrationState".
+ */
+export type SuccessResponseIntegrationState = "not_installed" | "current" | "outdated";
+/**
+ * This interface was referenced by `HerdrProtocol`'s JSON-Schema
  * via the `definition` "SuccessResponseIntegrationTarget".
  */
 export type SuccessResponseIntegrationTarget =
@@ -1029,6 +1054,29 @@ export type SuccessResponseResponseResult =
       [k: string]: unknown;
     }
   | {
+      pane_id: string;
+      text: string;
+      type: "pane_selection";
+      [k: string]: unknown;
+    }
+  | {
+      content_revision: number;
+      cursor: SuccessResponsePaneTextPoint;
+      pane_id: string;
+      type: "pane_copy_motion";
+      [k: string]: unknown;
+    }
+  | {
+      content_revision: number;
+      current?: number | null;
+      current_global?: number | null;
+      matches: SuccessResponsePaneTextRange[];
+      pane_id: string;
+      total: number;
+      type: "pane_copy_search";
+      [k: string]: unknown;
+    }
+  | {
       revision: number;
       sequence: number;
       type: "pane_graphics_frame_ack";
@@ -1087,6 +1135,11 @@ export type SuccessResponseResponseResult =
       changed: boolean;
       reason: SuccessResponseClientWindowTitleReason;
       type: "client_window_title";
+      [k: string]: unknown;
+    }
+  | {
+      integrations: SuccessResponseIntegrationInfo[];
+      type: "integration_list";
       [k: string]: unknown;
     }
   | {
@@ -1152,6 +1205,12 @@ export type SuccessResponseResponseResult =
       [k: string]: unknown;
     }
   | {
+      handled: boolean;
+      type: "pane_link_activated";
+      url?: string | null;
+      [k: string]: unknown;
+    }
+  | {
       logs: SuccessResponsePluginCommandLogInfo[];
       type: "plugin_log_list";
       [k: string]: unknown;
@@ -1175,6 +1234,12 @@ export type SuccessResponseResponseResult =
       diagnostics: string[];
       status: SuccessResponseConfigReloadStatus;
       type: "config_reload";
+      [k: string]: unknown;
+    }
+  | {
+      active: boolean;
+      projection_revision: number;
+      type: "client_shell_surface_set";
       [k: string]: unknown;
     }
   | {
@@ -1538,11 +1603,55 @@ export interface RequestAgentWaitParams {
   until?: RequestAgentStatus[];
 }
 /**
+ * Updates whether the requesting client shell receives and controls pane presentation.
+ *
+ * This interface was referenced by `HerdrProtocol`'s JSON-Schema
+ * via the `definition` "RequestClientShellSurfaceSetParams".
+ */
+export interface RequestClientShellSurfaceSetParams {
+  active: boolean;
+}
+/**
  * This interface was referenced by `HerdrProtocol`'s JSON-Schema
  * via the `definition` "RequestClientWindowTitleSetParams".
  */
 export interface RequestClientWindowTitleSetParams {
   title: string;
+}
+/**
+ * This interface was referenced by `HerdrProtocol`'s JSON-Schema
+ * via the `definition` "RequestCommandInvokeParams".
+ */
+export interface RequestCommandInvokeParams {
+  /**
+   * Opaque endpoint-issued command identifier from the client-shell projection.
+   */
+  command_id: string;
+  pane_id?: string | null;
+  /**
+   * Client-owned selection coordinates, validated against the pane's content revision.
+   */
+  selection?: RequestPaneSelectionReadParams | null;
+  tab_id?: string | null;
+  workspace_id?: string | null;
+}
+/**
+ * This interface was referenced by `HerdrProtocol`'s JSON-Schema
+ * via the `definition` "RequestPaneSelectionReadParams".
+ */
+export interface RequestPaneSelectionReadParams {
+  anchor: RequestPaneTextPoint;
+  content_revision?: number | null;
+  cursor: RequestPaneTextPoint;
+  pane_id: string;
+}
+/**
+ * This interface was referenced by `HerdrProtocol`'s JSON-Schema
+ * via the `definition` "RequestPaneTextPoint".
+ */
+export interface RequestPaneTextPoint {
+  col: number;
+  row: number;
 }
 /**
  * This interface was referenced by `HerdrProtocol`'s JSON-Schema
@@ -1628,6 +1737,36 @@ export interface RequestPaneClearAgentAuthorityParams {
 }
 /**
  * This interface was referenced by `HerdrProtocol`'s JSON-Schema
+ * via the `definition` "RequestPaneCopyMotionParams".
+ */
+export interface RequestPaneCopyMotionParams {
+  content_revision?: number | null;
+  cursor: RequestPaneTextPoint;
+  motion: RequestPaneCopyMotion;
+  pane_id: string;
+}
+/**
+ * This interface was referenced by `HerdrProtocol`'s JSON-Schema
+ * via the `definition` "RequestPaneCopySearchParams".
+ */
+export interface RequestPaneCopySearchParams {
+  content_revision: number;
+  cursor: RequestPaneTextPoint;
+  direction: RequestPaneCopySearchDirection;
+  pane_id: string;
+  previous?: RequestPaneTextRange | null;
+  query: string;
+}
+/**
+ * This interface was referenced by `HerdrProtocol`'s JSON-Schema
+ * via the `definition` "RequestPaneTextRange".
+ */
+export interface RequestPaneTextRange {
+  end: RequestPaneTextPoint;
+  start: RequestPaneTextPoint;
+}
+/**
+ * This interface was referenced by `HerdrProtocol`'s JSON-Schema
  * via the `definition` "RequestPaneCurrentParams".
  */
 export interface RequestPaneCurrentParams {
@@ -1700,6 +1839,17 @@ export interface RequestPaneInputSetParams {
  */
 export interface RequestPaneLayoutParams {
   pane_id?: string | null;
+}
+/**
+ * This interface was referenced by `HerdrProtocol`'s JSON-Schema
+ * via the `definition` "RequestPaneLinkActivateParams".
+ */
+export interface RequestPaneLinkActivateParams {
+  col: number;
+  content_revision?: number | null;
+  offset_from_bottom?: number | null;
+  pane_id: string;
+  viewport_row: number;
 }
 /**
  * This interface was referenced by `HerdrProtocol`'s JSON-Schema
@@ -1819,6 +1969,14 @@ export interface RequestPaneResizeParams {
   amount?: number | null;
   direction: RequestPaneDirection;
   pane_id?: string | null;
+}
+/**
+ * This interface was referenced by `HerdrProtocol`'s JSON-Schema
+ * via the `definition` "RequestPaneScrollParams".
+ */
+export interface RequestPaneScrollParams {
+  offset_from_bottom: number;
+  pane_id: string;
 }
 /**
  * This interface was referenced by `HerdrProtocol`'s JSON-Schema
@@ -2038,6 +2196,21 @@ export interface RequestPluginUnlinkParams {
 }
 /**
  * This interface was referenced by `HerdrProtocol`'s JSON-Schema
+ * via the `definition` "RequestProductAnnouncementDismissParams".
+ */
+export interface RequestProductAnnouncementDismissParams {
+  id: string;
+  version: string;
+}
+/**
+ * This interface was referenced by `HerdrProtocol`'s JSON-Schema
+ * via the `definition` "RequestReleaseNotesDismissParams".
+ */
+export interface RequestReleaseNotesDismissParams {
+  version: string;
+}
+/**
+ * This interface was referenced by `HerdrProtocol`'s JSON-Schema
  * via the `definition` "RequestServerLiveHandoffParams".
  */
 export interface RequestServerLiveHandoffParams {
@@ -2090,6 +2263,14 @@ export interface RequestTabTarget {
 }
 /**
  * This interface was referenced by `HerdrProtocol`'s JSON-Schema
+ * via the `definition` "RequestWorkspaceCloseParams".
+ */
+export interface RequestWorkspaceCloseParams {
+  close_group?: boolean;
+  workspace_id: string;
+}
+/**
+ * This interface was referenced by `HerdrProtocol`'s JSON-Schema
  * via the `definition` "RequestWorkspaceCreateParams".
  */
 export interface RequestWorkspaceCreateParams {
@@ -2099,6 +2280,10 @@ export interface RequestWorkspaceCreateParams {
   };
   focus?: boolean;
   label?: string | null;
+  /**
+   * Workspace whose focused pane supplies the `follow` cwd policy.
+   */
+  source_workspace_id?: string | null;
 }
 /**
  * This interface was referenced by `HerdrProtocol`'s JSON-Schema
@@ -2155,6 +2340,7 @@ export interface RequestWorktreeCreateParams {
   focus?: boolean;
   label?: string | null;
   path?: string | null;
+  trust_repository?: boolean;
   workspace_id?: string | null;
 }
 /**
@@ -2163,6 +2349,7 @@ export interface RequestWorktreeCreateParams {
  */
 export interface RequestWorktreeListParams {
   cwd?: string | null;
+  trust_repository?: boolean;
   workspace_id?: string | null;
 }
 /**
@@ -2175,6 +2362,7 @@ export interface RequestWorktreeOpenParams {
   focus?: boolean;
   label?: string | null;
   path?: string | null;
+  trust_repository?: boolean;
   workspace_id?: string | null;
 }
 /**
@@ -2183,6 +2371,7 @@ export interface RequestWorktreeOpenParams {
  */
 export interface RequestWorktreeRemoveParams {
   force?: boolean;
+  trust_repository?: boolean;
   workspace_id: string;
 }
 /**
@@ -2510,6 +2699,18 @@ export interface SuccessResponsePluginManifestStartup {
 }
 /**
  * This interface was referenced by `HerdrProtocol`'s JSON-Schema
+ * via the `definition` "SuccessResponseIntegrationInfo".
+ */
+export interface SuccessResponseIntegrationInfo {
+  available: boolean;
+  command: string;
+  label: string;
+  state: SuccessResponseIntegrationState;
+  target: SuccessResponseIntegrationTarget;
+  [k: string]: unknown;
+}
+/**
+ * This interface was referenced by `HerdrProtocol`'s JSON-Schema
  * via the `definition` "SuccessResponseIntegrationInstallResult".
  */
 export interface SuccessResponseIntegrationInstallResult {
@@ -2659,6 +2860,24 @@ export interface SuccessResponsePaneSwapResult {
 }
 /**
  * This interface was referenced by `HerdrProtocol`'s JSON-Schema
+ * via the `definition` "SuccessResponsePaneTextPoint".
+ */
+export interface SuccessResponsePaneTextPoint {
+  col: number;
+  row: number;
+  [k: string]: unknown;
+}
+/**
+ * This interface was referenced by `HerdrProtocol`'s JSON-Schema
+ * via the `definition` "SuccessResponsePaneTextRange".
+ */
+export interface SuccessResponsePaneTextRange {
+  end: SuccessResponsePaneTextPoint;
+  start: SuccessResponsePaneTextPoint;
+  [k: string]: unknown;
+}
+/**
+ * This interface was referenced by `HerdrProtocol`'s JSON-Schema
  * via the `definition` "SuccessResponsePaneZoomResult".
  */
 export interface SuccessResponsePaneZoomResult {
@@ -2758,7 +2977,19 @@ export interface SuccessResponsePluginSourceInfo1 {
  */
 export interface SuccessResponseServerCapabilities {
   detached_server_daemon?: boolean;
+  /**
+   * Stable client-owned endpoint generation supported by this server.
+   */
+  endpoint_protocol_generation?: number | null;
+  /**
+   * Whether this server supports endpoint health probes.
+   */
+  health_check?: boolean;
   live_handoff: boolean;
+  /**
+   * Whether this server supports explicit client-shell surface interest.
+   */
+  surface_interest?: boolean;
   [k: string]: unknown;
 }
 /**
@@ -3018,7 +3249,7 @@ export interface ErrorResponseErrorBody {
   [k: string]: unknown;
 }
 
-export const HERDR_PROTOCOL = 20 as const;
+export const HERDR_PROTOCOL = 22 as const;
 
 export interface HerdrParams {
   ping: RequestPingParams;
@@ -3028,8 +3259,12 @@ export interface HerdrParams {
   "server.agent_manifests": RequestEmptyParams;
   "server.reload_agent_manifests": RequestEmptyParams;
   "notification.show": RequestNotificationShowParams;
+  "product_announcement.dismiss": RequestProductAnnouncementDismissParams;
+  "release_notes.dismiss": RequestReleaseNotesDismissParams;
+  "command.invoke": RequestCommandInvokeParams;
   "client.window_title.set": RequestClientWindowTitleSetParams;
   "client.window_title.clear": RequestEmptyParams;
+  "client_shell.surface.set": RequestClientShellSurfaceSetParams;
   "session.snapshot": RequestEmptyParams;
   "workspace.create": RequestWorkspaceCreateParams;
   "workspace.list": RequestEmptyParams;
@@ -3039,7 +3274,7 @@ export interface HerdrParams {
   "workspace.move": RequestWorkspaceMoveParams;
   "workspace.move_block": RequestWorkspaceMoveBlockParams;
   "workspace.report_metadata": RequestWorkspaceReportMetadataParams;
-  "workspace.close": RequestWorkspaceTarget;
+  "workspace.close": RequestWorkspaceCloseParams;
   "worktree.list": RequestWorktreeListParams;
   "worktree.create": RequestWorktreeCreateParams;
   "worktree.open": RequestWorktreeOpenParams;
@@ -3076,11 +3311,17 @@ export interface HerdrParams {
   "pane.edges": RequestPaneEdgesParams;
   "pane.focus_direction": RequestPaneFocusDirectionParams;
   "pane.resize": RequestPaneResizeParams;
+  "pane.scroll": RequestPaneScrollParams;
+  "pane.edit_scrollback": RequestPaneTarget;
+  "pane.selection.read": RequestPaneSelectionReadParams;
+  "pane.copy_motion": RequestPaneCopyMotionParams;
+  "pane.copy_search": RequestPaneCopySearchParams;
   "pane.list": RequestPaneListParams;
   "pane.current": RequestPaneCurrentParams;
   "pane.get": RequestPaneTarget;
   "pane.focus": RequestPaneTarget;
   "pane.input.set": RequestPaneInputSetParams;
+  "pane.link.activate": RequestPaneLinkActivateParams;
   "pane.rename": RequestPaneRenameParams;
   "pane.send_text": RequestPaneSendTextParams;
   "pane.send_keys": RequestPaneSendKeysParams;
@@ -3099,6 +3340,7 @@ export interface HerdrParams {
   "events.subscribe": RequestEventsSubscribeParams;
   "events.wait": RequestEventsWaitParams;
   "pane.wait_for_output": RequestPaneWaitForOutputParams;
+  "integration.list": RequestEmptyParams;
   "integration.install": RequestIntegrationInstallParams;
   "integration.uninstall": RequestIntegrationUninstallParams;
   "plugin.link": RequestPluginLinkParams;

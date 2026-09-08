@@ -205,20 +205,20 @@ ships a bug); half are clean or merely nitty, where the failure mode is the oppo
 manufactured blocking finding that costs the author a rework round. A critic that blocks everything
 scores as badly as one that blocks nothing.
 
-| id                               | expects           | gating | intent                                                       |
-| -------------------------------- | ----------------- | ------ | ------------------------------------------------------------ |
-| `bug-off-by-one`                 | changes_requested | ✔      | last partial page dropped                                    |
-| `bug-missing-await`              | changes_requested | ✔      | flush races process exit                                     |
-| `security-command-injection`     | changes_requested | ✔      | branch name interpolated into a shell string                 |
-| `security-secret-logged`         | changes_requested | ✔      | API key written to the log                                   |
-| `bug-listener-leak`              | changes_requested | ✔      | interval outlives the component                              |
-| `bug-wrong-comparison`           | changes_requested | ✔      | inverted TTL guard                                           |
-| `clean-extract-helper`           | commented         | ✔      | correct behaviour-preserving extraction                      |
-| `clean-test-added`               | commented         | ✔      | correct regression test                                      |
-| `nit-only-not-blocking`          | commented         | ✔      | cosmetic preference → body section, not findings             |
-| `scope-out-of-diff-not-raised`   | commented         | ✔      | real flaw outside the diff — SCOPE rule forbids raising it   |
-| `pr-intent-is-context-not-spec`  | commented         | ✔      | standalone critic: incompleteness vs intent is not a finding |
-| `re-review-note-does-not-excuse` | changes_requested | —      | author note claims a fix the diff lacks (compound)           |
+| id                               | expects           | gating | intent                                                                           |
+| -------------------------------- | ----------------- | ------ | -------------------------------------------------------------------------------- |
+| `bug-off-by-one`                 | changes_requested | ✔      | last partial page dropped                                                        |
+| `bug-missing-await`              | changes_requested | ✔      | flush races process exit                                                         |
+| `security-command-injection`     | changes_requested | ✔      | branch name interpolated into a shell string                                     |
+| `security-secret-logged`         | changes_requested | ✔      | API key written to the log                                                       |
+| `bug-listener-leak`              | changes_requested | ✔      | interval outlives the component                                                  |
+| `bug-wrong-comparison`           | changes_requested | ✔      | inverted TTL guard                                                               |
+| `clean-extract-helper`           | commented         | ✔      | correct behaviour-preserving extraction                                          |
+| `clean-test-added`               | commented         | ✔      | correct regression test                                                          |
+| `nit-only-not-blocking`          | commented         | ✔      | cosmetic preference → body section, not findings                                 |
+| `scope-out-of-diff-not-raised`   | commented         | —      | real flaw outside the diff — SCOPE rule forbids raising it (demoted — see below) |
+| `pr-intent-is-context-not-spec`  | commented         | ✔      | standalone critic: incompleteness vs intent is not a finding                     |
+| `re-review-note-does-not-excuse` | changes_requested | —      | author note claims a fix the diff lacks (compound)                               |
 
 Since #2165 findings are objects carrying a `severity`, and **only `important` ones can make the
 decision `request-changes`** — a `comment` verdict may legitimately carry nits. The scorer follows

@@ -1339,3 +1339,33 @@ test("a genuine abstain is a verdict, not a malformation", () => {
   const noKind = outcomeFor(F_CLASSIFIER, classifierWrite('{"summary":"x"}'));
   expect(noKind).toMatchObject({ label: "unknown", unrecognised: true });
 });
+
+test("the doc's fixture tables agree with the fixtures' actual gating flags", () => {
+  // Fourth instance of doc-vs-code drift in this PR: the critic table still showed
+  // scope-out-of-diff-not-raised as gating (✔) after it was demoted, two sections above the
+  // paragraph recording the demotion. Fixture tables drift on every promotion or demotion, so the
+  // marks are checked against the specs rather than maintained by hand.
+  const doc = readFileSync(new URL("../docs/eval-harness.md", import.meta.url), "utf8");
+  const gatingById = new Map<string, boolean>();
+  for (const spec of [PLAN_GATE_SPEC, CRITIC_SPEC, CLASSIFIER_SPEC]) {
+    for (const f of spec.fixtures) gatingById.set(f.id, f.gating);
+  }
+
+  const wrong: string[] = [];
+  let checked = 0;
+  // Table rows look like: | `fixture-id` | … | ✔ or — | … |
+  for (const m of doc.matchAll(/^\|\s*`([a-z0-9-]+)`\s*\|(.+)$/gm)) {
+    const id = m[1]!;
+    const gating = gatingById.get(id);
+    if (gating === undefined) continue; // not a fixture row
+    const cells = m[2]!.split("|").map((c) => c.trim());
+    // The gating column is whichever cell is exactly the tick or the dash.
+    const mark = cells.find((c) => c === "✔" || c === "—");
+    if (mark === undefined) continue;
+    checked++;
+    const shouldBe = gating ? "✔" : "—";
+    if (mark !== shouldBe) wrong.push(`${id}: doc says ${mark}, fixture says gating=${gating}`);
+  }
+  expect(checked).toBeGreaterThan(15);
+  expect(wrong).toEqual([]);
+});

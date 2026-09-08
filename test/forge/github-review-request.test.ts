@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
 import { GithubForge } from "../../src/forge/github";
 import { graphRateLimit } from "../../src/forge/rate-limit";
+import { annotateHandoff } from "../../src/repo-roles";
+import { CRITIC_REVIEW_MARKER } from "../../src/forge/types";
 
 test("people picker falls back to paginated upstream assignees without push access", async () => {
   const calls: string[][] = [];
@@ -113,6 +115,7 @@ test("fork PR author and target context survive CLI and REST status paths", asyn
             requested_reviewers: [{ login: "alice" }],
           },
         ]);
+      if (args.includes("repos/team/project/pulls/42/reviews")) return "[[]]";
       return "{}";
     },
     "me/project",
@@ -134,6 +137,76 @@ test("fork PR author and target context survive CLI and REST status paths", asyn
       authorLogin: "author",
       requestedReviewers: ["alice"],
     });
+  } finally {
+    graphRateLimit.note({ remaining: 1000, resetAt: Date.now() + 60_000 });
+  }
+});
+
+test.each([
+  ["APPROVED", "merger"],
+  ["CHANGES_REQUESTED", undefined],
+  ["DISMISSED", "reviewer"],
+] as const)("REST fallback preserves %s reviews for fork handoff", async (state, handoff) => {
+  const calls: string[][] = [];
+  const forge = new GithubForge(
+    "team/project",
+    {},
+    async (args) => {
+      calls.push(args);
+      if (args.includes("repos/team/project/pulls/42/reviews")) {
+        expect(args).toContain("--paginate");
+        expect(args).toContain("--slurp");
+        return JSON.stringify([
+          [{ user: { login: "alice" }, state: "APPROVED", submitted_at: "2026-09-01T10:00:00Z" }],
+          [
+            { user: { login: "alice" }, state, submitted_at: "2026-09-01T11:00:00Z" },
+            {
+              user: { login: "critic" },
+              state: "CHANGES_REQUESTED",
+              body: CRITIC_REVIEW_MARKER,
+              submitted_at: "2026-09-01T12:00:00Z",
+            },
+          ],
+        ]);
+      }
+      if (args.includes("repos/team/project/pulls"))
+        return JSON.stringify([
+          {
+            number: 42,
+            state: "open",
+            head: { ref: "feature", repo: { owner: { login: "me" } } },
+          },
+        ]);
+      return "[]";
+    },
+    "me/project",
+  );
+  try {
+    graphRateLimit.noteLimitError(60);
+    const single = await forge.prStatus("feature");
+    const batch = (await forge.listOpenPrSnapshot()).statuses.get("feature")!;
+    for (const status of [single, batch]) {
+      expect(status.latestReview?.author).toBe("alice");
+      expect(status.latestReview?.state).toBe(
+        state === "CHANGES_REQUESTED" ? "changes_requested" : "approved",
+      );
+      expect(status.reviewerStates).toEqual(
+        state === "DISMISSED"
+          ? {}
+          : {
+              alice: {
+                state: state === "APPROVED" ? "approved" : "changes_requested",
+                latestAt: Date.parse("2026-09-01T11:00:00Z"),
+              },
+            },
+      );
+      const git = annotateHandoff({ kind: "github", ...status }, "/no/such/repo", "me");
+      expect(git.handoff).toBe(handoff);
+      expect(git.reviewBlock?.reviewer).toBe(state === "CHANGES_REQUESTED" ? "alice" : undefined);
+    }
+    expect(
+      calls.filter((args) => args.includes("repos/team/project/pulls/42/reviews")),
+    ).toHaveLength(2);
   } finally {
     graphRateLimit.note({ remaining: 1000, resetAt: Date.now() + 60_000 });
   }

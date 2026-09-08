@@ -4136,14 +4136,7 @@ async function refreshSessionGit(
   session: Session,
   deps: AppDeps,
 ): Promise<GitState> {
-  const me = (await forge.currentUser?.()) ?? null;
-  const prev = deps.prCache?.get(session.id);
-  const git: GitState = annotateHandoff(
-    { kind: forge.kind, ...(await forge.prStatus(session.branch ?? "")) },
-    session.repoPath,
-    me,
-    prev,
-  );
+  const git = await resolveGitState(forge, session, deps);
   deps.prCache?.set(session.id, git);
   deps.events.emit("session:git", { id: session.id, git });
   return git;
@@ -4224,12 +4217,12 @@ function reviewRequestError(error: unknown): Response {
   return json({ code: status === 502 ? "review_request_failed" : code }, status);
 }
 
-async function forgeReviewers(forge: GitForge, session: Session): Promise<Response> {
+async function forgeReviewers(forge: GitForge, session: Session, deps: AppDeps): Promise<Response> {
   if (forge.kind !== "github" || !forge.requestReview) {
     return json({ code: "review_request_unsupported" }, 400);
   }
   try {
-    const cur = await forge.prStatus(session.branch ?? "");
+    const cur = await resolveGitState(forge, session, deps);
     if (cur.state !== "open" || !cur.number) {
       return json({ code: "review_request_stale" }, 409);
     }
@@ -4273,7 +4266,7 @@ async function forgeRequestReview(
     return json({ code: "review_request_invalid" }, 400);
   }
   try {
-    const cur = await forge.prStatus(session.branch ?? "");
+    const cur = await resolveGitState(forge, session, deps);
     if (cur.state !== "open" || !cur.number || cur.number !== body.prNumber) {
       return json({ code: "review_request_stale" }, 409);
     }
@@ -4305,7 +4298,7 @@ async function dispatchForgeAction(
   const { req, parts, deps } = ctx;
   if (req.method === "GET") {
     if (!parts[4]) return await forgeGitStateResponse(forge, session, deps);
-    if (parts[4] === "reviewers" && !parts[5]) return forgeReviewers(forge, session);
+    if (parts[4] === "reviewers" && !parts[5]) return forgeReviewers(forge, session, deps);
     return null;
   }
   if (req.method === "POST") {

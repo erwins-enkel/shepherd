@@ -59,7 +59,7 @@ const SESSION: Session = {
   spawnAccountDir: null,
 };
 
-function setup(over: Partial<PrStatus> = {}, failure?: string) {
+function setup(over: Partial<PrStatus> = {}, failure?: string, liveBranch?: string) {
   let current: PrStatus = {
     state: "open",
     number: 42,
@@ -71,6 +71,7 @@ function setup(over: Partial<PrStatus> = {}, failure?: string) {
     ...over,
   };
   const writes: Array<{ number: number; reviewer: string }> = [];
+  const heads: string[] = [];
   const events: unknown[] = [];
   let cached: GitState | undefined;
   const forge = {
@@ -78,7 +79,11 @@ function setup(over: Partial<PrStatus> = {}, failure?: string) {
     slug: "upstream/project",
     isFork: true,
     currentUser: async () => "author",
-    prStatus: async () => {
+    prStatus: async (head: string) => {
+      heads.push(head);
+      if (liveBranch && head !== liveBranch) {
+        return { state: "none", checks: "none", deployConfigured: false };
+      }
       if (failure === "refresh" && writes.length) throw new Error("secret refresh error");
       return current;
     },
@@ -98,7 +103,7 @@ function setup(over: Partial<PrStatus> = {}, failure?: string) {
   } as unknown as GitForge;
   const deps = {
     store: { get: (id: string) => (id === "s1" ? SESSION : null) },
-    service: {},
+    service: { syncWorktreeBranch: () => liveBranch ?? null },
     usageLimits: { limits: () => ({}) },
     resolveForge: () => forge,
     events: { emit: (_name: string, data: unknown) => events.push(data) },
@@ -118,8 +123,33 @@ function setup(over: Partial<PrStatus> = {}, failure?: string) {
         body: JSON.stringify(body),
       }),
     );
-  return { app, request, writes, events, forge, cached: () => cached };
+  return { app, request, writes, heads, events, forge, cached: () => cached };
 }
+
+test("review candidates resolve a renamed worktree branch", async () => {
+  const t = setup({}, undefined, "shepherd/renamed");
+  const res = await t.app.fetch(new Request("http://localhost/api/sessions/s1/git/reviewers"));
+  expect(res.status).toBe(200);
+  expect((await res.json()).prNumber).toBe(42);
+  expect(t.heads).toEqual([SESSION.branch!, "shepherd/renamed"]);
+  expect(t.writes).toEqual([]);
+});
+
+test("review request and refresh resolve a renamed worktree branch", async () => {
+  const t = setup({}, undefined, "shepherd/renamed");
+  const res = await t.request({ prNumber: 42, reviewer: "alice" });
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ ok: true });
+  expect(t.writes).toEqual([{ number: 42, reviewer: "alice" }]);
+  expect(t.heads).toEqual([
+    SESSION.branch!,
+    "shepherd/renamed",
+    SESSION.branch!,
+    "shepherd/renamed",
+  ]);
+  expect(t.cached()).toMatchObject({ state: "open", number: 42, requestedReviewers: ["alice"] });
+  expect(t.events).toHaveLength(1);
+});
 
 test("review candidates GET resolves upstream and does not send notifications", async () => {
   const t = setup();

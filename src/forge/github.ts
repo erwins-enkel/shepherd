@@ -450,6 +450,13 @@ interface RestCheckRun {
   conclusion?: string | null;
 }
 
+interface RestReview {
+  user?: { login?: string } | null;
+  state?: string;
+  body?: string | null;
+  submitted_at?: string | null;
+}
+
 interface RestCheckRunsPage {
   total_count?: number;
   check_runs?: RestCheckRun[];
@@ -1357,6 +1364,28 @@ export class GithubForge implements GitForge {
     };
   }
 
+  private async restReviewStatus(
+    prNumber: number,
+  ): Promise<Pick<PrStatus, "latestReview" | "reviewerStates">> {
+    const out = await this.run([
+      "api",
+      "--paginate",
+      "--slurp",
+      `repos/${this.slug}/pulls/${prNumber}/reviews`,
+    ]);
+    const pages = JSON.parse(out || "[]") as RestReview[][];
+    const reviews: GhReview[] = pages.flat().map((review) => ({
+      author: review.user ?? undefined,
+      state: review.state,
+      body: review.body ?? undefined,
+      submittedAt: review.submitted_at ?? undefined,
+    }));
+    return {
+      latestReview: latestHumanReview(reviews),
+      reviewerStates: reviewerStatesFromReviews(reviews),
+    };
+  }
+
   private async restChecksForPulls(prs: RestPull[]): Promise<ChecksState[]> {
     const now = Date.now();
     const checks: ChecksState[] = Array.from({ length: prs.length }, () => "none");
@@ -1411,13 +1440,16 @@ export class GithubForge implements GitForge {
       }
     }
 
+    await mapBounded([...statuses.values()], 6, async (status) => {
+      Object.assign(status, await this.restReviewStatus(status.number!));
+    });
     return { prs: pullRequests, statuses, capped, source: "rest" };
   }
 
   /** REST fallback for the herd's per-session PR status when GitHub's GraphQL
    *  bucket is exhausted. It intentionally returns the same PrStatus shape but
-   *  only does extra REST check/status reads for open PRs; terminal PRs already
-   *  sort correctly from the pull state alone. */
+   *  only does extra REST check/status reads for open PRs. Reviews use the same
+   *  human-review mapping as GraphQL so fallback cannot erase handoff decisions. */
   private async prStatusRest(headBranch: string, deployConfigured: boolean): Promise<PrStatus> {
     const owner = this.forkOwner ?? this.slug.split("/")[0];
     const out = await this.run([
@@ -1444,7 +1476,10 @@ export class GithubForge implements GitForge {
     const state: PrStatus["state"] =
       pr.state === "open" ? "open" : pr.merged_at ? "merged" : "closed";
     const checks = state === "open" ? await this.restChecksForHead(pr.head?.sha) : "none";
-    return this.mapRestPull(pr, deployConfigured, checks);
+    return {
+      ...this.mapRestPull(pr, deployConfigured, checks),
+      ...(await this.restReviewStatus(pr.number)),
+    };
   }
 
   async prStatus(headBranch: string): Promise<PrStatus> {

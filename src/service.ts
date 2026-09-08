@@ -998,7 +998,8 @@ export function composeEpicSteer(text: string): string | null {
  * to the parser by a unit test (`parseManualSteps(MANUAL_STEPS_NOTICE)` in test/manual-steps.test.ts).
  * The fence-open line must stay EXACTLY ```shepherd:manual-steps (FENCE_OPEN regex) and each step a
  * column-0-or-indented `- [ ]` line (TASK_LINE) so a wording edit can never silently break parsing.
- * The notice is emphatically default-empty: a fabricated step is worse than none.
+ * The notice is default-empty, and says why: an un-acked non-`POST-MERGE` step blocks the PR's
+ * auto-merge (hasBlockingManualSteps, src/automerge-core.ts), so a fabricated step strands the PR.
  */
 export const MANUAL_STEPS_NOTICE =
   "Before you open the pull request, declare any MANUAL OPERATOR STEPS the change implies — work a " +
@@ -1015,10 +1016,10 @@ export const MANUAL_STEPS_NOTICE =
   "- Or column-0 `Manual-Step:` trailer lines (flush-left, outside any fence), e.g. a line reading " +
   "exactly `Manual-Step: Rotate the signing key`.\n" +
   "Prefix a step with `POST-MERGE:` when it must happen AFTER the PR merges.\n" +
-  "DEFAULT TO DECLARING NOTHING: most PRs need NO manual steps. Add a step ONLY for a real " +
-  "out-of-band action a human must take; if merging fully completes the change, OMIT the carrier " +
-  "entirely. NEVER invent steps to fill the block — a spurious step is worse than none. When in " +
-  "doubt, declare nothing.";
+  "Most PRs need no manual steps: if merging fully completes the change, omit the carrier " +
+  "entirely. Declare a step only for a real out-of-band action a human must take — an un-acked " +
+  "non-`POST-MERGE` step blocks the PR's auto-merge, so a spurious one strands a PR that was " +
+  "otherwise ready to land.";
 
 /**
  * Injected as the highest-priority directive for an attended RESEARCH task (`research: true`).

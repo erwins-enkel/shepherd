@@ -68,9 +68,10 @@ export const PR_CREATE_CONTEXT =
   "`gh issue create` a follow-up. Before opening it, declare any MANUAL OPERATOR STEPS the change " +
   "implies (feature flag, env var, backfill, restart, DNS, seeded record) in the PR body — either " +
   "a ```shepherd:manual-steps``` fenced block of `- [ ]` lines or column-0 `Manual-Step:` trailer " +
-  "lines, prefixed `POST-MERGE:` when they must happen after merge. Most PRs need NONE: declare " +
-  "nothing rather than inventing one, and use `gh pr edit --body` if you only notice one later. " +
-  "The `shepherd-pull-requests` skill has the full rules.";
+  "lines, prefixed `POST-MERGE:` when they must happen after merge. Most PRs need none — an " +
+  "un-acked non-`POST-MERGE` step blocks the PR's auto-merge, so a spurious one strands a ready " +
+  "PR; use `gh pr edit --body` if you only notice one later. The `shepherd-pull-requests` skill " +
+  "has the full rules.";
 
 /**
  * Injected when a Bash call is backgrounded. A detached job reparents to PID 1 and outlives the

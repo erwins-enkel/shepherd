@@ -60,7 +60,9 @@ test("Codex effort routes xhigh through to -c model_reasoning_effort", () => {
     prompt: "P",
     effort: "xhigh",
   });
-  const cIdx = argv.indexOf("-c");
+  // `-c` is repeatable and the isolation block already spends one (the project-doc re-assert), so
+  // the effort override is the LAST one — indexOf would find the wrong pair.
+  const cIdx = argv.lastIndexOf("-c");
   expect(cIdx).toBeGreaterThan(-1);
   expect(argv[cIdx + 1]).toBe("model_reasoning_effort=xhigh");
   expect(argv).not.toContain("--effort"); // Codex uses the -c surface, not --effort
@@ -336,6 +338,25 @@ test("writer-only + model 'haiku' reproduces verify-key's historical argv shape"
 // file-based result contract is identical, so the caller's verdict reading is unchanged; only the
 // argv differs. None of the Claude-only flags (--settings/--safe-mode/--allowedTools) leak.
 
+// The full leading block every Codex role argv carries: the sandbox pair, the `--thread-source`
+// classification (#2136), then the config-isolation flags (#2134) — the Codex peer of Claude's
+// disableAllHooks + --disable-slash-commands + --safe-mode. Spelled out here BY HAND, exactly like
+// READONLY_GIT above: importing it from src would derive the expectation from the implementation
+// and turn this byte-identity gate into a tautology.
+const CODEX_PREFIX = [
+  "codex",
+  "exec",
+  "--sandbox",
+  "workspace-write",
+  "--thread-source",
+  "shepherd_role",
+  "--skip-git-repo-check",
+  "--ignore-user-config",
+  "--ignore-rules",
+  "-c",
+  'project_doc_fallback_filenames=["CLAUDE.md"]',
+];
+
 // The `-o` last-message file lets Codex write its final message to a file even when the agent answers
 // in chat instead of writing the result file (see codex-last-message.ts). It is OPT-IN — emitted only
 // when the caller sets `captureLastMessage` (i.e. the role READS the fallback). When set, the name
@@ -367,17 +388,7 @@ test("codex: NO `-o` unless captureLastMessage is set (opt-in; default off for e
     // no Codex `-o`/version-floor dependency and no fixed target a committed symlink could redirect.
     expect(argv).not.toContain("-o");
     expect(argv.some((a) => a.startsWith(".shepherd-last-message"))).toBe(false);
-    expect(argv).toEqual([
-      "codex",
-      "exec",
-      "--sandbox",
-      "workspace-write",
-      "--thread-source",
-      "shepherd_role",
-      "-m",
-      "gpt-5.5",
-      "DO_IT",
-    ]);
+    expect(argv).toEqual([...CODEX_PREFIX, "-m", "gpt-5.5", "DO_IT"]);
   }
 });
 
@@ -396,19 +407,7 @@ test("codex + captureLastMessage → reviewer PER-SPAWN `-o`, other kinds the fi
     if (kind === "reviewer") {
       expect(name).not.toBe(".shepherd-last-message.txt"); // genuinely per-spawn
     }
-    expect(withModel.argv).toEqual([
-      "codex",
-      "exec",
-      "--sandbox",
-      "workspace-write",
-      "--thread-source",
-      "shepherd_role",
-      "-m",
-      "gpt-5.5",
-      "-o",
-      name,
-      "DO_IT",
-    ]);
+    expect(withModel.argv).toEqual([...CODEX_PREFIX, "-m", "gpt-5.5", "-o", name, "DO_IT"]);
     // No Claude flags leak in.
     for (const flag of [
       "--settings",
@@ -429,18 +428,100 @@ test("codex + captureLastMessage → reviewer PER-SPAWN `-o`, other kinds the fi
       kind === "reviewer"
         ? `.shepherd-last-message-${noModel.sessionId}.txt`
         : ".shepherd-last-message.txt";
-    expect(noModel.argv).toEqual([
-      "codex",
-      "exec",
-      "--sandbox",
-      "workspace-write",
-      "--thread-source",
-      "shepherd_role",
-      "-o",
-      nName,
-      "DO_IT",
-    ]);
+    expect(noModel.argv).toEqual([...CODEX_PREFIX, "-o", nName, "DO_IT"]);
   }
+});
+
+// ── Config isolation (issue #2134) ───────────────────────────────────────────────────────────────
+// The Codex peer of the Claude "always --disable-slash-commands + disableAllHooks" test. Uniform
+// across every kind: unlike Claude's per-kind mcpIsolated split, Codex has no --allowedTools to make
+// a loaded MCP server inert, so dropping the user config is the only lever and every kind gets it.
+
+test("codex: every kind carries the full leading block — sandbox, thread source, isolation", () => {
+  for (const kind of ALL_KINDS) {
+    for (const model of [null, "gpt-5.5"]) {
+      for (const capture of [false, true]) {
+        const { argv } = buildTransientAgentArgv(kind, {
+          provider: "codex",
+          model,
+          prompt: "DO_IT",
+          captureLastMessage: capture,
+        });
+        expect(argv.slice(0, CODEX_PREFIX.length)).toEqual(CODEX_PREFIX);
+      }
+    }
+  }
+});
+
+// --ignore-user-config drops $CODEX_HOME/config.toml, so the tmpdir kinds would otherwise die at
+// spawn on "Not inside a trusted directory" — the trust entries live in the file we stopped loading.
+// This flag is a REQUIREMENT of the isolation, not a nicety; losing it silently breaks recap, namer,
+// verify-key, autopilot, distiller, optimizer, merge-suggest and task-shape.
+test("codex: --skip-git-repo-check accompanies --ignore-user-config for every kind", () => {
+  for (const kind of ALL_KINDS) {
+    const { argv } = buildTransientAgentArgv(kind, { provider: "codex", model: null, prompt: "p" });
+    expect(argv).toContain("--ignore-user-config");
+    expect(argv).toContain("--ignore-rules");
+    expect(argv).toContain("--skip-git-repo-check");
+  }
+});
+
+// --ephemeral would suppress the rollout files role activity + token totals are read from
+// (codex-activity.ts, #1816); --dangerously-bypass-hook-trust GRANTS hooks without trust, the
+// opposite of isolation. Neither may ever appear — the Codex peer of the Claude
+// "never --dangerously-skip-permissions" negative.
+test("codex: never --ephemeral, never a dangerously-bypass flag, for any kind", () => {
+  for (const kind of ALL_KINDS) {
+    for (const capture of [false, true]) {
+      const { argv } = buildTransientAgentArgv(kind, {
+        provider: "codex",
+        model: "gpt-5.5",
+        prompt: "p",
+        effort: "high",
+        captureLastMessage: capture,
+      });
+      for (const flag of [
+        "--ephemeral",
+        "--dangerously-bypass-hook-trust",
+        "--dangerously-bypass-approvals-and-sandbox",
+        "--json",
+        "--output-schema",
+      ]) {
+        expect(argv).not.toContain(flag);
+      }
+    }
+  }
+});
+
+// A Claude role reads the repo's CLAUDE.md; re-asserting the fallback keeps the Codex role at parity
+// instead of trading one asymmetry for another. `-c` is repeatable, so this must not collide with the
+// effort override — and the re-assert must come FIRST so the optional tail keeps its relative order.
+test("codex: both -c uses coexist, project-doc re-assert before the effort override", () => {
+  const { argv } = buildTransientAgentArgv("reviewer", {
+    provider: "codex",
+    model: "gpt-5.5",
+    prompt: "p",
+    effort: "high",
+  });
+  const cIdx = argv.reduce<number[]>((acc, a, i) => (a === "-c" ? [...acc, i] : acc), []);
+  expect(cIdx).toHaveLength(2);
+  expect(argv[cIdx[0]! + 1]).toBe('project_doc_fallback_filenames=["CLAUDE.md"]');
+  expect(argv[cIdx[1]! + 1]).toBe("model_reasoning_effort=high");
+  expect(cIdx[0]!).toBeLessThan(argv.indexOf("-m"));
+  // The prompt stays the trailing positional — the one hard ordering rule on the Codex side.
+  expect(argv.at(-1)).toBe("p");
+});
+
+// The uniformity itself is the invariant: a future per-kind carve-out has to break this test on
+// purpose, the way the Claude mcpIsolated coupling test guards its own split.
+test("codex: the isolation block is byte-identical across all four kinds", () => {
+  const prefixes = ALL_KINDS.map((kind) =>
+    buildTransientAgentArgv(kind, { provider: "codex", model: null, prompt: "p" }).argv.slice(
+      0,
+      CODEX_PREFIX.length,
+    ),
+  );
+  for (const prefix of prefixes) expect(prefix).toEqual(prefixes[0]!);
 });
 
 test("claude provider (default + explicit) still builds the claude argv", () => {

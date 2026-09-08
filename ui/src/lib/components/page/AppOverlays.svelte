@@ -29,6 +29,7 @@
     AgentProvider,
     BacklogPayload,
     DeployState,
+    HerdrUpdateStatus,
     Issue,
     GitState,
     Leftover,
@@ -92,7 +93,6 @@
     onupdateconfirm,
     onupdateclose,
     showHerdrUpdate,
-    herdrUpdating,
     onherdrupdateconfirm,
     onherdrupdateclose,
     onherdrupdatejump,
@@ -221,7 +221,6 @@
     onupdateconfirm: () => void;
     onupdateclose: () => void;
     showHerdrUpdate: boolean;
-    herdrUpdating: boolean;
     onherdrupdateconfirm: () => void;
     onherdrupdateclose: () => void;
     onherdrupdatejump: (id: string) => void;
@@ -359,6 +358,17 @@
     onstarresolve: (s: StarPromptStatus) => void;
   } = $props();
 
+  // Opening recovery must remain possible when the initial status request failed.
+  const unknownHerdrUpdate: HerdrUpdateStatus = {
+    current: null,
+    latest: null,
+    updateAvailable: false,
+    notes: null,
+    checkedAt: 0,
+    phase: "idle",
+    runtime: { state: "unknown", installedVersion: null, serverVersion: null },
+  };
+
   // NewTask seed props pre-resolved here so their nullish-coalescing fallbacks live
   // in <script> rather than the overlay template (keeps this template's synthetic
   // complexity under the Tier-1 bar).
@@ -390,13 +400,6 @@
       store.diagnostics,
       newTaskHeldProviders,
     ),
-  );
-
-  // Gate for the herdr-update modal: reachable for an available upgrade, a stranded
-  // unsupported install (#1898), or while a run is in flight.
-  const herdrUpdateOpen = $derived(
-    !!store.herdrUpdate &&
-      (store.herdrUpdate.updateAvailable || store.herdrUpdate.currentUnsupported || herdrUpdating),
   );
 </script>
 
@@ -478,11 +481,13 @@
   />
 {/if}
 
-{#if showHerdrUpdate && store.herdrUpdate && herdrUpdateOpen}
+{#if showHerdrUpdate}
   <!-- displayStatus: the warning counts agents the herdr restart interrupts — a
        working-while-blocked agent is genuinely mid-turn, so it counts as working -->
   <HerdrUpdateModal
-    update={store.herdrUpdate}
+    update={store.herdrUpdate ?? unknownHerdrUpdate}
+    onstatus={(status) => store.setHerdrUpdate(status)}
+    connectionEpoch={store.connectionEpoch}
     sessions={store.sessions
       .filter((s) => displayStatus(s, store.workingBlocked) === "running")
       .map((s) => ({ id: s.id, desig: s.desig, name: s.name }))}
@@ -537,37 +542,41 @@
 {#if showNew}
   <!-- Preselect: explicit backlog/PR context first, else the repo the herd is
        currently filtered to, else NewTask falls back to the most-recently-used repo. -->
-  <NewTask
-    {onsubmit}
-    spawnProgress={store.spawnProgress}
-    relaunch={relaunchOriginal}
-    {editHeld}
-    initialRepoPath={newTaskInitialRepo}
-    initialBaseBranch={newTaskInitialBaseBranch}
-    initialIssue={newTaskInitialIssue}
-    {relaunchIssueNumber}
-    initialImages={composeImages}
-    initialPrompt={newTaskInitialPrompt}
-    initialModel={newTaskInitialModel}
-    initialEffort={newTaskInitialEffort}
-    initialAgentProvider={composeAgentProvider ?? undefined}
-    initialPlanGate={composePlanGate}
-    initialAutopilot={composeAutopilot}
-    initialSandboxProfile={composeSandbox}
-    initialResearch={composeResearch}
-    initialEpicAuthoring={composeEpicAuthoring}
-    {usageLimits}
-    defaultAgentProvider={newTaskDefaultAgentProvider}
-    defaultModel={settings?.defaultModel}
-    defaultCodexModel={newTaskDefaultCodexModel}
-    defaultEffort={newTaskDefaultEffort}
-    fableAvailable={newTaskFableAvailable}
-    {holdLikely}
-    onclose={onnewclose}
-    onclone={onnewclone}
-    onfork={onnewfork}
-    onnewproject={onnewnewproject}
-  />
+  <div hidden={showHerdrUpdate} inert={showHerdrUpdate}>
+    <NewTask
+      suspended={showHerdrUpdate}
+      onherdrrepair={onsettingsherdrupdate}
+      {onsubmit}
+      spawnProgress={store.spawnProgress}
+      relaunch={relaunchOriginal}
+      {editHeld}
+      initialRepoPath={newTaskInitialRepo}
+      initialBaseBranch={newTaskInitialBaseBranch}
+      initialIssue={newTaskInitialIssue}
+      {relaunchIssueNumber}
+      initialImages={composeImages}
+      initialPrompt={newTaskInitialPrompt}
+      initialModel={newTaskInitialModel}
+      initialEffort={newTaskInitialEffort}
+      initialAgentProvider={composeAgentProvider ?? undefined}
+      initialPlanGate={composePlanGate}
+      initialAutopilot={composeAutopilot}
+      initialSandboxProfile={composeSandbox}
+      initialResearch={composeResearch}
+      initialEpicAuthoring={composeEpicAuthoring}
+      {usageLimits}
+      defaultAgentProvider={newTaskDefaultAgentProvider}
+      defaultModel={settings?.defaultModel}
+      defaultCodexModel={newTaskDefaultCodexModel}
+      defaultEffort={newTaskDefaultEffort}
+      fableAvailable={newTaskFableAvailable}
+      {holdLikely}
+      onclose={onnewclose}
+      onclone={onnewclone}
+      onfork={onnewfork}
+      onnewproject={onnewnewproject}
+    />
+  </div>
 {/if}
 
 {#if showSettings}

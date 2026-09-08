@@ -1,3 +1,4 @@
+import type { HerdrRuntimeStatus } from "./herdr-runtime";
 import type { SandboxProfile } from "./sandbox";
 import type { VisualBlock } from "./visual-blocks";
 import type { ManualStep } from "./manual-steps";
@@ -462,7 +463,30 @@ export interface DiffResult {
 }
 
 // ── herdr version update check (informational only) ─────────────────────────
+export interface HerdrUpdateResult {
+  ok: boolean;
+  from: string | null;
+  to: string | null;
+  serverVersion?: string | null;
+  error?: string;
+  errorCode?:
+    | "restart_required"
+    | "offline"
+    | "probe_failed"
+    | "update_failed"
+    | "restart_failed"
+    | "timeout";
+  handoffPaneLimit?: number;
+}
+
 export interface HerdrUpdateStatus {
+  /** Observed local runtime, independent of the release manifest. */
+  runtime?: HerdrRuntimeStatus;
+  phase?: "idle" | "updating" | "restarting" | "verifying";
+  operation?: { from: string | null; to: string | null };
+  result?: HerdrUpdateResult | null;
+  /** Monotonic snapshot order: a late HTTP response must not overwrite newer progress. */
+  revision?: number;
   /** installed herdr version (from `herdr --version`); null if unknown */
   current: string | null;
   /** latest published version from herdr.dev; null on error */

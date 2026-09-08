@@ -1,3 +1,5 @@
+import { maintenance } from "../src/maintenance";
+import { HerdrUpdateService } from "../src/herdr-update";
 import { describe, expect, it, spyOn } from "bun:test";
 import {
   DiagnosticsService,
@@ -284,6 +286,32 @@ describe("DiagnosticsService probes", () => {
   // A parseable `--version` proves only that the BINARY is present; the daemon must
   // also answer. A reachable binary with a dead server is `error` (offline), not `ok`.
   describe("herdr server liveness", () => {
+    it("distinguishes a protocol mismatch from offline and offers no shell remediation", async () => {
+      const svc = new DiagnosticsService({
+        ...healthyDeps(),
+        runHerdrLiveness: async () => {
+          throw Object.assign(new Error("runtime unavailable"), {
+            runtimeState: "restart_required",
+          });
+        },
+      });
+      const check = byId((await svc.check(0)).checks, "herdr");
+      expect(check.hintKey).toBe("diagnostics_hint_herdr_restart");
+      expect(check.remediation).toBeUndefined();
+    });
+
+    it("does not call an unverified runtime offline", async () => {
+      const svc = new DiagnosticsService({
+        ...healthyDeps(),
+        runHerdrLiveness: async () => {
+          throw Object.assign(new Error("runtime unavailable"), { runtimeState: "unknown" });
+        },
+      });
+      expect(byId((await svc.check(0)).checks, "herdr").hintKey).toBe(
+        "diagnostics_hint_herdr_unknown",
+      );
+    });
+
     const offline = () => Promise.reject(new Error("connect ECONNREFUSED"));
 
     it("error/offline when the binary is present but the daemon is unreachable", async () => {
@@ -1107,6 +1135,40 @@ describe("DiagnosticsService remediation annotation", () => {
 });
 
 describe("DiagnosticsService.fix", () => {
+  it("reserves herdr maintenance through diagnosis and remediation, excluding updates and repairs", async () => {
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let remediations = 0;
+    const diagnostics = new DiagnosticsService({
+      ...healthyDeps(),
+      runHerdrLiveness: async () => {
+        throw new Error("offline");
+      },
+      runRemediation: async () => {
+        remediations++;
+        await pending;
+      },
+    });
+    const updates = new HerdrUpdateService({ versionRunner: () => "herdr 0.9.0" });
+    const fixing = diagnostics.fix("herdr", 0);
+    try {
+      expect(maintenance.active).toBe(true);
+      expect(updates.apply()).toEqual({ started: false });
+      expect(
+        await updates.restartServer({ installedVersion: "0.9.0", serverVersion: "0.8.2" }),
+      ).toMatchObject({ started: false, error: "in_progress" });
+      await expect(diagnostics.fix("herdr", 0)).rejects.toThrow("maintenance");
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(remediations).toBe(1);
+    } finally {
+      release();
+      await fixing;
+    }
+    expect(maintenance.active).toBe(false);
+  });
+
   it("happy path: runs the verbatim command, re-probes, returns the fresh snapshot", async () => {
     let installed = false;
     const calls: string[] = [];

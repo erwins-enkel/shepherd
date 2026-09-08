@@ -1,3 +1,4 @@
+import type { HerdrRuntimeStatus } from "../src/herdr-runtime";
 import { test, expect, afterEach } from "bun:test";
 import {
   HerdrUpdateService,
@@ -16,7 +17,46 @@ afterEach(() => setDetectedHerdrVersion(null));
 
 const LOG = "/home/op/.shepherd/herdr-update.log";
 
-// ── buildUpdateScript: handoff update, recover-on-fail, durable audit log ─────
+test("a successful binary install with a failed handoff requires repair, never reports success", async () => {
+  const results: HerdrUpdateResult[] = [];
+  let recoveries = 0;
+  let installed = "0.8.2";
+  const svc = new HerdrUpdateService({
+    versionRunner: () => `herdr ${installed}`,
+    fetchLatest: async () => ({ version: "0.9.0" }),
+    runUpdate: async (onLine) => {
+      installed = "0.9.0";
+      onLine(
+        'live handoff failed: {"code":"handoff_failed","message":"live handoff supports at most 64 panes in one update"}',
+      );
+    },
+    probeRuntime: async () => ({
+      state: "restart_required",
+      installedVersion: installed,
+      serverVersion: "0.8.2",
+      reason: "protocol_mismatch",
+    }),
+    runRecovery: async () => {
+      recoveries++;
+    },
+    onDone: (result) => results.push(result),
+  });
+  await svc.check(1);
+  svc.apply();
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  expect(recoveries).toBe(0);
+  expect(results).toHaveLength(1);
+  expect(results[0]).toMatchObject({
+    ok: false,
+    from: "0.8.2",
+    to: "0.9.0",
+    errorCode: "restart_required",
+    serverVersion: "0.8.2",
+  });
+  expect(svc.current()?.runtime?.state).toBe("restart_required");
+});
+
+// ── buildUpdateScript: handoff attempt and durable audit log ─────────────────
 test("buildUpdateScript: runs `herdr update --handoff`, no destructive pre-stop", () => {
   const s = buildUpdateScript(LOG, "0.6.5", "0.6.6");
   // --handoff lets a protocol-bumping update proceed while Shepherd's own herdr
@@ -28,46 +68,17 @@ test("buildUpdateScript: runs `herdr update --handoff`, no destructive pre-stop"
   expect(s).not.toContain("herdr server stop");
 });
 
-test("buildUpdateScript: runs `agent list` UNCONDITIONALLY after update, not gated on rc (#1558)", () => {
-  const s = buildUpdateScript(LOG, "0.6.5", "0.6.6");
-  // #1558: `herdr update` exits 0 even when it left no running server, so gating
-  // recovery on the exit code skipped the exact bug. Recovery must NOT be wrapped
-  // in an rc check any more.
-  expect(s).not.toContain('if [ "$rc" -ne 0 ]');
-  // `agent list` is the recovery: a herdr CLI call auto-spawns the daemon, so this
-  // both verifies AND resurrects the server, driver-independently.
-  expect(s).toContain("agent list");
-  // grace + retry so an in-flight --handoff / a systemd `Restart=always` unit can
-  // bind first before we conclude the server is unreachable.
-  expect(s).toContain("for attempt in 1 2 3");
-  expect(s).toContain("sleep 2");
-  expect(s).toContain("ok=1");
-});
-
-test("buildUpdateScript: relaunches a detached server ONLY as a post-retry fallback", () => {
-  const s = buildUpdateScript(LOG, "0.6.5", "0.6.6");
-  // the explicit relaunch is RETAINED (hedge against a weaker 0.7.x auto-spawn) but
-  // fires only in the `else` branch, i.e. after the grace+retry loop still failed.
-  expect(s).toMatch(/setsid\b.*\bserver\b.*&/);
-  expect(s).toMatch(/else\s*\n\s*echo '[^']*unreachable after retries/);
-  // NEVER unlink the socket: herdr clears/rebinds its own stale socket on spawn, and
-  // an external `rm` could destroy a concurrently-recovering server's socket (#1558).
-  expect(s).not.toMatch(/\brm\b/);
-  expect(s).not.toContain("herdr.sock");
-  // the nonexistent verb is gone; no stop/handoff (both need a live server) and no systemd.
-  expect(s).not.toContain("herdr server start");
-  expect(s).not.toContain("live-handoff");
-  expect(s).not.toContain("status server");
+test("buildUpdateScript leaves server recovery to the verified service", () => {
+  const script = buildUpdateScript(LOG, "0.8.2", "0.9.0");
+  expect(script).not.toContain("setsid");
+  expect(script).not.toContain("server stop");
 });
 
 test("buildUpdateScript: threads a custom HERDR_BIN through every herdr call", () => {
   const s = buildUpdateScript(LOG, "0.6.5", "0.6.6", "/opt/herdr/bin/herdr");
-  // the configured binary drives the update, the auto-spawning `agent list` probe,
-  // and the fallback relaunch — each shell-quoted so a path with spaces/quotes can't
+  // The configured binary drives the update, shell-quoted so a path with spaces/quotes can't
   // break the script.
   expect(s).toContain("'/opt/herdr/bin/herdr' update --handoff");
-  expect(s).toContain("'/opt/herdr/bin/herdr' agent list");
-  expect(s).toContain("'/opt/herdr/bin/herdr' server");
 });
 
 test("buildUpdateScript: never restarts shepherd or shells systemd", () => {
@@ -82,7 +93,7 @@ test("buildUpdateScript: echoes a greppable marker for each step", () => {
   const markers = s.split("\n").filter((l) => l.includes(UPDATE_LOG_PREFIX));
   // running / exited rc / reachable-after-update / unreachable-after-retries = 4 markers
   // (the reachable + unreachable branches are mutually exclusive at runtime, both in text)
-  expect(markers.length).toBe(4);
+  expect(markers.length).toBe(2);
   expect(s).toContain(`${UPDATE_LOG_PREFIX} herdr update exited rc=$rc`);
 });
 
@@ -204,6 +215,11 @@ function primed(opts: {
     },
     fetchLatest: async () => ({ version: opts.latest ?? "0.6.8" }),
     runUpdate: opts.runUpdate ?? (async () => {}),
+    probeRuntime: async () => ({
+      state: "ready",
+      installedVersion: opts.installedAfter,
+      serverVersion: opts.installedAfter,
+    }),
     onLog: () => {},
     onStatus: () => {},
     onDone: (r) => dones.push(r),
@@ -238,7 +254,7 @@ test("apply(): 0.8.2 → 0.9.0 succeeds and clears unsupported/downgrade flags",
   expect(svc.apply()).toEqual({ started: true });
   await settle();
   expect(begun).toEqual([true, false]);
-  expect(dones).toEqual([{ ok: true, from: "0.8.2", to: "0.9.0" }]);
+  expect(dones).toEqual([{ ok: true, from: "0.8.2", to: "0.9.0", serverVersion: "0.9.0" }]);
   expect(svc.current()).toMatchObject({
     current: "0.9.0",
     updateAvailable: false,
@@ -295,7 +311,7 @@ test("apply(): watchdog timeout reports the ACTUAL version, not the target", asy
   expect(dones[0]).toMatchObject({
     ok: false,
     to: "0.6.7",
-    error: expect.stringContaining("timed out"),
+    errorCode: "timeout",
   });
   expect(dones[0]!.to).not.toBe("0.6.8"); // not the version we know we never reached
 });
@@ -433,4 +449,163 @@ test("downgrade(target): refuses when the installed version is already at/below 
   });
   await svc.check(1000);
   expect(svc.downgrade("0.7.4").started).toBe(false); // already at 0.7.4 — nothing to move
+});
+
+test("confirmed repair restarts once, verifies readiness and releases maintenance", async () => {
+  let runtime = {
+    state: "restart_required" as "restart_required" | "ready",
+    installedVersion: "0.9.0",
+    serverVersion: "0.8.2",
+  };
+  const effects: string[] = [];
+  const svc = new HerdrUpdateService({
+    probeRuntime: async () => runtime,
+    runRecovery: async (restart) => {
+      effects.push(restart ? "restart" : "start");
+      runtime = { state: "ready", installedVersion: "0.9.0", serverVersion: "0.9.0" };
+    },
+    maintenance: { begin: () => effects.push("begin"), end: () => effects.push("end") },
+  });
+  expect(await svc.restartServer({ installedVersion: "0.9.0", serverVersion: "0.8.2" })).toEqual({
+    started: true,
+  });
+  await settle();
+  expect(effects).toEqual(["begin", "restart", "end"]);
+  expect(svc.current()).toMatchObject({
+    phase: "idle",
+    result: { ok: true, serverVersion: "0.9.0" },
+  });
+});
+
+test("repair refuses a changed confirmation and a concurrent operation without stopping anything", async () => {
+  let release: () => void = () => {};
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let restarts = 0;
+  const svc = new HerdrUpdateService({
+    probeRuntime: async () => {
+      await pending;
+      return { state: "restart_required", installedVersion: "0.9.0", serverVersion: "0.8.2" };
+    },
+    runRecovery: async () => {
+      restarts++;
+    },
+  });
+  const first = svc.restartServer({ installedVersion: "0.8.2", serverVersion: "0.8.0" });
+  expect(
+    await svc.restartServer({ installedVersion: "0.9.0", serverVersion: "0.8.2" }),
+  ).toMatchObject({ started: false, error: "in_progress" });
+  release();
+  expect(await first).toMatchObject({ started: false, error: "runtime_changed" });
+  expect(restarts).toBe(0);
+});
+
+test("repair of an already recovered server is a harmless verified success", async () => {
+  let restarts = 0;
+  const svc = new HerdrUpdateService({
+    probeRuntime: async () => ({
+      state: "ready",
+      installedVersion: "0.9.0",
+      serverVersion: "0.9.0",
+    }),
+    runRecovery: async () => {
+      restarts++;
+    },
+  });
+  expect(await svc.restartServer({ installedVersion: "0.9.0", serverVersion: "0.8.2" })).toEqual({
+    started: true,
+  });
+  expect(restarts).toBe(0);
+  expect(svc.current()?.result?.ok).toBe(true);
+});
+
+test("failed repair publishes fresh offline facts and keeps an actionable failure", async () => {
+  let stopped = false;
+  const effects: string[] = [];
+  const svc = new HerdrUpdateService({
+    probeRuntime: async () => ({
+      state: stopped ? "offline" : "restart_required",
+      installedVersion: "0.9.0",
+      serverVersion: stopped ? null : "0.8.2",
+    }),
+    runRecovery: async () => {
+      stopped = true;
+      throw new Error("start failed");
+    },
+    maintenance: { begin: () => effects.push("begin"), end: () => effects.push("end") },
+  });
+  await svc.restartServer({ installedVersion: "0.9.0", serverVersion: "0.8.2" });
+  await settle();
+  expect(svc.current()).toMatchObject({
+    phase: "idle",
+    runtime: { state: "offline" },
+    result: { ok: false, errorCode: "restart_failed" },
+  });
+  expect(effects).toEqual(["begin", "end"]);
+});
+
+test("GET runtime refresh remains available without a release manifest and after reopen", async () => {
+  const svc = new HerdrUpdateService({
+    versionRunner: () => "herdr 0.9.0",
+    fetchLatest: async () => {
+      throw new Error("network down");
+    },
+    probeRuntime: async () => ({
+      state: "restart_required",
+      installedVersion: "0.9.0",
+      serverVersion: "0.8.2",
+    }),
+  });
+  await svc.check(1);
+  expect(await svc.status()).toMatchObject({
+    current: "0.9.0",
+    latest: null,
+    runtime: { state: "restart_required" },
+  });
+});
+
+test("a delayed release check cannot overwrite newer installed runtime facts", async () => {
+  let release!: (value: { version: string }) => void;
+  const manifest = new Promise<{ version: string }>((resolve) => {
+    release = resolve;
+  });
+  const svc = new HerdrUpdateService({
+    versionRunner: () => "herdr 0.8.2",
+    fetchLatest: () => manifest,
+    probeRuntime: async () => ({
+      state: "ready",
+      installedVersion: "0.9.0",
+      serverVersion: "0.9.0",
+    }),
+  });
+  const checking = svc.check(1);
+  await svc.status();
+  release({ version: "0.9.0" });
+  expect(await checking).toMatchObject({ current: "0.9.0", updateAvailable: false });
+});
+
+test("update automatically starts only a freshly verified offline server", async () => {
+  let runtime: HerdrRuntimeStatus = {
+    state: "offline",
+    installedVersion: "0.9.0",
+    serverVersion: null,
+  };
+  const calls: boolean[] = [];
+  const svc = new HerdrUpdateService({
+    versionRunner: () => "herdr 0.9.0",
+    fetchLatest: async () => ({ version: "0.9.0" }),
+    runUpdate: async () => {},
+    probeRuntime: async () => runtime,
+    runRecovery: async (restart, _signal, expected) => {
+      expect(expected).toEqual(runtime);
+      calls.push(restart);
+      runtime = { state: "ready", installedVersion: "0.9.0", serverVersion: "0.9.0" };
+    },
+  });
+  await svc.check(1);
+  svc.apply();
+  await settle();
+  expect(calls).toEqual([false]);
+  expect(svc.current()?.result?.ok).toBe(true);
 });

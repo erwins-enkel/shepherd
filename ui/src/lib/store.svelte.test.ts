@@ -2,6 +2,31 @@ import { test, expect, vi, afterEach } from "vitest";
 import { HerdStore } from "./store.svelte";
 import { toasts } from "./toasts.svelte";
 
+test("an older herdr snapshot cannot erase a repair in progress", () => {
+  const store = new HerdStore();
+  const status = {
+    current: "0.9.0",
+    latest: "0.9.0",
+    updateAvailable: false,
+    notes: null,
+    checkedAt: 1,
+  };
+  store.apply({
+    event: "herdr-update:status",
+    data: { ...status, phase: "restarting", revision: 20 },
+  });
+  store.apply({
+    event: "herdr-update:status",
+    data: {
+      ...status,
+      phase: "idle",
+      revision: 19,
+      result: { ok: true, from: "0.8.2", to: "0.9.0" },
+    },
+  });
+  expect(store.herdrUpdate?.phase).toBe("restarting");
+});
+
 import type {
   AutoMergeStatus,
   BacklogPayload,

@@ -181,6 +181,7 @@
     "ui/src/lib/components/CodexUpdateModal.svelte:359-378|ui/src/lib/components/HerdrUpdateModal.svelte:667-686|ui/src/lib/components/RestartShepherdDialog.svelte:260-280",
     "ui/src/lib/components/CodexUpdateModal.svelte:359-377|ui/src/lib/components/HerdrUpdateModal.svelte:667-685|ui/src/lib/components/PluginUpdatesModal.svelte:473-491|ui/src/lib/components/RestartShepherdDialog.svelte:260-278",
     "ui/src/lib/components/CodexUpdateModal.svelte:359-374|ui/src/lib/components/HerdrUpdateModal.svelte:667-682|ui/src/lib/components/PluginUpdatesModal.svelte:473-488|ui/src/lib/components/RestartShepherdDialog.svelte:260-275|ui/src/lib/components/UpdateModal.svelte:538-553",
+    "ui/src/lib/components/CodexUpdateModal.svelte:339-380|ui/src/lib/components/HerdrUpdateModal.svelte:837-878",
     "ui/src/lib/components/CodexUpdateModal.svelte:386-420|ui/src/lib/components/HerdrUpdateModal.svelte:694-733",
     "ui/src/lib/components/CodexUpdateModal.svelte:386-411|ui/src/lib/components/HerdrUpdateModal.svelte:694-724|ui/src/lib/components/UpdateModal.svelte:567-597",
     "ui/src/lib/components/CodexUpdateModal.svelte:393-408|ui/src/lib/components/HerdrUpdateModal.svelte:701-721|ui/src/lib/components/PluginUpdatesModal.svelte:490-504|ui/src/lib/components/UpdateModal.svelte:574-594",

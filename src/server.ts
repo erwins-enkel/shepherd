@@ -1,3 +1,4 @@
+import { isHerdrProtocolMismatch } from "./herdr-runtime";
 import type { RepoConfig, SessionStore } from "./store";
 import type { PluginRegistry } from "./plugins/loader";
 import type { PluginInfo } from "./plugins/types";
@@ -332,7 +333,10 @@ export interface AppDeps {
   updates?: Pick<UpdateService, "current" | "apply"> &
     Partial<Pick<UpdateService, "applyState" | "dirtyStatus">>;
   /** herdr-version tracker + applier; absent in environments where it isn't wired. */
-  herdrUpdates?: Pick<HerdrUpdateService, "current" | "apply" | "downgrade">;
+  herdrUpdates?: Pick<
+    HerdrUpdateService,
+    "current" | "status" | "apply" | "downgrade" | "restartServer"
+  >;
   /** codex-version tracker + applier; absent in environments where it isn't wired. */
   codexUpdates?: Pick<CodexUpdateService, "current" | "apply" | "releaseNotes">;
   /** installed-plugin update tracker: `current()` for the badge/status, `check()` for
@@ -2245,6 +2249,10 @@ function terminalErrorResponse(e: unknown): Response | null {
 }
 
 function createErrorResponse(e: unknown): Response {
+  if (isHerdrProtocolMismatch(e)) {
+    console.warn("[herdr] task creation requires a server restart");
+    return json({ error: "herdr_restart_required", code: "herdr_restart_required" }, 409);
+  }
   const t = terminalErrorResponse(e);
   if (t) return t;
   // The operator cancelled a slow start. Not a failure: the worktree is already rolled back and
@@ -4703,10 +4711,14 @@ const HERDR_UPDATE_IDLE = {
 } as const;
 
 // ── herdr update: status + (destructive) apply ─────────────────────────
-function handleHerdrUpdate({ req, parts, deps }: Ctx): Response | null {
+async function handleHerdrUpdate({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (!(parts[0] === "api" && parts[1] === "herdr-update" && !parts[2])) return null;
   if (req.method === "GET") {
-    return json(deps.herdrUpdates?.current() ?? { ...HERDR_UPDATE_IDLE, checkedAt: Date.now() });
+    return json(
+      deps.herdrUpdates
+        ? await deps.herdrUpdates.status()
+        : { ...HERDR_UPDATE_IDLE, checkedAt: Date.now() },
+    );
   }
   if (req.method !== "POST") return null;
   if (!deps.herdrUpdates) return json({ error: "herdr updates not available" }, 503);
@@ -4715,6 +4727,30 @@ function handleHerdrUpdate({ req, parts, deps }: Ctx): Response | null {
   }
   const r = deps.herdrUpdates.apply();
   return json({ ok: r.started }, r.started ? 202 : 409);
+}
+
+async function handleHerdrRestart({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(parts[0] === "api" && parts[1] === "herdr-update" && parts[2] === "restart" && !parts[3]))
+    return null;
+  if (req.method !== "POST") return json({ error: "method not allowed" }, 405);
+  if (!deps.herdrUpdates) return json({ error: "herdr updates not available" }, 503);
+  const body = await req.json().catch(() => null);
+  if (
+    !body ||
+    body.confirmed !== true ||
+    typeof body.installedVersion !== "string" ||
+    !(typeof body.serverVersion === "string" || body.serverVersion === null)
+  ) {
+    return json({ error: "confirmation_required" }, 400);
+  }
+  const result = await deps.herdrUpdates.restartServer({
+    installedVersion: body.installedVersion,
+    serverVersion: body.serverVersion,
+  });
+  return json(
+    { ok: result.started, error: result.error, code: result.error },
+    result.started ? 202 : 409,
+  );
 }
 
 // ── herdr downgrade: rescue an install stranded on an unsupported herdr ────
@@ -8005,6 +8041,7 @@ const ROUTE_HANDLERS = [
   handlePromptBudget,
   handleUpdate,
   handleHerdrUpdate,
+  handleHerdrRestart,
   handleHerdrDowngrade,
   handleCodexUpdate,
   handlePluginUpdate,

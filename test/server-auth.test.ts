@@ -78,6 +78,24 @@ test("gate: a valid session cookie passes (GET /api/me → 200 authenticated)", 
   expect(await res.json()).toEqual({ authenticated: true });
 });
 
+test("herdr recovery mutations require operator authentication and an allowed origin", async () => {
+  const app = makeApp(makeDeps());
+  const request = (headers: Record<string, string>) =>
+    new Request("http://localhost/api/herdr-update/restart", {
+      method: "POST",
+      headers: { "content-type": "application/json", ...headers },
+      body: JSON.stringify({ confirmed: true, installedVersion: "0.9.0", serverVersion: "0.8.2" }),
+    });
+  expect((await app.fetch(request({}))).status).toBe(401);
+  expect(
+    (
+      await app.fetch(
+        request({ ...cookieHeader(signCookie(SECRET)), Origin: "http://evil.example" }),
+      )
+    ).status,
+  ).toBe(403);
+});
+
 test("gate: no credential → 401 unauthorized", async () => {
   const app = makeApp(makeDeps());
   const res = await app.fetch(new Request("http://x/api/me"));

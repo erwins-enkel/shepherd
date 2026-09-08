@@ -1,3 +1,5 @@
+import { maintenance } from "./maintenance";
+import { probeHerdrRuntime } from "./herdr-runtime";
 import { execFile, spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { cpus } from "node:os";
@@ -331,35 +333,12 @@ export function defaultRunRemediation(
   });
 }
 
-/** Default `runHerdrLiveness`: spawn `herdr agent list` with stdout/stderr routed to
- *  /dev/null (`stdio: "ignore"`) — the exit code is the only signal, so a large agent
- *  listing on a busy server is never buffered and can never exceed a buffer cap and
- *  falsely read as offline (unlike `execFile`, whose 1 MiB `maxBuffer` would reject).
- *  Resolves on exit 0 (daemon reachable); rejects on non-zero exit, spawn error
- *  (ENOENT / ECONNREFUSED), or timeout (daemon offline). */
-function defaultHerdrLiveness(bin: string, timeoutMs: number): Promise<void> {
-  return new Promise<void>((resolve, reject) => {
-    const child = spawn(bin, ["agent", "list"], { stdio: "ignore" });
-    let settled = false;
-    const timer = setTimeout(() => {
-      settled = true;
-      child.kill("SIGKILL");
-      reject(new Error("herdr liveness timed out"));
-    }, timeoutMs);
-    child.on("error", (err) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      reject(err);
-    });
-    child.on("close", (code) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      if (code === 0) resolve();
-      else reject(new Error(`herdr agent list exited ${String(code)}`));
-    });
-  });
+/** The runtime probe distinguishes a live old daemon from an absent one. */
+async function defaultHerdrLiveness(bin: string, timeoutMs: number): Promise<void> {
+  const runtime = await probeHerdrRuntime({ bin, timeoutMs });
+  if (runtime.state !== "ready") {
+    throw Object.assign(new Error("herdr runtime unavailable"), { runtimeState: runtime.state });
+  }
 }
 
 /** The hintKey the `claude_trust` check emits when untrusted. Shared by the check emission and
@@ -1297,14 +1276,22 @@ export class DiagnosticsService {
     if (liveness && keys.offline) {
       try {
         await liveness();
-      } catch {
-        return { id, state: "error", hintKey: keys.offline };
+      } catch (err) {
+        return { id, state: "error", hintKey: this.livenessHint(id, err, keys.offline) };
       }
     }
     if (compareSemver(version, floor) < 0) {
       return { id, state: "warning", hintKey: keys.outdated };
     }
     return { id, state: "ok", hintKey: keys.ok };
+  }
+
+  private livenessHint(id: string, error: unknown, offline: string): string {
+    if (id !== "herdr" || !error || typeof error !== "object" || !("runtimeState" in error))
+      return offline;
+    if (error.runtimeState === "restart_required") return "diagnostics_hint_herdr_restart";
+    if (error.runtimeState === "unknown") return "diagnostics_hint_herdr_unknown";
+    return offline;
   }
 
   private herdrProbe = (): Promise<DiagnosticCheck> =>
@@ -1690,7 +1677,18 @@ export class DiagnosticsService {
    *   - **shell remediation**: the verbatim command for the hintKey.
    *  Throws if the check is unknown or has no code fix and no auto-fix command. */
   async fix(checkId: string, now: number): Promise<DiagnosticsSnapshot> {
-    const snapshot = await this.current(now);
+    if (checkId !== "herdr") return this.fixCheck(checkId, now);
+    if (maintenance.active) throw new Error("no remediation for herdr during maintenance");
+    maintenance.begin();
+    try {
+      return await this.fixCheck(checkId, now);
+    } finally {
+      maintenance.end();
+    }
+  }
+
+  private async fixCheck(checkId: string, now: number): Promise<DiagnosticsSnapshot> {
+    const snapshot = checkId === "herdr" ? await this.check(now) : await this.current(now);
     const check = snapshot.checks.find((c) => c.id === checkId);
     if (!check) throw new Error(`unknown check ${checkId}`);
     if (check.hintKey === CLAUDE_TRUST_UNTRUSTED_HINT) {

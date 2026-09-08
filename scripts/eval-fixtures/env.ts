@@ -150,6 +150,17 @@ function bash(env: FixtureEnv, command: unknown): string {
   return outputs.length > 0 ? outputs.join("\n") : "(no output)";
 }
 
+/** The numeric argument of a `-n N` / `-N` flag, else `fallback`. */
+function numArg(args: string[], fallback: number): number {
+  for (const a of args) {
+    const m = /^-n?(\d+)$/.exec(a);
+    if (m) return Number(m[1]);
+  }
+  const i = args.indexOf("-n");
+  const next = i !== -1 ? Number(args[i + 1]) : NaN;
+  return Number.isFinite(next) ? next : fallback;
+}
+
 function runOne(env: FixtureEnv, command: string): string {
   const paths = Object.keys(tree(env)).sort();
 
@@ -193,6 +204,12 @@ function runOne(env: FixtureEnv, command: string): string {
     }
     return env.diff ?? "(no changes)";
   }
+  if (/\bgit\s+show\b/.test(command) && /(--|:)\s*\S*\.\w+/.test(command)) {
+    // `git show <ref> -- <path>` / `git show <ref>:<path>` — the reviewer reaching for the base
+    // version of a file. The fixture has no base image, and the closest TRUE thing it holds is the
+    // diff; answering with a commit subject sent an observed trial hunting for six more turns.
+    return env.diff ?? "(no changes)";
+  }
   if (/\bgit\s+(log|show)\b/.test(command)) {
     // A repository with no history reads as broken; one plausible commit is enough to settle it.
     return `${HEAD_SHA.slice(0, 8)} the change under review`;
@@ -215,9 +232,41 @@ function runOne(env: FixtureEnv, command: string): string {
     return grep(env, args[0], args[1]);
   }
 
-  if (/^cat\b/.test(command)) {
-    const file = tokenize(command)[1];
-    return file === undefined ? "(no output)" : readFile(env, file);
+  // FILE-CONTENT commands, all resolved from the same map so a file cannot look present to one
+  // and empty to another. A traced trial showed why that matters: `Read` returned the file, then
+  // `sed -n '1,40p'` / `wc -l` / `nl` returned nothing, and the reviewer spent its remaining 15
+  // turns investigating the repository instead of the diff. Silence is not neutral — inconsistent
+  // silence is worse, because it reads as a broken worktree.
+  const fileCmd = /^(cat|sed|head|tail|wc|nl)\b/.exec(command);
+  if (fileCmd) {
+    const args = tokenize(command);
+    const file = args.find(
+      (a, i) => i > 0 && !a.startsWith("-") && !/^\d/.test(a) && a.includes("."),
+    );
+    if (file === undefined) return "(no output)";
+    const content = readFile(env, file);
+    if (content.startsWith("Error:")) return content;
+    const lines = content.split("\n");
+    switch (fileCmd[1]) {
+      case "wc":
+        return `${lines.length} ${file}`;
+      case "nl":
+        return lines.map((l, i) => `${String(i + 1).padStart(6)}\t${l}`).join("\n");
+      case "head":
+        return lines.slice(0, numArg(args, 10)).join("\n");
+      case "tail":
+        return lines.slice(-numArg(args, 10)).join("\n");
+      case "sed": {
+        // `sed -n 'A,Bp'` / `sed -n 'Ap'` — the only forms a reviewer reaches for here.
+        const range = /(\d+)(?:,(\d+))?p/.exec(command);
+        if (!range) return content;
+        const from = Number(range[1]);
+        const to = range[2] === undefined ? from : Number(range[2]);
+        return lines.slice(from - 1, to).join("\n");
+      }
+      default:
+        return content;
+    }
   }
 
   return "";

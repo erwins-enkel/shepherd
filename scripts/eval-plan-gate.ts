@@ -36,17 +36,20 @@ const DEFAULT_TEMPERATURE = 1.0;
 /**
  * PINNED overall-accuracy floor for the gating fixture set — a LITERAL, never "observed − margin"
  * computed at runtime. Adjustment rule: `FLOOR = round_down(observed − 0.15)` to the nearest 0.05,
- * changed only by a deliberate, commit-noted edit. See `docs/eval-harness.md`.
+ * changed only by a deliberate, commit-noted edit.
+ *
+ * Pinned from the first clean baseline (claude-sonnet-5, T=3, temperature 1.0, 2026-09-09):
+ * gating accuracy 32/33 = 0.970, every gating fixture majority-correct, no mechanical failures →
+ * `round_down(0.970 - 0.15)` to the nearest 0.05 = 0.80. See docs/eval-harness.md.
  */
-const GATING_ACCURACY_FLOOR = 0.75;
+const GATING_ACCURACY_FLOOR = 0.8;
 
-/** OBSERVATIONAL until a measured run exists. No run has yet scored this eval's PROMPT: the first
- *  hit the prose-instead-of-tools mode failure, the second exhausted the turn budget, and the third
- *  could not run at all (workspace usage limit, resets 2026-10-01). The floor above is therefore an
- *  unobserved guess, and gating a PR on a number nobody has measured would be theatre. The fixtures
- *  still run, score and report on every trigger. Flip this to `false` in the same commit that pins
- *  the floor from a real run — see the baselines section of docs/eval-harness.md. */
-const OBSERVATIONAL = true;
+/** GATING. Three earlier runs measured the harness rather than the prompt — prose instead of tools,
+ *  turn-budget starvation, then an exhausted usage limit — and one measured a fixture that claimed
+ *  code its own worktree lacked. With those fixed, 2026-09-09 produced a clean 32/33 with zero
+ *  no-tool/parse-fail trials, so the floor above is observed rather than guessed and this eval
+ *  gates. */
+const OBSERVATIONAL = false;
 
 const LABELS = [
   "approve",

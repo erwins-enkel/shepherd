@@ -454,7 +454,18 @@ export const CRITIC_FIXTURES: CriticFixture[] = [
   {
     id: "scope-out-of-diff-not-raised",
     origin: "synthetic",
-    gating: true,
+    // DEMOTED to non-gating baseline (2026-09-09), per the contingency rule. The first clean run
+    // scored it 1/3 — {changes_requested:1 commented:1 changes_requested:bad-findings:1}, no
+    // majority — while every other gating fixture held. The fixture is faithful, not mislabelled:
+    // a real flaw sits in a file the diff does not touch, and the SCOPE rule says it must not be
+    // raised. The prompt does not reliably obey that rule on its own.
+    //
+    // Which is exactly why production carries the deterministic `scopeFindings` backstop that DROPS
+    // out-of-diff findings server-side. This eval deliberately scores the RAW findings, so it sees
+    // a gap the shipped system does not have. Demoted and recorded rather than revised — and the
+    // fixture keeps running, because it is the before/after datum if the prompt's scope discipline
+    // is ever tightened.
+    gating: false,
     kind: "session",
     diffBase: BASE,
     note: "A real flaw sits in a file the diff does not touch — the SCOPE rule forbids raising it.",

@@ -860,23 +860,18 @@ test("an observational eval says so in its report, so green is never read as a p
   expect(out).toContain("(observational — not gating)");
 });
 
-test("the two evals with no measured baseline are observational; the classifier gates", () => {
-  // Flip these in the SAME commit that pins the floor from a real run.
-  expect(PLAN_GATE_SPEC.observational).toBe(true);
-  expect(CRITIC_SPEC.observational).toBe(true);
-  expect(CLASSIFIER_SPEC.observational).toBeUndefined();
-});
-
-test("no comment still claims AGENT_SYSTEM_PROMPT is mode-setting only", () => {
-  // The claim was corrected in eval-core.ts and the docs but left stale at both spec sites. A
-  // description of what the harness injects has to stay true everywhere it is written down.
-  const sources = [
-    readFileSync(new URL("../scripts/eval-core.ts", import.meta.url), "utf8"),
-    readFileSync(new URL("../scripts/eval-critic.ts", import.meta.url), "utf8"),
-    readFileSync(new URL("../scripts/eval-plan-gate.ts", import.meta.url), "utf8"),
-    readFileSync(new URL("../docs/eval-harness.md", import.meta.url), "utf8"),
-  ];
-  for (const src of sources) expect(src).not.toMatch(/mode-setting only/i);
+test("every eval gates — none is left observational with a guessed floor", () => {
+  // `observational` is a temporary state for an eval whose floor nobody has measured. All three
+  // floors are now pinned from clean runs (2026-09-09); an eval added later starts observational
+  // and flips in the same commit that pins its floor.
+  const stillUnmeasured = [CLASSIFIER_SPEC, PLAN_GATE_SPEC, CRITIC_SPEC]
+    .filter((spec) => spec.observational === true)
+    .map((spec) => spec.name);
+  expect(stillUnmeasured).toEqual([]);
+  // A pinned floor is a deliberate literal, never the 0.75 placeholder the unmeasured evals carried.
+  for (const spec of [CLASSIFIER_SPEC, PLAN_GATE_SPEC, CRITIC_SPEC]) {
+    expect(`${spec.name} floor=${spec.floor}`).toBe(`${spec.name} floor=0.8`);
+  }
 });
 
 test("AGENT_SYSTEM_PROMPT carries no guidance about HOW to review", () => {

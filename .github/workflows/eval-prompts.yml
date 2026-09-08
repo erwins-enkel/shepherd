@@ -197,9 +197,9 @@ jobs:
           #   0 pass · 1 the eval RAN and the prompt missed · 2 it COULD NOT RUN · 3 the harness broke
           #
           # An eval with no measured baseline reports but never returns a FAILING code at all (see
-          # `observational` in scripts/eval-core.ts) — not 1 for a scoring miss, and not 3 for a
-          # harness that obtained no verdict, which is the state plan-gate and critic are actually
-          # in. They run and report here without being able to block a PR.
+          # `observational` in scripts/eval-core.ts). No eval is in that state today — all three
+          # floors are pinned from clean runs — but one added later starts there and flips in the
+          # same commit that pins its floor.
           #
           # 2 does NOT fail the job. An exhausted API usage limit, a dead key or a rate limit that
           # survived its retry means nothing was measured — that says nothing about the prompt, and

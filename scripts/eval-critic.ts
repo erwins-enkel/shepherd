@@ -49,17 +49,20 @@ const DEFAULT_TEMPERATURE = 1.0;
 /**
  * PINNED overall-accuracy floor for the gating fixture set — a LITERAL, never "observed − margin"
  * computed at runtime. Adjustment rule: `FLOOR = round_down(observed − 0.15)` to the nearest 0.05,
- * changed only by a deliberate, commit-noted edit. See `docs/eval-harness.md`.
+ * changed only by a deliberate, commit-noted edit.
+ *
+ * Pinned from the first clean baseline (claude-sonnet-5, T=3, temperature 1.0, 2026-09-09): the
+ * raw run scored 30/33 = 0.909 with no mechanical failures; after demoting
+ * `scope-out-of-diff-not-raised` per the contingency rule, gating accuracy is 29/30 = 0.967 →
+ * `round_down(0.967 - 0.15)` to the nearest 0.05 = 0.80. See docs/eval-harness.md.
  */
-const GATING_ACCURACY_FLOOR = 0.75;
+const GATING_ACCURACY_FLOOR = 0.8;
 
-/** OBSERVATIONAL until a measured run exists. No run has yet scored this eval's PROMPT: the first
- *  hit the prose-instead-of-tools mode failure, the second exhausted the turn budget, and the third
- *  could not run at all (workspace usage limit, resets 2026-10-01). The floor above is therefore an
- *  unobserved guess, and gating a PR on a number nobody has measured would be theatre. The fixtures
- *  still run, score and report on every trigger. Flip this to `false` in the same commit that pins
- *  the floor from a real run — see the baselines section of docs/eval-harness.md. */
-const OBSERVATIONAL = true;
+/** GATING. Every earlier run measured the harness, not the prompt: prose instead of tools, then
+ *  turn-budget starvation, then a fixture worktree where a file was present or empty depending on
+ *  which command asked. With those fixed, 2026-09-09 produced 30/33 with ZERO no-tool/parse-fail
+ *  trials — so the floor above is observed rather than guessed and this eval gates. */
+const OBSERVATIONAL = false;
 
 const LABELS = [
   "changes_requested",
@@ -142,9 +145,11 @@ export const SPEC: EvalSpec<CriticFixture> = {
   system: AGENT_SYSTEM_PROMPT,
   // The completion signal, not the first write — see the two-writes note above.
   verdictFile: VERDICT_FILE,
-  // Budget: the diff read, a handful of greps/reads, then BOTH writes. Generous enough that a
-  // thorough review is not truncated, bounded enough that a confused run cannot spend indefinitely.
-  maxTurns: 18,
+  // Budget: the diff read, a handful of greps/reads, then BOTH writes. Raised from 18 after a
+  // traced trial finished at 15 with the environment fixed — too little headroom, and a trial that
+  // runs out scores as a MISS, which is worse than the marginal cost of the extra turns. A confused
+  // run is still bounded, and the spend ceiling backs it up.
+  maxTurns: 26,
   maxTokens: MAX_TOKENS,
   expectedLabel: (fixture) => fixture.expectedDecision,
   buildPrompt: buildCriticPrompt,

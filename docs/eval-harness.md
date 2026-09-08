@@ -234,29 +234,45 @@ visible instead of masked by the backstop.
 
 ## Baselines
 
-> **PENDING CAPTURE for plan-gate and critic — and until then they DO NOT GATE.** They are now the
-> only two new evals in the set, so nothing measured ships from #2156 beyond the classifier's
-> confirmation. No run has yet
-> scored either prompt: the first hit the prose-instead-of-tools mode failure, the second exhausted
-> the turn budget, and the third could not run at all (workspace API usage limit, resets
-> 2026-10-01). Their floors below are therefore unobserved guesses, and blocking a PR on a number
-> nobody has measured would be theatre. Both ship with `observational: true` — they run, score and
-> report on every trigger, and their report says `OBSERVATIONAL … does NOT gate` in its header and
-> `(observational — not gating)` on its RESULT line, so a green result can never be mistaken for a
-> passed gate. The guarantee is unconditional: an observational eval cannot return a failing code
-> for ANY eval outcome — a scoring miss or a verdict-less harness alike — because the state it is in
-> is precisely "this eval does not work yet", and blocking every PR in the repo on that would be the
-> same mistake as gating on an unpinned floor. CLI misuse (a `--filter` matching nothing) still
-> fails, since that is not an outcome of running the eval.
->
-> To close this: capture with `bun run eval:<name> --json` (or a `workflow_dispatch` of
-> `eval-prompts.yml`), transcribe the per-fixture distributions here, pin each floor via the
-> adjustment rule, and flip `OBSERVATIONAL` to `false` **in the same commit**.
+Captured 2026-09-09, `claude-sonnet-5`, temperature `1.0`, `--gating-only --trials 3` — the depth
+the weekly leg runs, so each floor is pinned at the depth it will be measured at.
 
-| Eval        | Model             | Trials | Gating accuracy  | Floor                         |
-| ----------- | ----------------- | ------ | ---------------- | ----------------------------- |
-| `plan-gate` | `claude-sonnet-5` | 5      | _never measured_ | `0.75` — unpinned, not gating |
-| `critic`    | `claude-sonnet-5` | 5      | _never measured_ | `0.75` — unpinned, not gating |
+| Eval        | Gating accuracy                                          | Mechanical failures | Pinned floor |
+| ----------- | -------------------------------------------------------- | ------------------- | ------------ |
+| `plan-gate` | **97.0% (32/33)**                                        | none                | `0.80`       |
+| `critic`    | **96.7% (29/30)** after demoting one fixture (raw 30/33) | none                | `0.80`       |
+
+### plan-gate — first clean baseline
+
+Every one of the 11 gating fixtures majority-correct, no `no-tool` or `parse-fail` anywhere.
+`approve-proposes-new-symbols` at 2/3 is the only one below 3/3. Floor:
+`round_down(0.970 − 0.15)` to the nearest 0.05 = **0.80**. Cost $2.25.
+
+### critic — first clean baseline
+
+Ten of 11 gating fixtures majority-correct with no mechanical failures; all six planted-defect
+fixtures scored 3/3.
+
+**`scope-out-of-diff-not-raised` — DEMOTED to non-gating baseline.** It scored 1/3
+(`changes_requested:1 commented:1 changes_requested:bad-findings:1`, no majority): a real flaw sits
+in a file the diff does not touch, and the prompt does not reliably leave it alone. The fixture is
+faithful, not mislabelled, so per the contingency rule it was demoted and recorded rather than
+revised — and it keeps running as the before/after datum if scope discipline is ever tightened.
+
+Worth being precise about what that gap is and is not: production carries the deterministic
+`scopeFindings` backstop, which DROPS out-of-diff findings server-side. This eval deliberately
+scores the RAW findings, so it sees a gap the shipped system does not have. After the demotion,
+gating accuracy is 29/30 = 0.967 → floor **0.80**. Cost $5.35.
+
+### What it took to get a clean run
+
+Four earlier captures measured the harness rather than the prompt, and each is recorded above in the
+mechanism it exposed: the model answering in prose because a bare API call lacks the CLI's agent
+framing; turn-budget starvation; a fixture worktree where a file was present or empty depending on
+which command asked; and a plan asserting code its own worktree lacked. The critic went from 57.6%
+with 13 of 33 trials producing no verdict, to 90.9% with none. **A number from this harness means
+nothing until its mechanical-failure count is zero** — which is why the report prints `no-tool`,
+`parse-fail` and `unrecognised` next to every distribution.
 
 ### stop-classifier — confirmed on the shared harness
 

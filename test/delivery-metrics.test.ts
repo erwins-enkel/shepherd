@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { SessionStore } from "../src/store";
+import { LearningEvidenceRepoMismatchError, SessionStore } from "../src/store";
 import { buildDeliveryMetrics } from "../src/delivery-metrics";
 import type { CiConclusion, PlanDrift, ReviewerSpawnOutcome } from "../src/types";
 
@@ -260,6 +260,33 @@ test("repeat incidents group signals by kind with distinct sessions", () => {
   expect(stall.occurrences).toBe(3);
   expect(stall.sessions).toBe(2);
   expect(m.incidents.find((i) => i.kind === "critic")!.sessions).toBe(0);
+});
+
+test("repo evidence: repeated rejected writes appear as incidents without attributing foreign sessions", () => {
+  const store = mk();
+  const foreign = store.addSignal({
+    repoPath: "/other",
+    sessionId: "foreign-session",
+    kind: "critic",
+    payload: "a",
+  });
+  for (let i = 0; i < 2; i++) {
+    expect(() =>
+      store.addLearning({
+        repoPath: "/r",
+        rule: `rule ${i}`,
+        rationale: "",
+        evidence: [foreign.id],
+      }),
+    ).toThrow(LearningEvidenceRepoMismatchError);
+  }
+  const metrics = buildDeliveryMetrics({ store, range: "all", now: Date.now() });
+  expect(metrics.incidents).toContainEqual({
+    kind: "evidence_repo_mismatch",
+    occurrences: 2,
+    sessions: 0,
+  });
+  expect(metrics.incidents).toContainEqual({ kind: "critic", occurrences: 1, sessions: 1 });
 });
 
 test("only this task's spawns count toward its rounds", () => {

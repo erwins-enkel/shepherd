@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
-import { SessionStore } from "../src/store";
+import { LearningEvidenceRepoMismatchError, SessionStore } from "../src/store";
 import { runAutoTrial } from "../src/learnings-lifecycle";
 
 test("addSignal stores and lists newest-first within a repo", () => {
@@ -70,6 +70,131 @@ test("setLearningStatus transitions and can edit rule text; getLearning round-tr
   expect(up.rule).toBe("new wording");
   expect(s.getLearning(l.id)?.status).toBe("active");
   expect(s.setLearningStatus("missing", "dismissed")).toBeNull();
+});
+
+for (const mixed of [false, true]) {
+  test(`repo evidence: addLearning rejects ${mixed ? "mixed" : "entirely foreign"} citations without inserting a rule`, () => {
+    const s = new SessionStore(":memory:");
+    const own = s.addSignal({ repoPath: "/r", sessionId: "s1", kind: "reply", payload: "a" });
+    const foreign = s.addSignal({
+      repoPath: "/other",
+      sessionId: "s2",
+      kind: "critic",
+      payload: "foreign payload must not be copied",
+    });
+    const evidence = mixed ? [own.id, foreign.id, "unknown"] : [foreign.id];
+
+    expect(() => s.addLearning({ repoPath: "/r", rule: "rule", rationale: "", evidence })).toThrow(
+      LearningEvidenceRepoMismatchError,
+    );
+    expect(s.listLearnings("/r")).toEqual([]);
+    expect(s.listLearnings("/other")).toEqual([]);
+    expect(s.pendingLearningCount()).toBe(0);
+    const incidents = s.listSignals("/r").filter((sig) => sig.kind === "evidence_repo_mismatch");
+    expect(incidents).toHaveLength(1);
+    expect(incidents[0]!.sessionId).toBeNull();
+    expect(JSON.parse(incidents[0]!.payload)).toEqual({
+      operation: "add",
+      rule: "rule",
+      foreignEvidence: [{ id: foreign.id, repoPath: "/other" }],
+      citedCount: evidence.length,
+    });
+  });
+}
+
+test("repo evidence: accepted citations retain counts, duplicates, unknown IDs and diversity", () => {
+  const s = new SessionStore(":memory:");
+  const reply = s.addSignal({ repoPath: "/r", sessionId: "s1", kind: "reply", payload: "a" });
+  const block = s.addSignal({ repoPath: "/r", sessionId: "s2", kind: "block", payload: "b" });
+  const critic = s.addSignal({ repoPath: "/r", sessionId: null, kind: "critic", payload: "c" });
+  const evidence = [reply.id, reply.id, block.id, critic.id, "unknown"];
+  const l = s.addLearning({ repoPath: "/r", rule: "rule", rationale: "why", evidence });
+
+  for (const saved of [l, s.getLearning(l.id)!]) {
+    expect(saved.evidence).toEqual(evidence);
+    expect(saved.evidenceCount).toBe(5);
+    expect(saved.distinctKinds).toBe(3);
+    expect(saved.distinctSessions).toBe(2);
+    expect(saved.lastEvidenceAt).toBe(l.createdAt);
+  }
+  expect(s.listSignals("/r")).toHaveLength(3);
+});
+
+test("repo evidence: pruned foreign citations are unknown, not proof of a mismatch", () => {
+  const s = new SessionStore(":memory:");
+  const foreign = s.addSignal({ repoPath: "/other", sessionId: "s1", kind: "reply", payload: "a" });
+  s.pruneSignals(foreign.ts + 1);
+  const evidence = [foreign.id, "unknown"];
+  const l = s.addLearning({ repoPath: "/r", rule: "rule", rationale: "", evidence });
+  expect(s.getLearning(l.id)).toMatchObject({
+    evidence,
+    evidenceCount: 2,
+    distinctKinds: 0,
+    distinctSessions: 0,
+  });
+  expect(s.listSignals("/r")).toEqual([]);
+});
+
+test("repo evidence: pruning signals does not alter a stored learning or its diversity", () => {
+  const s = new SessionStore(":memory:");
+  const sig = s.addSignal({ repoPath: "/r", sessionId: "s1", kind: "reply", payload: "a" });
+  const l = s.addLearning({ repoPath: "/r", rule: "rule", rationale: "", evidence: [sig.id] });
+  const before = s.getLearning(l.id);
+  s.pruneSignals(sig.ts + 1);
+  expect(s.getLearning(l.id)).toEqual(before);
+  expect(s.getSignalsByIds([sig.id])).toEqual([]);
+});
+
+test("repo evidence: a foreign fresh citation rejects the whole accrual and preserves trial state", () => {
+  const s = new SessionStore(":memory:");
+  const own = s.addSignal({ repoPath: "/r", sessionId: "s1", kind: "reply", payload: "a" });
+  const foreign = s.addSignal({
+    repoPath: "/other",
+    sessionId: "s2",
+    kind: "critic",
+    payload: "b",
+  });
+  const l = s.addLearning({ repoPath: "/r", rule: "rule", rationale: "", evidence: [] });
+  s.trialLearning(l.id);
+  s.revertTrial(l.id, "proposed");
+  const before = s.getLearning(l.id)!;
+  expect(before.reTrialBlockedAt).not.toBeNull();
+
+  expect(() => s.accrueProposedEvidence(l.id, [own.id, foreign.id, "unknown"])).toThrow(
+    LearningEvidenceRepoMismatchError,
+  );
+  expect(s.getLearning(l.id)).toEqual(before);
+  const incidents = s.listSignals("/r").filter((sig) => sig.kind === "evidence_repo_mismatch");
+  expect(incidents).toHaveLength(1);
+  expect(JSON.parse(incidents[0]!.payload)).toEqual({
+    operation: "accrue",
+    rule: "rule",
+    foreignEvidence: [{ id: foreign.id, repoPath: "/other" }],
+    citedCount: 3,
+  });
+});
+
+test("repo evidence: accrual preserves unknown IDs and no-op semantics", () => {
+  const s = new SessionStore(":memory:");
+  const own = s.addSignal({ repoPath: "/r", sessionId: "s1", kind: "reply", payload: "a" });
+  const foreign = s.addSignal({
+    repoPath: "/other",
+    sessionId: "s2",
+    kind: "critic",
+    payload: "b",
+  });
+  const l = s.addLearning({ repoPath: "/r", rule: "rule", rationale: "", evidence: [own.id] });
+  expect(s.accrueProposedEvidence(l.id, [own.id, "unknown"])).toMatchObject({
+    evidence: [own.id, "unknown"],
+    evidenceCount: 2,
+    distinctKinds: 1,
+    distinctSessions: 1,
+  });
+  expect(s.accrueProposedEvidence(l.id, [own.id, "unknown"])).toBeNull();
+  s.setLearningStatus(l.id, "active");
+  expect(s.accrueProposedEvidence(l.id, [foreign.id])).toBeNull();
+  expect(s.accrueProposedEvidence("missing", [foreign.id])).toBeNull();
+  expect(s.listSignals("/r")).toHaveLength(1);
 });
 
 test("pendingLearningCount counts proposed across all repos", () => {

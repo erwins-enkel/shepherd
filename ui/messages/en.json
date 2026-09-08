@@ -3785,5 +3785,8 @@
   "newtask_spawn_seconds": "{seconds} s",
   "newtask_spawn_progress_aria": "Task start progress",
   "feat_spawn_progress_title": "See why a start is taking long",
-  "feat_spawn_progress_body": "New Task now names the step it is on while a task starts — updating the base branch, creating the worktree, waiting for the agent — and if it drags on, it says why and offers to cancel."
+  "feat_spawn_progress_body": "New Task now names the step it is on while a task starts — updating the base branch, creating the worktree, waiting for the agent — and if it drags on, it says why and offers to cancel.",
+  "usage_delivery_evidence_repo_mismatch": "Foreign repo evidence rejected",
+  "feat_learnings_evidence_repo_title": "Learnings check evidence provenance",
+  "feat_learnings_evidence_repo_body": "New rule proposals citing evidence known to belong to another repo are rejected in full. Incidents appear in signal statistics. Unknown or expired signal IDs are not treated as provenance conflicts; existing rules remain unchanged."
 }

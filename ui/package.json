@@ -31,7 +31,7 @@
     "@types/node": "^26.4.1",
     "@vitest/browser": "^4.1.11",
     "@vitest/browser-playwright": "^4.1.11",
-    "playwright": "^1.62.1",
+    "playwright": "^1.63.0",
     "sharp": "^0.35.4",
     "svelte": "^5.57.0",
     "svelte-check": "^4.7.6",

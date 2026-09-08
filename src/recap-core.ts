@@ -3,7 +3,7 @@
  * Mirrors the structure of critic-core.ts (parse/validate/clamp + prompt building).
  */
 import type { ActivityEntry } from "./activity";
-import type { DiffFileStatus, Recap, RecapVerdict } from "./types";
+import type { DiffFile, DiffFileStatus, DiffHunk, Recap, RecapVerdict } from "./types";
 import { parseVisualBlocks } from "./visual-blocks";
 import type { VisualBlock } from "./visual-blocks";
 import { UNTRUSTED_CONTENT_DIRECTIVE, fenceUntrusted } from "./untrusted";
@@ -144,6 +144,117 @@ export function buildTranscriptDigest(
   return lines.join("\n");
 }
 
+// ── UI markup (#2209) ─────────────────────────────────────────────────────────
+//
+// The recap agent runs the `writer-only` preset — Write only, a disposable temp cwd, no
+// `--add-dir` — so it can read NOTHING. `buildRecapPrompt` carried changed paths and statuses but
+// no markup, which is why `wireframe` fired 0 times across 30 regenerations over three prompt
+// variants (#2194 → #2208): a mockup of the resulting screen would have to be invented, and the
+// prompt's own grounding rule ("Never invent a path, a field, or a change") correctly stops that.
+// The model was behaving well; the input was missing.
+//
+// So the input is supplied, from the diff the service ALREADY holds in memory — no tool grant, no
+// extra I/O, no widening of what the spawn can reach.
+
+/** At most this many view files carry markup into the prompt. A wireframe is one screen, not a tour
+ *  of the diff; past a handful the section is competing with `plan` for the argv budget (#1944). */
+export const RECAP_UI_MARKUP_MAX_FILES = 3;
+
+/** Per-file ceiling, so one large component cannot crowd out the other selected files. */
+const RECAP_UI_MARKUP_MAX_FILE_CHARS = 2500;
+
+/** Section ceiling, to within one truncation marker per file (the marker rides on top of a clipped
+ *  slice). Soft either way: `fitRecapPrompt` clamps this block FIRST if the argv budget still bites. */
+const RECAP_UI_MARKUP_MAX_CHARS = 6000;
+
+/** Below this a file's slice is all marker and no markup — stop instead of emitting a stub. */
+const MIN_UI_MARKUP_FILE_CHARS = 200;
+
+/** Extensions that carry rendered markup. Deliberately EXTENSION-based, never path-based: Shepherd
+ *  drives arbitrary repos, so a `ui/**` rule would be a Shepherd-only heuristic. */
+const VIEW_FILE_RE = /\.(?:svelte|vue|astro|tsx|jsx|html|htm)$/i;
+
+/** `Foo.test.tsx`, `Foo.spec.jsx`, `Foo.browser.test.ts` — a test renders no screen the operator sees. */
+const TEST_FILE_RE = /\.(?:test|spec)\.[^./]+$/i;
+
+/** True for a changed file whose post-change side is worth showing as UI markup. */
+export function isViewFile(path: string): boolean {
+  return VIEW_FILE_RE.test(path) && !TEST_FILE_RE.test(path);
+}
+
+/** Neutral, factual truncation marker — states a count, commands nothing (it lands inside an
+ *  untrusted fence, where an instruction would be contractually ignorable; see untrusted.ts). */
+function elidedChars(n: number): string {
+  return `[… ${n} chars elided …]`;
+}
+
+function clipMarkup(text: string, maxChars: number): string {
+  if (text.length <= maxChars) return text;
+  return `${text.slice(0, maxChars)}\n${elidedChars(text.length - maxChars)}`;
+}
+
+/** Render the POST-CHANGE side of a file's hunks: `-` lines dropped, `+` kept on added lines, a
+ *  leading space kept on context lines. Hunk headers are dropped — they are line numbers, which the
+ *  prompt already forbids the agent from repeating back. Hunks are separated by a bare `…`. */
+function afterSide(hunks: DiffHunk[]): string {
+  const parts: string[] = [];
+  for (const h of hunks) {
+    const lines = h.lines
+      .filter((l) => l.kind !== "del")
+      .map((l) => `${l.kind === "add" ? "+" : " "}${l.content}`);
+    if (lines.length > 0) parts.push(lines.join("\n"));
+  }
+  return parts.join("\n…\n");
+}
+
+/** Build the bounded UI-markup digest handed to the recap agent, or "" when the session changed no
+ *  view file. Pure — the caller passes the diff it already computed.
+ *
+ *  Selection drops what cannot ground a mockup: deleted files (no resulting screen), binary files,
+ *  and files whose hunks `diff.ts` dropped past its per-file line cap (`truncated`) — silence beats
+ *  a lie, which is the whole lesson of #2209. Ranking is by additions descending (stable on the
+ *  diff's own order): the largest markup change is the most mock-able. */
+export function buildUiMarkupDigest(
+  files: DiffFile[],
+  limits: { maxFiles?: number; maxFileChars?: number; maxChars?: number } = {},
+): string {
+  const maxFiles = limits.maxFiles ?? RECAP_UI_MARKUP_MAX_FILES;
+  const maxFileChars = limits.maxFileChars ?? RECAP_UI_MARKUP_MAX_FILE_CHARS;
+  const maxChars = limits.maxChars ?? RECAP_UI_MARKUP_MAX_CHARS;
+
+  const selected = files
+    .map((file, order) => ({ file, order, after: afterSide(file.hunks) }))
+    // The post-change side is rendered BEFORE selection, because emptiness is part of the
+    // selection rule and it costs a file its slot: a component emptied but KEPT (status still
+    // `modified`, hunks non-empty, every line a deletion) has no resulting screen. Emitting its
+    // header alone would put the section — and the instruction to ground a wireframe on it — over
+    // a fence holding no markup, which is the invent-a-screen pressure this change exists to remove.
+    .filter(
+      ({ file, after }) =>
+        isViewFile(file.path) &&
+        file.status !== "deleted" &&
+        !file.binary &&
+        !file.truncated &&
+        after.trim() !== "",
+    )
+    .sort((a, b) => b.file.additions - a.file.additions || a.order - b.order)
+    .slice(0, maxFiles);
+
+  const blocks: string[] = [];
+  let total = 0;
+  for (const { file, after } of selected) {
+    const header = `${file.path} (${file.status})`;
+    // Whatever is left of the section budget, never more than one file's share. Below the marker's
+    // own length there is no room for content worth reading, so stop rather than emit a stub.
+    const room = Math.min(maxFileChars, maxChars - total - header.length - 2);
+    if (room < MIN_UI_MARKUP_FILE_CHARS) break;
+    const block = `${header}\n${clipMarkup(after, room)}`;
+    blocks.push(block);
+    total += block.length + 2;
+  }
+  return blocks.join("\n\n");
+}
+
 /** The instruction prompt for the recap spawn. Tells the agent to summarize a COMPLETED
  *  coding session for an operator deciding whether to merge, and to Write the prose to
  *  `.shepherd-recap.md`, any visual blocks to `.shepherd-recap-blocks.json`, and
@@ -154,6 +265,7 @@ export function buildRecapPrompt(input: {
   changedFiles: { path: string; status: DiffFileStatus }[];
   digest: string;
   context: string; // pre-rendered critic verdict / CI / readyToMerge lines (may be "")
+  uiMarkup?: string; // buildUiMarkupDigest output; "" / absent when no view file changed (#2209)
   operatorLanguage?: OperatorLanguage;
 }): string {
   const lines = [
@@ -176,6 +288,23 @@ export function buildRecapPrompt(input: {
     lines.push(
       "Files changed in this session:",
       ...input.changedFiles.map((f) => `  ${f.path} (${f.status})`),
+      "",
+    );
+  }
+
+  // #2209: the ONLY sight of the UI this agent gets. It rides here — with the changed-file list it
+  // annotates, and outside the static block-guidance region, which has ~37 bytes of headroom under
+  // the ceiling its test pins. The interpreting instruction sits AFTER the fence: an instruction
+  // inside one is contractually ignorable and forgeable (see untrusted.ts), so it would be inert
+  // exactly where it matters.
+  if (input.uiMarkup?.trim()) {
+    lines.push(
+      "UI markup after this change (post-change side of the diff for the view files that changed —",
+      "`+` marks a line this session added, a leading space marks surrounding context, `…` separates",
+      "non-adjacent regions of the same file):",
+      fenceUntrusted("ui-markup", input.uiMarkup),
+      "This markup is your grounding for a `wireframe` block: mock up the screen it renders. Do not",
+      "put UI in a wireframe that you cannot see here.",
       "",
     );
   }

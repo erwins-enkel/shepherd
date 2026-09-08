@@ -89,16 +89,24 @@
   // Hoisted out of the template (keeps the <template> synthetic complexity under
   // the Tier-1 bar, #1898): the title/instructions/versions/blocked text all
   // branch on `stranded`, and were each an inline ternary or if/else-if pair.
-  const title = $derived(stranded ? m.herdrupdate_downgrade_title() : m.herdrupdate_title());
+  const title = $derived.by(() => {
+    if (!done) return stranded ? m.herdrupdate_downgrade_title() : m.herdrupdate_title();
+    if (downgrading) {
+      return done.ok
+        ? m.herdrupdate_downgrade_done_title()
+        : m.herdrupdate_downgrade_failed_title();
+    }
+    return done.ok ? m.herdrupdate_done_title() : m.herdrupdate_failed_title();
+  });
   const instructionsText = $derived(
     stranded ? m.herdrupdate_downgrade_instructions() : m.herdrupdate_instructions(),
   );
+  const displayedCurrent = $derived(done?.from ?? update.current);
+  const displayedTarget = $derived(done?.to ?? (stranded ? update.downgradeTarget : update.latest));
   const versionsText = $derived(
-    stranded && update.current && update.downgradeTarget
-      ? m.herdrupdate_versions({ current: update.current, latest: update.downgradeTarget })
-      : update.current && update.latest
-        ? m.herdrupdate_versions({ current: update.current, latest: update.latest })
-        : null,
+    displayedCurrent && displayedTarget
+      ? m.herdrupdate_versions({ current: displayedCurrent, latest: displayedTarget })
+      : null,
   );
   const blocked = $derived(
     stranded

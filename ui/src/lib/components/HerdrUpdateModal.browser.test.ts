@@ -3,6 +3,7 @@ import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
 import type { HerdrUpdateStatus } from "$lib/types";
+import { m } from "$lib/paraglide/messages";
 
 vi.mock("$lib/api", async (orig) => ({
   ...((await orig()) as object),
@@ -22,11 +23,127 @@ const update: HerdrUpdateStatus = {
 };
 
 afterEach(async () => {
+  vi.clearAllMocks();
   document.body.innerHTML = "";
   await page.viewport(1280, 900);
 });
 
 describe("HerdrUpdateModal", () => {
+  it("keeps the completed update's actual version transition after status refreshes", async () => {
+    const before = { ...update, current: "0.8.2", latest: "0.9.0" };
+    const after = { ...before, current: "0.9.0", updateAvailable: false };
+    const done = { ok: true, from: "0.8.2", to: "0.9.0" };
+    const { rerender } = await render(HerdrUpdateModal, { props: { update: before } });
+
+    expect(document.querySelector(".versions")?.textContent).toBe("0.8.2 → 0.9.0");
+    expect(document.querySelector(".chead .micro")?.textContent).toBe(m.herdrupdate_title());
+    document.querySelector<HTMLButtonElement>(".run")!.click();
+    // The server publishes the refreshed installed version before its terminal result.
+    await rerender({ update: after });
+    await rerender({ update: after, done });
+
+    expect(document.querySelector(".versions")?.textContent).toBe("0.8.2 → 0.9.0");
+    expect(document.querySelector(".chead .micro")?.textContent).toBe(m.herdrupdate_done_title());
+    expect(document.querySelector('[role="dialog"]')?.getAttribute("aria-label")).toBe(
+      m.herdrupdate_done_title(),
+    );
+    expect(document.querySelector(".status.ok")).not.toBeNull();
+    expect(document.querySelector(".actions .later")).not.toBeNull();
+    expect(document.querySelector(".run")).toBeNull();
+
+    await rerender({ update: { ...after, latest: "0.9.1" }, done });
+    expect(document.querySelector(".versions")?.textContent).toBe("0.8.2 → 0.9.0");
+  });
+
+  it.each(["rescue", "sandbox"])(
+    "keeps the %s downgrade result after support flags change",
+    async (kind) => {
+      const before: HerdrUpdateStatus = {
+        ...update,
+        current: "0.7.5",
+        latest: "0.7.5",
+        updateAvailable: false,
+        currentUnsupported: kind === "rescue",
+        downgradeTarget: kind === "rescue" ? "0.7.4" : null,
+        sandboxIdleRegressed: kind === "sandbox",
+        sandboxDowngradeTarget: kind === "sandbox" ? "0.7.4" : null,
+      };
+      const { rerender } = await render(HerdrUpdateModal, { props: { update: before } });
+      if (kind === "rescue") {
+        expect(document.querySelector(".versions")?.textContent).toBe("0.7.5 → 0.7.4");
+        expect(document.querySelector(".chead .micro")?.textContent).toBe(
+          m.herdrupdate_downgrade_title(),
+        );
+      }
+      document.querySelector<HTMLButtonElement>(".run.downgrade")!.click();
+      const after: HerdrUpdateStatus = {
+        ...before,
+        current: "0.7.4",
+        updateAvailable: true,
+        currentUnsupported: false,
+        downgradeTarget: null,
+        sandboxIdleRegressed: false,
+        sandboxDowngradeTarget: null,
+      };
+      await rerender({ update: after });
+      await rerender({ update: after, done: { ok: true, from: "0.7.5", to: "0.7.4" } });
+
+      expect(document.querySelector(".versions")?.textContent).toBe("0.7.5 → 0.7.4");
+      expect(document.querySelector(".chead .micro")?.textContent).toBe(
+        m.herdrupdate_downgrade_done_title(),
+      );
+      expect(document.querySelector('[role="dialog"]')?.getAttribute("aria-label")).toBe(
+        m.herdrupdate_downgrade_done_title(),
+      );
+      expect(document.querySelector(".status.ok")?.textContent).toBe(
+        m.herdrupdate_downgrade_done_ok({ target: "0.7.4" }),
+      );
+    },
+  );
+
+  it("shows the failed update's actual versions and failure title", async () => {
+    const { rerender } = await render(HerdrUpdateModal, { props: { update } });
+    document.querySelector<HTMLButtonElement>(".run")!.click();
+    await rerender({
+      update,
+      done: { ok: false, from: "0.6.9", to: "0.6.9", error: "herdr was not updated" },
+    });
+
+    expect(document.querySelector(".versions")?.textContent).toBe("0.6.9 → 0.6.9");
+    expect(document.querySelector(".chead .micro")?.textContent).toBe(m.herdrupdate_failed_title());
+    expect(document.querySelector('[role="dialog"]')?.getAttribute("aria-label")).toBe(
+      m.herdrupdate_failed_title(),
+    );
+    expect(document.querySelector(".status.fail")?.textContent).toBe(
+      m.herdrupdate_done_fail({ current: "0.6.9" }),
+    );
+    expect(document.querySelector(".status.fail + .err")?.textContent).toBe(
+      "herdr was not updated",
+    );
+  });
+
+  it.each([
+    { from: null, to: "0.6.8", expected: "0.6.9 → 0.6.8" },
+    { from: "0.6.7", to: null, expected: "0.6.7 → 0.6.10" },
+    { from: null, to: null, expected: "0.6.9 → 0.6.10" },
+  ])("falls back to status for missing result values ($from → $to)", ({ from, to, expected }) => {
+    render(HerdrUpdateModal, { props: { update, done: { ok: false, from, to } } });
+    expect(document.querySelector(".versions")?.textContent).toBe(expected);
+  });
+
+  it.each([
+    { current: null, latest: "0.6.10" },
+    { current: "0.6.9", latest: null },
+  ])(
+    "hides the version transition when status also lacks a value ($current → $latest)",
+    (versions) => {
+      render(HerdrUpdateModal, {
+        props: { update: { ...update, ...versions }, done: { ok: false, from: null, to: null } },
+      });
+      expect(document.querySelector(".versions")).toBeNull();
+    },
+  );
+
   it("keeps modal chrome from creating stray scrollbars with an active update log", async () => {
     await page.viewport(800, 600);
 
@@ -178,6 +295,13 @@ describe("HerdrUpdateModal", () => {
     });
 
     await vi.waitFor(() => expect(document.querySelector(".status.fail")).not.toBeNull());
+    expect(document.querySelector(".versions")?.textContent).toBe("0.7.5 → 0.7.5");
+    expect(document.querySelector(".chead .micro")?.textContent).toBe(
+      m.herdrupdate_downgrade_failed_title(),
+    );
+    expect(document.querySelector('[role="dialog"]')?.getAttribute("aria-label")).toBe(
+      m.herdrupdate_downgrade_failed_title(),
+    );
     const errEl = document.querySelector(".status.fail + .err");
     expect(errEl).not.toBeNull();
     expect(errEl!.textContent).toContain("herdr.dev manifest has no 0.7.4 asset for linux-x86_64");

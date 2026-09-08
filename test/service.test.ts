@@ -4812,9 +4812,11 @@ test("composeSystemPrompt rides the manual-steps notice on code spawns, never on
   for (const sp of codeSpawns) {
     expect(sp).toContain("<manual-steps-notice>");
     expect(sp).toContain("</manual-steps-notice>");
-    // Anchor on the stable carrier syntax (the parser contract) + the emphatic default-empty rule.
+    // Anchor on the stable carrier syntax (the parser contract) + the default-empty rule and the
+    // auto-merge consequence that is its reason (#2206) — both halves, so neither can drift out.
     expect(sp).toContain("```shepherd:manual-steps");
-    expect(sp).toContain("DEFAULT TO DECLARING NOTHING");
+    expect(sp).toContain("Most PRs need no manual steps");
+    expect(sp).toContain("blocks the PR's auto-merge");
   }
   expect(composeSystemPrompt(null, false, { ...noMech, research: true })).not.toContain(
     "<manual-steps-notice>",

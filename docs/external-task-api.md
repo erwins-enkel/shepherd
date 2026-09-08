@@ -145,7 +145,26 @@ Shepherd also archives the session on its own once the shell has exited.
 | `403`  | Origin header present and not in `SHEPHERD_ALLOWED_HOSTS`. Also `{ "error": "insufficient_scope" }` when the bearer is a valid minted token whose scope doesn't reach this route — the credential is fine, so retrying won't help; mint one with a wider scope                            |
 | `409`  | First-run gate pending — a fresh install whose repo root hasn't been picked yet; body `{ error: "first_run_pending" }`. Pick a workspace folder in the HUD (or start the server with `SHEPHERD_REPO_ROOT` set) and retry                                                                  |
 | `409`  | Clean-terminal conflict — `{ error: "terminal_exists", existingId }` (that repo already has a terminal), `{ error: "terminal_unsupported" }` (the installed herdr has no `terminal session control`), or `{ error: "terminal_session" }` (an agent-only verb aimed at a terminal session) |
+| `409`  | The spawn was cancelled while in flight — `{ error: "spawn canceled", code: "spawn_canceled" }`. Reachable only for a caller that supplied `X-Shepherd-Spawn-Id` and then called the cancel route below; the worktree is already rolled back, so this is a cancellation, not a failure    |
 | `415`  | Missing/incorrect `Content-Type`                                                                                                                                                                                                                                                          |
+
+### Watching and cancelling a slow start
+
+`POST /api/sessions` only answers once the agent is running, and most of that wait
+is herdr auto-detecting a trusted agent. A caller can name its own spawn with an
+`X-Shepherd-Spawn-Id` **header** (a client-chosen id matching
+`^[A-Za-z0-9-]{8,64}$` — the HUD sends a `crypto.randomUUID()`). It is a header,
+not a body field, because the create body is what a usage hold persists as a held
+task and a replayed id would be stale; an unknown key in the body is a `400`.
+
+With that header the server broadcasts a `spawn:progress` event per create phase
+on the existing `/events` stream, and `POST /api/spawns/:spawnId/cancel` aborts
+the create — it answers `200 { "canceled": true }` when the signal landed and
+`{ "canceled": false }` when the agent came up first (the spawn then runs to
+completion). A cancelled create unwinds the worktree and answers the `409`
+`spawn_canceled` above. Without the header the spawn is still measured and still
+logs its phase line; it just can't be watched or cancelled
+(`src/spawn-progress.ts`, `src/server.ts`).
 
 ## Usage-aware hold gate
 

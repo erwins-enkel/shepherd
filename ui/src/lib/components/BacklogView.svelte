@@ -719,6 +719,14 @@
     overflow: visible;
   }
 
+  /* The start-page repo list grows with content; its detail must fit the screen,
+     independently of that list's height or the document's scroll position. */
+  .backlog-view.mobile.flow .mobile-detail-overlay {
+    position: fixed;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
+      env(safe-area-inset-left);
+  }
+
   .overlay-head {
     display: flex;
     align-items: center;

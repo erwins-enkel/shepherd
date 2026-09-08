@@ -95,6 +95,7 @@ export default defineConfig({
         test: {
           name: "browser",
           include: ["src/**/*.browser.test.ts"],
+          exclude: ["src/lib/components/BacklogView.browser.test.ts"],
           // CI memory headroom (#1261 OOM, exit 137): on a many-core self-hosted
           // runner vitest defaults maxWorkers to nproc, so the browser project
           // spawns ~nproc concurrent chromium pages AND overlaps the full-parallel
@@ -117,6 +118,24 @@ export default defineConfig({
             // process holds the port. strictPort:false lets Vite auto-increment
             // to the next free port; vitest discovers the bound port and hands
             // it to the browser client, so a predictable port isn't needed. (#817)
+            api: { strictPort: false },
+          },
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: "browser-touch",
+          include: ["src/lib/components/BacklogView.browser.test.ts"],
+          // Keep native touch capabilities in a separate context: disabling CDP touch
+          // emulation does not restore Chromium's desktop pointer/hover media queries.
+          maxWorkers: 1,
+          sequence: { groupOrder: 2 },
+          browser: {
+            enabled: true,
+            provider: playwright({ contextOptions: { hasTouch: true } }),
+            headless: true,
+            instances: [{ browser: "chromium" }],
             api: { strictPort: false },
           },
         },

@@ -42,6 +42,7 @@
     onpickissue,
     onpicksteer = undefined,
     allowIssues = true,
+    compactIssues = true,
     filterKeycap = undefined,
     tabsKeycap = undefined,
     rowKeycap = undefined,
@@ -63,6 +64,8 @@
      *  from the row's right-click / long-press context menu. Never spawns. */
     onpicksteer?: (issue: Issue, steer: Steer) => void;
     allowIssues?: boolean;
+    /** The desktop rail starts with three rows; mobile browsing shows the full list. */
+    compactIssues?: boolean;
     /** Replace the filter chip's mute ▾ (New Task's ⌘F keycap). */
     filterKeycap?: Snippet;
     /** Append after the Issues/Commands switch (⌥T) — the switch itself stays
@@ -351,7 +354,9 @@
   }
 
   const COLLAPSED_ROWS = 3;
-  const shownIssues = $derived(expanded ? visibleIssues : visibleIssues.slice(0, COLLAPSED_ROWS));
+  const shownIssues = $derived(
+    !compactIssues || expanded ? visibleIssues : visibleIssues.slice(0, COLLAPSED_ROWS),
+  );
   /** Issue number of the topmost pickable row — the ↑↓ keycap's anchor. Derived
    *  rather than "index 0" because epic-parent rows are interleaved and not
    *  pickable, so the first RENDERED row is often not the first focusable one. */
@@ -547,7 +552,7 @@
             </button>
           {/if}
         {/each}
-        {#if moreCount > 0 || expanded}
+        {#if compactIssues && (moreCount > 0 || expanded)}
           <button class="more-row" type="button" onclick={() => (expanded = !expanded)}>
             {expanded
               ? m.promptsources_collapse_row()

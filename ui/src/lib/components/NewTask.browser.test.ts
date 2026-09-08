@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
-import { page } from "vitest/browser";
+import { cdp, page } from "vitest/browser";
 import "../../app.css";
 import { overwriteGetLocale } from "$lib/paraglide/runtime";
 import type {
@@ -4029,6 +4029,107 @@ describe("NewTask mobile sources sheet", () => {
   }
   const srcBtn = () => document.querySelector<HTMLButtonElement>(".sources-btn");
   const psWrap = () => document.querySelector<HTMLElement>(".ps-wrap");
+
+  it("scrolls on a touch swipe in landscape without selecting or opening the context menu", async () => {
+    const session = cdp();
+    // Touch events can be dispatched without changing Chromium's pointer/hover capabilities.
+    mockPointer(true);
+    await page.viewport(852, 393);
+    seedIssues(Array.from({ length: 50 }, (_, i) => mkIssue(i + 1)));
+    render(NewTask, { props: { onsubmit: vi.fn(), initialRepoPath: "/repo" } });
+    await expect.poll(() => srcBtn()).toBeTruthy();
+    await page.elementLocator(srcBtn()!).click();
+    await expect.poll(() => document.querySelectorAll(".sheet .issue-list-row").length).toBe(50);
+    const body = document.querySelector<HTMLElement>(".sheet .ps-body")!;
+    const r = body.getBoundingClientRect();
+    const x = r.left + r.width / 2;
+    const y = r.bottom - 20;
+    await session.send("Input.dispatchTouchEvent", {
+      type: "touchStart",
+      touchPoints: [{ x, y }],
+    });
+    for (const dy of [20, 40, 60, 80]) {
+      await session.send("Input.dispatchTouchEvent", {
+        type: "touchMove",
+        touchPoints: [{ x, y: y - dy }],
+      });
+    }
+    await session.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    await expect.poll(() => body.scrollTop).toBeGreaterThan(0);
+    expect(psWrap()).not.toBeNull();
+    expect(document.querySelector(".issue-ref, [role=menu]")).toBeNull();
+    expect(window.matchMedia("(hover: hover) and (pointer: fine)").matches).toBe(true);
+  });
+
+  it("keeps the command search visible while the keyboard-shortened list scrolls", async () => {
+    const { restore } = installFakeViewport(320);
+    try {
+      await page.viewport(375, 667);
+      seedIssues([mkIssue(1)]);
+      mockGetCommands.mockResolvedValue({
+        commands: Array.from({ length: 50 }, (_, i) => ({
+          name: `command-${i}`,
+          description: "Description",
+          scope: "project",
+        })),
+      });
+      render(NewTask, { props: { onsubmit: vi.fn(), initialRepoPath: "/repo" } });
+      await expect.poll(() => srcBtn()).toBeTruthy();
+      await page.elementLocator(srcBtn()!).click();
+      await page.getByRole("button", { name: m.promptsources_commands_tab(), exact: true }).click();
+      await expect.poll(() => document.querySelectorAll(".sheet .ps-body .row").length).toBe(50);
+      const body = document.querySelector<HTMLElement>(".sheet .ps-body")!;
+      const search = document.querySelector<HTMLElement>(".sheet .ps-filter-bar")!;
+      const top = search.getBoundingClientRect().top;
+      body.scrollTop = body.scrollHeight;
+      await expect.poll(() => body.scrollTop).toBeGreaterThan(0);
+      expect(search.getBoundingClientRect().top).toBeCloseTo(top, 0);
+      expect(body.getBoundingClientRect().bottom).toBeLessThanOrEqual(320);
+      await page
+        .getByRole("textbox", { name: m.promptsources_commands_filter() })
+        .fill("command-49");
+      await expect.poll(() => document.querySelectorAll(".sheet .ps-body .row").length).toBe(1);
+    } finally {
+      restore();
+    }
+  });
+
+  it.each([
+    [320, 568],
+    [375, 667],
+    [430, 932],
+  ])("browses every issue with an unclipped German header at %i×%i", async (width, height) => {
+    overwriteGetLocale(() => "de");
+    await page.viewport(width, height);
+    seedIssues(Array.from({ length: 50 }, (_, i) => mkIssue(i + 1, `scroll-issue-${i + 1}`)));
+    render(NewTask, { props: { onsubmit: vi.fn(), initialRepoPath: "/repo" } });
+    await expect.poll(() => srcBtn()).toBeTruthy();
+    await page.elementLocator(srcBtn()!).click();
+    await expect.poll(() => document.querySelectorAll(".sheet .issue-list-row").length).toBe(50);
+
+    const head = document.querySelector<HTMLElement>(".sheet .ps-head")!;
+    const body = document.querySelector<HTMLElement>(".sheet .ps-body")!;
+    expect(head.scrollWidth).toBeLessThanOrEqual(head.clientWidth + 1);
+    for (const control of head.querySelectorAll<HTMLElement>(".tab, .filter-chip")) {
+      const r = control.getBoundingClientRect();
+      expect(r.left).toBeGreaterThanOrEqual(0);
+      expect(r.right).toBeLessThanOrEqual(width);
+      expectMinPx(r.height, 44, "source control");
+    }
+    expect(body.clientHeight).toBeGreaterThanOrEqual(44);
+    expect(body.scrollHeight).toBeGreaterThan(body.clientHeight);
+    const headTop = head.getBoundingClientRect().top;
+    body.scrollTop = body.scrollHeight;
+    await expect.poll(() => body.scrollTop).toBeGreaterThan(0);
+    const last = body.querySelector<HTMLElement>(".issue-list-row:last-child")!;
+    expect(last.getBoundingClientRect().bottom).toBeLessThanOrEqual(
+      body.getBoundingClientRect().bottom + 1,
+    );
+    expect(head.getBoundingClientRect().top).toBeCloseTo(headTop, 0);
+    await page.elementLocator(last).click();
+    await expect.poll(() => psWrap()).toBeNull();
+    expect(document.querySelector(".issue-ref")?.textContent).toContain("scroll-issue-50");
+  });
 
   it("opens the sheet from the toolbar trigger and lists issues", async () => {
     await page.viewport(390, 844);

@@ -41,7 +41,8 @@
   import { toasts } from "$lib/toasts.svelte";
   import { projectIcons } from "$lib/projectIcons.svelte";
   import { m } from "$lib/paraglide/messages";
-  import { modelLabel } from "$lib/model-label";
+  import { modelLabel, runtimeModelLabel } from "$lib/model-label";
+  import { effortLabel } from "$lib/effort-guidance";
   import { onDestroy } from "svelte";
   import UnitRowRight from "./unit-row/UnitRowRight.svelte";
   import { rowHold } from "$lib/hold-row";
@@ -183,6 +184,21 @@
   const showAckCta = $derived(hasBlockingManualSteps && !isTerminal && !!onackmanualsteps);
   const repoIcon = $derived(projectIcons.iconFor(session.repoPath));
   const repoFiltered = $derived(repoFilter?.has(session.repoPath) ?? false);
+  const environmentModel = $derived(
+    activity?.runtimeModel
+      ? runtimeModelLabel(activity.runtimeModel)
+      : session.model
+        ? modelLabel(session.model)
+        : m.newtask_model_default(),
+  );
+  // Mirror src/default-effort.ts → effortForSpawn(): the row describes the effective
+  // environment, while the session keeps the operator's unclamped intent for future relaunches.
+  const configuredEffort = $derived(
+    session.agentProvider === "codex" && session.effort === "max" ? "high" : session.effort,
+  );
+  const environmentEffort = $derived(
+    effortLabel(activity?.runtimeEffort ?? configuredEffort ?? m.effort_default()),
+  );
   function toggleRepoFilter() {
     // Non-additive: a plain click resets the filter to this repo (or clears it when this repo
     // is already the sole selection — handled by the page's nextRepoFilter).
@@ -924,9 +940,7 @@
 
     <span class="meta">
       <span class="meta-text"
-        ><TaskIdButton {session} /> · {session.model
-          ? modelLabel(session.model)
-          : m.newtask_model_default()}</span
+        ><TaskIdButton {session} /> · {environmentModel} · {environmentEffort}</span
       >
       {#if session.manualSteps.length > 0}
         {#if onshowowed}

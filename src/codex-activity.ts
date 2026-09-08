@@ -172,6 +172,33 @@ function latestCodexRecordTs(text: string): number {
   return max;
 }
 
+/** Runtime environment reported by a Codex rollout. Each turn_context repeats the effective
+ * model and effort; session_meta provenance covers the short window before the first turn. */
+function codexRuntimeIdentity(
+  text: string,
+): Pick<SessionActivity, "runtimeModel" | "runtimeEffort"> {
+  let provenanceModel: string | undefined;
+  let runtimeModel: string | undefined;
+  let runtimeEffort: string | undefined;
+  for (const value of eachJsonlObject(text)) {
+    const record = value as { type?: unknown; payload?: unknown };
+    const payload = record.payload as Record<string, unknown> | undefined;
+    if (record.type === "session_meta") {
+      const provenance = payload?.provenance as Record<string, unknown> | undefined;
+      if (typeof provenance?.model === "string") provenanceModel = provenance.model;
+      continue;
+    }
+    if (record.type !== "turn_context") continue;
+    if (typeof payload?.model === "string") runtimeModel = payload.model;
+    if (typeof payload?.effort === "string") runtimeEffort = payload.effort;
+  }
+  const model = runtimeModel ?? provenanceModel;
+  return {
+    ...(model ? { runtimeModel: model } : {}),
+    ...(runtimeEffort ? { runtimeEffort } : {}),
+  };
+}
+
 /** Pure: derive both signals from already-read rollout text (one parse). */
 function codexSignalsFromText(text: string): {
   snapshot: ActivitySnapshot | null;
@@ -179,7 +206,10 @@ function codexSignalsFromText(text: string): {
 } {
   const entries = parseCodexActivity(text);
   const lastTs = latestCodexRecordTs(text);
-  return { snapshot: snapshotFrom(entries, lastTs), activity: signalFrom(entries, lastTs) };
+  return {
+    snapshot: snapshotFrom(entries, lastTs),
+    activity: signalFrom(entries, lastTs, codexRuntimeIdentity(text)),
+  };
 }
 
 /**

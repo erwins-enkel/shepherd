@@ -1047,6 +1047,10 @@ export interface SessionActivity {
   recentTs: number[];
   /** Subset of recentTs whose tool-use errored; the client tints those slices red. */
   recentErrTs: number[];
+  /** Concrete model id reported by the provider's runtime log. */
+  runtimeModel?: string;
+  /** Effective reasoning effort reported by the provider's runtime log. */
+  runtimeEffort?: string;
 }
 
 export interface Session {

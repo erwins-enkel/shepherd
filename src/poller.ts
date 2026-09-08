@@ -41,6 +41,7 @@ import { resolveDevPort } from "./preview";
 import { agentTmpDir } from "./tmp-sweep";
 import { config } from "./config";
 import { SessionLiveness, type LivenessOutcome, type TranscriptSignals } from "./session-liveness";
+import { CodexTranscriptLocator, readCodexTranscriptSignals } from "./codex-activity";
 
 const STALL_SIG = "stall"; // fixed signature → a stall fires once per episode
 const AUTH_SIG = "auth"; // fixed signature → a resting MCP-auth block fires once per episode
@@ -417,6 +418,7 @@ export class StatusPoller {
   ) => void;
   /** Usage-limits service for corroboration in classifyHalt. */
   private readonly usageLimitsSvc: { limits(now: number): UsageLimits };
+  private readonly probe: (s: Session) => TranscriptSignals;
 
   constructor(
     private store: SessionStore,
@@ -434,10 +436,7 @@ export class StatusPoller {
      * injectable in tests. One read feeds both the stall decision and the activity
      * emit, so the transcript is no longer parsed twice per running agent per tick.
      */
-    private probe: (s: Session) => TranscriptSignals = (s) =>
-      s.claudeSessionId
-        ? readTranscriptSignals(jsonlPathFor(s.worktreePath, s.claudeSessionId, s.spawnAccountDir))
-        : { snapshot: null, activity: null },
+    probe: ((s: Session) => TranscriptSignals) | undefined = undefined,
     private stallCfg = DEFAULT_STALL,
     private probeCheckMs = 7000,
     /** Pushed when a session's manual readyToMerge flag is auto-cleared on resume. */
@@ -513,7 +512,22 @@ export class StatusPoller {
      * src/index.ts to `service.archive`; undefined (tests that don't care) ⇒ no auto-archive.
      */
     private archiveTerminal?: (id: string) => void,
+    /** Resolves a Codex session's provider-native rollout for the default probe. */
+    codexTranscripts: CodexTranscriptLocator = new CodexTranscriptLocator(),
   ) {
+    this.probe =
+      probe ??
+      ((s) => {
+        if (s.agentProvider === "codex") {
+          const path = codexTranscripts.pathFor(s);
+          return path ? readCodexTranscriptSignals(path) : { snapshot: null, activity: null };
+        }
+        return s.claudeSessionId
+          ? readTranscriptSignals(
+              jsonlPathFor(s.worktreePath, s.claudeSessionId, s.spawnAccountDir),
+            )
+          : { snapshot: null, activity: null };
+      });
     // Merge supplied overrides with real defaults. When preview is omitted entirely
     // we create a no-op wiring so tick() never throws on undefined access.
     this.previewWiring = {
@@ -1236,6 +1250,7 @@ export class StatusPoller {
     // separate error-tick list across calls (the strip is coarse + windowed), so a
     // single push contributes its own `t` to recentErrTs when it's an error.
     const recentErrTs = ev.status === "error" ? [t] : [];
+    const previous = this.lastActivity.get(id);
     this.emitActivity(id, {
       lastActivityTs: t,
       // A real tool name — non-null so it beats the interim `summary:null` heartbeat.
@@ -1243,6 +1258,8 @@ export class StatusPoller {
       summary: ev.toolName ?? null,
       recentTs: windowed,
       recentErrTs,
+      ...(previous?.runtimeModel ? { runtimeModel: previous.runtimeModel } : {}),
+      ...(previous?.runtimeEffort ? { runtimeEffort: previous.runtimeEffort } : {}),
     });
     this.lastHookActivityAt.set(id, t);
   }
@@ -1395,13 +1412,29 @@ export class StatusPoller {
       // heat is NEVER dropped: `PostToolUseFailure` feeds `recentErrTs` via the push path, so
       // suppression is safe — and as a belt-and-suspenders guard, if the probe carries error
       // heat the push hasn't emitted, we still emit it.
-      if (signals.activity && !(hookFresh && signals.activity.recentErrTs.length === 0)) {
-        this.emitActivity(s.id, signals.activity);
-      }
+      if (signals.activity) this.emitProbeActivity(s.id, signals.activity, hookFresh);
       this.applyOutcome(s, step.outcome);
     } else {
       void step.pending.then((o) => this.applyOutcome(s, o));
     }
+  }
+
+  /** Prefer a fresh hook summary while still folding in runtime identity learned by the probe. */
+  private emitProbeActivity(id: string, activity: SessionActivity, hookFresh: boolean): void {
+    if (!hookFresh || activity.recentErrTs.length > 0) {
+      this.emitActivity(id, activity);
+      return;
+    }
+    const previous = this.lastActivity.get(id);
+    if (!previous) return;
+    const runtimeModel = activity.runtimeModel ?? previous.runtimeModel;
+    const runtimeEffort = activity.runtimeEffort ?? previous.runtimeEffort;
+    if (runtimeModel === previous.runtimeModel && runtimeEffort === previous.runtimeEffort) return;
+    this.emitActivity(id, {
+      ...previous,
+      ...(runtimeModel ? { runtimeModel } : {}),
+      ...(runtimeEffort ? { runtimeEffort } : {}),
+    });
   }
 
   /**

@@ -5,7 +5,10 @@ import { join } from "node:path";
 import {
   parseRecapVerdict,
   buildTranscriptDigest,
+  buildUiMarkupDigest,
   buildRecapPrompt,
+  isViewFile,
+  RECAP_UI_MARKUP_MAX_FILES,
   isSettledIdle,
   needsRecap,
   RECAP_VERDICTS,
@@ -17,7 +20,7 @@ import {
 } from "../src/recap-core";
 import { defaultReadVerdict } from "../src/recap";
 import { tolerantParseJson } from "../src/json-tolerant";
-import type { Recap } from "../src/types";
+import type { DiffFile, DiffLine, Recap } from "../src/types";
 
 // ── #822 regression: malformed-JSON read path (defaultReadVerdict → parseRecapVerdict) ──────────
 //
@@ -1067,4 +1070,190 @@ test("#2194 buildRecapPrompt: the block-guidance region stays inside its prompt 
   // wireframe had fired 0 times in 88 block-emitting recaps.
   const bytes = Buffer.byteLength(blockGuidanceRegion(bareRecapPrompt()), "utf8");
   expect(bytes).toBeLessThanOrEqual(7424);
+});
+
+// ── #2209: the UI markup that makes `wireframe` emittable at all ─────────────────────────────────
+//
+// #2208 moved every block type it could from the prompt alone and left `wireframe` at zero across
+// 30 regenerations over three variants. It could not move: the recap agent runs `writer-only` (no
+// Read/Grep/Glob, disposable temp cwd, no --add-dir) against a prompt carrying file PATHS and no
+// markup, so a mockup would have to be invented — which the prompt's grounding rule correctly
+// forbids. These tests pin the input that closes that gap.
+
+function uiLine(kind: DiffLine["kind"], content: string): DiffLine {
+  return { kind, content };
+}
+
+function viewFile(path: string, over: Partial<DiffFile> = {}): DiffFile {
+  return {
+    path,
+    status: "modified",
+    additions: 1,
+    deletions: 1,
+    binary: false,
+    hunks: [
+      {
+        header: "@@ -1,3 +1,3 @@",
+        lines: [
+          uiLine("ctx", '<div class="card">'),
+          uiLine("del", "  <h2>Old</h2>"),
+          uiLine("add", "  <h2>New</h2>"),
+          uiLine("ctx", "</div>"),
+        ],
+      },
+    ],
+    ...over,
+  };
+}
+
+test("#2209 isViewFile: markup extensions in, tests and non-view files out", () => {
+  for (const p of [
+    "ui/src/lib/Card.svelte",
+    "src/App.vue",
+    "site/src/pages/index.astro",
+    "web/Button.tsx",
+    "web/Button.jsx",
+    "public/shell.html",
+    "public/legacy.htm",
+  ]) {
+    expect(isViewFile(p)).toBe(true);
+  }
+  // Extension-based on purpose: Shepherd drives arbitrary repos, so a `ui/**` rule would only ever
+  // be right about this one.
+  for (const p of [
+    "src/store.ts",
+    "ui/src/lib/Card.svelte.md",
+    "ui/src/lib/Card.test.tsx",
+    "ui/src/lib/Card.spec.jsx",
+    "ui/src/lib/blocks/WireframeBlock.browser.test.ts",
+  ]) {
+    expect(isViewFile(p)).toBe(false);
+  }
+});
+
+test("#2209 buildUiMarkupDigest: renders the POST-change side only", () => {
+  const out = buildUiMarkupDigest([viewFile("ui/src/lib/Card.svelte")]);
+  expect(out).toContain("ui/src/lib/Card.svelte (modified)");
+  expect(out).toContain("+  <h2>New</h2>");
+  expect(out).toContain(' <div class="card">');
+  // A deleted line is not on the resulting screen; showing it invites a mockup of the OLD UI.
+  expect(out).not.toContain("<h2>Old</h2>");
+  // Hunk headers are line numbers, which the prompt forbids the agent from repeating back.
+  expect(out).not.toContain("@@");
+});
+
+test("#2209 buildUiMarkupDigest: separates non-adjacent regions of one file", () => {
+  const f = viewFile("ui/src/lib/Card.svelte");
+  f.hunks.push({ header: "@@ -20,2 +20,3 @@", lines: [uiLine("add", "  <footer />")] });
+  expect(buildUiMarkupDigest([f])).toContain("\n…\n");
+});
+
+test("#2209 buildUiMarkupDigest: skips what cannot ground a mockup", () => {
+  // Every one of these would otherwise contribute a header with no markup under it.
+  expect(buildUiMarkupDigest([viewFile("ui/a.svelte", { status: "deleted" })])).toBe("");
+  expect(buildUiMarkupDigest([viewFile("ui/b.svelte", { binary: true })])).toBe("");
+  // `diff.ts` drops hunks past its per-file line cap — silence beats inventing the missing half.
+  expect(buildUiMarkupDigest([viewFile("ui/c.svelte", { truncated: true })])).toBe("");
+  expect(buildUiMarkupDigest([viewFile("ui/d.svelte", { hunks: [] })])).toBe("");
+  expect(buildUiMarkupDigest([viewFile("src/store.ts")])).toBe("");
+  expect(buildUiMarkupDigest([])).toBe("");
+});
+
+test("#2209 buildUiMarkupDigest: ranks by additions and caps the file count", () => {
+  const files = [
+    viewFile("ui/small.svelte", { additions: 1 }),
+    viewFile("ui/big.svelte", { additions: 90 }),
+    viewFile("ui/mid.svelte", { additions: 40 }),
+    viewFile("ui/tiny.svelte", { additions: 0 }),
+  ];
+  const out = buildUiMarkupDigest(files);
+  const order = ["ui/big.svelte", "ui/mid.svelte", "ui/small.svelte"].map((p) => out.indexOf(p));
+  expect(order.every((i) => i > -1)).toBe(true);
+  expect(order).toEqual([...order].sort((a, b) => a - b));
+  expect(out).not.toContain("ui/tiny.svelte");
+  expect(out.split("\n").filter((l) => l.endsWith("(modified)")).length).toBe(
+    RECAP_UI_MARKUP_MAX_FILES,
+  );
+});
+
+test("#2209 buildUiMarkupDigest: per-file and section caps both bite, and are marked", () => {
+  const fat = (path: string): DiffFile =>
+    viewFile(path, {
+      additions: 500,
+      hunks: [
+        {
+          header: "@@ -1,1 +1,400 @@",
+          lines: Array.from({ length: 400 }, (_, i) => uiLine("add", `  <li>row ${i}</li>`)),
+        },
+      ],
+    });
+  const perFile = buildUiMarkupDigest([fat("ui/a.svelte")], { maxFileChars: 400 });
+  expect(perFile.length).toBeLessThan(900);
+  expect(perFile).toContain("chars elided");
+
+  // The section cap stops the whole block, not just each file — a clamp is never silent.
+  const section = buildUiMarkupDigest([fat("ui/a.svelte"), fat("ui/b.svelte")], { maxChars: 900 });
+  expect(section.length).toBeLessThan(1100);
+  expect(section).toContain("chars elided");
+  // Nothing is emitted below the useful floor: a header with a marker under it is not markup.
+  expect(buildUiMarkupDigest([fat("ui/a.svelte")], { maxChars: 100 })).toBe("");
+});
+
+test("#2209 buildRecapPrompt: the markup section is fenced, and its instruction sits OUTSIDE", () => {
+  const markup = buildUiMarkupDigest([viewFile("ui/src/lib/Card.svelte")]);
+  const p = buildRecapPrompt({
+    taskPrompt: "t",
+    plan: "",
+    changedFiles: [],
+    digest: "",
+    context: "",
+    uiMarkup: markup,
+  });
+  const open = p.indexOf("⟦UNTRUSTED:ui-markup:");
+  const close = p.indexOf("⟦/UNTRUSTED:ui-markup:");
+  expect(open).toBeGreaterThan(-1);
+  expect(p.indexOf("+  <h2>New</h2>")).toBeGreaterThan(open);
+  expect(p.indexOf("+  <h2>New</h2>")).toBeLessThan(close);
+  // An instruction INSIDE a fence is contractually ignorable — and forgeable by the fenced
+  // content — so the one line that tells the agent what to DO with the markup must sit after it.
+  const instruction = p.indexOf("This markup is your grounding for a `wireframe` block");
+  expect(instruction).toBeGreaterThan(close);
+});
+
+test("#2209 buildRecapPrompt: no view file changed ⇒ no section at all", () => {
+  const p = bareRecapPrompt();
+  expect(p).not.toContain("UI markup after this change");
+  expect(p).not.toContain("⟦UNTRUSTED:ui-markup:");
+  // Absent and empty must behave identically — `generate()` passes "" rather than omitting.
+  // Fence nonces are per-call random, so compare with them normalized away.
+  const denonce = (t: string): string => t.replace(/⟦(\/?)UNTRUSTED:([^:]+):[0-9a-f]+⟧/g, "⟦$1$2⟧");
+  const empty = buildRecapPrompt({
+    taskPrompt: "t",
+    plan: "",
+    changedFiles: [],
+    digest: "",
+    context: "",
+    uiMarkup: "",
+  });
+  expect(denonce(empty)).toBe(denonce(p));
+});
+
+test("#2209 buildRecapPrompt: the markup rides OUTSIDE the pinned block-guidance region", () => {
+  // That region sits at 7387 of its 7424-byte ceiling. Putting the wireframe grounding there would
+  // have cost the last 37 bytes; it belongs with the changed-file list it annotates anyway, and it
+  // is per-session content, not standing guidance.
+  const p = buildRecapPrompt({
+    taskPrompt: "t",
+    plan: "",
+    changedFiles: [],
+    digest: "",
+    context: "",
+    uiMarkup: buildUiMarkupDigest([viewFile("ui/src/lib/Card.svelte")]),
+  });
+  expect(p.indexOf("UI markup after this change")).toBeLessThan(
+    p.indexOf("Optionally, add `blocks`"),
+  );
+  expect(Buffer.byteLength(blockGuidanceRegion(p), "utf8")).toBe(
+    Buffer.byteLength(blockGuidanceRegion(bareRecapPrompt()), "utf8"),
+  );
 });

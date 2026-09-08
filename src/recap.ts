@@ -49,6 +49,7 @@ import { claudeConfigPath, readRepoRootTrusted, trustRepoRoot } from "./claude-t
 import {
   parseRecapVerdict,
   buildTranscriptDigest,
+  buildUiMarkupDigest,
   buildRecapPrompt,
   isSettledIdle,
   needsRecap,
@@ -842,6 +843,10 @@ export class RecapService {
       const plan = this._readPlan(worktreePath);
       const changedFiles = diff.files.map((f) => f.path);
       const changedFilesWithStatus = diff.files.map((f) => ({ path: f.path, status: f.status }));
+      // #2209: the agent reads nothing (writer-only, temp cwd), so the post-change side of the view
+      // files' hunks is the only way a `wireframe` can be grounded rather than invented. "" for a
+      // session that changed no view file — the section is then absent from the prompt entirely.
+      const uiMarkup = buildUiMarkupDigest(diff.files);
 
       const contextParts: string[] = [];
       const review = this.deps.store.getReview(id);
@@ -864,6 +869,7 @@ export class RecapService {
         plan: string;
         changedFiles: { path: string; status: DiffFileStatus }[];
         context: string;
+        uiMarkup: string;
       }): string =>
         buildRecapPrompt({
           taskPrompt: session.prompt,
@@ -871,6 +877,7 @@ export class RecapService {
           changedFiles: v.changedFiles,
           digest,
           context: v.context,
+          uiMarkup: v.uiMarkup,
           operatorLanguage: language,
         });
       const env = this.env();
@@ -882,7 +889,7 @@ export class RecapService {
       // #1944: fit the prompt inside the OS argv budget, or null when it cannot be made to fit.
       // The helper owns the clamp log line so this already-long orchestration carries one branch.
       const prompt = fitRecapPrompt(
-        { plan, changedFiles, changedFilesWithStatus, context },
+        { plan, changedFiles, changedFilesWithStatus, context, uiMarkup },
         composePrompt,
         (p) => ({ wrapped: argvFor(p), spawnEnv: apiKeyPassthroughEnv(false) }),
         `${session.id} (${session.desig})`,
@@ -1190,18 +1197,24 @@ function fitRecapPrompt(
     changedFiles: string[];
     changedFilesWithStatus: { path: string; status: DiffFileStatus }[];
     context: string;
+    uiMarkup: string;
   },
   compose: (v: {
     plan: string;
     changedFiles: { path: string; status: DiffFileStatus }[];
     context: string;
+    uiMarkup: string;
   }) => string,
   assemble: SpawnAssembler,
   label: string,
 ): string | null {
   const fitted = fitFrom({
     ...spawnBudget(assemble),
+    // Order IS the clamp order (fitAssembledPrompt gives blocks up in the caller's order). `uiMarkup`
+    // goes FIRST: it is the newest and most expendable input (#2209), and `plan`/`context` keep
+    // exactly the protection they had before it existed (#1944).
     specs: [
+      { id: "uiMarkup", kind: "text", text: input.uiMarkup, mode: "head" },
       { id: "plan", kind: "text", text: input.plan, mode: "head-tail" },
       { id: "changedFiles", kind: "list", items: input.changedFiles, noun: "files" },
       { id: "context", kind: "text", text: input.context, mode: "head" },
@@ -1209,6 +1222,7 @@ function fitRecapPrompt(
     compose: (v) =>
       compose({
         plan: v.plan as string,
+        uiMarkup: v.uiMarkup as string,
         // clampList emits its marker as a trailing pseudo-entry; re-attach a status so the typed
         // changedFiles shape holds without special-casing it downstream.
         changedFiles: (v.changedFiles as string[]).map(

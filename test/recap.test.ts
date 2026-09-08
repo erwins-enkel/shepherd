@@ -6,6 +6,8 @@ import { RecapService, sanitizeRecapFailureDetail } from "../src/recap";
 import type { VerdictRead } from "../src/json-tolerant";
 import type { DiffResult, Recap, Session } from "../src/types";
 import type { ActivityEntry } from "../src/activity";
+import { buildRecapPrompt, buildUiMarkupDigest } from "../src/recap-core";
+import { hostArgvBudget, joinedElementBytes } from "../src/argv-limit";
 import { config } from "../src/config";
 import { __setApiKeyConfigDirProvisionForTest } from "../src/spawn-auth";
 
@@ -289,6 +291,7 @@ function buildSvc(opts: {
     baseRef: string,
   ) => Promise<"contained" | "not-contained" | "unknown">;
   landedWorkEvidence?: () => any;
+  readPlan?: () => string;
 }): RecapService {
   let tmpIdx = 0;
   return new RecapService({
@@ -303,7 +306,7 @@ function buildSvc(opts: {
     resolveBase: opts.resolveBase,
     computeDiff: opts.computeDiff ?? (async () => (opts.diff ?? NON_EMPTY_DIFF) as any),
     readTranscript: (): ActivityEntry[] => [],
-    readPlan: () => "",
+    readPlan: opts.readPlan ?? (() => ""),
     readVerdict: opts.readVerdictFn
       ? opts.readVerdictFn
       : (): VerdictRead<unknown> =>
@@ -2536,4 +2539,121 @@ test("an old finalizer racing a forced regenerate never stops the replacement ru
   await svc.tick(); // the replacement finalizes normally off its own retained handle
   expect(herdr.stopped).toEqual(["tid-1", "tid-2"]);
   expect(store.getRecap("s1")?.state).toBe("ready");
+});
+
+// ── #2209: UI markup reaches the spawn, and yields the budget first ──────────────────────────────
+
+/** A diff carrying one view file with real hunks — the input `wireframe` needs and never had. */
+function uiDiff(lines = 3): DiffResult {
+  return {
+    ...NON_EMPTY_DIFF,
+    files: [
+      NON_EMPTY_DIFF.files[0]!,
+      {
+        path: "ui/src/lib/components/Card.svelte",
+        status: "modified" as const,
+        additions: lines,
+        deletions: 1,
+        binary: false as const,
+        hunks: [
+          {
+            header: "@@ -1,3 +1,5 @@",
+            lines: [
+              { kind: "ctx" as const, content: '<div class="card">' },
+              { kind: "del" as const, content: "  <h2>Old</h2>" },
+              ...Array.from({ length: lines }, (_, i) => ({
+                kind: "add" as const,
+                content: `  <button>Action ${i}</button>`,
+              })),
+              { kind: "ctx" as const, content: "</div>" },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+}
+
+test("#2209 generate: the changed view file's post-change markup reaches the spawn prompt", async () => {
+  const s = makeSession({ status: "idle" });
+  const herdr = makeHerdr();
+  const svc = buildSvc({
+    store: makeStore([s]),
+    herdr,
+    nowFn: () => 1,
+    makeTmpDir: () => "/tmp/r",
+    computeDiff: async () => uiDiff(),
+  });
+  await svc.regenerate(s);
+  const prompt = herdr.started[0]!.argv.at(-1)!;
+  expect(prompt).toContain("UI markup after this change");
+  expect(prompt).toContain("ui/src/lib/components/Card.svelte (modified)");
+  expect(prompt).toContain("+  <button>Action 0</button>");
+  expect(prompt).toContain("This markup is your grounding for a `wireframe` block");
+  // The non-view file in the same diff still shows up as a path, never as markup.
+  expect(prompt).toContain("src/foo.ts (modified)");
+  expect(prompt).not.toContain("<h2>Old</h2>");
+});
+
+test("#2209 generate: a diff with no view file leaves the prompt exactly as it was", async () => {
+  const s = makeSession({ status: "idle" });
+  const herdr = makeHerdr();
+  const svc = buildSvc({
+    store: makeStore([s]),
+    herdr,
+    nowFn: () => 1,
+    makeTmpDir: () => "/tmp/r",
+  });
+  await svc.regenerate(s);
+  expect(herdr.started[0]!.argv.at(-1)!).not.toContain("UI markup after this change");
+});
+
+test("#2209 generate: the markup yields argv bytes BEFORE the plan does (#1944 ladder order)", async () => {
+  const budget = hostArgvBudget();
+  // Off Linux there is no per-element cap, so there is no ladder to order.
+  if (!Number.isFinite(budget)) return;
+
+  const s = makeSession({ status: "idle" });
+  const herdr = makeHerdr();
+  const markup = buildUiMarkupDigest(uiDiff(400).files);
+  expect(markup.length).toBeGreaterThan(1000);
+
+  // Size the plan so the composed prompt overruns by ~1 KB: less than the markup can give up
+  // (its length down to a 256-byte floor, ~2.3 KB here), so a correctly ordered ladder absorbs the
+  // overrun there and never touches the plan. Measured rather than guessed, so a later edit to
+  // the static prompt cannot silently turn this into a no-op.
+  const base = joinedElementBytes(
+    buildRecapPrompt({
+      taskPrompt: s.prompt,
+      plan: "",
+      changedFiles: uiDiff().files.map((f) => ({ path: f.path, status: f.status })),
+      digest: "",
+      context: "",
+      uiMarkup: markup,
+    }),
+  );
+  const plan = `PLAN-HEAD-MARKER\n${"plan detail\n".repeat(
+    Math.ceil((budget - base + 1000) / 12),
+  )}PLAN-TAIL-MARKER`;
+
+  const svc = buildSvc({
+    store: makeStore([s]),
+    herdr,
+    nowFn: () => 1,
+    makeTmpDir: () => "/tmp/r",
+    computeDiff: async () => uiDiff(400),
+    readPlan: () => plan,
+  });
+  await svc.regenerate(s);
+  const prompt = herdr.started[0]!.argv.at(-1)!;
+
+  // Exactly one block gave bytes up, and it was the markup — the marker sits inside its fence.
+  const markers = [...prompt.matchAll(/\[… \d+ bytes elided …\]/g)];
+  expect(markers.length).toBe(1);
+  const at = markers[0]!.index!;
+  expect(at).toBeGreaterThan(prompt.indexOf("⟦UNTRUSTED:ui-markup:"));
+  expect(at).toBeLessThan(prompt.indexOf("⟦/UNTRUSTED:ui-markup:"));
+  // The plan — the ground truth the recap is judged against — is untouched.
+  expect(prompt).toContain("PLAN-HEAD-MARKER");
+  expect(prompt).toContain("PLAN-TAIL-MARKER");
 });

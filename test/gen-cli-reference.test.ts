@@ -29,7 +29,7 @@ test("gen-cli-reference omits the upstream LLM-directed footer from every snapsh
       `#!/usr/bin/env bun
 const args = Bun.argv.slice(2);
 if (args[0] === "--version") {
-  console.log("herdr 0.8.2");
+  console.log("herdr 0.9.0");
 } else {
   console.log(\`Operator help stays.
 

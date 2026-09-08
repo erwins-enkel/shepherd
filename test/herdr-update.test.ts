@@ -139,28 +139,28 @@ test("current == latest → updateAvailable false", async () => {
 test("check(): a newer-but-unsupported latest (past the ceiling) sets latestUnsupported", async () => {
   const svc = new HerdrUpdateService({
     versionRunner: () => "herdr 0.8.2",
-    fetchLatest: async () => ({ version: "0.8.3", notes: "### Breaking" }),
+    fetchLatest: async () => ({ version: "0.9.1", notes: "### Breaking" }),
   });
   const s = await svc.check(1000);
   expect(s.updateAvailable).toBe(true); // a newer version does exist
   expect(s.latestUnsupported).toBe(true); // …but Shepherd can't run it
 });
 
-test("check(): a supported latest (0.7.5 → 0.8.2) is NOT flagged unsupported", async () => {
+test("check(): a supported latest (0.8.2 → 0.9.0) is NOT flagged unsupported", async () => {
   const svc = new HerdrUpdateService({
-    versionRunner: () => "herdr 0.7.5",
-    fetchLatest: async () => ({ version: "0.8.2" }),
+    versionRunner: () => "herdr 0.8.2",
+    fetchLatest: async () => ({ version: "0.9.0" }),
   });
   const s = await svc.check(1000);
   expect(s.updateAvailable).toBe(true);
-  expect(s.latestUnsupported).toBe(false); // 0.8.2 is now supported — the updater offers it
+  expect(s.latestUnsupported).toBe(false); // 0.9.0 is now supported — the updater offers it
 });
 
 test("apply(): refuses to upgrade into an unsupported latest (never started)", async () => {
   let ran = false;
   const svc = new HerdrUpdateService({
     versionRunner: () => "herdr 0.8.2",
-    fetchLatest: async () => ({ version: "0.8.3" }),
+    fetchLatest: async () => ({ version: "0.9.1" }),
     runUpdate: async () => {
       ran = true;
     },
@@ -226,6 +226,26 @@ test("apply(): success when re-read version equals target; maintenance begins th
   expect(begun).toEqual([true, false]); // begin, then end
   expect(dones).toHaveLength(1);
   expect(dones[0]).toMatchObject({ ok: true, to: "0.6.8" });
+});
+
+test("apply(): 0.8.2 → 0.9.0 succeeds and clears unsupported/downgrade flags", async () => {
+  const { svc, begun, dones } = primed({
+    current: "0.8.2",
+    latest: "0.9.0",
+    installedAfter: "0.9.0",
+  });
+  await svc.check(1);
+  expect(svc.apply()).toEqual({ started: true });
+  await settle();
+  expect(begun).toEqual([true, false]);
+  expect(dones).toEqual([{ ok: true, from: "0.8.2", to: "0.9.0" }]);
+  expect(svc.current()).toMatchObject({
+    current: "0.9.0",
+    updateAvailable: false,
+    latestUnsupported: false,
+    currentUnsupported: false,
+    downgradeTarget: null,
+  });
 });
 
 test("apply(): failure when version unchanged even though the child exits 0 (rc lies)", async () => {
@@ -315,11 +335,11 @@ test("apply(): streams runUpdate lines to onLog", async () => {
 });
 
 // ── check(): stranded install (unsupported INSTALLED herdr, #1898) ───────────
-test("check(): an unsupported INSTALLED herdr (0.8.3) sets currentUnsupported + downgradeTarget", async () => {
-  // 0.8.2 is now the supported ceiling (#2096), so the stranded case is 0.8.3+.
+test("check(): an unsupported INSTALLED herdr (0.9.1) sets currentUnsupported + downgradeTarget", async () => {
+  // 0.9.0 is now the supported ceiling, so the stranded case is 0.9.1+.
   const svc = new HerdrUpdateService({
-    versionRunner: () => "herdr 0.8.3",
-    fetchLatest: async () => ({ version: "0.8.3" }),
+    versionRunner: () => "herdr 0.9.1",
+    fetchLatest: async () => ({ version: "0.9.1" }),
   });
   const s = await svc.check(1000);
   expect(s.currentUnsupported).toBe(true);
@@ -341,14 +361,14 @@ test("check(): a supported installed herdr (0.7.4) is not stranded; no downgrade
 test("check(): a failed fetch carries the prior current into the stranded flags", async () => {
   let calls = 0;
   const svc = new HerdrUpdateService({
-    versionRunner: () => "herdr 0.8.3", // 0.8.3 is unsupported (ceiling is now 0.8.2, #2096)
+    versionRunner: () => "herdr 0.9.1", // 0.9.1 is unsupported (ceiling is now 0.9.0)
     fetchLatest: async () => {
       calls++;
       if (calls > 1) throw new Error("herdr.dev down");
-      return { version: "0.8.3" };
+      return { version: "0.9.1" };
     },
   });
-  await svc.check(1000); // seeds current=0.8.3
+  await svc.check(1000); // seeds current=0.9.1
   const s = await svc.check(2000); // fetch fails; current carried from last
   expect(s.error).toContain("down");
   expect(s.currentUnsupported).toBe(true);

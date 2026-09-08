@@ -3788,5 +3788,7 @@
   "feat_spawn_progress_body": "Neue Aufgabe nennt jetzt den Schritt, an dem der Start gerade steht — Basis-Branch aktualisieren, Worktree anlegen, auf den Agent warten — und sagt bei langer Wartezeit, warum, samt Abbrechen.",
   "usage_delivery_evidence_repo_mismatch": "Fremde Repo-Evidenz abgewiesen",
   "feat_learnings_evidence_repo_title": "Learnings prüfen die Herkunft ihrer Evidenz",
-  "feat_learnings_evidence_repo_body": "Neue Regelvorschläge mit nachweislich fremder Repo-Evidenz werden vollständig abgewiesen. Die Vorfälle erscheinen in der Signalstatistik. Unbekannte oder abgelaufene Signal-IDs gelten nicht als Herkunftskonflikt; bestehende Regeln bleiben unverändert."
+  "feat_learnings_evidence_repo_body": "Neue Regelvorschläge mit nachweislich fremder Repo-Evidenz werden vollständig abgewiesen. Die Vorfälle erscheinen in der Signalstatistik. Unbekannte oder abgelaufene Signal-IDs gelten nicht als Herkunftskonflikt; bestehende Regeln bleiben unverändert.",
+  "feat_herdr_090_title": "herdr 0.9.0 wird unterstützt",
+  "feat_herdr_090_body": "Du kannst herdr jetzt in Shepherd auf 0.9.0 aktualisieren. Agentstart, Terminalsteuerung und Aufräumen wurden gegen isolierte Server mit 0.8.2 und 0.9.0 geprüft. Der bestehende Hinweis zum Sandbox-Status gilt weiterhin."
 }

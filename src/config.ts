@@ -86,7 +86,9 @@ export const HERDR_MIN_VERSION = "0.7.0";
 // in a stable release and is deliberately NOT admitted: this is an allowlist, not a floor.
 // 20 = herdr 0.8.2: purely additive over 19 (`pane.input.set`, graphics-layer params/results,
 // right-click pane splits, and enum values) — the existing drive surface carries over (#2096).
-export const HERDR_SOCKET_SUPPORTED_PROTOCOLS = new Set([16, 17, 19, 20]);
+// 22 = herdr 0.9.0: additive schema changes; driven records, CLI and terminal contract verified
+// against 0.8.2 (docs/herdr-compat/0.9.0.md). Unverified protocol 21 remains excluded.
+export const HERDR_SOCKET_SUPPORTED_PROTOCOLS = new Set([16, 17, 19, 20, 22]);
 // TTL backing DiagnosticsService.current() — a request without ?refresh=1 reads
 // this cache. Matches the existing CountsService/backlog 60s TTL.
 export const DIAGNOSTICS_TTL_MS = 60_000;

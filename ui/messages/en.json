@@ -3594,6 +3594,7 @@
   "settings_access_scope_read": "Read",
   "settings_access_scope_submit": "Submit",
   "settings_access_scope_full": "Full",
+  "settings_access_scope_unknown": "Unknown — no access",
   "settings_access_scope_read_hint": "Can read the herd — sessions, holds, git status — and follow live updates. Cannot start work, and cannot reach a terminal.",
   "settings_access_scope_submit_hint": "Everything Read can do, plus handing work in: start a session, queue or release a held task, attach a screenshot, file an issue. Cannot steer a running session or reach a terminal.",
   "settings_access_scope_full_hint": "The same access you have, the live terminal included — it can type into any running agent. Pick this only for a client that genuinely needs to drive work.",

@@ -3594,6 +3594,7 @@
   "settings_access_scope_read": "Lesen",
   "settings_access_scope_submit": "Einreichen",
   "settings_access_scope_full": "Vollzugriff",
+  "settings_access_scope_unknown": "Unbekannt — kein Zugriff",
   "settings_access_scope_read_hint": "Darf die Herde lesen — Sitzungen, Wartepunkte, Git-Status — und live mitverfolgen. Kann keine Arbeit starten und kein Terminal erreichen.",
   "settings_access_scope_submit_hint": "Alles wie bei „Lesen“, dazu Arbeit einreichen: eine Sitzung starten, eine wartende Aufgabe einstellen oder freigeben, einen Screenshot anhängen, ein Issue anlegen. Kann eine laufende Sitzung nicht steuern und kein Terminal erreichen.",
   "settings_access_scope_full_hint": "Derselbe Zugriff wie du, das laufende Terminal eingeschlossen — damit lässt sich in jeden laufenden Agenten tippen. Wähle das nur für einen Client, der Arbeit wirklich steuern muss.",

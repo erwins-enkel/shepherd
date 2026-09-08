@@ -228,6 +228,18 @@ describe("SettingsAccessPanel", () => {
     expect(document.querySelectorAll(".tokens .scope-badge")).toHaveLength(3);
   });
 
+  it("labels an unrecognized stored scope as unknown with no access", async () => {
+    // SQLite can carry a scope outside the declared union; the API preserves it.
+    stubApi({ tokens: [token({ scope: "wat" as unknown as AccessToken["scope"] })] });
+    render(SettingsAccessPanel, { payload: payload(false) });
+
+    await expect.element(page.getByText("Asyar extension", { exact: true })).toBeVisible();
+    const badge = document.querySelector(".tokens .scope-badge");
+    expect(badge).not.toBeNull();
+    expect(badge!.textContent).not.toBe("Full");
+    expect(badge!.textContent).toBe("Unknown — no access");
+  });
+
   it("colours a full-scope badge apart from a narrower one", async () => {
     // Regression lock for a CSS-ordering trap: `.badge` and `.scope-badge` are both single-class
     // selectors, so only source order separates them. With `.scope-badge` above `.badge`, every

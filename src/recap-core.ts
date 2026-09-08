@@ -203,25 +203,54 @@ export function buildRecapPrompt(input: {
     "- openItems: string[] of anything left to do or worth noting for the next session ([] if none)",
     "",
     "Optionally, add `blocks` to render the recap as a scannable visual document instead",
-    "of plain markdown. Omit `blocks` entirely if plain `body` suffices — blocks are not required.",
+    // #2194: this line used to end "Omit `blocks` entirely if plain `body` suffices — blocks are not
+    // required", which the model weighed over every later rule: regenerations kept coming back with
+    // ZERO blocks on 9-to-74-file sessions. The escape hatch stays for the genuinely empty session
+    // (and a Codex recap, which answers in chat and writes no sidecar at all, still degrades to
+    // body-only mechanically) — it just no longer reads as a standing invitation.
+    "of plain markdown. For a session that changed code, blocks are how the operator reads it —",
+    "omit them only when there is genuinely nothing to show.",
+    "",
+    // #2194: the schemas below are the parse contract; these five rules are the BRAKES on the
+    // per-type triggers appended to each. Triggers without brakes produce kitchen-sink recaps —
+    // a worse failure than the under-use they fix. Never ship one half of this pair.
+    "Choosing a view — each schema below ends with when to reach for that type. If no trigger",
+    "fires, do not emit that type. Five rules govern all of them:",
+    "- Pick the smallest view that ANSWERS THE READER'S QUESTION. Smallest means most economical to",
+    "  READ, not cheapest to write: never skip the view a point needs because authoring it is more",
+    "  work. A sentence beats a block only when the sentence actually answers the question.",
+    "- `body` and `blocks` are ONE document, read top to bottom — not two artifacts. Write the short",
+    "  text that sets each visual up; never restate in `body` a point a block already makes.",
+    "- A good recap is typically 4-7 blocks. Past ~10 you are cataloguing the session instead of",
+    "  explaining it; at 0-1 you wrote prose and called it a recap.",
+    "- Reach for a type when its trigger fires — not because it exists, nor because you reached for",
+    "  it last time. `callout`/`diff`/`file-tree` are not the default three.",
+    // #2194: wireframe and mermaid had fired 0 times across 88 block-emitting recaps. Both are
+    // expensive to author, so every "keep it small" rule argues against them unless their trigger
+    // is stated as non-optional HERE — in the preamble that gets read — rather than only at the end
+    // of their own (long, restriction-heavy) schema lines.
+    "- If the session changed what a user sees on screen, `wireframe` is NOT optional: no diff can",
+    "  show the operator the resulting screen. If it changed control or data flow BETWEEN components,",
+    "  `mermaid` is not optional either. These two are under-used, not over-used — when their trigger",
+    "  fires, emit them.",
     "",
     "Block types (Phase 1):",
-    '- rich-text: {"type":"rich-text","id":"<unique>","markdown":"<prose>"} — narrative / the why.',
-    '- callout:   {"type":"callout","id":"...","tone":"info|decision|risk|warning|success","markdown":"..."} — a toned note for a decision, risk, or assumption.',
-    '- file-tree: {"type":"file-tree","id":"...","title?":"...","entries":[{"path":"<real path>","change":"added|modified|removed|renamed","note?":"<short>"}]} — the change footprint. Use real changed paths only.',
-    '- diff:      {"type":"diff","id":"...","path":"<real changed path>","summary":"<one line>","annotations?":[{"label?":"<short>","note":"<prose>"}]} — feature a specific changed file.',
+    '- rich-text: {"type":"rich-text","id":"<unique>","markdown":"<prose>"} — narrative / the why. Reach for it when the point is WHY, not what. Also the home for a shape sketch: when the change is structural and no single file carries it, put a fenced ```diff of the SHAPE here (component tree, file layout, call tree, control-flow pseudocode — before/after), not a file diff.',
+    '- callout:   {"type":"callout","id":"...","tone":"info|decision|risk|warning|success","markdown":"..."} — a toned note for a decision, risk, or assumption. Reach for it when a reader who skims everything else must still see this one thing. Three callouts in a row is a list, not a callout.',
+    '- file-tree: {"type":"file-tree","id":"...","title?":"...","entries":[{"path":"<real path>","change":"added|modified|removed|renamed","note?":"<short>"}]} — the change footprint. Use real changed paths only. Reach for it when the footprint itself is the story: a change spread wide, or one that moves/renames. Skip it when ≤3 files changed — the diff blocks already show them.',
+    '- diff:      {"type":"diff","id":"...","path":"<real changed path>","summary":"<one line>","annotations?":[{"label?":"<short>","note":"<prose>"}]} — feature a specific changed file. Reach for it when one specific changed file carries a load-bearing decision. Curated: 1-3 per recap, never every file you touched.',
     "",
     "Block types (Phase 2):",
-    '- code:           {"type":"code","id":"...","filename":"<path marked (added)>"} — highlights a new file (language is derived from the path). Only emit for files marked (added) above; modified files use diff blocks. Never type the code body — the server attaches it.',
-    '- annotated-code: {"type":"annotated-code","id":"...","filename":"<path marked (added)>","annotations?":[{"label?":"<short>","note":"<prose describing this part of the code>"}]} — code with prose notes. Only (added) files. Never type the code body, never line numbers.',
-    '- data-model:     {"type":"data-model","id":"...","entities":[{"id":"...","name":"...","fields":[{"name":"...","type":"...","pk?":true,"fk?":"<ref>","nullable?":true,"change?":"added|modified|removed|renamed","was?":"<old type>"}]}],"relations?":[{"from":"...","to":"...","kind":"..."}]} — ERD-ish card. Extract from real changed schema; do not invent fields; redact secrets. Will be tagged inferred automatically.',
-    '- api-endpoint:   {"type":"api-endpoint","id":"...","method":"GET|POST|...","path":"<route>","summary?":"...","change?":"added|modified|deprecated","deprecated?":true,"params?":[{"name":"...","in":"path|query|body","type":"...","required?":true,"note?":"..."}],"responses?":[{"status":200,"description?":"...","example?":"..."}]} — one route card. Extract from real changed routes; redact secrets. Will be tagged inferred automatically.',
-    '- table:          {"type":"table","id":"...","columns":["A","B"],"rows":[["a","b"]]} — columnar comparison or summary. Redact secrets.',
-    '- checklist:      {"type":"checklist","id":"...","items":[{"id":"...","label":"...","note?":"...","checked?":true}]} — task list or review checklist.',
+    '- code:           {"type":"code","id":"...","filename":"<path marked (added)>"} — highlights a new file (language is derived from the path). Only emit for files marked (added) above; modified files use diff blocks. Never type the code body — the server attaches it. Reach for it when a new file is short and self-explaining, and reading it beats describing it.',
+    '- annotated-code: {"type":"annotated-code","id":"...","filename":"<path marked (added)>","annotations?":[{"label?":"<short>","note":"<prose describing this part of the code>"}]} — code with prose notes. Only (added) files. Never type the code body, never line numbers. Reach for it when such a file instead needs a guided read: a non-obvious ordering, a subtle guard, a rule that is not local.',
+    '- data-model:     {"type":"data-model","id":"...","entities":[{"id":"...","name":"...","fields":[{"name":"...","type":"...","pk?":true,"fk?":"<ref>","nullable?":true,"change?":"added|modified|removed|renamed","was?":"<old type>"}]}],"relations?":[{"from":"...","to":"...","kind":"..."}]} — ERD-ish card. Extract from real changed schema; do not invent fields; redact secrets. Will be tagged inferred automatically. Reach for it when the schema changed and the shape of the data is what a reviewer must check.',
+    '- api-endpoint:   {"type":"api-endpoint","id":"...","method":"GET|POST|...","path":"<route>","summary?":"...","change?":"added|modified|deprecated","deprecated?":true,"params?":[{"name":"...","in":"path|query|body","type":"...","required?":true,"note?":"..."}],"responses?":[{"status":200,"description?":"...","example?":"..."}]} — one route card. Extract from real changed routes; redact secrets. Will be tagged inferred automatically. Reach for it when a route was added, changed or deprecated and the contract is what a caller must know.',
+    '- table:          {"type":"table","id":"...","columns":["A","B"],"rows":[["a","b"]]} — columnar comparison or summary. Redact secrets. Reach for it when the point is a comparison across fixed axes (before/after, option A vs B, per-environment behaviour). Not for prose in a grid.',
+    '- checklist:      {"type":"checklist","id":"...","items":[{"id":"...","label":"...","note?":"...","checked?":true}]} — task list or review checklist. Reach for it when the operator has something to DO or verify. If it only restates openItems, drop it.',
     "",
     "Block types (Phase 3):",
-    '- mermaid:        {"type":"mermaid","id":"...","source":"<mermaid diagram source>","caption?":"..."} — an architecture or flow diagram (flowchart/sequence/etc). Use for genuine architecture/flow shifts only. Will be tagged inferred automatically.',
-    '- wireframe:      {"type":"wireframe","id":"...","surface":"browser|desktop|mobile|popover|panel","html":"<themed HTML mockup>","caption?":"..."} — a UI mockup of a screen. Use ONLY for UI changes. Author with the wf helper classes + class-based color; NEVER inline hex/rgb()/hsl()/color()/font-family/box-shadow, and never <script>/<style>/event handlers/href.',
+    '- mermaid:        {"type":"mermaid","id":"...","source":"<mermaid diagram source>","caption?":"..."} — an architecture or flow diagram (flowchart/sequence/etc). Use for genuine architecture/flow shifts only. Will be tagged inferred automatically. Reach for it when control or data flow CHANGED, and the change is BETWEEN components rather than inside one — a sequence diagram of the new path beats three paragraphs. Never diagram architecture that did not change.',
+    '- wireframe:      {"type":"wireframe","id":"...","surface":"browser|desktop|mobile|popover|panel","html":"<themed HTML mockup>","caption?":"..."} — a UI mockup of a screen. Use ONLY for UI changes. Author with the wf helper classes + class-based color; NEVER inline hex/rgb()/hsl()/color()/font-family/box-shadow, and never <script>/<style>/event handlers/href. Reach for it when the change is visible on screen: the operator cannot see the UI from a diff, and a mockup of the resulting screen is the only block that answers what they will actually see. Use it for any user-visible layout, state or copy change. The helper classes are: wf-card, wf-box, wf-pill, wf-chip, wf-muted — plus plain <button> (class="primary" or data-primary for the accent one) and data-icon for a glyph. Compose them with div/span/ul/li/table/h1-h6/header/nav/section/strong/small/img/svg.',
     "",
     "Rules for blocks:",
     "- Every block must have a unique string `id`.",

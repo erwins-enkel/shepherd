@@ -967,3 +967,104 @@ test("#2045 splice helper: null means no contribution; non-object shapes pass th
   expect(spliceRecapSidecars("not an object", "x", null)).toBe("not an object");
   expect(spliceRecapSidecars(null, "x", null)).toBeNull();
 });
+
+// ── #2194: per-block trigger heuristics + smallest-view rules ─────────────────
+//
+// The block-guidance region is a hot, shipped-every-spawn prompt. Three things must hold
+// together: the schemas stay the parse contract, every type says when to reach for it, and
+// the brakes that stop the triggers producing kitchen-sink recaps stay next to them.
+
+/** The prompt built with the minimum inputs — the guidance region is input-independent. */
+const bareRecapPrompt = (): string =>
+  buildRecapPrompt({ taskPrompt: "t", plan: "", changedFiles: [], digest: "", context: "" });
+
+/**
+ * The block-guidance region, sliced by MARKER rather than by line number so the assertion
+ * survives the next edit to the prompt around it.
+ */
+function blockGuidanceRegion(prompt: string): string {
+  const from = prompt.indexOf("Optionally, add `blocks`");
+  const to = prompt.indexOf("When done, write these files in your CWD:");
+  expect(from).toBeGreaterThan(-1);
+  expect(to).toBeGreaterThan(from);
+  return prompt.slice(from, to);
+}
+
+/**
+ * The 12 schema strings EXACTLY as they are parsed against. #2194 appended a trigger clause
+ * to each line; the schema itself must remain a byte-identical prefix, because these strings
+ * are what teaches the agent the shape `parseVisualBlocks` accepts. A rewrite here silently
+ * changes what gets emitted — and a silently dropped block is invisible in the UI.
+ */
+const BLOCK_SCHEMAS: readonly string[] = [
+  '- rich-text: {"type":"rich-text","id":"<unique>","markdown":"<prose>"}',
+  '- callout:   {"type":"callout","id":"...","tone":"info|decision|risk|warning|success","markdown":"..."}',
+  '- file-tree: {"type":"file-tree","id":"...","title?":"...","entries":[{"path":"<real path>","change":"added|modified|removed|renamed","note?":"<short>"}',
+  '- diff:      {"type":"diff","id":"...","path":"<real changed path>","summary":"<one line>","annotations?":[{"label?":"<short>","note":"<prose>"}',
+  '- code:           {"type":"code","id":"...","filename":"<path marked (added)>"}',
+  '- annotated-code: {"type":"annotated-code","id":"...","filename":"<path marked (added)>","annotations?":[{"label?":"<short>","note":"<prose describing this part of the code>"}',
+  '- data-model:     {"type":"data-model","id":"...","entities":[{"id":"...","name":"...","fields":[{"name":"...","type":"...","pk?":true,"fk?":"<ref>","nullable?":true,"change?":"added|modified|removed|renamed","was?":"<old type>"}',
+  '- api-endpoint:   {"type":"api-endpoint","id":"...","method":"GET|POST|...","path":"<route>","summary?":"...","change?":"added|modified|deprecated","deprecated?":true,"params?":[{"name":"...","in":"path|query|body","type":"...","required?":true,"note?":"..."}',
+  '- table:          {"type":"table","id":"...","columns":["A","B"],"rows":[["a","b"]]}',
+  '- checklist:      {"type":"checklist","id":"...","items":[{"id":"...","label":"...","note?":"...","checked?":true}',
+  '- mermaid:        {"type":"mermaid","id":"...","source":"<mermaid diagram source>","caption?":"..."}',
+  '- wireframe:      {"type":"wireframe","id":"...","surface":"browser|desktop|mobile|popover|panel","html":"<themed HTML mockup>","caption?":"..."}',
+];
+
+test("#2194 buildRecapPrompt: every block schema survives byte-identical", () => {
+  const p = bareRecapPrompt();
+  for (const schema of BLOCK_SCHEMAS) {
+    expect(p).toContain(schema);
+  }
+});
+
+test("#2194 buildRecapPrompt: every block type carries a trigger clause", () => {
+  const lines = bareRecapPrompt().split("\n");
+  for (const schema of BLOCK_SCHEMAS) {
+    const line = lines.find((l) => l.includes(schema));
+    expect(line).toBeDefined();
+    // The trigger is on the SAME line as its schema — a type whose clause drifted to another
+    // line has lost the association that makes the guidance readable.
+    expect(line).toContain("Reach for it when");
+  }
+});
+
+test("#2194 buildRecapPrompt: the smallest-view brakes ship with the triggers", () => {
+  const region = blockGuidanceRegion(bareRecapPrompt());
+  // Shipping triggers without these produces kitchen-sink recaps — worse than the under-use
+  // they fix (#2194). They are one change, and this test is what keeps them one change.
+  expect(region).toContain("Pick the smallest view that ANSWERS THE READER'S QUESTION");
+  expect(region).toContain("are ONE document");
+  expect(region).toContain("typically 4-7 blocks");
+  expect(region).toContain("not because it exists");
+  // #2194 first run: the brakes alone suppressed wireframe/mermaid to zero AND collapsed the
+  // median from 10 to 3. These two lines are what rebalanced it — they are not decoration.
+  expect(region).toContain("`wireframe` is NOT optional");
+  expect(region).toContain("not cheapest to write");
+  expect(region).toContain("If no trigger");
+});
+
+test("#2194 buildRecapPrompt: the safety rules are not weakened by the new guidance", () => {
+  const region = blockGuidanceRegion(bareRecapPrompt());
+  // The triggers make `wireframe` fire for the first time, so its authoring restrictions are
+  // load-bearing now rather than theoretical.
+  expect(region).toContain("NEVER inline hex/rgb()/hsl()/color()/font-family/box-shadow");
+  expect(region).toContain("never <script>/<style>/event handlers/href");
+  // The helper classes the prompt names must be the ones WireframeBlock.svelte actually styles.
+  for (const cls of ["wf-card", "wf-box", "wf-pill", "wf-chip", "wf-muted"]) {
+    expect(region).toContain(cls);
+  }
+  expect(region).toContain("only reference files that ACTUALLY changed");
+  expect(region).toContain("Redact secrets (API keys, tokens, passwords)");
+});
+
+test("#2194 buildRecapPrompt: the block-guidance region stays inside its prompt budget", () => {
+  // Shipped on EVERY recap spawn, and it competes for the argv budget that fitRecapPrompt
+  // clamps plan/context against (#1944). 4205 bytes before #2194. Raise this only deliberately —
+  // a clause that needs two lines is over-specified. The 7.25 KiB ceiling (over the issue's ~7 KB)
+  // buys the wireframe helper-class list, without which the type cannot be authored at all: the
+  // prompt had been naming "the wf helper classes" while defining them nowhere, which is why
+  // wireframe had fired 0 times in 88 block-emitting recaps.
+  const bytes = Buffer.byteLength(blockGuidanceRegion(bareRecapPrompt()), "utf8");
+  expect(bytes).toBeLessThanOrEqual(7424);
+});

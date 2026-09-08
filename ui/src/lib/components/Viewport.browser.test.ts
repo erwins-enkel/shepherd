@@ -29,6 +29,25 @@ const getLeftoversFn = vi.fn(async () => ({
   leftovers: [] as Leftover[],
   probesUnavailable: false,
 }));
+const getBuildQueueFn = vi.fn(async (sessionId: string): Promise<BuildQueue> => ({
+  sessionId,
+  approved: false,
+  steps: [],
+}));
+const approveBuildQueueFn = vi.fn(async (sessionId: string): Promise<BuildQueue> => ({
+  sessionId,
+  approved: true,
+  approvalKind: "operator",
+  steps: [],
+}));
+const replySessionFn = vi.fn(async () => {});
+const putBuildQueueFn = vi.fn(
+  async (sessionId: string, steps: BuildQueue["steps"]): Promise<BuildQueue> => ({
+    sessionId,
+    steps,
+    approved: false,
+  }),
+);
 
 vi.mock("$lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("$lib/api")>();
@@ -38,6 +57,10 @@ vi.mock("$lib/api", async (importOriginal) => {
     stopPreview: stopPreviewFn,
     renameSession: renameSessionFn,
     getLeftovers: getLeftoversFn,
+    getBuildQueue: getBuildQueueFn,
+    approveBuildQueue: approveBuildQueueFn,
+    replySession: replySessionFn,
+    putBuildQueue: putBuildQueueFn,
   };
 });
 
@@ -50,6 +73,7 @@ const { reviews, planGates, repoConfig } = await import("$lib/reviews.svelte");
 const { recaps } = await import("$lib/recaps.svelte");
 // Dynamic import for same reason: epic-draft.svelte imports $lib/api via getEpicDraft.
 const { epicDrafts } = await import("$lib/epic-draft.svelte");
+const { buildQueueCollapse } = await import("$lib/build-queue-collapse.svelte");
 import { toasts } from "$lib/toasts.svelte";
 import { m } from "$lib/paraglide/messages";
 import type {
@@ -169,6 +193,129 @@ function fakeTouch(type: string, x: number, y: number): Event {
   });
   return e;
 }
+
+describe("Viewport — build queue with persisted compact header fold", () => {
+  beforeEach(async () => {
+    localStorage.setItem("shepherd-vp-header-collapsed", "1");
+    buildQueueCollapse.set(true);
+    document.documentElement.dataset.theme = "light";
+    await page.viewport(390, 844);
+    replySessionFn.mockReset().mockResolvedValue(undefined);
+    approveBuildQueueFn.mockClear();
+    putBuildQueueFn.mockClear();
+  });
+  afterEach(async () => {
+    localStorage.removeItem("shepherd-vp-header-collapsed");
+    buildQueueCollapse.set(false);
+    document.documentElement.removeAttribute("data-theme");
+    await page.viewport(1280, 900);
+  });
+  function queue(approved: boolean): BuildQueue {
+    return {
+      sessionId: "folded-queue",
+      approved,
+      approvalKind: approved ? "auto" : undefined,
+      steps: [{ id: "a", title: "Review requirements", status: "pending", position: 0 }],
+    };
+  }
+  function props(approved: boolean) {
+    return {
+      session: session({ id: "folded-queue", status: "blocked", planPhase: "planning" }),
+      mobile: true,
+      buildQueue: queue(approved),
+      previewPort: null,
+      openPreviewTick: 0,
+    };
+  }
+  for (const approved of [false, true]) {
+    it(`keeps the ${approved ? "start" : "planning approval"} operable after remount with both folds saved`, async () => {
+      let mounted = await render(Viewport, props(approved));
+      const label = approved ? m.buildqueue_start() : m.buildqueue_approve_plan();
+      await expect.element(page.getByRole("button", { name: label })).toBeVisible();
+      expect(localStorage.getItem("shepherd-vp-header-collapsed")).toBe("1");
+      expect(localStorage.getItem("shepherd:build-queue-collapsed")).toBe("1");
+      await mounted.unmount();
+      mounted = await render(Viewport, props(approved));
+      const cta = page.getByRole("button", { name: label });
+      await expect.element(cta).toBeVisible();
+      const button = cta.element() as HTMLButtonElement;
+      expect(button.getBoundingClientRect().right).toBeLessThanOrEqual(390);
+      expect(button.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+      if (approved) {
+        button.focus();
+        await userEvent.keyboard("{Enter}");
+        expect(replySessionFn).toHaveBeenCalledTimes(1);
+        expect(approveBuildQueueFn).not.toHaveBeenCalled();
+      } else {
+        await page.getByRole("button", { name: m.buildqueue_expand_aria() }).click();
+        const title = page.getByRole("textbox", { name: `${m.buildqueue_step_title_aria()} 1` });
+        await expect.element(title).toBeVisible();
+        await title.fill("Review requirements carefully");
+        await cta.click();
+        expect(putBuildQueueFn).toHaveBeenCalledTimes(1);
+        expect(putBuildQueueFn.mock.calls[0][1][0].title).toBe("Review requirements carefully");
+        expect(approveBuildQueueFn).toHaveBeenCalledExactlyOnceWith("folded-queue");
+        expect(replySessionFn).not.toHaveBeenCalled();
+      }
+      expect(localStorage.getItem("shepherd-vp-header-collapsed")).toBe("1");
+      expect(mounted.container.querySelector(".vp-fold")?.getAttribute("aria-expanded")).toBe(
+        "false",
+      );
+      await expect.element(page.getByText(m.buildqueue_action_sent())).toBeVisible();
+    });
+  }
+
+  it("loads actionable queue data while folded and follows updates without unfolding", async () => {
+    const load = Promise.withResolvers<BuildQueue>();
+    getBuildQueueFn.mockClear();
+    getBuildQueueFn.mockReturnValueOnce(load.promise);
+    const onSeedBuildQueue = vi.fn();
+    const mounted = await render(Viewport, { ...props(true), buildQueue: null, onSeedBuildQueue });
+    expect(mounted.container.querySelector(".bqp")).toBeNull();
+    onSeedBuildQueue.mockImplementation((buildQueue: BuildQueue) => {
+      void mounted.rerender({ ...props(true), buildQueue, onSeedBuildQueue });
+    });
+    load.resolve(queue(true));
+    await expect.element(page.getByRole("button", { name: m.buildqueue_start() })).toBeVisible();
+    await mounted.rerender({
+      ...props(true),
+      buildQueue: { ...queue(true), steps: [{ ...queue(true).steps[0], status: "active" }] },
+      onSeedBuildQueue,
+    });
+    expect(mounted.container.querySelector(".bqp")).toBeNull();
+    await mounted.rerender({ ...props(false), onSeedBuildQueue });
+    await expect
+      .element(page.getByRole("button", { name: m.buildqueue_approve_plan() }))
+      .toBeVisible();
+    expect(localStorage.getItem("shepherd-vp-header-collapsed")).toBe("1");
+    expect(getBuildQueueFn).toHaveBeenCalledExactlyOnceWith("folded-queue");
+  });
+
+  for (const status of ["active", "done"] as const) {
+    it(`keeps a non-actionable ${status} queue hidden when folded`, async () => {
+      const mounted = await render(Viewport, {
+        ...props(true),
+        buildQueue: { ...queue(true), steps: [{ ...queue(true).steps[0], status }] },
+      });
+      expect(mounted.container.querySelector(".bqp")).toBeNull();
+    });
+  }
+
+  it("keeps in-flight and failure feedback visible when the session starts working", async () => {
+    const pending = Promise.withResolvers<void>();
+    replySessionFn.mockReturnValueOnce(pending.promise);
+    const mounted = await render(Viewport, props(true));
+    await page.getByRole("button", { name: m.buildqueue_start() }).click();
+    await mounted.rerender({
+      ...props(true),
+      session: session({ id: "folded-queue", status: "running", planPhase: "planning" }),
+    });
+    await expect.element(page.getByText(m.buildqueue_sending())).toBeVisible();
+    pending.reject(new Error("network unavailable"));
+    await expect.element(page.getByText(m.buildqueue_action_failed())).toBeVisible();
+    expect(localStorage.getItem("shepherd-vp-header-collapsed")).toBe("1");
+  });
+});
 
 // The Preview tab is driven by a server-fed `previewPort` (single source of truth
 // for tab+pane) plus a monotonic `openPreviewTick`/`lastPreviewTick` guard so a

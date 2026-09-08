@@ -2921,16 +2921,18 @@
     </div>
   {/if}
 
-  <!-- build queue panel: shown when the flag is on OR a queue already exists for this
-       session — folded away with the rest of the secondary chrome on mobile -->
-  {#if !headerFolded}
-    <BuildQueuePanel
-      sessionId={session.id}
-      enabled={repoConfig.flags(session.repoPath).buildQueue}
-      queue={buildQueue ?? null}
-      onbootstrap={(q) => onSeedBuildQueue?.(q)}
-    />
-  {/if}
+  <!-- Keep approval/start actions reachable even with the compact header folded. -->
+  <BuildQueuePanel
+    sessionId={session.id}
+    enabled={repoConfig.flags(session.repoPath).buildQueue}
+    queue={buildQueue ?? null}
+    sessionStatus={session.status}
+    planPhase={session.planPhase}
+    planReview={planGates.isReviewing(session.id) ? "reviewing" : planGate ? "available" : null}
+    terminalEnded={ended}
+    folded={headerFolded}
+    onbootstrap={(q) => onSeedBuildQueue?.(q)}
+  />
 
   <!-- epic draft review (issue #1507): a one-line bar — the draft itself opens in EpicDraftModal, so
        the terminal keeps the column. Deliberately OUTSIDE the !headerFolded gate: it takes `folded`

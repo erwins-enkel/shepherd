@@ -1,4 +1,4 @@
-import { test, expect, beforeEach, afterEach } from "bun:test";
+import { test, expect, beforeEach, afterEach, spyOn } from "bun:test";
 import {
   mkdtempSync,
   mkdirSync,
@@ -744,24 +744,33 @@ test("POST /api/sessions creates, GET lists", async () => {
   expect(list.length).toBe(1);
 });
 
-test("POST /api/sessions translates a protocol conflict into the herdr recovery code", async () => {
-  const deps = makeDeps();
-  deps.service = {
-    create: async () => {
-      throw new Error(
-        'Command failed: herdr tab create: {"error":{"code":"protocol_mismatch","client_protocol":22,"server_protocol":20}}',
-      );
-    },
-  } as any;
-  const res = await postSessions(makeApp(deps), {
-    repoPath: validRepo,
-    baseBranch: "main",
-    prompt: "go",
-  });
-  expect(res.status).toBe(409);
-  const body = await res.json();
-  expect(body.code).toBe("herdr_restart_required");
-  expect(body.error).not.toContain("client_protocol");
+test("POST /api/sessions translates a protocol conflict without logging sensitive error data", async () => {
+  const warn = spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    const deps = makeDeps();
+    deps.service = {
+      create: async () => {
+        throw Object.assign(
+          new Error(
+            'Command failed: herdr tab create: {"error":{"code":"protocol_mismatch","client_protocol":22,"server_protocol":20}} credential=secret-test-value',
+          ),
+          { apiKeyAuth: "secret-test-value" },
+        );
+      },
+    } as any;
+    const res = await postSessions(makeApp(deps), {
+      repoPath: validRepo,
+      baseBranch: "main",
+      prompt: "go",
+    });
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body).toEqual({ error: "herdr_restart_required", code: "herdr_restart_required" });
+    expect(warn).toHaveBeenCalledWith("[herdr] task creation requires a server restart");
+    expect(warn).toHaveBeenCalledTimes(1);
+  } finally {
+    warn.mockRestore();
+  }
 });
 
 test("POST /api/sessions surfaces a herdr failure with its real message (not a bare status)", async () => {

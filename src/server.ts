@@ -2250,7 +2250,7 @@ function terminalErrorResponse(e: unknown): Response | null {
 
 function createErrorResponse(e: unknown): Response {
   if (isHerdrProtocolMismatch(e)) {
-    console.warn("[herdr] task creation requires a server restart:", e);
+    console.warn("[herdr] task creation requires a server restart");
     return json({ error: "herdr_restart_required", code: "herdr_restart_required" }, 409);
   }
   const t = terminalErrorResponse(e);

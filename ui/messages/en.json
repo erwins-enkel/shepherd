@@ -2211,7 +2211,7 @@
   "feat_operator_auth_body": "Shepherd now sits behind a single-operator password. Every page, the live terminal, and the activity stream require a session — set SHEPHERD_PASSWORD, or grab the auto-generated one from the server log on first boot. Sign out anytime from Settings → Session.",
   "buildqueue_approval_auto": "auto-approved",
   "buildqueue_approval_operator": "approved",
-  "buildqueue_run_queued": "queued",
+  "buildqueue_run_queued": "not started",
   "buildqueue_run_running": "running",
   "buildqueue_run_done": "done",
   "newtask_agent_provider_label": "Coding CLI",
@@ -3791,5 +3791,18 @@
   "feat_learnings_evidence_repo_title": "Learnings check evidence provenance",
   "feat_learnings_evidence_repo_body": "New rule proposals citing evidence known to belong to another repo are rejected in full. Incidents appear in signal statistics. Unknown or expired signal IDs are not treated as provenance conflicts; existing rules remain unchanged.",
   "feat_herdr_090_title": "herdr 0.9.0 is supported",
-  "feat_herdr_090_body": "You can now update herdr to 0.9.0 from Shepherd. Agent startup, terminal controls and cleanup were checked against isolated 0.8.2 and 0.9.0 servers. The existing sandbox status advisory still applies."
+  "feat_herdr_090_body": "You can now update herdr to 0.9.0 from Shepherd. Agent startup, terminal controls and cleanup were checked against isolated 0.8.2 and 0.9.0 servers. The existing sandbox status advisory still applies.",
+  "buildqueue_approve_plan": "Approve & plan",
+  "buildqueue_approve_plan_hint": "Approve the queue to continue planning. Implementation waits for plan approval.",
+  "buildqueue_start": "Start now",
+  "buildqueue_start_hint": "The queue is approved but has not started. Send the agent a start signal.",
+  "buildqueue_start_plan_hint": "Starts planning. Implementation waits for plan approval.",
+  "buildqueue_plan_reviewing": "Plan review in progress.",
+  "buildqueue_plan_review_hint": "Queue approval does not release the plan. Use the plan dialog to review it and continue.",
+  "buildqueue_sending": "Sending signal…",
+  "buildqueue_action_sent": "Start signal sent.",
+  "buildqueue_action_failed": "Could not send the signal. Try again.",
+  "buildqueue_start_steer": "The build queue is already approved. Continue with the next permitted step and keep queue progress updated. If the plan gate is active, only create or continue the plan, then stop for review. Do not implement until the plan is approved and execution is explicitly authorized. If the plan is already awaiting review, wait for that approval.",
+  "feat_build_queue_start_title": "Start a waiting build queue",
+  "feat_build_queue_start_body": "Approved queues that have not started now offer Start now. Approval and start actions stay visible when the queue or mobile header is collapsed. During planning, approval only continues planning; implementation still waits for plan approval."
 }

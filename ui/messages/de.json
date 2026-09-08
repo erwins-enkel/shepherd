@@ -2211,7 +2211,7 @@
   "feat_operator_auth_body": "Shepherd ist jetzt durch ein Einzelbetreiber-Passwort geschützt. Jede Seite, das Live-Terminal und der Aktivitätsstrom erfordern eine Sitzung — setze SHEPHERD_PASSWORD oder hol dir das automatisch generierte Passwort beim ersten Start aus dem Server-Log. Abmelden jederzeit über Einstellungen → Sitzung.",
   "buildqueue_approval_auto": "auto-freigegeben",
   "buildqueue_approval_operator": "freigegeben",
-  "buildqueue_run_queued": "wartet",
+  "buildqueue_run_queued": "noch nicht gestartet",
   "buildqueue_run_running": "läuft",
   "buildqueue_run_done": "erledigt",
   "newtask_agent_provider_label": "Coding CLI",
@@ -3791,5 +3791,18 @@
   "feat_learnings_evidence_repo_title": "Learnings prüfen die Herkunft ihrer Evidenz",
   "feat_learnings_evidence_repo_body": "Neue Regelvorschläge mit nachweislich fremder Repo-Evidenz werden vollständig abgewiesen. Die Vorfälle erscheinen in der Signalstatistik. Unbekannte oder abgelaufene Signal-IDs gelten nicht als Herkunftskonflikt; bestehende Regeln bleiben unverändert.",
   "feat_herdr_090_title": "herdr 0.9.0 wird unterstützt",
-  "feat_herdr_090_body": "Du kannst herdr jetzt in Shepherd auf 0.9.0 aktualisieren. Agentstart, Terminalsteuerung und Aufräumen wurden gegen isolierte Server mit 0.8.2 und 0.9.0 geprüft. Der bestehende Hinweis zum Sandbox-Status gilt weiterhin."
+  "feat_herdr_090_body": "Du kannst herdr jetzt in Shepherd auf 0.9.0 aktualisieren. Agentstart, Terminalsteuerung und Aufräumen wurden gegen isolierte Server mit 0.8.2 und 0.9.0 geprüft. Der bestehende Hinweis zum Sandbox-Status gilt weiterhin.",
+  "buildqueue_approve_plan": "Freigeben & planen",
+  "buildqueue_approve_plan_hint": "Gib die Queue frei, um die Planung fortzusetzen. Die Umsetzung wartet auf die Planfreigabe.",
+  "buildqueue_start": "Jetzt starten",
+  "buildqueue_start_hint": "Die Queue ist freigegeben, aber noch nicht gestartet. Sende dem Agenten ein Startsignal.",
+  "buildqueue_start_plan_hint": "Startet die Planung. Die Umsetzung wartet auf die Planfreigabe.",
+  "buildqueue_plan_reviewing": "Planprüfung läuft.",
+  "buildqueue_plan_review_hint": "Die Queue-Freigabe gibt den Plan nicht frei. Prüfe den Plan im Plan-Dialog und fahre dort fort.",
+  "buildqueue_sending": "Signal wird gesendet…",
+  "buildqueue_action_sent": "Startsignal gesendet.",
+  "buildqueue_action_failed": "Das Signal konnte nicht gesendet werden. Versuche es erneut.",
+  "buildqueue_start_steer": "Die Build-Queue ist bereits freigegeben. Fahre mit dem nächsten zulässigen Schritt fort und halte den Queue-Fortschritt aktuell. Bei aktivem Plan-Gate darfst du nur den Plan erstellen oder fortsetzen und musst anschließend zur Prüfung anhalten. Beginne keine Umsetzung, bevor der Plan freigegeben und die Ausführung ausdrücklich erlaubt wurde. Liegt der Plan bereits zur Prüfung vor, warte auf diese Freigabe.",
+  "feat_build_queue_start_title": "Wartende Build-Queue starten",
+  "feat_build_queue_start_body": "Freigegebene, noch nicht gestartete Queues bieten jetzt „Jetzt starten“. Freigabe und Start bleiben auch bei eingeklappter Queue oder mobilem Header sichtbar. Während der Planung setzt eine Freigabe nur die Planung fort; die Umsetzung wartet weiterhin auf die Planfreigabe."
 }

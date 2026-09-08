@@ -3744,6 +3744,8 @@ function handleRelaunchUploads({ req, parts, deps }: Ctx): Response | null {
 // one steer reaches both — so it names the action, not the transport.
 const APPROVE_STEER =
   "✅ Build queue approved by the operator. Begin now: work the steps in order, marking each step active then done as you go. If you find a better approach, revise only the remaining pending steps — never rewrite completed ones.";
+const APPROVE_PLANNING_STEER =
+  "✅ Build queue approved by the operator for planning only. Create or continue the plan, then stop for review. If the plan is already awaiting review, wait. Never implement until the plan is approved and execution is explicitly authorized.";
 
 /** Render an applier outcome (src/agent-control.ts) as an HTTP response. The REST routes and the
  *  MCP tools are two renderings of the SAME applier, so validation, events and status semantics
@@ -3780,7 +3782,9 @@ async function approveBuildQueue(deps: AppDeps, id: string): Promise<Response> {
   // Awaited so the "Begin now" steer has landed before the operator sees the approved queue, and
   // so a failed send still surfaces as a 500 (exactly as the sync throw did pre-#1567). The
   // boolean is still ignored: a dead pane must not un-approve the queue.
-  await deps.service.reply(id, APPROVE_STEER);
+  const steer =
+    deps.store.get(id)?.planPhase === "planning" ? APPROVE_PLANNING_STEER : APPROVE_STEER;
+  await deps.service.reply(id, steer);
   return json(q);
 }
 

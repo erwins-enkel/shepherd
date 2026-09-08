@@ -1,10 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
-import { page } from "vitest/browser";
+import { tick, type ComponentProps } from "svelte";
+import { page, userEvent } from "vitest/browser";
 import "../../app.css";
 import type { BuildQueue } from "$lib/types";
 import { m } from "$lib/paraglide/messages";
-import { putBuildQueue } from "$lib/api";
+import { getLocale, setLocale } from "$lib/paraglide/runtime";
+import { putBuildQueue, approveBuildQueue, replySession } from "$lib/api";
 import { buildQueueCollapse } from "$lib/build-queue-collapse.svelte";
 
 // Mock the API so no real network calls are made.
@@ -12,6 +14,7 @@ vi.mock("$lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("$lib/api")>();
   return {
     ...actual,
+    replySession: vi.fn(async () => {}),
     getBuildQueue: vi.fn(async (): Promise<BuildQueue> => ({
       sessionId: "s1",
       steps: [],
@@ -32,38 +35,287 @@ vi.mock("$lib/api", async (importOriginal) => {
 
 const { default: BuildQueuePanel } = await import("./BuildQueuePanel.svelte");
 
-let fontStyle: HTMLStyleElement;
 beforeEach(() => {
   buildQueueCollapse.set(false);
-  fontStyle = document.createElement("style");
-  fontStyle.textContent = `:root {
-    --font-mono: ui-monospace, monospace;
-    --color-bg: #0a0d0c;
-    --color-panel: #1a1a1a;
-    --color-line: #333;
-    --color-inset: #111;
-    --color-ink: #ccc;
-    --color-ink-bright: #fff;
-    --color-muted: #666;
-    --color-faint: #444;
-    --color-amber: #f5a623;
-    --color-green: #4caf50;
-    --color-red: #f44336;
-    --color-slate: #708090;
-    --status-done: var(--color-slate);
-    --fs-meta: 12px;
-    --fs-micro: 10px;
-  }
-  *, *::before, *::after { box-sizing: border-box; }
-  body { margin: 0; }`;
-  document.head.appendChild(fontStyle);
+  vi.mocked(replySession).mockReset().mockResolvedValue(undefined);
+  vi.mocked(approveBuildQueue).mockClear();
 });
 afterEach(() => {
-  fontStyle.remove();
   document.body.innerHTML = "";
 });
 
 const noop = () => {};
+
+describe("BuildQueuePanel — approved queue start", () => {
+  it("starts an auto-approved waiting queue without re-approving or bypassing planning", async () => {
+    vi.mocked(replySession).mockClear();
+    vi.mocked(approveBuildQueue).mockClear();
+    const queue: BuildQueue = {
+      sessionId: "s1",
+      approved: true,
+      approvalKind: "auto",
+      steps: [{ id: "a", title: "Prepare plan", status: "pending", position: 0 }],
+    };
+    render(BuildQueuePanel, {
+      sessionId: "s1",
+      enabled: true,
+      queue,
+      onbootstrap: noop,
+      sessionStatus: "blocked",
+      planPhase: "planning",
+    });
+    const start = page.getByRole("button", { name: "Start now", exact: true });
+    await expect.element(start).toBeVisible();
+    await start.click();
+    expect(replySession).toHaveBeenCalledOnce();
+    expect(vi.mocked(replySession).mock.calls[0][0]).toBe("s1");
+    expect(vi.mocked(replySession).mock.calls[0][1]).toContain("Do not implement");
+    expect(approveBuildQueue).not.toHaveBeenCalled();
+    expect(queue.approvalKind).toBe("auto");
+  });
+});
+
+describe("BuildQueuePanel — action lifecycle", () => {
+  const waiting: BuildQueue = {
+    sessionId: "s1",
+    approved: true,
+    approvalKind: "auto",
+    steps: [{ id: "a", title: "Prepare plan", status: "pending", position: 0 }],
+  };
+  const props: ComponentProps<typeof BuildQueuePanel> = {
+    sessionId: "s1",
+    enabled: true,
+    queue: waiting,
+    onbootstrap: noop,
+    sessionStatus: "blocked",
+    planPhase: "planning",
+  };
+
+  it("labels planning approval honestly and keeps it outside the collapsed list", async () => {
+    buildQueueCollapse.set(true);
+    const { rerender } = await render(BuildQueuePanel, {
+      ...props,
+      queue: { ...waiting, approved: false },
+    });
+    const approve = page.getByRole("button", { name: m.buildqueue_approve_plan() });
+    await expect.element(approve).toBeVisible();
+    await expect.element(page.getByText(m.buildqueue_awaiting_hint())).not.toBeInTheDocument();
+    await expect
+      .element(page.getByRole("button", { name: m.buildqueue_approve(), exact: true }))
+      .not.toBeInTheDocument();
+    await approve.click();
+    expect(approveBuildQueue).toHaveBeenCalledExactlyOnceWith("s1");
+    expect(replySession).not.toHaveBeenCalled();
+    expect(buildQueueCollapse.collapsed).toBe(true);
+    await rerender({ planPhase: "executing" });
+    await expect
+      .element(page.getByRole("button", { name: m.buildqueue_approve(), exact: true }))
+      .toBeVisible();
+  });
+
+  for (const approved of [false, true]) {
+    for (const planReview of ["reviewing", "available"] as const) {
+      it(`keeps ${planReview} in the plan flow (queue approved=${approved})`, async () => {
+        render(BuildQueuePanel, { ...props, queue: { ...waiting, approved }, planReview });
+        const hint =
+          planReview === "reviewing"
+            ? m.buildqueue_plan_reviewing()
+            : m.buildqueue_plan_review_hint();
+        await expect.element(page.getByText(hint)).toBeVisible();
+        expect(document.querySelector(".bqp-action-row")).toBeNull();
+        expect(replySession).not.toHaveBeenCalled();
+        expect(approveBuildQueue).not.toHaveBeenCalled();
+      });
+    }
+  }
+
+  const inactiveCases: [string, Partial<ComponentProps<typeof BuildQueuePanel>>][] = [
+    ["running session", { sessionStatus: "running" }],
+    ["archived session", { sessionStatus: "archived" }],
+    ["ended terminal", { terminalEnded: true }],
+    ["active step", { queue: { ...waiting, steps: [{ ...waiting.steps[0], status: "active" }] } }],
+    ["done step", { queue: { ...waiting, steps: [{ ...waiting.steps[0], status: "done" }] } }],
+    ["all skipped", { queue: { ...waiting, steps: [{ ...waiting.steps[0], status: "skipped" }] } }],
+    ["empty queue", { queue: { ...waiting, steps: [] } }],
+  ];
+  for (const [name, overrides] of inactiveCases) {
+    it(`does not offer a start for ${name}`, async () => {
+      render(BuildQueuePanel, { ...props, ...overrides, folded: true });
+      expect(document.querySelector(".bqp")).toBeNull();
+      expect(replySession).not.toHaveBeenCalled();
+    });
+  }
+
+  for (const kind of ["start", "approve"] as const) {
+    it(`keeps ${kind} failures visible and retries without parallel sends`, async () => {
+      const pending = Promise.withResolvers<never>();
+      const api = kind === "start" ? vi.mocked(replySession) : vi.mocked(approveBuildQueue);
+      api.mockImplementationOnce(() => pending.promise);
+      render(BuildQueuePanel, {
+        ...props,
+        queue: { ...waiting, approved: kind === "start" },
+        folded: true,
+      });
+      const button = document.querySelector<HTMLButtonElement>(".bqp-approve")!;
+      button.click();
+      button.click();
+      await tick();
+      expect(api).toHaveBeenCalledTimes(1);
+      expect(button.disabled).toBe(true);
+      pending.reject(new Error("offline"));
+      await expect.element(page.getByRole("alert")).toHaveTextContent(m.buildqueue_action_failed());
+      expect(button.disabled).toBe(false);
+      await page
+        .getByRole("button", {
+          name: kind === "start" ? m.buildqueue_start() : m.buildqueue_approve_plan(),
+        })
+        .click();
+      expect(api).toHaveBeenCalledTimes(2);
+      await expect.element(page.getByRole("status")).toHaveTextContent(m.buildqueue_action_sent());
+    });
+  }
+
+  it("retains request feedback across progress updates but drops it on session change", async () => {
+    const pending = Promise.withResolvers<void>();
+    vi.mocked(replySession).mockReturnValueOnce(pending.promise);
+    const { rerender } = await render(BuildQueuePanel, { ...props, folded: true });
+    await page.getByRole("button", { name: m.buildqueue_start() }).click();
+    await rerender({ sessionStatus: "running", enabled: false, queue: { ...waiting, steps: [] } });
+    await expect.element(page.getByRole("status")).toHaveTextContent(m.buildqueue_sending());
+    pending.resolve();
+    await expect.element(page.getByRole("status")).toHaveTextContent(m.buildqueue_action_sent());
+    await rerender({ sessionId: "s2", queue: { ...waiting, sessionId: "s2" } });
+    expect(document.querySelector(".bqp")).toBeNull();
+  });
+
+  it("does not seed a different session with an old approval response", async () => {
+    const pending = Promise.withResolvers<BuildQueue>();
+    vi.mocked(approveBuildQueue).mockReturnValueOnce(pending.promise);
+    const onbootstrap = vi.fn();
+    const { rerender } = await render(BuildQueuePanel, {
+      ...props,
+      queue: { ...waiting, approved: false },
+      onbootstrap,
+    });
+    await page.getByRole("button", { name: m.buildqueue_approve_plan() }).click();
+    await rerender({ sessionId: "s2", queue: { ...waiting, sessionId: "s2" } });
+    pending.resolve(waiting);
+    await tick();
+    expect(onbootstrap).not.toHaveBeenCalledWith(waiting);
+    await expect.element(page.getByText(m.buildqueue_action_sent())).not.toBeInTheDocument();
+  });
+});
+
+// Sample actual CSS colors, compositing translucent ancestor backgrounds in the browser.
+function contrast(element: HTMLElement, foreground = getComputedStyle(element).color): number {
+  const ctx = document.createElement("canvas").getContext("2d")!;
+  ctx.canvas.width = ctx.canvas.height = 1;
+  ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--bg");
+  ctx.fillRect(0, 0, 1, 1);
+  const ancestors: HTMLElement[] = [];
+  for (let node: HTMLElement | null = element; node; node = node.parentElement)
+    ancestors.unshift(node);
+  for (const node of ancestors) {
+    ctx.fillStyle = getComputedStyle(node).backgroundColor;
+    ctx.fillRect(0, 0, 1, 1);
+  }
+  function luminance() {
+    const rgb = [...ctx.getImageData(0, 0, 1, 1).data].slice(0, 3).map((v) => {
+      const n = v / 255;
+      return n <= 0.04045 ? n / 12.92 : ((n + 0.055) / 1.055) ** 2.4;
+    });
+    return rgb[0] * 0.2126 + rgb[1] * 0.7152 + rgb[2] * 0.0722;
+  }
+  const bg = luminance();
+  ctx.fillStyle = foreground;
+  ctx.fillRect(0, 0, 1, 1);
+  const fg = luminance();
+  return (Math.max(bg, fg) + 0.05) / (Math.min(bg, fg) + 0.05);
+}
+
+describe("BuildQueuePanel — real themes and mobile layout", () => {
+  const locale = getLocale();
+  afterEach(async () => {
+    document.documentElement.removeAttribute("data-theme");
+    document.documentElement.removeAttribute("data-contrast");
+    document.documentElement.style.removeProperty("--ui-scale");
+    setLocale(locale, { reload: false });
+    await page.viewport(1280, 900);
+  });
+  for (const theme of ["light", "dark"]) {
+    for (const highContrast of [false, true]) {
+      for (const width of [390, 1280]) {
+        it(`keeps actions readable and reachable: ${theme}, high=${highContrast}, width=${width}`, async () => {
+          await page.viewport(width, width === 390 ? 844 : 900);
+          document.documentElement.dataset.theme = theme;
+          document.documentElement.dataset.contrast = highContrast ? "high" : "normal";
+          document.documentElement.style.setProperty("--ui-scale", "1.5");
+          setLocale("de", { reload: false });
+          const queue: BuildQueue = {
+            sessionId: "s1",
+            approved: false,
+            steps: Array.from({ length: 20 }, (_, i) => ({
+              id: String(i),
+              title: `Schritt ${i + 1}: Planung anhand der Anforderungen prüfen`,
+              detail: "Die Änderungen vorbereiten und prüfen.",
+              status: "pending",
+              position: i,
+            })),
+          };
+          const { rerender } = await render(BuildQueuePanel, {
+            sessionId: "s1",
+            enabled: true,
+            queue,
+            sessionStatus: "blocked",
+            planPhase: "planning",
+            onbootstrap: noop,
+            folded: true,
+          });
+          const button = document.querySelector<HTMLButtonElement>(".bqp-approve")!;
+          const panel = document.querySelector<HTMLElement>(".bqp")!;
+          for (const selector of [
+            ".bqp-approve",
+            ".bqp-hint",
+            ".bqp-awaiting-chip",
+            ".badge-pending",
+          ]) {
+            expect(
+              contrast(document.querySelector<HTMLElement>(selector)!),
+              selector,
+            ).toBeGreaterThanOrEqual(4.5);
+          }
+          expect(
+            contrast(button, getComputedStyle(button).borderColor),
+            "button border",
+          ).toBeGreaterThanOrEqual(3);
+          expect(panel.scrollWidth).toBeLessThanOrEqual(width);
+          expect(button.getBoundingClientRect().right).toBeLessThanOrEqual(width);
+          if (width === 390)
+            expect(button.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+          const list = document.querySelector<HTMLElement>(".bqp-list")!;
+          expect(list.scrollHeight).toBeGreaterThan(list.clientHeight);
+          list.scrollTop = 50;
+          expect(list.scrollTop).toBeGreaterThan(0);
+          buildQueueCollapse.set(true);
+          await expect
+            .element(page.getByRole("button", { name: m.buildqueue_approve_plan() }))
+            .toBeVisible();
+          button.focus();
+          await userEvent.keyboard("{Enter}");
+          expect(approveBuildQueue).toHaveBeenCalledExactlyOnceWith("s1");
+          expect(buildQueueCollapse.collapsed).toBe(true);
+          await rerender({ queue: { ...queue, approved: true, approvalKind: "auto" } });
+          await expect
+            .element(page.getByRole("button", { name: m.buildqueue_start() }))
+            .toBeVisible();
+          expect(
+            contrast(document.querySelector<HTMLElement>(".bqp-approved")!),
+          ).toBeGreaterThanOrEqual(4.5);
+        });
+      }
+    }
+  }
+});
 
 describe("BuildQueuePanel — empty state", () => {
   it("renders the empty message when flag is on but no steps", async () => {
@@ -193,27 +445,6 @@ describe("BuildQueuePanel — awaiting-approval affordances (unapproved + steps)
     const chipAfter = document.getElementById(describedby!);
     expect(chipAfter, "chip still in DOM when collapsed").not.toBeNull();
     expect(chipAfter!.offsetParent, "chip still visible (header not collapsed)").not.toBeNull();
-  });
-
-  it("applies the amber tint, emphasized CTA, and amber chip in the browser (computed styles)", async () => {
-    render(BuildQueuePanel, {
-      sessionId: "s1",
-      enabled: true,
-      queue: curationQueue,
-      onbootstrap: noop,
-    });
-    // 6% amber wash shifts the panel off the plain --color-panel (#1a1a1a).
-    const panel = document.querySelector<HTMLElement>(".bqp.is-awaiting")!;
-    expect(getComputedStyle(panel).backgroundColor, "tint applied").not.toBe("rgb(26, 26, 26)");
-
-    // Emphasized CTA: amber text + a non-empty inner-glow box-shadow (no solid fill).
-    const approve = document.querySelector<HTMLElement>("button.bqp-approve")!;
-    const approveStyle = getComputedStyle(approve);
-    expect(approveStyle.color, "CTA text is amber").toBe("rgb(245, 166, 35)");
-    expect(approveStyle.boxShadow, "CTA carries the inner-glow emphasis").not.toBe("none");
-
-    const chip = document.querySelector<HTMLElement>(".bqp-awaiting-chip")!;
-    expect(getComputedStyle(chip).color, "chip is amber").toBe("rgb(245, 166, 35)");
   });
 });
 

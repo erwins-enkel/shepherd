@@ -419,6 +419,68 @@ test("POST queue/approve calls service.reply with APPROVE_STEER text", async () 
   expect(replies.at(0)!.text).toContain("work the steps in order");
 });
 
+test("POST queue/approve during planning approves the queue without authorizing execution", async () => {
+  const { app, store, emitted, replies } = harness();
+  const session = makeSession(store, repoDir);
+  store.setPlanPhase(session.id, "planning");
+  store.replaceBuildQueue(session.id, [{ id: "planned-step", title: "Implement the plan" }]);
+  store.putPlanGate({
+    sessionId: session.id,
+    planHash: "plan-hash",
+    decision: "changes_requested",
+    summary: "Awaiting revision",
+    body: "Revise the plan before execution.",
+    findings: ["Clarify the rollout."],
+    round: 1,
+    cap: 3,
+    approved: false,
+    plan: "Draft plan",
+    updatedAt: 1,
+  });
+  const planBefore = store.getPlanGate(session.id);
+  const stepsBefore = store.getBuildQueue(session.id).steps;
+
+  const res = await app.fetch(
+    new Request(`http://x/api/sessions/${session.id}/queue/approve`, {
+      method: "POST",
+    }),
+  );
+
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.approved).toBe(true);
+  expect(body.approvalKind).toBe("operator");
+  expect(store.getBuildQueue(session.id).approved).toBe(true);
+  expect(store.getBuildQueue(session.id).approvalKind).toBe("operator");
+  expect(emitted.filter((event) => event.event === "queue:update")).toEqual([
+    { event: "queue:update", data: body },
+  ]);
+  expect(replies).toEqual([
+    {
+      id: session.id,
+      text: "✅ Build queue approved by the operator for planning only. Create or continue the plan, then stop for review. If the plan is already awaiting review, wait. Never implement until the plan is approved and execution is explicitly authorized.",
+    },
+  ]);
+  expect(store.getBuildQueue(session.id).steps).toEqual(stepsBefore);
+  expect(store.getPlanGate(session.id)).toEqual(planBefore);
+  expect(store.get(session.id)?.planPhase).toBe("planning");
+});
+
+test("POST queue/approve during execution retains the execution steer", async () => {
+  const { app, store, replies } = harness();
+  const session = makeSession(store, repoDir);
+  store.setPlanPhase(session.id, "executing");
+
+  await app.fetch(
+    new Request(`http://x/api/sessions/${session.id}/queue/approve`, {
+      method: "POST",
+    }),
+  );
+
+  expect(replies).toHaveLength(1);
+  expect(replies.at(0)!.text).toContain("Begin now: work the steps in order");
+});
+
 test("POST queue/approve for unknown session → 404", async () => {
   const { app } = harness();
   const res = await app.fetch(

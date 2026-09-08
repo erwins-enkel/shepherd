@@ -1,6 +1,6 @@
 <script lang="ts">
-  import type { BuildQueue, BuildStep, BuildStepStatus } from "$lib/types";
-  import { getBuildQueue, putBuildQueue, approveBuildQueue } from "$lib/api";
+  import type { BuildQueue, BuildStep, BuildStepStatus, Session } from "$lib/types";
+  import { getBuildQueue, putBuildQueue, approveBuildQueue, replySession } from "$lib/api";
   import { m } from "$lib/paraglide/messages";
   import { buildQueueCollapse } from "$lib/build-queue-collapse.svelte";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
@@ -10,6 +10,11 @@
     enabled,
     queue,
     onbootstrap,
+    sessionStatus,
+    planPhase = null,
+    planReview = null,
+    terminalEnded = false,
+    folded = false,
   }: {
     sessionId: string;
     /** Whether the build-queue feature flag is on for this repo. */
@@ -18,11 +23,18 @@
     queue: BuildQueue | null;
     /** Called after a bootstrap GET to seed the store. */
     onbootstrap: (q: BuildQueue) => void;
+    sessionStatus?: Session["status"];
+    planPhase?: Session["planPhase"];
+    planReview?: "reviewing" | "available" | null;
+    terminalEnded?: boolean;
+    folded?: boolean;
   } = $props();
 
+  // A primitive derived id keeps queue/store updates from re-triggering bootstrap.
+  const currentSessionId = $derived(sessionId);
   // Bootstrap from the server on mount / session change.
   $effect(() => {
-    const id = sessionId;
+    const id = currentSessionId;
     let alive = true;
     getBuildQueue(id)
       .then((q) => {
@@ -37,18 +49,56 @@
     };
   });
 
-  // Derived: show the panel when the flag is on OR there's already a queue with steps.
-  const visible = $derived(enabled || (queue !== null && queue.steps.length > 0));
   const steps = $derived(queue?.steps ?? []);
   const approved = $derived(queue?.approved ?? false);
 
   const contentId = $derived(`bqp-content-${sessionId}`);
   const awaitingId = $derived(`bqp-awaiting-${sessionId}`);
 
+  const allResolved = $derived(
+    steps.length > 0 && steps.every((s) => s.status === "done" || s.status === "skipped"),
+  );
+  const anyStarted = $derived(steps.some((s) => s.status === "active" || s.status === "done"));
+  const runState = $derived(allResolved ? "done" : anyStarted ? "running" : "queued");
+
   // Curation state: the agent has authored steps and paused for the operator to
   // review + approve. This is a needs-you moment (Design Principle 2), so it gets
   // a distinct amber treatment the calm default states never carry.
   const awaiting = $derived(!approved && steps.length > 0);
+  const planning = $derived(planPhase === "planning");
+  const reviewBlocked = $derived(planning && planReview !== null);
+  const canApprove = $derived(
+    awaiting && !reviewBlocked && !terminalEnded && sessionStatus !== "archived",
+  );
+  const canStart = $derived(
+    approved &&
+      steps.length > 0 &&
+      runState === "queued" &&
+      !reviewBlocked &&
+      !terminalEnded &&
+      (sessionStatus === "idle" || sessionStatus === "blocked" || sessionStatus === "done"),
+  );
+  const actionable = $derived(canApprove || canStart);
+  let action = $state<{ busy: boolean; feedback: "sent" | "failed" | null } | null>(null);
+  let actionSessionId: string | undefined;
+  $effect(() => {
+    if (actionSessionId !== sessionId) {
+      actionSessionId = sessionId;
+      action = null;
+    }
+  });
+  const visible = $derived(
+    action !== null || ((enabled || steps.length > 0) && (!folded || actionable)),
+  );
+  const actionHint = $derived(
+    canApprove
+      ? planning
+        ? m.buildqueue_approve_plan_hint()
+        : m.buildqueue_awaiting_hint()
+      : planning
+        ? m.buildqueue_start_plan_hint()
+        : m.buildqueue_start_hint(),
+  );
 
   // ------------- edit helpers -------------
 
@@ -105,22 +155,27 @@
     );
   }
 
-  async function approve() {
+  async function sendAction(kind: "approve" | "start") {
+    if (action?.busy || (kind === "approve" ? !canApprove : !canStart)) return;
+    const id = sessionId;
+    action = { busy: true, feedback: null };
+    const pending = action;
     try {
-      const updated = await approveBuildQueue(sessionId);
-      onbootstrap(updated);
+      if (kind === "approve") {
+        const updated = await approveBuildQueue(id);
+        if (action === pending && sessionId === id) onbootstrap(updated);
+      } else {
+        await replySession(id, m.buildqueue_start_steer());
+      }
+      pending.feedback = "sent";
     } catch {
-      /* toast would be nice; keep it simple for now */
+      pending.feedback = "failed";
+    } finally {
+      pending.busy = false;
     }
   }
 
   // ------------- approved-header derived state -------------
-
-  const allResolved = $derived(
-    steps.length > 0 && steps.every((s) => s.status === "done" || s.status === "skipped"),
-  );
-  const anyStarted = $derived(steps.some((s) => s.status === "active" || s.status === "done"));
-  const runState = $derived(allResolved ? "done" : anyStarted ? "running" : "queued");
 
   const approvalLabel = $derived(
     queue?.approvalKind === "auto"
@@ -167,7 +222,7 @@
 {#if visible}
   <div
     class="bqp"
-    class:is-awaiting={awaiting}
+    class:is-awaiting={actionable}
     role="region"
     aria-label={m.buildqueue_panel_title()}
   >
@@ -180,7 +235,7 @@
       aria-label={buildQueueCollapse.collapsed
         ? m.buildqueue_expand_aria()
         : m.buildqueue_collapse_aria()}
-      aria-describedby={awaiting ? awaitingId : undefined}
+      aria-describedby={canApprove ? awaitingId : undefined}
       title={buildQueueCollapse.collapsed
         ? m.buildqueue_expand_aria()
         : m.buildqueue_collapse_aria()}
@@ -189,7 +244,7 @@
       <span class="bqp-title">{m.buildqueue_panel_title()}</span>
       {#if approved && steps.length > 0}
         <span class={["bqp-approved", `bqp-run-${runState}`]}>{approvalLabel} · {runLabel}</span>
-      {:else if awaiting}
+      {:else if canApprove}
         <!-- Needs-you chip: mirrors the approved chip's slot so the header always
              narrates queue status. Lives in the always-rendered header, so the
              signal (and its aria-describedby target) survives collapse. -->
@@ -202,12 +257,42 @@
       >
     </button>
 
+    {#if reviewBlocked && steps.length > 0}
+      <p class="bqp-notice">
+        {planReview === "reviewing"
+          ? m.buildqueue_plan_reviewing()
+          : m.buildqueue_plan_review_hint()}
+      </p>
+    {:else if actionable}
+      <div class="bqp-action-row">
+        <p class="bqp-hint">{actionHint}</p>
+        <button
+          type="button"
+          class="bqp-btn bqp-approve"
+          disabled={action?.busy}
+          onclick={() => sendAction(canApprove ? "approve" : "start")}
+        >
+          <span class="bqp-approve-glyph" aria-hidden="true">▸</span>{canApprove
+            ? planning
+              ? m.buildqueue_approve_plan()
+              : m.buildqueue_approve()
+            : m.buildqueue_start()}
+        </button>
+      </div>
+    {/if}
+    {#if action?.busy}
+      <p class="bqp-notice" role="status">{m.buildqueue_sending()}</p>
+    {:else if action?.feedback === "failed"}
+      <p class="bqp-notice" role="alert">{m.buildqueue_action_failed()}</p>
+    {:else if action?.feedback === "sent"}
+      <p class="bqp-notice" role="status">{m.buildqueue_action_sent()}</p>
+    {/if}
+
     <div class="bqp-content" id={contentId} class:collapsed={buildQueueCollapse.collapsed}>
       {#if steps.length === 0}
         <p class="bqp-empty">{m.buildqueue_empty()}</p>
       {:else if !approved}
         <!-- Curation mode: editable list -->
-        <p class="bqp-hint">{m.buildqueue_awaiting_hint()}</p>
         <ol class="bqp-list" aria-label={m.buildqueue_panel_title()}>
           {#each steps as step, i (step.id)}
             <li class="bqp-row">
@@ -286,9 +371,6 @@
           <button type="button" class="bqp-btn bqp-add" onclick={addStep}>
             {m.buildqueue_add_step()}
           </button>
-          <button type="button" class="bqp-btn bqp-approve" onclick={approve}>
-            <span class="bqp-approve-glyph" aria-hidden="true">▸</span>{m.buildqueue_approve()}
-          </button>
         </div>
       {:else}
         <!-- Approved/running: read-only list -->
@@ -318,6 +400,8 @@
     display: flex;
     flex-direction: column;
     gap: 6px;
+    flex: none;
+    min-width: 0;
     padding: 8px 10px;
     background: var(--color-panel);
     border-top: 1px solid var(--color-line);
@@ -325,10 +409,10 @@
     font-size: var(--fs-meta);
   }
 
-  /* Awaiting operator approval: a faint amber wash so the paused panel reads as
-     distinct from calm sibling panels without shouting (Design Principle 2). */
+  /* An available approval/start action carries attention in either theme. */
   .is-awaiting {
-    background: color-mix(in oklab, var(--color-amber) 6%, var(--color-panel));
+    background: color-mix(in oklab, var(--color-amber) 8%, var(--color-panel));
+    border: 1px solid var(--color-amber);
   }
 
   /* The whole header is the collapse toggle (mirrors IntegratedEpicRow's
@@ -338,6 +422,7 @@
     display: flex;
     align-items: center;
     gap: 8px;
+    flex-wrap: wrap;
     flex-shrink: 0;
     width: 100%;
     padding: 0;
@@ -376,7 +461,7 @@
     font-size: var(--fs-micro);
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: var(--color-amber);
+    color: var(--color-ink-bright);
   }
 
   .bqp-awaiting-dot {
@@ -388,14 +473,14 @@
   }
 
   /* Run-state modifier colors (design-system rule 4 — tokens only, never literals).
-     running = in-progress amber; queued = faint (approved, not started);
+     running = in-progress amber; queued = readable muted (approved, not started);
      done = slate (finished-but-parked; NOT green — green is reserved for actionable-complete/READY). */
   .bqp-run-running {
     color: var(--color-amber);
   }
 
   .bqp-run-queued {
-    color: var(--color-faint);
+    color: var(--color-muted);
   }
 
   .bqp-run-done {
@@ -436,17 +521,25 @@
     font-size: var(--fs-micro);
   }
 
-  /* Explains the paused state and what to do. Full-surface amber wash + full
-     border (never a side-stripe); ink-bright text keeps the copy legible. */
+  .bqp-action-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+
   .bqp-hint {
     margin: 0;
-    padding: 5px 8px;
-    border: 1px solid color-mix(in oklab, var(--color-amber) 30%, transparent);
-    border-radius: 3px;
-    background: color-mix(in oklab, var(--color-amber) 10%, transparent);
+    flex: 1 1 220px;
     color: var(--color-ink-bright);
-    font-size: var(--fs-micro);
+    font-size: var(--fs-meta);
     line-height: 1.45;
+  }
+
+  .bqp-notice {
+    margin: 0;
+    color: var(--color-ink);
+    font-size: var(--fs-meta);
   }
 
   .bqp-list {
@@ -487,7 +580,7 @@
   }
 
   .badge-pending {
-    color: var(--color-faint);
+    color: var(--color-ink);
     background: color-mix(in oklab, var(--color-faint) 12%, transparent);
   }
 
@@ -591,26 +684,24 @@
     padding-top: 2px;
   }
 
-  /* Emphasized primary: the design system's loudest-action recipe
-     (.chip-action.primary) — amber text + amber border + an inner amber glow.
-     Deliberately NOT a solid fill: --color-amber flips light↔dark across themes,
-     so on-amber text would drop below AA in light theme. Amber text on the panel
-     stays contrast-safe in both themes and both high-contrast variants. */
+  /* Amber outline signals the action; ink text preserves AA on the light wash. */
   .bqp-approve {
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    color: var(--color-amber);
+    color: var(--color-ink-bright);
     border-color: var(--color-amber);
     font-weight: 600;
+    font-size: var(--fs-meta);
+    padding: 6px 10px;
+    min-height: 32px;
+    max-width: 100%;
     box-shadow: inset 0 0 18px -10px var(--color-amber);
   }
 
-  /* :not(:disabled) keeps specificity on par with the base .bqp-btn hover so this
-     later rule wins and the CTA stays amber (never the ink hover). */
   .bqp-approve:hover:not(:disabled),
   .bqp-approve:focus-visible:not(:disabled) {
-    color: var(--color-amber);
+    color: var(--color-ink-bright);
     border-color: var(--color-amber);
     box-shadow:
       inset 0 0 0 1px var(--color-amber),
@@ -618,7 +709,14 @@
   }
 
   .bqp-approve-glyph {
+    color: var(--color-amber);
     font-size: var(--fs-micro);
     line-height: 1;
+  }
+
+  @media (pointer: coarse), (max-width: 600px) {
+    .bqp-approve {
+      min-height: var(--mobile-actionbar-hit);
+    }
   }
 </style>

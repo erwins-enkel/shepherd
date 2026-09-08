@@ -8,10 +8,11 @@
    * a before/after of a component tree, file layout or control flow — inside a rich-text
    * block, and an untinted one reads as a wall of monospace.
    *
-   * Takes DOMPurify's sanitized DOM *fragment* rather than its HTML string, so nothing here
-   * ever assigns `innerHTML`: the only write is `textContent` on nodes we created ourselves.
-   * The sanitizer's output is therefore never re-parsed, and this cannot reintroduce markup
-   * it removed.
+   * Safety: this pass cannot reintroduce markup DOMPurify removed. It takes the sanitized DOM
+   * *fragment* rather than the HTML string, and every node it adds is one it created itself and
+   * filled via `textContent` — so a `<script>` inside a diff fence stays inert text. The result
+   * is still serialized here and re-parsed by `{@html}` below, exactly as before this pass
+   * existed; that round trip is unchanged, and it round-trips sanitized content either way.
    */
   function tintDiffFences(fragment: DocumentFragment): string {
     const host = document.createElement("div");

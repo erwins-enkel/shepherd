@@ -235,7 +235,7 @@ visible instead of masked by the backstop.
 ## Baselines
 
 Captured 2026-09-09, `claude-sonnet-5`, temperature `1.0`, `--gating-only --trials 3` — the depth
-the weekly leg runs, so each floor is pinned at the depth it will be measured at.
+the scheduled leg runs, so each floor is pinned at the depth it will be measured at.
 
 | Eval        | Gating accuracy                                          | Mechanical failures | Pinned floor |
 | ----------- | -------------------------------------------------------- | ------------------- | ------------ |
@@ -329,7 +329,7 @@ otherwise edits inside that block move no hash and its eval never fires.
   run in five on model noise. Well-formedness is noise-free, and is what broke in every harness
   failure this project has had. `--smoke` also makes `--trials` CAP per-fixture overrides, so a
   `T=9` abstain fixture really does run once here; outside smoke mode the override still wins and
-  those buckets keep their depth. The weekly run does the statistics at full depth.
+  those buckets keep their depth. The scheduled run does the statistics at full depth.
 
   Sized after a PR run cost **$10.08**: the sets are large, the critic is multi-turn, and until
   `eval-fingerprints.json` exists on the default branch EVERY push selects every eval. One trial
@@ -344,14 +344,37 @@ otherwise edits inside that block move no hash and its eval never fires.
   per night: `--json` emits the report on stderr and the JSON on stdout, so the block transcribed
   into the baseline table is the same sample whose exit code decided pass/fail. Two steps would pay
   twice and, on a nondeterministic eval, transcribe a different run than the one that was judged.
-- **Weekly** for the two sonnet evals over the full fixture sets (`eval-prompts.yml`, Mondays
-  06:00 UTC) at `--trials 3 --max-spend 15`. This is the leg that MEASURES, so it has to be able to
-  finish: measured per-trial costs put a full critic set near **$14** at depth 5, and the default
-  $5 ceiling would have stopped it every time — discarding the partial results, so the run that
-  exists to capture the baselines could never capture them. `--trials 3` keeps a majority decidable
-  at roughly half the depth-5 cost, and the ceiling sits above the expected total so a normal run
-  completes while an abnormal one still stops. **Expected ~$11 a run, ~$48 a month.** Cadence and
-  depth are the cost levers.
+- **Fortnightly** (1st and 15th, 06:00 UTC) for the two sonnet evals over the full fixture sets
+  (`eval-prompts.yml`) at `--trials 3 --max-spend 15`. This is the leg that MEASURES, so it has to
+  be able to finish: the default $5 ceiling would have stopped it every time, discarding the partial
+  results, so the run that exists to capture the baselines could never capture one. `--trials 3`
+  keeps a majority decidable, and the ceiling sits above the expected total so a normal run
+  completes while an abnormal one still stops.
+
+  **Cadence rationale.** Weekly was over-sampling: these prompts change a few times a _year_, and an
+  actual edit is caught the day it lands by the per-PR fingerprint gate — the schedule exists for
+  drift the gate cannot see (a model update under a fixed prompt). Halving it halves the largest
+  recurring cost without meaningfully lengthening the window in which real drift goes unnoticed.
+
+### What this costs to run
+
+Measured per-trial rates (2026-09-09, caching on): plan-gate **$0.068**, critic **$0.162**,
+classifier ~**$0.004**.
+
+| leg                | cadence                             | scope                     | cost                           |
+| ------------------ | ----------------------------------- | ------------------------- | ------------------------------ |
+| classifier         | nightly                             | full set, 76 trials       | $0.27/night → **~$8/mo**       |
+| plan-gate + critic | 1st & 15th                          | full sets, T=3, 72 trials | $8.30/run → **~$17/mo**        |
+| PR smoke gate      | only when a rendered prompt changes | gating only, T=1          | $0.03 / $0.75 / $1.62 per eval |
+|                    |                                     |                           | **≈ $25/mo floor**             |
+
+The PR gate is near-free in practice: it fires only when a fingerprint moves, which is a handful of
+PRs a year rather than the ~20 a month those files churn at. Two caveats on these figures — they
+assume the 100% cache hit rate holds, so the run right after a prompt edit costs more (the edit
+invalidates the prefix), and the critic is output-bound, so its cost tracks how much the model
+writes as the prompt evolves. The spend meter prints the real number on every run, so this cannot
+drift unnoticed.
+
 - **A gate that cannot run does not fail.** The eval exits `0` pass, `1` ran-and-missed, `2`
   could-not-run, `3` harness-broken (`EXIT` in `scripts/eval-core.ts`), and the workflow branches on
   those. Code `2` — no key (fork/Dependabot PRs), an exhausted API usage limit, a dead key, or rate

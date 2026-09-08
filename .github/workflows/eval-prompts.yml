@@ -19,14 +19,14 @@ name: Eval — prompt gate
 #     modules (45 and 20 commits in a recent three-month window) whose churn almost never touches
 #     the prompt text. A per-file trigger would spend $1-2 on ~20 PRs a month.
 #
-#   schedule — weekly drift detection over the FULL fixture sets (gating + baseline), for the two
-#     sonnet evals. The classifier keeps its own nightly cron in eval-stop-classifier.yml (haiku,
+#   schedule — FORTNIGHTLY drift detection over the FULL fixture sets (gating + baseline), for the
+#     two sonnet evals. The classifier keeps its own nightly cron in eval-stop-classifier.yml (haiku,
 #     pennies), which also owns its #1627 A/B dispatch inputs.
 #
 #   workflow_dispatch — run one eval, or all of them, on demand.
 #
 # COST: the PR leg runs `--gating-only` (baseline fixtures are for the recorded distribution, not
-# the gate). The weekly leg runs everything. See docs/eval-harness.md for the per-run numbers.
+# the gate). The scheduled leg runs everything. See docs/eval-harness.md for the per-run numbers.
 #
 # NO KEY, NO FAILURE: forks and Dependabot PRs cannot see ANTHROPIC_API_KEY. The job then exits
 # GREEN with a loud warning rather than red — this gate is a regression net for our own prompt
@@ -35,8 +35,12 @@ name: Eval — prompt gate
 on:
   pull_request:
   schedule:
-    # Mondays 06:00 UTC — the two sonnet evals, full fixture sets.
-    - cron: "0 6 * * 1"
+    # 1st and 15th, 06:00 UTC — the two sonnet evals, full fixture sets. Fortnightly rather than
+    # weekly because the prompts it watches change a few times a YEAR: weekly was over-sampling
+    # them at $36/month, and the per-PR fingerprint gate already catches an actual edit the day it
+    # lands. Halving the cadence halves the largest recurring cost without lengthening the window
+    # in which a real change goes unnoticed.
+    - cron: "0 6 1,15 * *"
   workflow_dispatch:
     inputs:
       evals:
@@ -107,7 +111,7 @@ jobs:
               || echo '{}' > /tmp/base-fingerprints.json
             selected="$(bun run scripts/gen-eval-fingerprints.ts --changed /tmp/base-fingerprints.json | tr '\n' ' ')"
           elif [ "$EVENT" = "schedule" ]; then
-            # The classifier has its own nightly cron; the weekly leg covers the two sonnet evals.
+            # The classifier has its own nightly cron; this leg covers the two sonnet evals.
             selected="plan-gate critic"
           elif [ "${DISPATCH_EVALS:-all}" = "all" ] || [ -z "${DISPATCH_EVALS:-}" ]; then
             selected="stop-classifier plan-gate critic"
@@ -131,7 +135,7 @@ jobs:
             echo "Will run: $selected"
           fi
 
-      # `--gating-only` on the PR leg and when a dispatch asks for it; the weekly run covers the
+      # `--gating-only` on the PR leg and when a dispatch asks for it; the scheduled run covers the
       # full set so the recorded baseline distributions stay current.
       - name: Run selected evals
         if: steps.select.outputs.evals != ''
@@ -154,20 +158,21 @@ jobs:
 
           flags=""
           if [ "$EVENT" = "schedule" ]; then
-            # The weekly leg is the MEASUREMENT — it must be able to finish, and with the default
+            # The scheduled leg is the MEASUREMENT — it must be able to finish, and with the default
             # $5 ceiling it never could: measured per-trial costs put a full critic set near $14,
             # and crossing the ceiling discards the partial results, so the run that exists to
             # capture the baselines could never capture them.
             #
             # --trials 3 keeps a majority decidable while roughly halving the depth-5 cost, and the
             # ceiling sits above the expected total so a normal run completes and an abnormal one
-            # still stops. Expected ~$11 a run, ~$48 a month — the cadence and depth here are the
-            # cost levers if that is too much.
+            # still stops. MEASURED 2026-09-09: $2.25 plan-gate + $5.35 critic over the gating sets;
+            # the full sets this leg runs are ~$8.30 a run, so ~$17 a month at this cadence. Depth
+            # and cadence are the levers if that needs to come down further.
             flags="$flags --trials 3 --max-spend 15"
           fi
           if [ "$EVENT" = "pull_request" ]; then
             # The PR leg is a SMOKE gate, not the measurement. It answers "does this prompt still
-            # produce a well-formed, sanely-directed verdict"; the weekly run does the statistics.
+            # produce a well-formed, sanely-directed verdict"; the scheduled run does the statistics.
             #
             # --smoke: gate on well-formedness, not on correctness. At one trial per fixture a
             # majority is a single sample — gate-commit-now's own baseline is `gate:4 finished:1`,

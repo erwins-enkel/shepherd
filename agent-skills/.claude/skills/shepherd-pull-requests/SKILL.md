@@ -64,10 +64,9 @@ Declare them in the PR body with EITHER carrier:
 
 Prefix a step with `POST-MERGE:` when it must happen AFTER the PR merges.
 
-**DEFAULT TO DECLARING NOTHING.** Most PRs need NO manual steps. Add a step ONLY for a real
-out-of-band action a human must take; if merging fully completes the change, OMIT the carrier
-entirely. NEVER invent steps to fill the block — a spurious step is worse than none. When in doubt,
-declare nothing.
+Most PRs need no manual steps: if merging fully completes the change, omit the carrier entirely.
+Declare a step only for a real out-of-band action a human must take — an un-acked non-`POST-MERGE`
+step blocks the PR's auto-merge, so a spurious one strands a PR that was otherwise ready to land.
 
 If you have already opened the PR when you realize a step is owed, add it with
 `gh pr edit --body` rather than opening a second PR.

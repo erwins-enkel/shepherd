@@ -19,14 +19,13 @@ Two paths share one spine. **Greenfield** = a near-empty repo with a PRD/spec.
 only at intake (Stage 0–1) and at the CLAUDE.md content (Stage 2); Stages 3–6 are
 identical.
 
-This skill is **self-contained**: it ships in the Shepherd repo and runs in _other_
-operators' repos, so it never references any operator-specific command or external
-planning skill. Everything it needs is in this file and its `references/`.
+Work only from this file and its `references/` — this skill runs in **other operators'
+repos**, where no operator-specific command or external planning skill exists.
 
 ## Stages
 
-Work the stages in order. Create a TodoWrite item per stage. **Nothing outward
-(issue creation, body edits) happens before the Stage 4 approval gate.**
+Work the stages in order. **Nothing outward (issue creation, body edits) happens
+before the Stage 4 approval gate.**
 
 | Stage                  | What happens                                                              | Detail                             |
 | ---------------------- | ------------------------------------------------------------------------- | ---------------------------------- |
@@ -39,7 +38,7 @@ Work the stages in order. Create a TodoWrite item per stage. **Nothing outward
 | 6. Point to first task | Below — name the DAG roots and the first slice                            | this file                          |
 
 **Read `references/claude-md-contract.md` before Stage 2** — it lists what the
-CLAUDE.md must _not_ contain, which is where this stage usually goes wrong.
+CLAUDE.md must _not_ contain.
 
 ### 4. Approve (hard gate)
 

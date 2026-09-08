@@ -28,11 +28,24 @@ const setPrDraftStateFn = vi.fn(async (_id: string, draft: boolean) => ({
   ...openPrState,
   isDraft: draft,
 }));
+const getRepoRolesFn = vi.fn(async () => ({
+  roles: { reviewer: null, merger: null },
+  me: "owner",
+}));
+const getRepoCollaboratorsFn = vi.fn(async () => ({
+  logins: ["owner"],
+  me: "owner",
+  collaboratorsUnavailable: false,
+  source: "collaborators" as const,
+  repoSlug: "acme/shepherd",
+  isFork: false,
+}));
 
 // Preserve the real module (the wider graph — reviews store, AutomationPanel —
-// pulls other named exports like getRepoConfig/getReviews) and override only the
-// PR-state fetch GitRail makes on mount. The real network calls never fire under
-// test: gitState is stubbed, and no other call path is exercised.
+// pulls other named exports like getRepoConfig/getReviews). Stub the PR-state fetch
+// plus the two repo-role reads exercised when the panel opens. Their full response
+// shapes keep endpoint-specific global fetch stubs in PR tests from leaking reviewer
+// JSON into the nested role picker.
 // reviewPrFn drives the manual critic-trigger handler; per-test we resolve it to
 // "started"/"skipped"/"error" or reject it to exercise the fail-closed toast paths.
 const reviewPrFn = vi.fn(async () => "started" as "started" | "skipped" | "error");
@@ -49,6 +62,8 @@ vi.mock("$lib/api", async (importOriginal) => {
     ...actual,
     gitState: gitStateFn,
     setPrDraftState: setPrDraftStateFn,
+    getRepoRoles: getRepoRolesFn,
+    getRepoCollaborators: getRepoCollaboratorsFn,
     openPr: vi.fn(),
     mergePr: vi.fn(),
     redeploy: vi.fn(),
@@ -97,6 +112,8 @@ async function render(
 // line high (no vertical stacking) with no squished-to-zero controls.
 let fontStyle: HTMLStyleElement;
 beforeEach(() => {
+  getRepoRolesFn.mockClear();
+  getRepoCollaboratorsFn.mockClear();
   setPrDraftStateFn.mockClear();
   setPrDraftStateFn.mockImplementation(async (_id: string, draft: boolean) => ({
     ...openPrState,
@@ -114,6 +131,7 @@ afterEach(async () => {
   }
   fontStyle.remove();
   document.body.innerHTML = "";
+  vi.unstubAllGlobals();
 });
 
 // A fixed-width host cell. overflow:visible means getBoundingClientRect reports
@@ -289,6 +307,41 @@ describe("GitRail — PR actions menu", () => {
     await page.getByRole("menuitem", { name: m.prbadge_open_pr() }).click();
     expect(open).toHaveBeenCalledWith(openPrState.url, "_blank", "noopener,noreferrer");
     open.mockRestore();
+  });
+
+  it("opens the review request popover from the PR menu", async () => {
+    gitStateFn.mockResolvedValue(openPrState);
+    const fetch = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            prNumber: 12345,
+            repoSlug: "acme/shepherd",
+            isFork: false,
+            logins: ["alice"],
+            source: "collaborators",
+            unavailable: false,
+            requestedReviewers: [],
+            authorLogin: "owner",
+            defaultReviewer: null,
+            isDraft: false,
+          }),
+        ),
+    );
+    vi.stubGlobal("fetch", fetch);
+    const h = host(600);
+    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+
+    await screen
+      .getByRole("button", {
+        name: m.prbadge_button_title({ label: m.prbadge_open({ number: 12345 }) }),
+      })
+      .click();
+    await page.getByRole("menuitem", { name: m.prreview_menu_action() }).click();
+
+    expect(document.querySelector("[role='menu']")).toBeNull();
+    await expect.element(page.getByRole("dialog", { name: m.prreview_title() })).toBeVisible();
+    expect(fetch).toHaveBeenCalledWith("/api/sessions/sess-1/git/reviewers");
   });
 
   it("sets a draft PR Ready for Review and refreshes the next menu", async () => {

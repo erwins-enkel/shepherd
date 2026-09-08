@@ -97,6 +97,14 @@ test("auto-inferred handoff (no roles.json) → NO waiting entry (gated to confi
   ]);
 });
 
+test("auto-inferred fork reviewBlock → NO changes-requested issue comment", () => {
+  const inferred = open({
+    handoffInferred: true,
+    reviewBlock: { reviewer: "alice", state: "changes_requested", latestAt: 1 },
+  });
+  expect(issueLogEntries(inferred, never)).toEqual([]);
+});
+
 test("no handoff / pending checks / no PR number → nothing owed", () => {
   expect(issueLogEntries(open(), never)).toEqual([]); // green but self-turn
   expect(issueLogEntries(open({ handoff: "merger", checks: "pending" }), never)).toEqual([]);

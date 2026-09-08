@@ -382,13 +382,18 @@ export function reviewerStatesFromReviews(
       delete states[author];
       continue;
     }
-    if (state === "commented" && states[author]?.state === "changes_requested") continue;
+    if (
+      state === "commented" &&
+      (states[author]?.state === "changes_requested" || states[author]?.state === "approved")
+    )
+      continue;
     states[author] = { state, latestAt: ts };
   }
   return states;
 }
 
 interface GhPr {
+  author?: { login?: string };
   number: number;
   url: string;
   title: string;
@@ -443,6 +448,13 @@ interface RestIssue {
 interface RestCheckRun {
   status?: string | null;
   conclusion?: string | null;
+}
+
+interface RestReview {
+  user?: { login?: string } | null;
+  state?: string;
+  body?: string | null;
+  submitted_at?: string | null;
 }
 
 interface RestCheckRunsPage {
@@ -1240,6 +1252,8 @@ export class GithubForge implements GitForge {
       number: pr.number,
       url: pr.url,
       title: pr.title,
+      authorLogin: pr.author?.login,
+      isFork: this.isFork,
       createdAt: Number.isFinite(createdAt) ? createdAt : undefined,
       mergeable: mapMergeable(pr.mergeable),
       mergeStateStatus: mapMergeStateStatus(pr.mergeStateStatus),
@@ -1334,6 +1348,8 @@ export class GithubForge implements GitForge {
       number: pr.number,
       url: pr.html_url ?? `https://github.com/${this.slug}/pull/${pr.number}`,
       title: pr.title ?? "",
+      authorLogin: pr.user?.login ?? undefined,
+      isFork: this.isFork,
       createdAt: Number.isFinite(createdAt) ? createdAt : undefined,
       mergeable: typeof pr.mergeable === "boolean" ? pr.mergeable : null,
       mergeStateStatus: mapMergeStateStatus(pr.mergeable_state ?? undefined),
@@ -1345,6 +1361,28 @@ export class GithubForge implements GitForge {
         .map((r) => r.login ?? undefined)
         .filter((login): login is string => !!login),
       deployConfigured,
+    };
+  }
+
+  private async restReviewStatus(
+    prNumber: number,
+  ): Promise<Pick<PrStatus, "latestReview" | "reviewerStates">> {
+    const out = await this.run([
+      "api",
+      "--paginate",
+      "--slurp",
+      `repos/${this.slug}/pulls/${prNumber}/reviews`,
+    ]);
+    const pages = JSON.parse(out || "[]") as RestReview[][];
+    const reviews: GhReview[] = pages.flat().map((review) => ({
+      author: review.user ?? undefined,
+      state: review.state,
+      body: review.body ?? undefined,
+      submittedAt: review.submitted_at ?? undefined,
+    }));
+    return {
+      latestReview: latestHumanReview(reviews),
+      reviewerStates: reviewerStatesFromReviews(reviews),
     };
   }
 
@@ -1402,13 +1440,16 @@ export class GithubForge implements GitForge {
       }
     }
 
+    await mapBounded([...statuses.values()], 6, async (status) => {
+      Object.assign(status, await this.restReviewStatus(status.number!));
+    });
     return { prs: pullRequests, statuses, capped, source: "rest" };
   }
 
   /** REST fallback for the herd's per-session PR status when GitHub's GraphQL
    *  bucket is exhausted. It intentionally returns the same PrStatus shape but
-   *  only does extra REST check/status reads for open PRs; terminal PRs already
-   *  sort correctly from the pull state alone. */
+   *  only does extra REST check/status reads for open PRs. Reviews use the same
+   *  human-review mapping as GraphQL so fallback cannot erase handoff decisions. */
   private async prStatusRest(headBranch: string, deployConfigured: boolean): Promise<PrStatus> {
     const owner = this.forkOwner ?? this.slug.split("/")[0];
     const out = await this.run([
@@ -1435,7 +1476,10 @@ export class GithubForge implements GitForge {
     const state: PrStatus["state"] =
       pr.state === "open" ? "open" : pr.merged_at ? "merged" : "closed";
     const checks = state === "open" ? await this.restChecksForHead(pr.head?.sha) : "none";
-    return this.mapRestPull(pr, deployConfigured, checks);
+    return {
+      ...this.mapRestPull(pr, deployConfigured, checks),
+      ...(await this.restReviewStatus(pr.number)),
+    };
   }
 
   async prStatus(headBranch: string): Promise<PrStatus> {
@@ -1468,7 +1512,7 @@ export class GithubForge implements GitForge {
         "--state",
         "all",
         "--json",
-        "number,url,title,state,createdAt,mergeable,mergeStateStatus,isDraft,statusCheckRollup,headRefOid,baseRefName,reviews,reviewRequests,headRepositoryOwner",
+        "number,url,title,state,author,createdAt,mergeable,mergeStateStatus,isDraft,statusCheckRollup,headRefOid,baseRefName,reviews,reviewRequests,headRepositoryOwner",
         "--limit",
         this.forkOwner ? "30" : "1",
       ]);
@@ -1687,25 +1731,56 @@ export class GithubForge implements GitForge {
     await this.run(["repo", "sync", this.forkSlug, "--source", this.slug]);
   }
 
-  async listCollaborators(): Promise<{ logins: string[]; unavailable: boolean }> {
+  async listCollaborators(): Promise<{
+    logins: string[];
+    unavailable: boolean;
+    source?: "collaborators" | "assignees";
+  }> {
+    for (const source of ["collaborators", "assignees"] as const) {
+      try {
+        const out = await this.run([
+          "api",
+          "--paginate",
+          `repos/${this.slug}/${source}`,
+          "--jq",
+          ".[].login",
+        ]);
+        const people = new Map<string, string>();
+        for (const line of out.split("\n")) {
+          const login = line.trim();
+          if (login && !people.has(login.toLowerCase())) people.set(login.toLowerCase(), login);
+        }
+        const logins = [...people.values()].sort((a, b) =>
+          a.toLowerCase().localeCompare(b.toLowerCase()),
+        );
+        return { logins, unavailable: false, source };
+      } catch {
+        // Contributors may read assignees even when GitHub refuses collaborators.
+      }
+    }
+    return { logins: [], unavailable: true };
+  }
+
+  async requestReview(prNumber: number, reviewer: string): Promise<void> {
     try {
-      // --paginate so a repo with >30 collaborators isn't silently truncated.
-      const out = await this.run([
+      await this.run([
         "api",
-        "--paginate",
-        `repos/${this.slug}/collaborators`,
-        "--jq",
-        ".[].login",
+        "--method",
+        "POST",
+        `repos/${this.slug}/pulls/${prNumber}/requested_reviewers`,
+        "-f",
+        `reviewers[]=${reviewer}`,
       ]);
-      const logins = out
-        .split("\n")
-        .map((l) => l.trim())
-        .filter(Boolean);
-      return { logins, unavailable: false };
-    } catch {
-      // The endpoint needs push access; GitHub 403s otherwise → let the dialog
-      // fall back to free-text rather than show an empty/partial list.
-      return { logins: [], unavailable: true };
+    } catch (error) {
+      const { status } = classifyGhError("rest", error);
+      throw new Error(
+        status === 403
+          ? "review_request_forbidden"
+          : status === 422
+            ? "review_request_invalid_reviewer"
+            : "review_request_failed",
+        { cause: error },
+      );
     }
   }
 

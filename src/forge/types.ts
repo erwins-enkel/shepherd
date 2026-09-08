@@ -222,9 +222,13 @@ export interface PrStatus {
    *  Unscoped forge data; server role annotation turns this into `reviewBlock`. */
   reviewerStates?: Record<string, PrReviewerState>;
   /** GitHub logins with a pending review request on the PR (teams/bots without a
-   *  login are dropped). Drives merger auto-inference when the repo has no
+   *  login are dropped). Drives handoff inference when the repo has no
    *  `.shepherd/roles.json`. Optional: a cached payload predating the field ⇒ treat as `[]`. */
   requestedReviewers?: string[];
+  /** PR author, used to exclude self-review requests. */
+  authorLogin?: string;
+  /** The resolved GitHub forge targets an upstream repository for this fork. */
+  isFork?: boolean;
   /** true = PR is a draft / not ready-for-review. Optional; absent ⇒ treat as false downstream. */
   isDraft?: boolean;
   /** GitHub's merge-eligibility signal; undefined on forges that don't supply it (Gitea). */
@@ -252,13 +256,13 @@ export interface GitState extends PrStatus {
    *  operator's turn (today's "awaiting merge"). Drives the herd's
    *  waiting-on-reviewer / waiting-on-merger groups. */
   handoff?: "reviewer" | "merger";
-  /** The login to display for {@link handoff} (e.g. "scoop"); absent for self. */
+  /** The responsible login; absent for a fork waiting on unnamed maintainers. */
   handoffWho?: string;
   /** true when `handoff` was auto-inferred from PR reviewers (no
    *  `.shepherd/roles.json`); suppresses the outward issue-log comment, which
    *  stays opt-in to explicitly-configured roles. */
   handoffInferred?: boolean;
-  /** Role-scoped active requested-changes block for the configured reviewer. */
+  /** Active changes requested by the configured reviewer, or a maintainer on an unconfigured fork. */
   reviewBlock?: PrReviewBlock;
   /** Web URL of the backlog issue this session was spawned for (session.issueNumber),
    *  or absent when the session has no linked issue or the repo has no web forge
@@ -501,8 +505,14 @@ export interface GitForge {
   currentUser?(): Promise<string | null>;
   /** Logins with access to the repo, for the roles dialog's people picker.
    *  `unavailable` is true when the host refused the list (e.g. GitHub 403 with no
-   *  push access) so the dialog falls back to free-text. Optional. */
-  listCollaborators?(): Promise<{ logins: string[]; unavailable: boolean }>;
+   *  push access) and no alternative candidate source is available. Optional. */
+  listCollaborators?(): Promise<{
+    logins: string[];
+    unavailable: boolean;
+    source?: "collaborators" | "assignees";
+  }>;
+  /** Explicitly request a human review; never invoked by setting repo roles. */
+  requestReview?(prNumber: number, reviewer: string): Promise<void>;
   openPr(o: OpenPrInput): Promise<PrStatus>;
   /** Whether the operator has push access to the repo on this host. Gates the
    *  gitignore-adopt flow (no push → it can't open the adopt PR; the caller shows

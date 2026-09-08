@@ -44,6 +44,8 @@ test("session git cache round-trips open and none states", () => {
       checks: "pending",
       deployConfigured: false,
       headSha: "abc123",
+      isFork: true,
+      authorLogin: "author",
     };
     const none: GitState = {
       kind: "github",
@@ -96,6 +98,8 @@ test("session git cache validates every optional GitState field before hydration
       ["reviewerStates", { scoop: { state: "approved", latestAt: "now" } }],
       ["requestedReviewers", ["scoop", 7]],
       ["isDraft", "yes"],
+      ["isFork", "yes"],
+      ["authorLogin", 7],
       ["mergeStateStatus", "ready"],
       ["baseRefName", 7],
       ["noCi", "yes"],

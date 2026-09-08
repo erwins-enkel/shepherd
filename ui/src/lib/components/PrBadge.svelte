@@ -5,11 +5,13 @@
   import { toasts } from "$lib/toasts.svelte";
   import { prBadgeLabel, prBadgeIsDraft, prMergeAvailable } from "./pr-badge";
   import PrBadgeMenu from "./PrBadgeMenu.svelte";
+  import PrReviewRequestPopover from "./PrReviewRequestPopover.svelte";
 
   let { git, sessionId }: { git?: GitState; sessionId?: string } = $props();
   const label = $derived(prBadgeLabel(git));
   const actionable = $derived(!!sessionId && git?.state === "open" && !!git.number);
   const canToggleDraft = $derived(git?.kind === "github" || git?.kind === "gitea");
+  const canRequestReview = $derived(git?.kind === "github");
   // CI only matters on an open PR; `none` means no checks reported.
   const showCi = $derived(git?.state === "open" && git.checks !== "none");
   const review = $derived(git?.latestReview);
@@ -30,6 +32,12 @@
     anchor: DOMRect;
     autoFocus: boolean;
   } | null>(null);
+  let reviewPopover = $state<{
+    anchor: DOMRect;
+    sessionId: string;
+    prNumber: number;
+    prUrl?: string;
+  } | null>(null);
   let busy = $state(false);
   let mergeArmed = $state(false);
   let armTimer: ReturnType<typeof setTimeout> | undefined;
@@ -44,6 +52,10 @@
     menu = null;
   }
 
+  function closeReviewPopover() {
+    reviewPopover = null;
+  }
+
   function openMenu(autoFocus: boolean) {
     if (!actionable || !btnEl) return;
     menu = { anchor: btnEl.getBoundingClientRect(), autoFocus };
@@ -52,9 +64,31 @@
   function toggleMenu(e: MouseEvent) {
     e.stopPropagation();
     if (!actionable) return;
-    if (menu) closeMenu();
+    if (reviewPopover) closeReviewPopover();
+    else if (menu) closeMenu();
     else openMenu(true);
   }
+
+  function openReviewRequest() {
+    if (!canRequestReview || !sessionId || !git?.number || !btnEl) return;
+    const anchor = btnEl.getBoundingClientRect();
+    closeMenu();
+    reviewPopover = {
+      anchor,
+      sessionId,
+      prNumber: git.number,
+      prUrl: git.url,
+    };
+  }
+
+  $effect(() => {
+    if (
+      reviewPopover &&
+      (reviewPopover.sessionId !== sessionId || reviewPopover.prNumber !== git?.number)
+    ) {
+      reviewPopover = null;
+    }
+  });
 
   function openPr() {
     closeMenu();
@@ -135,11 +169,11 @@
       bind:this={btnEl}
       type="button"
       class="pr-badge pr-{git!.state} as-button"
-      class:open={!!menu}
+      class:open={!!menu || !!reviewPopover}
       title={m.prbadge_button_title({ label })}
       aria-label={m.prbadge_button_title({ label })}
-      aria-haspopup="menu"
-      aria-expanded={!!menu}
+      aria-haspopup={reviewPopover ? "dialog" : "menu"}
+      aria-expanded={!!menu || !!reviewPopover}
       onclick={toggleMenu}
     >
       {@render content()}
@@ -159,13 +193,26 @@
     canOpen={!!git?.url}
     {canToggleDraft}
     showMerge={canMerge}
+    showRequestReview={canRequestReview}
     {mergeArmed}
     autoFocus={menu.autoFocus}
     {busy}
     onopen={openPr}
+    onrequestreview={openReviewRequest}
     onmerge={doMerge}
     ontoggledraft={toggleDraftState}
     onclose={closeMenu}
+  />
+{/if}
+
+{#if reviewPopover}
+  <PrReviewRequestPopover
+    anchor={reviewPopover.anchor}
+    opener={btnEl}
+    sessionId={reviewPopover.sessionId}
+    prNumber={reviewPopover.prNumber}
+    prUrl={reviewPopover.prUrl}
+    onclose={closeReviewPopover}
   />
 {/if}
 

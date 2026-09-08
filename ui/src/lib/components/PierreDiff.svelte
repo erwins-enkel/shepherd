@@ -99,7 +99,11 @@
     const { FileDiff } = await import("@pierre/diffs");
     await registerShepherdThemes();
     if (fd) return; // another call won the race while we awaited
-    const options: FileDiffOptions<Meta> = {
+    // `<Meta, undefined>`: Pierre 1.4 widened `FileDiffOptions` to <LAnnotation, Caret>, neither
+    // defaulted. `Caret` parameterises its edit-session surface (`onEditChange`/`onEditComplete`/
+    // `attachEditor`) — none of which this read-only wrapper uses — so `undefined` mirrors the
+    // `FileDiff` class's own default and keeps `fd.options` assignable in the diffStyle toggle.
+    const options: FileDiffOptions<Meta, undefined> = {
       theme: { dark: "shepherd-dark", light: "shepherd-light" },
       themeType: theme.resolved,
       diffStyle,

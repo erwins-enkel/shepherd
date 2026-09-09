@@ -261,10 +261,38 @@ function priorStreakState(prior: ReviewVerdict | null): PriorStreakState {
   };
 }
 
+/** The plan text(s) one review shows the critic — see {@link ReviewService.resolvePlanContext}. */
+interface PlanContext {
+  /** What the review MEASURES against: the approved snapshot when a gate cleared one, else the
+   *  working plan file. null when the session has no plan at all. */
+  plan: string | null;
+  /** The working file, set ONLY when it has been edited since approval (so it differs from `plan`).
+   *  Shown as a second, separately labelled block — context for intent, never authorization. */
+  current: string | null;
+  /** Whether `plan` is the text a plan reviewer actually approved. */
+  approved: boolean;
+  /** Mirrors `reviewPrompt`'s own `planShown` gate: the prompt asks for a plan-drift measurement
+   *  only when an APPROVED plan is in it. Resolved here rather than at the spawn site so the two
+   *  can't drift — finalize reads `planDrift` off this same flag. */
+  planShown: boolean;
+}
+
+/** The blocks the argv-budget ladder varies between compositions of the critic prompt. An object
+ *  rather than positional parameters: five of them now vary, and two are boolean flags that would
+ *  be trivially transposable at a call site. */
+interface ComposeVars {
+  plan: string | null;
+  planClamped: boolean;
+  planCurrent: string | null;
+  planCurrentClamped: boolean;
+  reviewPolicy: string | null;
+}
+
 export interface ReviewServiceDeps extends MembraneSeams {
   store: Pick<
     SessionStore,
     | "getRepoConfig"
+    | "getPlanGate"
     | "getReview"
     | "putReview"
     | "bumpReviewHead"
@@ -366,10 +394,12 @@ export interface ReviewServiceDeps extends MembraneSeams {
     provider: AgentProvider | null,
     model: string | null,
   ) => Promise<SessionUsage | null>;
-  /** Injectable reader for the session's approved `.shepherd-plan.md` (#1812 finding A; default
+  /** Injectable reader for the session's WORKING `.shepherd-plan.md` (#1812 finding A; default
    *  reads it from the LIVE session worktree). null when no plan was written. Fed to the critic as
-   *  UNTRUSTED intent-context. MUST read from `session.worktreePath`, NOT the critic's detached
-   *  worktree — the plan file is git-excluded, so it can never exist in a fresh head checkout. */
+   *  UNTRUSTED intent-context. Whether that text was ever APPROVED is decided from `plan_gates`,
+   *  not from this file — see {@link ReviewService.resolvePlanContext}. MUST read from
+   *  `session.worktreePath`, NOT the critic's detached worktree — the plan file is git-excluded,
+   *  so it can never exist in a fresh head checkout. */
   readPlan?: (worktreePath: string) => string | null;
   /** Injectable reader for the repo's `REVIEW.md` review policy (#2154; default reads it from the
    *  BASE COMMIT via read-only git). null when the repo has no policy on that base. MUST read the
@@ -644,13 +674,12 @@ export class ReviewService {
       this.deps.worktree.remove(wt.worktreePath);
       return;
     }
-    // Read the approved plan LAST — a synchronous local-file read (no await, so it does NOT touch
-    // the "last await-gated step before spawn" invariant that fixes the issue-body / epic-delta
-    // fetches above). Placed AFTER the rebaseSkip churn-skip, the tombstone re-check, and the
-    // api-key fail-closed early returns, so none of those common/early exits wastes a read. Read
-    // from session.worktreePath (the LIVE tree) — NOT wt.worktreePath (the critic's detached head
-    // checkout), where the git-excluded plan can never exist. Best-effort: null ⇒ no plan context.
-    const plan = this.readPlan(session.worktreePath);
+    // Read the plan LAST — a synchronous local-file read plus a synchronous store read (no await,
+    // so it does NOT touch the "last await-gated step before spawn" invariant that fixes the
+    // issue-body / epic-delta fetches above). Placed AFTER the rebaseSkip churn-skip, the tombstone
+    // re-check, and the api-key fail-closed early returns, so none of those common/early exits
+    // wastes a read. Best-effort: no plan ⇒ no plan context.
+    const planCtx = this.resolvePlanContext(session);
     // #1824 finding C: per-repo POSSIBLE-SMELLS lens flag (default OFF). Read here (not cached from
     // the criticEnabled gate above) so a toggle mid-session takes effect on the next review round.
     const smellLens = this.deps.store.getRepoConfig(session.repoPath).criticSmellLensEnabled;
@@ -670,9 +699,18 @@ export class ReviewService {
       smellLens,
       round,
       houseRules,
+      planCtx.approved,
     );
     const argvFor = (p: string): string[] => this.criticArgvFor(p, reviewerEnv, criticSessionId);
-    const argv = argvFor(composePrompt(plan, false, reviewPolicy));
+    const argv = argvFor(
+      composePrompt({
+        plan: planCtx.plan,
+        planClamped: false,
+        planCurrent: planCtx.current,
+        planCurrentClamped: false,
+        reviewPolicy,
+      }),
+    );
     // Fire plugin onSpawn hooks for this reviewer-style spawn (issue #1205) and bind any patched
     // env THROUGH the membrane (apiKeyPassthroughEnv handled inside). A hook that calls abortSpawn
     // cleanly skips the review (worktree reaped), mirroring the spawn-failure path below.
@@ -700,7 +738,8 @@ export class ReviewService {
     // #1944: fit the prompt to the argv budget, then launch. Null ⇒ the critic is NOT running and
     // the worktree is already reaped — whether it was refused pre-emptively or the spawn failed.
     const terminalId = await this.fitAndSpawn(session, git.headSha!, wt.worktreePath, {
-      plan,
+      plan: planCtx.plan,
+      planCurrent: planCtx.current,
       reviewPolicy,
       composePrompt,
       assemble: (p) => assembleAuxSpawn(patch, auxArgs, argvFor(p)),
@@ -725,7 +764,7 @@ export class ReviewService {
       startedAt: this.now(),
       ...priorStreakState(prior),
       seenNoteIds,
-      planShown: Boolean(plan?.trim()),
+      planShown: planCtx.planShown,
     });
     // Persist the spawn row now (totals NULL until finalize) so review burn is attributable
     // even if the run crashes/times out before producing a verdict (issue #502).
@@ -931,8 +970,40 @@ export class ReviewService {
     }).argv;
   }
 
-  /** Resolve everything the critic prompt needs ONCE and return a pure composer over the two things
-   *  the clamp ladder varies: the plan text and whether it was clamped. */
+  /** WHICH plan text(s) this review shows the critic, and what each one IS.
+   *
+   *  The critic used to be handed the LIVE `.shepherd-plan.md` under a label asserting it had been
+   *  "adversarially reviewed and approved BEFORE it wrote code". Nothing keeps that true: the plan
+   *  gate stores the text it approved (`plan_gates.plan`) and then refuses to look again —
+   *  `PlanGateService.consider` short-circuits on `approved`, and `force` does NOT bypass it — so an
+   *  agent that rewrites its plan after approval had the reviewer told the rewrite was pre-approved,
+   *  and `reviews.planDrift` measured the diff against that rewrite. Provenance is therefore taken
+   *  from PERSISTED state (which the agent cannot reach) and the working file is shown as what it
+   *  is, not as what the label claimed.
+   *
+   *  Both reads are synchronous by design — see the call site's "last await-gated step" invariant. */
+  private resolvePlanContext(session: Session): PlanContext {
+    // Read from session.worktreePath (the LIVE tree) — NOT the critic's detached head checkout,
+    // where the git-excluded plan file can never exist.
+    const live = this.readPlan(session.worktreePath)?.trim() || null;
+    const gate = this.deps.store.getPlanGate(session.id);
+    // `plan_gates.plan` is stored already-trimmed; the trim here is belt-and-braces so an empty
+    // approved plan can never present as a text block.
+    const approved = gate?.approved ? gate.plan.trim() || null : null;
+    if (!approved) return { plan: live, current: null, approved: false, planShown: false };
+    // Equal texts are the normal case and must collapse to ONE block: a second, identical block
+    // would cost budget and imply an edit that never happened.
+    return {
+      plan: approved,
+      current: live && live !== approved ? live : null,
+      approved: true,
+      planShown: true,
+    };
+  }
+
+  /** Resolve everything the critic prompt needs ONCE and return a pure composer over the blocks the
+   *  clamp ladder varies. `planApproved` is captured, not varied: provenance is a fact about the
+   *  session, and no amount of clamping can turn an unapproved plan into an approved one. */
   private criticPromptComposer(
     session: Session,
     diffBase: string,
@@ -943,7 +1014,8 @@ export class ReviewService {
     smellLens: boolean,
     round: number,
     houseRules: string | null,
-  ): (plan: string | null, planClamped: boolean, reviewPolicy: string | null) => string {
+    planApproved: boolean,
+  ): (v: ComposeVars) => string {
     // Shared with the plan reviewer: same read-only injection-contained sandbox (the PR diff is
     // UNTRUSTED). The prompt is the only critic-specific part. `diffBase` is the resolved base
     // commit (SHA) threaded from rebaseSkip, NOT session.baseBranch — so the review diffs the
@@ -958,14 +1030,17 @@ export class ReviewService {
     // Absent plan + no epic + smellLens off ⇒ the non-epic session-critic prompt is unchanged.
     // #2154: `reviewPolicy` is a ladder-varied argument (it is clampable); `houseRules` is captured
     // (it is already bounded by the house-rules char budget, so it never clamps).
-    return (plan, planClamped, reviewPolicy) =>
+    return (v) =>
       reviewPrompt(diffBase, session.prompt, priorFindings, authorNotes, issueBody, epic, {
-        plan,
+        plan: v.plan,
         smellLens,
         round,
         cap: this.cap,
-        planClamped,
-        reviewPolicy,
+        planClamped: v.planClamped,
+        planApproved,
+        planCurrent: v.planCurrent,
+        planCurrentClamped: v.planCurrentClamped,
+        reviewPolicy: v.reviewPolicy,
         houseRules,
       });
   }
@@ -1689,17 +1764,15 @@ export class ReviewService {
     worktreePath: string,
     prompt: {
       plan: string | null;
+      planCurrent: string | null;
       reviewPolicy: string | null;
-      composePrompt: (
-        plan: string | null,
-        planClamped: boolean,
-        reviewPolicy: string | null,
-      ) => string;
+      composePrompt: (v: ComposeVars) => string;
       assemble: SpawnAssembler;
     },
   ): Promise<string | null> {
     const fitted = fitCriticPrompt(
       prompt.plan,
+      prompt.planCurrent,
       prompt.reviewPolicy,
       prompt.composePrompt,
       prompt.assemble,
@@ -2055,7 +2128,7 @@ export class ReviewService {
  *  session id forces a predictable path under the disposable worktree). null when the
  *  transcript is missing or has no parseable activity yet. */
 
-/** #1812 finding A: read the session's approved `.shepherd-plan.md` from the LIVE session worktree.
+/** #1812 finding A: read the session's WORKING `.shepherd-plan.md` from the LIVE session worktree.
  *  null when absent/unreadable. Mirrors plan-gate.ts's reader — the plan file is git-excluded, so
  *  this MUST be passed `session.worktreePath` (never the critic's detached head checkout, where it
  *  can never exist). */
@@ -2080,9 +2153,10 @@ function defaultReadPlan(worktreePath: string): string | null {
  *  house-rules block (#2154) is likewise not listed: it is already bounded by the house-rules char
  *  budget. `diffBase` is a SHA, not the diff.
  *
- *  ORDER IS THE POLICY DECISION: the plan gives way first. It is the larger and more redundant of
- *  the two (the critic can re-derive intent from the task + issue body), whereas the review policy
- *  is short, already hard-capped on read, and states rules that exist nowhere else in the prompt.
+ *  ORDER IS THE POLICY DECISION: the plan blocks give way first, the edited working file before the
+ *  approved snapshot. They are the larger and more redundant blocks (the critic can re-derive intent
+ *  from the task + issue body), whereas the review policy is short, already hard-capped on read, and
+ *  states rules that exist nowhere else in the prompt.
  *
  *  NEITHER BLOCK PRESENT — still measured. A plan-less, policy-less session (the common case) has
  *  nothing CLAMPABLE, but its prompt is not thereby bounded: `session.prompt`, `issueBody`,
@@ -2092,15 +2166,23 @@ function defaultReadPlan(worktreePath: string): string | null {
  *  sessions take. An empty `specs` list still enforces the terminal guarantee: it fits, or it
  *  refuses `over-budget` and the operator sees it.
  *
- *  `planClamped` is DERIVED, never passed in: it is true exactly when the composed plan text
+ *  Both clamp flags are DERIVED, never passed in: each is true exactly when the composed text
  *  differs from what the agent wrote, so an un-clamped prompt stays byte-identical to main. */
 function fitCriticPrompt(
   plan: string | null,
+  planCurrent: string | null,
   reviewPolicy: string | null,
-  compose: (plan: string | null, planClamped: boolean, reviewPolicy: string | null) => string,
+  compose: (v: ComposeVars) => string,
   assemble: SpawnAssembler,
 ): FitResult {
   const specs: ClampSpec[] = [];
+  // The edited working file gives way FIRST — it is the redundant block. The review measures
+  // against the APPROVED snapshot, and this one exists only to show THAT the plan was rewritten
+  // after approval, so a stub of it still does its job. Hence no `minUseful` either: the
+  // "plan-unreviewable" refusal must stay keyed to the plan the verdict is actually formed against.
+  if (planCurrent) {
+    specs.push({ id: "planCurrent", kind: "text", text: planCurrent, mode: "head-tail" });
+  }
   if (plan) {
     specs.push({
       id: "plan",
@@ -2119,10 +2201,12 @@ function fitCriticPrompt(
     ...spawnBudget(assemble),
     specs,
     compose: (v) =>
-      compose(
-        plan ? (v.plan as string) : null,
-        plan ? v.plan !== plan : false,
-        reviewPolicy ? (v.reviewPolicy as string) : null,
-      ),
+      compose({
+        plan: plan ? (v.plan as string) : null,
+        planClamped: plan ? v.plan !== plan : false,
+        planCurrent: planCurrent ? (v.planCurrent as string) : null,
+        planCurrentClamped: planCurrent ? v.planCurrent !== planCurrent : false,
+        reviewPolicy: reviewPolicy ? (v.reviewPolicy as string) : null,
+      }),
   });
 }

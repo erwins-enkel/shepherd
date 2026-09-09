@@ -3884,5 +3884,19 @@
   "feat_classifier_usage_body": "Nutzung → Modelle zeigt die Tokens des Autopilot-Klassifizierers jetzt als eigene Rolle — einschließlich des verwendeten Claude-Modells.",
   "feat_codex_role_usage_title": "Codex-Verbrauch nach Rolle erkennen",
   "feat_codex_role_usage_body": "Klappe Coding, Review, Plan Gate und weitere Codex-Rollen unter Nutzung → Modelle auf, um zu sehen, wohin die Tokens der einzelnen Modelle geflossen sind.",
-  "usage_models_unknown": "Unbekannt"
+  "usage_models_unknown": "Unbekannt",
+  "topbar_usage_refreshing": "Wird aktualisiert…",
+  "topbar_usage_refresh_failed": "Aktualisierung fehlgeschlagen. Die letzten bestätigten Werte bleiben sichtbar.",
+  "topbar_usage_refresh_scope": "Aktualisiert Claude Code",
+  "topbar_usage_observed_age": "vor {age} abgefragt",
+  "topbar_usage_observed_now": "gerade abgefragt",
+  "topbar_usage_before_reset": "{pct}% vor Reset",
+  "topbar_usage_reset_checking": "Reset-Bestätigung ausstehend…",
+  "topbar_usage_no_observation": "Noch keine Anbieterabfrage verfügbar",
+  "topbar_codex_tokens_checked_age": "Token-Datenstand vor {age}",
+  "topbar_codex_tokens_checked_now": "Token-Datenstand von gerade eben",
+  "topbar_codex_limits_checked_age": "Limit-Ereignis vor {age} gemeldet",
+  "topbar_codex_limits_checked_now": "Limit-Ereignis gerade gemeldet",
+  "feat_observed_usage_limits_title": "Bestätigte Claude-Auslastung",
+  "feat_observed_usage_limits_body": "Die Claude-Auslastung in der Topbar zeigt jetzt für jedes Fenster den letzten bestätigten Anbieterwert und dessen Alter. Rund um den 5-Stunden-Reset prüft Shepherd häufiger, kennzeichnet den bisherigen Wert und zeigt den nächsten Countdown erst nach Bestätigung."
 }

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  claudeDisplayGauges,
   compactUsageViews,
   codexTokenUsage,
   gaugeList,
@@ -8,7 +9,9 @@ import {
   providerSnapshots,
   gaugeColor,
   providerCapacityRows,
+  providerDisplayCapacityRows,
   selectedProviderCapacity,
+  shouldRefreshObservedOnOpen,
   hottestCapacityWindow,
   modelDisplayName,
 } from "./usage-gauges";
@@ -80,6 +83,120 @@ describe("modelDisplayName", () => {
     expect(modelDisplayName("gpt-5.5")).toBe("GPT-5.5");
     expect(modelDisplayName("unknown")).toBe("Unknown");
     expect(modelDisplayName("custom_model-v2")).toBe("Custom Model V2");
+  });
+});
+
+describe("claudeDisplayGauges", () => {
+  it("uses independently observed windows and treats an observed null as no sample", () => {
+    const l = limits({
+      session5h: w(88, 10_000),
+      week: w(64, 20_000),
+      observed: {
+        session5h: null,
+        week: { pct: 7, resetAt: 30_000, scrapedAt: 4_000 },
+      },
+    } as Partial<UsageLimits>);
+
+    expect(claudeDisplayGauges(l)).toEqual([
+      { label: "WK", w: { pct: 7, resetAt: 30_000, scrapedAt: 4_000 } },
+    ]);
+  });
+
+  it("keeps legacy payloads displaying their computed windows when observed is absent", () => {
+    const l = limits({ session5h: w(12, 10_000), week: w(23, 20_000) });
+
+    expect(claudeDisplayGauges(l)).toEqual([
+      { label: "5H", w: w(12, 10_000) },
+      { label: "WK", w: w(23, 20_000) },
+    ]);
+  });
+});
+
+describe("shouldRefreshObservedOnOpen", () => {
+  const NOW = 2_000_000;
+
+  it("does not auto-refresh legacy payloads", () => {
+    expect(shouldRefreshObservedOnOpen(limits({ session5h: w(10), week: w(20) }), NOW)).toBe(false);
+  });
+
+  it("refreshes when either provider window has not been observed", () => {
+    const l = limits({
+      observed: {
+        session5h: { pct: 10, resetAt: NOW + 60 * 60_000, scrapedAt: NOW - 10_000 },
+        week: null,
+      },
+    } as Partial<UsageLimits>);
+
+    expect(shouldRefreshObservedOnOpen(l, NOW)).toBe(true);
+  });
+
+  it("checks each sample timestamp instead of using the newest window timestamp", () => {
+    const l = limits({
+      observed: {
+        session5h: { pct: 10, resetAt: NOW + 60 * 60_000, scrapedAt: NOW - 6 * 60_000 },
+        week: { pct: 20, resetAt: NOW + 4 * 24 * 60 * 60_000, scrapedAt: NOW - 5_000 },
+      },
+    } as Partial<UsageLimits>);
+
+    expect(shouldRefreshObservedOnOpen(l, NOW)).toBe(true);
+  });
+
+  it("uses one-minute freshness in the final ten minutes and after the reset boundary", () => {
+    const nearReset = limits({
+      observed: {
+        session5h: { pct: 87, resetAt: NOW + 9 * 60_000, scrapedAt: NOW - 61_000 },
+        week: { pct: 7, resetAt: NOW + 4 * 24 * 60 * 60_000, scrapedAt: NOW - 10_000 },
+      },
+    } as Partial<UsageLimits>);
+    const boundary = limits({
+      observed: {
+        session5h: { pct: 87, resetAt: NOW, scrapedAt: NOW },
+        week: { pct: 7, resetAt: NOW + 4 * 24 * 60 * 60_000, scrapedAt: NOW },
+      },
+    } as Partial<UsageLimits>);
+
+    expect(shouldRefreshObservedOnOpen(nearReset, NOW)).toBe(true);
+    expect(shouldRefreshObservedOnOpen(boundary, NOW)).toBe(true);
+  });
+
+  it("throttles automatic retries after missing-window failures while manual refresh stays separate", () => {
+    const l = limits({
+      observed: { session5h: null, week: null },
+      refresh: { inProgress: false, failed: true, lastAttemptAt: NOW - 2 * 60_000 },
+    } as Partial<UsageLimits>);
+
+    expect(shouldRefreshObservedOnOpen(l, NOW)).toBe(false);
+  });
+
+  it("keeps the one-minute reset cadence when the weekly observation is missing", () => {
+    const l = limits({
+      observed: {
+        session5h: { pct: 87, resetAt: NOW + 5 * 60_000, scrapedAt: NOW - 2 * 60_000 },
+        week: null,
+      },
+      refresh: { inProgress: false, failed: true, lastAttemptAt: NOW - 2 * 60_000 },
+    } as Partial<UsageLimits>);
+
+    expect(shouldRefreshObservedOnOpen(l, NOW)).toBe(true);
+  });
+
+  it("refreshes immediately across a reset boundary, then limits pending retries to once a minute", () => {
+    const resetAt = NOW - 30_000;
+    const observed = {
+      session5h: { pct: 87, resetAt, scrapedAt: NOW - 30_000 },
+      week: { pct: 7, resetAt: NOW + 4 * 24 * 60 * 60_000, scrapedAt: NOW - 30_000 },
+    };
+    const beforeBoundaryAttempt = limits({
+      observed,
+      refresh: { inProgress: false, failed: false, lastAttemptAt: resetAt - 1 },
+    } as Partial<UsageLimits>);
+    const recentPendingAttempt = limits({
+      observed,
+      refresh: { inProgress: false, failed: true, lastAttemptAt: NOW - 10_000 },
+    } as Partial<UsageLimits>);
+
+    expect(shouldRefreshObservedOnOpen(beforeBoundaryAttempt, NOW)).toBe(true);
+    expect(shouldRefreshObservedOnOpen(recentPendingAttempt, NOW)).toBe(false);
   });
 });
 
@@ -303,6 +420,22 @@ describe("overspending", () => {
 });
 
 describe("providerCapacityRows", () => {
+  it("keeps internal capacity on computed windows while display capacity uses observed windows", () => {
+    const l = limits({
+      session5h: w(88),
+      week: w(64),
+      observed: {
+        session5h: { pct: 4, resetAt: 10_000, scrapedAt: 1_000 },
+        week: { pct: 7, resetAt: 20_000, scrapedAt: 1_000 },
+      },
+    });
+
+    expect(providerCapacityRows(l)[0]?.windows.map((window) => window.usedPct)).toEqual([88, 64]);
+    expect(providerDisplayCapacityRows(l)[0]?.windows.map((window) => window.usedPct)).toEqual([
+      4, 7,
+    ]);
+  });
+
   it("returns per-window remaining room (5H then WK) for each provider", () => {
     const l = limits({
       session5h: w(30),

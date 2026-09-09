@@ -1243,6 +1243,19 @@ export interface LimitWindow {
   pct: number;
   resetAt: number;
 }
+/** A provider-confirmed usage sample. Unlike LimitWindow, this is never rolled forward locally. */
+export interface ObservedLimitWindow extends LimitWindow {
+  scrapedAt: number;
+}
+export interface ObservedLimitWindows {
+  session5h: ObservedLimitWindow | null;
+  week: ObservedLimitWindow | null;
+}
+export interface UsageRefreshStatus {
+  inProgress: boolean;
+  failed: boolean;
+  lastAttemptAt: number | null;
+}
 /**
  * Paid pay-as-you-go extra-credit overage (mirrors the server's CreditWindow).
  * The truth signal for "running into extra credits" is `spent > 0` on a FRESH
@@ -1288,6 +1301,10 @@ export interface UsageLimits {
   calibratedAt: number | null;
   /** true in api-key auth mode: usage tracking is subscription-only, meters carry no data. */
   subscriptionOnly: boolean;
+  /** Provider-confirmed Claude values for display. Presence makes these authoritative, including null. */
+  observed?: ObservedLimitWindows;
+  /** State of the Claude-only provider refresh. */
+  refresh?: UsageRefreshStatus;
   providers?: UsageProviderSnapshot[];
 }
 
@@ -1302,6 +1319,8 @@ export type UsageProviderSnapshot =
       stale: boolean;
       calibratedAt: number | null;
       subscriptionOnly: boolean;
+      /** Provider-confirmed values for display. Presence makes these authoritative, including null. */
+      observed?: ObservedLimitWindows;
     }
   | {
       provider: "codex";

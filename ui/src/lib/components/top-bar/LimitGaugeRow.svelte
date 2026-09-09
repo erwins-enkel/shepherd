@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { formatReset, formatResetIn } from "$lib/format";
+  import { formatReset, formatResetIn, relativeAge } from "$lib/format";
   import { m } from "$lib/paraglide/messages";
-  import type { LimitWindow } from "$lib/types";
+  import type { LimitWindow, ObservedLimitWindow } from "$lib/types";
   import { gaugeColor } from "../usage-gauges";
 
   let {
@@ -18,7 +18,31 @@
 
   const fill = $derived(Math.min(Math.max(limit.pct, 0), 100) / 100);
   const color = $derived(gaugeColor(limit.pct));
+  const observed = $derived("scrapedAt" in limit ? (limit as ObservedLimitWindow) : null);
+  const resetPending = $derived(!!observed && observed.resetAt <= nowMs);
+  const age = $derived(observed ? relativeAge(observed.scrapedAt, nowMs) : "");
+  const valueLabel = $derived(
+    resetPending ? m.topbar_usage_before_reset({ pct: limit.pct }) : `${limit.pct}%`,
+  );
 </script>
+
+{#snippet limitMetadata()}
+  {#if resetPending}
+    <div class="gauge-pop-reset reset-pending micro">{m.topbar_usage_reset_checking()}</div>
+  {:else}
+    <div class="gauge-pop-reset micro">
+      {m.topbar_gauge_reset_rel({
+        rel: formatResetIn(limit.resetAt, nowMs),
+        abs: formatReset(limit.resetAt, nowMs),
+      })}
+    </div>
+  {/if}
+  {#if observed}
+    <div class="gauge-pop-age micro">
+      {age === "now" ? m.topbar_usage_observed_now() : m.topbar_usage_observed_age({ age })}
+    </div>
+  {/if}
+{/snippet}
 
 {#if inline}
   <div class="gauge-pop-row">
@@ -26,29 +50,20 @@
     <span class="g-bar g-bar-wide"
       ><span class="g-fill" style="transform:scaleX({fill});background:{color}"></span></span
     >
-    <span class="g-pct" style="color:{color}">{limit.pct}%</span>
+    <span class="g-pct" class:before-reset={resetPending} style="color:{color}">{valueLabel}</span>
   </div>
-  <div class="gauge-pop-reset micro">
-    {m.topbar_gauge_reset_rel({
-      rel: formatResetIn(limit.resetAt, nowMs),
-      abs: formatReset(limit.resetAt, nowMs),
-    })}
-  </div>
+  {@render limitMetadata()}
 {:else}
   <div class="sheet-gauge-row">
     <div class="sheet-gauge-head">
       <span class="gp-period">{label}</span>
-      <span class="g-pct" style="color:{color}">{limit.pct}%</span>
+      <span class="g-pct" class:before-reset={resetPending} style="color:{color}">{valueLabel}</span
+      >
     </div>
     <span class="g-bar g-bar-wide"
       ><span class="g-fill" style="transform:scaleX({fill});background:{color}"></span></span
     >
-    <div class="gauge-pop-reset micro">
-      {m.topbar_gauge_reset_rel({
-        rel: formatResetIn(limit.resetAt, nowMs),
-        abs: formatReset(limit.resetAt, nowMs),
-      })}
-    </div>
+    {@render limitMetadata()}
   </div>
 {/if}
 
@@ -74,7 +89,7 @@
     color: var(--color-muted);
   }
   .gp-period {
-    color: var(--color-text);
+    color: var(--color-ink);
     font-size: var(--fs-meta);
     text-transform: capitalize;
   }
@@ -106,6 +121,9 @@
     min-width: 30px;
     text-align: right;
   }
+  .g-pct.before-reset {
+    min-width: max-content;
+  }
   .gauge-pop-row .g-pct {
     min-width: 34px;
   }
@@ -114,6 +132,18 @@
     text-transform: none;
     letter-spacing: 0.04em;
     color: var(--color-faint);
+  }
+  .gauge-pop-reset.micro,
+  .gauge-pop-reset.reset-pending {
+    text-transform: none;
+    letter-spacing: 0.04em;
+    color: var(--color-muted);
+  }
+  .gauge-pop-age.micro {
+    margin: -2px 0 5px 30px;
+    text-transform: none;
+    letter-spacing: 0.04em;
+    color: var(--color-muted);
   }
   .gauge-pop-reset:last-child {
     margin-bottom: 0;
@@ -124,6 +154,9 @@
   }
   .sheet-gauge-row .gauge-pop-reset {
     margin: 0 0 6px;
+  }
+  .sheet-gauge-row .gauge-pop-age {
+    margin: -2px 0 6px;
   }
   .micro {
     font-size: var(--fs-meta);

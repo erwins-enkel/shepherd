@@ -1,6 +1,6 @@
 <script lang="ts">
   import { m } from "$lib/paraglide/messages";
-  import type { CreditWindow, ModelWeekWindow } from "$lib/types";
+  import type { CreditWindow, ModelWeekWindow, ObservedLimitWindows } from "$lib/types";
   import type { UsageProviderSnapshot } from "$lib/types";
   import { formatTokenLabel } from "$lib/format";
   import { gaugeColor, modelDisplayName, type GaugeKey } from "../usage-gauges";
@@ -17,6 +17,8 @@
     perModel,
     credits,
     codexUsage,
+    claudeAvailable,
+    observed,
     activeCompactUsageView,
     compactUsageRotating,
     overspend,
@@ -27,6 +29,7 @@
     refreshing,
     refreshError,
     onRefresh,
+    onOpenPopover,
     periodLabel,
     onusage,
     popoverOpen = $bindable(),
@@ -39,6 +42,8 @@
     perModel: ModelWeekWindow[];
     credits: CreditWindow | null;
     codexUsage: Extract<UsageProviderSnapshot, { provider: "codex"; kind: "tokens" }> | null;
+    claudeAvailable: boolean;
+    observed: ObservedLimitWindows | undefined;
     activeCompactUsageView: CompactUsageView | null;
     compactUsageRotating: boolean;
     overspend: boolean;
@@ -49,6 +54,7 @@
     refreshing: boolean;
     refreshError: boolean;
     onRefresh: () => void;
+    onOpenPopover: () => void;
     periodLabel: (k: GaugeKey) => string;
     onusage?: () => void;
     popoverOpen: boolean;
@@ -86,7 +92,47 @@
   const activeTouchLimitLabel = $derived(
     compactUsageRotating ? `${activeProviderName} · ${activeHotGaugeLabel}` : activeHotGaugeLabel,
   );
+  function gaugeValue(gauge: Gauge): string {
+    return "scrapedAt" in gauge.w && gauge.w.resetAt <= nowMs
+      ? m.topbar_usage_before_reset({ pct: gauge.w.pct })
+      : `${gauge.w.pct}%`;
+  }
+  function togglePopover() {
+    const opening = !popoverOpen;
+    popoverOpen = opening;
+    if (opening) onOpenPopover();
+  }
+  function closePopover() {
+    popoverOpen = false;
+  }
+  function openUsage() {
+    popoverOpen = false;
+    onusage?.();
+  }
 </script>
+
+{#snippet usagePopover(desktop: boolean)}
+  <TopBarUsagePopover
+    {desktop}
+    {stale}
+    {gauges}
+    {perModel}
+    {credits}
+    {codexUsage}
+    {claudeAvailable}
+    {observed}
+    {creditFill}
+    {creditColor}
+    {creditAmount}
+    {nowMs}
+    {refreshing}
+    {refreshError}
+    {onRefresh}
+    {periodLabel}
+    onClose={closePopover}
+    onOpenUsage={openUsage}
+  />
+{/snippet}
 
 {#if subscriptionOnly && !codexUsage}
   <span class="usage-sub-only micro">{m.usage_subscription_only()}</span>
@@ -106,7 +152,7 @@
           aria-haspopup="dialog"
           aria-expanded={popoverOpen}
           aria-label={activeTouchLimitLabel}
-          onclick={() => (popoverOpen = !popoverOpen)}
+          onclick={togglePopover}
         >
           {#if compactUsageRotating}<span class="g-provider micro">{activeProviderShort}</span>{/if}
           <span class="g-label micro">{activeHotGauge.label}</span>
@@ -118,7 +164,7 @@
             ></span></span
           >
           <span class="g-pct" style="color:{gaugeColor(activeHotGauge.w.pct)}"
-            >{activeHotGauge.w.pct}%</span
+            >{gaugeValue(activeHotGauge)}</span
           >
         </button>
       {:else if activeCompactUsageView.mode === "credit" || activeCompactUsageView.mode === "tokens"}
@@ -135,7 +181,7 @@
               ? m.topbar_credits_alert_aria({ amount: creditAmount })
               : `${m.topbar_credits_period()} · ${creditAmount}`
             : `${activeProviderName} · ${formatTokenLabel(activeCompactUsageView.totalTokens)}`}
-          onclick={() => (popoverOpen = !popoverOpen)}
+          onclick={togglePopover}
         >
           {#if compactUsageRotating}<span class="g-provider micro">{activeProviderShort}</span>{/if}
           {#if activeCompactUsageView.mode === "credit"}
@@ -163,7 +209,7 @@
           aria-label={`${m.usage_limits_window_week_model({
             model: modelDisplayName(activeCompactUsageView.model.model),
           })} · ${activeCompactUsageView.model.pct}%`}
-          onclick={() => (popoverOpen = !popoverOpen)}
+          onclick={togglePopover}
         >
           {#if compactUsageRotating}<span class="g-provider micro">{activeProviderShort}</span>{/if}
           <span class="g-label micro">{modelDisplayName(activeCompactUsageView.model.model)}</span>
@@ -180,29 +226,21 @@
             >{activeCompactUsageView.model.pct}%</span
           >
         </button>
+      {:else if activeCompactUsageView.mode === "empty"}
+        <button
+          class="gauge gauge-btn empty"
+          type="button"
+          aria-haspopup="dialog"
+          aria-expanded={popoverOpen}
+          aria-label={m.topbar_usage_provider_title({ provider: m.agent_provider_claude() })}
+          onclick={togglePopover}
+        >
+          <span class="g-provider micro">{m.topbar_usage_provider_short_claude()}</span>
+          <span class="g-pct empty-value">—</span>
+        </button>
       {/if}
       {#if popoverOpen}
-        <TopBarUsagePopover
-          desktop={false}
-          {stale}
-          {gauges}
-          {perModel}
-          {credits}
-          {codexUsage}
-          {creditFill}
-          {creditColor}
-          {creditAmount}
-          {nowMs}
-          {refreshing}
-          {refreshError}
-          {onRefresh}
-          {periodLabel}
-          onClose={() => (popoverOpen = false)}
-          onOpenUsage={() => {
-            popoverOpen = false;
-            onusage?.();
-          }}
-        />
+        {@render usagePopover(false)}
       {/if}
     </div>
   {/if}
@@ -216,7 +254,7 @@
       class="gauges-link gauges-toggle"
       aria-haspopup="dialog"
       aria-expanded={popoverOpen}
-      onclick={() => (popoverOpen = !popoverOpen)}
+      onclick={togglePopover}
     >
       <!-- Phrasing-only content: a <button> may not contain block elements, so the
            gauge cluster + each gauge are <span>s (display:flex via class, blockified
@@ -243,7 +281,7 @@
                     100});background:{gaugeColor(g.w.pct)}"
                 ></span></span
               >
-              <span class="g-pct" style="color:{gaugeColor(g.w.pct)}">{g.w.pct}%</span>
+              <span class="g-pct" style="color:{gaugeColor(g.w.pct)}">{gaugeValue(g)}</span>
             </span>
           {/each}
         {:else if activeCompactUsageView.mode === "model"}
@@ -265,31 +303,16 @@
               >{activeCompactUsageView.model.pct}%</span
             >
           </span>
+        {:else if activeCompactUsageView.mode === "empty"}
+          <span class="gauge empty">
+            <span class="g-provider micro">{m.topbar_usage_provider_short_claude()}</span>
+            <span class="g-pct empty-value">—</span>
+          </span>
         {/if}
       </span>
     </button>
     {#if popoverOpen}
-      <TopBarUsagePopover
-        desktop={true}
-        {stale}
-        {gauges}
-        {perModel}
-        {credits}
-        {codexUsage}
-        {creditFill}
-        {creditColor}
-        {creditAmount}
-        {nowMs}
-        {refreshing}
-        {refreshError}
-        {onRefresh}
-        {periodLabel}
-        onClose={() => (popoverOpen = false)}
-        onOpenUsage={() => {
-          popoverOpen = false;
-          onusage?.();
-        }}
-      />
+      {@render usagePopover(true)}
     {/if}
   </div>
 {/if}
@@ -373,6 +396,9 @@
   .credit-amount {
     min-width: max-content;
     white-space: nowrap;
+  }
+  .empty-value {
+    color: var(--color-faint);
   }
   .micro {
     font-size: var(--fs-meta);

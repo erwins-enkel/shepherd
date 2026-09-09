@@ -3884,5 +3884,19 @@
   "feat_classifier_usage_body": "Usage → Models now shows Autopilot classifier tokens as a separate role, including the Claude model that produced them.",
   "feat_codex_role_usage_title": "See Codex usage by role",
   "feat_codex_role_usage_body": "Expand Coding, Review, Plan gate, and other Codex roles in Usage → Models to see where each model's tokens went.",
-  "usage_models_unknown": "Unknown"
+  "usage_models_unknown": "Unknown",
+  "topbar_usage_refreshing": "Refreshing…",
+  "topbar_usage_refresh_failed": "Refresh failed. Last confirmed values remain shown.",
+  "topbar_usage_refresh_scope": "Refreshes Claude Code",
+  "topbar_usage_observed_age": "checked {age} ago",
+  "topbar_usage_observed_now": "checked just now",
+  "topbar_usage_before_reset": "{pct}% before reset",
+  "topbar_usage_reset_checking": "Reset confirmation pending…",
+  "topbar_usage_no_observation": "No provider sample yet",
+  "topbar_codex_tokens_checked_age": "token data from {age} ago",
+  "topbar_codex_tokens_checked_now": "token data from just now",
+  "topbar_codex_limits_checked_age": "limit event reported {age} ago",
+  "topbar_codex_limits_checked_now": "limit event reported just now",
+  "feat_observed_usage_limits_title": "Confirmed Claude usage samples",
+  "feat_observed_usage_limits_body": "Claude usage in the top bar now shows the latest provider-confirmed value and its age for each window. Near a 5-hour reset Shepherd checks more often, keeps the prior value clearly labelled, and shows the next countdown after confirmation."
 }

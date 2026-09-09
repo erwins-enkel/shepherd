@@ -17,19 +17,26 @@ const WINDOW_LABEL: Record<WindowKey, "5H" | "WK"> = { session5h: "5H", week: "W
 /** Below this scraped %, inverting to a cap is too noisy — keep the prior cap instead. */
 const MIN_CALIBRATION_PCT = 5;
 
-/** Weekly-window % at/above which we escalate /usage calibration cadence: close enough to the
- *  subscription cap that paid extra-credit spend becomes plausible and a daily credit snapshot is
- *  too stale to trust. */
-const CREDIT_WATCH_PCT = 90; // internal watermark for calibrateDelay; not part of the public API
-export const CREDIT_WATCH_INTERVAL_MS = 15 * 60 * 1000; // escalated cadence near the cap
-export const CALIBRATE_INTERVAL_MS = 24 * 60 * 60 * 1000; // normal daily cadence
+export const CALIBRATE_INTERVAL_MS = 5 * 60 * 1000;
+const RESET_WATCH_INTERVAL_MS = 60 * 1000;
+const RESET_WATCH_LEAD_MS = 10 * 60 * 1000;
 
-/** Delay until the next `/usage` calibration, given the latest live limits. Escalates to the
- *  watch cadence while the weekly window is near its cap so credit spend stays fresh. */
-export function calibrateDelay(limits: UsageLimits): number {
-  return (limits.week?.pct ?? 0) >= CREDIT_WATCH_PCT
-    ? CREDIT_WATCH_INTERVAL_MS
-    : CALIBRATE_INTERVAL_MS;
+/** Next probe deadline, including entry into the reset watch and the reset boundary itself. */
+export function calibrateDelay(limits: UsageLimits, now = Date.now()): number {
+  const resetAt = limits.observed?.session5h?.resetAt;
+  const watching = resetAt != null && resetAt - now <= RESET_WATCH_LEAD_MS;
+  const interval = watching ? RESET_WATCH_INTERVAL_MS : CALIBRATE_INTERVAL_MS;
+  const lastAttempt = limits.refresh?.lastAttemptAt ?? now;
+  let delay = Math.max(0, lastAttempt + interval - now);
+  if (resetAt != null) {
+    // A sample from before this boundary cannot confirm the new window. Retry at the boundary,
+    // then at most once a minute even when the provider keeps returning the expired window.
+    if (resetAt <= now && lastAttempt < resetAt) return 0;
+    for (const deadline of [resetAt - RESET_WATCH_LEAD_MS, resetAt]) {
+      if (deadline > now) delay = Math.min(delay, deadline - now);
+    }
+  }
+  return delay;
 }
 
 export interface ScrapedWindow {
@@ -69,7 +76,7 @@ function to24h(h: number, ampm?: string): number {
 /** Parse a `/usage` reset label ("9:30pm", "Jun 6, 5pm", "Jun 11 at 11pm") to a ms epoch in local time. */
 export function parseResetLabel(label: string, now: number): number | null {
   const s = label.replace(/\s+/g, "").toLowerCase();
-  let m = s.match(/^(\d{1,2})(?::(\d{2}))?(am|pm)$/);
+  let m = s.match(/^(0?[1-9]|1[0-2])(?::([0-5]\d))?(am|pm)$/);
   if (m) {
     const d = new Date(now);
     d.setHours(to24h(+m[1]!, m[3]), m[2] ? +m[2] : 0, 0, 0);
@@ -77,7 +84,7 @@ export function parseResetLabel(label: string, now: number): number | null {
     if (d.getTime() < now) d.setDate(d.getDate() + 1);
     return d.getTime();
   }
-  m = s.match(/^([a-z]{3})(\d{1,2})(?:(?:,|at)(\d{1,2})(?::(\d{2}))?(am|pm))?$/);
+  m = s.match(/^([a-z]{3})(\d{1,2})(?:(?:,|at)(0?[1-9]|1[0-2])(?::([0-5]\d))?(am|pm))?$/);
   if (m) {
     const mon = MONTHS.indexOf(m[1]!);
     if (mon < 0) return null;
@@ -272,6 +279,23 @@ export interface CapRow {
   scrapedAt: number;
 }
 
+export interface ObservedLimitWindow {
+  pct: number;
+  resetAt: number;
+  scrapedAt: number;
+}
+
+export interface UsageObservations {
+  session5h: ObservedLimitWindow | null;
+  week: ObservedLimitWindow | null;
+}
+
+export interface UsageRefreshStatus {
+  inProgress: boolean;
+  failed: boolean;
+  lastAttemptAt: number | null;
+}
+
 export interface LimitWindow {
   pct: number;
   resetAt: number;
@@ -296,6 +320,9 @@ export interface ModelWeekWindow {
   stale: boolean; // derived from scrapedAt age against MODEL_WEEK_STALE_MS
 }
 export interface UsageLimits {
+  /** Actual provider samples for display; the existing fields remain local budget estimates. */
+  observed?: UsageObservations;
+  refresh?: UsageRefreshStatus;
   session5h: LimitWindow | null;
   week: LimitWindow | null;
   perModelWeek: ModelWeekWindow[];
@@ -319,6 +346,7 @@ export type UsageProviderSnapshot =
   | {
       provider: "claude";
       kind: "limits";
+      observed?: UsageObservations;
       session5h: LimitWindow | null;
       week: LimitWindow | null;
       perModelWeek: ModelWeekWindow[];
@@ -354,18 +382,9 @@ export interface UsageProviderSource {
 // 1h, unlike the 2-week cap stale that tolerates JSONL-recomputed windows drifting.
 const CREDIT_STALE_MS = 60 * 60 * 1000;
 
-// Beyond this age the credit snapshot is treated as DEAD (extra usage was turned off): calibrate
-// runs at least daily, so a snapshot older than two calibration cycles means the `/usage` panel has
-// stopped rendering a credits section across multiple successful scrapes — the account no longer has
-// credits enabled. `limits()` drops it entirely rather than lingering a "SCRAPED Nd AGO / SNAPSHOT
-// STALE" gauge the user can't refresh away. The persisted snapshot + history are untouched, so if
-// credits are re-enabled the next scrape re-populates it and the gauge returns.
-const CREDIT_DROP_MS = 2 * CALIBRATE_INTERVAL_MS;
-
-// Per-model weekly passthrough is scrape-fresh-only too, but — unlike credits — it isn't put on
-// the near-cap 15-min watch cadence, so a 1h stale would flip it "stale" within an hour of every
-// daily calibration. Tie it to the calibration cadence, tolerant of one missed daily run.
-export const MODEL_WEEK_STALE_MS = 2 * CALIBRATE_INTERVAL_MS;
+// Keep the existing two-day retention/freshness tolerance independent of probe frequency.
+const CREDIT_DROP_MS = (2 * PERIOD_MS.week) / 7;
+export const MODEL_WEEK_STALE_MS = (2 * PERIOD_MS.week) / 7;
 
 export interface CapStore {
   getCaps(): CapRow[];
@@ -443,23 +462,45 @@ export class UsageLimitsService {
     return this._lastScrapeAt;
   }
 
+  // Do not seed observations from persisted caps: legacy cap anchors can be inferred reset times.
+  // Startup probes populate these independent samples without claiming guessed values are real.
+  private observed: UsageObservations = { session5h: null, week: null };
+  private refresh: UsageRefreshStatus = { inProgress: false, failed: false, lastAttemptAt: null };
+
   /** Scrape `/usage` and recalibrate the per-window caps from local JSONL. */
-  async calibrate(now: number): Promise<boolean> {
-    // Subscription-only: never spawn the probe under api-key auth — the /usage panel doesn't
-    // exist for API-key accounts and spawning a bare claude risks a hang on the auth prompt.
+  async calibrate(now: number, refreshIndex?: () => Promise<void>): Promise<boolean> {
     if (isApiKeyMode()) return false;
-    const raw = await this.probe.scrape();
-    if (!raw) return false;
-    this._lastScrapeAt = now; // a usable frame was scraped this run
-    const parsed = parseUsageFrame(raw, now);
-    const prior = new Map(this.caps.getCaps().map((r) => [r.window, r]));
-    let any = false;
-    for (const key of ["session5h", "week"] as WindowKey[]) {
-      if (this.calibrateWindow(key, parsed[key], prior.get(key), now)) any = true;
+    this.refresh = { inProgress: true, failed: false, lastAttemptAt: now };
+    let complete = false;
+    try {
+      if (refreshIndex) await refreshIndex();
+      const raw = await this.probe.scrape();
+      if (!raw) return false;
+      this._lastScrapeAt = now;
+      const parsed = parseUsageFrame(raw, now);
+      const prior = new Map(this.caps.getCaps().map((r) => [r.window, r]));
+      let any = false;
+      let confirmed = 0;
+      for (const key of ["session5h", "week"] as WindowKey[]) {
+        const sample = parsed[key];
+        // A past time-only label is parsed as tomorrow. That is not a confirmed new 5h
+        // window. Allow one minute for label rounding and the probe's startup/capture delay.
+        if (sample?.resetAt != null && sample.resetAt - now <= PERIOD_MS[key] + 60_000) {
+          this.observed = {
+            ...this.observed,
+            [key]: { pct: sample.pct, resetAt: sample.resetAt, scrapedAt: now },
+          };
+          confirmed++;
+        }
+        if (this.calibrateWindow(key, sample, prior.get(key), now)) any = true;
+      }
+      complete = confirmed === 2;
+      if (this.persistCredit(parsed, now)) any = true;
+      if (this.persistModelWeek(parsed, now)) any = true;
+      return any;
+    } finally {
+      this.refresh = { ...this.refresh, inProgress: false, failed: !complete };
     }
-    if (this.persistCredit(parsed, now)) any = true;
-    if (this.persistModelWeek(parsed, now)) any = true;
-    return any;
   }
 
   /**
@@ -612,6 +653,7 @@ export class UsageLimitsService {
     const claude: UsageProviderSnapshot = {
       provider: "claude",
       kind: "limits",
+      observed: this.observed,
       session5h,
       week,
       perModelWeek,
@@ -632,6 +674,8 @@ export class UsageLimitsService {
       }),
     ];
     return {
+      observed: this.observed,
+      refresh: this.refresh,
       session5h,
       week,
       perModelWeek,

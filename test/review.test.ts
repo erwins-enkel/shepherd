@@ -913,29 +913,9 @@ test("an unapproved plan records no planDrift even when the critic volunteers on
   expect(spawnOutcomes.at(-1)!.planDrift).toBeNull();
 });
 
-test("under argv pressure the EDITED plan file gives way before the approved snapshot", async () => {
-  const {
-    deps: d,
-    started,
-    notices,
-  } = makeDeps(
-    { readPlan: () => `## Goal\nrewritten\n${"y".repeat(200_000)}` },
-    {
-      planGate: {
-        sessionId: "s1",
-        approved: true,
-        plan: `## Goal\napproved\n${"x".repeat(60_000)}`,
-      },
-    },
-  );
-  await new ReviewService(d as any).consider(session(), OPEN_GREEN);
-  expect(started).toHaveLength(1);
-  const detail = notices.get("s1:review")!.detail as string;
-  expect(detail).toContain("planCurrent");
-  expect(detail).not.toContain("plan (");
-  // The block the verdict is formed against survived whole.
-  expect(started[0]!.argv.at(-1)!).toContain("x".repeat(60_000));
-});
+// The clamp-ORDER half of provenance (the edited file gives way before the approved snapshot)
+// lives with the other #1944 budget tests below — it needs their Linux guard, since
+// `argvElementLimit` is Infinity elsewhere and nothing clamps at all.
 
 // ── #2155 plan drift: measured, persisted, and inert ────────────────────────────────────────────
 
@@ -4355,6 +4335,33 @@ const bigPlan1944 = (n: number) =>
   "\n## Out of scope\n\n- spill\n\n## Testing seams\n\n- the seam\n\n## Success criteria\n\n1. green\n";
 
 const onLinux1944 = process.platform === "linux";
+
+test.skipIf(!onLinux1944)(
+  "under argv pressure the EDITED plan file gives way before the approved snapshot",
+  async () => {
+    const {
+      deps: d,
+      started,
+      notices,
+    } = makeDeps(
+      { readPlan: () => `## Goal\nrewritten\n${"y".repeat(200_000)}` },
+      {
+        planGate: {
+          sessionId: "s1",
+          approved: true,
+          plan: `## Goal\napproved\n${"x".repeat(60_000)}`,
+        },
+      },
+    );
+    await new ReviewService(d as any).consider(session(), OPEN_GREEN);
+    expect(started).toHaveLength(1);
+    const detail = notices.get("s1:review")!.detail as string;
+    expect(detail).toContain("planCurrent");
+    expect(detail).not.toContain("plan (");
+    // The block the verdict is formed against survived whole.
+    expect(started[0]!.argv.at(-1)!).toContain("x".repeat(60_000));
+  },
+);
 
 test.skipIf(!onLinux1944)(
   "#1944 an oversized plan is clamped and the critic spawn fits",

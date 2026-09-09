@@ -146,7 +146,19 @@ jobs:
           bun test ./test
 
       - name: Install Playwright Chromium (ui browser tests)
-        run: cd ui && bunx playwright install --with-deps chromium
+        # `--with-deps` shells out to `apt-get update`, which refreshes EVERY source configured on
+        # the runner image — including Google's Chrome repo. We need none of it: Chromium itself
+        # comes from Playwright's own CDN, and the deps `--with-deps` installs are Ubuntu system
+        # libraries. But apt exits non-zero when ANY index fails, so a broken third-party index
+        # takes the whole job down: on 2026-09-09 that repo served a `Packages.gz` that did not
+        # match the hash its own `Release` advertised, and every run failed on `Hash Sum mismatch`
+        # for hours, deterministically — a re-run could not clear it.
+        #
+        # So drop the source we never use before apt reads it. `-f` + the glob keep this a no-op on
+        # an image that stops shipping Chrome, or that switches to the deb822 `.sources` spelling.
+        run: |
+          sudo rm -f /etc/apt/sources.list.d/google-chrome*
+          cd ui && bunx playwright install --with-deps chromium
 
       - name: Test (ui)
         run: cd ui && bun run test

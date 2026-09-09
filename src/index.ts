@@ -52,9 +52,9 @@ import { EmptyDiffError, type GitState } from "./forge/types";
 import { parseManualSteps } from "./manual-steps";
 import { annotateHandoff } from "./repo-roles";
 import { AccountUsageIndex, SessionUsageRollup } from "./usage";
-import { UsageLimitsService, calibrateDelay, type UsageLimits } from "./usage-limits";
+import { UsageLimitsService } from "./usage-limits";
 import { CodexUsageProvider, latestCodexStateDb, readCodexModelUsage } from "./codex-usage";
-import { singleFlight } from "./single-flight";
+import { UsageCalibrationCoordinator } from "./usage-calibration";
 import { HerdrUsageProbe } from "./usage-probe";
 import { sweepStaging, STAGING_TTL_MS } from "./uploads";
 import { validateRoot } from "./dirs";
@@ -2576,47 +2576,17 @@ deferredStarts.push(() => {
   );
 });
 
-// calibrate the per-window caps daily (and once on startup) by scraping `/usage`.
-// The `/usage` probe is a single ephemeral agent, so concurrent calls must never double-spawn it.
-// `singleFlight` coalesces them onto one run AND — unlike the old early-return-stale guard — makes
-// a manual refresh landing mid-scrape AWAIT that scrape's completed result instead of returning the
-// stale pre-scrape snapshot (the "refresh looks fine but stays stale" bug).
-const runCalibrate = async (): Promise<{ limits: UsageLimits; scraped: boolean }> => {
-  if (maintenance.active) return { limits: usageLimits.limits(Date.now()), scraped: false };
-  const now = Date.now();
-  try {
-    await accountIndex.refresh(now);
-    await usageLimits.calibrate(now); // boolean ignored — emit/fresh keys off the scrape, not a cap-write
-  } catch (err) {
-    console.warn("[usage] calibration failed:", err);
-  }
-  // Emit on ANY usable frame (not just a cap-write) so a fresh scrape always pushes the updated
-  // scrapedAt/stale to clients — even the degenerate "frame but nothing to write" case. Safe: the
-  // 30s recompute tick already emits unconditionally and both usage:limits push consumers dedup.
-  const scraped = usageLimits.lastScrapeAt === now;
-  if (scraped) events.emit("usage:limits", usageLimits.limits(Date.now()));
-  return { limits: usageLimits.limits(Date.now()), scraped };
-};
-const calibrate = singleFlight(runCalibrate);
-// self-rescheduling so the cadence escalates while the weekly window nears its cap (keeping
-// paid extra-credit spend fresh) and relaxes back to daily once it's clear of the cap.
-const scheduleCalibrate = () => {
-  setTimeout(
-    () => {
-      // `finally`, not a plain await-then-reschedule: a rejected calibrate (the `/usage` probe
-      // can fail) must NOT kill the self-rescheduling loop and silently stop calibration forever.
-      void calibrate()
-        .catch((err) => console.warn("[usage] calibrate failed:", err))
-        .finally(() => scheduleCalibrate());
-    },
-    calibrateDelay(usageLimits.limits(Date.now())),
-  );
-};
-deferredStarts.push(() => {
-  setTimeout(timerTask("usage", calibrate), 3_000);
-  scheduleCalibrate();
+// One coordinator owns the boot probe, reset-aware cadence, manual refreshes, and the sole timer.
+// Account indexing runs inside UsageLimitsService.calibrate's refresh lifecycle so an index failure
+// is published as a failed refresh just like a probe failure.
+const usageCalibration = new UsageCalibrationCoordinator({
+  usage: usageLimits,
+  refreshIndex: (now) => accountIndex.refresh(now),
+  publish: (limits) => events.emit("usage:limits", limits),
+  maintenanceActive: () => maintenance.active,
 });
-const refreshUsage = () => calibrate();
+deferredStarts.push(() => usageCalibration.start());
+const refreshUsage = () => usageCalibration.refresh();
 
 // watch origin/main for new commits and push the result to clients; the badge in
 // the UI keys off `behind > 0`, so it only appears when main has moved ahead.

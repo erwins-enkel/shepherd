@@ -10,11 +10,13 @@
   import { displayStatus } from "$lib/display-status";
   import {
     compactUsageViews as compactUsageViewList,
+    claudeDisplayGauges,
+    claudeObservedWindows,
     codexTokenUsage,
-    gaugeList,
     hotterGauge,
     modelWeekList,
     overspending,
+    shouldRefreshObservedOnOpen,
     type CompactUsageView,
     type GaugeKey,
   } from "./usage-gauges";
@@ -282,19 +284,27 @@
   // Desktop (fine pointer) shows both windows with hover tooltips. Touch has no
   // hover, so it collapses to the window closest to its cap and exposes the full
   // breakdown — including reset times — through a tap popover instead.
-  const gauges = $derived(gaugeList(limits));
+  const gauges = $derived(claudeDisplayGauges(limits));
   const hotter = $derived(hotterGauge(limits));
   // Per-model weekly passthrough sub-limits (e.g. Fable) — their own bars, never in gaugeList/hotter.
   const perModel = $derived(modelWeekList(limits));
   // api-key auth mode: subscription usage windows carry no data. Fail closed —
   // render an explicit note instead of empty/zero meters.
   const subscriptionOnly = $derived(limits?.subscriptionOnly === true);
+  const observed = $derived(claudeObservedWindows(limits));
 
   // Paid extra-credit overage. Rendered as a distinct CR element (NOT a gaugeList
   // entry — its window shape carries no credit fields, and a 0%-pct credit gauge
   // must never become the "hotter" collapsed gauge). Null → render nothing.
   const credits = $derived(limits?.credits ?? null);
   const codexUsage = $derived(codexTokenUsage(limits));
+  const claudeDisplayStale = $derived(observed === undefined ? (limits?.stale ?? false) : false);
+  const claudeAvailable = $derived(
+    gauges.length > 0 ||
+      perModel.length > 0 ||
+      !!credits ||
+      (observed !== undefined && !codexUsage),
+  );
   const overspend = $derived(overspending(limits));
   // Bar fill is spent/cap (NOT pct — pct rounds to 0 while money is already spent).
   const creditFill = $derived(
@@ -325,10 +335,11 @@
   const compactUsageViews = $derived(
     compactUsageViewList({
       gauges,
-      claudeStale: limits?.stale ?? false,
+      claudeStale: claudeDisplayStale,
       perModel,
       credits,
       codexUsage,
+      claudeAvailable,
     }),
   );
   const rotatingCompactUsageViews = $derived(
@@ -365,18 +376,37 @@
   // Refresh: POST /api/usage/refresh; the server's calibrate emit bridges back to the
   // client `ln` WS frame, so the gauge self-updates — we ignore the returned value.
   // Fail closed: a rejected refresh sets an error flag so it never looks like success.
-  let refreshing = $state(false);
-  let refreshError = $state(false);
+  let localRefreshing = $state(false);
+  let localRefreshError = $state(false);
+  let seenServerAttemptAt = $state<number | null>(null);
+  const refreshing = $derived(localRefreshing || limits?.refresh?.inProgress === true);
+  const refreshError = $derived(localRefreshError || limits?.refresh?.failed === true);
+  $effect(() => {
+    const status = limits?.refresh;
+    if (!status) return;
+    if (
+      status.inProgress ||
+      (status.lastAttemptAt !== seenServerAttemptAt && status.failed === false)
+    ) {
+      localRefreshError = false;
+    }
+    seenServerAttemptAt = status.lastAttemptAt;
+  });
   async function doRefresh() {
     if (refreshing) return;
-    refreshing = true;
-    refreshError = false;
+    localRefreshing = true;
+    localRefreshError = false;
     try {
       await refreshUsage();
     } catch {
-      refreshError = true;
+      localRefreshError = true;
     } finally {
-      refreshing = false;
+      localRefreshing = false;
+    }
+  }
+  function refreshOnStaleOpen() {
+    if (claudeAvailable && !subscriptionOnly && shouldRefreshObservedOnOpen(limits, nowMs)) {
+      void doRefresh();
     }
   }
 
@@ -564,7 +594,7 @@
     // popoverOpen now, so the only force-close is "no usage windows AND no credits AND no
     // per-model bar" (a non-empty `gauges` implies `hotter`, so this also covers the touch
     // collapse case). Keep `perModel` here or a Fable-only snapshot would force-close its own popover.
-    if (!gauges.length && !credits && !codexUsage && !perModel.length) popoverOpen = false;
+    if (!claudeAvailable && !codexUsage) popoverOpen = false;
   });
 
   // The gear adapts to herd state. When the herd is idle (haltable === 0) a click
@@ -778,11 +808,13 @@
       <TopBarUsage
         {subscriptionOnly}
         {touch}
-        stale={limits?.stale ?? false}
+        stale={claudeDisplayStale}
         {gauges}
         {perModel}
         {credits}
         {codexUsage}
+        {claudeAvailable}
+        {observed}
         {activeCompactUsageView}
         {compactUsageRotating}
         {overspend}
@@ -793,6 +825,7 @@
         {refreshing}
         {refreshError}
         onRefresh={doRefresh}
+        onOpenPopover={refreshOnStaleOpen}
         {periodLabel}
         onusage={chooseUsage}
         bind:popoverOpen

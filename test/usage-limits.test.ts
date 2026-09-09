@@ -7,7 +7,6 @@ import {
   parseMonthlyReset,
   parseCredits,
   calibrateDelay,
-  CREDIT_WATCH_INTERVAL_MS,
   CALIBRATE_INTERVAL_MS,
   type UsageLimits,
   type UsageProjection,
@@ -628,19 +627,19 @@ const mkLimits = (weekPct: number | null): UsageLimits => ({
   subscriptionOnly: false,
 });
 
-test("calibrateDelay: week pct above watch threshold escalates cadence", () => {
-  expect(calibrateDelay(mkLimits(95))).toBe(CREDIT_WATCH_INTERVAL_MS);
+test("calibrateDelay: high weekly usage still receives regular five-minute probes", () => {
+  expect(calibrateDelay(mkLimits(95))).toBe(CALIBRATE_INTERVAL_MS);
 });
 
-test("calibrateDelay: week pct exactly at threshold escalates (>= boundary)", () => {
-  expect(calibrateDelay(mkLimits(90))).toBe(CREDIT_WATCH_INTERVAL_MS);
+test("calibrateDelay: weekly threshold does not replace the 5h reset schedule", () => {
+  expect(calibrateDelay(mkLimits(90))).toBe(CALIBRATE_INTERVAL_MS);
 });
 
-test("calibrateDelay: week pct below threshold stays daily", () => {
+test("calibrateDelay: week pct below threshold uses the regular cadence", () => {
   expect(calibrateDelay(mkLimits(50))).toBe(CALIBRATE_INTERVAL_MS);
 });
 
-test("calibrateDelay: null week window stays daily", () => {
+test("calibrateDelay: null week window uses the regular cadence", () => {
   expect(calibrateDelay(mkLimits(null))).toBe(CALIBRATE_INTERVAL_MS);
 });
 
@@ -861,4 +860,202 @@ test("projections: no-cap window skipped / empty caps returns []", () => {
     new MemCredits(),
   );
   expect(empty.projections(NOW)).toEqual([]);
+});
+
+// Observations are display data; local estimates remain available to budget automation.
+test("observations retain the actual 5h sample through local growth and reset", async () => {
+  const raw =
+    "Current session\n87% used\nResets 9:30pm (x)\nCurrent week\n7% used\nResets Jun 6 (x)";
+  const svc = new UsageLimitsService(
+    fakeIndex(100),
+    new MemCaps(),
+    new StubProbe(raw),
+    new MemCredits(),
+  );
+  await svc.calibrate(NOW);
+  const observed = svc.limits(NOW).observed!;
+  expect(observed.session5h?.pct).toBe(87);
+  expect(observed.session5h?.scrapedAt).toBe(NOW);
+  const after = svc.limits(observed.session5h!.resetAt + 1);
+  expect(after.observed).toEqual(observed);
+  expect(after.session5h!.resetAt).toBeGreaterThan(observed.session5h!.resetAt);
+});
+
+test("observations show a first low percentage without requiring a calibrated cap", async () => {
+  const svc = new UsageLimitsService(
+    fakeIndex(0),
+    new MemCaps(),
+    new StubProbe("Current session\n4% used\nResets 9:30pm (x)"),
+    new MemCredits(),
+  );
+  await svc.calibrate(NOW);
+  expect(svc.limits(NOW).session5h).toBeNull();
+  expect(svc.limits(NOW).observed?.session5h?.pct).toBe(4);
+});
+
+test("partial or failed scrapes cannot refresh another window or confirm a guessed reset", async () => {
+  let raw: string | null =
+    "Current session\n87% used\nResets 9:30pm (x)\nCurrent week\n7% used\nResets Jun 6 (x)";
+  const svc = new UsageLimitsService(
+    fakeIndex(100),
+    new MemCaps(),
+    { scrape: async () => raw },
+    new MemCredits(),
+  );
+  await svc.calibrate(NOW);
+  const first = svc.limits(NOW).observed!;
+  raw = "Current session\n4% used\nResets someday (x)\nCurrent week\n8% used\nResets Jun 6 (x)";
+  await svc.calibrate(NOW + 1000);
+  const partial = svc.limits(NOW + 1000);
+  expect(partial.observed?.session5h).toEqual(first.session5h);
+  expect(partial.observed?.week?.scrapedAt).toBe(NOW + 1000);
+  expect(partial.refresh?.failed).toBe(true);
+  raw = null;
+  await svc.calibrate(NOW + 2000);
+  expect(svc.limits(NOW + 2000).observed).toEqual(partial.observed);
+  expect(svc.limits(NOW + 2000).refresh).toEqual({
+    inProgress: false,
+    failed: true,
+    lastAttemptAt: NOW + 2000,
+  });
+});
+
+test("refresh status remains busy until the probe finishes", async () => {
+  let finish!: (raw: string | null) => void;
+  const svc = new UsageLimitsService(
+    fakeIndex(0),
+    new MemCaps(),
+    {
+      scrape: () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    },
+    new MemCredits(),
+  );
+  const pending = svc.calibrate(NOW);
+  expect(svc.limits(NOW).refresh?.inProgress).toBe(true);
+  finish(null);
+  await pending;
+  expect(svc.limits(NOW).refresh?.inProgress).toBe(false);
+});
+
+test("calibrateDelay uses five minutes normally and one minute near the 5h reset regardless of week", () => {
+  const make = (resetAt: number, lastAttemptAt = NOW) => ({
+    ...mkLimits(7),
+    observed: { session5h: { pct: 87, resetAt, scrapedAt: NOW }, week: null },
+    refresh: { inProgress: false, failed: false, lastAttemptAt },
+  });
+  expect(calibrateDelay(make(NOW + 30 * 60_000), NOW)).toBe(5 * 60_000);
+  expect(calibrateDelay(make(NOW + 8 * 60_000), NOW)).toBe(60_000);
+  expect(calibrateDelay(make(NOW + 11 * 60_000), NOW)).toBe(60_000);
+  expect(calibrateDelay(make(NOW + 20_000), NOW)).toBe(20_000);
+  expect(calibrateDelay(make(NOW, NOW - 60_000), NOW)).toBe(0);
+  expect(calibrateDelay(make(NOW, NOW), NOW)).toBe(60_000);
+  expect(calibrateDelay(make(NOW - 60_000, NOW), NOW)).toBe(60_000);
+});
+
+test("a confirmed new window replaces percent and reset together, including a value below calibration threshold", async () => {
+  let raw = "Current session\n87% used\nResets 9:30pm (x)\nCurrent week\n7% used\nResets Jun 6 (x)";
+  const svc = new UsageLimitsService(
+    fakeIndex(100),
+    new MemCaps(),
+    { scrape: async () => raw },
+    new MemCredits(),
+  );
+  await svc.calibrate(NOW);
+  const previous = svc.limits(NOW).observed!.session5h!;
+  raw = "Current session\n4% used\nResets 10:30pm (x)\nCurrent week\n7% used\nResets Jun 6 (x)";
+  await svc.calibrate(NOW + 1000);
+  const limits = svc.limits(NOW + 1000);
+  expect(limits.observed?.session5h).toEqual({
+    pct: 4,
+    resetAt: previous.resetAt + 3600_000,
+    scrapedAt: NOW + 1000,
+  });
+  expect(limits.providers?.[0]).toMatchObject({ provider: "claude", observed: limits.observed });
+  expect(limits.refresh?.failed).toBe(false);
+  // The display sample is separate from the existing local budget estimate.
+  expect(limits.session5h?.pct).toBeGreaterThan(4);
+});
+
+test("a thrown probe clears busy state and leaves observed values untouched", async () => {
+  const svc = new UsageLimitsService(
+    fakeIndex(0),
+    new MemCaps(),
+    {
+      scrape: async () => {
+        throw new Error("unavailable");
+      },
+    },
+    new MemCredits(),
+  );
+  await expect(svc.calibrate(NOW)).rejects.toThrow("unavailable");
+  expect(svc.limits(NOW).refresh).toEqual({ inProgress: false, failed: true, lastAttemptAt: NOW });
+  expect(svc.limits(NOW).observed).toEqual({ session5h: null, week: null });
+});
+
+test("index refresh failure is exposed without starting a probe", async () => {
+  let probes = 0;
+  const svc = new UsageLimitsService(
+    fakeIndex(0),
+    new MemCaps(),
+    {
+      scrape: async () => {
+        probes++;
+        return null;
+      },
+    },
+    new MemCredits(),
+  );
+  await expect(
+    svc.calibrate(NOW, async () => {
+      throw new Error("index unavailable");
+    }),
+  ).rejects.toThrow("index unavailable");
+  expect(probes).toBe(0);
+  expect(svc.limits(NOW).refresh).toEqual({ inProgress: false, failed: true, lastAttemptAt: NOW });
+});
+
+test("an unchanged provider frame after reset cannot confirm tomorrow as a new 5h window", async () => {
+  const before = new Date(2026, 4, 30, 21, 29).getTime();
+  const raw =
+    "Current session\n87% used\nResets 9:30pm (x)\nCurrent week\n7% used\nResets Jun 6 (x)";
+  const svc = new UsageLimitsService(
+    fakeIndex(100),
+    new MemCaps(),
+    new StubProbe(raw),
+    new MemCredits(),
+  );
+  await svc.calibrate(before);
+  const previous = svc.limits(before).observed!.session5h!;
+  expect(previous.resetAt).toBe(before + 60_000);
+  await svc.calibrate(before + 2 * 60_000);
+  const after = svc.limits(before + 2 * 60_000);
+  expect(after.observed?.session5h).toEqual(previous);
+  expect(after.refresh?.failed).toBe(true);
+  expect(calibrateDelay(after, before + 2 * 60_000)).toBe(60_000);
+});
+
+test("malformed reset clock labels do not normalize into confirmed timestamps", () => {
+  for (const label of ["0pm", "13pm", "9:60pm", "Jun 6, 13pm", "Jun 6, 9:60pm"]) {
+    expect(parseResetLabel(label, NOW)).toBeNull();
+  }
+});
+
+test("observations tolerate minute-resolution reset labels at the start of a new window", async () => {
+  const now = new Date(2026, 4, 30, 16, 29, 30).getTime();
+  const raw = "Current session\n0% used\nResets 9:30pm (x)";
+  const svc = new UsageLimitsService(
+    fakeIndex(0),
+    new MemCaps(),
+    new StubProbe(raw),
+    new MemCredits(),
+  );
+  await svc.calibrate(now);
+  expect(svc.limits(now).observed?.session5h).toEqual({
+    pct: 0,
+    resetAt: now + 5 * 3600_000 + 30_000,
+    scrapedAt: now,
+  });
 });

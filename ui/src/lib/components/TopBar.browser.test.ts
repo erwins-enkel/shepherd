@@ -1434,7 +1434,20 @@ describe("TopBar — CR extra-credit gauge", () => {
       stale: false,
       calibratedAt: null,
       subscriptionOnly: false,
+      observed: { session5h: null, week: null },
       providers: [
+        {
+          provider: "claude",
+          kind: "limits",
+          session5h: null,
+          week: null,
+          perModelWeek: [],
+          credits: null,
+          stale: false,
+          calibratedAt: null,
+          subscriptionOnly: false,
+          observed: { session5h: null, week: null },
+        },
         {
           provider: "codex",
           kind: "tokens",
@@ -1484,6 +1497,7 @@ describe("TopBar — CR extra-credit gauge", () => {
           stale,
           session5h: windows ? { pct: 9, resetAt: 1_700_014_400_000 } : null,
           week: windows ? { pct: 1, resetAt: 1_700_600_000_000 } : null,
+          rateLimitLatestEventAt: windows ? 1_700_000_000_000 - 2 * 60_000 : null,
         },
       ],
     };
@@ -1733,6 +1747,13 @@ describe("TopBar — CR extra-credit gauge", () => {
     expect(text, "codex limits fallback").toContain(m.topbar_codex_limits_unavailable());
     expect(text, "5H token row").toContain(m.topbar_tokens_window({ period: "5H" }));
     expect(text, "weekly token row").toContain(m.topbar_tokens_window({ period: "WK" }));
+    expect(text, "Codex token snapshot has its own age").toContain(
+      m.topbar_codex_tokens_checked_now(),
+    );
+    expect(text, "empty Claude observation does not leak into Codex-only UI").not.toContain(
+      m.topbar_usage_no_observation(),
+    );
+    expect(pop!.querySelector(".usage-refresh"), "Codex-only has no Claude refresh").toBeNull();
   });
 
   it("rotates desktop compact usage from Claude to Codex limit gauges", async () => {
@@ -1759,6 +1780,9 @@ describe("TopBar — CR extra-credit gauge", () => {
     const text = pop!.textContent ?? "";
     expect(text, "full popover still has Claude").toContain(m.agent_provider_claude());
     expect(text, "full popover still has Codex").toContain(m.agent_provider_codex());
+    expect(text, "Codex limit event carries its own age").toContain(
+      m.topbar_codex_limits_checked_age({ age: "2m" }),
+    );
   });
 
   it("does not restart compact usage rotation on live percentage updates", async () => {
@@ -1897,6 +1921,7 @@ describe("TopBar — CR extra-credit gauge", () => {
   });
 
   it("mobile sheet: codex-only without rate limits explains the token-only fallback", async () => {
+    vi.mocked(refreshUsage).mockClear();
     await page.viewport(390, 800);
     document.body.style.width = "390px";
     render(TopBar, {
@@ -1919,12 +1944,230 @@ describe("TopBar — CR extra-credit gauge", () => {
     expect(text, "codex token rows remain visible").toContain(
       m.topbar_tokens_window({ period: "5H" }),
     );
+    expect(
+      sheet!.querySelector(".usage-refresh"),
+      "Codex-only mobile has no Claude refresh",
+    ).toBeNull();
+    expect(refreshUsage, "opening Codex-only details does not probe Claude").not.toHaveBeenCalled();
+  });
+
+  it("shows observed Claude values in both the compact top bar and per-window detail", async () => {
+    const now = 1_700_000_000_000;
+    const observed: UsageLimits = {
+      ...fullLimits,
+      observed: {
+        session5h: { pct: 4, resetAt: now + 4 * 60 * 60_000, scrapedAt: now - 20_000 },
+        week: { pct: 7, resetAt: now + 2 * 24 * 60 * 60_000, scrapedAt: now - 2 * 60_000 },
+      },
+    };
+    const hud = await renderDesktop(observed);
+    const toggle = hud.querySelector<HTMLElement>(".gauges-toggle");
+    expect(toggle!.textContent ?? "", "compact uses observed 5h value").toContain("4%");
+    expect(toggle!.textContent ?? "", "compact uses observed weekly value").toContain("7%");
+    expect(toggle!.textContent ?? "", "computed estimate stays internal").not.toContain("88%");
+
+    openDesktopPopover(hud);
+    await nextFrame();
+    const rows = hud.querySelectorAll<HTMLElement>(".gauge-pop-claude .gp-window");
+    expect(rows[0]?.textContent ?? "", "5h carries its own fresh timestamp").toContain(
+      m.topbar_usage_observed_now(),
+    );
+    expect(rows[1]?.textContent ?? "", "week carries its independent older timestamp").toContain(
+      m.topbar_usage_observed_age({ age: "2m" }),
+    );
+  });
+
+  it("keeps an expired observed percentage labelled as pre-reset without a countdown", async () => {
+    const now = 1_700_000_000_000;
+    const observed: UsageLimits = {
+      ...fullLimits,
+      observed: {
+        session5h: { pct: 87, resetAt: now - 1, scrapedAt: now - 60_000 },
+        week: { pct: 7, resetAt: now + 2 * 24 * 60 * 60_000, scrapedAt: now - 60_000 },
+      },
+    };
+    const hud = await renderDesktop(observed);
+    expect(
+      hud.querySelector(".gauges-toggle")?.textContent ?? "",
+      "compact value is qualified",
+    ).toContain(m.topbar_usage_before_reset({ pct: 87 }));
+
+    openDesktopPopover(hud);
+    await nextFrame();
+    const row = hud.querySelector<HTMLElement>(".gauge-pop-claude .gp-window");
+    expect(row!.textContent ?? "", "detail value is qualified").toContain(
+      m.topbar_usage_before_reset({ pct: 87 }),
+    );
+    expect(row!.textContent ?? "", "reset awaits provider confirmation").toContain(
+      m.topbar_usage_reset_checking(),
+    );
+    expect(
+      row!.querySelector(".reset-pending"),
+      "pending state replaces reset countdown",
+    ).not.toBeNull();
+  });
+
+  it("renders no observations and server-owned refresh progress", async () => {
+    const hud = await renderDesktop({
+      ...fullLimits,
+      observed: { session5h: null, week: null },
+      refresh: { inProgress: true, failed: false, lastAttemptAt: 1_700_000_000_000 },
+    });
+    const toggle = hud.querySelector<HTMLButtonElement>(".gauges-toggle");
+    expect(toggle, "empty observed Claude state remains openable").not.toBeNull();
+    toggle!.click();
+    await nextFrame();
+    const pop = hud.querySelector<HTMLElement>(".gauge-pop-desk");
+    expect(pop!.textContent ?? "", "empty state is explicit").toContain(
+      m.topbar_usage_no_observation(),
+    );
+    const refresh = pop!.querySelector<HTMLButtonElement>(".usage-refresh");
+    expect(refresh!.disabled, "server progress disables overlapping refreshes").toBe(true);
+    expect(refresh!.textContent ?? "", "server progress is visible").toContain(
+      m.topbar_usage_refreshing(),
+    );
+  });
+
+  it("marks one missing observed window without borrowing the other window's age", async () => {
+    const now = 1_700_000_000_000;
+    const hud = await renderDesktop({
+      ...fullLimits,
+      observed: {
+        session5h: null,
+        week: { pct: 7, resetAt: now + 24 * 60 * 60_000, scrapedAt: now - 2 * 60_000 },
+      },
+    });
+    openDesktopPopover(hud);
+    await nextFrame();
+    const rows = hud.querySelectorAll<HTMLElement>(".gauge-pop-claude .gp-window");
+    expect(rows, "both main windows retain a row").toHaveLength(2);
+    expect(rows[0]?.textContent ?? "", "missing 5h is explicit").toContain(
+      m.topbar_usage_no_observation(),
+    );
+    expect(rows[0]?.textContent ?? "", "missing 5h has no borrowed age").not.toContain("2m");
+    expect(rows[1]?.textContent ?? "", "weekly sample keeps its own age").toContain(
+      m.topbar_usage_observed_age({ age: "2m" }),
+    );
+  });
+
+  it("surfaces server refresh failure while retaining observed values", async () => {
+    const now = 1_700_000_000_000;
+    const hud = await renderDesktop({
+      ...fullLimits,
+      observed: {
+        session5h: { pct: 42, resetAt: now + 60 * 60_000, scrapedAt: now - 60_000 },
+        week: { pct: 9, resetAt: now + 24 * 60 * 60_000, scrapedAt: now - 60_000 },
+      },
+      refresh: { inProgress: false, failed: true, lastAttemptAt: now },
+    });
+    openDesktopPopover(hud);
+    await nextFrame();
+    const pop = hud.querySelector<HTMLElement>(".gauge-pop-desk");
+    expect(pop!.textContent ?? "", "old provider value remains visible").toContain("42%");
+    const error = pop!.querySelector<HTMLElement>(".usage-refresh-error");
+    expect(error?.getAttribute("role"), "server failure is announced").toBe("alert");
+    expect(error?.textContent ?? "", "failure explains retained values").toContain(
+      m.topbar_usage_refresh_failed(),
+    );
+  });
+
+  it("refreshes Claude when opening a popover with an old observed window", async () => {
+    vi.mocked(refreshUsage).mockClear();
+    const now = 1_700_000_000_000;
+    const hud = await renderDesktop({
+      ...fullLimits,
+      observed: {
+        session5h: { pct: 42, resetAt: now + 60 * 60_000, scrapedAt: now - 6 * 60_000 },
+        week: { pct: 9, resetAt: now + 24 * 60 * 60_000, scrapedAt: now - 10_000 },
+      },
+    });
+
+    openDesktopPopover(hud);
+    await vi.waitFor(() => {
+      expect(refreshUsage).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("puts usage details at lower left and Claude refresh at lower right", async () => {
+    const hud = await renderDesktop(fullLimits);
+    openDesktopPopover(hud);
+    await nextFrame();
+    const actions = hud.querySelector<HTMLElement>(".usage-footer-actions");
+    expect(actions, "shared footer actions render").not.toBeNull();
+    expect(actions!.firstElementChild?.classList.contains("gauge-pop-link")).toBe(true);
+    expect(actions!.lastElementChild?.querySelector(".usage-refresh")).not.toBeNull();
+  });
+
+  it("keeps the empty Claude popover open as server progress becomes a failure", async () => {
+    await page.viewport(1436, 900);
+    document.body.style.width = "1436px";
+    const empty: UsageLimits = {
+      ...fullLimits,
+      session5h: null,
+      week: null,
+      observed: { session5h: null, week: null },
+      refresh: { inProgress: true, failed: false, lastAttemptAt: 1_700_000_000_000 },
+    };
+    const { component } = await render(TopBarLimitsHarness, {
+      nowMs: 1_700_000_000_000,
+      connected: true,
+      ...FLAGS.desktop,
+      ...sessionsProp(0),
+      initialLimits: empty,
+    });
+    document.querySelector<HTMLButtonElement>(".gauges-toggle")!.click();
+    await nextFrame();
+    expect(document.querySelector(".gauge-pop-desk"), "empty popover opens").not.toBeNull();
+
+    component.setLimits({
+      ...empty,
+      refresh: { inProgress: false, failed: true, lastAttemptAt: 1_700_000_000_001 },
+    });
+    await vi.waitFor(() => {
+      const pop = document.querySelector<HTMLElement>(".gauge-pop-desk");
+      expect(pop, "failure does not close the empty popover").not.toBeNull();
+      expect(pop!.querySelector(".usage-refresh-error"), "failure remains visible").not.toBeNull();
+    });
+  });
+
+  it("clears a local request error when a newer server refresh succeeds", async () => {
+    vi.mocked(refreshUsage).mockClear();
+    vi.mocked(refreshUsage).mockRejectedValueOnce(new Error("offline"));
+    await page.viewport(1436, 900);
+    document.body.style.width = "1436px";
+    const props = {
+      nowMs: 1_700_000_000_000,
+      connected: true,
+      ...FLAGS.desktop,
+      ...sessionsProp(0),
+    };
+    const { rerender } = await render(TopBar, { ...props, limits: fullLimits });
+    const hud = document.querySelector<HTMLElement>(".hud")!;
+    openDesktopPopover(hud);
+    await nextFrame();
+    hud.querySelector<HTMLButtonElement>(".usage-refresh")!.click();
+    await vi.waitFor(() => expect(hud.querySelector(".usage-refresh-error")).not.toBeNull());
+
+    await rerender({
+      ...props,
+      limits: {
+        ...fullLimits,
+        refresh: { inProgress: false, failed: false, lastAttemptAt: 1_700_000_000_001 },
+      },
+    });
+    await vi.waitFor(() => {
+      expect(
+        hud.querySelector(".usage-refresh-error"),
+        "successful server attempt clears error",
+      ).toBeNull();
+    });
   });
 
   it("fail-closed: a rejected refresh surfaces the error state, not silent success", async () => {
     // The house-rule fail-closed path: refreshUsage() rejects → the popover must show
     // its visible error state (role=alert / .usage-refresh-error / retry message) so the user
     // sees the refresh FAILED rather than it looking like a success.
+    vi.mocked(refreshUsage).mockClear();
     vi.mocked(refreshUsage).mockRejectedValueOnce(new Error("network down"));
     const hud = await renderDesktop(limitsWithCredit({}));
     openDesktopPopover(hud);

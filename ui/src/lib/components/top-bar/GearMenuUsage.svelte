@@ -6,10 +6,11 @@
   import {
     codexGaugeList,
     codexTokenUsage,
-    gaugeList,
+    claudeDisplayGauges,
+    claudeObservedWindows,
     hottestCapacityWindow,
     modelWeekList,
-    providerCapacityRows,
+    providerDisplayCapacityRows,
     type GaugeKey,
   } from "../usage-gauges";
   import LimitGaugeRow from "./LimitGaugeRow.svelte";
@@ -51,14 +52,22 @@
 
   // All usage math lives in the tested model layer (usage-gauges.ts) — this component
   // only renders its output.
-  const hottest = $derived(hottestCapacityWindow(providerCapacityRows(limits)));
-  const gauges = $derived(gaugeList(limits));
+  const hottest = $derived(hottestCapacityWindow(providerDisplayCapacityRows(limits)));
+  const gauges = $derived(claudeDisplayGauges(limits));
+  const observed = $derived(claudeObservedWindows(limits));
   const perModel = $derived(modelWeekList(limits));
   const credits = $derived(limits?.credits ?? null);
   const codexUsage = $derived(codexTokenUsage(limits));
   const codexWindows = $derived(codexGaugeList(codexUsage));
   const subscriptionOnly = $derived(limits?.subscriptionOnly === true);
-  const hasClaude = $derived(gauges.length > 0 || perModel.length > 0 || !!credits);
+  const hasClaude = $derived(
+    gauges.length > 0 ||
+      perModel.length > 0 ||
+      !!credits ||
+      (observed !== undefined && !codexUsage),
+  );
+  const observedEmpty = $derived(observed !== undefined && gauges.length === 0);
+  const claudeStale = $derived(observed === undefined ? (limits?.stale ?? false) : false);
   // Window designation (CC·5H / CX·WK …): provider abbreviation + raw window key —
   // data-style codes, not translated chrome. Prefixes match selectedProviderCapacity
   // (the New Task capacity line) so the same provider never carries two codes.
@@ -113,7 +122,10 @@
           <div class="gm-section">
             {m.topbar_usage_provider_title({ provider: m.agent_provider_claude() })}
           </div>
-          <div class="gm-rows" class:stale={limits?.stale}>
+          <div class="gm-rows" class:stale={claudeStale}>
+            {#if observedEmpty}
+              <div class="gm-note">{m.topbar_usage_no_observation()}</div>
+            {/if}
             {#each gauges as g (g.label)}
               <LimitGaugeRow label={periodLabel(g.label)} limit={g.w} {nowMs} />
             {/each}
@@ -148,7 +160,7 @@
             </div>
           </div>
         {/if}
-        <UsageRefreshButton {refreshing} {refreshError} {onRefresh} />
+        {#if hasClaude}<UsageRefreshButton {refreshing} {refreshError} {onRefresh} />{/if}
       {/if}
     </div>
   {/if}

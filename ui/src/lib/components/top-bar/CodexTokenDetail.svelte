@@ -1,6 +1,6 @@
 <script lang="ts">
   import { m } from "$lib/paraglide/messages";
-  import { formatTokenLabel } from "$lib/format";
+  import { formatTokenLabel, relativeAge } from "$lib/format";
   import type { UsageProviderSnapshot } from "$lib/types";
   import { codexGaugeList, type GaugeKey } from "../usage-gauges";
   import LimitGaugeRow from "./LimitGaugeRow.svelte";
@@ -18,9 +18,31 @@
   // The 5h/weekly rate-limit windows Codex reports — rendered as Claude-style gauges so the two
   // CLIs read side by side. Empty when Shepherd cannot find a rate-limit event in Codex rollouts.
   const windows = $derived(codexGaugeList(usage));
+  const tokenAge = $derived(usage.updatedAt === null ? null : relativeAge(usage.updatedAt, nowMs));
+  const limitAge = $derived(
+    windows.length > 0 &&
+      usage.rateLimitLatestEventAt != null &&
+      usage.rateLimitLatestEventAt !== usage.updatedAt
+      ? relativeAge(usage.rateLimitLatestEventAt, nowMs)
+      : null,
+  );
 </script>
 
 <!-- Section heading ("Codex usage") is rendered by the parent popover; this is the body. -->
+{#if tokenAge !== null}
+  <div class="snapshot-age">
+    {tokenAge === "now"
+      ? m.topbar_codex_tokens_checked_now()
+      : m.topbar_codex_tokens_checked_age({ age: tokenAge })}
+  </div>
+{/if}
+{#if limitAge !== null}
+  <div class="snapshot-age limits-age">
+    {limitAge === "now"
+      ? m.topbar_codex_limits_checked_now()
+      : m.topbar_codex_limits_checked_age({ age: limitAge })}
+  </div>
+{/if}
 {#each windows as g (g.label)}
   <LimitGaugeRow label={periodLabel(g.label)} limit={g.w} {nowMs} />
 {/each}
@@ -41,6 +63,15 @@
 </div>
 
 <style>
+  .snapshot-age {
+    color: var(--color-muted);
+    font-size: var(--fs-micro);
+    letter-spacing: 0.04em;
+    margin-bottom: 6px;
+  }
+  .limits-age {
+    color: var(--color-faint);
+  }
   .limits-unavailable {
     margin: 4px 0 6px;
     padding: 6px 0;

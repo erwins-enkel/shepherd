@@ -5,6 +5,7 @@ import type {
   ModelWeekWindow,
   UsageProviderSnapshot,
   CreditWindow,
+  ObservedLimitWindows,
 } from "../types";
 import type { AgentProvider } from "../types";
 
@@ -22,6 +23,56 @@ export function gaugeList(limits: UsageLimits | null): Gauge[] {
   if (limits.session5h) out.push({ label: "5H", w: limits.session5h });
   if (limits.week) out.push({ label: "WK", w: limits.week });
   return out;
+}
+
+/** Claude windows intended for operator display. Observed values are authoritative when the
+ * contract is present, while gaugeList deliberately remains on computed windows for internal
+ * capacity, holds, and projections. */
+export function claudeObservedWindows(
+  limits: UsageLimits | null,
+): ObservedLimitWindows | undefined {
+  if (!limits) return undefined;
+  if (limits.observed !== undefined) return limits.observed;
+  const claude = limits.providers?.find(
+    (provider) => provider.provider === "claude" && provider.kind === "limits",
+  );
+  if (claude?.observed !== undefined) {
+    return claude.observed;
+  }
+  return undefined;
+}
+
+export function claudeDisplayGauges(limits: UsageLimits | null): Gauge[] {
+  const observed = claudeObservedWindows(limits);
+  if (observed === undefined) return gaugeList(limits);
+  const out: Gauge[] = [];
+  if (observed.session5h) out.push({ label: "5H", w: observed.session5h });
+  if (observed.week) out.push({ label: "WK", w: observed.week });
+  return out;
+}
+
+/** Match the server cadence when opening the popover. This checks every main window so one fresh
+ * sample cannot hide another window whose provider-confirmed value is missing or old. */
+export function shouldRefreshObservedOnOpen(limits: UsageLimits | null, nowMs: number): boolean {
+  const observed = claudeObservedWindows(limits);
+  if (observed === undefined) return false;
+  if (limits?.refresh?.inProgress) return false;
+  const lastAttemptAt = limits?.refresh?.lastAttemptAt ?? null;
+  const session = observed.session5h;
+  if (session && session.resetAt <= nowMs) {
+    if (lastAttemptAt === null || lastAttemptAt < session.resetAt) return true;
+    return nowMs - lastAttemptAt >= 60_000;
+  }
+  const nearSessionReset = !!session && session.resetAt - nowMs <= 10 * 60_000;
+  const cadence = nearSessionReset ? 60_000 : 5 * 60_000;
+  if (!session || !observed.week) {
+    return lastAttemptAt === null || nowMs - lastAttemptAt >= cadence;
+  }
+  const needsRefresh = [session, observed.week].some(
+    (window) => nowMs - window.scrapedAt >= cadence,
+  );
+  if (!needsRefresh) return false;
+  return lastAttemptAt === null || nowMs - lastAttemptAt >= cadence;
 }
 
 type CodexTokenSnapshot = Extract<UsageProviderSnapshot, { provider: "codex"; kind: "tokens" }>;
@@ -49,6 +100,13 @@ export type CompactUsageView =
       stale: boolean;
       rotationEligible: boolean;
       widthClass: "model";
+    }
+  | {
+      provider: "claude";
+      mode: "empty";
+      stale: false;
+      rotationEligible: false;
+      widthClass: "empty";
     }
   | {
       provider: "codex";
@@ -91,6 +149,7 @@ export function providerSnapshots(limits: UsageLimits | null): UsageProviderSnap
       stale: limits.stale,
       calibratedAt: limits.calibratedAt,
       subscriptionOnly: limits.subscriptionOnly,
+      ...(limits.observed === undefined ? {} : { observed: limits.observed }),
     },
   ];
 }
@@ -140,12 +199,14 @@ export function compactUsageViews({
   perModel,
   credits,
   codexUsage,
+  claudeAvailable = false,
 }: {
   gauges: Gauge[];
   claudeStale: boolean;
   perModel: ModelWeekWindow[];
   credits: CreditWindow | null;
   codexUsage: CodexTokenSnapshot | null;
+  claudeAvailable?: boolean;
 }): CompactUsageView[] {
   const views: CompactUsageView[] = [];
   const capped = gauges.some((g) => g.w.pct >= 100);
@@ -176,6 +237,14 @@ export function compactUsageViews({
       stale: perModel[0]!.stale,
       rotationEligible: true,
       widthClass: "model",
+    });
+  } else if (claudeAvailable) {
+    views.push({
+      provider: "claude",
+      mode: "empty",
+      stale: false,
+      rotationEligible: false,
+      widthClass: "empty",
     });
   }
 
@@ -304,6 +373,28 @@ export function providerCapacityRows(limits: UsageLimits | null): ProviderCapaci
       windows: claudeWindows,
       available: claudeWindows.length > 0,
       stale: limits?.stale ?? false,
+    },
+    {
+      provider: "codex",
+      windows: codexWindows,
+      available: codexWindows.length > 0,
+      stale: codexUsage?.stale ?? false,
+    },
+  ];
+}
+
+/** Capacity-shaped rows for telemetry UI only. Claude reads provider-confirmed observations;
+ * internal scheduling and hold consumers continue using providerCapacityRows above. */
+export function providerDisplayCapacityRows(limits: UsageLimits | null): ProviderCapacityRow[] {
+  const codexUsage = codexTokenUsage(limits);
+  const claudeWindows = capacityWindows(claudeDisplayGauges(limits));
+  const codexWindows = capacityWindows(codexGaugeList(codexUsage));
+  return [
+    {
+      provider: "claude",
+      windows: claudeWindows,
+      available: claudeWindows.length > 0,
+      stale: claudeObservedWindows(limits) === undefined ? (limits?.stale ?? false) : false,
     },
     {
       provider: "codex",

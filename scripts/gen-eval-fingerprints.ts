@@ -56,6 +56,9 @@ interface Case {
 
 const TASK = "Add a --since flag to the usage report.";
 const PLAN = "## Goal\nScope the report to a date range.\n\n## Out of scope\n- --until.";
+/** The working plan file after the agent edited it post-approval — the `planCurrent` block. Must
+ *  DIFFER from PLAN: an identical text is the no-edit case and renders no second block. */
+const PLAN_EDITED = "## Goal\nScope the report to a date range, and add --until after all.";
 const ISSUE = "The report always covers all time, which makes week-over-week comparison manual.";
 const PRIOR = ["scripts/usage-report.ts: the cutoff is compared as a string, not a timestamp."];
 const NOTES = ["Reworked the cutoff to compare timestamps."];
@@ -159,6 +162,24 @@ export const CASES: Record<string, Case[]> = {
           round: 5,
           cap: 12,
           planClamped: true,
+        }),
+    },
+    // Plan PROVENANCE. `session-full` covers the APPROVED heading; these two cover the other two
+    // shapes, which no other case can reach: a plan file no gate cleared (the heading that makes no
+    // approval claim, and the absence of the plan-drift block it gates), and an approved plan the
+    // agent edited afterwards (the CURRENT PLAN FILE block plus its own clamp note).
+    {
+      name: "session-unapproved-plan",
+      render: () =>
+        reviewPrompt(DIFF_BASE, TASK, [], [], null, null, { plan: PLAN, planApproved: false }),
+    },
+    {
+      name: "session-plan-edited",
+      render: () =>
+        reviewPrompt(DIFF_BASE, TASK, [], [], null, null, {
+          plan: PLAN,
+          planCurrent: PLAN_EDITED,
+          planCurrentClamped: true,
         }),
     },
     { name: "pr-minimal", render: () => prReviewPrompt(DIFF_BASE, "Add --since", "") },

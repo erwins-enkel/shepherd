@@ -21,7 +21,7 @@ import {
 } from "./spawn-progress";
 import { LearningsService } from "./learnings-service";
 import { RepoConfigService } from "./repo-config-service";
-import type { MaintainBlock, StandardCreateInput } from "./types";
+import { EFFORTS, type MaintainBlock, type StandardCreateInput } from "./types";
 import type { EventHub } from "./events";
 import { PtyBridge } from "./pty-bridge";
 import { SocketPtyBridge } from "./socket-pty-bridge";
@@ -1496,7 +1496,7 @@ function parseRepoDefaultEffort(v: unknown): string | { error: string } {
   const r = normalizeRepoDefaultEffortSetting(v);
   if (r === null)
     return {
-      error: "defaultEffort must be one of: inherit, default, low, medium, high, xhigh, max",
+      error: `defaultEffort must be one of: inherit, default, ${EFFORTS.join(", ")}`,
     };
   return r;
 }

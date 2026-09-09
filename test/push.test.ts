@@ -1268,3 +1268,26 @@ test("buildPayload ready: localizes title + body in en and de", () => {
     kind: "ready",
   });
 });
+
+test("buildPayload onboarding_stale localizes title + body, with and without an age", () => {
+  const stale: NotifyInput = {
+    kind: "onboarding_stale",
+    sessionId: "",
+    tag: "onboarding-stale",
+    name: "onboarding",
+    staleHours: 53,
+  };
+  expect(buildPayload(stale, "en")).toMatchObject({
+    title: "Onboarding harness stale",
+    body: "No onboarding harness run in ~53h — the nightly may not be running.",
+  });
+  expect(buildPayload(stale, "de").title).toBe("Onboarding-Harness veraltet");
+  expect(buildPayload(stale, "de").body).toContain("~53h");
+
+  // A host with the timer installed that has never once completed a run.
+  const never: NotifyInput = { ...stale, staleHours: undefined };
+  expect(buildPayload(never, "en").body).toBe(
+    "The onboarding harness has never completed a run — the nightly may not be running.",
+  );
+  expect(buildPayload(never, "de").body).toContain("noch nie");
+});

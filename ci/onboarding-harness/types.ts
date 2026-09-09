@@ -90,6 +90,11 @@ export interface ScenarioResult {
    *  an INSTALL regression, not a detection failure — the report classifies it as an
    *  INSTALL GAP instead of a DETECTION GAP to keep the nightly signal accurate. */
   installE2E?: boolean;
+  /** The run never reached a verdict for this scenario — it blew its per-scenario
+   *  cap, or the whole-run budget ran out before its turn. Unverified is NOT a pass:
+   *  a gate-eligible one still gates red. The flag exists so the report says so
+   *  plainly instead of mislabelling it a crash. */
+  unverified?: boolean;
   error?: string;
 }
 

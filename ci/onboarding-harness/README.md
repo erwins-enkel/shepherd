@@ -84,9 +84,21 @@ bun run onboarding:test --reap-orphans
 
 The report lands at `onboarding-gap-report.md` in the working directory. Exit code is 0 if every apply-able scenario reached green; 1 if any failed; 2 if the named scenario was not found; 3 if another run holds the host lock.
 
+## Time budget
+
+The harness bounds itself so it always finishes on its own terms — **30 min per scenario** (`SHEPHERD_ONBOARDING_SCENARIO_TIMEOUT_MS`) and **3h per run** (`SHEPHERD_ONBOARDING_BUDGET_MS`). A scenario that blows its cap is abandoned; scenarios with no budget left are never started. Either way they are recorded **NOT VERIFIED** — not green, not a harness error, so a gate-eligible one still gates red and the report says plainly that no verdict was reached.
+
+Those caps are generous against observation: a healthy full run is ~14 min, a slow night ~61 min, and the worst single scenario ever seen took 26 min. Wall-clock is dominated by in-container package installs, so it tracks network weather rather than anything the harness controls.
+
+The service's `TimeoutStartSec` (5h) is a **backstop that must never be reached**, and must always stay above the harness's own budget. When it sat _below_ the worst case (the old 2h), systemd's dirty kill was the guaranteed outcome on a slow night rather than an edge case.
+
 ## Run isolation
 
-Each run acquires an exclusive host-wide lock at the **fixed absolute path** `~/.shepherd/onboarding-harness.lock` (NOT `$TMPDIR` — a systemd-user timer and an interactive run can see different `$TMPDIR` under PrivateTmp, so the lock must live under the stable `~/.shepherd` dir to actually serialize them). A second run while one is active exits with code 3.
+Each run acquires an exclusive host-wide lock at the **fixed absolute path** `~/.shepherd/onboarding-harness.lock` (NOT `$TMPDIR` — a systemd-user timer and an interactive run can see different `$TMPDIR` under PrivateTmp, so the lock must live under the stable `~/.shepherd` dir to actually serialize them). A second run while one is _genuinely active_ exits with code 3.
+
+The lock records its owner (`pid`, `startedAt`, `runId`), and a run **reclaims** a lock whose owner is provably gone — a dead pid, a pid since recycled by an unrelated process, or a file recording no readable owner. A reclaiming run also sweeps every `shep-onb-*` instance, since it has inherited the host from a dead run and nothing else will ever clear that run's orphans.
+
+This matters because cleanup-on-signal cannot be relied on: **while Bun awaits a spawned child, SIGTERM never reaches the JS handler** and the process dies with its `finally` blocks unrun. The harness awaits `incus` children for almost its entire runtime, so a killed run leaks by default. In Aug 2026 a run killed by the service's start timeout left a 0-byte lock behind and every nightly for the next 21 days aborted at exit 3 in under a second — silently, until a release gate noticed three weeks later; the instance it also leaked survived those 21 days and every reboot. The `SIGINT`/`SIGTERM` handler is kept as a best-effort extra (it does work for an interactive Ctrl-C), but reclaiming is the actual guarantee.
 
 Each run also uses a unique per-run instance prefix (`shep-onb-<runId>-`) and sweeps only its own prefix on teardown, so two concurrent runs (if the lock were bypassed) could never destroy each other's instances.
 

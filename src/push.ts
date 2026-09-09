@@ -26,6 +26,7 @@ export interface PushPayload {
     | "manual_steps"
     | "ready"
     | "backup_stale"
+    | "onboarding_stale"
     | "landing_conflict";
   tag: string;
 }
@@ -51,6 +52,8 @@ const KIND_CATEGORY: Record<PushPayload["kind"], PushCategory> = {
   ready: "agent",
   // Host-global operational alert; ride the "agent" toggle like usage_limit/extra_credits.
   backup_stale: "agent",
+  // Same shape as backup_stale: a host-global operational alert.
+  onboarding_stale: "agent",
   // Epic-global merge/land attention; ride the "ci" toggle like merge_attention/manual_steps.
   landing_conflict: "ci",
 };
@@ -73,6 +76,7 @@ export interface NotifyInput {
     | "manual_steps"
     | "ready"
     | "backup_stale"
+    | "onboarding_stale"
     | "landing_conflict";
   sessionId: string;
   tag: string;
@@ -104,7 +108,8 @@ export interface NotifyInput {
   retiredCount?: number;
   /** For kind "learnings_trialed": how many proposals the auto-trial sweep promoted. */
   trialedCount?: number;
-  /** For kind "backup_stale": whole hours since the newest snapshot (for the body copy). */
+  /** For kinds "backup_stale" / "onboarding_stale": whole hours since the newest
+   *  snapshot / completed run (for the body copy). */
   staleHours?: number;
   /** For kind "landing_conflict": the epic's parent issue number (subject of the body). */
   epicNumber?: number;
@@ -124,6 +129,7 @@ const REDUCED_ALLOWED = new Set<NotifyInput["kind"]>([
   "usage_limit",
   "extra_credits",
   "backup_stale",
+  "onboarding_stale",
 ]);
 
 const defaultSend: SendFn = (sub, payload) =>
@@ -178,6 +184,11 @@ const NOTIFY_TEXT = {
       h !== null
         ? `No successful DB backup in ~${h}h — the backup timer may be failing.`
         : "No successful DB backup yet — the backup timer may be failing.",
+    onboardingStaleTitle: "Onboarding harness stale",
+    onboardingStaleBody: (h: number | null) =>
+      h !== null
+        ? `No onboarding harness run in ~${h}h — the nightly may not be running.`
+        : "The onboarding harness has never completed a run — the nightly may not be running.",
     landingConflictTitle: "Landing needs rework",
     landingConflictBody: (epic: number, pr: number | null) =>
       pr !== null
@@ -230,6 +241,11 @@ const NOTIFY_TEXT = {
       h !== null
         ? `Seit ~${h}h kein erfolgreiches DB-Backup — der Backup-Timer könnte fehlschlagen.`
         : "Noch kein erfolgreiches DB-Backup — der Backup-Timer könnte fehlschlagen.",
+    onboardingStaleTitle: "Onboarding-Harness veraltet",
+    onboardingStaleBody: (h: number | null) =>
+      h !== null
+        ? `Seit ~${h}h kein Onboarding-Harness-Lauf — der nächtliche Job läuft womöglich nicht.`
+        : "Der Onboarding-Harness hat noch nie einen Lauf abgeschlossen — der nächtliche Job läuft womöglich nicht.",
     landingConflictTitle: "Landing braucht Überarbeitung",
     landingConflictBody: (epic: number, pr: number | null) =>
       pr !== null
@@ -273,6 +289,16 @@ function learningsParts(t: NotifyText, input: NotifyInput): { title: string; bod
   return input.kind === "learnings_trialed"
     ? { title: t.learningsTrialedTitle, body: t.learningsTrialedBody(input.trialedCount ?? 0) }
     : { title: t.learningsRetiredTitle, body: t.learningsRetiredBody(input.retiredCount ?? 0) };
+}
+
+/** Host-global staleness title/body — a timer that should have run and did not.
+ *  Both kinds carry the same shape (one age in whole hours, `null` when the thing
+ *  has never once succeeded), so they share an arm rather than duplicating it. */
+function stalenessParts(t: NotifyText, input: NotifyInput): { title: string; body: string } {
+  const hours = input.staleHours ?? null;
+  return input.kind === "onboarding_stale"
+    ? { title: t.onboardingStaleTitle, body: t.onboardingStaleBody(hours) }
+    : { title: t.backupStaleTitle, body: t.backupStaleBody(hours) };
 }
 
 /** Merge-attention title/body: rebase-cap copy when capped, else the generic merge-error copy. */
@@ -359,11 +385,8 @@ export function buildPayload(input: NotifyInput, locale: string): PushPayload {
     case "manual_steps":
       return { ...base, title: t.manualStepsTitle(input.name), body: t.manualStepsBody };
     case "backup_stale":
-      return {
-        ...base,
-        title: t.backupStaleTitle,
-        body: t.backupStaleBody(input.staleHours ?? null),
-      };
+    case "onboarding_stale":
+      return { ...base, ...stalenessParts(t, input) };
     case "landing_conflict":
       return { ...base, ...landingConflictParts(t, input) };
     default:

@@ -30,6 +30,7 @@ const PROPOSALS_FILE = ".shepherd-learnings.json";
 const NON_LEARNING_SIGNAL_KINDS: ReadonlySet<SignalKind> = new Set<SignalKind>([
   "egress_drop",
   "backup_stale",
+  "onboarding_stale",
   "injection_detected",
   "untrusted_author",
   "evidence_repo_mismatch",

@@ -367,6 +367,7 @@ export interface SessionBucket {
   weightedUnits: number;
   cacheReadUnits: number;
   byModel: Record<string, number>; // weighted units per model
+  rawByModel: Record<string, number>; // raw tokens per model
 }
 
 export interface SessionFold {
@@ -403,6 +404,7 @@ export function foldSessionBuckets(lines: Iterable<string>): SessionFold {
         weightedUnits: 0,
         cacheReadUnits: 0,
         byModel: {},
+        rawByModel: {},
       };
       buckets.set(bucketStart, b);
     }
@@ -423,6 +425,7 @@ export function foldSessionBuckets(lines: Iterable<string>): SessionFold {
     b.cacheReadUnits += cru;
 
     const rawTokens = r.input + r.output + r.cacheRead + r.cacheWrite5m + r.cacheWrite1h;
+    b.rawByModel[r.model] = (b.rawByModel[r.model] ?? 0) + rawTokens;
     rawByModel[r.model] = (rawByModel[r.model] ?? 0) + rawTokens;
   }
 
@@ -439,6 +442,7 @@ export interface RollupWindow {
   weightedUnits: number;
   cacheReadUnits: number;
   byModel: Record<string, number>; // weighted units per model (in-window)
+  rawByModel: Record<string, number>; // raw tokens per model (in-window)
   dominantModel: string | null; // from in-window raw tokens (cutoff>0) or session-wide (cutoff===0)
   messageCount: number;
 }
@@ -657,6 +661,7 @@ export class SessionUsageRollup {
         weightedUnits: agg.weightedUnits,
         cacheReadUnits: agg.cacheReadUnits,
         byModel: { ...agg.weightedByModel },
+        rawByModel: { ...agg.rawByModel },
         dominantModel: dominantModelOf(agg.rawByModel),
         messageCount: agg.messageCount,
       };
@@ -700,6 +705,7 @@ export class SessionUsageRollup {
       weightedUnits: wu,
       cacheReadUnits: cru,
       byModel,
+      rawByModel,
       dominantModel: dominantModelOf(rawByModel),
       messageCount,
     };

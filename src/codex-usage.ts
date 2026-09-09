@@ -204,6 +204,43 @@ export function readCodexTokenUsage(dbPath: string, now: number): UsageProviderS
   return st ? tokenSnapshot(st, now) : null;
 }
 
+export interface CodexModelUsage {
+  byModel: Record<string, number>;
+  byThread: Record<string, { model: string; totalTokens: number }>;
+}
+
+/** One native snapshot supplies both model totals and exact in-window role allocations. */
+export function readCodexModelUsage(dbPath: string | null, cutoff: number): CodexModelUsage {
+  const empty: CodexModelUsage = { byModel: {}, byThread: {} };
+  if (!dbPath || !existsSync(dbPath)) return empty;
+  let db: Database | null = null;
+  try {
+    db = new Database(dbPath, { readonly: true });
+    const columns = db.query(`PRAGMA table_info(threads)`).all() as { name: string }[];
+    const model = columns.some((column) => column.name === "model")
+      ? "COALESCE(NULLIF(model, ''), 'unknown')"
+      : "'unknown'";
+    const rows = db
+      .query<{ id: string; model: string; totalTokens: number }, [number]>(
+        `SELECT id, ${model} AS model, tokens_used AS totalTokens
+       FROM threads WHERE model_provider = 'openai' AND updated_at_ms >= ? AND tokens_used > 0`,
+      )
+      .all(cutoff);
+    const byModel: Record<string, number> = {};
+    for (const row of rows) byModel[row.model] = (byModel[row.model] ?? 0) + row.totalTokens;
+    return {
+      byModel,
+      byThread: Object.fromEntries(
+        rows.map(({ id, model, totalTokens }) => [id, { model, totalTokens }]),
+      ),
+    };
+  } catch {
+    return empty;
+  } finally {
+    db?.close();
+  }
+}
+
 /** One rollout's `rate_limits.primary`/`.secondary` shape (Codex CLI session log). */
 interface RolloutLimitWindow {
   used_percent?: number;

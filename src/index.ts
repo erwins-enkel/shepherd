@@ -53,7 +53,7 @@ import { parseManualSteps } from "./manual-steps";
 import { annotateHandoff } from "./repo-roles";
 import { AccountUsageIndex, SessionUsageRollup } from "./usage";
 import { UsageLimitsService, calibrateDelay, type UsageLimits } from "./usage-limits";
-import { CodexUsageProvider } from "./codex-usage";
+import { CodexUsageProvider, latestCodexStateDb, readCodexModelUsage } from "./codex-usage";
 import { singleFlight } from "./single-flight";
 import { HerdrUsageProbe } from "./usage-probe";
 import { sweepStaging, STAGING_TTL_MS } from "./uploads";
@@ -1954,13 +1954,15 @@ function readVisibleBuffer(id: string): string | null {
 // (drive to a PR). Genuine questions pause the session loudly (distinct state + push).
 const autopilot = new AutopilotService({
   store,
-  classify: (tail, taskPrompt, label) => {
+  classify: (tail, taskPrompt, label, taskSessionId) => {
     const env = roleEnv(config.autopilotCli, config.autopilotModel, config.autopilotEffort);
     return classifyStop(
       tail,
       taskPrompt,
       {
         herdr,
+        store,
+        taskSessionId,
         provider: env.provider,
         model: env.model,
         effort: env.effort,
@@ -2884,6 +2886,7 @@ const appDeps: AppDeps = {
   pluginsDir: config.pluginsDir,
   usageLimits,
   usageRollup,
+  codexModelUsage: (cutoff) => readCodexModelUsage(latestCodexStateDb(), cutoff),
   refreshUsage,
   // Live GitHub REST + GraphQL buckets for the usage view. `gh api rate_limit`
   // is quota-exempt, so it works even when the GraphQL bucket is at zero.

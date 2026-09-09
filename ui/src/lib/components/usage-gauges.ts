@@ -1,3 +1,4 @@
+import { m } from "../paraglide/messages";
 import type {
   UsageLimits,
   LimitWindow,
@@ -104,9 +105,22 @@ export function modelWeekList(limits: UsageLimits | null): ModelWeekWindow[] {
   return limits?.perModelWeek ?? [];
 }
 
-/** Proper-noun display name for a model slug (e.g. "fable" → "Fable"). Not translated. */
+/** Proper-noun display name for a model slug. Model names are data, not translated. */
 export function modelDisplayName(slug: string): string {
-  return slug.charAt(0).toUpperCase() + slug.slice(1);
+  const claude = /^(?:claude-)?(opus|sonnet|haiku)(?:-(\d+)(?:-(\d+))?)?$/i.exec(slug);
+  if (claude) {
+    const family = claude[1]!.charAt(0).toUpperCase() + claude[1]!.slice(1).toLowerCase();
+    const version = [claude[2], claude[3]].filter(Boolean).join(".");
+    return version ? `${family} ${version}` : family;
+  }
+  const gpt = /^gpt-(.+)$/i.exec(slug);
+  if (gpt) return `GPT-${gpt[1]}`;
+  if (slug === "unknown") return m.usage_models_unknown();
+  return slug
+    .split(/[-_]/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 export function codexTokenUsage(

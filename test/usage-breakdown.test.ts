@@ -1,4 +1,6 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
+import { Database } from "bun:sqlite";
+import { readCodexModelUsage } from "../src/codex-usage";
 import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -7,10 +9,11 @@ import { config } from "../src/config";
 import { buildUsageBreakdown } from "../src/usage-breakdown";
 import { jsonlPathFor, SessionUsageRollup } from "../src/usage";
 import { weightedUnits } from "../src/pricing";
-import type { SessionUsageBucket } from "../src/types";
+import type { SessionUsageBucket, UsageRole } from "../src/types";
 
 const NOW = 1_750_000_000_000; // fixed epoch ms for tests
 const H24 = 86_400_000;
+const CLASSIFIER_ROLE = "classifier" satisfies UsageRole;
 
 // Build a minimal assistant JSONL line matching the shape parseLine expects.
 function asst(opts: {
@@ -81,6 +84,7 @@ function makeSnap(over: {
   weightedUnits: number;
   cacheReadUnits: number;
   byModel?: Record<string, number>;
+  rawByModel?: Record<string, number>;
   snapshotAt: number;
 }) {
   const model = over.model ?? "claude-opus-4-8";
@@ -103,13 +107,321 @@ function makeSnap(over: {
     cacheReadUnits: over.cacheReadUnits,
     messageCount: 1,
     byModel: over.byModel ?? { [model]: input + output + cacheRead + cacheWrite },
+    rawByModel: over.rawByModel ?? { [model]: input + output + cacheRead + cacheWrite },
     createdAt: over.snapshotAt - 1000,
     archivedAt: over.snapshotAt,
     snapshotAt: over.snapshotAt,
   };
 }
 
+function seedRoleSpawn(
+  store: SessionStore,
+  r: {
+    id: string;
+    kind: "review" | "plan_gate" | "recap" | "rundown" | "doc_agent" | "classifier";
+    provider: "claude" | "codex" | null;
+    model: string | null;
+    spawnedAt?: number;
+    completedAt?: number | null;
+    input?: number;
+    output?: number;
+    cacheRead?: number;
+    cacheWrite?: number;
+    providerSessionId?: string | null;
+    totalTokens?: number | null;
+  },
+): void {
+  const input = r.input ?? 0;
+  const output = r.output ?? 0;
+  const cacheRead = r.cacheRead ?? 0;
+  const cacheWrite = r.cacheWrite ?? 0;
+  // @ts-expect-error accessing internal db for focused aggregate setup
+  store.db.run(
+    `INSERT INTO reviewer_spawns
+       (reviewerSessionId, taskSessionId, kind, worktreePath, reviewerProvider, model,
+        spawnedAt, completedAt, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens,
+        totalTokens, providerSessionId)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    [
+      r.id,
+      "task-a",
+      r.kind,
+      "/wt/" + r.id,
+      r.provider,
+      r.model,
+      r.spawnedAt ?? NOW - 2_000,
+      r.completedAt === undefined ? NOW - 1_000 : r.completedAt,
+      input,
+      output,
+      cacheRead,
+      cacheWrite,
+      r.totalTokens === undefined ? input + output + cacheRead + cacheWrite : r.totalTokens,
+      r.providerSessionId ?? null,
+    ],
+  );
+}
+
 // ── actual test suite ─────────────────────────────────────────────────────────
+
+test("Claude model breakdown preserves role × model identity and exact token total", async () => {
+  const store = new SessionStore(":memory:");
+  store.upsertSessionUsage(
+    makeSnap({
+      sessionId: "task-a",
+      desig: "TASK-01",
+      repoPath: "/repos/alpha",
+      input: 100,
+      output: 200,
+      weightedUnits: 0,
+      cacheReadUnits: 0,
+      rawByModel: { "claude-opus-4-8": 100, "claude-sonnet-4-8": 200 },
+      snapshotAt: NOW,
+    }),
+  );
+
+  seedRoleSpawn(store, {
+    id: "review",
+    kind: "review",
+    provider: "claude",
+    model: "claude-opus-4-8",
+    input: 10,
+    output: 20,
+    cacheRead: 30,
+    cacheWrite: 40,
+  });
+  seedRoleSpawn(store, {
+    id: "plan",
+    kind: "plan_gate",
+    provider: "claude",
+    model: "claude-sonnet-4-8",
+    input: 50,
+  });
+  seedRoleSpawn(store, {
+    id: "recap",
+    kind: "recap",
+    provider: null,
+    model: "fable",
+    input: 25,
+  });
+  seedRoleSpawn(store, {
+    id: "rundown",
+    kind: "rundown",
+    provider: "claude",
+    model: "claude-opus-4-8",
+    output: 15,
+  });
+  seedRoleSpawn(store, {
+    id: "doc",
+    kind: "doc_agent",
+    provider: "claude",
+    model: "haiku",
+    cacheRead: 10,
+  });
+  seedRoleSpawn(store, {
+    id: "classifier",
+    kind: CLASSIFIER_ROLE,
+    provider: "claude",
+    model: "haiku",
+    input: 60,
+  });
+
+  const bd = await buildUsageBreakdown({ store, range: "all", now: NOW, apiKey: false });
+
+  expect(bd.models.claude).toEqual({
+    totalTokens: 560,
+    byModel: {
+      "claude-opus-4-8": 215,
+      "claude-sonnet-4-8": 250,
+      fable: 25,
+      haiku: 70,
+    },
+    byRole: {
+      coding: { "claude-opus-4-8": 100, "claude-sonnet-4-8": 200 },
+      review: { "claude-opus-4-8": 100 },
+      plan_gate: { "claude-sonnet-4-8": 50 },
+      recap: { fable: 25 },
+      rundown: { "claude-opus-4-8": 15 },
+      doc_agent: { haiku: 10 },
+      classifier: { haiku: 60 },
+    },
+  });
+  expect(bd.models.codex.byRole).toEqual({});
+  const roleTotal = Object.values(bd.models.claude.byRole).reduce(
+    (total, models) => total + Object.values(models ?? {}).reduce((sum, tokens) => sum + tokens, 0),
+    0,
+  );
+  expect(roleTotal).toBe(bd.models.claude.totalTokens);
+});
+
+test("legacy null-provider Claude classifier is anchored and range-filtered", async () => {
+  const store = new SessionStore(":memory:");
+  const accepted = [
+    "fable",
+    "opus",
+    "opus[1m]",
+    "sonnet",
+    "sonnet[1m]",
+    "haiku",
+    "claude-opus-4-8",
+    "claude-sonnet-4-20250514",
+    "claude-haiku-3-5",
+  ];
+  accepted.forEach((model, index) => {
+    seedRoleSpawn(store, {
+      id: `accepted-${index}`,
+      kind: "recap",
+      provider: null,
+      model,
+      input: 1,
+    });
+  });
+  for (const [index, model] of [
+    "my-claude-opus-4-8",
+    "claude-opus-latest",
+    "gpt-5.5",
+    "<synthetic>",
+    " ",
+  ].entries()) {
+    seedRoleSpawn(store, {
+      id: `rejected-${index}`,
+      kind: "recap",
+      provider: null,
+      model,
+      input: 100,
+    });
+  }
+  seedRoleSpawn(store, {
+    id: "explicit-codex-wins",
+    kind: "review",
+    provider: "codex",
+    model: "claude-opus-4-8",
+    input: 100,
+  });
+  seedRoleSpawn(store, {
+    id: "stale",
+    kind: "review",
+    provider: "claude",
+    model: "claude-opus-4-8",
+    spawnedAt: NOW - 2 * H24,
+    completedAt: null,
+    input: 100,
+  });
+
+  const bd = await buildUsageBreakdown({ store, range: "24h", now: NOW, apiKey: false });
+
+  expect(bd.models.claude.byRole).toEqual({
+    recap: Object.fromEntries(accepted.map((model) => [model, 1])),
+  });
+  expect(bd.models.claude.totalTokens).toBe(accepted.length);
+});
+
+test("Codex roles reconcile to authoritative per-model totals with legacy usage in coding", async () => {
+  const store = new SessionStore(":memory:");
+  seedRoleSpawn(store, {
+    id: "review",
+    kind: "review",
+    provider: "codex",
+    model: "gpt-5.6",
+    providerSessionId: "thread-review",
+    totalTokens: 200,
+  });
+  seedRoleSpawn(store, {
+    id: "plan",
+    kind: "plan_gate",
+    provider: "codex",
+    model: "gpt-5.6",
+    providerSessionId: "thread-plan",
+    totalTokens: 100,
+  });
+  seedRoleSpawn(store, {
+    id: "legacy",
+    kind: "recap",
+    provider: "codex",
+    model: "gpt-5.6",
+    totalTokens: 999,
+  });
+  seedRoleSpawn(store, {
+    id: "old",
+    kind: "review",
+    provider: "codex",
+    model: "gpt-5.6",
+    providerSessionId: "thread-old",
+    completedAt: NOW - 2 * H24,
+    totalTokens: 500,
+  });
+  seedRoleSpawn(store, {
+    id: "unfinished",
+    kind: "review",
+    provider: "codex",
+    model: "gpt-5.6",
+    providerSessionId: "thread-unfinished",
+    completedAt: null,
+    totalTokens: 500,
+  });
+
+  const bd = await buildUsageBreakdown({
+    store,
+    range: "24h",
+    now: NOW,
+    apiKey: false,
+    codexModelUsage: () => ({
+      byModel: { "gpt-5.6": 1_000, unknown: 300 },
+      byThread: {
+        "thread-review": { model: "gpt-5.6", totalTokens: 200 },
+        "thread-plan": { model: "gpt-5.6", totalTokens: 100 },
+      },
+    }),
+  });
+
+  expect(bd.models.codex).toEqual({
+    totalTokens: 1_300,
+    byModel: { "gpt-5.6": 1_000, unknown: 300 },
+    byRole: {
+      review: { "gpt-5.6": 200 },
+      plan_gate: { "gpt-5.6": 100 },
+      coding: { "gpt-5.6": 700, unknown: 300 },
+    },
+  });
+});
+
+test("Codex role attribution uses native thread totals instead of stale spawn totals", async () => {
+  const store = new SessionStore(":memory:");
+  seedRoleSpawn(store, {
+    id: "review",
+    kind: "review",
+    provider: "codex",
+    model: "gpt-5.6",
+    providerSessionId: "thread-review",
+    totalTokens: 200,
+  });
+  seedRoleSpawn(store, {
+    id: "plan",
+    kind: "plan_gate",
+    provider: "codex",
+    model: "gpt-5.6",
+    providerSessionId: "thread-plan",
+    totalTokens: 200,
+  });
+
+  const bd = await buildUsageBreakdown({
+    store,
+    range: "all",
+    now: NOW,
+    apiKey: false,
+    codexModelUsage: () => ({
+      byModel: { "gpt-5.6": 250 },
+      byThread: {
+        "thread-review": { model: "gpt-5.6", totalTokens: 200 },
+        "thread-plan": { model: "gpt-5.6", totalTokens: 50 },
+      },
+    }),
+  });
+
+  expect(bd.models.codex.byRole).toEqual({
+    review: { "gpt-5.6": 200 },
+    plan_gate: { "gpt-5.6": 50 },
+  });
+});
 
 test("repo→task grouping, sorting, field mapping", async () => {
   const store = new SessionStore(":memory:");
@@ -817,6 +1129,7 @@ test("persisted windowed sub-session: 24h returns only recent hour; 30d/all retu
         weightedUnits: oldWu,
         cacheReadUnits: 0,
         byModel: { [model]: oldWu },
+        rawByModel: { [model]: 700 },
       },
       {
         bucketStart: recentHourFloor,
@@ -827,6 +1140,7 @@ test("persisted windowed sub-session: 24h returns only recent hour; 30d/all retu
         weightedUnits: recentWu,
         cacheReadUnits: 0,
         byModel: { [model]: recentWu },
+        rawByModel: { [model]: 400 },
       },
     ],
   );
@@ -838,6 +1152,11 @@ test("persisted windowed sub-session: 24h returns only recent hour; 30d/all retu
   expect(task24h!.tokens.input).toBe(300);
   expect(task24h!.tokens.output).toBe(100);
   expect(task24h!.authoringUnits).toBeCloseTo(recentWu, 10);
+  expect(bd24h.models.claude).toEqual({
+    totalTokens: 400,
+    byModel: { [model]: 400 },
+    byRole: { coding: { [model]: 400 } },
+  });
 
   // 30d: both buckets (old hour is 48h ago, within 30d)
   const bd30d = await buildUsageBreakdown({ store, range: "30d", now: NOW, apiKey: false });
@@ -846,6 +1165,11 @@ test("persisted windowed sub-session: 24h returns only recent hour; 30d/all retu
   expect(task30d!.tokens.input).toBe(800);
   expect(task30d!.tokens.output).toBe(300);
   expect(task30d!.authoringUnits).toBeCloseTo(totalWu, 10);
+  expect(bd30d.models.claude).toEqual({
+    totalTokens: 1100,
+    byModel: { [model]: 1100 },
+    byRole: { coding: { [model]: 1100 } },
+  });
 
   // all: uses aggregate row → same total
   const bdAll = await buildUsageBreakdown({ store, range: "all", now: NOW, apiKey: false });
@@ -957,6 +1281,7 @@ test("bucketed zero-window: dropped when no spawn; retained as zero-authoring wh
         weightedUnits: oldWu,
         cacheReadUnits: 0,
         byModel: { [model]: oldWu },
+        rawByModel: { [model]: 550 },
       },
     ]);
   }
@@ -1076,6 +1401,7 @@ test("live via rollup == re-parse fallback: identical authoringUnits/tokens/byMo
   expect(taskWithRollup!.authoringUnits).toBeCloseTo(taskFallback!.authoringUnits, 10);
   expect(taskWithRollup!.model).toBe(taskFallback!.model);
   expect(taskWithRollup!.byModel).toEqual(taskFallback!.byModel);
+  expect(bdWithRollup.models.claude).toEqual(bdFallback.models.claude);
 
   // Sanity: actual values match the 24h window (both records are within 24h)
   expect(taskWithRollup!.tokens.input).toBe(450);
@@ -1131,6 +1457,7 @@ test("cutoff===0 persisted uses aggregate rows (bucketed session all-time = aggr
         weightedUnits: oldWu,
         cacheReadUnits: 0,
         byModel: { [model]: oldWu },
+        rawByModel: { [model]: 700 },
       },
       {
         bucketStart: recentHourFloor,
@@ -1141,6 +1468,7 @@ test("cutoff===0 persisted uses aggregate rows (bucketed session all-time = aggr
         weightedUnits: recentWu,
         cacheReadUnits: 0,
         byModel: { [model]: recentWu },
+        rawByModel: { [model]: 400 },
       },
     ],
   );
@@ -1152,4 +1480,79 @@ test("cutoff===0 persisted uses aggregate rows (bucketed session all-time = aggr
   expect(taskAll!.tokens.input).toBe(800);
   expect(taskAll!.tokens.output).toBe(300);
   expect(taskAll!.authoringUnits).toBeCloseTo(totalWu, 10);
+});
+
+function codexBreakdownFixture() {
+  const store = new SessionStore(":memory:");
+  const dbPath = join(tmpDir, "native.sqlite");
+  const db = new Database(dbPath);
+  db.exec(
+    "CREATE TABLE threads (id TEXT PRIMARY KEY, model_provider TEXT, model TEXT, tokens_used INTEGER, updated_at_ms INTEGER)",
+  );
+  const breakdown = () =>
+    buildUsageBreakdown({
+      store,
+      range: "24h",
+      now: NOW,
+      apiKey: false,
+      codexModelUsage: (cutoff) => readCodexModelUsage(dbPath, cutoff),
+    });
+  return { store, db, breakdown };
+}
+
+test("Codex roles refresh a zero snapshot after the native thread records its tokens", async () => {
+  const { store, db, breakdown } = codexBreakdownFixture();
+  try {
+    seedRoleSpawn(store, {
+      id: "review",
+      kind: "review",
+      provider: "codex",
+      model: "gpt-5.6",
+      providerSessionId: "native-review",
+      totalTokens: 0,
+    });
+    db.run("INSERT INTO threads VALUES ('native-review', 'openai', 'gpt-5.6', 0, ?)", [NOW]);
+    expect((await breakdown()).models.codex.totalTokens).toBe(0);
+    db.run("UPDATE threads SET tokens_used = 4321");
+    expect((await breakdown()).models.codex.byRole).toEqual({ review: { "gpt-5.6": 4321 } });
+    db.run("UPDATE threads SET tokens_used = 5000, model = 'gpt-5.6-sol'");
+    expect((await breakdown()).models.codex.byRole).toEqual({ review: { "gpt-5.6-sol": 5000 } });
+  } finally {
+    db.close();
+  }
+});
+
+test("Codex roles never claim tokens from a thread outside the native time window", async () => {
+  const { store, db, breakdown } = codexBreakdownFixture();
+  try {
+    seedRoleSpawn(store, {
+      id: "review",
+      kind: "review",
+      provider: "codex",
+      model: "gpt-5.6",
+      providerSessionId: "native-review",
+      completedAt: NOW - H24 + 1000,
+      totalTokens: 800,
+    });
+    db.run("INSERT INTO threads VALUES ('native-review', 'openai', 'gpt-5.6', 800, ?)", [
+      NOW - H24 - 1000,
+    ]);
+    db.run("INSERT INTO threads VALUES ('coding', 'openai', 'gpt-5.6', 1000, ?)", [NOW]);
+    expect((await breakdown()).models.codex.byRole).toEqual({ coding: { "gpt-5.6": 1000 } });
+    // Completion ages out before the native thread: membership follows the same native window.
+    db.run("UPDATE threads SET updated_at_ms = ? WHERE id = 'native-review'", [NOW]);
+    const later = await buildUsageBreakdown({
+      store,
+      range: "24h",
+      now: NOW + 2000,
+      apiKey: false,
+      codexModelUsage: (cutoff) => readCodexModelUsage(join(tmpDir, "native.sqlite"), cutoff),
+    });
+    expect(later.models.codex.byRole).toEqual({
+      review: { "gpt-5.6": 800 },
+      coding: { "gpt-5.6": 1000 },
+    });
+  } finally {
+    db.close();
+  }
 });

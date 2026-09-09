@@ -1,6 +1,9 @@
+import type { CodexModelUsage } from "./codex-usage";
 import { basename } from "node:path";
 import type { SessionStore } from "./store";
+import { MODELS } from "./types";
 import type {
+  UsageByRole,
   UsageRange,
   UsageBreakdown,
   UsageKindUnits,
@@ -13,6 +16,9 @@ import { isOperationalArchetype } from "./usage-archetype";
 import { jsonlPathFor, sessionCost, dominantModel, SessionUsageRollup } from "./usage";
 import { weightedUnits } from "./pricing";
 
+const CLAUDE_MODEL_ALIASES = new Set<string>(MODELS);
+const CLAUDE_FULL_MODEL_ID = /^claude-(?:opus|sonnet|haiku)(?:-\d+)+$/i;
+
 /** Internal accumulator — public fields + private cacheRead accumulators. */
 interface TaskAccum {
   sessionId: string;
@@ -24,6 +30,7 @@ interface TaskAccum {
   satelliteUnits: number;
   tokens: UsageTokens;
   byModel: Record<string, number>;
+  rawByModel: Record<string, number>;
   authoringCacheReadUnits: number;
   satelliteCacheReadUnits: number;
 }
@@ -53,6 +60,7 @@ function snapshotToAccum(snap: ReturnType<SessionStore["listSessionUsage"]>[numb
       cacheWrite: snap.cacheWrite,
     },
     byModel: snap.byModel,
+    rawByModel: snap.rawByModel,
     authoringCacheReadUnits: snap.cacheReadUnits,
     satelliteCacheReadUnits: 0,
   };
@@ -78,6 +86,7 @@ function windowedSnapshotToAccum(
       cacheWrite: w.cacheWrite,
     },
     byModel: w.byModel,
+    rawByModel: w.rawByModel,
     authoringCacheReadUnits: w.cacheReadUnits,
     satelliteCacheReadUnits: 0,
   };
@@ -95,6 +104,7 @@ function zeroAuthoringAccum(snap: ReturnType<SessionStore["listSessionUsage"]>[n
     satelliteUnits: 0,
     tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     byModel: {},
+    rawByModel: {},
     authoringCacheReadUnits: 0,
     satelliteCacheReadUnits: 0,
   };
@@ -131,6 +141,7 @@ async function liveSessionToAccum(
       cacheWrite: sc.usage.cacheWrite,
     },
     byModel: sc.weightedByModel,
+    rawByModel: sc.usage.byModel,
     authoringCacheReadUnits: sc.cacheReadUnits,
     satelliteCacheReadUnits: 0,
   };
@@ -216,6 +227,114 @@ function satelliteUnitsByKind(
   return [...byKind.entries()]
     .map(([kind, b]) => ({ kind, units: b.units, count: b.count }))
     .sort((a, b) => b.units - a.units);
+}
+
+function usableModel(model: string | null): string | null {
+  const normalized = model?.trim();
+  if (!normalized || normalized === "<synthetic>") return null;
+  return normalized;
+}
+
+function isLegacyClaudeModel(model: string): boolean {
+  return CLAUDE_MODEL_ALIASES.has(model) || CLAUDE_FULL_MODEL_ID.test(model);
+}
+
+function codingUsageByModel(taskMap: Map<string, TaskAccum>): Record<string, number> {
+  const coding: Record<string, number> = {};
+  for (const task of taskMap.values()) {
+    for (const [rawModel, tokens] of Object.entries(task.rawByModel)) {
+      const model = usableModel(rawModel);
+      if (!model || tokens <= 0) continue;
+      coding[model] = (coding[model] ?? 0) + tokens;
+    }
+  }
+  return coding;
+}
+
+function spawnRawTokens(spawn: ReturnType<SessionStore["listReviewerSpawns"]>[number]): number {
+  return (
+    (spawn.inputTokens ?? 0) +
+    (spawn.outputTokens ?? 0) +
+    (spawn.cacheReadTokens ?? 0) +
+    (spawn.cacheWriteTokens ?? 0)
+  );
+}
+
+function claudeSpawnModel(
+  spawn: ReturnType<SessionStore["listReviewerSpawns"]>[number],
+  cutoff: number,
+): string | null {
+  if (spawn.totalTokens == null) return null;
+  if ((spawn.completedAt ?? spawn.spawnedAt) < cutoff) return null;
+  const model = usableModel(spawn.model);
+  if (!model) return null;
+  if (spawn.reviewerProvider === "claude") return model;
+  if (spawn.reviewerProvider == null && isLegacyClaudeModel(model)) return model;
+  return null;
+}
+
+function claudeSpawnUsageByRole(
+  spawns: ReturnType<SessionStore["listReviewerSpawns"]>,
+  cutoff: number,
+): UsageByRole {
+  const byRole: UsageByRole = {};
+  for (const sp of spawns) {
+    const model = claudeSpawnModel(sp, cutoff);
+    if (!model) continue;
+
+    const tokens = spawnRawTokens(sp);
+    if (tokens <= 0) continue;
+
+    const role = byRole[sp.kind] ?? {};
+    role[model] = (role[model] ?? 0) + tokens;
+    byRole[sp.kind] = role;
+  }
+
+  return byRole;
+}
+
+function claudeUsageByRole(
+  taskMap: Map<string, TaskAccum>,
+  spawns: ReturnType<SessionStore["listReviewerSpawns"]>,
+  cutoff: number,
+): UsageByRole {
+  const byRole = claudeSpawnUsageByRole(spawns, cutoff);
+  const coding = codingUsageByModel(taskMap);
+  if (Object.keys(coding).length > 0) byRole.coding = coding;
+  return byRole;
+}
+
+/** Bind each completed role to its exact native thread in the same range as the model mix. */
+function codexUsageByRole(
+  spawns: ReturnType<SessionStore["listReviewerSpawns"]>,
+  usage: CodexModelUsage,
+): UsageByRole {
+  const remaining = { ...usage.byModel };
+  const byRole: UsageByRole = {};
+  for (const sp of spawns) {
+    if (sp.reviewerProvider !== "codex" || !sp.providerSessionId || sp.completedAt == null)
+      continue;
+    const thread = usage.byThread[sp.providerSessionId];
+    if (!thread) continue;
+    const role = byRole[sp.kind] ?? {};
+    role[thread.model] = (role[thread.model] ?? 0) + thread.totalTokens;
+    byRole[sp.kind] = role;
+    remaining[thread.model] = (remaining[thread.model] ?? 0) - thread.totalTokens;
+  }
+  const coding = Object.fromEntries(Object.entries(remaining).filter(([, tokens]) => tokens > 0));
+  if (Object.keys(coding).length > 0) byRole.coding = coding;
+  return byRole;
+}
+
+function foldModels(byRole: UsageByRole): Record<string, number> {
+  const byModel: Record<string, number> = {};
+  for (const models of Object.values(byRole)) {
+    if (!models) continue;
+    for (const [model, tokens] of Object.entries(models)) {
+      byModel[model] = (byModel[model] ?? 0) + tokens;
+    }
+  }
+  return byModel;
 }
 
 /** Group task accumulators by repo, sort within each repo, and produce public repo breakdowns. */
@@ -368,6 +487,7 @@ async function addLiveRollupTasks(
         cacheWrite: w.cacheWrite,
       },
       byModel: w.byModel,
+      rawByModel: w.rawByModel,
       authoringCacheReadUnits: w.cacheReadUnits,
       satelliteCacheReadUnits: 0,
     });
@@ -380,6 +500,7 @@ export async function buildUsageBreakdown(opts: {
   now: number;
   apiKey: boolean;
   usageRollup?: SessionUsageRollup;
+  codexModelUsage?: (cutoff: number) => CodexModelUsage;
 }): Promise<UsageBreakdown> {
   const { store, range, now, apiKey } = opts;
 
@@ -430,12 +551,27 @@ export async function buildUsageBreakdown(opts: {
   // Global per-kind satellite tally — spawn-timestamp-filtered, independent of attribution.
   const satelliteByKind = satelliteUnitsByKind(spawns, cutoff);
 
+  const claudeByRole = claudeUsageByRole(taskMap, spawns, cutoff);
+  const claudeByModel = foldModels(claudeByRole);
+  const codexUsage = opts.codexModelUsage?.(cutoff) ?? { byModel: {}, byThread: {} };
+  const codexByModel = codexUsage.byModel;
+  const codexByRole = codexUsageByRole(spawns, codexUsage);
+  const modelBreakdown = (byModel: Record<string, number>, byRole: UsageByRole = {}) => ({
+    totalTokens: Object.values(byModel).reduce((sum, tokens) => sum + tokens, 0),
+    byModel,
+    byRole,
+  });
+
   return {
     range,
     generatedAt: now,
     ...totals,
     satelliteByKind,
     dollars: apiKey ? totals.totalUnits : null,
+    models: {
+      claude: modelBreakdown(claudeByModel, claudeByRole),
+      codex: modelBreakdown(codexByModel, codexByRole),
+    },
     repos,
   };
 }

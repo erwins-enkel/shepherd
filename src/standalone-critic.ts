@@ -34,7 +34,8 @@ import {
 } from "./house-rules";
 import { checksCleared, repoHasNoCiCached } from "./checks-gate";
 import { apiKeyFailClosed } from "./spawn-auth";
-import { readSessionUsage, type SessionUsage } from "./usage";
+import type { SessionUsage } from "./usage";
+import { readReviewerSpawnUsage } from "./reviewer-usage";
 import {
   prReviewPrompt,
   defaultReadVerdict,
@@ -87,6 +88,8 @@ export interface StandalonePrCriticDeps extends MembraneSeams {
     | "getPrReview"
     | "putPrReview"
     | "bumpPrReviewHead"
+    | "setReviewerSpawnProviderSessionId"
+    | "listReviewerSpawns"
     | "recordReviewerSpawn"
     | "completeReviewerSpawn"
     | "listEpicCompleted"
@@ -170,7 +173,7 @@ export class StandalonePrCriticService {
     this.readVerdict = deps.readVerdict ?? defaultReadVerdict;
     this.computePatchId = deps.computePatchId ?? defaultComputePatchId;
     this.collectBaseDelta = deps.collectBaseDelta ?? defaultCollectBaseDelta;
-    this.readUsage = deps.readUsage ?? readSessionUsage;
+    this.readUsage = deps.readUsage ?? ((cwd, id) => readReviewerSpawnUsage(deps.store, cwd, id));
     this.readReviewPolicy = deps.readReviewPolicy ?? defaultReadReviewPolicy;
     this.houseRulesBudgetFn =
       deps.houseRulesBudgetChars ?? (() => HOUSE_RULES_DEFAULT_BUDGET_CHARS);
@@ -397,14 +400,13 @@ export class StandalonePrCriticService {
 
       let wt;
       try {
-        // createDetached is (repoPath, branch, sha, slug?, pullRef?) — slug is undefined here (the
-        // PR head sha is already unique per PR, so the default `…-review-<sha>` path is collision-
-        // free and reused-on-restart to reclaim an interrupted run). pullRef lands the fork head.
+        // A unique cwd per launch lets the Codex resolver distinguish a restarted review
+        // from the interrupted run at the same head. pullRef lands a fork's head.
         wt = await this.deps.worktree.createDetached(
           repoPath,
           pr.headRefName!,
           pr.headSha!,
-          undefined,
+          randomUUID(),
           pullRef,
         );
       } catch (err) {
@@ -513,14 +515,14 @@ export class StandalonePrCriticService {
       landing?: LandingContext | null;
     },
   ): Promise<void> {
-    if (apiKeyFailClosed(this.deps.env?.().provider ?? "claude")) {
+    const env = this.deps.env?.() ?? { provider: "claude" as const, model: null };
+    if (apiKeyFailClosed(env.provider)) {
       this.log(
         `[pr-critic] ${repoPath}#${pr.number} api-key mode enabled but no API key configured — skipping (fail closed, not billing subscription)`,
       );
       this.deps.worktree.remove(worktreePath);
       return;
     }
-    const env = this.deps.env?.() ?? { provider: "claude" as const, model: null };
     // #2154: repo policy from the BASE COMMIT (never the checked-out PR head — this is the site
     // where the head may be a fork nobody vetted), plus the repo's standing house rules, scoped by
     // the diff's changed files. Both null ⇒ the composed prompt is unchanged.
@@ -559,7 +561,7 @@ export class StandalonePrCriticService {
       descriptor: {
         sessionId: criticSessionId,
         kind: "review",
-        model: this.deps.env?.().model ?? null,
+        model: env.model,
       },
     });
     if ("refused" in patch) {
@@ -657,7 +659,9 @@ export class StandalonePrCriticService {
       taskSessionId: `pr:${repoPath}#${pr.number}`,
       kind: "review",
       worktreePath,
-      model: this.deps.env?.().model ?? null,
+      reviewerProvider: env.provider,
+      model: env.model,
+      reviewerEffort: env.effort ?? null,
       spawnedAt: this.now(),
     });
   }

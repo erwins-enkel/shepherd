@@ -922,8 +922,8 @@ export interface DocAgentRun {
   outcome: DocAgentOutcome;
 }
 
-/** Append-only, archive-decoupled record of one spawned critic/plan-gate reviewer
- *  session and its token total. Keyed by the *reviewer* session id (NOT the task) and
+/** Append-only, archive-decoupled record of one spawned satellite LLM session and its token total.
+ *  Keyed by the *reviewer* session id (NOT the task) and
  *  deliberately carries no FK to `sessions`, so it outlives task archive + prune —
  *  letting post-hoc cost reports attribute reviewer token burn the task row can't. */
 export interface ReviewerSpawnRow {
@@ -931,7 +931,7 @@ export interface ReviewerSpawnRow {
   taskSessionId: string;
   /** `rundown` is READ-ONLY history: the Herd Rundown was removed and nothing writes that
    *  kind any more, but its past rows carry real token spend the usage breakdown attributes. */
-  kind: "review" | "plan_gate" | "recap" | "rundown" | "doc_agent" | "maintain";
+  kind: "review" | "plan_gate" | "recap" | "rundown" | "doc_agent" | "maintain" | "classifier";
   worktreePath: string;
   reviewerProvider: AgentProvider | null;
   model: string | null;
@@ -1460,7 +1460,7 @@ export interface HeldTask {
 
 // ── per-session usage snapshot ────────────────────────────────────────────────
 
-/** SQLite row type for session_usage (byModel stored as JSON TEXT). */
+/** SQLite row type for session_usage (model maps stored as JSON TEXT). */
 export interface SessionUsageRow {
   sessionId: string;
   desig: string;
@@ -1481,6 +1481,7 @@ export interface SessionUsageRow {
   cacheReadUnits: number;
   messageCount: number;
   byModel: string; // JSON: Record<string, number>
+  rawByModel: string; // JSON: Record<string, number>
   createdAt: number;
   archivedAt: number;
   snapshotAt: number;
@@ -1505,6 +1506,7 @@ export interface SessionUsageSnapshot {
   cacheReadUnits: number;
   messageCount: number;
   byModel: Record<string, number>; // weighted units per model id
+  rawByModel: Record<string, number>; // raw tokens per model id
   createdAt: number;
   archivedAt: number;
   snapshotAt: number;
@@ -1521,6 +1523,7 @@ export interface SessionUsageBucket {
   weightedUnits: number;
   cacheReadUnits: number;
   byModel: Record<string, number>; // weighted units per model
+  rawByModel: Record<string, number>; // raw tokens per model
 }
 
 /** Per-session windowed sum returned by sumSessionUsageBucketsSince. */
@@ -1532,6 +1535,7 @@ export interface WindowedBucketSum {
   weightedUnits: number;
   cacheReadUnits: number;
   byModel: Record<string, number>;
+  rawByModel: Record<string, number>;
 }
 
 // Mirror of the UsageBreakdown contract in ui/src/lib/types.ts — keep in sync.
@@ -1569,9 +1573,19 @@ export interface UsageRepoBreakdown {
 // per-task `satelliteUnits` attribution (different filter axis + includes unattributed
 // buckets like doc_agent/standalone-critic) — see buildUsageBreakdown.
 export interface UsageKindUnits {
-  kind: string; // "review" | "plan_gate" | "recap" | "doc_agent" | "maintain" (+ historical "rundown") — data, not translated
+  kind: string; // "review" | "plan_gate" | "recap" | "doc_agent" | "maintain" | "classifier" (+ historical "rundown") — data, not translated
   units: number; // weighted units for that kind, in range
   count: number; // number of completed passes of that kind, in range
+}
+
+export type UsageRole =
+  "coding" | "classifier" | "review" | "plan_gate" | "recap" | "rundown" | "doc_agent" | "maintain";
+export type UsageByRole = Partial<Record<UsageRole, Record<string, number>>>;
+
+export interface UsageModelBreakdown {
+  totalTokens: number;
+  byModel: Record<string, number>;
+  byRole: UsageByRole;
 }
 
 export interface UsageBreakdown {
@@ -1584,6 +1598,10 @@ export interface UsageBreakdown {
   generationUnits: number;
   satelliteByKind: UsageKindUnits[]; // global per-kind satellite tally, sorted desc by units
   dollars: number | null; // absolute USD spend; null unless api-key auth mode (subscription mode shows no dollars)
+  models: {
+    claude: UsageModelBreakdown;
+    codex: UsageModelBreakdown;
+  };
   repos: UsageRepoBreakdown[];
 }
 
@@ -1657,6 +1675,8 @@ export const USAGE_REPO_KEYS = [
 ] as const;
 // Mirrors UsageKindUnits:
 export const USAGE_KIND_UNITS_KEYS = ["kind", "units", "count"] as const;
+// Mirrors UsageModelBreakdown:
+export const USAGE_MODEL_BREAKDOWN_KEYS = ["totalTokens", "byModel", "byRole"] as const;
 // Mirrors UsageBreakdown:
 export const USAGE_BREAKDOWN_KEYS = [
   "range",
@@ -1668,6 +1688,7 @@ export const USAGE_BREAKDOWN_KEYS = [
   "generationUnits",
   "satelliteByKind",
   "dollars",
+  "models",
   "repos",
 ] as const;
 // Mirrors UsageTimelineHour:

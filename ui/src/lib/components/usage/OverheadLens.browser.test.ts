@@ -55,7 +55,18 @@ describe("OverheadLens", () => {
   });
 
   it("satellite-by-type section renders one row per kind, sorted desc by units, with a count", async () => {
-    const breakdown = mockBreakdown("7d");
+    const base = mockBreakdown("7d");
+    const breakdown = {
+      ...base,
+      satelliteByKind: [
+        {
+          kind: "classifier",
+          units: (base.satelliteByKind[0]?.units ?? 0) + 1,
+          count: 2,
+        },
+        ...base.satelliteByKind,
+      ],
+    };
     render(OverheadLens, { breakdown });
 
     await expect.element(page.getByText("Satellite by type")).toBeInTheDocument();
@@ -64,11 +75,11 @@ describe("OverheadLens", () => {
     expect(rows.length, "one row per kind").toBe(breakdown.satelliteByKind.length);
     expect(rows.length).toBeGreaterThan(0);
 
-    // First row is the largest kind (mock is review-led) and carries a count label "N×".
+    // First row is the largest kind and carries the localized classifier label + count.
     const firstLabel = rows[0]?.querySelector(".bykind-label")?.textContent ?? "";
-    expect(firstLabel).toBe("Review");
+    expect(firstLabel).toBe("Classifier");
     const firstCount = rows[0]?.querySelector(".bykind-count")?.textContent ?? "";
-    expect(firstCount).toMatch(/^\d+×$/);
+    expect(firstCount).toBe("2×");
 
     // Each row shows a % share.
     rows.forEach((row, i) => {

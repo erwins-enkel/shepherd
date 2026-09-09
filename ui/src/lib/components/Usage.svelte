@@ -30,9 +30,12 @@
   import TimelineLens from "$lib/components/usage/TimelineLens.svelte";
   import DeliveryLens from "$lib/components/usage/DeliveryLens.svelte";
 
+  import ModelsLens from "$lib/components/usage/ModelsLens.svelte";
+
   let { onclose }: { onclose?: () => void } = $props();
 
-  type Tab = "spend" | "overhead" | "prompt" | "timeline" | "delivery" | "limits" | "github";
+  type Tab =
+    "spend" | "overhead" | "prompt" | "timeline" | "delivery" | "models" | "limits" | "github";
 
   let tab = $state<Tab>("spend");
   let range = $state<UsageRange>("7d");
@@ -180,12 +183,18 @@
   }
 
   // Template-state derivations (kept out of the markup to keep the template's
-  // branching shallow). `showRange`: spend/overhead are the only ranged tabs.
+  // branching shallow). Spend, Overhead, Timeline, and Models share the range selector.
   const showRange = $derived(
-    tab === "spend" || tab === "overhead" || tab === "timeline" || tab === "delivery",
+    tab === "spend" ||
+      tab === "overhead" ||
+      tab === "timeline" ||
+      tab === "delivery" ||
+      tab === "models",
   );
-  // Non-blocking refetch banner — Spend/Overhead use `breakdown`'s error track, Timeline its own.
-  const showBreakdownError = $derived(error && (tab === "spend" || tab === "overhead"));
+  // Non-blocking refetch banner — breakdown-backed lenses share one error track.
+  const showBreakdownError = $derived(
+    error && (tab === "spend" || tab === "overhead" || tab === "models"),
+  );
   const showTimelineError = $derived(timelineError && tab === "timeline");
   // Prompt follows Timeline's shape rather than Limits'/GitHub's: banner, never inline — so a
   // refetch that fails after a first success can't leave stale numbers on screen unannounced.
@@ -193,7 +202,7 @@
   const showDeliveryError = $derived(deliveryError && tab === "delivery");
   // The active tab has data to render its lens (else we show loading/error chrome).
   const hasContent = $derived(
-    ((tab === "spend" || tab === "overhead") && !!breakdown) ||
+    ((tab === "spend" || tab === "overhead" || tab === "models") && !!breakdown) ||
       (tab === "timeline" && !!timeline) ||
       (tab === "limits" && !!limits) ||
       (tab === "github" && !!github) ||
@@ -206,7 +215,7 @@
     !hasContent && ((tab === "limits" && limitsError) || (tab === "github" && githubError)),
   );
   const bodyLoading = $derived(
-    ((tab === "spend" || tab === "overhead") && !breakdown && loading) ||
+    ((tab === "spend" || tab === "overhead" || tab === "models") && !breakdown && loading) ||
       (tab === "timeline" && !timeline && !timelineError) ||
       (tab === "limits" && !limits && !limitsError) ||
       (tab === "github" && !github && !githubError) ||
@@ -278,6 +287,13 @@
       <button
         type="button"
         class="seg-btn"
+        class:seg-active={tab === "models"}
+        aria-pressed={tab === "models"}
+        onclick={() => (tab = "models")}>{m.usage_models_tab()}</button
+      >
+      <button
+        type="button"
+        class="seg-btn"
         class:seg-active={tab === "limits"}
         aria-pressed={tab === "limits"}
         onclick={() => (tab = "limits")}>{m.usage_limits_tab()}</button
@@ -291,7 +307,7 @@
       >
     </div>
 
-    <!-- Range selector (Spend + Overhead only) -->
+    <!-- Range selector for every range-backed lens -->
     {#if showRange}
       <div class="seg-row range-row" role="group" aria-label={m.usage_range_label()}>
         <button
@@ -325,7 +341,7 @@
       </div>
     {/if}
 
-    {#if codexUsage && tab !== "limits"}
+    {#if codexUsage && tab !== "limits" && tab !== "models"}
       <div class="provider-strip" class:provider-stale={codexUsage.stale}>
         <span class="provider-name">{m.agent_provider_codex()}</span>
         <span class="provider-metric">
@@ -345,7 +361,7 @@
 
     <!-- Lens body -->
     <div class="lens-body">
-      <!-- Breakdown-error banner for the Spend/Overhead tabs. Shown even when a stale
+      <!-- Breakdown-error banner for breakdown-backed tabs. Shown even when a stale
            `breakdown` is still present (a failed range-change refetch) so the user isn't
            silently left on old-range data with no indication the new range failed. -->
       {#if showBreakdownError || showTimelineError || showPromptsError || showDeliveryError}
@@ -367,6 +383,8 @@
         <TimelineLens {timeline} />
       {:else if tab === "delivery" && delivery}
         <DeliveryLens metrics={delivery} />
+      {:else if tab === "models" && breakdown}
+        <ModelsLens models={breakdown.models} />
       {:else if tab === "limits" && limits}
         <LimitsLens {limits} {projections} {codexUsage} />
       {:else if tab === "github" && github}

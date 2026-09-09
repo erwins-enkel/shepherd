@@ -1385,9 +1385,19 @@ export interface UsageRepoBreakdown {
 
 /** One satellite-pass kind's global, spawn-timestamp-filtered tally (Overhead lens). */
 export interface UsageKindUnits {
-  kind: string; // "review" | "plan_gate" | "recap" | "doc_agent" | "maintain" (+ historical "rundown") — data, not translated
+  kind: string; // "review" | "plan_gate" | "recap" | "doc_agent" | "maintain" | "classifier" (+ historical "rundown") — data, not translated
   units: number; // weighted units for that kind, in range
   count: number; // number of completed passes of that kind, in range
+}
+
+export type UsageRole =
+  "coding" | "classifier" | "review" | "plan_gate" | "recap" | "rundown" | "doc_agent" | "maintain";
+export type UsageByRole = Partial<Record<UsageRole, Record<string, number>>>;
+
+export interface UsageModelBreakdown {
+  totalTokens: number;
+  byModel: Record<string, number>;
+  byRole: UsageByRole;
 }
 
 /** Top-level breakdown — serves the Spend + Overhead lenses. */
@@ -1401,6 +1411,10 @@ export interface UsageBreakdown {
   generationUnits: number; // non-cacheRead share (Overhead b)
   satelliteByKind: UsageKindUnits[]; // global per-kind satellite tally, sorted desc by units
   dollars: number | null; // absolute USD spend; null unless api-key auth mode
+  models: {
+    claude: UsageModelBreakdown;
+    codex: UsageModelBreakdown;
+  };
   repos: UsageRepoBreakdown[];
 }
 

@@ -305,6 +305,7 @@ test("usage ladder: archived session serves its snapshot — raw fields, byModel
     weightedUnits: 7,
     cacheReadUnits: 3,
     messageCount: 5,
+    rawByModel: {},
     byModel: { opus: 7 }, // weighted units — must NOT surface in the raw-token DTO field
     createdAt: s.createdAt,
     archivedAt: s.createdAt + 1000,
@@ -344,6 +345,7 @@ function usageSnapFor(
     weightedUnits: 7,
     cacheReadUnits: 3,
     messageCount: 5,
+    rawByModel: {},
     byModel: { opus: 7 },
     createdAt: s.createdAt,
     archivedAt: s.createdAt + 1000,

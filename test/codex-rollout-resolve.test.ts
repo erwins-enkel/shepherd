@@ -151,6 +151,7 @@ describe("backfillCodexSpawnUsage", () => {
     const filled: Array<{ id: string; total: number }> = [];
     return {
       filled,
+      setReviewerSpawnProviderSessionId: () => {},
       listBackfillableCodexSpawns: () => rows as never,
       backfillReviewerSpawnUsage: (id: string, u: { total: number }) => {
         filled.push({ id, total: u.total });

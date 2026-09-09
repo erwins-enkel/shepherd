@@ -266,6 +266,24 @@ test("reviews a fresh open green regular session-less PR", async () => {
   expect(settings.env).toBeUndefined();
 });
 
+test("Codex critic records its resolved provider and completes without Claude usage", async () => {
+  const { deps, spies } = makeDeps({
+    env: () => ({ provider: "codex", model: "gpt-5.6", effort: "high" }),
+    readUsage: async () => null,
+  });
+  const svc = new StandalonePrCriticService(deps as any);
+  await svc.sweep();
+  await svc.tick();
+
+  expect(spies.recordedSpawns[0]).toMatchObject({
+    reviewerProvider: "codex",
+    model: "gpt-5.6",
+    reviewerEffort: "high",
+  });
+  expect(spies.completedSpawns).toHaveLength(1);
+  expect(spies.completedSpawns[0]!.u).toBeNull();
+});
+
 test("reviews a REST-enumerated green PR while GraphQL backoff is active", async () => {
   graphRateLimit.noteLimitError(60);
   let metaCalls = 0;
@@ -1121,4 +1139,14 @@ test("#2154 learnings off ⇒ no house-rules block at the session-less critic", 
   const prompt = spies.started[0]!.argv.at(-1)!;
   expect(prompt).not.toContain("REPO HOUSE RULES");
   expect(prompt).not.toContain("must not be shown");
+});
+
+test("restarting a standalone review of the same head gives each rollout its own cwd", async () => {
+  const first = makeDeps();
+  const restarted = makeDeps();
+  await new StandalonePrCriticService(first.deps as any).sweep();
+  await new StandalonePrCriticService(restarted.deps as any).sweep();
+  expect(first.spies.created[0]?.sha).toBe(restarted.spies.created[0]?.sha);
+  expect(first.spies.created[0]?.slug).toBeTruthy();
+  expect(first.spies.created[0]?.slug).not.toBe(restarted.spies.created[0]?.slug);
 });

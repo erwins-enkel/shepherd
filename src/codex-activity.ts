@@ -610,6 +610,7 @@ export async function codexSessionActivity(
 
 /** What the backfill needs from the store (kept structural so it's trivially injectable). */
 export interface CodexUsageBackfillStore {
+  setReviewerSpawnProviderSessionId(reviewerSessionId: string, providerSessionId: string): void;
   listBackfillableCodexSpawns(limit?: number): Array<{
     reviewerSessionId: string;
     worktreePath: string;
@@ -660,6 +661,7 @@ export function backfillCodexSpawnUsage(
         providerSessionId: row.providerSessionId,
       });
       if (!hit) continue; // rollout gone or still ambiguous → stays NULL (honest)
+      store.setReviewerSpawnProviderSessionId(row.reviewerSessionId, hit.rolloutId);
       // A resolved rollout is the proof, so its totals are booked as-is — including a genuine zero
       // (a run whose rollout records no `token_count`). That is exactly what finalize does for the
       // same case, and `0` is the contract's *proven* zero, distinct from NULL = unknown. Skipping

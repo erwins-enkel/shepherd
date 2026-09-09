@@ -25,7 +25,11 @@
     "gen:herdr-fixtures": "bun run scripts/gen-herdr-fixtures.ts",
     "check:herdr-types": "bun run gen:herdr-types && git diff --exit-code -- src/generated/herdr-protocol.ts",
     "herdr:compat": "bun run scripts/herdr-compat.ts",
-    "eval:stop-classifier": "bun run scripts/eval-stop-classifier.ts"
+    "gen:eval-fingerprints": "bun run scripts/gen-eval-fingerprints.ts",
+    "check:eval-fingerprints": "bun run scripts/gen-eval-fingerprints.ts --check",
+    "eval:stop-classifier": "bun run scripts/eval-stop-classifier.ts",
+    "eval:plan-gate": "bun run scripts/eval-plan-gate.ts",
+    "eval:critic": "bun run scripts/eval-critic.ts"
   },
   "lint-staged": {
     "*.{ts,js,json,css,html,md,svelte}": "prettier --write --cache --cache-strategy content --cache-location .cache/prettier",

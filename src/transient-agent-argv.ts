@@ -273,7 +273,7 @@ export function buildTransientAgentArgv(
   if (preset.mcpIsolated) argv.push("--safe-mode");
   argv.push("--allowedTools", ...preset.allowedTools);
   if (opts.model) argv.push("--model", opts.model);
-  const effortTier = effortForSpawn("claude", opts.effort ?? null);
+  const effortTier = effortForSpawn(opts.effort ?? null);
   if (effortTier) argv.push("--effort", effortTier);
   argv.push("--permission-mode", "dontAsk");
   // child_process.spawn REJECTS any argv arg containing a NUL ("must be a string without null

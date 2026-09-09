@@ -201,13 +201,16 @@ describe("UnitRow runtime environment", () => {
     );
   });
 
-  it("shows Codex max intent as the effective high effort before runtime telemetry arrives", () => {
+  it.each([
+    ["max", "Max"],
+    ["ultra", "Ultra"],
+  ])("shows configured Codex %s before telemetry arrives", (effort, label) => {
     render(UnitRow, {
       session: session({
         id: "codex-clamped-effort",
         agentProvider: "codex",
         model: "gpt-6-astra",
-        effort: "max",
+        effort,
       }),
       selected: false,
       nowMs: Date.now(),
@@ -215,7 +218,7 @@ describe("UnitRow runtime environment", () => {
     });
 
     expect(document.querySelector(".meta-text")?.textContent?.replace(/\s+/g, " ").trim()).toBe(
-      `TASK-01 · gpt-6-astra · ${m.effort_label_high()}`,
+      `TASK-01 · gpt-6-astra · ${label}`,
     );
   });
 });

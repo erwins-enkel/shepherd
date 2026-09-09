@@ -136,6 +136,8 @@ function codexGuidance(model: string): {
   detail: string;
 } {
   switch (model) {
+    case "gpt-6-astra":
+      return { costTier: "premium", tag: "max", detail: m.model_guidance_codex_6_astra() };
     case "gpt-5.5":
       return { costTier: "premium", tag: "max", detail: m.model_guidance_codex_55() };
     case "gpt-5.6-sol":

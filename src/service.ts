@@ -2923,17 +2923,14 @@ export class SessionService {
 
   /**
    * Push the reasoning-effort flag for `provider`, or nothing when effort is unset/unsupported.
-   * The value is clamped/translated by `effortForSpawn` (Codex: max → high; Claude:
-   * pass-through — the pinned CLI self-clamps a tier the resolved model doesn't support, so no
-   * per-model map is needed, verified in issue #1417's Phase-0 gate). Provider-only: unlike the
-   * model flag, effort needs no final-`spawnModel` clamp, so it is safe on both spawn and resume.
+   * Known tiers pass through unchanged; the provider only determines the CLI flag syntax.
    */
   private pushEffortFlag(
     argv: string[],
     effort: string | null | undefined,
     provider: AgentProvider,
   ): void {
-    const tier = effortForSpawn(provider, effort ?? null);
+    const tier = effortForSpawn(effort ?? null);
     if (!tier) return;
     if (provider === "codex") argv.push("-c", `model_reasoning_effort=${tier}`);
     else argv.push("--effort", tier);
@@ -4014,8 +4011,7 @@ export class SessionService {
       prompt: overrides?.prompt ?? original.prompt,
       agentProvider,
       model,
-      // Effort needs no provider re-clamp: unlike a model alias, every tier is meaningful for both
-      // providers, and the argv-build seam clamps Codex's max → high at emit time.
+      // Preserve explicit effort across relaunch; the CLI decides support for the resolved model.
       effort: pickOverride(overrides?.effort, original.effort),
       planGateEnabled: pickOverride(overrides?.planGateEnabled, original.planGateEnabled),
       // Apply the effective Autopilot value at spawn time (NOT redundant with the store write

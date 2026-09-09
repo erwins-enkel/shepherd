@@ -81,7 +81,7 @@ export function normalizeRunConfig(i: NormalizeInput): {
     model = modelAvailableForProvider(provider, fallback, i.fableAvailable) ? fallback : "default";
   }
   let effort = i.effort;
-  if (!effortAvailableForProvider(provider, effort)) effort = "default";
+  if (!effortAvailableForProvider(provider, effort, model)) effort = "default";
   return { provider, model, effort };
 }
 

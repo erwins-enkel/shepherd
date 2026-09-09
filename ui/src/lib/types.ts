@@ -2329,10 +2329,10 @@ const CLAUDE_MODELS = [
 /** Back-compat alias used throughout the existing Claude default-model settings. */
 export const MODELS = CLAUDE_MODELS;
 
-/** Reasoning-effort tiers, least→most effort. Mirrors src/types.ts EFFORTS (the Claude `--effort`
- *  domain). Codex accepts through xhigh; max is handled by the picker's provider filter and the
- *  server-side clamp. "default" (settings) / null (session) = no flag. */
-export const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
+/** Known reasoning-effort tiers across the coding CLIs, ordered least→most effort.
+ *  Provider/model pickers offer the supported subset; explicit spawn values pass through.
+ *  "default" (settings) / null (session) = no flag. Keep the server and UI mirrors aligned. */
+export const EFFORTS = ["low", "medium", "high", "xhigh", "max", "ultra"] as const;
 
 /** Curated Codex CLI model aliases shown in the task dialog. */
 export const CODEX_MODELS = [

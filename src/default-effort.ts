@@ -8,13 +8,8 @@
  *   - <tier>    = a specific effort for both the picker and drain.
  * There is no "auto" tier: effort has no time-gated promo fallback the way the model picker does.
  *
- * Argv-build translation (verified against the pinned CLIs in issue #1417's Phase-0 gate):
- *   - Claude 2.1.201 `--effort <low|medium|high|xhigh|max>` is LENIENT — it self-clamps/no-ops a
- *     tier the resolved model doesn't support (e.g. `--effort max --model haiku` runs clean), so
- *     Claude needs NO per-model capability map: pass the tier straight through.
- *   - Codex 0.150.1 (rechecked against npm latest 0.152.1 on 2026-09-02) accepts `xhigh` across
- *     every available Shepherd-curated model, but 5.5/5.4 do not advertise `max`. Pass `xhigh`
- *     through and clamp `max` to `high`; `minimal` (unadvertised and below `low`) is not exposed.
+ * Explicit tiers pass through unchanged. The CLI decides whether the resolved model supports
+ * the requested tier; Shepherd never silently downgrades the operator's choice.
  */
 
 import { EFFORTS, type AgentProvider } from "./types";
@@ -81,25 +76,19 @@ export function resolveDefaultEffortSetting(
 }
 
 /**
- * The argv-build seam (the correctness boundary): translate a resolved effort tier into the value
- * emitted for `provider`, or null to emit no flag. Pure; the argv builders format the actual flag
+ * The argv-build seam: normalize a resolved effort tier, or return null to emit no flag.
+ * Pure; the argv builders format the actual flag
  * (`--effort <tier>` for Claude, `-c model_reasoning_effort=<tier>` for Codex).
  *
- * - null / unrecognised → null (no flag).
- * - Claude → pass the tier through (the CLI self-clamps unsupported model tiers).
- * - Codex → pass through `xhigh`; clamp `max` down to `high` for the provider-wide
- *   compatibility floor measured against Codex 0.150.1 (see the contract comment above).
+ * Null / unrecognised values emit no flag. Known tiers pass through unchanged.
  */
-export function effortForSpawn(provider: AgentProvider, effort: string | null): string | null {
-  if (effort === null || !EFFORT_VALUES.has(effort)) return null;
-  if (provider === "codex") return effort === "max" ? "high" : effort;
-  return effort;
+export function effortForSpawn(effort: string | null): string | null {
+  return normalizeEffort(effort);
 }
 
-/** The effort tiers a provider accepts across its curated models — Claude: all; Codex: no max.
- *  Used by the UI picker (via the client mirror) and available server-side for guards. */
+/** Provider-level effort options. Model-specific Codex subsets live in the UI picker. */
 export function effortsForProvider(provider: AgentProvider): readonly string[] {
-  return provider === "codex" ? EFFORTS.filter((e) => e !== "max") : EFFORTS;
+  return provider === "claude" ? EFFORTS.filter((e) => e !== "ultra") : EFFORTS;
 }
 
 /**

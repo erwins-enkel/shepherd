@@ -409,23 +409,24 @@ test("createSession: API-key auth preserves a blocklisted Codex model", async ()
   expect(s.model).toBe("gpt-5.3-codex");
 });
 
-test("createSession: codex spawn emits -c model_reasoning_effort, clamping max → high (#1417)", async () => {
+test.each(["max", "ultra"])("createSession: codex spawn emits %s unchanged", async (effort) => {
   const { store, service, calls } = codexHarness(true);
   const s = await service.create({
     repoPath: "/repo",
     baseBranch: "main",
     prompt: "flatten it",
     agentProvider: "codex",
-    model: "gpt-5.5",
-    effort: "max",
+    model: "gpt-6-astra",
+    effort,
     images: [],
     autopilotEnabled: false,
   });
   const argv: string[] = calls.start.argv;
   const cIdx = argv.indexOf("-c");
   expect(cIdx).toBeGreaterThan(argv.indexOf("--model"));
-  expect(argv[cIdx + 1]).toBe("model_reasoning_effort=high"); // max lacks provider-wide support
-  expect(store.get(s.id)?.effort).toBe("max"); // stored intent is the un-clamped tier
+  expect(argv[cIdx + 1]).toBe(`model_reasoning_effort=${effort}`);
+  expect(store.get(s.id)?.effort).toBe(effort);
+  expect(store.get(s.id)?.model).toBe("gpt-6-astra");
 });
 
 test("createSession: codex drops a carried Claude model and uses provider default", async () => {
@@ -3072,7 +3073,7 @@ test("resume re-emits the persisted --effort for a Claude session", async () => 
   ]);
 });
 
-test("resume re-emits Codex xhigh reasoning effort unchanged", async () => {
+test.each(["xhigh", "max", "ultra"])("resume re-emits Codex %s unchanged", async (effort) => {
   const store = new SessionStore(":memory:");
   const calls: any = {};
   const svc = new SessionService({
@@ -3097,8 +3098,8 @@ test("resume re-emits Codex xhigh reasoning effort unchanged", async () => {
   const s = resumable(store, {
     agentProvider: "codex",
     claudeSessionId: "",
-    model: "gpt-5.5",
-    effort: "xhigh",
+    model: "gpt-6-astra",
+    effort,
   });
   await svc.resume(s.id);
   expect(calls.argv).toEqual([
@@ -3108,9 +3109,9 @@ test("resume re-emits Codex xhigh reasoning effort unchanged", async () => {
     "--no-alt-screen",
     "--dangerously-bypass-approvals-and-sandbox",
     "--model",
-    "gpt-5.5",
+    "gpt-6-astra",
     "-c",
-    "model_reasoning_effort=xhigh",
+    `model_reasoning_effort=${effort}`,
   ]);
 });
 

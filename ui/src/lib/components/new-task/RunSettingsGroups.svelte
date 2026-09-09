@@ -103,7 +103,7 @@
   } = $props();
 
   const provModels = $derived(providerModels(agentProvider));
-  const provEfforts = $derived(providerEfforts(agentProvider));
+  const provEfforts = $derived(providerEfforts(agentProvider, model));
   let alphaExpanded = $state(false);
 
   function providerLabel(provider: AgentProvider | undefined): string {

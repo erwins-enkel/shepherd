@@ -53,18 +53,18 @@ test("Claude effort emits --effort between --model and --permission-mode", () =>
   expect(effIdx).toBeLessThan(argv.indexOf("--permission-mode"));
 });
 
-test("Codex effort routes xhigh through to -c model_reasoning_effort", () => {
+test.each(["xhigh", "max", "ultra"])("Codex effort routes %s unchanged to the CLI", (effort) => {
   const { argv } = buildTransientAgentArgv("reviewer", {
     provider: "codex",
     model: "gpt-5.5",
     prompt: "P",
-    effort: "xhigh",
+    effort,
   });
   // `-c` is repeatable and the isolation block already spends one (the project-doc re-assert), so
   // the effort override is the LAST one — indexOf would find the wrong pair.
   const cIdx = argv.lastIndexOf("-c");
   expect(cIdx).toBeGreaterThan(-1);
-  expect(argv[cIdx + 1]).toBe("model_reasoning_effort=xhigh");
+  expect(argv[cIdx + 1]).toBe(`model_reasoning_effort=${effort}`);
   expect(argv).not.toContain("--effort"); // Codex uses the -c surface, not --effort
 });
 

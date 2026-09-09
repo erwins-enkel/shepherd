@@ -152,3 +152,29 @@ describe("modelForManualProviderChange (today's unconditional reset, preserved)"
     expect(modelForManualProviderChange("claude", "claude-fable-5-1", false)).toBe("default");
   });
 });
+
+describe("Codex model-aware effort correction", () => {
+  it.each([
+    ["gpt-6-astra", "ultra", "ultra"],
+    ["gpt-5.6-sol", "ultra", "ultra"],
+    ["gpt-5.6-terra", "ultra", "ultra"],
+    ["gpt-5.6-luna", "ultra", "default"],
+    ["gpt-5.6-luna", "max", "max"],
+    ["gpt-5.5", "max", "default"],
+  ])("normalizes %s / %s to %s", (model, effort, expected) => {
+    expect(normalizeRunConfig(normalizeInput({ provider: "codex", model, effort })).effort).toBe(
+      expected,
+    );
+  });
+  it("uses the corrected model when a provider constraint changes the CLI", () => {
+    expect(
+      normalizeRunConfig(
+        normalizeInput({
+          constraint: codexOnly,
+          effort: "ultra",
+          codexModelSetting: "gpt-6-astra",
+        }),
+      ),
+    ).toEqual({ provider: "codex", model: "gpt-6-astra", effort: "ultra" });
+  });
+});

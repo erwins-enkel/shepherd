@@ -538,18 +538,18 @@ describe("UpNextPanel provider picker", () => {
           .slice(0, 5),
       )
       .toEqual(["default", "gpt-5.6-sol", "gpt-6-astra", "gpt-5.6-terra", "gpt-5.6-luna"]);
-    await expect.poll(() => Array.from(model.options).map((o) => o.value)).toContain("gpt-5.4");
-    model.value = "gpt-5.4";
+    await expect.poll(() => Array.from(model.options).map((o) => o.value)).toContain("gpt-6-astra");
+    model.value = "gpt-6-astra";
     model.dispatchEvent(new Event("change", { bubbles: true }));
     const effort = document.querySelector<HTMLSelectElement>("#mcp-effort")!;
-    effort.value = "high";
+    effort.value = "ultra";
     effort.dispatchEvent(new Event("change", { bubbles: true }));
     pickerConfirm().click();
     await expect.poll(() => vi.mocked(startUpNext).mock.calls.length).toBe(1);
     expect(vi.mocked(startUpNext).mock.calls[0]?.[1]).toEqual({
       agentProvider: "codex",
-      model: "gpt-5.4",
-      effort: "high",
+      model: "gpt-6-astra",
+      effort: "ultra",
     });
   });
 

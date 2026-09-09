@@ -67,30 +67,30 @@ describe("resolveDefaultEffortSetting (session/repo/global precedence)", () => {
   });
 });
 
+test("ultra survives session and default normalization", () => {
+  expect(normalizeEffort("ultra")).toBe("ultra");
+  expect(normalizeDefaultEffortSetting("ultra")).toBe("ultra");
+  expect(normalizeRepoDefaultEffortSetting("ultra")).toBe("ultra");
+});
+
 describe("effortForSpawn (argv-build seam)", () => {
   test("null / unrecognised → null (no flag)", () => {
-    expect(effortForSpawn("claude", null)).toBeNull();
-    expect(effortForSpawn("claude", "bogus")).toBeNull();
-    expect(effortForSpawn("codex", "minimal")).toBeNull();
+    for (const tier of [null, "bogus", "minimal"]) expect(effortForSpawn(tier)).toBeNull();
   });
-  test("Claude passes every tier through (CLI self-clamps unsupported models)", () => {
-    for (const tier of EFFORTS) expect(effortForSpawn("claude", tier)).toBe(tier);
-  });
-  test("Codex passes xhigh through, clamps max → high, and passes lower tiers through", () => {
-    expect(effortForSpawn("codex", "xhigh")).toBe("xhigh");
-    expect(effortForSpawn("codex", "max")).toBe("high");
-    expect(effortForSpawn("codex", "low")).toBe("low");
-    expect(effortForSpawn("codex", "medium")).toBe("medium");
-    expect(effortForSpawn("codex", "high")).toBe("high");
-  });
+  test.each(["low", "medium", "high", "xhigh", "max", "ultra"])(
+    "passes %s unchanged to the CLI",
+    (tier) => {
+      expect(effortForSpawn(tier)).toBe(tier);
+    },
+  );
 });
 
 describe("effortsForProvider", () => {
-  test("Claude exposes all tiers", () => {
-    expect(effortsForProvider("claude")).toEqual(EFFORTS);
+  test("Claude exposes its five CLI tiers", () => {
+    expect(effortsForProvider("claude")).toEqual(["low", "medium", "high", "xhigh", "max"]);
   });
-  test("Codex exposes xhigh and hides max", () => {
-    expect(effortsForProvider("codex")).toEqual(["low", "medium", "high", "xhigh"]);
+  test("Codex offers max and ultra", () => {
+    expect(effortsForProvider("codex")).toEqual(["low", "medium", "high", "xhigh", "max", "ultra"]);
   });
 });
 

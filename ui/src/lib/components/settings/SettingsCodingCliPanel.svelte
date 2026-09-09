@@ -294,9 +294,14 @@
         roleModelV[role] = "default";
         await saveRoleModel(role);
       }
-      // Likewise, if the resolved provider no longer offers the current effort
-      // tier (e.g. switching to codex drops max), snap back to "default".
-      if (!effortAvailableForProvider(roleGuidanceProvider(role), roleEffortV[role])) {
+      // A manual provider/model change resets only an unsupported effort choice.
+      if (
+        !effortAvailableForProvider(
+          roleGuidanceProvider(role),
+          roleEffortV[role],
+          roleGuidanceModel(role),
+        )
+      ) {
         roleEffortV[role] = "default";
         await saveRoleEffort(role);
       }
@@ -318,6 +323,16 @@
       if (typeof v === "string") {
         roleModelV[role] = v;
         roleModelSaved[role] = v;
+        if (
+          !effortAvailableForProvider(
+            roleGuidanceProvider(role),
+            roleEffortV[role],
+            roleGuidanceModel(role),
+          )
+        ) {
+          roleEffortV[role] = "default";
+          await saveRoleEffort(role);
+        }
       }
     } catch {
       roleModelV[role] = roleModelSaved[role]; // revert; surface a 12s, deduped alert
@@ -801,7 +816,10 @@
           onchange={() => saveRoleEffort(role)}
         >
           <option value="default">{m.effort_default()}</option>
-          {#each providerEfforts(roleGuidanceProvider(role)) as tier (tier)}
+          {#if !effortAvailableForProvider(roleGuidanceProvider(role), roleEffortV[role], roleGuidanceModel(role))}
+            <option value={roleEffortV[role]}>{effortLabel(roleEffortV[role])}</option>
+          {/if}
+          {#each providerEfforts(roleGuidanceProvider(role), roleGuidanceModel(role)) as tier (tier)}
             <option value={tier}>{effortLabel(tier)}</option>
           {/each}
         </select>

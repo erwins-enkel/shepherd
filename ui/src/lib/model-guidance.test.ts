@@ -4,6 +4,13 @@ import { configuredModelLabel, modelLabel, runtimeModelLabel } from "./model-lab
 import { isFableModel, modelAvailableForProvider } from "./provider-models";
 
 describe("modelGuidance", () => {
+  it("identifies Astra as a premium model for complex work", () => {
+    const guidance = modelGuidance("codex", "gpt-6-astra");
+    expect(guidance.costTier).toBe("premium");
+    expect(guidance.tag).toBe("max");
+    expect(guidance.detail).not.toBe(modelGuidance("codex", "unknown").detail);
+    expect(modelOptionLabel("codex", "gpt-6-astra")).toBe("gpt-6-astra · max · $$$$");
+  });
   it("marks Haiku as the cheap classifier fit", () => {
     const guidance = modelGuidance("claude", "haiku", "classifier");
 

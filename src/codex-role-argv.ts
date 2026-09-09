@@ -132,7 +132,7 @@ export function codexRoleArgv(
     'project_doc_fallback_filenames=["CLAUDE.md"]',
   ];
   if (model) argv.push("-m", model);
-  const tier = effortForSpawn("codex", effort);
+  const tier = effortForSpawn(effort);
   if (tier) argv.push("-c", `model_reasoning_effort=${tier}`);
   // `-o` is emitted ONLY for roles that READ the last-message fallback. A role that never consumes it
   // (the `doc` kind) passes null: emitting a fixed `-o` target into its worktree — which in retarget

@@ -10,6 +10,8 @@ import {
   putAnthropicApiKey,
   putDefaultCodexModel,
   fixDiagnostic,
+  putRoleEffort,
+  putDefaultEffort,
 } from "$lib/api";
 import { toasts } from "$lib/toasts.svelte";
 import { roleTitle } from "$lib/settings-search";
@@ -22,6 +24,10 @@ vi.mock("$lib/api", async (importOriginal) => {
   return {
     ...actual,
     getSettings: vi.fn(),
+    putRoleCli: vi.fn(async (key, value) => ({ [key]: value })),
+    putRoleModel: vi.fn(async (key, value) => ({ [key]: value })),
+    putRoleEffort: vi.fn(async (key, value) => ({ [key]: value })),
+    putDefaultEffort: vi.fn(async (value) => ({ defaultEffort: value })),
     listDirs: vi.fn(async () => ({ path: "/repo", display: "/repo", parent: null, entries: [] })),
     getSteers: vi.fn(async () => []),
     getCommands: vi.fn(async () => ({ commands: [] })),
@@ -874,4 +880,60 @@ describe("Settings diagnose one-click fix toast", () => {
     const t = toasts.items.find((x) => x.text === m.diagnostics_fix_unresolved())!;
     expect(t.durationMs).toBe(12000);
   });
+});
+
+describe("Settings Codex reasoning", () => {
+  it("preserves saved ultra through reload and resets it on an explicit unsupported model change", async () => {
+    mockGetSettings.mockResolvedValue(
+      settings({ recapCli: "codex", recapModel: "gpt-6-astra", recapEffort: "ultra" }),
+    );
+    const view = await mountCodingAgents();
+    await requiredCodingSectionButton(m.settings_role_models_title()).disclosure.click();
+    const effort = page.getByRole("combobox", {
+      name: m.settings_role_effort_label({ role: "Recap" }),
+    });
+    await expect.element(effort).toHaveValue("ultra");
+    await effort.selectOptions("max");
+    await vi.waitFor(() => expect(putRoleEffort).toHaveBeenCalledWith("recapEffort", "max"));
+    await effort.selectOptions("ultra");
+    await vi.waitFor(() => expect(putRoleEffort).toHaveBeenCalledWith("recapEffort", "ultra"));
+    await view.unmount();
+    await mountCodingAgents();
+    await requiredCodingSectionButton(m.settings_role_models_title()).disclosure.click();
+    await expect.element(effort).toHaveValue("ultra");
+    await page
+      .getByRole("combobox", { name: m.settings_role_model_label({ role: "Recap" }) })
+      .selectOptions("gpt-5.5");
+    await expect.element(effort).toHaveValue("default");
+    expect(putRoleEffort).toHaveBeenLastCalledWith("recapEffort", "default");
+  });
+  it("inherits Sol's ultra options and preserves stored intent when the global model changes", async () => {
+    vi.mocked(putRoleEffort).mockClear();
+    mockGetSettings.mockResolvedValue(
+      settings({
+        defaultAgentProvider: "codex",
+        defaultCodexModel: "gpt-5.6-sol",
+        recapCli: "inherit",
+        recapEffort: "ultra",
+      }),
+    );
+    await mountCodingAgents();
+    await requiredCodingSectionButton(m.settings_role_models_title()).disclosure.click();
+    const effort = page.getByRole("combobox", {
+      name: m.settings_role_effort_label({ role: "Recap" }),
+    });
+    await expect.element(effort).toHaveValue("ultra");
+    await page.getByTestId("default-environment-model").selectOptions("gpt-5.5");
+    await expect.element(effort).toHaveValue("ultra");
+    expect(putRoleEffort).not.toHaveBeenCalled();
+  });
+});
+
+it("saves ultra as the shared default effort", async () => {
+  await mountCodingAgents();
+  await requiredCodingSectionButton(m.settings_cli_claude_title()).disclosure.click();
+  const effort = page.getByRole("combobox", { name: m.settings_default_effort_title() });
+  await effort.selectOptions("ultra");
+  await vi.waitFor(() => expect(putDefaultEffort).toHaveBeenCalledWith("ultra"));
+  await expect.element(effort).toHaveValue("ultra");
 });

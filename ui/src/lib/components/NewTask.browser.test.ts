@@ -1868,7 +1868,30 @@ describe("NewTask Codex model picker", () => {
     await expect.poll(() => modelSelect().value).toBe("opus");
   });
 
-  it("submits the selected codex model", async () => {
+  it("preserves supported effort on model changes and resets only unsupported tiers", async () => {
+    render(NewTask, {
+      props: base({
+        defaultAgentProvider: "codex",
+        defaultCodexModel: "gpt-6-astra",
+        initialEffort: "ultra",
+      }),
+    });
+    const effort = () => document.querySelector<HTMLSelectElement>("#nt-effort")!;
+    await expect.poll(() => effort().value).toBe("ultra");
+    for (const nextModel of ["gpt-5.6-sol", "gpt-5.6-terra"]) {
+      modelSelect().value = nextModel;
+      modelSelect().dispatchEvent(new Event("change", { bubbles: true }));
+      await expect.poll(() => effort().value).toBe("ultra");
+    }
+    modelSelect().value = "gpt-5.6-luna";
+    modelSelect().dispatchEvent(new Event("change", { bubbles: true }));
+    await expect.poll(() => effort().value).toBe("default");
+    effort().value = "max";
+    effort().dispatchEvent(new Event("change", { bubbles: true }));
+    await expect.poll(() => effort().value).toBe("max");
+  });
+
+  it("submits the selected Astra model and ultra effort", async () => {
     const repoPath = "/repo/codex-model";
     mockGetRepoConfig.mockResolvedValue(confirmedRepoConfig());
     const onsubmit = vi.fn().mockResolvedValue(undefined);
@@ -1882,12 +1905,19 @@ describe("NewTask Codex model picker", () => {
     modelSelect().value = "gpt-6-astra";
     modelSelect().dispatchEvent(new Event("change", { bubbles: true }));
 
+    const effortSelect = document.querySelector<HTMLSelectElement>("#nt-effort")!;
+    await expect
+      .poll(() => Array.from(effortSelect.options).map((o) => o.value))
+      .toContain("ultra");
+    effortSelect.value = "ultra";
+    effortSelect.dispatchEvent(new Event("change", { bubbles: true }));
     await fillPromptAndClickRun();
 
     await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
     expect(onsubmit.mock.calls[0]?.[0]).toMatchObject({
       agentProvider: "codex",
       model: "gpt-6-astra",
+      effort: "ultra",
     });
   });
 

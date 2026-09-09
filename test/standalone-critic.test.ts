@@ -1140,3 +1140,13 @@ test("#2154 learnings off ⇒ no house-rules block at the session-less critic", 
   expect(prompt).not.toContain("REPO HOUSE RULES");
   expect(prompt).not.toContain("must not be shown");
 });
+
+test("restarting a standalone review of the same head gives each rollout its own cwd", async () => {
+  const first = makeDeps();
+  const restarted = makeDeps();
+  await new StandalonePrCriticService(first.deps as any).sweep();
+  await new StandalonePrCriticService(restarted.deps as any).sweep();
+  expect(first.spies.created[0]?.sha).toBe(restarted.spies.created[0]?.sha);
+  expect(first.spies.created[0]?.slug).toBeTruthy();
+  expect(first.spies.created[0]?.slug).not.toBe(restarted.spies.created[0]?.slug);
+});

@@ -11,7 +11,8 @@ import type { AutopilotVerdict, AgentProvider } from "./types";
 import type { OperatorLanguage } from "./operator-language";
 import { apiKeyFailClosed, apiKeyPassthroughEnv } from "./spawn-auth";
 import { buildTransientAgentArgv } from "./transient-agent-argv";
-import { readSessionUsage, type SessionUsage } from "./usage";
+import type { SessionUsage } from "./usage";
+import { readReviewerSpawnUsage } from "./reviewer-usage";
 import {
   VERDICT_FILE,
   SURFACE,
@@ -29,7 +30,13 @@ export type { RawVerdict } from "./autopilot-classify-core";
 
 export interface ClassifierDeps {
   herdr: Pick<HerdrDriver, "start" | "stop">;
-  store: Pick<SessionStore, "recordReviewerSpawn" | "completeReviewerSpawn">;
+  store: Pick<
+    SessionStore,
+    | "recordReviewerSpawn"
+    | "completeReviewerSpawn"
+    | "listReviewerSpawns"
+    | "setReviewerSpawnProviderSessionId"
+  >;
   taskSessionId: string;
   makeTmpDir?: () => string;
   readVerdict?: (cwd: string) => RawVerdict | null;
@@ -168,12 +175,6 @@ async function teardownClassifier(
     }
 
     if (!cwd || !sessionId) return;
-    let usage = ZEROED_USAGE;
-    try {
-      usage = (await deps.readUsage(cwd, sessionId, spawnAccountDir)) ?? ZEROED_USAGE;
-    } catch (err) {
-      deps.reportFailure("[autopilot] classifier usage read failed:", err);
-    }
 
     try {
       deps.store.recordReviewerSpawn({
@@ -191,6 +192,13 @@ async function teardownClassifier(
       return;
     }
 
+    let usage: SessionUsage | null = deps.provider === "codex" ? null : ZEROED_USAGE;
+    try {
+      usage = (await deps.readUsage(cwd, sessionId, spawnAccountDir)) ?? usage;
+    } catch (err) {
+      deps.reportFailure("[autopilot] classifier usage read failed:", err);
+    }
+
     try {
       deps.store.completeReviewerSpawn(sessionId, usage, deps.now());
     } catch (err) {
@@ -199,7 +207,7 @@ async function teardownClassifier(
   } finally {
     if (cwd) {
       try {
-        await reapHelperRun(deps.herdr, terminalId, cwd, deps.cleanup);
+        await reapHelperRun(deps.herdr, null, cwd, deps.cleanup);
       } catch (err) {
         deps.reportFailure("[autopilot] classifier cleanup failed:", err);
       }
@@ -223,8 +231,7 @@ export async function classifyStop(
     makeTmpDir = defaultMakeTmpDir,
     readVerdict = defaultReadVerdict,
     cleanup = cleanupHelperDir,
-    readUsage = readSessionUsage,
-    cleanup = defaultCleanup,
+    readUsage = (cwd, id, accountDir) => readReviewerSpawnUsage(deps.store, cwd, id, accountDir),
     warn = (message, err) => console.warn(message, err),
     provider = "claude",
     model = "haiku",

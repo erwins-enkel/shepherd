@@ -1,3 +1,4 @@
+import type { CodexModelUsage } from "./codex-usage";
 import { basename } from "node:path";
 import type { SessionStore } from "./store";
 import { MODELS } from "./types";
@@ -303,46 +304,23 @@ function claudeUsageByRole(
   return byRole;
 }
 
-interface CodexRoleAllocation {
-  role: ReturnType<SessionStore["listReviewerSpawns"]>[number]["kind"];
-  model: string;
-  tokens: number;
-}
-
-function codexRoleAllocation(
-  sp: ReturnType<SessionStore["listReviewerSpawns"]>[number],
-  cutoff: number,
-  remaining: Record<string, number>,
-): CodexRoleAllocation | null {
-  if (sp.reviewerProvider !== "codex" || !sp.providerSessionId) return null;
-  if (sp.completedAt == null || sp.completedAt < cutoff) return null;
-  if (sp.totalTokens == null || sp.totalTokens <= 0) return null;
-  const model = usableModel(sp.model);
-  if (!model) return null;
-  const tokens = Math.min(sp.totalTokens, remaining[model] ?? 0);
-  return tokens > 0 ? { role: sp.kind, model, tokens } : null;
-}
-
-/** Attribute captured Codex role spawns from the authoritative per-model thread totals. */
+/** Bind each completed role to its exact native thread in the same range as the model mix. */
 function codexUsageByRole(
   spawns: ReturnType<SessionStore["listReviewerSpawns"]>,
-  cutoff: number,
-  byModel: Record<string, number>,
+  usage: CodexModelUsage,
 ): UsageByRole {
-  const remaining = Object.fromEntries(
-    Object.entries(byModel).map(([model, tokens]) => [model, Math.max(0, tokens)]),
-  );
+  const remaining = { ...usage.byModel };
   const byRole: UsageByRole = {};
-
   for (const sp of spawns) {
-    const allocation = codexRoleAllocation(sp, cutoff, remaining);
-    if (!allocation) continue;
-    const role = byRole[allocation.role] ?? {};
-    role[allocation.model] = (role[allocation.model] ?? 0) + allocation.tokens;
-    byRole[allocation.role] = role;
-    remaining[allocation.model] = (remaining[allocation.model] ?? 0) - allocation.tokens;
+    if (sp.reviewerProvider !== "codex" || !sp.providerSessionId || sp.completedAt == null)
+      continue;
+    const thread = usage.byThread[sp.providerSessionId];
+    if (!thread) continue;
+    const role = byRole[sp.kind] ?? {};
+    role[thread.model] = (role[thread.model] ?? 0) + thread.totalTokens;
+    byRole[sp.kind] = role;
+    remaining[thread.model] = (remaining[thread.model] ?? 0) - thread.totalTokens;
   }
-
   const coding = Object.fromEntries(Object.entries(remaining).filter(([, tokens]) => tokens > 0));
   if (Object.keys(coding).length > 0) byRole.coding = coding;
   return byRole;
@@ -522,7 +500,7 @@ export async function buildUsageBreakdown(opts: {
   now: number;
   apiKey: boolean;
   usageRollup?: SessionUsageRollup;
-  codexModelUsage?: (cutoff: number) => Record<string, number>;
+  codexModelUsage?: (cutoff: number) => CodexModelUsage;
 }): Promise<UsageBreakdown> {
   const { store, range, now, apiKey } = opts;
 
@@ -575,8 +553,9 @@ export async function buildUsageBreakdown(opts: {
 
   const claudeByRole = claudeUsageByRole(taskMap, spawns, cutoff);
   const claudeByModel = foldModels(claudeByRole);
-  const codexByModel = opts.codexModelUsage?.(cutoff) ?? {};
-  const codexByRole = codexUsageByRole(spawns, cutoff, codexByModel);
+  const codexUsage = opts.codexModelUsage?.(cutoff) ?? { byModel: {}, byThread: {} };
+  const codexByModel = codexUsage.byModel;
+  const codexByRole = codexUsageByRole(spawns, codexUsage);
   const modelBreakdown = (byModel: Record<string, number>, byRole: UsageByRole = {}) => ({
     totalTokens: Object.values(byModel).reduce((sum, tokens) => sum + tokens, 0),
     byModel,

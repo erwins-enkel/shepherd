@@ -14,7 +14,7 @@ import type { SessionStore } from "./store";
 import type { DocAgentOutcome, DocAgentRun, Session } from "./types";
 import type { RoleEnvironment } from "./default-model";
 import type { SessionUsage } from "./usage";
-import { readSessionUsage } from "./usage";
+import { readReviewerSpawnUsage } from "./reviewer-usage";
 import { apiKeyFailClosed } from "./spawn-auth";
 import { resolveAuxSpawn, type MembraneSeams } from "./spawn-membrane";
 import type { WorktreeMgr } from "./worktree";
@@ -286,6 +286,7 @@ export interface DocAgentDeps extends MembraneSeams {
     SessionStore,
     | "getSetting"
     | "setSetting"
+    | "setReviewerSpawnProviderSessionId"
     | "recordReviewerSpawn"
     | "completeReviewerSpawn"
     | "listReviewerSpawns"
@@ -387,7 +388,7 @@ export class DocAgentService {
     this.readSentinel = deps.readSentinel ?? defaultReadSentinel;
     this.buildPrompt = deps.buildPrompt ?? ((base, ctx) => docAgentPrompt(base, ctx));
     this.act = deps.act ?? false;
-    this.readUsage = deps.readUsage ?? readSessionUsage;
+    this.readUsage = deps.readUsage ?? ((cwd, id) => readReviewerSpawnUsage(deps.store, cwd, id));
     this.idleThresholdMs = deps.idleThresholdMs ?? DEFAULT_IDLE_THRESHOLD_MS;
     this.writeMarkerFn = deps.writeMarker ?? ((p, c) => writeFileSync(p, c, "utf8"));
     this.readMarkerFn = deps.readMarker ?? defaultReadMarker;
@@ -1029,7 +1030,9 @@ export class DocAgentService {
       // and act) BEFORE the worktree is removed — mirrors recap.ts / review.ts.
       // completeReviewerSpawn no-ops on an unknown id, so an empty/missing id is safe.
       const usage = await this.readUsage(f.worktreePath, f.spawnSessionId).catch(() => null);
-      this.deps.store.completeReviewerSpawn(f.spawnSessionId, usage ?? ZEROED_USAGE, this.now());
+      const fallback =
+        this.uncompletedRowFor(f.worktreePath)?.reviewerProvider === "codex" ? null : ZEROED_USAGE;
+      this.deps.store.completeReviewerSpawn(f.spawnSessionId, usage ?? fallback, this.now());
       // Cleanup mirrors Promoter.cleanup: stop the agent (closes its tab), remove the worktree, and
       // force-delete the local branch (the pushed remote branch backs any opened PR).
       await this.deps.herdr.stop(f.terminalId);
@@ -1511,7 +1514,8 @@ export class DocAgentService {
     const row = this.uncompletedRowFor(worktreePath);
     if (!row) return;
     const u = await this.readUsage(worktreePath, row.reviewerSessionId).catch(() => null);
-    this.deps.store.completeReviewerSpawn(row.reviewerSessionId, u ?? ZEROED_USAGE, this.now());
+    const fallback = row.reviewerProvider === "codex" ? null : ZEROED_USAGE;
+    this.deps.store.completeReviewerSpawn(row.reviewerSessionId, u ?? fallback, this.now());
   }
 
   /** The uncompleted `doc_agent` reviewer_spawns row for a worktree path, or undefined. */

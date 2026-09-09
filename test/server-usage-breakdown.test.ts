@@ -130,7 +130,7 @@ test("GET /api/usage/breakdown forwards cutoff to the Codex model dependency", a
   const { app } = harness({
     codexModelUsage: (cutoff) => {
       receivedCutoff = cutoff;
-      return { "gpt-5.5": 700, unknown: 300 };
+      return { byModel: { "gpt-5.5": 700, unknown: 300 }, byThread: {} };
     },
   });
 
@@ -147,7 +147,12 @@ test("GET /api/usage/breakdown forwards cutoff to the Codex model dependency", a
 });
 
 test("GET /api/usage/breakdown returns attributed Codex roles plus the exact coding remainder", async () => {
-  const { app, store } = harness({ codexModelUsage: () => ({ "gpt-5.6": 1_000 }) });
+  const { app, store } = harness({
+    codexModelUsage: () => ({
+      byModel: { "gpt-5.6": 1_000 },
+      byThread: { "thread-review": { model: "gpt-5.6", totalTokens: 250 } },
+    }),
+  });
   // @ts-expect-error accessing internal db for focused endpoint setup
   store.db.run(
     `INSERT INTO reviewer_spawns

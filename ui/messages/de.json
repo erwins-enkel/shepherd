@@ -3883,5 +3883,6 @@
   "feat_classifier_usage_title": "Klassifizierer-Nutzung nach Modell",
   "feat_classifier_usage_body": "Nutzung → Modelle zeigt die Tokens des Autopilot-Klassifizierers jetzt als eigene Rolle — einschließlich des verwendeten Claude-Modells.",
   "feat_codex_role_usage_title": "Codex-Verbrauch nach Rolle erkennen",
-  "feat_codex_role_usage_body": "Klappe Coding, Review, Plan Gate und weitere Codex-Rollen unter Nutzung → Modelle auf, um zu sehen, wohin die Tokens der einzelnen Modelle geflossen sind."
+  "feat_codex_role_usage_body": "Klappe Coding, Review, Plan Gate und weitere Codex-Rollen unter Nutzung → Modelle auf, um zu sehen, wohin die Tokens der einzelnen Modelle geflossen sind.",
+  "usage_models_unknown": "Unbekannt"
 }

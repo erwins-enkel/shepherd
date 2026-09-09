@@ -34,7 +34,8 @@ import {
 } from "./house-rules";
 import { checksCleared, repoHasNoCiCached } from "./checks-gate";
 import { apiKeyFailClosed } from "./spawn-auth";
-import { readSessionUsage, type SessionUsage } from "./usage";
+import type { SessionUsage } from "./usage";
+import { readReviewerSpawnUsage } from "./reviewer-usage";
 import {
   prReviewPrompt,
   defaultReadVerdict,
@@ -87,6 +88,8 @@ export interface StandalonePrCriticDeps extends MembraneSeams {
     | "getPrReview"
     | "putPrReview"
     | "bumpPrReviewHead"
+    | "setReviewerSpawnProviderSessionId"
+    | "listReviewerSpawns"
     | "recordReviewerSpawn"
     | "completeReviewerSpawn"
     | "listEpicCompleted"
@@ -170,7 +173,7 @@ export class StandalonePrCriticService {
     this.readVerdict = deps.readVerdict ?? defaultReadVerdict;
     this.computePatchId = deps.computePatchId ?? defaultComputePatchId;
     this.collectBaseDelta = deps.collectBaseDelta ?? defaultCollectBaseDelta;
-    this.readUsage = deps.readUsage ?? readSessionUsage;
+    this.readUsage = deps.readUsage ?? ((cwd, id) => readReviewerSpawnUsage(deps.store, cwd, id));
     this.readReviewPolicy = deps.readReviewPolicy ?? defaultReadReviewPolicy;
     this.houseRulesBudgetFn =
       deps.houseRulesBudgetChars ?? (() => HOUSE_RULES_DEFAULT_BUDGET_CHARS);
@@ -397,14 +400,13 @@ export class StandalonePrCriticService {
 
       let wt;
       try {
-        // createDetached is (repoPath, branch, sha, slug?, pullRef?) — slug is undefined here (the
-        // PR head sha is already unique per PR, so the default `…-review-<sha>` path is collision-
-        // free and reused-on-restart to reclaim an interrupted run). pullRef lands the fork head.
+        // A unique cwd per launch lets the Codex resolver distinguish a restarted review
+        // from the interrupted run at the same head. pullRef lands a fork's head.
         wt = await this.deps.worktree.createDetached(
           repoPath,
           pr.headRefName!,
           pr.headSha!,
-          undefined,
+          randomUUID(),
           pullRef,
         );
       } catch (err) {

@@ -325,7 +325,7 @@ export interface AppDeps {
   /** Incremental per-session rollup; absent in tests → breakdown falls back to re-parsing JSONL. */
   usageRollup?: SessionUsageRollup;
   /** Range-filtered Codex raw tokens by model; absent in tests → empty Codex model block. */
-  codexModelUsage?: (cutoff: number) => Record<string, number>;
+  codexModelUsage?: (cutoff: number) => import("./codex-usage").CodexModelUsage;
   /** Live GitHub REST + GraphQL rate-limit buckets (via `gh api rate_limit`, which is
    *  itself quota-exempt); absent in tests → `/api/usage/github` 503s. */
   githubRateLimit?: () => Promise<GithubRateLimitPayload>;

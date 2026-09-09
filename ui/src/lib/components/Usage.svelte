@@ -34,7 +34,8 @@
 
   let { onclose }: { onclose?: () => void } = $props();
 
-  type Tab = "spend" | "overhead" | "prompt" | "timeline" | "delivery" | "models" | "limits" | "github";
+  type Tab =
+    "spend" | "overhead" | "prompt" | "timeline" | "delivery" | "models" | "limits" | "github";
 
   let tab = $state<Tab>("spend");
   let range = $state<UsageRange>("7d");
@@ -184,7 +185,11 @@
   // Template-state derivations (kept out of the markup to keep the template's
   // branching shallow). Spend, Overhead, Timeline, and Models share the range selector.
   const showRange = $derived(
-    tab === "spend" || tab === "overhead" || tab === "timeline" || tab === "delivery" || tab === "models",
+    tab === "spend" ||
+      tab === "overhead" ||
+      tab === "timeline" ||
+      tab === "delivery" ||
+      tab === "models",
   );
   // Non-blocking refetch banner — breakdown-backed lenses share one error track.
   const showBreakdownError = $derived(

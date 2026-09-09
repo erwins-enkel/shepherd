@@ -3883,5 +3883,6 @@
   "feat_classifier_usage_title": "Classifier usage by model",
   "feat_classifier_usage_body": "Usage → Models now shows Autopilot classifier tokens as a separate role, including the Claude model that produced them.",
   "feat_codex_role_usage_title": "See Codex usage by role",
-  "feat_codex_role_usage_body": "Expand Coding, Review, Plan gate, and other Codex roles in Usage → Models to see where each model's tokens went."
+  "feat_codex_role_usage_body": "Expand Coding, Review, Plan gate, and other Codex roles in Usage → Models to see where each model's tokens went.",
+  "usage_models_unknown": "Unknown"
 }

@@ -41,6 +41,7 @@
     "recap",
     "rundown",
     "doc_agent",
+    "maintain",
   ];
 
   function roleLabel(role: UsageRole): string {
@@ -57,6 +58,8 @@
         return m.usage_kind_recap();
       case "rundown":
         return m.usage_kind_rundown();
+      case "maintain":
+        return m.usage_kind_maintain();
       case "doc_agent":
         return m.usage_kind_doc_agent();
     }

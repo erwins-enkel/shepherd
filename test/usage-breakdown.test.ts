@@ -1,4 +1,6 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
+import { Database } from "bun:sqlite";
+import { readCodexModelUsage } from "../src/codex-usage";
 import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -362,7 +364,13 @@ test("Codex roles reconcile to authoritative per-model totals with legacy usage 
     range: "24h",
     now: NOW,
     apiKey: false,
-    codexModelUsage: () => ({ "gpt-5.6": 1_000, unknown: 300 }),
+    codexModelUsage: () => ({
+      byModel: { "gpt-5.6": 1_000, unknown: 300 },
+      byThread: {
+        "thread-review": { model: "gpt-5.6", totalTokens: 200 },
+        "thread-plan": { model: "gpt-5.6", totalTokens: 100 },
+      },
+    }),
   });
 
   expect(bd.models.codex).toEqual({
@@ -376,7 +384,7 @@ test("Codex roles reconcile to authoritative per-model totals with legacy usage 
   });
 });
 
-test("Codex role attribution is capped by each authoritative model budget", async () => {
+test("Codex role attribution uses native thread totals instead of stale spawn totals", async () => {
   const store = new SessionStore(":memory:");
   seedRoleSpawn(store, {
     id: "review",
@@ -400,7 +408,13 @@ test("Codex role attribution is capped by each authoritative model budget", asyn
     range: "all",
     now: NOW,
     apiKey: false,
-    codexModelUsage: () => ({ "gpt-5.6": 250 }),
+    codexModelUsage: () => ({
+      byModel: { "gpt-5.6": 250 },
+      byThread: {
+        "thread-review": { model: "gpt-5.6", totalTokens: 200 },
+        "thread-plan": { model: "gpt-5.6", totalTokens: 50 },
+      },
+    }),
   });
 
   expect(bd.models.codex.byRole).toEqual({
@@ -1466,4 +1480,79 @@ test("cutoff===0 persisted uses aggregate rows (bucketed session all-time = aggr
   expect(taskAll!.tokens.input).toBe(800);
   expect(taskAll!.tokens.output).toBe(300);
   expect(taskAll!.authoringUnits).toBeCloseTo(totalWu, 10);
+});
+
+function codexBreakdownFixture() {
+  const store = new SessionStore(":memory:");
+  const dbPath = join(tmpDir, "native.sqlite");
+  const db = new Database(dbPath);
+  db.exec(
+    "CREATE TABLE threads (id TEXT PRIMARY KEY, model_provider TEXT, model TEXT, tokens_used INTEGER, updated_at_ms INTEGER)",
+  );
+  const breakdown = () =>
+    buildUsageBreakdown({
+      store,
+      range: "24h",
+      now: NOW,
+      apiKey: false,
+      codexModelUsage: (cutoff) => readCodexModelUsage(dbPath, cutoff),
+    });
+  return { store, db, breakdown };
+}
+
+test("Codex roles refresh a zero snapshot after the native thread records its tokens", async () => {
+  const { store, db, breakdown } = codexBreakdownFixture();
+  try {
+    seedRoleSpawn(store, {
+      id: "review",
+      kind: "review",
+      provider: "codex",
+      model: "gpt-5.6",
+      providerSessionId: "native-review",
+      totalTokens: 0,
+    });
+    db.run("INSERT INTO threads VALUES ('native-review', 'openai', 'gpt-5.6', 0, ?)", [NOW]);
+    expect((await breakdown()).models.codex.totalTokens).toBe(0);
+    db.run("UPDATE threads SET tokens_used = 4321");
+    expect((await breakdown()).models.codex.byRole).toEqual({ review: { "gpt-5.6": 4321 } });
+    db.run("UPDATE threads SET tokens_used = 5000, model = 'gpt-5.6-sol'");
+    expect((await breakdown()).models.codex.byRole).toEqual({ review: { "gpt-5.6-sol": 5000 } });
+  } finally {
+    db.close();
+  }
+});
+
+test("Codex roles never claim tokens from a thread outside the native time window", async () => {
+  const { store, db, breakdown } = codexBreakdownFixture();
+  try {
+    seedRoleSpawn(store, {
+      id: "review",
+      kind: "review",
+      provider: "codex",
+      model: "gpt-5.6",
+      providerSessionId: "native-review",
+      completedAt: NOW - H24 + 1000,
+      totalTokens: 800,
+    });
+    db.run("INSERT INTO threads VALUES ('native-review', 'openai', 'gpt-5.6', 800, ?)", [
+      NOW - H24 - 1000,
+    ]);
+    db.run("INSERT INTO threads VALUES ('coding', 'openai', 'gpt-5.6', 1000, ?)", [NOW]);
+    expect((await breakdown()).models.codex.byRole).toEqual({ coding: { "gpt-5.6": 1000 } });
+    // Completion ages out before the native thread: membership follows the same native window.
+    db.run("UPDATE threads SET updated_at_ms = ? WHERE id = 'native-review'", [NOW]);
+    const later = await buildUsageBreakdown({
+      store,
+      range: "24h",
+      now: NOW + 2000,
+      apiKey: false,
+      codexModelUsage: (cutoff) => readCodexModelUsage(join(tmpDir, "native.sqlite"), cutoff),
+    });
+    expect(later.models.codex.byRole).toEqual({
+      review: { "gpt-5.6": 800 },
+      coding: { "gpt-5.6": 1000 },
+    });
+  } finally {
+    db.close();
+  }
 });

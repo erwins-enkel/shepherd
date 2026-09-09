@@ -72,7 +72,7 @@ interface SpawnRow {
 interface CompletedRow {
   reviewerSessionId: string;
   completedAt: number;
-  total: number;
+  total: number | null;
 }
 
 interface Harness {
@@ -297,10 +297,10 @@ function mkHarness(opts?: {
     },
     completeReviewerSpawn: (
       reviewerSessionId: string,
-      u: { total: number },
+      u: { total: number } | null,
       completedAt: number,
     ) => {
-      completedRows.push({ reviewerSessionId, completedAt, total: u.total });
+      completedRows.push({ reviewerSessionId, completedAt, total: u?.total ?? null });
       const row = spawnRows.find((s) => s.reviewerSessionId === reviewerSessionId);
       if (row) row.completedAt = completedAt;
     },
@@ -1979,4 +1979,12 @@ test("onSpawn abortSpawn → doc run skipped, worktree reaped, no spawn", async 
   expect(res.reason).toBe("plugin aborted spawn");
   expect(h.starts).toHaveLength(0); // herdr.start never reached
   expect(h.removedWorktrees.length).toBeGreaterThan(0); // the doc worktree was reaped
+});
+
+test("Codex doc usage stays unknown so a delayed rollout can be backfilled", async () => {
+  const h = mkHarness({ provider: "codex", usageUnavailable: true });
+  await h.svc.consider("/repo");
+  await h.svc.tick();
+  expect(h.completedRows[0]?.total).toBeNull();
+  expect(h.spawnRows[0]?.completedAt).not.toBeNull();
 });

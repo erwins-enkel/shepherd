@@ -1579,7 +1579,7 @@ export interface UsageKindUnits {
 }
 
 export type UsageRole =
-  "coding" | "classifier" | "review" | "plan_gate" | "recap" | "rundown" | "doc_agent";
+  "coding" | "classifier" | "review" | "plan_gate" | "recap" | "rundown" | "doc_agent" | "maintain";
 export type UsageByRole = Partial<Record<UsageRole, Record<string, number>>>;
 
 export interface UsageModelBreakdown {

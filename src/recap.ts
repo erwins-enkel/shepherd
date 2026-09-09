@@ -40,7 +40,7 @@ import type { RoleEnvironment } from "./default-model";
 import type { OperatorLanguage } from "./operator-language";
 import type { ActivityEntry } from "./activity";
 import type { SessionUsage } from "./usage";
-import { readSessionUsage } from "./usage";
+import { readReviewerSpawnUsage } from "./reviewer-usage";
 import { computeDiff } from "./diff";
 import { parseActivity, readTranscriptTail } from "./activity";
 import { jsonlPathFor } from "./usage";
@@ -323,6 +323,7 @@ export interface RecapServiceDeps {
     | "generatingRecaps"
     | "dropRecap"
     | "getReview"
+    | "setReviewerSpawnProviderSessionId"
     | "recordReviewerSpawn"
     | "completeReviewerSpawn"
     | "listReviewerSpawns"
@@ -440,7 +441,9 @@ export class RecapService {
     this._readTranscript = optional(deps.readTranscript, defaultReadTranscript);
     this._readPlan = optional(deps.readPlan, defaultReadPlan);
     this._readVerdict = optional(deps.readVerdict, defaultReadVerdict);
-    this._readUsage = optional(deps.readUsage, readSessionUsage);
+    this._readUsage = optional(deps.readUsage, (cwd, id) =>
+      readReviewerSpawnUsage(deps.store, cwd, id),
+    );
     this._currentBranch = optional(deps.currentBranch, defaultCurrentBranch);
     this._headContainedInBase = optional(deps.headContainedInBase, defaultHeadContainedInBase);
     this._landedWorkEvidence = optional(deps.landedWorkEvidence, () => null);

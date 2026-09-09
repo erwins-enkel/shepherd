@@ -6296,7 +6296,13 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     const row = this.db
       .query(`SELECT * FROM session_usage WHERE sessionId = ?`)
       .get(sessionId) as SessionUsageRow | null;
-    return row ? { ...row, byModel: JSON.parse(row.byModel) as Record<string, number>, rawByModel: JSON.parse(row.rawByModel) as Record<string, number> } : null;
+    return row
+      ? {
+          ...row,
+          byModel: JSON.parse(row.byModel) as Record<string, number>,
+          rawByModel: JSON.parse(row.rawByModel) as Record<string, number>,
+        }
+      : null;
   }
 
   /** Drop a session's archive-time usage snapshot (+ its buckets via FK cascade). Called on

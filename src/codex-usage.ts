@@ -204,73 +204,38 @@ export function readCodexTokenUsage(dbPath: string, now: number): UsageProviderS
   return st ? tokenSnapshot(st, now) : null;
 }
 
-/** Raw Codex token totals grouped by model for OpenAI threads updated in the selected range. */
-export function readCodexModelUsage(dbPath: string | null, cutoff: number): Record<string, number> {
-  if (!dbPath || !existsSync(dbPath)) return {};
-  let db: Database | null = null;
-  try {
-    db = new Database(dbPath, { readonly: true });
-    const columns = db.query(`PRAGMA table_info(threads)`).all() as { name: string }[];
-    if (!columns.some((column) => column.name === "model")) {
-      const row = db
-        .query<{ tokens: number | null }, [number]>(
-          `SELECT SUM(tokens_used) AS tokens
-           FROM threads
-           WHERE model_provider = 'openai' AND updated_at_ms >= ?`,
-        )
-        .get(cutoff);
-      return row?.tokens ? { unknown: row.tokens } : {};
-    }
-
-    const rows = db
-      .query<{ model: string; tokens: number }, [number]>(
-        `SELECT COALESCE(NULLIF(model, ''), 'unknown') AS model, SUM(tokens_used) AS tokens
-         FROM threads
-         WHERE model_provider = 'openai' AND updated_at_ms >= ?
-         GROUP BY COALESCE(NULLIF(model, ''), 'unknown')`,
-      )
-      .all(cutoff);
-    return Object.fromEntries(
-      rows.filter((row) => row.tokens > 0).map((row) => [row.model, row.tokens]),
-    );
-  } catch {
-    return {};
-  } finally {
-    db?.close();
-  }
+export interface CodexModelUsage {
+  byModel: Record<string, number>;
+  byThread: Record<string, { model: string; totalTokens: number }>;
 }
 
-/** Read the authoritative token total for one provider-native Codex thread. */
-export function readCodexThreadUsage(
-  dbPath: string | null,
-  threadId: string,
-): { model: string; totalTokens: number } | null {
-  if (!dbPath || !existsSync(dbPath)) return null;
+/** One native snapshot supplies both model totals and exact in-window role allocations. */
+export function readCodexModelUsage(dbPath: string | null, cutoff: number): CodexModelUsage {
+  const empty: CodexModelUsage = { byModel: {}, byThread: {} };
+  if (!dbPath || !existsSync(dbPath)) return empty;
   let db: Database | null = null;
   try {
     db = new Database(dbPath, { readonly: true });
     const columns = db.query(`PRAGMA table_info(threads)`).all() as { name: string }[];
-    const hasModel = columns.some((column) => column.name === "model");
-    if (hasModel) {
-      const row = db
-        .query<{ model: string; totalTokens: number }, [string]>(
-          `SELECT COALESCE(NULLIF(model, ''), 'unknown') AS model, tokens_used AS totalTokens
-           FROM threads
-           WHERE id = ? AND model_provider = 'openai'`,
-        )
-        .get(threadId);
-      return row ? { model: row.model, totalTokens: row.totalTokens } : null;
-    }
-    const row = db
-      .query<{ totalTokens: number }, [string]>(
-        `SELECT tokens_used AS totalTokens
-         FROM threads
-         WHERE id = ? AND model_provider = 'openai'`,
+    const model = columns.some((column) => column.name === "model")
+      ? "COALESCE(NULLIF(model, ''), 'unknown')"
+      : "'unknown'";
+    const rows = db
+      .query<{ id: string; model: string; totalTokens: number }, [number]>(
+        `SELECT id, ${model} AS model, tokens_used AS totalTokens
+       FROM threads WHERE model_provider = 'openai' AND updated_at_ms >= ? AND tokens_used > 0`,
       )
-      .get(threadId);
-    return row ? { model: "unknown", totalTokens: row.totalTokens } : null;
+      .all(cutoff);
+    const byModel: Record<string, number> = {};
+    for (const row of rows) byModel[row.model] = (byModel[row.model] ?? 0) + row.totalTokens;
+    return {
+      byModel,
+      byThread: Object.fromEntries(
+        rows.map(({ id, model, totalTokens }) => [id, { model, totalTokens }]),
+      ),
+    };
   } catch {
-    return null;
+    return empty;
   } finally {
     db?.close();
   }

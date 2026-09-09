@@ -1,3 +1,4 @@
+import { m } from "../paraglide/messages";
 import type {
   UsageLimits,
   LimitWindow,
@@ -114,7 +115,7 @@ export function modelDisplayName(slug: string): string {
   }
   const gpt = /^gpt-(.+)$/i.exec(slug);
   if (gpt) return `GPT-${gpt[1]}`;
-  if (slug === "unknown") return "Unknown";
+  if (slug === "unknown") return m.usage_models_unknown();
   return slug
     .split(/[-_]/)
     .filter(Boolean)

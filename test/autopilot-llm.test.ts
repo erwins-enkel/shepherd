@@ -224,7 +224,7 @@ test("classifyStop persists classifier usage after stop and immediately finalize
   const verdict = await classifyStop(["Ready to start? (y/n)"], "task", deps, "autopilot task");
 
   expect(verdict).toEqual({ kind: "gate", summary: "continue" });
-  expect(calls.order).toEqual(["start", "stop", "read", "record", "complete", "cleanup"]);
+  expect(calls.order).toEqual(["start", "stop", "record", "read", "complete", "cleanup"]);
   const [row] = store.listReviewerSpawns();
   expect(row).toMatchObject({
     taskSessionId: "task-session-1727",
@@ -275,7 +275,7 @@ test("classifyStop finalizes a zero-token classifier row when usage parsing thro
 for (const failingStage of ["stop", "record", "complete", "cleanup"] as const) {
   test(`classifyStop preserves the verdict when ${failingStage} fails`, async () => {
     const order: string[] = [];
-    const completedUsages: SessionUsage[] = [];
+    const completedUsages: (SessionUsage | null)[] = [];
     const { deps } = makeDeps({
       herdr: {
         start: async (_name, cwd) => ({ terminalId: "term_failure", cwd }) as any,
@@ -285,6 +285,8 @@ for (const failingStage of ["stop", "record", "complete", "cleanup"] as const) {
         },
       },
       store: {
+        listReviewerSpawns: () => [],
+        setReviewerSpawnProviderSessionId: () => {},
         recordReviewerSpawn: () => {
           order.push("record");
           if (failingStage === "record") throw new Error("record failed");
@@ -311,7 +313,7 @@ for (const failingStage of ["stop", "record", "complete", "cleanup"] as const) {
 
     expect(verdict).toEqual({ kind: "gate", summary: "continue" });
     expect(order).toContain("cleanup");
-    expect(order.slice(0, 3)).toEqual(["stop", "read", "record"]);
+    expect(order.slice(0, 2)).toEqual(["stop", "record"]);
     if (failingStage === "record") {
       expect(order).not.toContain("complete");
     } else {
@@ -543,4 +545,17 @@ test("classifyStop: api-key guard wins over pre-filter (non-empty tail, no key â
   });
   expect(result).toEqual({ kind: "unknown", summary: "" });
   expect(calls.started).toBeNull();
+});
+
+test("Codex classifier usage stays unknown until a delayed rollout is available", async () => {
+  const store = new SessionStore(":memory:");
+  const { deps } = makeDeps({
+    store,
+    provider: "codex",
+    readUsage: async () => null,
+    readVerdict: () => ({ kind: "gate", summary: "continue" }),
+  });
+  await classifyStop(["Ready?"], "task", deps, "classifier");
+  expect(store.listReviewerSpawns()[0]?.totalTokens).toBeNull();
+  expect(store.listReviewerSpawns()[0]?.completedAt).not.toBeNull();
 });

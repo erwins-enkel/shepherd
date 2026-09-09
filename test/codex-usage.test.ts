@@ -10,7 +10,6 @@ import {
   recentCodexRolloutPaths,
   readCodexRateLimits,
   readCodexModelUsage,
-  readCodexThreadUsage,
   readCodexTokenUsage,
 } from "../src/codex-usage";
 
@@ -121,7 +120,7 @@ test("readCodexModelUsage groups in-range OpenAI threads and maps null models to
   insert.run("local", "ollama", "llama", 8000, NOW - H);
   db.close();
 
-  expect(readCodexModelUsage(path, NOW - 5 * H)).toEqual({
+  expect(readCodexModelUsage(path, NOW - 5 * H).byModel).toEqual({
     "gpt-5.5": 1300,
     unknown: 375,
   });
@@ -139,82 +138,7 @@ test("readCodexModelUsage uses one unknown bucket when the model column is absen
   insert.run("local", "ollama", 8000, NOW - H);
   db.close();
 
-  expect(readCodexModelUsage(path, NOW - 5 * H)).toEqual({ unknown: 1000 });
-});
-
-test("readCodexThreadUsage reads one exact OpenAI thread with its model", () => {
-  const dir = tempDir();
-  const path = join(dir, "state_5.sqlite");
-  const db = new Database(path);
-  db.exec(`
-    CREATE TABLE threads (
-      id TEXT PRIMARY KEY,
-      model_provider TEXT NOT NULL,
-      model TEXT,
-      tokens_used INTEGER NOT NULL DEFAULT 0,
-      updated_at_ms INTEGER NOT NULL
-    )
-  `);
-  const insert = db.query(
-    "INSERT INTO threads (id, model_provider, model, tokens_used, updated_at_ms) VALUES (?, ?, ?, ?, ?)",
-  );
-  insert.run("target", "openai", "gpt-5.6", 4321, NOW);
-  insert.run("other", "openai", "gpt-5.5", 9999, NOW);
-  db.close();
-
-  expect(readCodexThreadUsage(path, "target")).toEqual({ model: "gpt-5.6", totalTokens: 4321 });
-});
-
-test("readCodexThreadUsage normalizes an empty model and rejects non-OpenAI threads", () => {
-  const dir = tempDir();
-  const path = join(dir, "state_5.sqlite");
-  const db = new Database(path);
-  db.exec(`
-    CREATE TABLE threads (
-      id TEXT PRIMARY KEY,
-      model_provider TEXT NOT NULL,
-      model TEXT,
-      tokens_used INTEGER NOT NULL DEFAULT 0,
-      updated_at_ms INTEGER NOT NULL
-    )
-  `);
-  const insert = db.query(
-    "INSERT INTO threads (id, model_provider, model, tokens_used, updated_at_ms) VALUES (?, ?, ?, ?, ?)",
-  );
-  insert.run("unknown", "openai", "", 0, NOW);
-  insert.run("local", "ollama", "llama", 9999, NOW);
-  db.close();
-
-  expect(readCodexThreadUsage(path, "unknown")).toEqual({ model: "unknown", totalTokens: 0 });
-  expect(readCodexThreadUsage(path, "local")).toBeNull();
-});
-
-test("readCodexThreadUsage uses unknown when the model column is absent", () => {
-  const dir = tempDir();
-  const path = join(dir, "state_5.sqlite");
-  const db = createStateDb(path);
-  db.query(
-    "INSERT INTO threads (id, model_provider, tokens_used, updated_at_ms) VALUES (?, ?, ?, ?)",
-  ).run("target", "openai", 777, NOW);
-  db.close();
-
-  expect(readCodexThreadUsage(path, "target")).toEqual({ model: "unknown", totalTokens: 777 });
-});
-
-test("readCodexThreadUsage fails closed when required state schema is unavailable", () => {
-  const dir = tempDir();
-  for (const [name, schema] of [
-    ["missing-table", "CREATE TABLE unrelated (id TEXT)"],
-    ["missing-provider", "CREATE TABLE threads (id TEXT PRIMARY KEY, tokens_used INTEGER)"],
-    ["missing-tokens", "CREATE TABLE threads (id TEXT PRIMARY KEY, model_provider TEXT)"],
-  ] as const) {
-    const path = join(dir, `${name}.sqlite`);
-    const db = new Database(path);
-    db.exec(schema);
-    db.close();
-
-    expect(readCodexThreadUsage(path, "target")).toBeNull();
-  }
+  expect(readCodexModelUsage(path, NOW - 5 * H).byModel).toEqual({ unknown: 1000 });
 });
 
 /** A Codex rollout `token_count` line carrying a rate-limit reading. */

@@ -46,33 +46,52 @@ afterEach(() => {
 
 const noop = () => {};
 
-describe("BuildQueuePanel — approved queue start", () => {
-  it("starts an auto-approved waiting queue without re-approving or bypassing planning", async () => {
-    vi.mocked(replySession).mockClear();
-    vi.mocked(approveBuildQueue).mockClear();
-    const queue: BuildQueue = {
-      sessionId: "s1",
-      approved: true,
-      approvalKind: "auto",
-      steps: [{ id: "a", title: "Prepare plan", status: "pending", position: 0 }],
-    };
-    render(BuildQueuePanel, {
-      sessionId: "s1",
-      enabled: true,
-      queue,
-      onbootstrap: noop,
-      sessionStatus: "blocked",
-      planPhase: "planning",
-    });
-    const start = page.getByRole("button", { name: "Start now", exact: true });
-    await expect.element(start).toBeVisible();
-    await start.click();
-    expect(replySession).toHaveBeenCalledOnce();
-    expect(vi.mocked(replySession).mock.calls[0][0]).toBe("s1");
-    expect(vi.mocked(replySession).mock.calls[0][1]).toContain("Do not implement");
-    expect(approveBuildQueue).not.toHaveBeenCalled();
-    expect(queue.approvalKind).toBe("auto");
+// Force skips locator actionability checks, but still sends real browser pointer
+// events to the coordinates, including overlays and disabled controls.
+async function clickAt(panel: HTMLElement, x: number, y: number) {
+  const rect = panel.getBoundingClientRect();
+  await userEvent.click(panel, {
+    force: true,
+    position: { x: x - rect.left - panel.clientLeft, y: y - rect.top - panel.clientTop },
   });
+}
+
+describe("BuildQueuePanel — approved queue start", () => {
+  it.each(["click", "keyboard"])(
+    "starts an auto-approved waiting queue via %s without re-approving or bypassing planning",
+    async (activation) => {
+      vi.mocked(replySession).mockClear();
+      vi.mocked(approveBuildQueue).mockClear();
+      const queue: BuildQueue = {
+        sessionId: "s1",
+        approved: true,
+        approvalKind: "auto",
+        steps: [{ id: "a", title: "Prepare plan", status: "pending", position: 0 }],
+      };
+      buildQueueCollapse.set(true);
+      render(BuildQueuePanel, {
+        sessionId: "s1",
+        enabled: true,
+        queue,
+        onbootstrap: noop,
+        sessionStatus: "blocked",
+        planPhase: "planning",
+      });
+      const start = page.getByRole("button", { name: "Start now", exact: true });
+      await expect.element(start).toBeVisible();
+      if (activation === "click") await start.click();
+      else {
+        start.element().focus();
+        await userEvent.keyboard("{Enter}");
+      }
+      expect(replySession).toHaveBeenCalledOnce();
+      expect(vi.mocked(replySession).mock.calls[0][0]).toBe("s1");
+      expect(vi.mocked(replySession).mock.calls[0][1]).toContain("Do not implement");
+      expect(approveBuildQueue).not.toHaveBeenCalled();
+      expect(buildQueueCollapse.collapsed).toBe(true);
+      expect(queue.approvalKind).toBe("auto");
+    },
+  );
 });
 
 describe("BuildQueuePanel — action lifecycle", () => {
@@ -157,11 +176,14 @@ describe("BuildQueuePanel — action lifecycle", () => {
         folded: true,
       });
       const button = document.querySelector<HTMLButtonElement>(".bqp-approve")!;
-      button.click();
-      button.click();
+      buildQueueCollapse.set(true);
       await tick();
+      await userEvent.click(button);
+      const rect = button.getBoundingClientRect();
+      await clickAt(document.querySelector<HTMLElement>(".bqp")!, rect.left + 4, rect.top + 4);
       expect(api).toHaveBeenCalledTimes(1);
       expect(button.disabled).toBe(true);
+      expect(buildQueueCollapse.collapsed).toBe(true);
       pending.reject(new Error("offline"));
       await expect.element(page.getByRole("alert")).toHaveTextContent(m.buildqueue_action_failed());
       expect(button.disabled).toBe(false);
@@ -171,6 +193,7 @@ describe("BuildQueuePanel — action lifecycle", () => {
         })
         .click();
       expect(api).toHaveBeenCalledTimes(2);
+      expect(buildQueueCollapse.collapsed).toBe(true);
       await expect.element(page.getByRole("status")).toHaveTextContent(m.buildqueue_action_sent());
     });
   }
@@ -203,6 +226,97 @@ describe("BuildQueuePanel — action lifecycle", () => {
     await tick();
     expect(onbootstrap).not.toHaveBeenCalledWith(waiting);
     await expect.element(page.getByText(m.buildqueue_action_sent())).not.toBeInTheDocument();
+  });
+});
+
+describe("BuildQueuePanel — banner hit area", () => {
+  const locale = getLocale();
+  const queue: BuildQueue = {
+    sessionId: "s1",
+    approved: true,
+    approvalKind: "auto",
+    steps: [{ id: "a", title: "Prepare plan", status: "pending", position: 0 }],
+  };
+
+  afterEach(async () => {
+    setLocale(locale, { reload: false });
+    await page.viewport(1280, 900);
+  });
+
+  for (const width of [390, 1280]) {
+    it(`toggles from hint, whitespace and padding without starting the queue at ${width}px`, async () => {
+      await page.viewport(width, 900);
+      setLocale("de", { reload: false });
+      buildQueueCollapse.set(true);
+      await render(BuildQueuePanel, {
+        sessionId: "s1",
+        enabled: true,
+        queue,
+        onbootstrap: noop,
+        sessionStatus: "blocked",
+        planPhase: "planning",
+      });
+      const panel = document.querySelector<HTMLElement>(".bqp")!;
+      const toggle = document.querySelector<HTMLButtonElement>(".bqp-collapse-toggle")!;
+      const content = document.getElementById(toggle.getAttribute("aria-controls")!)!;
+      const rect = panel.getBoundingClientRect();
+      const head = toggle.getBoundingClientRect();
+      const hint = document.querySelector<HTMLElement>(".bqp-hint")!.getBoundingClientRect();
+      const row = document.querySelector<HTMLElement>(".bqp-action-row")!.getBoundingClientRect();
+      const points = [
+        ["hint text", hint.left + 8, hint.top + 8],
+        ["hint whitespace", hint.right - 4, hint.bottom - 2],
+        ["between rows", head.left + 20, (head.bottom + row.top) / 2],
+        ["top padding", rect.left + 4, rect.top + 4],
+        ["side padding", rect.right - 4, hint.top + 8],
+        ["bottom padding", rect.left + 4, row.bottom + 3],
+      ] as const;
+
+      for (const [name, x, y] of points) {
+        await clickAt(panel, x, y);
+        await expect
+          .poll(() => toggle.getAttribute("aria-expanded"), { message: name })
+          .toBe("true");
+        expect(content.offsetParent, name).not.toBeNull();
+        await clickAt(panel, x, y);
+        await expect
+          .poll(() => toggle.getAttribute("aria-expanded"), { message: name })
+          .toBe("false");
+        expect(content.offsetParent, name).toBeNull();
+      }
+      expect(replySession).not.toHaveBeenCalled();
+      expect(approveBuildQueue).not.toHaveBeenCalled();
+    });
+  }
+
+  it("keeps keyboard disclosure, step editing and step actions independent", async () => {
+    buildQueueCollapse.set(true);
+    await render(BuildQueuePanel, {
+      sessionId: "s1",
+      enabled: true,
+      queue: { ...queue, approved: false },
+      onbootstrap: noop,
+    });
+    const toggle = document.querySelector<HTMLButtonElement>(".bqp-collapse-toggle")!;
+    toggle.focus();
+    await userEvent.keyboard("{Enter}");
+    await expect
+      .element(page.getByRole("textbox", { name: `${m.buildqueue_step_title_aria()} 1` }))
+      .toBeVisible();
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(document.activeElement).toBe(toggle);
+    await userEvent.keyboard(" ");
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    await userEvent.keyboard("{Enter}");
+    const input = page.getByRole("textbox", { name: `${m.buildqueue_step_title_aria()} 1` });
+    await input.click();
+    await input.fill("Updated plan");
+    await userEvent.keyboard("{Enter}");
+    await expect.element(input).toHaveValue("Updated plan");
+    await page.getByRole("button", { name: m.buildqueue_add_step(), exact: true }).click();
+    expect(buildQueueCollapse.collapsed).toBe(false);
+    expect(replySession).not.toHaveBeenCalled();
+    expect(approveBuildQueue).not.toHaveBeenCalled();
   });
 });
 

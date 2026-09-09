@@ -67,7 +67,7 @@
   let handoffMode = $state<HandoffMode>("resume");
 
   const provModels = $derived(providerModels(agentProvider));
-  const provEfforts = $derived(providerEfforts(agentProvider));
+  const provEfforts = $derived(providerEfforts(agentProvider, model));
   const claudeGauges = $derived(gaugeList(usageLimits));
   const codexUsage = $derived(codexTokenUsage(usageLimits));
   const codexGauges = $derived(codexGaugeList(codexUsage));
@@ -79,10 +79,9 @@
       model = agentProvider === "codex" ? CODEX_MODELS[0] : "default";
   });
 
-  // Snap a now-unsupported effort tier back to "default" when the provider changes (e.g.
-  // switching to Codex drops a max selection — mirrors NewTaskRunSettings).
+  // A provider/model change resets only an effort tier the new choice does not offer.
   $effect(() => {
-    if (!effortAvailableForProvider(agentProvider, effort)) effort = "default";
+    if (!effortAvailableForProvider(agentProvider, effort, model)) effort = "default";
   });
 
   function confirm() {

@@ -550,3 +550,11 @@ describe("resolveRoleEnvWithAuth (real reader→resolver seam)", () => {
     ).toEqual({ provider: "codex", model: blocked, effort: "low" });
   });
 });
+
+test("Codex role environments preserve explicit and inherited ultra", () => {
+  for (const cli of ["codex", "inherit"]) {
+    expect(
+      resolveRoleEnvironment(cli, "gpt-6-astra", "codex", "gpt-5.6-sol", true, "ultra"),
+    ).toMatchObject({ provider: "codex", effort: "ultra" });
+  }
+});

@@ -1,11 +1,34 @@
 import { describe, expect, it } from "vitest";
-import { effortAvailableForProvider, effortBelowHigh, providerEfforts } from "./effort-guidance";
+import {
+  effortAvailableForProvider,
+  effortBelowHigh,
+  effortLabel,
+  providerEfforts,
+} from "./effort-guidance";
 
 describe("provider effort availability", () => {
-  it("offers xhigh but not max for Codex", () => {
-    expect(providerEfforts("codex")).toEqual(["low", "medium", "high", "xhigh"]);
-    expect(effortAvailableForProvider("codex", "xhigh")).toBe(true);
-    expect(effortAvailableForProvider("codex", "max")).toBe(false);
+  it.each([
+    ["gpt-6-astra", ["low", "medium", "high", "xhigh", "max", "ultra"]],
+    ["gpt-5.6-sol", ["low", "medium", "high", "xhigh", "max", "ultra"]],
+    ["gpt-5.6-terra", ["low", "medium", "high", "xhigh", "max", "ultra"]],
+    ["gpt-5.6-luna", ["low", "medium", "high", "xhigh", "max"]],
+    ["gpt-5.5", ["low", "medium", "high", "xhigh"]],
+    ["gpt-5.4", ["low", "medium", "high", "xhigh"]],
+    ["default", ["low", "medium", "high", "xhigh", "max", "ultra"]],
+    ["future-model", ["low", "medium", "high", "xhigh", "max", "ultra"]],
+  ] as const)("offers the supported tiers for %s", (model, tiers) => {
+    expect(providerEfforts("codex", model)).toEqual(tiers);
+  });
+  it("offers only Claude's CLI tiers", () => {
+    expect(providerEfforts("claude", "opus")).toEqual(["low", "medium", "high", "xhigh", "max"]);
+    expect(effortAvailableForProvider("claude", "ultra", "opus")).toBe(false);
+  });
+  it("validates a choice against its model and keeps default available", () => {
+    expect(effortAvailableForProvider("codex", "ultra", "gpt-6-astra")).toBe(true);
+    expect(effortAvailableForProvider("codex", "ultra", "gpt-5.6-luna")).toBe(false);
+    expect(effortAvailableForProvider("codex", "max", "gpt-5.6-luna")).toBe(true);
+    expect(effortAvailableForProvider("codex", "default", "gpt-5.5")).toBe(true);
+    expect(effortLabel("ultra")).toBe("Ultra");
   });
 });
 

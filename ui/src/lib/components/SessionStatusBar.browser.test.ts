@@ -256,19 +256,20 @@ describe("SessionStatusBar", () => {
     expect(id.getAttribute("aria-label")).toContain("usage downgrade");
   });
 
-  it("labels a clamped codex effort tier as configured intent", async () => {
-    // Codex clamps max → high at spawn while the stored intent keeps "max" — the bar shows
-    // the stored tier, labeled as configuration in both the title and the accessible name.
+  it.each([
+    ["max", "Max"],
+    ["ultra", "Ultra"],
+  ])("labels Codex %s as unchanged configured intent", (effort, label) => {
     render(SessionStatusBar, {
-      session: session({ id: "m", agentProvider: "codex", model: "gpt-5.5", effort: "max" }),
+      session: session({ id: "m", agentProvider: "codex", model: "gpt-6-astra", effort }),
       usage: usage({ available: false, source: "none", total: 0 }),
     });
     const id = document.querySelector(".ssb-identity") as HTMLElement;
-    expect(id.textContent).toBe("Codex · gpt-5.5 · Max");
-    expect(id.getAttribute("aria-label")).toContain(
-      "Configured environment: Codex · gpt-5.5 · Max",
-    );
-    expect(id.getAttribute("aria-label")).toContain("provider clamps");
+    expect(id.textContent).toBe(`Codex · gpt-6-astra · ${label}`);
+    expect(id.title).toContain(`Configured environment: Codex · gpt-6-astra · ${label}`);
+    expect(id.getAttribute("aria-label")).toBe(id.title);
+    expect(id.getAttribute("aria-label")).not.toContain("provider clamps");
+    expect(id.getAttribute("aria-label")).toContain("model");
   });
 
   it("group name frames the identity as configured, and never an ARIA live region", async () => {

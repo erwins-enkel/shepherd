@@ -118,13 +118,12 @@ function validateModel(value: unknown, agentProvider?: AgentProvider): Field<str
 }
 
 /** effort — optional; absent/null/"default" → null (provider default, no effort flag). A present
- *  value must be an EFFORTS tier. Provider clamping (Codex max → high) happens at argv-build, so
- *  the tier is accepted here for either provider. */
+ *  value must be an EFFORTS tier and passes through unchanged; model support is decided by the CLI. */
 function validateEffort(value: unknown): Field<string | null> {
   if (value == null || value === "default") return field(null);
   if (typeof value !== "string") return err("effort must be a string");
   if ((EFFORTS as readonly string[]).includes(value)) return field(value);
-  return err("effort must be one of: low, medium, high, xhigh, max");
+  return err(`effort must be one of: ${EFFORTS.join(", ")}`);
 }
 
 function validateHandoffMode(value: unknown): Field<HandoffMode> {

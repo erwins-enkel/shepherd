@@ -17,8 +17,8 @@
   //
   // These are the CONFIGURED values, labeled as such via the hover title: the runtime may
   // substitute at spawn time without rewriting them — pushModelFlag applies usage-downgrade/
-  // availability fallbacks argv-only, and Codex clamps unsupported effort tiers (max → high)
-  // while the stored intent keeps the un-clamped tier. Surfacing the EFFECTIVE spawn values
+  // availability fallbacks argv-only. Explicit effort tiers pass through unchanged.
+  // Surfacing the EFFECTIVE spawn model
   // needs server-side persistence across every spawn path and is tracked separately.
   const launch = $derived(session.launchMetadata ?? null);
   const provider = $derived(session.agentProvider ?? launch?.agent.provider ?? "claude");
@@ -69,7 +69,7 @@
      usage poll would re-announce to screen readers continuously.
      The group name and the identity segment's accessible name both carry the configured-
      intent caveat (not just the mouse-only hover title), so keyboard/touch/AT users get it
-     too — the runtime may substitute model/effort at spawn without rewriting the row. -->
+     too — the runtime may substitute the model at spawn without rewriting the row. -->
 <div class="ssb" role="group" aria-label={m.statusbar_aria()}>
   <span class="ssb-identity" title={identityTitle} aria-label={identityTitle}>{identity}</span>
   <span class="ssb-sep" aria-hidden="true">·</span>

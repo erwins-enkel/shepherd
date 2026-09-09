@@ -1,17 +1,27 @@
 import { m } from "$lib/paraglide/messages";
-import { EFFORTS, type AgentProvider } from "$lib/types";
+import { CODEX_MODELS, EFFORTS, type AgentProvider } from "$lib/types";
 
-/** The reasoning-effort tiers offered for a provider. Claude accepts all five; Codex 0.150.1
- *  accepts through `xhigh` across every available curated model, so only `max` is hidden. Mirrors
- *  the server's effortsForProvider. */
-export function providerEfforts(provider: AgentProvider): readonly string[] {
-  return provider === "codex" ? EFFORTS.filter((e) => e !== "max") : EFFORTS;
+/** Codex 0.153.4 model catalog: Astra/Sol/Terra offer Ultra, Luna stops at Max.
+ * Older curated models keep their four tiers. Unknown models and CLI-default choices are
+ * left to the CLI rather than restricted by an assumed capability. Claude offers five tiers. */
+export function providerEfforts(provider: AgentProvider, model?: string | null): readonly string[] {
+  if (provider === "claude" || model === "gpt-5.6-luna")
+    return EFFORTS.filter((e) => e !== "ultra");
+  if (model === "gpt-6-astra" || model === "gpt-5.6-sol" || model === "gpt-5.6-terra")
+    return EFFORTS;
+  if (model && (CODEX_MODELS as readonly string[]).includes(model))
+    return EFFORTS.filter((e) => e !== "max" && e !== "ultra");
+  return EFFORTS;
 }
 
-/** True when a tier is offerable for a provider. "default" (no effort flag) is always available. */
-export function effortAvailableForProvider(provider: AgentProvider, value: string): boolean {
+/** True when a tier is offered for a provider/model. Default always emits no effort flag. */
+export function effortAvailableForProvider(
+  provider: AgentProvider,
+  value: string,
+  model?: string | null,
+): boolean {
   if (value === "default") return true;
-  return providerEfforts(provider).includes(value);
+  return providerEfforts(provider, model).includes(value);
 }
 
 /**
@@ -40,6 +50,8 @@ export function effortLabel(effort: string): string {
       return m.effort_label_xhigh();
     case "max":
       return m.effort_label_max();
+    case "ultra":
+      return m.effort_label_ultra();
     default:
       return effort;
   }

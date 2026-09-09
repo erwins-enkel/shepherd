@@ -1444,3 +1444,19 @@ test("validateReplaceAgentChoice: absent effort defaults to null", () => {
   expect(r.ok).toBe(true);
   if (r.ok) expect(r.value.effort).toBeNull();
 });
+
+test("validateCreate accepts Codex ultra without changing the requested tier", () => {
+  const r = validateCreate(
+    {
+      repoPath: "~",
+      baseBranch: "main",
+      prompt: "go",
+      agentProvider: "codex",
+      model: "gpt-6-astra",
+      effort: "ultra",
+    },
+    homedir(),
+  );
+  expect(r.ok).toBe(true);
+  if (r.ok && r.value.terminal !== true) expect(r.value.effort).toBe("ultra");
+});

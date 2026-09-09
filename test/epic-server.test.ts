@@ -249,14 +249,14 @@ describe("PUT /api/epic", () => {
       new Request(`http://x/api/epic?repo=${encRepo(repoDir)}&parent=327`, {
         method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ agentProvider: "codex", model: "gpt-5.5", effort: "high" }),
+        body: JSON.stringify({ agentProvider: "codex", model: "gpt-6-astra", effort: "ultra" }),
       }),
     );
     expect(res.status).toBe(200);
     expect(store.getEpicRun(repoDir)).toMatchObject({
       agentProvider: "codex",
-      model: "gpt-5.5",
-      effort: "high",
+      model: "gpt-6-astra",
+      effort: "ultra",
     });
   });
 

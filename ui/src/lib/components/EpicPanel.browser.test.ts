@@ -107,7 +107,7 @@ describe("EpicPanel provider settings", () => {
 
     changeSelect(m.epic_model_label(), "gpt-5.5");
 
-    expect(api.updateEpic).toHaveBeenCalledWith("/repo", 327, { model: "gpt-5.5" });
+    expect(api.updateEpic).toHaveBeenCalledWith("/repo", 327, { model: "gpt-5.5", effort: null });
   });
 });
 
@@ -209,5 +209,34 @@ describe("EpicPanel duplicate-child guard", () => {
     } finally {
       window.removeEventListener("unhandledrejection", onRejection);
     }
+  });
+});
+
+describe("EpicPanel Codex reasoning", () => {
+  it("saves Astra ultra", async () => {
+    render(EpicPanel, {
+      repoPath: "/repo",
+      parent: 327,
+      epic: epic({ agentProvider: "codex", model: "gpt-6-astra" }),
+    });
+    const select = page.getByLabelText(m.epic_effort_label()).element() as HTMLSelectElement;
+    expect(Array.from(select.options).map((o) => o.value)).toContain("ultra");
+    changeSelect(m.epic_effort_label(), "ultra");
+    expect(api.updateEpic).toHaveBeenCalledWith("/repo", 327, { effort: "ultra" });
+  });
+  it.each([
+    ["ultra", null],
+    ["max", "max"],
+  ])("switching to Luna handles %s in one patch", (effort, expected) => {
+    render(EpicPanel, {
+      repoPath: "/repo",
+      parent: 327,
+      epic: epic({ agentProvider: "codex", model: "gpt-6-astra", effort }),
+    });
+    changeSelect(m.epic_model_label(), "gpt-5.6-luna");
+    expect(api.updateEpic).toHaveBeenCalledWith("/repo", 327, {
+      model: "gpt-5.6-luna",
+      effort: expected,
+    });
   });
 });

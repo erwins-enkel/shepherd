@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
+import { repoConfig } from "$lib/reviews.svelte";
 import { m } from "$lib/paraglide/messages";
 import { getRepoCollaborators, getRepoRoles, putRepoRoles } from "$lib/api";
 import "../../../app.css";
@@ -207,4 +208,17 @@ describe("AutomationRepoFields repository roles", () => {
     await expect.element(page.getByText("upstream/project", { exact: false })).toBeVisible();
     await expect.element(page.getByText(m.roles_assignees_hint())).toBeVisible();
   });
+});
+
+it("saves ultra as a shared repository effort preference", async () => {
+  const save = vi.spyOn(repoConfig, "setDefaultEffort").mockResolvedValue(undefined);
+  try {
+    render(AutomationRepoFields, { repoPath: "/repo/ultra", fableAvailable: false });
+    await page
+      .getByRole("combobox", { name: m.automation_default_effort_label() })
+      .selectOptions("ultra");
+    expect(save).toHaveBeenCalledWith("/repo/ultra", "ultra");
+  } finally {
+    save.mockRestore();
+  }
 });

@@ -75,14 +75,20 @@
     }
     const agentProvider = value as AgentProvider;
     const model = modelAvailableForProvider(agentProvider, epicModel, true) ? epic.run.model : null;
-    const effort = effortAvailableForProvider(agentProvider, epicEffort) ? epic.run.effort : null;
+    const effort = effortAvailableForProvider(agentProvider, epicEffort, model)
+      ? epic.run.effort
+      : null;
     updateEpic(repoPath, parent, { agentProvider, model, effort }).catch(updateFailed);
   }
 
   function onModelChange(e: Event) {
     if (!epicProvider) return;
     const value = (e.currentTarget as HTMLSelectElement).value;
-    updateEpic(repoPath, parent, { model: value === "default" ? null : value }).catch(updateFailed);
+    const model = value === "default" ? null : value;
+    const effort = effortAvailableForProvider(epicProvider, epicEffort, model)
+      ? epic.run.effort
+      : null;
+    updateEpic(repoPath, parent, { model, effort }).catch(updateFailed);
   }
 
   function onEffortChange(e: Event) {
@@ -269,7 +275,7 @@
           <span class="micro">{m.epic_effort_label()}</span>
           <select value={epicEffort} onchange={onEffortChange}>
             <option value="default">{m.effort_default()}</option>
-            {#each providerEfforts(epicProvider) as effort (effort)}
+            {#each providerEfforts(epicProvider, epicModel) as effort (effort)}
               <option value={effort}>{effortLabel(effort)}</option>
             {/each}
           </select>

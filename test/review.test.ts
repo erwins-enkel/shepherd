@@ -167,6 +167,9 @@ function makeDeps(
     verdictRead?: VerdictRead<RawVerdict>;
     /** agentStatus reported by herdr.list() for the critic at /review-wt (default "idle" = finished). */
     criticAgentStatus?: string;
+    /** Plan-gate row the critic reads provenance from. Omitted ⇒ an approved gate matching the
+     *  injected `readPlan`; `null` ⇒ no gate ever ran. */
+    planGate?: { sessionId: string; approved: boolean; plan: string } | null;
     /**
      * Foreground processes returned by herdr.paneForegroundProcs for the critic pane.
      * Default ['zsh'] (shell-only husk → isSpawnAlive returns false for non-working agents).
@@ -215,6 +218,13 @@ function makeDeps(
         criticEnabled: true,
         autoAddressEnabled: opts.autoAddressEnabled ?? false,
       }),
+      // Plan provenance. The DEFAULT is "a gate approved exactly what the working file says", i.e.
+      // the ordinary post-gate session — so every test that injects `readPlan` keeps seeing the
+      // single APPROVED PLAN block it always did. `planGate` overrides it (null = no gate at all).
+      getPlanGate: (id: string) =>
+        opts.planGate !== undefined
+          ? opts.planGate
+          : { sessionId: id, approved: true, plan: (over.readPlan?.("/wt") ?? "").trim() },
       getReview: (id: string) => reviews[id] ?? null,
       putReview: (v: ReviewVerdict) => {
         reviews[v.sessionId] = v;
@@ -828,6 +838,84 @@ test("critic prompt omits the plan block when no plan exists (readPlan → null)
   await new ReviewService(d as any).consider(session(), OPEN_GREEN);
   expect(started[0]!.argv.at(-1)!).not.toContain("APPROVED PLAN");
 });
+
+// ── plan PROVENANCE: the critic sees the plan that was actually approved ─────────────────────────
+//
+// The gate stores the text it approved and then refuses to look again, so a plan rewritten after
+// approval used to reach the critic under a label claiming it had been reviewed BEFORE the code was
+// written. Provenance now comes from `plan_gates`, which the agent cannot reach.
+
+test("an approved plan matching the working file yields ONE block (unchanged prompt)", async () => {
+  const { deps: d, started } = makeDeps({ readPlan: () => "## Goal\nship the widget" });
+  await new ReviewService(d as any).consider(session(), OPEN_GREEN);
+  const prompt = started[0]!.argv.at(-1)!;
+  expect(prompt).toContain("APPROVED PLAN");
+  expect(prompt).not.toContain("CURRENT PLAN FILE");
+  // Trailing whitespace differences are not an edit: plan_gates stores the plan trimmed.
+  const { deps: d2, started: s2 } = makeDeps({ readPlan: () => "## Goal\nship the widget\n\n" });
+  await new ReviewService(d2 as any).consider(session(), OPEN_GREEN);
+  expect(s2[0]!.argv.at(-1)!).not.toContain("CURRENT PLAN FILE");
+});
+
+test("a plan edited AFTER approval is shown as a second block, and the snapshot stays the baseline", async () => {
+  const { deps: d, started } = makeDeps(
+    { readPlan: () => "## Goal\nship the runtime" },
+    { planGate: { sessionId: "s1", approved: true, plan: "## Goal\nmockups only" } },
+  );
+  await new ReviewService(d as any).consider(session(), OPEN_GREEN);
+  const prompt = started[0]!.argv.at(-1)!;
+  // The approved text is what the review measures against…
+  expect(prompt).toContain("mockups only");
+  expect(prompt.indexOf("APPROVED PLAN")).toBeLessThan(prompt.indexOf("CURRENT PLAN FILE"));
+  // …and the rewrite is present but stripped of any claim to authorization.
+  expect(prompt).toContain("ship the runtime");
+  expect(prompt).toContain("never reviewed or approved by anyone");
+});
+
+test("a plan file with no approved gate claims no approval and asks for no drift", async () => {
+  for (const planGate of [
+    null,
+    { sessionId: "s1", approved: false, plan: "## Goal\nship it" },
+  ] as const) {
+    const { deps: d, started } = makeDeps({ readPlan: () => "## Goal\nship it" }, { planGate });
+    await new ReviewService(d as any).consider(session(), OPEN_GREEN);
+    const prompt = started[0]!.argv.at(-1)!;
+    expect(prompt).toContain("PLAN FILE (`.shepherd-plan.md`");
+    expect(prompt).not.toContain("APPROVED PLAN");
+    expect(prompt).toContain("ship it");
+    expect(prompt).not.toContain("PLAN-DRIFT REPORT");
+  }
+});
+
+test("an unapproved plan records no planDrift even when the critic volunteers one", async () => {
+  const {
+    deps: d,
+    reviews,
+    spawnOutcomes,
+  } = makeDeps(
+    {
+      readPlan: () => "## Goal\nship it",
+      readVerdict: () => ({
+        decision: "comment",
+        summary: "ok",
+        body: "b",
+        findings: [],
+        planDrift: "major",
+        planDriftNote: "went its own way",
+      }),
+    },
+    { planGate: null },
+  );
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  await svc.tick();
+  expect(reviews["s1"]!.planDrift).toBeNull();
+  expect(spawnOutcomes.at(-1)!.planDrift).toBeNull();
+});
+
+// The clamp-ORDER half of provenance (the edited file gives way before the approved snapshot)
+// lives with the other #1944 budget tests below — it needs their Linux guard, since
+// `argvElementLimit` is Infinity elsewhere and nothing clamps at all.
 
 // ── #2155 plan drift: measured, persisted, and inert ────────────────────────────────────────────
 
@@ -4247,6 +4335,33 @@ const bigPlan1944 = (n: number) =>
   "\n## Out of scope\n\n- spill\n\n## Testing seams\n\n- the seam\n\n## Success criteria\n\n1. green\n";
 
 const onLinux1944 = process.platform === "linux";
+
+test.skipIf(!onLinux1944)(
+  "under argv pressure the EDITED plan file gives way before the approved snapshot",
+  async () => {
+    const {
+      deps: d,
+      started,
+      notices,
+    } = makeDeps(
+      { readPlan: () => `## Goal\nrewritten\n${"y".repeat(200_000)}` },
+      {
+        planGate: {
+          sessionId: "s1",
+          approved: true,
+          plan: `## Goal\napproved\n${"x".repeat(60_000)}`,
+        },
+      },
+    );
+    await new ReviewService(d as any).consider(session(), OPEN_GREEN);
+    expect(started).toHaveLength(1);
+    const detail = notices.get("s1:review")!.detail as string;
+    expect(detail).toContain("planCurrent");
+    expect(detail).not.toContain("plan (");
+    // The block the verdict is formed against survived whole.
+    expect(started[0]!.argv.at(-1)!).toContain("x".repeat(60_000));
+  },
+);
 
 test.skipIf(!onLinux1944)(
   "#1944 an oversized plan is clamped and the critic spawn fits",

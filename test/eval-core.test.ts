@@ -1004,6 +1004,10 @@ test("CASES actually meets the coverage invariant it states", () => {
   covers("critic", "carries NO content your fork point does not already have");
   covers("critic", "Sibling children have ALREADY MERGED");
   covers("critic", "the delta could NOT be enumerated here");
+  // planBlocks' provenance branches — the approved heading rides session-full, these do not.
+  covers("critic", "NO plan reviewer approved this text");
+  covers("critic", "CURRENT PLAN FILE");
+  covers("critic", "NOTE: this current plan file was too large");
 });
 
 // ---------------------------------------------------------------------------

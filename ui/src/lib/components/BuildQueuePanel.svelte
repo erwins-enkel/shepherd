@@ -226,67 +226,69 @@
     role="region"
     aria-label={m.buildqueue_panel_title()}
   >
-    <button
-      type="button"
-      class="bqp-head bqp-collapse-toggle"
-      onclick={() => buildQueueCollapse.toggle()}
-      aria-expanded={!buildQueueCollapse.collapsed}
-      aria-controls={contentId}
-      aria-label={buildQueueCollapse.collapsed
-        ? m.buildqueue_expand_aria()
-        : m.buildqueue_collapse_aria()}
-      aria-describedby={canApprove ? awaitingId : undefined}
-      title={buildQueueCollapse.collapsed
-        ? m.buildqueue_expand_aria()
-        : m.buildqueue_collapse_aria()}
-      use:coachTarget={"build-queue-collapse"}
-    >
-      <span class="bqp-title">{m.buildqueue_panel_title()}</span>
-      {#if approved && steps.length > 0}
-        <span class={["bqp-approved", `bqp-run-${runState}`]}>{approvalLabel} · {runLabel}</span>
-      {:else if canApprove}
-        <!-- Needs-you chip: mirrors the approved chip's slot so the header always
-             narrates queue status. Lives in the always-rendered header, so the
-             signal (and its aria-describedby target) survives collapse. -->
-        <span class="bqp-awaiting-chip" id={awaitingId}>
-          <span class="bqp-awaiting-dot" aria-hidden="true"></span>{m.buildqueue_awaiting_chip()}
-        </span>
-      {/if}
-      <span class="bqp-collapse-glyph" aria-hidden="true"
-        >{buildQueueCollapse.collapsed ? "▴" : "▾"}</span
+    <div class="bqp-banner" class:collapsed={buildQueueCollapse.collapsed}>
+      <button
+        type="button"
+        class="bqp-head bqp-collapse-toggle"
+        onclick={() => buildQueueCollapse.toggle()}
+        aria-expanded={!buildQueueCollapse.collapsed}
+        aria-controls={contentId}
+        aria-label={buildQueueCollapse.collapsed
+          ? m.buildqueue_expand_aria()
+          : m.buildqueue_collapse_aria()}
+        aria-describedby={canApprove ? awaitingId : undefined}
+        title={buildQueueCollapse.collapsed
+          ? m.buildqueue_expand_aria()
+          : m.buildqueue_collapse_aria()}
+        use:coachTarget={"build-queue-collapse"}
       >
-    </button>
-
-    {#if reviewBlocked && steps.length > 0}
-      <p class="bqp-notice">
-        {planReview === "reviewing"
-          ? m.buildqueue_plan_reviewing()
-          : m.buildqueue_plan_review_hint()}
-      </p>
-    {:else if actionable}
-      <div class="bqp-action-row">
-        <p class="bqp-hint">{actionHint}</p>
-        <button
-          type="button"
-          class="bqp-btn bqp-approve"
-          disabled={action?.busy}
-          onclick={() => sendAction(canApprove ? "approve" : "start")}
+        <span class="bqp-title">{m.buildqueue_panel_title()}</span>
+        {#if approved && steps.length > 0}
+          <span class={["bqp-approved", `bqp-run-${runState}`]}>{approvalLabel} · {runLabel}</span>
+        {:else if canApprove}
+          <!-- Needs-you chip: mirrors the approved chip's slot so the header always
+               narrates queue status. Lives in the always-rendered header, so the
+               signal (and its aria-describedby target) survives collapse. -->
+          <span class="bqp-awaiting-chip" id={awaitingId}>
+            <span class="bqp-awaiting-dot" aria-hidden="true"></span>{m.buildqueue_awaiting_chip()}
+          </span>
+        {/if}
+        <span class="bqp-collapse-glyph" aria-hidden="true"
+          >{buildQueueCollapse.collapsed ? "▴" : "▾"}</span
         >
-          <span class="bqp-approve-glyph" aria-hidden="true">▸</span>{canApprove
-            ? planning
-              ? m.buildqueue_approve_plan()
-              : m.buildqueue_approve()
-            : m.buildqueue_start()}
-        </button>
-      </div>
-    {/if}
-    {#if action?.busy}
-      <p class="bqp-notice" role="status">{m.buildqueue_sending()}</p>
-    {:else if action?.feedback === "failed"}
-      <p class="bqp-notice" role="alert">{m.buildqueue_action_failed()}</p>
-    {:else if action?.feedback === "sent"}
-      <p class="bqp-notice" role="status">{m.buildqueue_action_sent()}</p>
-    {/if}
+      </button>
+
+      {#if reviewBlocked && steps.length > 0}
+        <p class="bqp-notice">
+          {planReview === "reviewing"
+            ? m.buildqueue_plan_reviewing()
+            : m.buildqueue_plan_review_hint()}
+        </p>
+      {:else if actionable}
+        <div class="bqp-action-row">
+          <p class="bqp-hint">{actionHint}</p>
+          <button
+            type="button"
+            class="bqp-btn bqp-approve"
+            disabled={action?.busy}
+            onclick={() => sendAction(canApprove ? "approve" : "start")}
+          >
+            <span class="bqp-approve-glyph" aria-hidden="true">▸</span>{canApprove
+              ? planning
+                ? m.buildqueue_approve_plan()
+                : m.buildqueue_approve()
+              : m.buildqueue_start()}
+          </button>
+        </div>
+      {/if}
+      {#if action?.busy}
+        <p class="bqp-notice" role="status">{m.buildqueue_sending()}</p>
+      {:else if action?.feedback === "failed"}
+        <p class="bqp-notice" role="alert">{m.buildqueue_action_failed()}</p>
+      {:else if action?.feedback === "sent"}
+        <p class="bqp-notice" role="status">{m.buildqueue_action_sent()}</p>
+      {/if}
+    </div>
 
     <div class="bqp-content" id={contentId} class:collapsed={buildQueueCollapse.collapsed}>
       {#if steps.length === 0}
@@ -399,10 +401,8 @@
   .bqp {
     display: flex;
     flex-direction: column;
-    gap: 6px;
     flex: none;
     min-width: 0;
-    padding: 8px 10px;
     background: var(--color-panel);
     border-top: 1px solid var(--color-line);
     font-family: var(--font-mono);
@@ -415,9 +415,21 @@
     border: 1px solid var(--color-amber);
   }
 
-  /* The whole header is the collapse toggle (mirrors IntegratedEpicRow's
-     .row-head), so a click anywhere on the bar expands/collapses — not just
-     the ▴/▾ glyph. Button reset; the glyph keeps its boxed look below. */
+  .bqp-banner {
+    position: relative;
+    isolation: isolate;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px 10px 6px;
+  }
+
+  .bqp-banner.collapsed {
+    padding-bottom: 8px;
+  }
+
+  /* Extend the native toggle over the banner, including hints and padding.
+     The action button sits above it; the step list is outside the banner. */
   .bqp-head {
     display: flex;
     align-items: center;
@@ -432,8 +444,16 @@
     text-align: left;
     cursor: pointer;
   }
+  .bqp-head::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+  }
   .bqp-head:focus-visible {
     outline: none;
+  }
+  .bqp-head:focus-visible::after {
     box-shadow: inset 0 0 0 1px var(--color-amber);
   }
 
@@ -506,6 +526,7 @@
   }
 
   .bqp-content {
+    padding: 0 10px 8px;
     display: flex;
     flex-direction: column;
     gap: 6px;
@@ -686,6 +707,8 @@
 
   /* Amber outline signals the action; ink text preserves AA on the light wash. */
   .bqp-approve {
+    position: relative;
+    z-index: 2;
     display: inline-flex;
     align-items: center;
     gap: 4px;

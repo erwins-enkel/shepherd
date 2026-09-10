@@ -1570,7 +1570,7 @@ describe("TopBar — CR extra-credit gauge", () => {
     await nextFrame();
     const pop = hud.querySelector<HTMLElement>(".gauge-pop-desk");
     expect(pop, "popover opens").not.toBeNull();
-    expect(pop!.querySelector(".mw-bar"), "Fable passthrough bar in popover").not.toBeNull();
+    expect(pop!.querySelector(".uw-bar"), "Fable passthrough bar in popover").not.toBeNull();
   });
 
   it("per-model-only (touch): collapsed button isn't blank and opens the popover", async () => {
@@ -1686,10 +1686,14 @@ describe("TopBar — CR extra-credit gauge", () => {
     openDesktopPopover(hud);
     await nextFrame();
     const pop = hud.querySelector<HTMLElement>(".gauge-pop-desk");
-    // reset-time text is rendered (visible) inside the dialog — in the a11y tree on open, not
-    // behind a hover/aria-label
-    const resets = pop!.querySelectorAll(".gauge-pop-reset");
-    expect(resets.length, "per-window reset lines present").toBeGreaterThan(0);
+    // reset text is rendered (visible) inside the dialog — in the a11y tree on open, not behind a
+    // hover/aria-label. It now rides in each window's row as a countdown rather than its own line.
+    const rests = [...pop!.querySelectorAll<HTMLElement>(".gauge-pop-claude .uw-rest")];
+    expect(rests.length, "every window row carries a reset countdown cell").toBeGreaterThan(0);
+    expect(
+      rests.some((r) => (r.textContent ?? "").trim().length > 0),
+      "at least one countdown is populated",
+    ).toBe(true);
     expect(pop!.textContent ?? "", "period name present").toContain(m.topbar_gauge_period_5h());
   });
 

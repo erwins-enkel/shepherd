@@ -148,8 +148,13 @@ const compactTokenNumber = new Intl.NumberFormat(undefined, {
   maximumFractionDigits: 1,
 });
 
+/** Compact token count WITHOUT the unit suffix — for dense rows that carry their own label. */
+export function compactTokens(tokens: number): string {
+  return compactTokenNumber.format(Math.max(0, tokens));
+}
+
 export function formatTokenLabel(tokens: number): string {
-  return m.viewport_tokens_label({ tokens: compactTokenNumber.format(Math.max(0, tokens)) });
+  return m.viewport_tokens_label({ tokens: compactTokens(tokens) });
 }
 
 /** Reset timestamp → short local label, e.g. "21:30" (today) or "Jun 6". */

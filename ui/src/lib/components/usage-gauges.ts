@@ -5,6 +5,7 @@ import type {
   ModelWeekWindow,
   UsageProviderSnapshot,
   CreditWindow,
+  ObservedLimitWindow,
   ObservedLimitWindows,
 } from "../types";
 import type { AgentProvider } from "../types";
@@ -282,6 +283,15 @@ export function hotterGauge(limits: UsageLimits | null): Gauge | null {
   const gauges = gaugeList(limits);
   if (!gauges.length) return null;
   return gauges.reduce((hot, g) => (g.w.pct >= hot.w.pct ? g : hot));
+}
+
+/**
+ * True once an observed window is past its reset but the confirming scrape has not landed — the
+ * displayed pct still describes the window BEFORE the reset, so callers must say so rather than
+ * present a stale number as current. Computed windows carry no `scrapedAt` and are never pending.
+ */
+export function windowResetPending(w: LimitWindow, nowMs: number): boolean {
+  return "scrapedAt" in w && (w as ObservedLimitWindow).resetAt <= nowMs;
 }
 
 /** Usage-gauge fill/text color. Three-step ladder: muted through 50, amber as the window

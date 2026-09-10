@@ -25,11 +25,24 @@
   <button
     type="button"
     class="usage-refresh micro"
+    title={m.topbar_usage_refresh_scope()}
     disabled={refreshing}
     aria-busy={refreshing}
     onclick={onRefresh}
   >
-    <span aria-hidden="true">↻</span>
+    <svg
+      class="refresh-glyph"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2.2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M20.5 12a8.5 8.5 0 1 1-2.49-6.01" />
+      <path d="M20.5 3.5v5.5h-5.5" />
+    </svg>
     {refreshing ? m.topbar_usage_refreshing() : m.topbar_usage_refresh()}
   </button>
 </div>
@@ -42,6 +55,9 @@
     gap: 8px;
   }
   .usage-refresh {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
     background: transparent;
     border: 1px solid var(--color-line-bright);
     border-radius: 2px;
@@ -53,6 +69,11 @@
     padding: 5px 10px;
     min-height: 30px;
     cursor: pointer;
+  }
+  .refresh-glyph {
+    width: 12px;
+    height: 12px;
+    flex: none;
   }
   .usage-refresh:hover:not(:disabled) {
     background: var(--color-inset);

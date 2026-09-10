@@ -3,7 +3,12 @@
   import type { CreditWindow, ModelWeekWindow, ObservedLimitWindows } from "$lib/types";
   import type { UsageProviderSnapshot } from "$lib/types";
   import { formatTokenLabel } from "$lib/format";
-  import { gaugeColor, modelDisplayName, type GaugeKey } from "../usage-gauges";
+  import {
+    gaugeColor,
+    modelDisplayName,
+    type GaugeKey,
+    type HottestCapacityWindow,
+  } from "../usage-gauges";
   import type { CompactUsageView } from "../usage-gauges";
   import type { Gauge } from "../usage-gauges";
   import CreditGauge from "./CreditGauge.svelte";
@@ -19,6 +24,7 @@
     codexUsage,
     claudeAvailable,
     observed,
+    hottest,
     activeCompactUsageView,
     compactUsageRotating,
     overspend,
@@ -43,6 +49,7 @@
     credits: CreditWindow | null;
     codexUsage: Extract<UsageProviderSnapshot, { provider: "codex"; kind: "tokens" }> | null;
     claudeAvailable: boolean;
+    hottest: HottestCapacityWindow | null;
     observed: ObservedLimitWindows | undefined;
     activeCompactUsageView: CompactUsageView | null;
     compactUsageRotating: boolean;
@@ -121,6 +128,7 @@
     {codexUsage}
     {claudeAvailable}
     {observed}
+    {hottest}
     {creditFill}
     {creditColor}
     {creditAmount}

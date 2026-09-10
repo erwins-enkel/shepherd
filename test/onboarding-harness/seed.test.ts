@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { IncusDriver } from "../../ci/onboarding-harness/incus";
-import { seedInstance } from "../../ci/onboarding-harness/seed";
+import { NetworkUnreachableError, seedInstance } from "../../ci/onboarding-harness/seed";
 import type { IncusExec } from "../../ci/onboarding-harness/types";
 
 function recorder() {
@@ -141,5 +141,74 @@ describe("seedInstance", () => {
     const push = calls.find((c) => c[0] === "file" && c[1] === "push");
     expect(push).toBeDefined();
     expect(push!).toContain("/tmp/shepherd.tar");
+  });
+});
+
+describe("waitForNetwork (#2229)", () => {
+  /** Runner whose network probe returns `probeCode`; everything else succeeds. */
+  function withProbe(probeCode: number) {
+    const calls: string[][] = [];
+    const run = async (args: string[]): Promise<IncusExec> => {
+      calls.push(args);
+      const cmd = args.join(" ");
+      if (cmd.includes("ip -4 -o addr show")) {
+        return { stdout: "", stderr: "", code: probeCode };
+      }
+      return { stdout: "", stderr: "", code: 0 };
+    };
+    return { calls, run };
+  }
+
+  it("waits for BOTH a global IPv4 address and DNS before touching the mirrors", async () => {
+    const { calls, run } = withProbe(0);
+    const d = new IncusDriver(run, "shep-onb-");
+    await seedInstance(d, scenario, "/tmp/shepherd.tar");
+
+    const flat = calls.map((c) => c.join(" "));
+    const probeIdx = flat.findIndex((c) => c.includes("ip -4 -o addr show"));
+    expect(probeIdx).toBeGreaterThanOrEqual(0);
+    // A DNS-only probe passes while the DHCPv4 lease is still pending, because incusbr0's
+    // RA-supplied IPv6 resolver answers first — that window broke git-missing.
+    expect(flat[probeIdx]).toContain("getent hosts bun.sh");
+    // Nothing that needs the network may run before the probe.
+    const pushIdx = flat.findIndex((c) => c.startsWith("file push"));
+    const aptIdx = flat.findIndex((c) => c.includes("apt-get update"));
+    expect(pushIdx).toBeGreaterThan(probeIdx);
+    expect(aptIdx).toBeGreaterThan(probeIdx);
+  });
+
+  it("throws NetworkUnreachableError when the network never comes up", async () => {
+    const { run } = withProbe(1);
+    const d = new IncusDriver(run, "shep-onb-");
+    await expect(seedInstance(d, scenario, "/tmp/shepherd.tar")).rejects.toThrow(
+      NetworkUnreachableError,
+    );
+  });
+
+  it("names the host firewall in the diagnosis, so the operator has somewhere to look", async () => {
+    const { run } = withProbe(1);
+    const d = new IncusDriver(run, "shep-onb-");
+    await expect(seedInstance(d, scenario, "/tmp/shepherd.tar")).rejects.toThrow(
+      /host firewall.*UFW BLOCK/s,
+    );
+  });
+
+  it("runs NO baseline step once the network probe has failed", async () => {
+    const { calls, run } = withProbe(1);
+    const d = new IncusDriver(run, "shep-onb-");
+    await expect(seedInstance(d, scenario, "/tmp/shepherd.tar")).rejects.toThrow();
+
+    const flat = calls.map((c) => c.join(" "));
+    // Burning a multi-minute package-manager timeout per step is exactly the 4h failure.
+    expect(flat.some((c) => c.includes("apt-get update"))).toBe(false);
+    expect(flat.some((c) => c.includes("bun.sh/install"))).toBe(false);
+    expect(flat.some((c) => c.startsWith("file push"))).toBe(false);
+  });
+
+  it("still deletes nothing itself — the caller owns instance teardown", async () => {
+    const { calls, run } = withProbe(1);
+    const d = new IncusDriver(run, "shep-onb-");
+    await expect(seedInstance(d, scenario, "/tmp/shepherd.tar")).rejects.toThrow();
+    expect(calls.some((c) => c[0] === "delete")).toBe(false);
   });
 });

@@ -20,13 +20,13 @@ const PROFILES = ["default", "shep-onb"];
  *
  *  WHY stop units first (#1738): `images:archlinux` runs its OWN keyring init at boot —
  *  `/etc/systemd/system/pacman-init.service` (`ExecStart=pacman-key --init` + `--populate`,
- *  ordered `After=time-sync.target`). We only wait for DNS (waitForDns), which resolves
- *  long before time-sync, so the pre-#1738 version of this function raced that unit: two gpg
- *  processes writing /etc/pacman.d/gnupg, and the loser died with "can't open pubring.gpg /
- *  no writable keyring found / could not be locally signed". Reproduced 3/3 by exec'ing as
- *  soon as DNS resolved; 0/3 when run after the unit had settled. Since runScenario launches
- *  a FRESH instance per scenario, BOTH Arch scenarios are exposed — which one loses on a
- *  given night is jitter, which is exactly why the nightly looked flaky.
+ *  ordered `After=time-sync.target`). We only wait for the network (waitForNetwork), which
+ *  comes up long before time-sync, so the pre-#1738 version of this function raced that unit:
+ *  two gpg processes writing /etc/pacman.d/gnupg, and the loser died with "can't open
+ *  pubring.gpg / no writable keyring found / could not be locally signed". Reproduced 3/3 by
+ *  exec'ing as soon as DNS resolved; 0/3 when run after the unit had settled. Since
+ *  runScenario launches a FRESH instance per scenario, BOTH Arch scenarios are exposed —
+ *  which one loses on a given night is jitter, which is exactly why the nightly looked flaky.
  *
  *  Enumerating `systemctl list-units --all '*keyring*' '*pacman*'` + `list-timers` on a
  *  fresh instance, pacman-init is not the only writer of that homedir:
@@ -202,25 +202,56 @@ function baselineCommands(): string[] {
   ];
 }
 
-/** Wait for the instance's network to actually resolve DNS before anything hits
- *  the package mirrors. `/bin/sh` exists instantly, so a launch alone only proves
- *  the rootfs unpacked — on Arch, systemd-resolved comes up slower than on debian/
- *  fedora and `pacman -Sy` failed with "Could not resolve host". Poll a real
- *  resolution instead (skip on images without glibc `getent`, e.g. musl). */
-async function waitForDns(driver: IncusDriver, name: string): Promise<void> {
-  await driver.exec(name, [
+/** Thrown when an instance launched but never got a usable network. Distinct from a
+ *  baseline failure because it is a HOST fault, not a product regression: every later
+ *  scenario would hit it too, so run.ts abandons the whole run on the first one rather
+ *  than repeating it ten times. */
+export class NetworkUnreachableError extends Error {}
+
+/** Seconds `waitForNetwork` polls before giving up. Sixty consecutive failed seconds in
+ *  a freshly-launched instance is a host fault, not a blip — DHCP and a bridge resolver
+ *  answer in low single-digit seconds on a healthy host. */
+const NETWORK_POLL_SECONDS = 60;
+
+/** Poll until the instance's network is actually USABLE, and report whether it got there.
+ *
+ *  Two conditions, both required — a launch alone only proves the rootfs unpacked, since
+ *  `/bin/sh` exists instantly:
+ *   - a global **IPv4** address. Waiting on DNS alone is not enough: incusbr0 hands out an
+ *     RA-derived IPv6 address and DNS server which answer BEFORE the DHCPv4 lease lands, so
+ *     a DNS-only probe passes on an instance that still cannot fetch anything. That window
+ *     is real — it is what broke `git-missing` (alpine) on 2026-09-10 with an opaque
+ *     `apk … Permission denied`, while the same scenario passes in 48s once settled.
+ *     Requiring IPv4 matches incusbr0's dual-stack default (a v6-only bridge would abort
+ *     here in 60s with a legible message rather than fail obscurely downstream).
+ *   - real DNS resolution. On Arch systemd-resolved comes up slower than on debian/fedora
+ *     and `pacman -Sy` used to fail with "Could not resolve host".
+ *
+ *  `getent` and `ip` are present on every image family in the catalog — glibc supplies
+ *  getent on debian/ubuntu/rocky/arch, and alpine's busybox supplies both (verified live),
+ *  so there is no unprobeable escape hatch and no need for a fallback resolver.
+ *
+ *  Returns `true` when the network came up, `false` when it never did. The RESULT IS
+ *  LOAD-BEARING — see seedInstance. Before #2229 this returned void and its caller ignored
+ *  it, so a host firewall that dropped all bridge traffic (DHCP + DNS) was swallowed here
+ *  and only surfaced as ten package-manager timeouts: a 14-minute nightly became 4h23m and
+ *  reported ten fake BOOT CRASHes. */
+async function waitForNetwork(driver: IncusDriver, name: string): Promise<boolean> {
+  const r = await driver.exec(name, [
     "sh",
     "-c",
-    "for i in $(seq 1 60); do command -v getent >/dev/null 2>&1 || break; " +
-      "getent hosts bun.sh >/dev/null 2>&1 && break; sleep 1; done",
+    `for i in $(seq 1 ${NETWORK_POLL_SECONDS}); do ` +
+      'if [ -n "$(ip -4 -o addr show scope global 2>/dev/null)" ] && ' +
+      "getent hosts bun.sh >/dev/null 2>&1; then exit 0; fi; sleep 1; done; exit 1",
   ]);
+  return r.code === 0;
 }
 
 /** Launch a fresh instance for `scenario`, install the bootable baseline, push
  *  the Shepherd build, then run the scenario's messy-state seed commands.
  *
  *  installE2E scenarios are the inverse: a BARE instance with NO baseline + NO
- *  defect seed. We launch, wait for DNS (the real install.sh needs network), and
+ *  defect seed. We launch, wait for the network (the real install.sh needs it), and
  *  push the tarball + install.sh; run.ts then runs the installer itself. */
 export async function seedInstance(
   driver: IncusDriver,
@@ -232,7 +263,18 @@ export async function seedInstance(
     vm: scenario.vm,
     profiles: PROFILES,
   });
-  await waitForDns(driver, scenario.id);
+  // CHECKED (#2229): a network that never comes up is a host fault, and every step past
+  // here — the tarball push, the baseline, install.sh — would otherwise burn its own
+  // multi-minute timeout discovering it separately.
+  if (!(await waitForNetwork(driver, scenario.id))) {
+    throw new NetworkUnreachableError(
+      `${scenario.id}: the instance launched but never got a usable network ` +
+        `(no global IPv4 address and/or no DNS after ${NETWORK_POLL_SECONDS}s). ` +
+        "On an Incus host this is nearly always the host firewall dropping traffic on the " +
+        "bridge — check `journalctl -k | grep 'UFW BLOCK'` and see the Host firewall section " +
+        "of ci/onboarding-harness/README.md.",
+    );
+  }
   await driver.push(scenario.id, tarballPath, "/root/shepherd.tar");
 
   if (scenario.installE2E) {

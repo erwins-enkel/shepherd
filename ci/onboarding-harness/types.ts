@@ -95,6 +95,15 @@ export interface ScenarioResult {
    *  a gate-eligible one still gates red. The flag exists so the report says so
    *  plainly instead of mislabelling it a crash. */
   unverified?: boolean;
+  /** The instance launched but never got a usable network (#2229). A HOST fault, not a
+   *  product regression — every later scenario would hit it too, so run.ts abandons the
+   *  rest of the run instead of repeating it ten times. */
+  networkUnreachable?: boolean;
+  /** Wall-clock this scenario took, milliseconds. Absent for scenarios the run never
+   *  started (budget exhausted). Reported per scenario plus a run total so a runtime
+   *  regression is visible in the artifact — the 2026-08 one (#2229) had to be
+   *  reconstructed from journal timestamps because nothing recorded this. */
+  durationMs?: number;
   error?: string;
 }
 

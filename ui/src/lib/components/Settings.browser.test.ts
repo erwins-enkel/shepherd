@@ -9,6 +9,7 @@ import {
   verifyApiKey,
   putAnthropicApiKey,
   putDefaultCodexModel,
+  putDefaultModel,
   fixDiagnostic,
   putRoleEffort,
   putDefaultEffort,
@@ -64,6 +65,7 @@ const mockGetSettings = vi.mocked(getSettings);
 const mockVerify = vi.mocked(verifyApiKey);
 const mockPutKey = vi.mocked(putAnthropicApiKey);
 const mockPutCodexModel = vi.mocked(putDefaultCodexModel);
+const mockPutModel = vi.mocked(putDefaultModel);
 const mockFix = vi.mocked(fixDiagnostic);
 
 function settings(over: Partial<SettingsPayload> = {}): SettingsPayload {
@@ -161,6 +163,8 @@ beforeEach(() => {
   mockPutKey.mockReset();
   mockPutCodexModel.mockReset();
   mockPutCodexModel.mockImplementation(async (model) => ({ defaultCodexModel: model }));
+  mockPutModel.mockReset();
+  mockPutModel.mockImplementation(async (model) => ({ defaultModel: model }));
   // Default seed: api-key mode, key configured → Verify button renders.
   mockGetSettings.mockResolvedValue(settings());
 });
@@ -441,6 +445,52 @@ describe("Settings default coding environment", () => {
       m.settings_role_model_effective({
         model: `${m.settings_cli_claude()} · ${m.model_configured_opus_latest()}`,
       }),
+    );
+  });
+
+  // #2240: a settings PUT that answers 200 WITHOUT the field it owns must not poison the local
+  // value. `defaultModel = undefined` throws inside SettingsCodingCliPanel's `is1mModel`
+  // ($derived(defaultModel.endsWith("[1m]"))) during Svelte's flush; that abandons the batch, so
+  // every effect not yet processed stays dirty forever and the whole dialog stops reacting until a
+  // page reload. The visible tell was a role's guidance line frozen on the global default's copy
+  // while its own "Effective:" line kept tracking — so this asserts on the guidance line.
+  //
+  // Both halves matter: without the toHaveValue check the role pickers could be inert for an
+  // unrelated reason, and without the not.toContain the assertion would pass on a guidance line
+  // that merely happens to mention several models.
+  it("a settings PUT that omits its own field leaves the dialog reactive", async () => {
+    mockGetSettings.mockResolvedValue(
+      settings({ defaultAgentProvider: "claude", defaultModel: "opus", plannerCli: "inherit" }),
+    );
+    // Exactly what the demo router used to answer for every unhandled settings mutation.
+    mockPutModel.mockResolvedValue({} as { defaultModel: string });
+    await mountCodingAgents();
+
+    const { disclosure, button } = requiredCodingSectionButton(m.settings_role_models_title());
+    if (button.getAttribute("aria-expanded") === "false") await disclosure.click();
+
+    await page.getByTestId("default-environment-model").selectOptions("sonnet");
+    await vi.waitFor(() => expect(mockPutModel).toHaveBeenCalledWith("sonnet"));
+
+    const cli = page.getByRole("combobox", {
+      name: m.settings_role_cli_label({ role: roleTitle("planner") }),
+    });
+    await cli.selectOptions("codex");
+    const roleModel = page.getByRole("combobox", {
+      name: m.settings_role_model_label({ role: roleTitle("planner") }),
+    });
+    await roleModel.selectOptions("gpt-6-astra");
+    await expect.element(roleModel).toHaveValue("gpt-6-astra");
+
+    const row = (cli.query() as HTMLElement | null)?.closest(".rrow");
+    expect(row, "planner role row").not.toBeNull();
+    await vi.waitFor(() => {
+      const guidance = row!.querySelector(".model-guidance");
+      expect(guidance?.textContent).toContain(m.model_guidance_codex_6_astra());
+    });
+    // The frozen line reported in #2240 was the GLOBAL default's guidance.
+    expect(row!.querySelector(".model-guidance")!.textContent).not.toContain(
+      m.model_guidance_claude_opus(),
     );
   });
 });

@@ -397,3 +397,61 @@ describe("POST /api/sessions/:id/ack-manual-steps (mirrors the real server handl
     expect((ev!.data as { manualStepsAckedAt: number | null }).manualStepsAckedAt).not.toBeNull();
   });
 });
+
+// #2240: `PUT /api/settings` had no route, so every settings control in the demo saved into the
+// permissive `{ok:true}` tail. Callers that adopt the echoed field (`defaultModel = r.defaultModel`)
+// got `undefined`, and an undefined required-string prop throws inside a `$derived` during Svelte's
+// flush — which aborts the batch and freezes the whole Settings dialog until a reload.
+describe("PUT /api/settings echoes the field the real server echoes", () => {
+  async function put(patch: Record<string, unknown>) {
+    const r = await handleApi("PUT", u("/api/settings"), patch);
+    return { status: r.status, body: await r.json() };
+  }
+
+  it("echoes a plain field and applies it to the world", async () => {
+    expect(await put({ defaultModel: "opus" })).toEqual({
+      status: 200,
+      body: { defaultModel: "opus" },
+    });
+    expect((await get("/api/settings")).body.defaultModel).toBe("opus");
+  });
+
+  it("echoes a per-role field under its own key", async () => {
+    expect((await put({ plannerCli: "codex" })).body).toEqual({ plannerCli: "codex" });
+    expect((await put({ plannerModel: "gpt-6-astra" })).body).toEqual({
+      plannerModel: "gpt-6-astra",
+    });
+    const { body } = await get("/api/settings");
+    expect(body.plannerCli).toBe("codex");
+    expect(body.plannerModel).toBe("gpt-6-astra");
+  });
+
+  it("answers authMode with the {authMode, hasApiKey} pair api.ts is typed against", async () => {
+    const { body } = await put({ authMode: "api-key" });
+    expect(body.authMode).toBe("api-key");
+    expect(typeof body.hasApiKey).toBe("boolean");
+  });
+
+  it("answers anthropicApiKey with {hasApiKey} only — the key never round-trips", async () => {
+    expect((await put({ anthropicApiKey: "sk-demo-secret" })).body).toEqual({ hasApiKey: true });
+    expect((await get("/api/settings")).body.hasApiKey).toBe(true);
+    // Nothing anywhere in the world echoes the key back.
+    expect(JSON.stringify((await get("/api/settings")).body)).not.toContain("sk-demo-secret");
+    expect((await put({ anthropicApiKey: null })).body).toEqual({ hasApiKey: false });
+  });
+
+  it("answers repoRoot with a full Settings (putRepoRoot is typed Promise<Settings>)", async () => {
+    const { body } = await put({ repoRoot: "/demo/acme" });
+    expect(body.repoRoot).toBe("/demo/acme");
+    expect(body.repoRootDisplay).toBe("/demo/acme");
+    // The Workspace panel reads more than the root off this response.
+    expect(body.defaultModel).toBeDefined();
+    expect(typeof body.upnextSkipCliPicker).toBe("boolean");
+  });
+
+  it("an empty patch is a read, not a stub", async () => {
+    const { body } = await put({});
+    expect(body.repoRoot).toBeDefined();
+    expect(body.ok).toBeUndefined();
+  });
+});

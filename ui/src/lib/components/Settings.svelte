@@ -198,13 +198,20 @@
   let repoRootDisplay = $state<string | null>(null);
   let settingsLoaded = $state(false);
 
+  // The three global-default savers adopt only a string from the response — the same guard the
+  // per-role savers in SettingsCodingCliPanel use. These values are required-string props that
+  // panel dereferences inside `$derived`s (`defaultModel.endsWith("[1m]")`); a response missing
+  // the field would make one throw during Svelte's flush, which aborts the batch and leaves the
+  // whole dialog stale until a reload (#2240). A short response now leaves the last good value.
   async function saveDefaultModel() {
     if (defaultModelBusy) return;
     defaultModelBusy = true;
     try {
       const r = await putDefaultModel(defaultModel);
-      defaultModel = r.defaultModel;
-      defaultModelSaved = r.defaultModel;
+      if (typeof r.defaultModel === "string") {
+        defaultModel = r.defaultModel;
+        defaultModelSaved = r.defaultModel;
+      }
     } catch {
       // revert to the last server-confirmed value; surface the failure as a
       // 12s, deduped alert so the no-op never looks like a save.
@@ -223,8 +230,10 @@
     defaultCodexModelBusy = true;
     try {
       const r = await putDefaultCodexModel(defaultCodexModel);
-      defaultCodexModel = r.defaultCodexModel;
-      defaultCodexModelSaved = r.defaultCodexModel;
+      if (typeof r.defaultCodexModel === "string") {
+        defaultCodexModel = r.defaultCodexModel;
+        defaultCodexModelSaved = r.defaultCodexModel;
+      }
     } catch {
       defaultCodexModel = defaultCodexModelSaved;
       toasts.info(m.settings_default_codex_model_save_failed(), {
@@ -241,8 +250,10 @@
     defaultAgentProviderBusy = true;
     try {
       const r = await putDefaultAgentProvider(defaultAgentProvider);
-      defaultAgentProvider = r.defaultAgentProvider;
-      defaultAgentProviderSaved = r.defaultAgentProvider;
+      if (typeof r.defaultAgentProvider === "string") {
+        defaultAgentProvider = r.defaultAgentProvider;
+        defaultAgentProviderSaved = r.defaultAgentProvider;
+      }
     } catch {
       defaultAgentProvider = defaultAgentProviderSaved;
       toasts.info(m.settings_default_agent_provider_save_failed(), {

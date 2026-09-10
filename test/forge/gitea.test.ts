@@ -1188,3 +1188,14 @@ test("GiteaForge.convertToDraft: no-ops when WIP: prefix already present", async
   // already a draft → no PATCH
   expect(calls.find((c) => c.method === "PATCH")).toBeUndefined();
 });
+
+test("GiteaForge.currentUser: a failure is not re-probed within the negative TTL (#2140)", async () => {
+  const { fn, calls } = fakeFetch({ "GET /api/v1/user": { status: 403 } });
+  const forge = new GiteaForge("team/proj", CFG, fn);
+
+  expect(await forge.currentUser()).toBeNull();
+  expect(await forge.currentUser()).toBeNull();
+  // The failure is cached for the TTL window only — never for the forge's lifetime
+  // (see test/forge/user-cache.test.ts for the re-probe once the window elapses).
+  expect(calls.filter((c) => c.url.endsWith("/api/v1/user")).length).toBe(1);
+});

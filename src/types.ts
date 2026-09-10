@@ -42,6 +42,15 @@ export interface Session {
 
   model: string | null; // selected CLI --model alias; null = provider default (no flag)
   effort: string | null; // reasoning-effort tier; null = provider default (no effort flag)
+  /** OBSERVED runtime identity (#1823) — what the agent ACTUALLY ran, read out of its
+   *  transcript/rollout by the poller and persisted so it survives the session going idle and the
+   *  server restarting. Distinct from `model`/`effort` above: those are what the operator
+   *  CONFIGURED, and are null whenever the pickers were left on default — in which case no
+   *  `--model`/effort flag is passed at all and the CLI picks for itself, so the runtime log is the
+   *  only place the concrete choice is ever named. null = not observed (never "default").
+   *  `runtimeEffort` stays null for Claude sessions: Claude transcripts don't record one. */
+  runtimeModel?: string | null;
+  runtimeEffort?: string | null;
   readyToMerge: boolean; // manually-toggled "parked / done" flag; orthogonal to status
   /** Epoch ms when a launched merge train marked this PR-session as in-flight;
    *  null when not in a train. Transient: cleared on merge/close, train archive,

@@ -624,6 +624,12 @@ type NewSession = Omit<
   launchMetadata?: SessionLaunchMetadata | null;
 };
 
+/**
+ * The INSERT column list. **Bound to the hand-counted `VALUES (?,?,…)` placeholder list in
+ * `create()`** — adding a name here without adding a placeholder AND a parameter there breaks every
+ * session create. Read paths use {@link READ_COLS} instead, so a column that is only ever written
+ * after the fact never has to touch this list.
+ */
 const COLS = `id, desig, name, prompt, repoPath, baseBranch, branch, worktreePath,
   isolated, herdrSession, herdrAgentId, claudeSessionId, agentProvider, model, effort, readyToMerge, status, lastState,
   autopilotEnabled, autopilotStepCount, autopilotPaused, autopilotComplete, autopilotQuestion, completionRepromptCount,
@@ -634,6 +640,15 @@ const COLS = `id, desig, name, prompt, repoPath, baseBranch, branch, worktreePat
   createdAt, updatedAt, archivedAt, mergingSince, mergingTrainId, mergeTrainPrs, mergingPrNumber,
   haltReason, haltedAt, manualStepsJson, manualStepsAckedAt, experimentId, experimentRole,
   spawnTerminalId, spawnAccountDir, providerSessionId, launchMetadataJson, archiveReason`;
+
+/**
+ * The SELECT column list: everything {@link COLS} inserts, plus the OBSERVED runtime identity
+ * (#1823). Those two are never part of an INSERT — they are written by the poller once a
+ * transcript/rollout actually reports what the agent ran, so a fresh row starts NULL ("not observed
+ * yet") on its own. Keeping them out of `COLS` also keeps that constant aligned with `create()`'s
+ * placeholder list.
+ */
+const READ_COLS = `${COLS}, runtimeModel, runtimeEffort`;
 
 // ── SQLite row shapes ──────────────────────────────────────────────────────────
 
@@ -655,6 +670,8 @@ type SessionRow = {
   agentProvider: string | null;
   model: string | null;
   effort: string | null;
+  runtimeModel: string | null;
+  runtimeEffort: string | null;
   readyToMerge: number;
   status: string;
   lastState: string;
@@ -2567,6 +2584,10 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       ...input,
       model: input.model ?? null,
       effort: input.effort ?? null,
+      // Nothing has been observed yet — matches what reading the freshly inserted row gives back.
+      // These are NOT part of the INSERT (see COLS): the columns default to NULL on their own.
+      runtimeModel: null,
+      runtimeEffort: null,
       claudeSessionId: input.claudeSessionId ?? "",
       providerSessionId: strOrEmpty(input.providerSessionId),
       agentProvider: input.agentProvider ?? "claude",
@@ -2699,7 +2720,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
 
   get(id: string): Session | null {
     const r = this.db
-      .query(`SELECT ${COLS} FROM sessions WHERE id = ?`)
+      .query(`SELECT ${READ_COLS} FROM sessions WHERE id = ?`)
       .get(id) as SessionRow | null;
     return r ? this.hydrate(r) : null;
   }
@@ -2728,7 +2749,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   getLiveTerminalSession(repoPath: string): Session | null {
     const r = this.db
       .query(
-        `SELECT ${COLS} FROM sessions
+        `SELECT ${READ_COLS} FROM sessions
           WHERE repoPath = ? AND terminal = 1 AND archivedAt IS NULL LIMIT 1`,
       )
       .get(repoPath) as SessionRow | null;
@@ -2811,7 +2832,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       param = Number(key);
     } else return null; // not desig-shaped
     const r = this.db
-      .query(`SELECT ${COLS} FROM sessions WHERE ${where} ORDER BY createdAt DESC LIMIT 1`)
+      .query(`SELECT ${READ_COLS} FROM sessions WHERE ${where} ORDER BY createdAt DESC LIMIT 1`)
       .get(param) as SessionRow | null;
     return r ? this.hydrate(r) : null;
   }
@@ -2820,7 +2841,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     const where = opts?.activeOnly ? `WHERE status != 'archived'` : ``;
     return (
       this.db
-        .query(`SELECT ${COLS} FROM sessions ${where} ORDER BY createdAt`)
+        .query(`SELECT ${READ_COLS} FROM sessions ${where} ORDER BY createdAt`)
         .all() as SessionRow[]
     ).map((r) => this.hydrate(r));
   }
@@ -2831,7 +2852,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     return (
       this.db
         .query(
-          `SELECT ${COLS} FROM sessions WHERE status = 'archived' AND archivedAt >= ? ORDER BY archivedAt DESC`,
+          `SELECT ${READ_COLS} FROM sessions WHERE status = 'archived' AND archivedAt >= ? ORDER BY archivedAt DESC`,
         )
         .all(sinceMs) as SessionRow[]
     ).map((r) => this.hydrate(r));
@@ -2843,7 +2864,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     return (
       this.db
         .query(
-          `SELECT ${COLS} FROM sessions WHERE status = 'archived' ORDER BY COALESCE(archivedAt, updatedAt, createdAt) DESC`,
+          `SELECT ${READ_COLS} FROM sessions WHERE status = 'archived' ORDER BY COALESCE(archivedAt, updatedAt, createdAt) DESC`,
         )
         .all() as SessionRow[]
     ).map((r) => this.hydrate(r));
@@ -3018,7 +3039,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   variantsForExperiment(experimentId: string): Session[] {
     return (
       this.db
-        .query(`SELECT ${COLS} FROM sessions WHERE experimentId = ? ORDER BY createdAt`)
+        .query(`SELECT ${READ_COLS} FROM sessions WHERE experimentId = ? ORDER BY createdAt`)
         .all(experimentId) as SessionRow[]
     ).map((r) => this.hydrate(r));
   }
@@ -3912,6 +3933,82 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     ]);
   }
 
+  /**
+   * Persist the OBSERVED runtime identity — what the agent actually ran, read out of its
+   * transcript/rollout (#1823).
+   *
+   * **Partial by contract.** The two fields are independent and either source can legitimately
+   * report only one: `codexRuntimeIdentity()` returns just the `session_meta` provenance model
+   * before the first `turn_context` lands, and `claudeRuntimeIdentity()` never reports an effort at
+   * all (Claude transcripts don't record one). An absent field therefore PRESERVES whatever is
+   * already stored rather than clearing it — that is what `COALESCE(?, <column>)` buys. A field that
+   * IS supplied overwrites unconditionally, so a genuine mid-session model change still lands.
+   *
+   * Deliberately NOT routed through {@link update}: that is a fixed-column UPDATE which restamps
+   * `updatedAt`, and this runs off the poller's probe path — a stamp per tick would churn every
+   * consumer that orders by it. This setter leaves `updatedAt` alone, unlike {@link setHaltReason}.
+   */
+  setRuntimeIdentity(
+    id: string,
+    identity: { runtimeModel?: string | null; runtimeEffort?: string | null },
+  ): void {
+    const model = identity.runtimeModel ?? null;
+    const effort = identity.runtimeEffort ?? null;
+    if (model === null && effort === null) return; // nothing observed → nothing to write
+    this.db.run(
+      `UPDATE sessions
+         SET runtimeModel = COALESCE(?, runtimeModel),
+             runtimeEffort = COALESCE(?, runtimeEffort)
+       WHERE id = ?`,
+      [model, effort, id],
+    );
+  }
+
+  /**
+   * Sessions whose observed runtime identity is still incomplete, newest first — the boot backfill's
+   * candidate set (see `src/runtime-identity.ts`).
+   *
+   * The predicate is per FIELD, not per row: a Codex row that only ever got its model written stays
+   * a candidate so a later boot can still pick the effort out of its rollout. Claude rows are asked
+   * about `runtimeModel` ONLY — no Claude transcript reports an effort, so including it there would
+   * make every Claude row a candidate forever, re-read on each boot for a value that can never
+   * arrive.
+   *
+   * Rows with no session id of the right kind are excluded outright: without one there is nothing to
+   * resolve a transcript by, so they can never be filled. That also keeps clean-terminal rows (no
+   * agent, hence no id) from occupying the cap on every boot.
+   */
+  listIncompleteRuntimeIdentity(limit = 500): Array<{
+    id: string;
+    agentProvider: AgentProvider;
+    worktreePath: string;
+    claudeSessionId: string | null;
+    providerSessionId: string | null;
+    spawnAccountDir: string | null;
+  }> {
+    return this.db
+      .query(
+        `SELECT id, agentProvider, worktreePath, claudeSessionId, providerSessionId, spawnAccountDir
+           FROM sessions
+          WHERE (agentProvider = 'codex'
+                 AND COALESCE(providerSessionId, '') <> ''
+                 AND (runtimeModel IS NULL OR runtimeEffort IS NULL))
+             OR (agentProvider <> 'codex'
+                 AND COALESCE(claudeSessionId, '') <> ''
+                 AND runtimeModel IS NULL)
+          ORDER BY createdAt DESC
+          LIMIT ?`,
+      )
+      .all(limit) as Array<{
+      id: string;
+      agentProvider: AgentProvider;
+      worktreePath: string;
+      claudeSessionId: string | null;
+      providerSessionId: string | null;
+      spawnAccountDir: string | null;
+    }>;
+  }
+
   /** Write the poller/reconcile-immune spawn-identity markers (herdr-restart account-loss
    *  detection). The ONLY writer is {@link SessionService}'s `persistSpawnIdentity` helper,
    *  which applies the sticky/conditional rule (never null-over-non-null); this setter itself
@@ -4508,6 +4605,13 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     };
     add("model", `model TEXT`);
     add("effort", `effort TEXT`);
+    // Observed runtime identity (#1823) — what the agent ACTUALLY ran, read out of its
+    // transcript/rollout by the poller. Distinct from `model`/`effort` above, which are what the
+    // operator CONFIGURED and are NULL whenever they left the pickers on default. Nullable with no
+    // default: NULL means "not observed", never "default". Deliberately absent from `COLS`/`create()`
+    // — nothing is known at insert time.
+    add("runtimeModel", `runtimeModel TEXT`);
+    add("runtimeEffort", `runtimeEffort TEXT`);
     add("claudeSessionId", `claudeSessionId TEXT NOT NULL DEFAULT ''`);
     add("providerSessionId", `providerSessionId TEXT NOT NULL DEFAULT ''`);
     add("agentProvider", `agentProvider TEXT NOT NULL DEFAULT 'claude'`);
@@ -6107,6 +6211,9 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       claudeSessionId: r.claudeSessionId ?? "",
       providerSessionId: strOrEmpty(r.providerSessionId),
       agentProvider: r.agentProvider === "codex" ? "codex" : "claude",
+      // runtimeModel/runtimeEffort need no line here: `migrateSessionColumns()` runs inside the
+      // constructor's open transaction, so every read has the columns and SQLite yields null for an
+      // unobserved row — exactly the wire value — which the spread above already carries.
       autopilotEnabled: nullableBool(r.autopilotEnabled),
       autopilotStepCount: r.autopilotStepCount ?? 0,
       autopilotPaused: !!r.autopilotPaused,

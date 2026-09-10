@@ -16,6 +16,7 @@ import {
 } from "$lib/api";
 import { toasts } from "$lib/toasts.svelte";
 import { roleTitle } from "$lib/settings-search";
+import { issueRef } from "$lib/issue-ref.svelte";
 
 // Mock the API so Settings never hits the network. The settings GET is seeded to
 // land on api-key mode WITH a key configured, so the api-key block + Verify button
@@ -986,4 +987,24 @@ it("saves ultra as the shared default effort", async () => {
   await effort.selectOptions("ultra");
   await vi.waitFor(() => expect(putDefaultEffort).toHaveBeenCalledWith("ultra"));
   await expect.element(effort).toHaveValue("ultra");
+});
+
+describe("Settings device — issue number on session cards", () => {
+  afterEach(() => {
+    issueRef.set(true); // leave the shared singleton on its default for other suites
+  });
+
+  it("flips the per-device preference and reflects it in the switch state", async () => {
+    await page.viewport(1280, 900);
+    render(Settings, { initialTab: "device", onclose: noop, onsaved: noop });
+
+    const sw = page.getByRole("switch", { name: m.settings_card_issue_ref_on() });
+    await expect.element(sw).toHaveAttribute("aria-checked", "true");
+
+    await sw.click();
+    await vi.waitFor(() => expect(issueRef.shown).toBe(false));
+    await expect
+      .element(page.getByRole("switch", { name: m.settings_card_issue_ref_off() }))
+      .toHaveAttribute("aria-checked", "false");
+  });
 });

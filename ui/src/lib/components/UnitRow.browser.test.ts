@@ -1532,3 +1532,31 @@ describe("UnitRow selection cues", () => {
     await page.getByRole("button", { name: "TASK-01" }).click({ timeout: 3000 });
   });
 });
+
+describe("UnitRow issue reference", () => {
+  it("names the issue the session was spawned for, ahead of its PR badge", () => {
+    render(UnitRow, {
+      session: session({ id: "with-issue", issueNumber: 2244 }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+      git: { kind: "github", state: "open", number: 2245, checks: "none" } as GitState,
+    });
+
+    const chips = [...document.querySelectorAll(".issue-badge, .pr-badge")].map((el) =>
+      el.textContent?.trim(),
+    );
+    expect(chips).toEqual(["#2244", m.prbadge_open({ number: 2245 })]);
+  });
+
+  it("shows no issue chip on a session launched without one", () => {
+    render(UnitRow, {
+      session: session({ id: "no-issue", issueNumber: null }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+    });
+
+    expect(document.querySelector(".issue-badge")).toBeNull();
+  });
+});

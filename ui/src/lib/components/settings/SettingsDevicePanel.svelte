@@ -12,6 +12,7 @@
   import { theme, type ThemePref } from "$lib/theme.svelte";
   import { tabTicker } from "$lib/tab-ticker.svelte";
   import { infoTips } from "$lib/info-tips.svelte";
+  import { issueRef } from "$lib/issue-ref.svelte";
   import { REPO, REPO_URL, sha, version, commitUrl, CAPTURE_EXTENSION_URL } from "$lib/build-info";
   import ThemeIcon from "$lib/components/ThemeIcon.svelte";
   import HighlightText from "./HighlightText.svelte";
@@ -146,6 +147,22 @@
     <span class="track" class:on={tabTicker.enabled}><span class="knob"></span></span>
     <span class="state"
       >{tabTicker.enabled ? m.settings_tab_ticker_on() : m.settings_tab_ticker_off()}</span
+    >
+  </button>
+</div>
+<div class="rc">
+  <span class="micro"><HighlightText text={m.settings_card_issue_ref_title()} {query} /></span>
+  <p class="hint"><HighlightText text={m.settings_card_issue_ref_hint()} {query} /></p>
+  <button
+    type="button"
+    class="toggle"
+    role="switch"
+    aria-checked={issueRef.shown}
+    onclick={() => issueRef.toggle()}
+  >
+    <span class="track" class:on={issueRef.shown}><span class="knob"></span></span>
+    <span class="state"
+      >{issueRef.shown ? m.settings_card_issue_ref_on() : m.settings_card_issue_ref_off()}</span
     >
   </button>
 </div>

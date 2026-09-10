@@ -220,6 +220,7 @@ export function sectionSearchRows(ctx: {
       [m.settings_contrast_title(), m.settings_contrast_hint()],
       [m.settings_colorblind_title(), m.settings_colorblind_hint()],
       [m.settings_tab_ticker_title(), m.settings_tab_ticker_hint()],
+      [m.settings_card_issue_ref_title(), m.settings_card_issue_ref_hint()],
       [m.settings_hide_info_tips_title(), m.settings_hide_info_tips_hint()],
       [m.settings_push_title()],
       [m.settings_reduced_push_title(), m.settings_reduced_push_hint()],

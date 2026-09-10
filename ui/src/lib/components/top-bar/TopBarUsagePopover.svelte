@@ -188,7 +188,11 @@
   {#if hottest}
     <!-- Hero. Deliberately ALSO left in its own section below: the sections stay complete lists
          while the hero moves between them as load shifts, so a promoted row must not leave a hole. -->
-    <div class="usage-hero">
+    <!-- Dimmed with its source row: `hottest.stale` is the staleness of the provider row the
+         window was selected from, so the promoted copy and the copy still sitting in its section
+         below always read the same. Without it a stale window would be shown at full strength up
+         here while its twin below is dimmed. -->
+    <div class="usage-hero" class:stale={hottest.stale}>
       <span class="hero-glow" aria-hidden="true"></span>
       <span class="hero-scan" aria-hidden="true"></span>
       <div class="hero-body">
@@ -343,6 +347,7 @@
   }
   .gauge-pop-claude.stale,
   .token-window.stale,
+  .usage-hero.stale,
   .gp-window.stale {
     opacity: 0.5;
   }

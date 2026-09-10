@@ -311,8 +311,25 @@ function handleManualStepsMutation(method: string, path: string, body: unknown):
   return null;
 }
 
+// ── settings mutations ───────────────────────────────────────────────────────
+/** PUT /api/settings — every settings control in the dialog saves through here.
+ *
+ *  Without a handler this fell to the permissive `{ok:true}` tail, and callers that assign the
+ *  echoed field straight back (`defaultModel = r.defaultModel`) got `undefined`. A required-string
+ *  prop turning undefined throws inside a `$derived` during Svelte's flush, which aborts the batch
+ *  and leaves the whole Settings subtree stale until a reload (#2240). */
+function handleSettingsMutation(method: string, path: string, body: unknown): Response | null {
+  if (method !== "PUT" || path !== "/api/settings") return null;
+  // The server takes exactly one field per call and dispatches on the first it recognizes.
+  const entries = body && typeof body === "object" ? Object.entries(body) : [];
+  const patch = entries[0];
+  if (!patch) return json(demoState.settings());
+  return json(demoState.patchSettings(patch[0], patch[1]));
+}
+
 function handleMutation(method: string, path: string, url: URL, body: unknown): Response | null {
   return (
+    handleSettingsMutation(method, path, body) ??
     handleSessionMutation(method, path, url, body) ??
     handleHeldMutation(method, path) ??
     handleManualStepsMutation(method, path, body)

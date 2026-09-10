@@ -467,6 +467,28 @@ export const demoState = {
     emit({ event: "session:archived", data: { id } });
   },
 
+  /** Apply one settings field (`PUT /api/settings` carries exactly one) and return the body the
+   *  real server answers with. The server's `SETTING_PATCHES` handlers each echo only the field
+   *  they own — and three of them answer with a different shape, which callers in `api.ts` are
+   *  typed against, so the demo mirrors them field by field. Anything else echoes itself.
+   *
+   *  Unlike the server this never validates: the demo is a stub, and a 400 would only make the
+   *  showcase worse. Changes live for the page load — `reset()` re-seeds the world on reload. */
+  patchSettings(field: string, value: unknown): Record<string, unknown> {
+    // The raw key never round-trips back to the client — the demo stores only the fact.
+    if (field === "anthropicApiKey") {
+      world.settings.hasApiKey = typeof value === "string" && value.trim().length > 0;
+      return { hasApiKey: world.settings.hasApiKey };
+    }
+    (world.settings as unknown as Record<string, unknown>)[field] = value;
+    if (field === "repoRoot") {
+      world.settings.repoRootDisplay = String(value);
+      return world.settings as unknown as Record<string, unknown>;
+    }
+    if (field === "authMode") return { authMode: value, hasApiKey: world.settings.hasApiKey };
+    return { [field]: value };
+  },
+
   /** Tick / un-tick one materialized post-merge step (Owed lens checkbox). Returns the
    *  updated record, or null if the session/step isn't found (mirrors the real 404). */
   setManualStepDone(sessionId: string, stepId: string, done: boolean): PostMergeSteps | null {

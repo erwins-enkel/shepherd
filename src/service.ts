@@ -85,6 +85,7 @@ import type { TelemetryService } from "./telemetry";
 import { extractTargetPaths, planHouseRulesInjection, renderHouseRulesBlock } from "./house-rules";
 import { isGoodOutcome } from "./learnings-lifecycle";
 import { effectiveAutopilot } from "./effective-autopilot";
+import { amendmentBlock, type TaskAmendment } from "./task-amendments";
 import { SHELLS } from "./json-tolerant";
 import { resumeThenSteer } from "./resume-then-steer";
 import { MAX_IMAGES, type HandoffMode } from "./validate";
@@ -1556,6 +1557,23 @@ const PLAN_GO_STEER_BASE =
   "the PR; keep this to the code you changed, do not expand scope. Don't re-litigate the plan; if you " +
   "hit a genuine product decision that only the user can make, ask, otherwise keep going.";
 
+/**
+ * Broadcast a session's FULL current amendment list (#2225).
+ *
+ * ONE definition of the payload contract, shared with the HTTP routes' `emitAmendments`, because
+ * the contract is load-bearing on the client: the list is always complete, so an empty array is a
+ * genuine all-clear rather than a no-op, and `AmendmentsStore.apply` REPLACES rather than merges.
+ * Retracted rows are included — the operator's record shows them struck through; only the prompt
+ * builders filter them (that is `listActiveTaskAmendments`' job).
+ */
+export function emitSessionAmendments(
+  events: Pick<EventHub, "emit"> | undefined,
+  store: Pick<SessionStore, "listTaskAmendments">,
+  id: string,
+): void {
+  events?.emit("session:amendments", { id, amendments: store.listTaskAmendments(id) });
+}
+
 /** Returns the plan-go steer, appending the draft-mode note when `draftMode` is true. */
 export function planGoSteer(draftMode: boolean): string {
   return draftMode ? `${PLAN_GO_STEER_BASE} ${DRAFT_PR_NOTE}` : PLAN_GO_STEER_BASE;
@@ -2307,6 +2325,12 @@ export class SessionService {
   }> {
     let promptArg = input.prompt;
     const scanTargets: string[] = [];
+    // #2225: standing amendments CARRIED from the session this spawn continues (relaunch /
+    // provider replace). Folded in here, next to the task and outside every fence, so the agent
+    // reads exactly the block its critic will read. Argv-only — `sessions.prompt` keeps the
+    // operator's task text and the amendments stay rows, so the critic sees them once, not twice.
+    const carried = amendmentBlock(input.carriedAmendments ?? []);
+    if (carried.length) promptArg = `${promptArg}\n\n${carried.join("\n").trimEnd()}`;
     const uploads = this.composeUploadPrompt(input, worktreePath);
     if (uploads.promptBlock) promptArg = `${promptArg}\n\n${uploads.promptBlock}`;
     if (input.issueRef) {
@@ -3965,6 +3989,9 @@ export class SessionService {
     //     re-merging here would double the carried uploads.
     const images = this.carryRelaunchImages(s, overrides, originalId);
     const attachmentNames = this.carryRelaunchAttachmentNames(s, overrides, images);
+    // #2225: resolved ONCE, then threaded to BOTH the spawn prompt (so the new agent reads the
+    // authorization) and the copied rows (so its critic reads the same one).
+    const carriedAmendments = this.carriedAmendments(s, overrides);
     const input = this.buildRelaunchInput(
       s,
       issueRef,
@@ -3972,6 +3999,7 @@ export class SessionService {
       images,
       attachmentNames,
       authPolicy,
+      carriedAmendments,
     );
     const newSession = await this.create(input);
 
@@ -3982,6 +4010,17 @@ export class SessionService {
         enabled: pickOverride(overrides?.autopilotEnabled, s.autopilotEnabled),
       });
       this.deps.store.setAutoMergeState(newSession.id, { enabled: s.autoMergeEnabled });
+      // #2225: the same set already folded into the spawn prompt above. Inside this try for a
+      // reason: a partial copy would leave the new session authorized by half an amendment set,
+      // so a throw tears it down with everything else.
+      if (this.deps.store.copyTaskAmendments(newSession.id, carriedAmendments) > 0) {
+        // Broadcast, or a connected client shows the replacement with an EMPTY amendment list —
+        // no AMENDMENTS row in its task tip and no retract control — while its critic is already
+        // reading those rows and being told they govern the task. Emitted HERE rather than in the
+        // relaunch route so every caller is covered (route, relaunch-elsewhere, startVariant),
+        // and coupled to the write rather than to one entry point.
+        emitSessionAmendments(this.deps.events, this.deps.store, newSession.id);
+      }
     } catch (e) {
       // best-effort teardown so no orphaned new session leaks alongside the intact original
       try {
@@ -3996,6 +4035,29 @@ export class SessionService {
     return this.deps.store.get(newSession.id)!;
   }
 
+  /** The standing amendments a relaunch may carry onto its replacement, or [] when it must not
+   *  (#2225).
+   *
+   *  Carry is gated on THE TASK STILL BEING THE SAME TASK, because an amendment is told to rank
+   *  with — and govern over — the task it reaches. Two ways it stops being the same:
+   *   - `carryAmendments: false`, the explicit internal opt-out (`startVariant`: a comparison arm
+   *     must run the original task, or the arms are not comparable);
+   *   - the operator REWROTE the prompt in the relaunch composer. The composer always submits
+   *     `prompt`, even untouched (see `relaunchOverrides`), so mere PRESENCE means nothing — the
+   *     test is whether the text actually differs. Amendments written against the old wording must
+   *     not silently govern a task the operator has just replaced.
+   *
+   *  Both drops are silent by design: the amendments stay on the ORIGINAL session's record, which
+   *  is where they still apply. */
+  private carriedAmendments(
+    original: Session,
+    overrides: RelaunchOverrides | undefined,
+  ): readonly TaskAmendment[] {
+    if (overrides?.carryAmendments === false) return [];
+    if (overrides?.prompt !== undefined && overrides.prompt !== original.prompt) return [];
+    return this.deps.store.listActiveTaskAmendments(original.id);
+  }
+
   private buildRelaunchInput(
     original: Session,
     issueRef: IssueRef | undefined,
@@ -4003,6 +4065,7 @@ export class SessionService {
     images: string[],
     attachmentNames: string[] | undefined,
     authPolicy: "error" | "clamp",
+    carriedAmendments: readonly TaskAmendment[],
   ): StandardCreateInput {
     // Provider/model coupling: resolve the EFFECTIVE provider and reconcile the carried model
     // against it (see reconcileRelaunchModel) so a provider switch never drags an incompatible model.
@@ -4036,6 +4099,8 @@ export class SessionService {
       // Carry the landing-repair flag so a relaunch keeps its push-not-PR repair directive.
       landingRepair: pickOverride(overrides?.landingRepair, original.landingRepair),
       epicParent: carriedEpicParent(original, overrides),
+      // #2225: argv-only (composePromptArg folds it in) — never persisted as `sessions.prompt`.
+      carriedAmendments,
       images,
       attachmentNames,
       launchUiState: overrides?.launchUiState,
@@ -4092,6 +4157,12 @@ export class SessionService {
       epicAuthoring: s.epicAuthoring,
       landingRepair: s.landingRepair,
       auto: false,
+      // #2225: replace REUSES this session's row, so its amendments (and the rows its critic
+      // reads) are already in place — but the fresh agent has never seen them. Fold the same
+      // block into its handoff prompt, or the replacement writes a PR judged against an
+      // authorization it was never shown. No prompt-override concern here: replace composes its
+      // task from `s.prompt`, it cannot be given a different one.
+      carriedAmendments: this.deps.store.listActiveTaskAmendments(s.id),
     };
     const composed = await this.composePromptArg(input, s.worktreePath);
     const promptArg =
@@ -4266,6 +4337,9 @@ export class SessionService {
         agentProvider: opts.agentProvider,
         model: opts.model,
         effort: opts.effort,
+        // #2225: a variant runs the ORIGINAL task so the arms stay comparable — carrying a
+        // mid-flight scope widening onto one arm only would make the comparison meaningless.
+        carryAmendments: false,
       },
       "clamp",
     );
@@ -4951,8 +5025,14 @@ export class SessionService {
    * An uninspectable listed pane is rejected rather than risking shell input. Dead Claude and
    * non-isolated Codex panes remain rejected. The injection itself lives in steerWithEpicNotice,
    * shared with broadcast() so both operator free-text channels behave identically.
+   *
+   * `signalPayload` (default = `text`) lets a caller whose `text` is a Shepherd-composed wrapper
+   * record the operator's RAW words in the `reply` signal instead — the same reason the epic notice
+   * rides the PTY only: the learnings distiller mines those signals and must never mine Shepherd's
+   * own boilerplate. Used by the task-amendment channel (#2225); every other caller omits it and
+   * behaves exactly as before.
    */
-  async operatorReply(id: string, text: string): Promise<boolean> {
+  async operatorReply(id: string, text: string, signalPayload: string = text): Promise<boolean> {
     const s = this.deps.store.get(id);
     if (!s) return false;
     this.assertNotTerminal(s, "reply");
@@ -4974,7 +5054,7 @@ export class SessionService {
       steer: async () => {
         const current = this.deps.store.get(id);
         if (!current) return false;
-        await this.steerWithEpicNotice(current, text);
+        await this.steerWithEpicNotice(current, text, signalPayload);
         return true;
       },
     });
@@ -5406,15 +5486,19 @@ export class SessionService {
    *  behave identically — a broadcast that says "make these epics" gets the same guidance a single
    *  reply would. Callers have already confirmed the pane is live, so injecting == delivering and
    *  marking here can't burn the one-shot on a non-delivery. */
-  private async steerWithEpicNotice(s: Session, text: string): Promise<void> {
+  private async steerWithEpicNotice(
+    s: Session,
+    text: string,
+    signalPayload: string = text,
+  ): Promise<void> {
     const combined = this.#epicNoticeSteered.has(s.id) ? null : composeEpicSteer(text);
-    if (!combined) return this.sendSteerTo(s, text);
+    if (!combined) return this.sendSteerTo(s, text, signalPayload);
     // Claim the one-shot BEFORE the await, not after: the send is async now (#1567), so two
     // concurrent epic-intent steers to one session would both see an unmarked set and inject the
     // notice twice. Roll the claim back if delivery throws, preserving "mark only on success".
     this.#epicNoticeSteered.add(s.id);
     try {
-      await this.sendSteerTo(s, combined, /* signalPayload */ text);
+      await this.sendSteerTo(s, combined, signalPayload);
     } catch (err) {
       this.#epicNoticeSteered.delete(s.id);
       throw err;

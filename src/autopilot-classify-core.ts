@@ -1,6 +1,7 @@
 import type { AutopilotVerdict, AutopilotKind } from "./types";
 import { UNTRUSTED_CONTENT_DIRECTIVE, fenceUntrusted } from "./untrusted";
 import type { OperatorLanguage } from "./operator-language";
+import { amendmentBlock, type TaskAmendment } from "./task-amendments";
 
 /**
  * Pure classifier core for the autopilot stop-classifier — the prompt + verdict
@@ -95,6 +96,11 @@ export function classifierPrompt(
   tail: string[],
   taskPrompt: string,
   operatorLanguage: OperatorLanguage = "en",
+  /** #2225: the operator's standing task amendments. Absent/empty ⇒ no block, so an un-amended
+   *  session's classifier prompt stays byte-identical. Rendered with a SMALLER cut than the
+   *  reviewers get: this prompt only has to know what the agent is now trying to do, and it is
+   *  competing with the terminal tail for the same budget. */
+  amendments: readonly TaskAmendment[] = [],
 ): string {
   const clippedTask = taskPrompt.slice(0, 1500);
   const clippedTail = tail.slice(-20).join("\n").slice(0, 3000);
@@ -109,6 +115,9 @@ export function classifierPrompt(
     "The agent's task (untrusted data):",
     fenceUntrusted("agent task", clippedTask),
     "",
+    // Outside the fence, directly under the task: operator-authored, and it changes what "finished"
+    // and "on task" mean for this session.
+    ...amendmentBlock(amendments, { maxItems: 5, clipChars: 600 }),
     "The tail of the agent's terminal (most recent last; untrusted output):",
     fenceUntrusted("terminal tail", clippedTail),
     // Anchor A — input-robustness (de only): governs how to READ a German/mixed tail.

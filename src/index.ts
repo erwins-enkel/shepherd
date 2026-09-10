@@ -1983,6 +1983,8 @@ const autopilot = new AutopilotService({
         model: env.model,
         effort: env.effort,
         operatorLanguage: config.operatorLanguage,
+        // #2225: an amendment can change what "on task" and "finished" mean for this session.
+        amendments: store.listActiveTaskAmendments(taskSessionId),
       },
       label,
     );

@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { execFileSync, timedAsync } from "./instrument";
+import { amendmentBlock, type TaskAmendment } from "./task-amendments";
 import type {
   CriticFinding,
   FindingPass,
@@ -314,6 +315,10 @@ export function reviewPrompt(
     reviewPolicy?: string | null;
     /** #2154: the rendered `<shepherd-house-rules>` block of the repo's standing rules. */
     houseRules?: string | null;
+    /** #2225: the operator's standing task amendments. Absent/empty ⇒ no block, so every review of
+     *  an un-amended session stays byte-identical. Operator-authored, so it rides OUTSIDE the
+     *  fences and ranks with the task — see {@link amendmentBlock}. */
+    amendments?: readonly TaskAmendment[];
   } = {},
 ): string {
   // The clamp caveats speak about "the plan shown above", so they are only coherent when a plan is
@@ -331,6 +336,12 @@ export function reviewPrompt(
     "The task this PR is meant to accomplish:",
     taskPrompt,
     "",
+    // #2225: the operator's own amendments to that task. They sit HERE — directly under the task,
+    // above every fenced block — because that is what they are: operator-authored ground truth that
+    // ranks with the task, not context about it. The drop rule rides only on a RE-review: on a
+    // first review there is no earlier round to have raised a since-authorized point, so the line
+    // would name something that does not exist.
+    ...amendmentBlock(opts.amendments ?? [], { priorFindings: priorFindings.length > 0 }),
   ];
   if (issueBody && issueBody.trim()) {
     lines.push(

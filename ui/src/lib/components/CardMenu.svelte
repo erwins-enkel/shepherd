@@ -15,6 +15,7 @@
     onstop,
     onresume,
     onrename,
+    onamend,
     onrelaunch,
     onrelaunchElsewhere,
     onvariant,
@@ -41,6 +42,9 @@
     onstop?: () => void;
     onresume?: () => void;
     onrename?: () => void;
+    // when provided, an "Amend task…" item appears — opens the amend dialog (#2225). One-click:
+    // the dialog's own textarea + explicit submit IS the confirmation, so no two-step arm here.
+    onamend?: () => void;
     // when provided, a two-step armed Relaunch item appears between Resume and
     // Decommission (the parent closes over the session id, like onresume/ondecommission)
     onrelaunch?: () => void;
@@ -212,6 +216,11 @@
   {#if onrename}
     <button class="cm-item" type="button" role="menuitem" tabindex="-1" onclick={onrename}>
       <span class="cm-icon" aria-hidden="true">✎</span>{m.cardmenu_rename()}
+    </button>
+  {/if}
+  {#if onamend}
+    <button class="cm-item" type="button" role="menuitem" tabindex="-1" onclick={onamend}>
+      <span class="cm-icon" aria-hidden="true">✚</span>{m.cardmenu_amend()}
     </button>
   {/if}
   {#if onrelaunch}

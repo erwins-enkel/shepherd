@@ -205,7 +205,29 @@ Once a task exists, an external agent can also drive it:
   hatch. `200 {"ok":true}` when the ESC landed, `404 {"error":"not found"}` for an
   unknown id, a dead pane, or an undeliverable send.
 - `POST /api/broadcast` — send the same text to many sessions at once.
-- `DELETE /api/sessions/:id` — archive (end) the session.
+- `DELETE /api/sessions/:id` — archive (end) the session. This route owns that
+  exact path and nothing below it; a `DELETE` on a sub-resource (an amendment,
+  say) hits its own handler and never archives the session.
+- `POST /api/sessions/:id/amendments` — record an **operator task amendment**
+  (`{ "text": "...", "steer": false }`): text that ranks alongside the original
+  task in the prompts that treat the task as ground truth (session critic, plan
+  reviewer, autopilot classifier, recap). `201 { "amendment", "steered" }`. The
+  amendment is persisted **first** and steering is best-effort, so `steered` is
+  `false` — not an error — when `steer` was omitted or the text could not reach
+  the session's agent. `400` on a missing/empty `text` or one over 2000
+  characters (`AMENDMENT_MAX_CHARS` in `src/task-amendments.ts`), `404` on an
+  unknown session.
+- `DELETE /api/sessions/:id/amendments/:amendmentId` — retract one amendment: it
+  stops reaching every prompt but stays in the record. `200 { "amendment" }`,
+  `404` when that id does not exist on that session. Amendments are append-only;
+  no route rewrites an amendment's text.
+- `GET /api/amendments` — bootstrap snapshot of every non-archived session's
+  amendments, keyed by session id.
+
+  The two amendment mutations are **operator-only**: they sit behind the usual
+  cookie/bearer gate and are deliberately absent from the loopback agent-ingress
+  allowlist, so an agent can never amend its own task.
+
 - `GET /api/sessions` — list active sessions; `GET /api/sessions/:id/diff`,
   `/activity`, `/usage` for inspection. `GET /api/sessions/:id/diff/annotations`
   returns best-effort per-line Diff-tab annotations (agent reasoning anchored to

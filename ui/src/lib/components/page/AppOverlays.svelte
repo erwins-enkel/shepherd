@@ -56,6 +56,7 @@
   import type { Command } from "$lib/command-registry";
   import type { HerdFilter } from "$lib/components/herd-partition";
   import RetryDialog from "$lib/components/RetryDialog.svelte";
+  import AmendTaskDialog from "$lib/components/AmendTaskDialog.svelte";
   import DecomLeftovers from "$lib/components/page/DecomLeftovers.svelte";
   import DecommissionPrDialog from "$lib/components/DecommissionPrDialog.svelte";
   import EpicDiagnoseEntry from "$lib/components/EpicDiagnoseEntry.svelte";
@@ -182,6 +183,8 @@
     ondecommissionprclose,
     showRetry,
     onretryclose,
+    amendTarget,
+    onamendclose,
     showEpicDiagnose,
     epicDiagnoseInitialRepo = undefined,
     onepicdiagnoseclose,
@@ -326,6 +329,9 @@
     ondecommissionprclose: () => void;
     showRetry: boolean;
     onretryclose: () => void;
+    /** #2225: the session whose amend-task dialog is open, or null when closed. */
+    amendTarget: Session | null;
+    onamendclose: () => void;
     showEpicDiagnose: boolean;
     /** Repo the entry form's picker defaults to — the single in-focus repo, or undefined. */
     epicDiagnoseInitialRepo?: string | undefined;
@@ -667,6 +673,14 @@
 
 {#if showRetry}
   <RetryDialog sessions={store.sessions} onclose={onretryclose} />
+{/if}
+
+{#if amendTarget}
+  <AmendTaskDialog
+    session={amendTarget}
+    liveness={store.claudeAlive[amendTarget.id]}
+    onclose={onamendclose}
+  />
 {/if}
 
 {#if showEpicDiagnose}

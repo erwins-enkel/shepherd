@@ -1,4 +1,5 @@
 import { expect, test, beforeEach, afterEach } from "bun:test";
+import type { TaskAmendment } from "../src/task-amendments";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -137,6 +138,7 @@ type FakeStore = {
   generatingRecaps: () => Recap[];
   dropRecap: (id: string) => void;
   getReview: (id: string) => null;
+  listActiveTaskAmendments: () => TaskAmendment[];
   recordReviewerSpawn: (r: any) => void;
   completeReviewerSpawn: (id: string, u: any, at: number) => void;
   listReviewerSpawns: () => any[];
@@ -172,6 +174,8 @@ function makeStore(sessions: Session[] = [], recaps: Recap[] = []): FakeStore {
       store.generatingRows = store.generatingRows.filter((r) => r.sessionId !== id);
     },
     getReview: () => null,
+    // #2225: no amendments by default — the ordinary un-amended session.
+    listActiveTaskAmendments: () => [],
     recordReviewerSpawn: (r: any) => store.reviewerSpawns.push(r),
     completeReviewerSpawn: (id: string, u: any, at: number) =>
       store.completedSpawns.push({ id, u, at }),

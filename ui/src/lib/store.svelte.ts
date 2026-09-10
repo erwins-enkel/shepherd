@@ -35,6 +35,7 @@ import type { BlockState } from "./triage";
 import { projectIcons } from "./projectIcons.svelte";
 import { reviews, planGates, spawnNotices } from "./reviews.svelte";
 import { recaps } from "./recaps.svelte";
+import { amendments } from "./amendments.svelte";
 import { upNext } from "./up-next.svelte";
 import { learnings } from "./learnings.svelte";
 import { toasts } from "./toasts.svelte";
@@ -500,6 +501,9 @@ export class HerdStore {
         // session above), so a lingering recap entry can't resurrect a live row — and the
         // Done lens WANTS the recap. Do NOT "fix" the re-add, or the Done lens goes blank.
         recaps.drop(ev.data.id);
+        // #2225: an archived session's amendments are gone from the snapshot too (the server's
+        // snapshot is active-only), and nothing renders them once the row leaves the Herd.
+        amendments.drop(ev.data.id);
         this.clearDraftReconcileToast(ev.data.id);
         break;
       case "session:working-blocked":
@@ -663,6 +667,9 @@ export class HerdStore {
     switch (ev.event) {
       case "session:recap":
         recaps.apply(ev.data);
+        return true;
+      case "session:amendments":
+        amendments.apply(ev.data);
         return true;
       case "session:review":
         reviews.apply(ev.data);

@@ -559,3 +559,27 @@ test("Codex classifier usage stays unknown until a delayed rollout is available"
   expect(store.listReviewerSpawns()[0]?.totalTokens).toBeNull();
   expect(store.listReviewerSpawns()[0]?.completedAt).not.toBeNull();
 });
+
+// ── operator task amendments (#2225) ────────────────────────────────────────
+
+test("classifierPrompt carries standing amendments with a smaller cut than the reviewers get", () => {
+  const p = classifierPrompt(["agent: done?"], "Build a login page", "en", [
+    {
+      id: "am-1",
+      sessionId: "s1",
+      text: "A".repeat(1000),
+      createdAt: Date.UTC(2026, 8, 10),
+      retractedAt: null,
+    },
+  ]);
+  expect(p).toContain("OPERATOR TASK AMENDMENTS");
+  // 600-char cut here (vs 2000 for the critic): this prompt competes with the terminal tail.
+  expect(p).toContain("A".repeat(600));
+  expect(p).toContain("400 chars mechanically elided");
+});
+
+test("classifierPrompt without amendments is byte-identical to before", () => {
+  const strip = (t: string) => t.replace(/⟦(\/?)UNTRUSTED:([^⟧]+):[0-9a-f]+⟧/g, "⟦$1UNTRUSTED:$2⟧");
+  const bare = classifierPrompt(["tail"], "task");
+  expect(strip(classifierPrompt(["tail"], "task", "en", []))).toBe(strip(bare));
+});

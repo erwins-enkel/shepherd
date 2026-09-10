@@ -1,5 +1,6 @@
 <script module lang="ts">
   import { relaunchOverrides } from "./relaunch-payload";
+  import { amendTargetState } from "./amend-target";
   import { cleanTerminalCreateInput } from "$lib/format";
 </script>
 
@@ -86,6 +87,7 @@
   import { reviews, planGates, spawnNotices, repoConfig } from "$lib/reviews.svelte";
   import { openPreviewInNewTab } from "$lib/previewOpen";
   import { recaps } from "$lib/recaps.svelte";
+  import { amendments } from "$lib/amendments.svelte";
   import { upNext } from "$lib/up-next.svelte";
   import { claudeUsageHoldLikely } from "$lib/provider-capacity";
   import { doneSessions } from "$lib/done.svelte";
@@ -258,6 +260,12 @@
     selectUnit(id);
     openPreviewTick++;
   }
+  // #2225: select the row first (so the operator sees which task they are amending), then open.
+  function openAmend(id: string) {
+    selectUnit(id);
+    if (mobile.current) mobileScreen = "detail";
+    amendTargetId = id;
+  }
   function openRename(id: string) {
     selectUnit(id, false, true);
     if (mobile.current) mobileScreen = "detail";
@@ -310,6 +318,18 @@
     return unsub;
   });
   let showRetry = $state(false);
+  // #2225: the session whose amend-task dialog is open (null = closed). Resolved to the live row
+  // here rather than inline in the template — the template sits at its complexity gate.
+  let amendTargetId = $state<string | null>(null);
+  const amendState = $derived(amendTargetState(amendTargetId, store.sessions));
+  const amendTarget = $derived(amendState.target);
+  // The row can leave the herd under an open dialog (archive / decommission / clear-merged), and
+  // the dialog's own onamendclose is then unreachable — it has already unmounted. Drop the id
+  // here instead: it gates nothing directly any more (anyOverlayOpen tests the TARGET), but a
+  // `restore` brings a session back under the same id, and a stale id would re-open the dialog.
+  $effect(() => {
+    if (amendState.stale) amendTargetId = null;
+  });
   // Epic-diagnosis entry (command bar → arbitrary parent #, #1657). Defaults its repo
   // picker to the in-focus repo when the herd is filtered to exactly one.
   let showEpicDiagnose = $state(false);
@@ -953,6 +973,7 @@
     planGates.load();
     spawnNotices.load();
     recaps.load();
+    amendments.load();
   }
 
   // Forced resync whenever a REPLACEMENT socket opens (epoch 1 is the initial
@@ -1574,6 +1595,7 @@
       showBacklog ||
       showBroadcast ||
       showRetry ||
+      !!amendTarget ||
       showUpdate ||
       showHerdrUpdate ||
       showCodexUpdate ||
@@ -1803,6 +1825,7 @@
     planGates.load();
     spawnNotices.load();
     recaps.load();
+    amendments.load();
     // App-load paints the CACHED Up Next snapshot only (peek) — no cross-repo gh recompute for a
     // session that never opens the lens. Lens-open + the 15-min loop keep it fresh.
     upNext.load({ peek: true });
@@ -2852,6 +2875,7 @@
             previewServe={store.previewServe}
             onpreview={openPreview}
             onrename={openRename}
+            onamend={openAmend}
             epics={store.epics}
             onepic={openEpicInBacklog}
             {activeEpicKeys}
@@ -3013,6 +3037,7 @@
               previewServe={store.previewServe}
               onpreview={openPreview}
               onrename={openRename}
+              onamend={openAmend}
               epics={store.epics}
               onepic={openEpicInBacklog}
               {activeEpicKeys}
@@ -3382,6 +3407,8 @@
   ondecommissionprclose={() => (decommissionPr = null)}
   {showRetry}
   onretryclose={() => (showRetry = false)}
+  {amendTarget}
+  onamendclose={() => (amendTargetId = null)}
   {showEpicDiagnose}
   epicDiagnoseInitialRepo={activeRepo ?? undefined}
   onepicdiagnoseclose={() => (showEpicDiagnose = false)}

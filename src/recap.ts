@@ -318,6 +318,7 @@ export interface RecapServiceDeps {
     SessionStore,
     | "get"
     | "getRecap"
+    | "listActiveTaskAmendments"
     | "putRecap"
     | "snapshotRecaps"
     | "generatingRecaps"
@@ -868,6 +869,8 @@ export class RecapService {
       const context = contextParts.join("\n");
 
       const language = this.operatorLanguage();
+      // #2225: resolved once, outside the clamp-ladder composer below.
+      const amendments = this.deps.store.listActiveTaskAmendments(session.id);
       const composePrompt = (v: {
         plan: string;
         changedFiles: { path: string; status: DiffFileStatus }[];
@@ -882,6 +885,7 @@ export class RecapService {
           context: v.context,
           uiMarkup: v.uiMarkup,
           operatorLanguage: language,
+          amendments,
         });
       const env = this.env();
       // ONE pinned id for every argv this spawn builds — see recapArgv.

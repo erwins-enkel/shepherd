@@ -73,6 +73,7 @@ import type {
   EpicSummary,
   EpicDiagnosis,
   Recap,
+  TaskAmendment,
   CompletedEpic,
   DistillerHealth,
   RawAnswer,
@@ -2030,6 +2031,36 @@ export async function getPlanGatesInflight(): Promise<Array<{ id: string } & Rev
 /** Snapshot of every session's recap, keyed by session id (bootstrap; excludes empty rows). */
 export async function getRecaps(): Promise<Record<string, Recap>> {
   return getJson("/api/recaps", "recaps");
+}
+
+// ── operator task amendments (#2225) ────────────────────────────────────────
+
+/** Snapshot of every active session's task amendments, keyed by session id (bootstrap). */
+export async function getAmendments(): Promise<Record<string, TaskAmendment[]>> {
+  return getJson("/api/amendments", "amendments");
+}
+
+/** Record an operator amendment to a session's task. `steer` additionally delivers it to the
+ *  session's agent; the returned `steered` reports whether it actually landed — a pane that could
+ *  not receive it is NOT an error, the amendment is recorded either way. */
+export async function addAmendment(
+  id: string,
+  text: string,
+  steer: boolean,
+): Promise<{ amendment: TaskAmendment; steered: boolean }> {
+  return postJson(`/api/sessions/${id}/amendments`, { text, steer }, "amendment");
+}
+
+/** Retract one amendment: it stops reaching every prompt but stays in the record. */
+export async function retractAmendment(
+  id: string,
+  amendmentId: string,
+): Promise<{ amendment: TaskAmendment }> {
+  const r = await fetch(`/api/sessions/${id}/amendments/${encodeURIComponent(amendmentId)}`, {
+    method: "DELETE",
+  });
+  if (!r.ok) throw await failed(r, "retract amendment");
+  return r.json() as Promise<{ amendment: TaskAmendment }>;
 }
 
 /** Sessions archived within the Done-lens window (last 48h), newest-first. */

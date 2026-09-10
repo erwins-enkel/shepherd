@@ -7,6 +7,7 @@ import type { DiffFile, DiffFileStatus, DiffHunk, Recap, RecapVerdict } from "./
 import { parseVisualBlocks } from "./visual-blocks";
 import type { VisualBlock } from "./visual-blocks";
 import { UNTRUSTED_CONTENT_DIRECTIVE, fenceUntrusted } from "./untrusted";
+import { amendmentBlock, type TaskAmendment } from "./task-amendments";
 import { visualBlockLanguageLine, type OperatorLanguage } from "./operator-language";
 
 export const RECAP_VERDICTS: readonly RecapVerdict[] = ["ready", "parked", "needs_attention"];
@@ -267,6 +268,9 @@ export function buildRecapPrompt(input: {
   context: string; // pre-rendered critic verdict / CI / readyToMerge lines (may be "")
   uiMarkup?: string; // buildUiMarkupDigest output; "" / absent when no view file changed (#2209)
   operatorLanguage?: OperatorLanguage;
+  /** #2225: the operator's standing task amendments. Absent/empty ⇒ byte-identical prompt. The
+   *  recap summarizes work against what was ACTUALLY asked, which includes any amendment. */
+  amendments?: readonly TaskAmendment[];
 }): string {
   const lines = [
     "You are summarizing a COMPLETED coding session for an operator who will decide whether to merge the work.",
@@ -278,6 +282,9 @@ export function buildRecapPrompt(input: {
     "The task that was worked on:",
     fenceUntrusted("task", input.taskPrompt),
     "",
+    // Outside the fence, directly under the task — operator-authored, and it is part of what the
+    // operator is deciding whether to merge against.
+    ...amendmentBlock(input.amendments ?? []),
   ];
 
   if (input.plan.trim()) {

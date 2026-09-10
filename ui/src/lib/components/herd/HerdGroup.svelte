@@ -17,6 +17,7 @@
     onpreview?: (id: string, target?: "inline" | "tab") => void;
     ondecommission?: (id: string) => void;
     onrename?: (id: string) => void;
+    onamend?: (id: string) => void;
     onrelaunch?: (id: string) => void;
     onrelaunchElsewhere?: (id: string) => void;
     oncleanTerminal?: (repoPath: string) => void;
@@ -131,6 +132,7 @@
       onpreview={withPreview ? ctx.onpreview : undefined}
       ondecommission={ctx.ondecommission}
       onrename={ctx.onrename}
+      onamend={ctx.onamend}
       onrelaunch={ctx.onrelaunch}
       onrelaunchElsewhere={ctx.onrelaunchElsewhere}
       oncleanTerminal={ctx.oncleanTerminal}

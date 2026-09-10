@@ -1,4 +1,5 @@
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
+import type { TaskAmendment } from "../src/task-amendments";
 import { mkdtempSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -170,6 +171,8 @@ function makeDeps(
     /** Plan-gate row the critic reads provenance from. Omitted ⇒ an approved gate matching the
      *  injected `readPlan`; `null` ⇒ no gate ever ran. */
     planGate?: { sessionId: string; approved: boolean; plan: string } | null;
+    /** #2225: standing operator task amendments for the session under review. */
+    amendments?: TaskAmendment[];
     /**
      * Foreground processes returned by herdr.paneForegroundProcs for the critic pane.
      * Default ['zsh'] (shell-only husk → isSpawnAlive returns false for non-working agents).
@@ -225,6 +228,9 @@ function makeDeps(
         opts.planGate !== undefined
           ? opts.planGate
           : { sessionId: id, approved: true, plan: (over.readPlan?.("/wt") ?? "").trim() },
+      // #2225: the operator's standing task amendments. Default none — an un-amended session is
+      // the ordinary case and keeps every prompt assertion here byte-identical.
+      listActiveTaskAmendments: () => opts.amendments ?? [],
       getReview: (id: string) => reviews[id] ?? null,
       putReview: (v: ReviewVerdict) => {
         reviews[v.sessionId] = v;

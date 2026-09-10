@@ -73,6 +73,7 @@
     repoFilter = EMPTY_REPO_FILTER,
     onrepofilter = undefined,
     onrename = undefined,
+    onamend = undefined,
     filter = $bindable("all"),
     statusFilter = null,
     onstatusfilter = undefined,
@@ -139,6 +140,8 @@
     ondecommission?: (id: string) => void;
     // when provided, each row's CardMenu gains a Rename action
     onrename?: (id: string) => void;
+    // when provided, each row's CardMenu gains an "Amend task…" action (#2225)
+    onamend?: (id: string) => void;
     // when provided, each row's CardMenu gains a two-step armed Relaunch action
     onrelaunch?: (id: string) => void;
     // when provided, each row's CardMenu gains a one-click "Relaunch elsewhere" item
@@ -414,6 +417,7 @@
     onpreview,
     ondecommission,
     onrename,
+    onamend,
     onrelaunch,
     onrelaunchElsewhere,
     onvariant,

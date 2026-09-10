@@ -67,6 +67,8 @@
   import PlanGateBadge from "$lib/components/PlanGateBadge.svelte";
   import { reviews, planGates, repoConfig } from "$lib/reviews.svelte";
   import { recaps } from "$lib/recaps.svelte";
+  import { amendments } from "$lib/amendments.svelte";
+  import TaskTipAmendments from "$lib/components/TaskTipAmendments.svelte";
   import { toasts } from "$lib/toasts.svelte";
   import SteerBar from "$lib/components/SteerBar.svelte";
   import SessionStatusBar from "$lib/components/SessionStatusBar.svelte";
@@ -630,6 +632,9 @@
   );
   const baseBranchDisplay = $derived(launch?.branch.baseBranch ?? session.baseBranch);
   const promptDisplay = $derived(launch?.prompt || session.prompt || m.tasktip_not_recorded());
+  // #2225: the operator's amendments to that task, oldest first. Retracted ones stay listed (struck
+  // through) — they are part of the record even though they reach no prompt.
+  const amendmentRows = $derived(amendments.forSession(session.id));
   const issueDisplay = $derived(
     launch?.issue
       ? m.tasktip_issue_value({ number: launch.issue.number, title: launch.issue.title })
@@ -2381,6 +2386,7 @@
         <span class="dp-k">{m.tasktip_prompt()}</span>
         <span class="dp-v">{promptDisplay}</span>
       </span>
+      <TaskTipAmendments rows={amendmentRows} />
       <span class="dp-row">
         <span class="dp-k">{m.tasktip_issue()}</span>
         <span class="dp-v">{issueDisplay}</span>

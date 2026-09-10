@@ -466,3 +466,51 @@ test("#1944 the note sits OUTSIDE every untrusted fence", () => {
   expect(fenceOpen).toBeGreaterThanOrEqual(0);
   expect(noteAt < fenceOpen || noteAt > fenceClose).toBe(true);
 });
+
+// ── operator task amendments (#2225) ────────────────────────────────────────
+
+test("planReviewPrompt carries the operator amendment block under the TASK", () => {
+  const p = planReviewPrompt("do X", "PLAN TEXT", [], null, "en", undefined, undefined, {
+    amendments: [
+      {
+        id: "am-1",
+        sessionId: "s1",
+        text: "narrow it: drop the migration",
+        createdAt: Date.UTC(2026, 8, 10),
+        retractedAt: null,
+      },
+    ],
+  });
+  expect(p).toContain("OPERATOR TASK AMENDMENTS");
+  expect(p).toContain("narrow it: drop the migration");
+  // The plan must satisfy the AMENDED task, so the amendment sits with the task, above the plan.
+  expect(p.indexOf("TASK:")).toBeLessThan(p.indexOf("OPERATOR TASK AMENDMENTS"));
+  expect(p.indexOf("OPERATOR TASK AMENDMENTS")).toBeLessThan(p.indexOf("PLAN (.shepherd-plan.md)"));
+});
+
+test("planReviewPrompt without amendments is byte-identical to before", () => {
+  const bare = planReviewPrompt("do X", "PLAN TEXT");
+  expect(planReviewPrompt("do X", "PLAN TEXT", [], undefined, "en", undefined, undefined, {})).toBe(
+    bare,
+  );
+  expect(
+    planReviewPrompt("do X", "PLAN TEXT", [], undefined, "en", undefined, undefined, {
+      amendments: [],
+    }),
+  ).toBe(bare);
+});
+
+test("the plan reviewer does NOT get the critic's prior-findings drop rule", () => {
+  const p = planReviewPrompt("do X", "PLAN TEXT", [], null, "en", undefined, undefined, {
+    amendments: [
+      {
+        id: "am-1",
+        sessionId: "s1",
+        text: "widen it",
+        createdAt: 1,
+        retractedAt: null,
+      },
+    ],
+  });
+  expect(p).not.toContain("an amendment has since authorized is DROPPED");
+});

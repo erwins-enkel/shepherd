@@ -360,3 +360,43 @@ describe("unverified scenarios", () => {
     expect(statusDescription([unverified()])).toContain("gh-missing");
   });
 });
+
+describe("runtime reporting (#2229)", () => {
+  const timed = (id: string, durationMs: number | undefined): ScenarioResult => ({
+    scenarioId: id,
+    image: "images:debian/12",
+    detection: { scenarioId: id, detected: true, misses: [] },
+    appliedVia: "verbatim",
+    reachedGreen: true,
+    gateEligible: true,
+    durationMs,
+  });
+
+  it("renders each scenario's wall-clock in the table", () => {
+    const report = buildGapReport([timed("a", 48_000), timed("b", 151_000)]);
+    expect(report).toContain("| Duration |");
+    expect(report).toContain("| 48s |");
+    expect(report).toContain("| 2m 31s |");
+  });
+
+  it("totals the run, so a runtime regression is visible in the artifact itself", () => {
+    // #2229 had to be reconstructed from journal timestamps because nothing recorded this.
+    const report = buildGapReport([timed("a", 60_000), timed("b", 120_000)]);
+    expect(report).toContain("Total scenario runtime: **3m 0s** across 2 scenarios");
+  });
+
+  it("shows an em dash, never 0s, for a scenario that never ran", () => {
+    const report = buildGapReport([timed("a", undefined)]);
+    expect(report).toContain("| — |");
+    expect(report).not.toContain("| 0s |");
+  });
+
+  it("omits the total entirely when nothing was timed", () => {
+    expect(buildGapReport([timed("a", undefined)])).not.toContain("Total scenario runtime");
+  });
+
+  it("counts only timed scenarios in the total", () => {
+    const report = buildGapReport([timed("a", 30_000), timed("b", undefined)]);
+    expect(report).toContain("Total scenario runtime: **30s** across 1 scenario.");
+  });
+});

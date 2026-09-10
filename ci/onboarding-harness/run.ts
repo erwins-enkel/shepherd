@@ -6,7 +6,7 @@ import { IncusDriver } from "./incus";
 import { acquireHostLock, LockHeldError, LOCK_PATH } from "./lock";
 import { onboardingLastRunMarker } from "../../src/onboarding-paths";
 import { SCENARIOS } from "./scenarios";
-import { seedInstance } from "./seed";
+import { NetworkUnreachableError, seedInstance } from "./seed";
 import {
   assertUnitActive,
   bootExpectingPreflightExit,
@@ -344,6 +344,21 @@ export async function runScenario(
       detectionOnly: detectionOnly || undefined,
     };
   } catch (err) {
+    // A dead container network is a HOST fault: no verdict was reached about the product,
+    // and every remaining scenario would hit the same wall. Record it as unverified (which
+    // already gates red — see report.ts gateGapScenarios) and flag it so main abandons the
+    // rest of the run rather than repeating it ten times. #2229
+    if (err instanceof NetworkUnreachableError) {
+      return {
+        ...base,
+        detection: detection ?? { scenarioId: scenario.id, detected: false, misses: [] },
+        appliedVia: "skipped",
+        reachedGreen: false,
+        unverified: true,
+        networkUnreachable: true,
+        error: err.message,
+      };
+    }
     return {
       ...base,
       detection: detection ?? { scenarioId: scenario.id, detected: false, misses: [] },
@@ -415,19 +430,22 @@ function recordRunCompleted(only: string | null | undefined): void {
  *  with many calls per scenario and ten scenarios, its own worst case sat far above
  *  the 2h unit timeout, so systemd was GUARANTEED to win on a slow night.
  *
- *  The caps are sized to the runtime the harness ACTUALLY has, not the one it ought
- *  to have. A healthy full run used to be ~14 min; it is now ~4h (every scenario
- *  20-28 min, see #2229) because the time is spent on in-container package installs
- *  and image pulls, which the harness does not control. Sizing these to the old
- *  runtime would cut off a legitimate, working run and report it NOT VERIFIED —
- *  a red release gate on a healthy harness. **Bring both numbers back down (and
- *  `TimeoutStartSec` with them) once #2229 restores the runtime.**
+ *  The caps are sized to MEASURED runtime. #2229 (a host firewall dropping all incusbr0
+ *  traffic) had inflated a 14-minute nightly to 4h23m, and the previous values here — 45m
+ *  per scenario, 6h per run — were chosen to accommodate that degradation rather than to
+ *  bound it. With the host fixed, a measured full run is 8m55s (slowest scenario ~2 min);
+ *  ~15 min is a fair healthy figure once the nightly's cold image pulls are included.
+ *
+ *  So these are deliberately NOT a revert to the pre-#2230 numbers (30m/3h) — those came
+ *  from #2226 and were also picked under the degradation. They are ~6x the measured run:
+ *  loose enough that a slow night is not cut off, tight enough that a repeat of #2229 is
+ *  caught in an hour and a half instead of being absorbed silently.
  *
  *  Because the per-scenario cap is `min(cap, budget remaining)`, total runtime is
  *  bounded by the run budget itself; the backstop only needs headroom for teardown. */
 const SCENARIO_TIMEOUT_MS =
-  Number(process.env.SHEPHERD_ONBOARDING_SCENARIO_TIMEOUT_MS) || 45 * 60_000;
-const RUN_BUDGET_MS = Number(process.env.SHEPHERD_ONBOARDING_BUDGET_MS) || 6 * 60 * 60_000;
+  Number(process.env.SHEPHERD_ONBOARDING_SCENARIO_TIMEOUT_MS) || 15 * 60_000;
+const RUN_BUDGET_MS = Number(process.env.SHEPHERD_ONBOARDING_BUDGET_MS) || 90 * 60_000;
 
 /** A scenario the run never got a verdict on. It is NOT green and NOT a launch
  *  failure, so it gates red: an unverified gate scenario must never read as a pass.
@@ -463,11 +481,63 @@ async function runScenarioBounded(
       capMs,
     );
   });
+  const startedAt = Date.now();
   try {
-    return await Promise.race([runScenario(driver, scenario, tarball), capped]);
+    const result = await Promise.race([runScenario(driver, scenario, tarball), capped]);
+    return { ...result, durationMs: Date.now() - startedAt };
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** Reason recorded against every scenario abandoned after a network failure. */
+const NETWORK_ABANDON_REASON =
+  "not run — the run was abandoned after an earlier scenario found no usable network";
+
+/** Scenarios the run gave up on, as NOT VERIFIED results. Split out so the abandon
+ *  path is unit-testable without acquiring the host lock or touching Incus. */
+export function abandonRemaining(scenarios: Scenario[]): ScenarioResult[] {
+  return scenarios.map((s) => unverifiedResult(s, NETWORK_ABANDON_REASON));
+}
+
+/** Run the catalog in order under the run budget, stopping early if the host turns out
+ *  to have no usable container network. Split out of main so the budget/abandon logic
+ *  reads on its own. */
+async function runAllScenarios(
+  driver: IncusDriver,
+  scenarios: Scenario[],
+  tarball: string,
+): Promise<ScenarioResult[]> {
+  const results: ScenarioResult[] = [];
+  const deadline = Date.now() + RUN_BUDGET_MS;
+  for (const [i, s] of scenarios.entries()) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) {
+      console.error(`=== ${s.id} — NOT RUN, the run budget is exhausted ===`);
+      results.push(unverifiedResult(s, "not run — the run budget was exhausted"));
+      continue;
+    }
+    console.log(`\n=== ${s.id} (${s.image}) ===`);
+    const result = await runScenarioBounded(
+      driver,
+      s,
+      tarball,
+      Math.min(SCENARIO_TIMEOUT_MS, remaining),
+    );
+    results.push(result);
+    // A host whose bridge has no usable network fails EVERY scenario identically. Running
+    // the other nine proves nothing and, before #2229, took four hours to prove it. Stop
+    // here; the abandoned scenarios are NOT VERIFIED, which gates red.
+    if (result.networkUnreachable) {
+      console.error(
+        `\n${result.error}\n\nAbandoning the run — the remaining scenarios ` +
+          "would all fail the same way.",
+      );
+      results.push(...abandonRemaining(scenarios.slice(i + 1)));
+      break;
+    }
+  }
+  return results;
 }
 
 async function main() {
@@ -541,20 +611,7 @@ async function main() {
     // returns early above, so this is never reached on that path). Fail-closed: a wrong
     // or missing profile would silently OOM every instance, so we fix it up front.
     await driver.ensureProfile();
-    const tarball = buildTarball();
-    const deadline = Date.now() + RUN_BUDGET_MS;
-    for (const s of scenarios) {
-      const remaining = deadline - Date.now();
-      if (remaining <= 0) {
-        console.error(`=== ${s.id} — NOT RUN, the run budget is exhausted ===`);
-        results.push(unverifiedResult(s, "not run — the run budget was exhausted"));
-        continue;
-      }
-      console.log(`\n=== ${s.id} (${s.image}) ===`);
-      results.push(
-        await runScenarioBounded(driver, s, tarball, Math.min(SCENARIO_TIMEOUT_MS, remaining)),
-      );
-    }
+    results.push(...(await runAllScenarios(driver, scenarios, buildTarball())));
   } finally {
     await driver.sweep(); // teardown — own-prefix instances only
     release();

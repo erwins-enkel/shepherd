@@ -93,8 +93,18 @@ export function statusDescription(results: ScenarioResult[]): string {
     : `${gaps.length} gate gap(s): ${gaps.map((g) => g.scenarioId).join(", ")}${harnessNote}`;
 }
 
+/** Compact wall-clock for the report: `48s`, `2m 31s`. `—` when a scenario was never
+ *  started (budget exhausted, or abandoned), so an absent duration never reads as 0. */
+function formatDuration(ms: number | undefined): string {
+  if (ms === undefined) return "—";
+  const total = Math.round(ms / 1000);
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  return minutes ? `${minutes}m ${seconds}s` : `${seconds}s`;
+}
+
 function tableRow(r: ScenarioResult, klass: Classification): string {
-  return `| ${r.scenarioId} | ${r.image} | ${r.detection.detected ? "yes" : "no"} | ${r.appliedVia} | ${r.reachedGreen ? "yes" : "no"} | ${klass} |`;
+  return `| ${r.scenarioId} | ${r.image} | ${r.detection.detected ? "yes" : "no"} | ${r.appliedVia} | ${r.reachedGreen ? "yes" : "no"} | ${formatDuration(r.durationMs)} | ${klass} |`;
 }
 
 function gapEntry(
@@ -111,6 +121,50 @@ function unverifiedEntry(r: ScenarioResult): string {
 
 function harnessErrorEntry(r: ScenarioResult): string {
   return `- **${r.scenarioId}** (HARNESS ERROR — infra, not a product gap)${r.error ? ` — ${r.error}` : ""}`;
+}
+
+/** One table row per scenario, plus each result routed to the detail section its
+ *  classification belongs in. Split out of buildGapReport so both stay legible. */
+function detailSections(results: ScenarioResult[]): {
+  rows: string[];
+  gaps: string[];
+  errors: string[];
+  unverified: string[];
+} {
+  const rows: string[] = [];
+  const gaps: string[] = [];
+  const errors: string[] = [];
+  const unverified: string[] = [];
+  for (const r of results) {
+    const klass = classify(r);
+    rows.push(tableRow(r, klass));
+    if (
+      klass === "DETECTION GAP" ||
+      klass === "ADVICE GAP" ||
+      klass === "INSTALL GAP" ||
+      klass === "BOOT CRASH"
+    ) {
+      gaps.push(gapEntry(r, klass));
+    } else if (klass === "HARNESS ERROR") {
+      errors.push(harnessErrorEntry(r));
+    } else if (klass === "NOT VERIFIED") {
+      unverified.push(unverifiedEntry(r));
+    }
+  }
+  return { rows, gaps, errors, unverified };
+}
+
+/** Total wall-clock line, so a runtime regression is visible in the artifact itself —
+ *  #2229 had to be reconstructed from journal timestamps because nothing recorded it.
+ *  Empty when no scenario ran, where a "0s" total would be misleading. */
+function runtimeTotal(results: ScenarioResult[]): string[] {
+  const timed = results.filter((r) => r.durationMs !== undefined);
+  if (!timed.length) return [];
+  const total = timed.reduce((sum, r) => sum + (r.durationMs ?? 0), 0);
+  return [
+    "",
+    `Total scenario runtime: **${formatDuration(total)}** across ${timed.length} scenario${timed.length > 1 ? "s" : ""}.`,
+  ];
 }
 
 export function buildGapReport(results: ScenarioResult[]): string {
@@ -130,28 +184,11 @@ export function buildGapReport(results: ScenarioResult[]): string {
         ? ` (${harnessErrored.length} harness error${harnessErrored.length > 1 ? "s" : ""} — infra, excluded.)`
         : ""),
     "",
-    "| Scenario | Image | Detected | Applied | Green | Classification |",
-    "| --- | --- | --- | --- | --- | --- |",
+    "| Scenario | Image | Detected | Applied | Green | Duration | Classification |",
+    "| --- | --- | --- | --- | --- | --- | --- |",
   ];
-  const gaps: string[] = [];
-  const errors: string[] = [];
-  const unverified: string[] = [];
-  for (const r of results) {
-    const klass = classify(r);
-    lines.push(tableRow(r, klass));
-    if (
-      klass === "DETECTION GAP" ||
-      klass === "ADVICE GAP" ||
-      klass === "INSTALL GAP" ||
-      klass === "BOOT CRASH"
-    ) {
-      gaps.push(gapEntry(r, klass));
-    } else if (klass === "HARNESS ERROR") {
-      errors.push(harnessErrorEntry(r));
-    } else if (klass === "NOT VERIFIED") {
-      unverified.push(unverifiedEntry(r));
-    }
-  }
+  const { rows, gaps, errors, unverified } = detailSections(results);
+  lines.push(...rows, ...runtimeTotal(results));
   if (gaps.length) {
     lines.push("", "## Gaps", "", ...gaps);
   }

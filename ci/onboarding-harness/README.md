@@ -69,6 +69,33 @@ bun run onboarding:test --scenario install-e2e-service
 
 **Install-time RAM floor:** Claude Code's native installer transiently peaks at ~2 GB RSS during `claude install`. The harness sizes instances at 4 GiB to provide headroom above the ~3 GB floor; hosts below that may OOM-kill the install.
 
+### Host firewall
+
+**Instances must be able to reach the Incus bridge's DHCP and DNS, and route outbound.** Every scenario installs packages from the network, so a host firewall that filters `incusbr0` breaks the entire harness — and does so _slowly_, which is worse than breaking it fast.
+
+This is not hypothetical. On 2026-08-19 a `ufw-docker` install enabled `ufw` on the Incus host with `DEFAULT_INPUT_POLICY=DROP` + `DEFAULT_FORWARD_POLICY=DROP` and allow rules for `docker0` only. Instances stopped getting a DHCPv4 lease **and** lost DNS, fell back to an RA-supplied IPv6 address whose default route was a black hole, and every package operation sat out its own timeout and retried. The nightly went from 14 min to **4h23m** and eventually to 0/10 green ([#2229](https://github.com/erwins-enkel/shepherd/issues/2229)).
+
+On a `ufw` host, grant the bridge exactly what it needs:
+
+```bash
+sudo ufw allow in on incusbr0 to any port 53 proto udp   # DNS
+sudo ufw allow in on incusbr0 to any port 53 proto tcp
+sudo ufw allow in on incusbr0 to any port 67 proto udp   # DHCPv4
+sudo ufw allow in on incusbr0 to any port 547 proto udp  # DHCPv6
+sudo ufw route deny in on incusbr0 to 192.168.0.0/16     # keep instances off the LAN
+sudo ufw route allow in on incusbr0                      # instances → internet
+```
+
+Prefer this over the blanket `ufw allow in on incusbr0` most incus+ufw guides suggest: the blanket form exposes **every** host service bound to `0.0.0.0` (sshd, syncthing, …) to instances that install arbitrary packages and run `claude`. Adjust the LAN range to your own. Order matters — the `route deny` must be added before the `route allow`. These persist in `/etc/ufw/user*.rules` and replay on boot.
+
+To confirm the bridge is being filtered, watch the kernel log while an instance boots:
+
+```bash
+journalctl -k -f | grep 'UFW BLOCK'
+```
+
+`IN=incusbr0 … DPT=53` or `DPT=67` there is the signature. Since #2229 the harness also detects this itself: the first scenario aborts within ~60s with a diagnosis pointing here, and the run stops rather than repeating the failure ten times.
+
 ## Usage
 
 ```bash
@@ -86,11 +113,13 @@ The report lands at `onboarding-gap-report.md` in the working directory. Exit co
 
 ## Time budget
 
-The harness bounds itself so it always finishes on its own terms — **45 min per scenario** (`SHEPHERD_ONBOARDING_SCENARIO_TIMEOUT_MS`) and **6h per run** (`SHEPHERD_ONBOARDING_BUDGET_MS`). A scenario that blows its cap is abandoned; scenarios with no budget left are never started. Either way they are recorded **NOT VERIFIED** — not green, not a harness error, so a gate-eligible one still gates red and the report says plainly that no verdict was reached.
+The harness bounds itself so it always finishes on its own terms — **15 min per scenario** (`SHEPHERD_ONBOARDING_SCENARIO_TIMEOUT_MS`) and **90 min per run** (`SHEPHERD_ONBOARDING_BUDGET_MS`). A scenario that blows its cap is abandoned; scenarios with no budget left are never started. Either way they are recorded **NOT VERIFIED** — not green, not a harness error, so a gate-eligible one still gates red and the report says plainly that no verdict was reached.
 
-Those caps are sized to the runtime the harness **actually has**, not the one it ought to have: a full run was ~14 min until Aug 2026 and is now ~4h, with every scenario taking 20–28 min ([#2229](https://github.com/erwins-enkel/shepherd/issues/2229)). Wall-clock is dominated by in-container package installs and image pulls, which the harness does not control. Sizing the caps to the old runtime would cut off a legitimate, working run and report it NOT VERIFIED — a red release gate on a healthy harness. **Bring both numbers down, with `TimeoutStartSec`, once #2229 restores the runtime.**
+Those caps are sized to **measured** runtime: a full run is 8m55s (slowest scenario ~2 min), or roughly 15 min once the nightly's cold image pulls are included. They sit ~6x above that — loose enough not to cut off a slow night, tight enough that a repeat of [#2229](https://github.com/erwins-enkel/shepherd/issues/2229) is caught in 90 min rather than absorbed silently. They are deliberately not the pre-#2230 values (30 min / 3h): those were also chosen while the harness was degraded.
 
-The service's `TimeoutStartSec` (7h) is a **backstop that must never be reached**, and must always stay above the harness's own budget. When it sat _below_ the worst case (the old 2h), systemd's dirty kill was the guaranteed outcome on a slow night rather than an edge case.
+Every run reports **per-scenario durations and a total** in the gap report, so a runtime regression is visible in the artifact. #2229 had to be reconstructed from journal timestamps because nothing recorded it.
+
+The service's `TimeoutStartSec` (2h) is a **backstop that must never be reached**, and must always stay above the harness's own budget. When it sat _below_ the worst case (the old 2h against a 4h+ run), systemd's dirty kill was the guaranteed outcome rather than an edge case.
 
 ## Run isolation
 

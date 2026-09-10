@@ -286,6 +286,10 @@ export class StatusPoller {
   private codexCaptureBackoff = new Map<string, { nextAt: number; misses: number }>();
   private lastActivitySig = new Map<string, string>();
   private lastActivity = new Map<string, SessionActivity>();
+  /** Runtime identity already persisted for a session, as `model\u0000effort` — memoizes
+   *  {@link persistRuntimeIdentity} so a steady session costs neither a read nor a write per probe
+   *  tick. Process-local and safe to lose: an empty memo just re-reads the row once. */
+  private persistedIdentity = new Map<string, string>();
   /** Per-session liveness state machine (transcript-vs-interim routing, both
    *  liveness diffs, the interim heat-strip) — see `src/session-liveness.ts`.
    *  Lazily constructed on first touch via `livenessFor`. */
@@ -1181,6 +1185,7 @@ export class StatusPoller {
         this.codexCaptureBackoff.delete(id);
         this.lastActivitySig.delete(id);
         this.lastActivity.delete(id);
+        this.persistedIdentity.delete(id);
         // #1891: lifecycle-state push tracking
         this.lastPushedState.delete(id);
         this.lastActiveTurnAt.delete(id);
@@ -1508,7 +1513,46 @@ export class StatusPoller {
       this.lastActivity.set(id, activity);
       this.onActivity(id, activity);
     }
+    this.persistRuntimeIdentity(id, activity);
     this.maybePushAgentState(id);
+  }
+
+  /**
+   * Persist the observed runtime identity onto the session row (#1823) so it survives the session
+   * going idle and the server restarting — the SSE signal above only reaches clients while the
+   * session is live, and this poller only probes active sessions.
+   *
+   * Compared per FIELD against what the row already holds, and only differing fields are passed on:
+   * a signal that carries just a model must not drag a previously observed effort with it (the
+   * store's `COALESCE` write is the other half of that guarantee). Nothing differing → no write at
+   * all, so a steady session doesn't touch the DB once per probe tick.
+   */
+  private persistRuntimeIdentity(id: string, activity: SessionActivity): void {
+    const { runtimeModel, runtimeEffort } = activity;
+    if (!runtimeModel && !runtimeEffort) return;
+    // Memo first: an unchanged signal costs nothing, not even the row read below. NUL-joined so no
+    // pair of field values can collide into one key.
+    const seen = `${runtimeModel ?? ""}\u0000${runtimeEffort ?? ""}`;
+    if (this.persistedIdentity.get(id) === seen) return;
+    const stored = this.store.get(id);
+    if (!stored) return;
+    const patch: { runtimeModel?: string; runtimeEffort?: string } = {};
+    if (runtimeModel && runtimeModel !== stored.runtimeModel) patch.runtimeModel = runtimeModel;
+    if (runtimeEffort && runtimeEffort !== stored.runtimeEffort)
+      patch.runtimeEffort = runtimeEffort;
+    if (patch.runtimeModel === undefined && patch.runtimeEffort === undefined) {
+      this.persistedIdentity.set(id, seen); // already on the row — stop re-reading it for this value
+      return;
+    }
+    try {
+      this.store.setRuntimeIdentity(id, patch);
+      // Memo only AFTER the write lands, so a failed one is retried next probe instead of being
+      // remembered as done.
+      this.persistedIdentity.set(id, seen);
+    } catch (err) {
+      // A display value must never take the poller tick down with it.
+      console.warn(`[poller] persisting runtime identity failed for ${id}:`, err);
+    }
   }
 
   /** True when the session shows a FRESH active turn — a hook activity OR a probe/transcript activity

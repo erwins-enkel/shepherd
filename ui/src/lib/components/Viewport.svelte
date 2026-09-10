@@ -3111,7 +3111,7 @@
        ReviewInFlightBanner above shows the REVIEWER's env while this keeps the task's.
        Sits between .vp-body and SteerBar/controls so the ctrl-row stays bottom-most
        (the foldable swipe-up compose gesture starts on the bottom-most element). -->
-  <SessionStatusBar {session} {usage} />
+  <SessionStatusBar {session} {usage} {activity} />
 
   {#if tab === "term"}
     <SteerBar

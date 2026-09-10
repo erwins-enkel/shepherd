@@ -3898,5 +3898,13 @@
   "topbar_codex_limits_checked_age": "Limit-Ereignis vor {age} gemeldet",
   "topbar_codex_limits_checked_now": "Limit-Ereignis gerade gemeldet",
   "feat_observed_usage_limits_title": "Bestätigte Claude-Auslastung",
-  "feat_observed_usage_limits_body": "Die Claude-Auslastung in der Topbar zeigt jetzt für jedes Fenster den letzten bestätigten Anbieterwert und dessen Alter. Rund um den 5-Stunden-Reset prüft Shepherd häufiger, kennzeichnet den bisherigen Wert und zeigt den nächsten Countdown erst nach Bestätigung."
+  "feat_observed_usage_limits_body": "Die Claude-Auslastung in der Topbar zeigt jetzt für jedes Fenster den letzten bestätigten Anbieterwert und dessen Alter. Rund um den 5-Stunden-Reset prüft Shepherd häufiger, kennzeichnet den bisherigen Wert und zeigt den nächsten Countdown erst nach Bestätigung.",
+  "clibadge_label_codex": "Codex",
+  "clibadge_label_claude": "Claude",
+  "clibadge_title": "Coding-CLI: {cli}",
+  "unitrow_env_title_observed": "Beobachtete Umgebung: {env} — was dieser Lauf tatsächlich genutzt hat, aus dem Laufzeitprotokoll des Agenten gelesen.",
+  "unitrow_env_title_configured": "Konfigurierte Umgebung: {env}. Für diesen Lauf wurde nichts beobachtet, das ist also die Einstellung, mit der er gestartet ist — die CLI kann anders gewählt haben.",
+  "statusbar_identity_observed_title": "Beobachtete Umgebung: {identity} — was dieser Lauf tatsächlich genutzt hat, aus dem Laufzeitprotokoll des Agenten gelesen.",
+  "feat_card_cli_title": "Task-Karten nennen ihre Coding-CLI",
+  "feat_card_cli_body": "Jede Task-Karte trägt jetzt einen CODEX- oder CLAUDE-Chip, damit auf einen Blick klar ist, auf welcher CLI eine Aufgabe lief. Modell und Aufwand neben der Task-ID zeigen jetzt, was der Lauf TATSÄCHLICH genutzt hat — aus dem Laufzeitprotokoll des Agenten gelesen — statt auf „Standard\" zurückzufallen, sobald du die Picker in Ruhe gelassen hast. Bereits abgeschlossene Sessions werden beim Start einmalig nachgetragen, sofern ihr Protokoll noch da ist."
 }

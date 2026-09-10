@@ -88,7 +88,7 @@ describe("SessionStatusBar", () => {
 
   it("falls back to the localized default for a null model and effort", async () => {
     render(SessionStatusBar, { session: session({ id: "b" }), usage: usage() });
-    await expect.element(page.getByText("Claude Code · default · default")).toBeInTheDocument();
+    await expect.element(page.getByText("Claude Code · default")).toBeInTheDocument();
   });
 
   it("legacy pre-feature session (no launch metadata) still renders identity", async () => {
@@ -96,7 +96,7 @@ describe("SessionStatusBar", () => {
       session: session({ id: "c", claudeSessionId: "" }),
       usage: null,
     });
-    await expect.element(page.getByText("Claude Code · default · default")).toBeInTheDocument();
+    await expect.element(page.getByText("Claude Code · default")).toBeInTheDocument();
   });
 
   it("replacement to provider defaults wins over stale launch metadata", async () => {
@@ -138,7 +138,7 @@ describe("SessionStatusBar", () => {
       }),
       usage: usage(),
     });
-    await expect.element(page.getByText("Claude Code · default · default")).toBeInTheDocument();
+    await expect.element(page.getByText("Claude Code · default")).toBeInTheDocument();
   });
 
   it("codex session renders the Codex label and the codex-specific unavailable tokens", async () => {
@@ -146,7 +146,7 @@ describe("SessionStatusBar", () => {
       session: session({ id: "d", agentProvider: "codex", model: "gpt-5.5" }),
       usage: usage({ available: false, source: "none", total: 0 }),
     });
-    await expect.element(page.getByText("Codex · gpt-5.5 · default")).toBeInTheDocument();
+    await expect.element(page.getByText("Codex · gpt-5.5")).toBeInTheDocument();
     const dash = document.querySelector(".ssb-unavailable") as HTMLElement;
     expect(dash.textContent).toBe("—");
     expect(dash.title).toBe("Token usage isn't tracked for Codex sessions yet");

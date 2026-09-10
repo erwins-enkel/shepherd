@@ -3,6 +3,7 @@
   import { elapsed } from "$lib/format";
   import { isMerging } from "../merge-train";
   import { m } from "$lib/paraglide/messages";
+  import CliBadge from "../CliBadge.svelte";
   import ResearchBadge from "../ResearchBadge.svelte";
   import TerminalBadge from "../TerminalBadge.svelte";
   import PrBadge from "../PrBadge.svelte";
@@ -162,6 +163,7 @@
       >
     </span>
   {/if}
+  <CliBadge {session} />
   <ResearchBadge {session} tip />
   <TerminalBadge {session} tip />
   {#if !stepperTerminal}<PrBadge {git} sessionId={session.id} />{/if}

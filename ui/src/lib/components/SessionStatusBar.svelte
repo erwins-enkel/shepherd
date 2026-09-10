@@ -1,35 +1,53 @@
 <script lang="ts">
-  import type { Session, SessionUsage } from "$lib/types";
-  import { environmentLabel } from "$lib/reviewer-env";
+  import type { Session, SessionActivity, SessionUsage } from "$lib/types";
+  import { providerLabel } from "$lib/reviewer-env";
+  import { sessionEnvironment } from "$lib/session-env";
   import { formatTokens, elapsedCoarse } from "$lib/format";
   import { clock } from "$lib/now.svelte";
   import { m } from "$lib/paraglide/messages";
 
-  let { session, usage }: { session: Session; usage: SessionUsage | null } = $props();
+  // `activity` is the LIVE runtime-identity carrier: the poller persists what it observes, but that
+  // write raises no session patch, so a running session's fresh model/effort reaches the client only
+  // on this SSE signal. Optional — DoneRecapPanel renders this bar for a concluded session, which
+  // has no live signal and reads the persisted `session.runtime*` instead.
+  let {
+    session,
+    usage,
+    activity,
+  }: { session: Session; usage: SessionUsage | null; activity?: SessionActivity } = $props();
 
-  // Identity reads the session row's model/effort as AUTHORITATIVE: null explicitly means
-  // "provider default" (it's what a replace/relaunch with provider defaults writes), so it
-  // must render as "default" — falling back to the original launch metadata here would
-  // resurrect the pre-replacement model forever. Only fields that can be genuinely ABSENT
-  // (provider on pre-field rows; effort is optional in the client mirror) fall back.
-  // environmentLabel is the same formatter ReviewInFlightBanner uses for the reviewer, so
-  // the task strip and the reviewer strip can never drift apart in wording.
+  // Identity shows what the agent ACTUALLY ran wherever that is known (#1823): the model/effort a
+  // spawn resolves to is not necessarily what was configured — pushModelFlag applies usage-downgrade
+  // and availability fallbacks argv-only, and a session left on "default" passes no flag at all, so
+  // only the provider's own runtime log ever names the concrete choice. `sessionEnvironment` is the
+  // same resolver the task card uses, so the two surfaces cannot disagree about one run; the hover
+  // title says which kind of value is on screen.
   //
-  // These are the CONFIGURED values, labeled as such via the hover title: the runtime may
-  // substitute at spawn time without rewriting them — pushModelFlag applies usage-downgrade/
-  // availability fallbacks argv-only. Explicit effort tiers pass through unchanged.
-  // Surfacing the EFFECTIVE spawn model
-  // needs server-side persistence across every spawn path and is tracked separately.
+  // The session row's model/effort remain AUTHORITATIVE as the configured fallback: null explicitly
+  // means "provider default" (what a replace/relaunch with provider defaults writes), so it must
+  // render as "default" rather than resurrecting the pre-replacement model from launch metadata.
+  // Only genuinely ABSENT fields (provider on pre-field rows; effort is optional in the client
+  // mirror) fall back to launch metadata.
   const launch = $derived(session.launchMetadata ?? null);
   const provider = $derived(session.agentProvider ?? launch?.agent.provider ?? "claude");
-  const identity = $derived(
-    environmentLabel(
-      provider,
-      session.model,
-      session.effort === undefined ? (launch?.resolvedLaunch.effort ?? null) : session.effort,
+  const environment = $derived(
+    sessionEnvironment(
+      {
+        model: session.model,
+        effort:
+          session.effort === undefined ? (launch?.resolvedLaunch.effort ?? null) : session.effort,
+        runtimeModel: session.runtimeModel,
+        runtimeEffort: session.runtimeEffort,
+      },
+      activity,
     ),
   );
-  const identityTitle = $derived(m.statusbar_identity_title({ identity }));
+  const identity = $derived([providerLabel(provider), ...environment.segments].join(" · "));
+  const identityTitle = $derived(
+    environment.observed
+      ? m.statusbar_identity_observed_title({ identity })
+      : m.statusbar_identity_title({ identity }),
+  );
 
   // The elapsed segment is SESSION AGE — wall-clock since createdAt (to archive time for
   // archived sessions; archivedAt ?? updatedAt matches DoneRecapPanel's finishedAt

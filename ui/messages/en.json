@@ -3898,5 +3898,13 @@
   "topbar_codex_limits_checked_age": "limit event reported {age} ago",
   "topbar_codex_limits_checked_now": "limit event reported just now",
   "feat_observed_usage_limits_title": "Confirmed Claude usage samples",
-  "feat_observed_usage_limits_body": "Claude usage in the top bar now shows the latest provider-confirmed value and its age for each window. Near a 5-hour reset Shepherd checks more often, keeps the prior value clearly labelled, and shows the next countdown after confirmation."
+  "feat_observed_usage_limits_body": "Claude usage in the top bar now shows the latest provider-confirmed value and its age for each window. Near a 5-hour reset Shepherd checks more often, keeps the prior value clearly labelled, and shows the next countdown after confirmation.",
+  "clibadge_label_codex": "Codex",
+  "clibadge_label_claude": "Claude",
+  "clibadge_title": "Coding CLI: {cli}",
+  "unitrow_env_title_observed": "Observed environment: {env} — what this run actually used, read from the agent's own runtime log.",
+  "unitrow_env_title_configured": "Configured environment: {env}. Nothing was observed for this run, so this is the setting it started from — the CLI may have chosen otherwise.",
+  "statusbar_identity_observed_title": "Observed environment: {identity} — what this run actually used, read from the agent's own runtime log.",
+  "feat_card_cli_title": "Task cards name their coding CLI",
+  "feat_card_cli_body": "Every task card now carries a CODEX or CLAUDE chip, so you can tell at a glance which CLI a task ran on. The model and effort next to the task id now show what the run ACTUALLY used — read from the agent's own runtime log — instead of falling back to \"default\" whenever you left the pickers alone. Sessions that finished earlier are filled in once on startup, wherever their transcript is still around."
 }

@@ -1075,6 +1075,14 @@ export interface Session {
   // (`s.effort ?? "default"` when seeding the relaunch composer) tolerates its absence,
   // so test fixtures need not set it.
   effort?: string | null;
+  /** OBSERVED runtime identity (#1823) — what the agent ACTUALLY ran, read out of its
+   *  transcript/rollout server-side. Distinct from `model`/`effort` above, which are what the
+   *  operator CONFIGURED and are null whenever the pickers were left on default (no flag is passed
+   *  then, so the CLI picks for itself and only its own log names the choice). null/absent = not
+   *  observed, never "default". `runtimeEffort` stays null for Claude — its transcripts record none.
+   *  Read through `sessionEnvironment()` rather than directly. */
+  runtimeModel?: string | null;
+  runtimeEffort?: string | null;
   status: SessionStatus;
   /** Operator-set "parked / done" flag, orthogonal to status. Default false. */
   readyToMerge: boolean;

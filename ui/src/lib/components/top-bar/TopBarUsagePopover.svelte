@@ -109,9 +109,7 @@
   {#if hasClaude}
     <div class="gauge-pop-claude" class:stale>
       <div class="gauge-pop-title micro">
-        {m.topbar_usage_provider_title({ provider: m.agent_provider_claude() })}{stale
-          ? m.topbar_gauge_stale_suffix()
-          : ""}
+        {m.agent_provider_claude()}{stale ? m.topbar_gauge_stale_suffix() : ""}
       </div>
       {#if desktop}
         {@render mainWindows(false)}
@@ -138,7 +136,7 @@
   {/if}
   {#if codexUsage}
     <div class="gauge-pop-title micro codex-heading">
-      {m.topbar_usage_provider_title({ provider: m.agent_provider_codex() })}
+      {m.agent_provider_codex()}
     </div>
     <div class="gp-window token-window" class:stale={codexUsage.stale}>
       <CodexTokenDetail usage={codexUsage} {nowMs} {periodLabel} />

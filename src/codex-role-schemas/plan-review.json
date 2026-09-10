@@ -1,0 +1,11 @@
+{
+  "type": "object",
+  "properties": {
+    "decision": { "type": "string", "enum": ["approve", "request-changes"] },
+    "summary": { "type": "string", "maxLength": 100 },
+    "body": { "type": "string" },
+    "findings": { "type": "array", "items": { "type": "string" } }
+  },
+  "required": ["decision", "summary", "body", "findings"],
+  "additionalProperties": false
+}

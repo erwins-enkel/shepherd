@@ -1,0 +1,80 @@
+{
+  "$defs": {
+    "stringArray": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "rule": {
+      "type": "object",
+      "properties": {
+        "rule": { "type": "string", "pattern": "\\S", "maxLength": 240 },
+        "rationale": { "type": "string" },
+        "evidence": { "$ref": "#/$defs/stringArray" },
+        "scopeGlobs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "maxItems": 5
+        }
+      },
+      "required": ["rule", "rationale", "evidence", "scopeGlobs"],
+      "additionalProperties": false
+    },
+    "update": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "rule": { "type": "string", "pattern": "\\S", "maxLength": 240 },
+        "rationale": { "type": "string" }
+      },
+      "required": ["id", "rule", "rationale"],
+      "additionalProperties": false
+    },
+    "delete": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "reason": { "type": "string" }
+      },
+      "required": ["id", "reason"],
+      "additionalProperties": false
+    },
+    "evidenceEntry": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "evidence": { "$ref": "#/$defs/stringArray" }
+      },
+      "required": ["id", "evidence"],
+      "additionalProperties": false
+    }
+  },
+  "type": "object",
+  "properties": {
+    "rules": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/rule" },
+      "maxItems": 5
+    },
+    "updates": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/update" },
+      "maxItems": 5
+    },
+    "deletes": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/delete" },
+      "maxItems": 5
+    },
+    "ineffective": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/evidenceEntry" }
+    },
+    "reaffirm": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/evidenceEntry" },
+      "maxItems": 5
+    }
+  },
+  "required": ["rules", "updates", "deletes", "ineffective", "reaffirm"],
+  "additionalProperties": false
+}

@@ -24,6 +24,7 @@ import {
 import { config, clampCap, REVIEW_TIMEOUT_MS_MIN, REVIEW_TIMEOUT_MS_MAX } from "../src/config";
 import { STARTUP_GRACE_MS } from "../src/json-tolerant";
 import { __setApiKeyConfigDirProvisionForTest } from "../src/spawn-auth";
+import { CODEX_ROLE_OUTPUT_SCHEMAS } from "../src/codex-role-output-schema";
 
 beforeEach(() => {
   __setApiKeyConfigDirProvisionForTest(() => "/tmp/shepherd-test-apikey-config");
@@ -533,8 +534,10 @@ test("Codex review records its resolved provider and completes without Claude us
     deps: d,
     recordedSpawns,
     completedSpawns,
+    started,
   } = makeDeps({
     env: () => env,
+    readPlan: () => "## Approved plan\nShip the implementation.",
     readUsage: async () => null,
   });
   const svc = new ReviewService(d as any);
@@ -548,6 +551,24 @@ test("Codex review records its resolved provider and completes without Claude us
   });
   expect(completedSpawns).toHaveLength(1);
   expect(completedSpawns[0]!.u).toBeNull();
+  expect(started[0]!.argv.slice(started[0]!.argv.indexOf("--output-schema"), -1)).toEqual([
+    "--output-schema",
+    CODEX_ROLE_OUTPUT_SCHEMAS.criticWithPlan,
+  ]);
+});
+
+test("Codex review without an approved plan uses the critic schema without drift fields", async () => {
+  const { deps: d, started } = makeDeps(
+    { env: () => ({ provider: "codex", model: "gpt-5.6", effort: "high" }) },
+    { planGate: null },
+  );
+
+  await new ReviewService(d as any).consider(session(), OPEN_GREEN);
+
+  expect(started[0]!.argv.slice(started[0]!.argv.indexOf("--output-schema"), -1)).toEqual([
+    "--output-schema",
+    CODEX_ROLE_OUTPUT_SCHEMAS.critic,
+  ]);
 });
 
 test("onReviewing fires true on spawn and false on finalize", async () => {
@@ -4373,11 +4394,27 @@ test.skipIf(!onLinux1944)(
   "#1944 an oversized plan is clamped and the critic spawn fits",
   async () => {
     const plan = bigPlan1944(200_000);
-    const { deps: d, started, notices, noticeEvents } = makeDeps({ readPlan: () => plan });
+    const {
+      deps: d,
+      started,
+      notices,
+      noticeEvents,
+      recordedSpawns,
+    } = makeDeps({
+      readPlan: () => plan,
+      env: () => ({ provider: "codex", model: "gpt-5.6", effort: "high" }),
+    });
     await new ReviewService(d as any).consider(session(), OPEN_GREEN);
 
     expect(started).toHaveLength(1);
     const s = started[0]!;
+    expect(s.argv.slice(s.argv.indexOf("--output-schema"), -1)).toEqual([
+      "--output-schema",
+      CODEX_ROLE_OUTPUT_SCHEMAS.criticWithPlan,
+    ]);
+    expect(s.argv[s.argv.indexOf("-o") + 1]).toBe(
+      `.shepherd-last-message-${recordedSpawns[0]!.reviewerSessionId}.txt`,
+    );
     expect(spawnFootprintBytes(buildWrappedArgv(s.argv, s.env))).toBeLessThanOrEqual(
       hostArgvBudget(),
     );

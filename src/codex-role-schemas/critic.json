@@ -1,0 +1,23 @@
+{
+  "$defs": {
+    "finding": {
+      "type": "object",
+      "properties": {
+        "text": { "type": "string", "pattern": "\\S" },
+        "severity": { "type": "string", "enum": ["important", "nit"] },
+        "pass": { "type": "string", "enum": ["bug", "security", "compliance", "scope"] }
+      },
+      "required": ["text", "severity", "pass"],
+      "additionalProperties": false
+    }
+  },
+  "type": "object",
+  "properties": {
+    "decision": { "type": "string", "enum": ["request-changes", "comment"] },
+    "summary": { "type": "string", "maxLength": 100 },
+    "body": { "type": "string" },
+    "findings": { "type": "array", "items": { "$ref": "#/$defs/finding" } }
+  },
+  "required": ["decision", "summary", "body", "findings"],
+  "additionalProperties": false
+}

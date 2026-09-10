@@ -1,0 +1,27 @@
+{
+  "$defs": {
+    "group": {
+      "type": "object",
+      "properties": {
+        "memberIds": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "minItems": 2
+        },
+        "canonicalRule": { "type": "string", "pattern": "\\S", "maxLength": 240 }
+      },
+      "required": ["memberIds", "canonicalRule"],
+      "additionalProperties": false
+    }
+  },
+  "type": "object",
+  "properties": {
+    "groups": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/group" },
+      "maxItems": 8
+    }
+  },
+  "required": ["groups"],
+  "additionalProperties": false
+}

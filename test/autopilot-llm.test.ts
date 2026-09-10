@@ -4,6 +4,10 @@ import { config } from "../src/config";
 import { SessionStore } from "../src/store";
 import { __setApiKeyConfigDirProvisionForTest } from "../src/spawn-auth";
 import type { SessionUsage } from "../src/usage";
+import { CODEX_ROLE_OUTPUT_SCHEMAS } from "../src/codex-role-output-schema";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 beforeEach(() => {
   __setApiKeyConfigDirProvisionForTest(() => "/tmp/shepherd-test-apikey-config");
@@ -365,7 +369,42 @@ test("classifyStop: codex provider spawns headless `codex exec` (no claude flags
   ]);
   expect(calls.started.argv).not.toContain("--settings");
   expect(calls.started.argv).not.toContain("--allowedTools");
+  expect(calls.started.argv.slice(calls.started.argv.indexOf("--output-schema"), -1)).toEqual([
+    "--output-schema",
+    CODEX_ROLE_OUTPUT_SCHEMAS.autopilot,
+  ]);
   expect(calls.started.argv[calls.started.argv.length - 1]).toContain("task");
+});
+
+test("classifyStop accepts a schema-shaped Codex chat result through its real -o reader", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "autopilot-chat-output-"));
+  const fixture = readFileSync(
+    join(import.meta.dir, "fixtures/codex-role-output/autopilot.json"),
+    "utf8",
+  );
+  try {
+    const { deps } = makeDeps({
+      provider: "codex",
+      makeTmpDir: () => cwd,
+      cleanup: () => {},
+      herdr: {
+        start: async (_name: string, spawnCwd: string, argv: string[]) => {
+          const output = argv[argv.indexOf("-o") + 1]!;
+          writeFileSync(join(spawnCwd, output), fixture);
+          return { terminalId: "term-chat", cwd: spawnCwd } as any;
+        },
+        stop: async () => {},
+      },
+    });
+
+    expect(await classifyStop(["Delivered the implementation."], "task", deps, "l")).toEqual({
+      kind: "complete",
+      summary: "Implementation and verification are complete.",
+    });
+    expect(() => readFileSync(join(cwd, VERDICT_FILE), "utf8")).toThrow();
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
 });
 
 test("classifyStop: subscription mode — --settings unchanged + no env 4th arg", async () => {

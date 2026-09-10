@@ -8,6 +8,7 @@ import { config } from "../src/config";
 import { __setApiKeyConfigDirProvisionForTest } from "../src/spawn-auth";
 import type { GitForge, PrReviewMeta, PullRequest } from "../src/forge/types";
 import type { PrReview, Learning } from "../src/types";
+import { CODEX_ROLE_OUTPUT_SCHEMAS } from "../src/codex-role-output-schema";
 
 beforeEach(() => {
   __setApiKeyConfigDirProvisionForTest(() => "/tmp/shepherd-test-apikey-config");
@@ -282,6 +283,9 @@ test("Codex critic records its resolved provider and completes without Claude us
   });
   expect(spies.completedSpawns).toHaveLength(1);
   expect(spies.completedSpawns[0]!.u).toBeNull();
+  expect(
+    spies.started[0]!.argv.slice(spies.started[0]!.argv.indexOf("--output-schema"), -1),
+  ).toEqual(["--output-schema", CODEX_ROLE_OUTPUT_SCHEMAS.critic]);
 });
 
 test("reviews a REST-enumerated green PR while GraphQL backoff is active", async () => {

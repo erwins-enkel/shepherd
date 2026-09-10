@@ -1,0 +1,10 @@
+{
+  "groups": [
+    {
+      "memberIds": ["rule-one", "rule-two"],
+      "anchorId": "rule-one",
+      "mergedRule": "Regenerate protocol types after changing their schema.",
+      "mergedRationale": "Both entries describe the same repository generation step."
+    }
+  ]
+}

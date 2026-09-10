@@ -25,6 +25,7 @@ import type { GitForge, PrReviewMeta, PullRequest } from "./forge/types";
 import { CRITIC_REVIEW_MARKER } from "./forge/types";
 import { randomUUID } from "node:crypto";
 import { buildTransientAgentArgv } from "./transient-agent-argv";
+import { CODEX_ROLE_OUTPUT_SCHEMAS } from "./codex-role-output-schema";
 import type { RoleEnvironment } from "./default-model";
 import { isEpicChild, isEpicIntegrationBranch } from "./epic-branch";
 import {
@@ -545,6 +546,7 @@ export class StandalonePrCriticService {
         prompt: p,
         // The critic READS the `-o` last-message fallback (per-spawn name for its untrusted checkout).
         captureLastMessage: true,
+        outputSchemaFile: CODEX_ROLE_OUTPUT_SCHEMAS.critic,
         sessionId: criticSessionId,
       }).argv;
     // Fire plugin onSpawn hooks (issue #1205) + bind patched env THROUGH the membrane. Session-less

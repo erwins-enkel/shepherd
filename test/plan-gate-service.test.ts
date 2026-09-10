@@ -8,6 +8,7 @@ import { __setApiKeyConfigDirProvisionForTest } from "../src/spawn-auth";
 import { SessionService } from "../src/service";
 import { SessionRouter } from "../src/session-router";
 import { SessionStore } from "../src/store";
+import { CODEX_ROLE_OUTPUT_SCHEMAS } from "../src/codex-role-output-schema";
 
 const CODEX_FIXTURE = join(import.meta.dir, "fixtures/codex-activity/rollout-role-exec.jsonl");
 
@@ -37,12 +38,14 @@ async function withAuth<T>(
 }
 
 function harness(over: any = {}) {
+  const useDefaultReadVerdict = over.useDefaultReadVerdict === true;
   const started: any[] = [];
   const removed: string[] = [];
   const recordedSpawns: any[] = [];
   const completedSpawns: any[] = [];
   const overWithoutStore = { ...over };
   delete overWithoutStore.store;
+  delete overWithoutStore.useDefaultReadVerdict;
   const notices = new Map<string, any>();
   const noticeEvents: string[] = [];
   const store = {
@@ -130,6 +133,7 @@ function harness(over: any = {}) {
     // deps-level spread doesn't re-overwrite it with the un-merged per-test partial.
     ...overWithoutStore,
   };
+  if (useDefaultReadVerdict) delete deps.readVerdict;
   return {
     deps,
     started,
@@ -142,6 +146,41 @@ function harness(over: any = {}) {
     svc: new PlanGateService(deps),
   };
 }
+
+test("Codex chat-only plan review is finalized through the service's default -o reader", async () => {
+  const worktreePath = mkdtempSync(join(process.cwd(), ".plan-review-schema-chat-"));
+  try {
+    const h = harness({
+      useDefaultReadVerdict: true,
+      env: () => ({ provider: "codex", model: "gpt-5.5", effort: "high" }),
+      worktree: {
+        createDetached: async () => ({ worktreePath, branch: "main" }),
+        remove: () => {},
+        gitCommonDir: () => "/fake-git-common",
+      },
+      store: { setReviewerSpawnOutcome: () => {} },
+    });
+
+    await h.svc.consider(planningSession() as any);
+    const argv = h.started[0]!.argv as string[];
+    const fixture = readFileSync(
+      join(import.meta.dir, "fixtures/codex-role-output/plan-review.json"),
+      "utf8",
+    );
+    writeFileSync(join(worktreePath, argv[argv.indexOf("-o") + 1]!), fixture);
+    await h.svc.tick();
+
+    expect(h.store.gate).toMatchObject({
+      approved: true,
+      decision: "approved",
+      summary: "The plan covers the requested behavior.",
+      body: "## Review\n\nThe seams and verification steps are concrete.",
+      findings: [],
+    });
+  } finally {
+    rmSync(worktreePath, { recursive: true, force: true });
+  }
+});
 
 const planningSession = () => ({
   id: "s1",
@@ -323,6 +362,10 @@ test("begin carries the reviewer env on the reviewing:true signal + reviewingInf
   // The inflight bootstrap snapshot exposes the same env for a mid-review reload.
   expect(h.svc.reviewingInflight()).toEqual([
     { id: "s1", provider: "codex", model: "gpt-5.5", effort: "high" },
+  ]);
+  expect(h.started[0]!.argv.slice(h.started[0]!.argv.indexOf("--output-schema"), -1)).toEqual([
+    "--output-schema",
+    CODEX_ROLE_OUTPUT_SCHEMAS.planReview,
   ]);
 });
 
@@ -2814,20 +2857,28 @@ test("#1944 an ordinary plan is untouched: no clamp, no notice, no marker", asyn
 });
 
 test.skipIf(!onLinux)(
-  "#1944 --session-id agrees with the recorded spawn (no randomUUID stub)",
+  "#1944 clamped Codex argv keeps its schema and recorded spawn in the last-message filename",
   async () => {
     // Three argvs are built per spawn (probe, clamped rebuild, final). If any minted its own id the
     // verdict would be written where readVerdict never looks.
-    const h = harness({ readPlan: () => bigPlan(200_000) });
+    const h = harness({
+      readPlan: () => bigPlan(200_000),
+      env: () => ({ provider: "codex", model: "gpt-5.5", effort: "high" }),
+    });
     await h.svc.consider(planningSession() as any);
 
     const argv = h.started[0].argv as string[];
-    const idFlag = argv[argv.indexOf("--session-id") + 1];
-    expect(idFlag).toBe(h.recordedSpawns[0].reviewerSessionId);
+    const reviewerSessionId = h.recordedSpawns[0].reviewerSessionId;
+    expect(argv[argv.indexOf("-o") + 1]).toBe(`.shepherd-last-message-${reviewerSessionId}.txt`);
+    expect(argv.slice(argv.indexOf("--output-schema"), -1)).toEqual([
+      "--output-schema",
+      CODEX_ROLE_OUTPUT_SCHEMAS.planReview,
+    ]);
     // A real minted uuid, not a test stub — randomUUID is deliberately NOT mocked here, because a
     // mock returning one constant would make the three-argv hazard invisible.
-    expect(idFlag).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
-    expect(argv.filter((t) => t === "--session-id")).toHaveLength(1);
+    expect(reviewerSessionId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+    );
     expect(h.started[0].cwd).toBe(h.recordedSpawns[0].worktreePath);
   },
 );

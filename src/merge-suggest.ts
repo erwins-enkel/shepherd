@@ -10,6 +10,7 @@ import type { Learning, MergeSuggestionKind } from "./types";
 import { normalizeRule } from "./learning-rule";
 import { apiKeyFailClosed, apiKeyPassthroughEnv } from "./spawn-auth";
 import { buildTransientAgentArgv } from "./transient-agent-argv";
+import { CODEX_ROLE_OUTPUT_SCHEMAS } from "./codex-role-output-schema";
 import { reapTransientByLabel } from "./transient-tab-reaper";
 import type { RoleEnvironment } from "./default-model";
 
@@ -251,6 +252,10 @@ export class MergeSuggestionService {
       prompt: kind === "cross" ? crossPrompt() : intraPrompt(),
       // The merge-suggester READS the `-o` last-message fallback → opt in.
       captureLastMessage: true,
+      outputSchemaFile:
+        kind === "cross"
+          ? CODEX_ROLE_OUTPUT_SCHEMAS.mergeCross
+          : CODEX_ROLE_OUTPUT_SCHEMAS.mergeIntra,
     });
     const agentName = MERGE_LABEL + sessionId.slice(0, 8);
     // Reserve the inflight slot SYNCHRONOUSLY — before the async spawn yields — so the daily

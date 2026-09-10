@@ -1,0 +1,35 @@
+{
+  "rules": [
+    {
+      "rule": "Generated protocol types come from scripts/gen-herdr-types.ts.",
+      "rationale": "The generated-file header is not visible from every caller.",
+      "evidence": ["signal-add"],
+      "scopeGlobs": ["src/generated/**"]
+    }
+  ],
+  "updates": [
+    {
+      "id": "active-rule",
+      "rule": "Run bun run gen:herdr-types after protocol changes.",
+      "rationale": "The failure showed the generation step is required."
+    }
+  ],
+  "deletes": [
+    {
+      "id": "stale-rule",
+      "reason": "contradicted: the generator now owns this file."
+    }
+  ],
+  "ineffective": [
+    {
+      "id": "ineffective-rule",
+      "evidence": ["signal-failure"]
+    }
+  ],
+  "reaffirm": [
+    {
+      "id": "proposed-rule",
+      "evidence": ["signal-repeat"]
+    }
+  ]
+}

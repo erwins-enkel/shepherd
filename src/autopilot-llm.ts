@@ -12,6 +12,7 @@ import type { OperatorLanguage } from "./operator-language";
 import type { TaskAmendment } from "./task-amendments";
 import { apiKeyFailClosed, apiKeyPassthroughEnv } from "./spawn-auth";
 import { buildTransientAgentArgv } from "./transient-agent-argv";
+import { CODEX_ROLE_OUTPUT_SCHEMAS } from "./codex-role-output-schema";
 import type { SessionUsage } from "./usage";
 import { readReviewerSpawnUsage } from "./reviewer-usage";
 import {
@@ -94,6 +95,7 @@ function classifierArgv(
     effort,
     prompt,
     captureLastMessage: true,
+    outputSchemaFile: CODEX_ROLE_OUTPUT_SCHEMAS.autopilot,
   });
 }
 

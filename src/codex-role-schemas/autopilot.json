@@ -1,0 +1,12 @@
+{
+  "type": "object",
+  "properties": {
+    "kind": {
+      "type": "string",
+      "enum": ["gate", "question", "finished", "complete", "unknown"]
+    },
+    "summary": { "type": "string", "maxLength": 280 }
+  },
+  "required": ["kind", "summary"],
+  "additionalProperties": false
+}

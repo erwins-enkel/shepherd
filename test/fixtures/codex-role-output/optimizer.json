@@ -1,0 +1,9 @@
+{
+  "revisions": [
+    {
+      "id": "learning-one",
+      "rule": "Regenerate protocol types after editing the protocol schema.",
+      "rationale": null
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "decision": "comment",
+  "summary": "The implementation follows the approved plan.",
+  "body": "## Review\n\nNo blocking findings.",
+  "findings": [],
+  "planDrift": "none",
+  "planDriftNote": null
+}

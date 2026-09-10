@@ -15,6 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { buildTransientAgentArgv } from "./transient-agent-argv";
+import { CODEX_ROLE_OUTPUT_SCHEMAS } from "./codex-role-output-schema";
 import { spawnBudget, type SpawnAssembler } from "./spawn-budget";
 
 /** Operator-facing cause on a recap that could not be spawned at all (#1944). */
@@ -307,6 +308,7 @@ function recapArgv(
     effort,
     prompt,
     captureLastMessage: true,
+    outputSchemaFile: CODEX_ROLE_OUTPUT_SCHEMAS.recap,
     sessionId,
   });
 }

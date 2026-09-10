@@ -1,0 +1,17 @@
+{
+  "decision": "request-changes",
+  "summary": "One parser boundary needs correction.",
+  "body": "## Review\n\nThe parser keeps \"quoted\" text and `C:\\\\tmp` paths.\n\nPlease address the important finding.",
+  "findings": [
+    {
+      "text": "src/parser.ts: Escaped input can bypass the boundary check.",
+      "severity": "important",
+      "pass": "bug"
+    },
+    {
+      "text": "src/parser.ts: Rename the local for readability.",
+      "severity": "nit",
+      "pass": "scope"
+    }
+  ]
+}

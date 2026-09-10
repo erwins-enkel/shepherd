@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -30,6 +30,45 @@ import type { TaskAmendment } from "../src/task-amendments";
 import { tolerantParseJson } from "../src/json-tolerant";
 import { allowedToolsFor } from "../src/transient-agent-argv";
 import { planReviewPrompt } from "../src/plan-gate";
+
+for (const fixtureName of ["critic", "critic-with-plan"] as const) {
+  test(`schema-shaped Codex chat ${fixtureName} reaches the verdict core through the real reader`, () => {
+    const dir = mkdtempSync(join(tmpdir(), `critic-schema-chat-${fixtureName}-`));
+    const fixture = readFileSync(
+      join(import.meta.dir, `fixtures/codex-role-output/${fixtureName}.json`),
+      "utf8",
+    );
+    try {
+      writeFileSync(join(dir, ".shepherd-last-message-schema-chat.txt"), fixture);
+
+      const read = defaultReadVerdict(dir, "schema-chat");
+      expect(read.status).toBe("parsed");
+      if (read.status !== "parsed") throw new Error("expected parsed critic verdict");
+      const core = buildVerdictCore(read.value, "base-sha", ["src/parser.ts"], "patch-1", "sha-1");
+
+      expect(core.body).toContain((JSON.parse(fixture) as { body: string }).body);
+      if (fixtureName === "critic") {
+        expect(core.decision).toBe("changes_requested");
+        expect(core.findings).toEqual([
+          "src/parser.ts: Escaped input can bypass the boundary check.",
+        ]);
+        expect(core.findingsMeta.filter((finding) => finding.severity === "nit")).toEqual([
+          {
+            text: "src/parser.ts: Rename the local for readability.",
+            severity: "nit",
+            pass: "scope",
+          },
+        ]);
+      } else {
+        expect(core.decision).toBe("commented");
+        expect(normalizePlanDrift(read.value.planDrift)).toBe("none");
+        expect(normalizePlanDriftNote(read.value.planDriftNote)).toBeNull();
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+}
 
 // ── #822 regression: malformed-JSON read path with content fidelity ─────────────────────────────
 //

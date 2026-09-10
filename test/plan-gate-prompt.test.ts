@@ -5,6 +5,7 @@ import {
   stripPlanLineRefs,
   PLAN_VERDICT_FILE,
 } from "../src/plan-gate";
+import { CODEX_ROLE_OUTPUT_SCHEMAS } from "../src/codex-role-output-schema";
 
 test("prompt embeds task + plan + prior findings + verdict file + read-only", () => {
   const p = planReviewPrompt("do X", "PLAN TEXT", ["earlier nit"]);
@@ -59,6 +60,18 @@ test("reviewerArgv mirrors critic hardening: dontAsk last, no --bare, disableAll
   expect(tools).toBeLessThan(dontAsk);
   expect(a).toContain("--safe-mode");
   expect(a.indexOf("--safe-mode")).toBeLessThan(a.indexOf("--allowedTools"));
+  expect(a).not.toContain("--output-schema");
+});
+
+test("reviewerArgv gives Codex the plan-review schema between its -o file and prompt", () => {
+  const { argv } = reviewerArgv("codex", "gpt-5.5", "PROMPT", "high", "review-session");
+  expect(argv.slice(argv.indexOf("-o"), -1)).toEqual([
+    "-o",
+    ".shepherd-last-message-review-session.txt",
+    "--output-schema",
+    CODEX_ROLE_OUTPUT_SCHEMAS.planReview,
+  ]);
+  expect(argv.at(-1)).toBe("PROMPT");
 });
 test("reviewerArgv inserts --model when given", () => {
   const { argv: a } = reviewerArgv("claude", "opus", "PROMPT");

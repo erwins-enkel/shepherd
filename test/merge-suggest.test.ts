@@ -9,6 +9,10 @@ import { SessionStore } from "../src/store";
 import { config } from "../src/config";
 import { __setApiKeyConfigDirProvisionForTest } from "../src/spawn-auth";
 import type { Learning } from "../src/types";
+import { CODEX_ROLE_OUTPUT_SCHEMAS } from "../src/codex-role-output-schema";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 beforeEach(() => {
   __setApiKeyConfigDirProvisionForTest(() => "/tmp/shepherd-test-apikey-config");
@@ -310,6 +314,8 @@ test("intra spawn: resolved Codex uses codex exec and persists the file result",
     "model_reasoning_effort=high",
     "-o",
     ".shepherd-last-message.txt",
+    "--output-schema",
+    CODEX_ROLE_OUTPUT_SCHEMAS.mergeIntra,
     expect.stringContaining("ONE repository"),
   ]);
   expect(cap.env).toBeUndefined();
@@ -374,11 +380,50 @@ test("cross spawn: resolved Codex uses codex exec and persists the file result",
     "model_reasoning_effort=high",
     "-o",
     ".shepherd-last-message.txt",
+    "--output-schema",
+    CODEX_ROLE_OUTPUT_SCHEMAS.mergeCross,
     expect.stringContaining("MANY repositories"),
   ]);
   expect(cap.env).toBeUndefined();
   expect(store.listMergeSuggestions({ kind: "cross", status: "pending" })).toHaveLength(1);
 });
+
+for (const kind of ["intra", "cross"] as const) {
+  test(`Codex chat-only ${kind} merge output reaches the real reader and persists a suggestion`, async () => {
+    const dir = mkdtempSync(join(tmpdir(), `merge-${kind}-schema-chat-`));
+    try {
+      const store = new SessionStore(":memory:");
+      const a = seedActive(store, kind === "intra" ? "/r" : "/r1", "generated rule A");
+      const b = seedActive(store, kind === "intra" ? "/r" : "/r2", "generated rule B");
+      const fixture = JSON.parse(
+        readFileSync(
+          join(import.meta.dir, `fixtures/codex-role-output/merge-${kind}.json`),
+          "utf8",
+        ),
+      );
+      fixture.groups[0].memberIds = [a.id, b.id];
+      if (kind === "intra") fixture.groups[0].anchorId = a.id;
+      const { deps, cap } = mkDeps(store, null, {
+        environment: () => ({ provider: "codex", model: "gpt-5.5", effort: "high" }),
+      });
+      deps.scratch.create = () => ({ dir });
+      deps.scratch.remove = () => {};
+      delete (deps as any).readOutput;
+
+      const svc = new MergeSuggestionService(deps);
+      if (kind === "intra") await svc.mergeNow("/r");
+      else await svc.considerCrossRepo();
+      writeFileSync(join(dir, cap.argv[cap.argv.indexOf("-o") + 1]!), JSON.stringify(fixture));
+      await svc.tick();
+
+      expect(store.listMergeSuggestions({ kind, status: "pending" })).toContainEqual(
+        expect.objectContaining({ sourceIds: kind === "intra" ? [b.id] : [a.id, b.id] }),
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+}
 
 test("each actual spawn resolves a fresh environment", async () => {
   const store = new SessionStore(":memory:");

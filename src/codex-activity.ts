@@ -174,7 +174,7 @@ function latestCodexRecordTs(text: string): number {
 
 /** Runtime environment reported by a Codex rollout. Each turn_context repeats the effective
  * model and effort; session_meta provenance covers the short window before the first turn. */
-function codexRuntimeIdentity(
+export function codexRuntimeIdentity(
   text: string,
 ): Pick<SessionActivity, "runtimeModel" | "runtimeEffort"> {
   let provenanceModel: string | undefined;
@@ -441,7 +441,7 @@ export class CodexRolloutResolver {
  * runs (once per reviewer miss, then cache + backoff). Reuses `listRolloutFiles`
  * (stat-only, newest-first) and the shared `readSessionMeta` header parser.
  */
-function listRolloutMetas(home = codexHome()): RolloutMeta[] {
+export function listRolloutMetas(home = codexHome()): RolloutMeta[] {
   const out: RolloutMeta[] = [];
   for (const { path, mtimeMs } of listRolloutFiles(home)) {
     const meta = readSessionMeta(path);

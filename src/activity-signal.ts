@@ -20,7 +20,7 @@ export interface SessionActivity {
   runtimeEffort?: string;
 }
 
-type RuntimeIdentity = Pick<SessionActivity, "runtimeModel" | "runtimeEffort">;
+export type RuntimeIdentity = Pick<SessionActivity, "runtimeModel" | "runtimeEffort">;
 
 /**
  * Tools that represent internal bookkeeping rather than observable agent work.
@@ -77,7 +77,7 @@ export function signalFrom(
 
 /** Newest real model named by a Claude assistant record. Synthetic control records do not
  * represent an inference model and must not replace the last concrete value. */
-function claudeRuntimeIdentity(text: string): RuntimeIdentity {
+export function claudeRuntimeIdentity(text: string): RuntimeIdentity {
   let runtimeModel: string | undefined;
   for (const value of eachJsonlObject(text)) {
     const record = value as { type?: unknown; message?: unknown };

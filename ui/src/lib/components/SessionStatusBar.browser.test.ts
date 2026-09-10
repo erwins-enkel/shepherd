@@ -3,6 +3,7 @@ import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
 import type { Session, SessionUsage } from "$lib/types";
+import { m } from "$lib/paraglide/messages";
 
 const { default: SessionStatusBar } = await import("./SessionStatusBar.svelte");
 
@@ -88,7 +89,7 @@ describe("SessionStatusBar", () => {
 
   it("falls back to the localized default for a null model and effort", async () => {
     render(SessionStatusBar, { session: session({ id: "b" }), usage: usage() });
-    await expect.element(page.getByText("Claude Code · default · default")).toBeInTheDocument();
+    await expect.element(page.getByText("Claude Code · default")).toBeInTheDocument();
   });
 
   it("legacy pre-feature session (no launch metadata) still renders identity", async () => {
@@ -96,7 +97,7 @@ describe("SessionStatusBar", () => {
       session: session({ id: "c", claudeSessionId: "" }),
       usage: null,
     });
-    await expect.element(page.getByText("Claude Code · default · default")).toBeInTheDocument();
+    await expect.element(page.getByText("Claude Code · default")).toBeInTheDocument();
   });
 
   it("replacement to provider defaults wins over stale launch metadata", async () => {
@@ -138,7 +139,7 @@ describe("SessionStatusBar", () => {
       }),
       usage: usage(),
     });
-    await expect.element(page.getByText("Claude Code · default · default")).toBeInTheDocument();
+    await expect.element(page.getByText("Claude Code · default")).toBeInTheDocument();
   });
 
   it("codex session renders the Codex label and the codex-specific unavailable tokens", async () => {
@@ -146,7 +147,7 @@ describe("SessionStatusBar", () => {
       session: session({ id: "d", agentProvider: "codex", model: "gpt-5.5" }),
       usage: usage({ available: false, source: "none", total: 0 }),
     });
-    await expect.element(page.getByText("Codex · gpt-5.5 · default")).toBeInTheDocument();
+    await expect.element(page.getByText("Codex · gpt-5.5")).toBeInTheDocument();
     const dash = document.querySelector(".ssb-unavailable") as HTMLElement;
     expect(dash.textContent).toBe("—");
     expect(dash.title).toBe("Token usage isn't tracked for Codex sessions yet");
@@ -238,22 +239,38 @@ describe("SessionStatusBar", () => {
     await expect.element(page.getByText("1h 30m")).toBeInTheDocument();
   });
 
-  it("labels the identity as configured intent — spawn may substitute the model", async () => {
+  it("labels an unobserved identity as configured intent — spawn may substitute the model", async () => {
     // pushModelFlag applies usage-downgrade/availability fallbacks argv-only (never rewrites
-    // session.model), so the bar knowingly shows the CONFIGURED model. The caveat is carried
-    // by the segment's ACCESSIBLE NAME (aria-label), not only the mouse-hover title, so
-    // keyboard/touch/AT users get it too.
+    // session.model), so with nothing observed the bar knowingly shows the CONFIGURED values. The
+    // caveat is carried by the segment's ACCESSIBLE NAME (aria-label), not only the mouse-hover
+    // title, so keyboard/touch/AT users get it too.
     render(SessionStatusBar, {
       session: session({ id: "l", model: "fable", effort: "high" }),
       usage: usage(),
     });
     const id = document.querySelector(".ssb-identity") as HTMLElement;
     expect(id.textContent).toBe("Claude Code · fable · High");
-    expect(id.title).toContain("Configured environment: Claude Code · fable · High");
-    expect(id.getAttribute("aria-label")).toContain(
-      "Configured environment: Claude Code · fable · High",
+    const expected = `${m.session_env_model_configured({ model: "fable" })} ${m.session_env_effort_configured({ effort: "High" })}`;
+    expect(id.title).toBe(expected);
+    expect(id.getAttribute("aria-label")).toBe(expected);
+    // The substitution caveat itself, not just the word "configured".
+    expect(id.getAttribute("aria-label")).toContain("not observed");
+  });
+
+  // The finding this shape answers: one provenance flag for both fields let the bar tell AT users
+  // an effort came from the runtime log when only the model did. A Claude session is exactly that
+  // case — its transcript reports a model and never an effort.
+  it("a mixed identity names each segment's own provenance", async () => {
+    render(SessionStatusBar, {
+      session: session({ id: "mix", model: null, effort: "high", runtimeModel: "claude-opus-5" }),
+      usage: usage(),
+    });
+    const id = document.querySelector(".ssb-identity") as HTMLElement;
+    expect(id.textContent).toBe("Claude Code · Opus 5 · High");
+    expect(id.title).toBe(
+      `${m.session_env_model_observed({ model: "Opus 5" })} ${m.session_env_effort_configured({ effort: "High" })}`,
     );
-    expect(id.getAttribute("aria-label")).toContain("usage downgrade");
+    expect(id.getAttribute("aria-label")).toBe(id.title);
   });
 
   it.each([
@@ -266,7 +283,9 @@ describe("SessionStatusBar", () => {
     });
     const id = document.querySelector(".ssb-identity") as HTMLElement;
     expect(id.textContent).toBe(`Codex · gpt-6-astra · ${label}`);
-    expect(id.title).toContain(`Configured environment: Codex · gpt-6-astra · ${label}`);
+    expect(id.title).toBe(
+      `${m.session_env_model_configured({ model: "gpt-6-astra" })} ${m.session_env_effort_configured({ effort: label })}`,
+    );
     expect(id.getAttribute("aria-label")).toBe(id.title);
     expect(id.getAttribute("aria-label")).not.toContain("provider clamps");
     expect(id.getAttribute("aria-label")).toContain("model");
@@ -276,10 +295,11 @@ describe("SessionStatusBar", () => {
     render(SessionStatusBar, { session: session({ id: "j" }), usage: usage() });
     const bar = document.querySelector(".ssb") as HTMLElement;
     expect(bar.getAttribute("role")).toBe("group");
-    // The accessible group name — not just a mouse-only tooltip — states the identity is the
-    // CONFIGURED environment (finding: keyboard/touch/AT must get the caveat).
+    // The accessible group name — not just a mouse-only tooltip — tells AT users that each value
+    // declares its own provenance (finding: keyboard/touch/AT must get the caveat). It must NOT
+    // claim the whole environment is configured: a mixed identity is the ordinary case.
     expect(bar.getAttribute("aria-label")).toContain("configured");
-    expect(bar.getAttribute("aria-label")).toContain("substitute");
+    expect(bar.getAttribute("aria-label")).toContain("observed");
     expect(bar.getAttribute("aria-live")).toBeNull();
     expect(document.querySelector('[role="status"]')).toBeNull();
   });

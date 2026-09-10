@@ -41,8 +41,8 @@
   import { toasts } from "$lib/toasts.svelte";
   import { projectIcons } from "$lib/projectIcons.svelte";
   import { m } from "$lib/paraglide/messages";
-  import { modelLabel, runtimeModelLabel } from "$lib/model-label";
-  import { effortLabel } from "$lib/effort-guidance";
+  import { sessionEnvironment } from "$lib/session-env";
+  import { statusTip } from "$lib/actions/statusTip.svelte";
   import { onDestroy } from "svelte";
   import UnitRowRight from "./unit-row/UnitRowRight.svelte";
   import { rowHold } from "$lib/hold-row";
@@ -184,16 +184,10 @@
   const showAckCta = $derived(hasBlockingManualSteps && !isTerminal && !!onackmanualsteps);
   const repoIcon = $derived(projectIcons.iconFor(session.repoPath));
   const repoFiltered = $derived(repoFilter?.has(session.repoPath) ?? false);
-  const environmentModel = $derived(
-    activity?.runtimeModel
-      ? runtimeModelLabel(activity.runtimeModel)
-      : session.model
-        ? modelLabel(session.model)
-        : m.newtask_model_default(),
-  );
-  const environmentEffort = $derived(
-    effortLabel(activity?.runtimeEffort ?? session.effort ?? m.effort_default()),
-  );
+  // Model + effort, resolved observed → configured → default (see sessionEnvironment). The card and
+  // the session status bar share this one resolver so they can never disagree about the same run.
+  const environment = $derived(sessionEnvironment(session, activity));
+  const environmentText = $derived(environment.segments.join(" · "));
   function toggleRepoFilter() {
     // Non-additive: a plain click resets the filter to this repo (or clears it when this repo
     // is already the sole selection — handled by the page's nextRepoFilter).
@@ -934,8 +928,8 @@
     {/if}
 
     <span class="meta">
-      <span class="meta-text"
-        ><TaskIdButton {session} /> · {environmentModel} · {environmentEffort}</span
+      <span class="meta-text" use:statusTip={{ text: environment.tooltip }}
+        ><TaskIdButton {session} /> · {environmentText}</span
       >
       {#if session.manualSteps.length > 0}
         {#if onshowowed}

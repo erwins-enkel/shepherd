@@ -1517,4 +1517,18 @@ describe("UnitRow selection cues", () => {
     });
     await expect.poll(() => getComputedStyle(unit(calm, "calm-row")).outlineStyle).toBe("none");
   });
+
+  // The meta line's environment tooltip anchors on a span that also CONTAINS the task-id button, and
+  // the shared statusTip popover takes pointer events on purpose. Pinning this because the same
+  // shape did bite in the badge row above the card, where the popover opens downward over its
+  // neighbours; here it opens upward, clear of the button. A layout change that flips that would
+  // silently make the task id unclickable.
+  it("the task-id button stays clickable while the meta environment tooltip is open", async () => {
+    render(UnitRow, { session: session({ id: "meta-tip" }), onselect: () => {} } as never);
+    const meta = document.querySelector(".meta-text") as HTMLElement;
+    meta.dispatchEvent(new PointerEvent("pointerenter", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 400));
+    expect(document.querySelector(".status-tip")).not.toBeNull(); // else this asserts nothing
+    await page.getByRole("button", { name: "TASK-01" }).click({ timeout: 3000 });
+  });
 });

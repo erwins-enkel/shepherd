@@ -96,6 +96,7 @@ import { StandalonePrCriticService } from "./standalone-critic";
 import { createIssueLogger } from "./issue-log";
 import { PlanGateService, shouldConsiderOnSettle } from "./plan-gate";
 import { backfillCodexSpawnUsage } from "./codex-activity";
+import { backfillRuntimeIdentity } from "./runtime-identity";
 import { AutopilotService, AUTOPILOT_LABEL } from "./autopilot";
 import { NAMER_LABEL } from "./namer";
 import { DrainService } from "./drain";
@@ -1755,6 +1756,11 @@ deferredStarts.push(() => {
     // finalize (they book NULL = unknown). Runs after the reaps so rows just closed by them are
     // included. One shared tree walk, bounded by the store's row cap. (#1816)
     .then(() => backfillCodexSpawnUsage(store))
+    // Then fill the OBSERVED runtime identity (what each agent actually ran) for rows that never
+    // got one persisted — sessions that concluded before the feature existed, and rows whose live
+    // write only caught one of the two fields. Same shape: one shared tree walk, row-capped,
+    // never throws. (#1823)
+    .then(() => backfillRuntimeIdentity(store))
     .catch((err) => console.warn("[boot] review/plan-gate orphan reconcile:", err));
   setInterval(
     () => {

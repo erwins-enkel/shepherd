@@ -85,6 +85,7 @@ import type { TelemetryService } from "./telemetry";
 import { extractTargetPaths, planHouseRulesInjection, renderHouseRulesBlock } from "./house-rules";
 import { isGoodOutcome } from "./learnings-lifecycle";
 import { effectiveAutopilot } from "./effective-autopilot";
+import { amendmentBlock, type TaskAmendment } from "./task-amendments";
 import { SHELLS } from "./json-tolerant";
 import { resumeThenSteer } from "./resume-then-steer";
 import { MAX_IMAGES, type HandoffMode } from "./validate";
@@ -2307,6 +2308,12 @@ export class SessionService {
   }> {
     let promptArg = input.prompt;
     const scanTargets: string[] = [];
+    // #2225: standing amendments CARRIED from the session this spawn continues (relaunch /
+    // provider replace). Folded in here, next to the task and outside every fence, so the agent
+    // reads exactly the block its critic will read. Argv-only — `sessions.prompt` keeps the
+    // operator's task text and the amendments stay rows, so the critic sees them once, not twice.
+    const carried = amendmentBlock(input.carriedAmendments ?? []);
+    if (carried.length) promptArg = `${promptArg}\n\n${carried.join("\n").trimEnd()}`;
     const uploads = this.composeUploadPrompt(input, worktreePath);
     if (uploads.promptBlock) promptArg = `${promptArg}\n\n${uploads.promptBlock}`;
     if (input.issueRef) {
@@ -3965,6 +3972,9 @@ export class SessionService {
     //     re-merging here would double the carried uploads.
     const images = this.carryRelaunchImages(s, overrides, originalId);
     const attachmentNames = this.carryRelaunchAttachmentNames(s, overrides, images);
+    // #2225: resolved ONCE, then threaded to BOTH the spawn prompt (so the new agent reads the
+    // authorization) and the copied rows (so its critic reads the same one).
+    const carriedAmendments = this.carriedAmendments(s, overrides);
     const input = this.buildRelaunchInput(
       s,
       issueRef,
@@ -3972,6 +3982,7 @@ export class SessionService {
       images,
       attachmentNames,
       authPolicy,
+      carriedAmendments,
     );
     const newSession = await this.create(input);
 
@@ -3982,12 +3993,10 @@ export class SessionService {
         enabled: pickOverride(overrides?.autopilotEnabled, s.autopilotEnabled),
       });
       this.deps.store.setAutoMergeState(newSession.id, { enabled: s.autoMergeEnabled });
-      // #2225: the replacement continues the SAME task, so the operator's standing amendments
-      // still apply and must reach its critic. Inside this try for a reason: a partial copy would
-      // leave the new session authorized by half an amendment set, so a throw tears it down with
-      // everything else. `carryAmendments === false` is the variant path (see startVariant).
-      if (overrides?.carryAmendments !== false)
-        this.deps.store.copyTaskAmendments(s.id, newSession.id);
+      // #2225: the same set already folded into the spawn prompt above. Inside this try for a
+      // reason: a partial copy would leave the new session authorized by half an amendment set,
+      // so a throw tears it down with everything else.
+      this.deps.store.copyTaskAmendments(newSession.id, carriedAmendments);
     } catch (e) {
       // best-effort teardown so no orphaned new session leaks alongside the intact original
       try {
@@ -4002,6 +4011,29 @@ export class SessionService {
     return this.deps.store.get(newSession.id)!;
   }
 
+  /** The standing amendments a relaunch may carry onto its replacement, or [] when it must not
+   *  (#2225).
+   *
+   *  Carry is gated on THE TASK STILL BEING THE SAME TASK, because an amendment is told to rank
+   *  with — and govern over — the task it reaches. Two ways it stops being the same:
+   *   - `carryAmendments: false`, the explicit internal opt-out (`startVariant`: a comparison arm
+   *     must run the original task, or the arms are not comparable);
+   *   - the operator REWROTE the prompt in the relaunch composer. The composer always submits
+   *     `prompt`, even untouched (see `relaunchOverrides`), so mere PRESENCE means nothing — the
+   *     test is whether the text actually differs. Amendments written against the old wording must
+   *     not silently govern a task the operator has just replaced.
+   *
+   *  Both drops are silent by design: the amendments stay on the ORIGINAL session's record, which
+   *  is where they still apply. */
+  private carriedAmendments(
+    original: Session,
+    overrides: RelaunchOverrides | undefined,
+  ): readonly TaskAmendment[] {
+    if (overrides?.carryAmendments === false) return [];
+    if (overrides?.prompt !== undefined && overrides.prompt !== original.prompt) return [];
+    return this.deps.store.listActiveTaskAmendments(original.id);
+  }
+
   private buildRelaunchInput(
     original: Session,
     issueRef: IssueRef | undefined,
@@ -4009,6 +4041,7 @@ export class SessionService {
     images: string[],
     attachmentNames: string[] | undefined,
     authPolicy: "error" | "clamp",
+    carriedAmendments: readonly TaskAmendment[],
   ): StandardCreateInput {
     // Provider/model coupling: resolve the EFFECTIVE provider and reconcile the carried model
     // against it (see reconcileRelaunchModel) so a provider switch never drags an incompatible model.
@@ -4042,6 +4075,8 @@ export class SessionService {
       // Carry the landing-repair flag so a relaunch keeps its push-not-PR repair directive.
       landingRepair: pickOverride(overrides?.landingRepair, original.landingRepair),
       epicParent: carriedEpicParent(original, overrides),
+      // #2225: argv-only (composePromptArg folds it in) — never persisted as `sessions.prompt`.
+      carriedAmendments,
       images,
       attachmentNames,
       launchUiState: overrides?.launchUiState,
@@ -4098,6 +4133,12 @@ export class SessionService {
       epicAuthoring: s.epicAuthoring,
       landingRepair: s.landingRepair,
       auto: false,
+      // #2225: replace REUSES this session's row, so its amendments (and the rows its critic
+      // reads) are already in place — but the fresh agent has never seen them. Fold the same
+      // block into its handoff prompt, or the replacement writes a PR judged against an
+      // authorization it was never shown. No prompt-override concern here: replace composes its
+      // task from `s.prompt`, it cannot be given a different one.
+      carriedAmendments: this.deps.store.listActiveTaskAmendments(s.id),
     };
     const composed = await this.composePromptArg(input, s.worktreePath);
     const promptArg =

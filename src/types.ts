@@ -3,6 +3,7 @@ import type { SandboxProfile } from "./sandbox";
 import type { VisualBlock } from "./visual-blocks";
 import type { ManualStep } from "./manual-steps";
 import type { PromptBlockMeasure } from "./prompt-budget";
+import type { TaskAmendment } from "./task-amendments";
 
 export type HerdrState = "idle" | "working" | "blocked" | "done" | "unknown";
 export type SessionStatus = "running" | "idle" | "blocked" | "done" | "archived";
@@ -312,6 +313,16 @@ export interface StandardCreateInput {
   landingRepair?: boolean;
   /** PR numbers selected for this TRAIN session; absent → null. */
   mergeTrainPrs?: number[];
+  /** #2225: standing operator task amendments CARRIED from a session this spawn continues
+   *  (relaunch / provider replace). ARGV-ONLY — folded into the spawn prompt by
+   *  `composePromptArg` and never persisted: the rows are copied separately, and baking them into
+   *  `sessions.prompt` too would show the critic the same text twice.
+   *
+   *  Load-bearing, not a nicety: the replacement's critic reads the carried amendment rows and is
+   *  told they GOVERN over the task, so without this the new PR would be judged against an
+   *  authorization the agent that wrote it never saw — the exact failure #2225 exists to remove.
+   *  Empty/absent ⇒ the prompt is byte-identical to before. */
+  carriedAmendments?: readonly TaskAmendment[];
 }
 
 /**

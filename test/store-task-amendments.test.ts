@@ -122,11 +122,11 @@ test("snapshot carries retracted rows too — the UI shows them struck through",
   expect(s.snapshotTaskAmendments()[a.id]?.[0]?.retractedAt).toBe(2000);
 });
 
-test("copy carries the standing amendments, keeping their original timestamps + order", () => {
+test("copy carries the resolved amendments, keeping their original timestamps + order", () => {
   const { s, a, b } = mk();
   s.addTaskAmendment(a.id, "first", 1000);
   s.addTaskAmendment(a.id, "second", 2000);
-  expect(s.copyTaskAmendments(a.id, b.id)).toBe(2);
+  expect(s.copyTaskAmendments(b.id, s.listActiveTaskAmendments(a.id))).toBe(2);
   const copied = s.listActiveTaskAmendments(b.id);
   expect(copied.map((x) => x.text)).toEqual(["first", "second"]);
   expect(copied.map((x) => x.createdAt)).toEqual([1000, 2000]);
@@ -134,18 +134,18 @@ test("copy carries the standing amendments, keeping their original timestamps + 
   expect(copied.map((x) => x.sessionId)).toEqual([b.id, b.id]);
 });
 
-test("copy does NOT resurrect retracted amendments", () => {
+test("copying the ACTIVE set does not resurrect retracted amendments", () => {
   const { s, a, b } = mk();
   const rec = s.addTaskAmendment(a.id, "retracted", 1000);
   s.addTaskAmendment(a.id, "standing", 2000);
   s.retractTaskAmendment(a.id, rec.id, 3000);
-  expect(s.copyTaskAmendments(a.id, b.id)).toBe(1);
+  expect(s.copyTaskAmendments(b.id, s.listActiveTaskAmendments(a.id))).toBe(1);
   expect(s.listTaskAmendments(b.id).map((x) => x.text)).toEqual(["standing"]);
 });
 
-test("copy from a session with nothing to carry is a no-op", () => {
-  const { s, a, b } = mk();
-  expect(s.copyTaskAmendments(a.id, b.id)).toBe(0);
+test("copying an empty set is a no-op", () => {
+  const { s, b } = mk();
+  expect(s.copyTaskAmendments(b.id, [])).toBe(0);
   expect(s.listTaskAmendments(b.id)).toEqual([]);
 });
 

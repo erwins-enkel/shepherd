@@ -8905,3 +8905,97 @@ test("relaunch of a session with no amendments writes none", async () => {
   const fresh = await service.relaunch(orig.id);
   expect(store.listTaskAmendments(fresh.id)).toEqual([]);
 });
+
+/** The spawn argv of the last agent `relaunchHarness` started, as one string. */
+const spawnPrompt = (calls: { started: { argv: string[] }[] }) =>
+  calls.started.at(-1)!.argv.join("\n");
+
+test("a carried amendment reaches the NEW AGENT's spawn prompt, not just its critic", async () => {
+  // The replacement's critic reads the copied rows and is told the amendment GOVERNS over the
+  // task. If the agent never saw it, the new PR is blocked against an authorization its author
+  // was never shown — the exact failure #2225 exists to remove.
+  const store = new SessionStore(":memory:");
+  const { service, calls } = relaunchHarness(store);
+  const orig = originalSession(store);
+  store.addTaskAmendment(orig.id, "also wire it into the backlog view", 1000);
+
+  const fresh = await service.relaunch(orig.id);
+
+  const prompt = spawnPrompt(calls);
+  expect(prompt).toContain("OPERATOR TASK AMENDMENTS");
+  expect(prompt).toContain("also wire it into the backlog view");
+  // Agent and critic read the SAME set.
+  expect(store.listActiveTaskAmendments(fresh.id).map((a) => a.text)).toEqual([
+    "also wire it into the backlog view",
+  ]);
+  // ...but the amendment is NOT baked into the persisted task, or the critic would see it twice.
+  expect(store.get(fresh.id)!.prompt).toBe(orig.prompt);
+});
+
+test("no amendments ⇒ the relaunch spawn prompt carries no amendment block", async () => {
+  const store = new SessionStore(":memory:");
+  const { service, calls } = relaunchHarness(store);
+  await service.relaunch(originalSession(store).id);
+  expect(spawnPrompt(calls)).not.toContain("OPERATOR TASK AMENDMENTS");
+});
+
+test("relaunch with an UNCHANGED prompt override still carries amendments", async () => {
+  // The relaunch composer always submits `prompt`, even untouched, so mere presence must not
+  // drop the carry.
+  const store = new SessionStore(":memory:");
+  const { service, calls } = relaunchHarness(store);
+  const orig = originalSession(store);
+  store.addTaskAmendment(orig.id, "still the same task", 1000);
+
+  const fresh = await service.relaunch(orig.id, undefined, { prompt: orig.prompt });
+
+  expect(store.listActiveTaskAmendments(fresh.id).map((a) => a.text)).toEqual([
+    "still the same task",
+  ]);
+  expect(spawnPrompt(calls)).toContain("still the same task");
+});
+
+test("relaunch that REPLACES the prompt drops the amendments — it is a different task", async () => {
+  // An amendment is told to rank with and GOVERN over the task it reaches. Carrying one written
+  // against the old wording onto a task the operator just rewrote would let it govern something
+  // it was never about.
+  const store = new SessionStore(":memory:");
+  const { service, calls } = relaunchHarness(store);
+  const orig = originalSession(store);
+  store.addTaskAmendment(orig.id, "amendment to the OLD task", 1000);
+
+  const fresh = await service.relaunch(orig.id, undefined, { prompt: "an entirely new task" });
+
+  expect(store.listTaskAmendments(fresh.id)).toEqual([]);
+  expect(spawnPrompt(calls)).not.toContain("amendment to the OLD task");
+  // The original keeps its record — that is where the amendment still applies.
+  expect(store.listActiveTaskAmendments(orig.id)).toHaveLength(1);
+});
+
+test("provider REPLACE folds the session's own amendments into the fresh agent's prompt", async () => {
+  // Replace reuses the session row, so the rows its critic reads are already there — but the
+  // fresh agent has never seen them.
+  const store = new SessionStore(":memory:");
+  const { service, calls } = relaunchHarness(store);
+  const orig = originalSession(store);
+  store.addTaskAmendment(orig.id, "the operator widened this", 1000);
+
+  await service.replaceAgent(orig.id, { model: "opus" });
+
+  expect(spawnPrompt(calls)).toContain("the operator widened this");
+  // Same row, so the amendments were never copied — they are simply still there.
+  expect(store.listActiveTaskAmendments(orig.id)).toHaveLength(1);
+});
+
+test("a retracted amendment reaches neither the replacement's prompt nor its rows", async () => {
+  const store = new SessionStore(":memory:");
+  const { service, calls } = relaunchHarness(store);
+  const orig = originalSession(store);
+  const rec = store.addTaskAmendment(orig.id, "withdrawn", 1000);
+  store.retractTaskAmendment(orig.id, rec.id, 2000);
+
+  const fresh = await service.relaunch(orig.id);
+
+  expect(store.listTaskAmendments(fresh.id)).toEqual([]);
+  expect(spawnPrompt(calls)).not.toContain("withdrawn");
+});

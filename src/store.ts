@@ -3733,19 +3733,21 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     return out;
   }
 
-  /** Copy the STANDING amendments of `fromSessionId` onto `toSessionId` as fresh rows (#2225).
-   *  Used by relaunch, where the replacement continues the SAME task and the operator's amendments
-   *  still apply. Retracted rows are deliberately not carried — they no longer stand, and copying
-   *  them would resurrect them into the new session's record. Fresh ids, but the ORIGINAL
-   *  `createdAt` is kept: it records when the operator actually said it, which is what the prompt
+  /** Copy an already-resolved set of amendments onto `toSessionId` as fresh rows (#2225). Used by
+   *  relaunch, where the replacement continues the SAME task and the operator's amendments still
+   *  apply.
+   *
+   *  Takes the ROWS, not a source session id, on purpose: the caller resolves the set ONCE and
+   *  hands the identical set to the new agent's spawn prompt and to these rows, so the agent and
+   *  its critic can never be judging against different amendment sets. Fresh ids, but the ORIGINAL
+   *  `createdAt` is kept — it records when the operator actually said it, which is what the prompt
    *  block and the UI display, and keeping it preserves the source ordering for free. */
-  copyTaskAmendments(fromSessionId: string, toSessionId: string): number {
-    const src = this.listActiveTaskAmendments(fromSessionId);
-    if (src.length === 0) return 0;
+  copyTaskAmendments(toSessionId: string, amendments: readonly TaskAmendment[]): number {
+    if (amendments.length === 0) return 0;
     this.db.transaction(() => {
-      for (const a of src) this.addTaskAmendment(toSessionId, a.text, a.createdAt);
+      for (const a of amendments) this.addTaskAmendment(toSessionId, a.text, a.createdAt);
     })();
-    return src.length;
+    return amendments.length;
   }
 
   // ── spawn-prompt budget (issue #1999) ──────────────────────────────────────

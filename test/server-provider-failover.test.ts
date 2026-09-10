@@ -21,7 +21,10 @@ afterEach(() => {
   config.providerFailoverFrom = savedFailoverFrom;
 });
 
-/** Weekly windows expressed as REMAINING percent, so the cases read like the operator's popover. */
+/** Weekly windows expressed as REMAINING percent, so the cases read like the operator's popover.
+ *  Shaped like the real `limits()` payload: Claude's confirmed value lives in the `observed`
+ *  contract (always emitted), and `week` below it stays the local estimate the failover rule must
+ *  NOT read once that contract is present. */
 function harness(opts: {
   claudeFree?: number | null;
   codexFree?: number | null;
@@ -29,6 +32,8 @@ function harness(opts: {
 }): { app: ReturnType<typeof makeApp>; store: SessionStore } {
   const week = (free: number | null | undefined) =>
     free === null || free === undefined ? null : { pct: 100 - free, resetAt: 0 };
+  const observedWeek = (free: number | null | undefined) =>
+    free === null || free === undefined ? null : { pct: 100 - free, resetAt: 0, scrapedAt: 0 };
   const store = new SessionStore(":memory:");
   const check = (id: string, ok: boolean) => ({
     id,
@@ -41,14 +46,30 @@ function harness(opts: {
     service: {} as never,
     usageLimits: {
       limits: () => ({
+        observed: { session5h: null, week: observedWeek(opts.claudeFree) },
         session5h: null,
-        week: week(opts.claudeFree),
+        // A deliberately TEMPTING local estimate that contradicts the contract. With the contract
+        // present nothing may read it, so `claudeFree: null` must still refuse — reading this
+        // would show a healthy 79 % free and wrongly engage.
+        week: week(79),
         perModelWeek: [],
         credits: null,
         stale: false,
         calibratedAt: null,
         subscriptionOnly: false,
         providers: [
+          {
+            provider: "claude",
+            kind: "limits",
+            observed: { session5h: null, week: observedWeek(opts.claudeFree) },
+            session5h: null,
+            week: week(79),
+            perModelWeek: [],
+            credits: null,
+            stale: false,
+            calibratedAt: null,
+            subscriptionOnly: false,
+          },
           {
             provider: "codex",
             kind: "tokens",
@@ -114,7 +135,10 @@ test("engage is refused when the counterpart is not ready", async () => {
   expect(config.defaultAgentProvider).toBe("codex");
 });
 
-test("engage is refused when the counterpart reports no weekly window", async () => {
+test("engage is refused when the counterpart's CONFIRMED weekly window is absent", async () => {
+  // The contract is present with a null week while the local estimate says a healthy 79 % free.
+  // The popover renders that provider as "no observation" and offers nothing, so the server must
+  // refuse too — reading the estimate here is exactly the divergence the rule forbids.
   const { app } = harness({ claudeFree: null, codexFree: 23 });
   expect((await post(app, "engage")).status).toBe(409);
 });

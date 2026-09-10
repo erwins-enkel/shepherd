@@ -85,6 +85,39 @@ describe("weeklyFreePct", () => {
     expect(weeklyFreePct(null, "claude")).toBeNull();
   });
 
+  test("a present contract with a null week is UNMEASURED, computed window notwithstanding", () => {
+    // `limits()` always emits the contract, so this is the live shape before the first /usage
+    // scrape. Reading the JSONL-computed window here would call Claude measured while the popover
+    // renders "no observation" — the divergence this rule exists to prevent.
+    const l = limits({ claude: 79, codex: 23 });
+    l.observed = { session5h: null, week: null };
+    expect(weeklyFreePct(l, "claude")).toBeNull();
+    expect(
+      providerFailoverOffer({ limits: l, defaultProvider: "codex", readyProviders: BOTH }),
+    ).toBeNull();
+  });
+
+  test("a per-provider contract with a null week is unmeasured too", () => {
+    const l = limits({ claude: 79, codex: 23 });
+    for (const p of l.providers ?? []) {
+      if (p.provider === "claude" && p.kind === "limits") {
+        p.observed = { session5h: null, week: null };
+      }
+    }
+    expect(weeklyFreePct(l, "claude")).toBeNull();
+  });
+
+  test("a top-level contract wins whole — a null week does not fall through to the provider's", () => {
+    const l = limits({ claude: 79, codex: 23 });
+    l.observed = { session5h: null, week: null };
+    for (const p of l.providers ?? []) {
+      if (p.provider === "claude" && p.kind === "limits") {
+        p.observed = { session5h: null, week: { pct: 10, resetAt: 0, scrapedAt: 0 } };
+      }
+    }
+    expect(weeklyFreePct(l, "claude")).toBeNull();
+  });
+
   test("claude survives a limits payload with no providers array", () => {
     const l = limits({ claude: 79, codex: 23 });
     delete l.providers;

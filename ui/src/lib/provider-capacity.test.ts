@@ -151,6 +151,15 @@ describe("weeklyFreePct", () => {
     expect(weeklyFreePct(failoverLimits({ claude: 79, codex: 23 }), "codex")).toBe(23);
   });
 
+  it("treats a present contract with a null week as unmeasured", () => {
+    // Must match src/provider-failover.ts: the contract is authoritative wherever present, so a
+    // null week means "never confirmed", not "use the computed estimate".
+    const l = failoverLimits({ claude: 79, codex: 23 });
+    l.observed = { session5h: null, week: null };
+    expect(weeklyFreePct(l, "claude")).toBeNull();
+    expect(providerFailoverOffer(l, "codex", READY)).toBeNull();
+  });
+
   it("is null when the provider has no weekly window", () => {
     expect(weeklyFreePct(failoverLimits({ claude: null, codex: 23 }), "claude")).toBeNull();
     expect(weeklyFreePct(null, "claude")).toBeNull();

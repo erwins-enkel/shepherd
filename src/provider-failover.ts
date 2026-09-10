@@ -29,7 +29,7 @@ import {
   type DiagnosticsSnapshot,
   type ProviderFailoverStatus,
 } from "./types";
-import type { UsageLimits } from "./usage-limits";
+import type { UsageLimits, UsageObservations } from "./usage-limits";
 
 /** Remaining-capacity floor, in percent. Hardcoded on purpose — no setting, no env. */
 const PROVIDER_FAILOVER_MIN_FREE_PCT = 30;
@@ -40,15 +40,24 @@ export const PROVIDER_FAILOVER_FROM_KEY = "providerFailoverFrom";
 /**
  * Weekly remaining capacity for one provider, or null when nothing measured it.
  *
- * Claude reads the OPERATOR-VISIBLE number (provider-confirmed observation preferred over the
- * locally computed window), matching `claudeDisplayGauges` in the UI. The button sits two lines
- * under that number in the same popover; deciding on a different one would let it contradict
- * what the operator is reading.
+ * Claude reads the OPERATOR-VISIBLE number, matching `claudeDisplayGauges` in the UI: the
+ * provider-confirmed observation is authoritative wherever the contract is present, and only a
+ * payload carrying no contract at all falls back to the locally computed window. The button sits
+ * two lines under that number in the same popover; deciding on a different one would let it
+ * contradict what the operator is reading.
  */
 export function weeklyFreePct(limits: UsageLimits | null, provider: AgentProvider): number | null {
   const pct = weeklyUsedPct(limits, provider);
   // Clamped like the UI's `capacityWindows`, so an over-cap sample reads 0 % free on both sides.
   return pct === null ? null : Math.min(Math.max(100 - pct, 0), 100);
+}
+
+/** `claudeObservedWindows` from the UI's usage-gauges: the contract is picked per SOURCE, not per
+ *  field — a present `observed` object wins whole, null windows included. */
+function claudeObservations(limits: UsageLimits): UsageObservations | undefined {
+  if (limits.observed !== undefined) return limits.observed;
+  const claude = limits.providers?.find((p) => p.provider === "claude" && p.kind === "limits");
+  return claude?.kind === "limits" ? claude.observed : undefined;
 }
 
 function weeklyUsedPct(limits: UsageLimits | null, provider: AgentProvider): number | null {
@@ -57,12 +66,15 @@ function weeklyUsedPct(limits: UsageLimits | null, provider: AgentProvider): num
     const codex = limits.providers?.find((p) => p.provider === "codex" && p.kind === "tokens");
     return codex?.kind === "tokens" ? (codex.week?.pct ?? null) : null;
   }
-  const claude = limits.providers?.find((p) => p.provider === "claude" && p.kind === "limits");
-  const observed =
-    limits.observed?.week ?? (claude?.kind === "limits" ? claude.observed?.week : undefined);
-  if (observed) return observed.pct;
-  const computed = limits.week ?? (claude?.kind === "limits" ? claude.week : null);
-  return computed?.pct ?? null;
+  const observed = claudeObservations(limits);
+  // Contract present ⇒ authoritative, INCLUDING a null week: that means "the provider never
+  // confirmed this window", not "fall back to the local estimate". `limits()` always emits the
+  // contract, so before the first /usage scrape this is the live case — reading the JSONL-computed
+  // window here would call Claude measured while the popover renders it as no observation, and
+  // the two sides must never disagree about what counts. Only a payload with NO contract at all
+  // falls back, and then to the same top-level windows `gaugeList` reads.
+  if (observed !== undefined) return observed.week?.pct ?? null;
+  return limits.week?.pct ?? null;
 }
 
 /** The agent CLIs the environment probe currently reports as usable. */

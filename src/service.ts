@@ -1557,6 +1557,23 @@ const PLAN_GO_STEER_BASE =
   "the PR; keep this to the code you changed, do not expand scope. Don't re-litigate the plan; if you " +
   "hit a genuine product decision that only the user can make, ask, otherwise keep going.";
 
+/**
+ * Broadcast a session's FULL current amendment list (#2225).
+ *
+ * ONE definition of the payload contract, shared with the HTTP routes' `emitAmendments`, because
+ * the contract is load-bearing on the client: the list is always complete, so an empty array is a
+ * genuine all-clear rather than a no-op, and `AmendmentsStore.apply` REPLACES rather than merges.
+ * Retracted rows are included — the operator's record shows them struck through; only the prompt
+ * builders filter them (that is `listActiveTaskAmendments`' job).
+ */
+export function emitSessionAmendments(
+  events: Pick<EventHub, "emit"> | undefined,
+  store: Pick<SessionStore, "listTaskAmendments">,
+  id: string,
+): void {
+  events?.emit("session:amendments", { id, amendments: store.listTaskAmendments(id) });
+}
+
 /** Returns the plan-go steer, appending the draft-mode note when `draftMode` is true. */
 export function planGoSteer(draftMode: boolean): string {
   return draftMode ? `${PLAN_GO_STEER_BASE} ${DRAFT_PR_NOTE}` : PLAN_GO_STEER_BASE;
@@ -3996,7 +4013,14 @@ export class SessionService {
       // #2225: the same set already folded into the spawn prompt above. Inside this try for a
       // reason: a partial copy would leave the new session authorized by half an amendment set,
       // so a throw tears it down with everything else.
-      this.deps.store.copyTaskAmendments(newSession.id, carriedAmendments);
+      if (this.deps.store.copyTaskAmendments(newSession.id, carriedAmendments) > 0) {
+        // Broadcast, or a connected client shows the replacement with an EMPTY amendment list —
+        // no AMENDMENTS row in its task tip and no retract control — while its critic is already
+        // reading those rows and being told they govern the task. Emitted HERE rather than in the
+        // relaunch route so every caller is covered (route, relaunch-elsewhere, startVariant),
+        // and coupled to the write rather than to one entry point.
+        emitSessionAmendments(this.deps.events, this.deps.store, newSession.id);
+      }
     } catch (e) {
       // best-effort teardown so no orphaned new session leaks alongside the intact original
       try {

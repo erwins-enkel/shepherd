@@ -4,6 +4,7 @@ import type { PluginRegistry } from "./plugins/loader";
 import type { PluginInfo } from "./plugins/types";
 import type { SessionService } from "./service";
 import {
+  emitSessionAmendments,
   PREVIEW_SETUP_STEER,
   RestoreError,
   TerminalExistsError,
@@ -2798,10 +2799,11 @@ async function handleSessionReply({ req, parts, deps }: Ctx): Promise<Response |
 // never amend its own task — the property that stops this being a scope-laundering vector. Do not
 // "tidy" them into that allowlist; test/agent-ingress.test.ts fails if anyone does.
 
-/** Broadcast a session's FULL current amendment list, so an empty array is a genuine all-clear
- *  rather than a no-op (mirrors the spawn-notices payload contract). */
+/** Broadcast a session's FULL current amendment list. Delegates to the one definition in
+ *  service.ts, which `relaunch` also uses — the payload contract (always the complete list, so an
+ *  empty array is a genuine all-clear) must not have two implementations to drift between. */
 function emitAmendments(deps: AppDeps, id: string): void {
-  deps.events.emit("session:amendments", { id, amendments: deps.store.listTaskAmendments(id) });
+  emitSessionAmendments(deps.events, deps.store, id);
 }
 
 /** Deliver one amendment to the session's agent. NO gate of its own: `operatorReply` already owns

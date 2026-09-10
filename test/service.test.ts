@@ -6636,8 +6636,10 @@ function relaunchHarness(
       throw new Error("override write failed");
     };
   };
+  const emitted: { event: string; data: any }[] = [];
   const service = new SessionService({
     store,
+    events: { emit: (event, data) => emitted.push({ event, data: data as any }) },
     namer: async () => "relaunched",
     worktree: {
       ensureBaseRef: async () => {},
@@ -6668,7 +6670,7 @@ function relaunchHarness(
       })),
     readCodexAuthMode: () => authMode,
   });
-  return { service, calls, breakOverride, breakStart };
+  return { service, calls, emitted, breakOverride, breakStart };
 }
 
 /** Seed a non-archived "original" session with the per-task settings to be copied. */
@@ -8970,6 +8972,40 @@ test("relaunch that REPLACES the prompt drops the amendments — it is a differe
   expect(spawnPrompt(calls)).not.toContain("amendment to the OLD task");
   // The original keeps its record — that is where the amendment still applies.
   expect(store.listActiveTaskAmendments(orig.id)).toHaveLength(1);
+});
+
+test("the replacement's amendments are BROADCAST, not only written", async () => {
+  // Without this the client shows the replacement with an empty amendment list — no AMENDMENTS
+  // row, no retract control — while its critic is already reading those rows and being told they
+  // govern the task. The payload is the FULL list, so the client can replace rather than merge.
+  const store = new SessionStore(":memory:");
+  const { service, emitted } = relaunchHarness(store);
+  const orig = originalSession(store);
+  store.addTaskAmendment(orig.id, "first", 1000);
+  store.addTaskAmendment(orig.id, "second", 2000);
+
+  const fresh = await service.relaunch(orig.id);
+
+  const ev = emitted.filter((e) => e.event === "session:amendments");
+  expect(ev).toHaveLength(1);
+  expect(ev[0]!.data.id).toBe(fresh.id);
+  expect(ev[0]!.data.amendments.map((a: { text: string }) => a.text)).toEqual(["first", "second"]);
+});
+
+test("a relaunch that carries nothing broadcasts nothing", async () => {
+  const store = new SessionStore(":memory:");
+  const { service, emitted } = relaunchHarness(store);
+  await service.relaunch(originalSession(store).id);
+  expect(emitted.filter((e) => e.event === "session:amendments")).toEqual([]);
+});
+
+test("a VARIANT broadcasts no amendments either — it carries none by design", async () => {
+  const store = new SessionStore(":memory:");
+  const { service, emitted } = relaunchHarness(store);
+  const orig = originalSession(store);
+  store.addTaskAmendment(orig.id, "mid-flight widening", 1000);
+  await service.startVariant(orig.id, { model: "opus" });
+  expect(emitted.filter((e) => e.event === "session:amendments")).toEqual([]);
 });
 
 test("provider REPLACE folds the session's own amendments into the fresh agent's prompt", async () => {

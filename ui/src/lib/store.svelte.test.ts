@@ -1538,6 +1538,27 @@ test("session:amendments routes to the amendments store", async () => {
   expect(amendments.forSession("s1").map((a) => a.text)).toEqual(["widen it"]);
 });
 
+test("amendments arriving BEFORE session:new survive — relaunch emits in that order", () => {
+  // `relaunch` broadcasts the copied amendments from the service; the route emits `session:new`
+  // afterwards. The amendments cache is keyed by id and independent of the sessions array, so the
+  // earlier event must not be lost.
+  const s = new HerdStore();
+  s.apply({
+    event: "session:amendments",
+    data: {
+      id: "fresh",
+      amendments: [
+        { id: "a1", sessionId: "fresh", text: "carried over", createdAt: 1000, retractedAt: null },
+      ],
+    },
+  });
+  s.apply({
+    event: "session:new",
+    data: { id: "fresh", name: "relaunched", prompt: "do the thing" } as never,
+  });
+  expect(amendments.forSession("fresh").map((a) => a.text)).toEqual(["carried over"]);
+});
+
 test("archiving a session drops its amendments from the live cache", () => {
   const s = new HerdStore();
   amendments.apply({

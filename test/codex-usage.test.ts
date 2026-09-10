@@ -180,6 +180,28 @@ test("parseCodexRateLimits reads the latest primary/secondary windows", () => {
   });
 });
 
+test("parseCodexRateLimits skips a newer foreign bucket and warns once per id", () => {
+  const resetSec = Math.floor(NOW / 1000) + 3600;
+  const foreign = readFileSync(
+    join(import.meta.dir, "fixtures", "codex-usage", "foreign-bucket-rollout.jsonl"),
+    "utf8",
+  ).trim();
+  const content = [rolloutLine(12, 77, resetSec), foreign].join("\n");
+  const warnings: string[] = [];
+  const originalWarn = console.warn;
+  console.warn = (...args: unknown[]) => void warnings.push(args.map(String).join(" "));
+  try {
+    expect(parseCodexRateLimits(content, NOW)).toMatchObject({
+      session5h: { pct: 12, resetAt: resetSec * 1000 },
+      week: { pct: 77, resetAt: (resetSec + 600) * 1000 },
+    });
+    expect(parseCodexRateLimits(content, NOW)?.week?.pct).toBe(77);
+  } finally {
+    console.warn = originalWarn;
+  }
+  expect(warnings).toEqual(["[codex-usage] ignoring unrecognized rate-limit id: codex_bengalfox"]);
+});
+
 test("parseCodexRateLimits classifies a real weekly-only primary window as weekly", () => {
   const content = readFileSync(
     join(import.meta.dir, "fixtures", "codex-usage", "weekly-primary-rollout.jsonl"),
@@ -306,15 +328,14 @@ test("parseCodexRateLimits ignores non-token-count payloads that mention rate_li
   });
 });
 
-test("readCodexRateLimits skips files without a reading and uses the first that has one", () => {
+test("readCodexRateLimits skips a foreign bucket file and uses the first Codex reading", () => {
   const dir = tempDir();
-  const empty = join(dir, "empty.jsonl");
   const withData = join(dir, "with-data.jsonl");
+  const foreign = join(import.meta.dir, "fixtures", "codex-usage", "foreign-bucket-rollout.jsonl");
   const resetSec = Math.floor(NOW / 1000) + 3600;
-  writeFileSync(empty, '{"type":"event_msg","payload":{"type":"agent_message"}}\n');
   writeFileSync(withData, rolloutLine(50, 20, resetSec));
 
-  expect(readCodexRateLimits([empty, withData, "/no/such/file.jsonl"], NOW)).toMatchObject({
+  expect(readCodexRateLimits([foreign, withData, "/no/such/file.jsonl"], NOW)).toMatchObject({
     session5h: { pct: 50, resetAt: resetSec * 1000 },
     week: { pct: 20, resetAt: (resetSec + 600) * 1000 },
     filesScanned: 2,

@@ -3366,3 +3366,36 @@ test("#2224: a refused spawn on a NON-approved gate still publishes the error ro
   expect(h.store.gate.decision).toBe("error");
   expect(h.store.gate.summaryCode).toBe("membrane-launch");
 });
+
+test("#2224: a refused spawn on a RE-GATED session keeps the re-gate marker", async () => {
+  // The chain the marker exists to survive: a re-gated session (approved false, approvedAt stamped,
+  // back in planning) revises its plan, the settle edge re-considers it, and the membrane refuses
+  // the spawn. A fresh gate literal that omits approvedAt NULLs the column — and the next git poll's
+  // advanceToExecutionOnPr then flips the session back to "executing" holding an un-approved error
+  // gate, undoing the re-gate exactly as if nobody had re-gated it.
+  const regated = approvedGate({
+    decision: "changes_requested",
+    approved: false,
+    approvedAt: 500,
+    livePlanHash: "REWRITTEN",
+    round: 1,
+    findings: ["restore the migration step"],
+  });
+  const h = harness({
+    store: { getPlanGate: () => regated },
+    detectBackend: () => "bwrap",
+    membraneLaunch: async () => ({ state: "broken", detail: "mise EROFS" }) as const,
+    membraneEnv: () => ({
+      claudeDir: "/fake/.claude",
+      home: "/fake/home",
+      nodeBinReal: "/fake/bin/node",
+    }),
+  });
+  expect(await h.svc.consider(planningSession() as any)).toBe("skipped");
+  // The error row IS published (this gate was never approved — nothing to protect)...
+  expect(h.store.gate.decision).toBe("error");
+  expect(h.store.gate.approved).toBe(false);
+  // ...but it must not forget that this session was deliberately re-gated.
+  expect(h.store.gate.approvedAt).toBe(500);
+  expect(h.store.gate.livePlanHash).toBe("REWRITTEN");
+});

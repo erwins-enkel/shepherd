@@ -1665,6 +1665,15 @@ export class PlanGateService {
       approved: false,
       plan,
       answeredQuestionKeys: prior?.answeredQuestionKeys ?? [],
+      // CARRIED, not defaulted (#2224) — this is a fresh literal, so an omitted field NULLs the
+      // column. `approvedAt` is what marks a deliberately re-gated session, and dropping it here
+      // un-suppresses `advanceToExecutionOnPr`: the very next git poll would flip that session back
+      // to "executing" holding an un-approved `error` gate. Reachable without any approved prior —
+      // a re-gated session revises its plan, the settle edge re-considers, and the membrane refuses.
+      // `livePlanHash` rides along for the same reason buildGate carries it: a fresh row must not
+      // silently forget state this refusal knows nothing about.
+      approvedAt: prior?.approvedAt ?? null,
+      livePlanHash: prior?.livePlanHash ?? null,
       updatedAt: this.now(),
     };
     this.deps.store.putPlanGate(gate);

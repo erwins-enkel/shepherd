@@ -407,20 +407,27 @@ function recordRunCompleted(only: string | null | undefined): void {
 
 /** Bound on ONE scenario, and on the whole run. Both exist so the harness always
  *  finishes on its OWN terms: the service's `TimeoutStartSec` is a backstop that
- *  must never be reached, because systemd's SIGTERM is a dirty kill — in Aug 2026
- *  it left a lock file and a running instance behind and disabled the nightly for
+ *  must never be reached, because systemd's SIGTERM is a dirty kill — while Bun
+ *  awaits a spawned child (which the harness does for nearly its whole runtime) a
+ *  SIGTERM never reaches the JS handler, so no cleanup runs at all. In Aug 2026
+ *  that left a lock file and a running instance behind and disabled the nightly for
  *  21 days. The harness's previous innermost bound was per `incus` CALL (20 min);
  *  with many calls per scenario and ten scenarios, its own worst case sat far above
  *  the 2h unit timeout, so systemd was GUARANTEED to win on a slow night.
  *
- *  The cap is generous against real observation: a healthy full run is ~14 min, a
- *  slow night ~61 min, and the worst single scenario ever seen took 26 min (the
- *  wall-clock is in-container package installs, so it tracks network weather, not
- *  anything the harness controls). 30 min per scenario / 3h per run therefore only
- *  trips when a night is genuinely pathological rather than merely slow. */
+ *  The caps are sized to the runtime the harness ACTUALLY has, not the one it ought
+ *  to have. A healthy full run used to be ~14 min; it is now ~4h (every scenario
+ *  20-28 min, see #2229) because the time is spent on in-container package installs
+ *  and image pulls, which the harness does not control. Sizing these to the old
+ *  runtime would cut off a legitimate, working run and report it NOT VERIFIED —
+ *  a red release gate on a healthy harness. **Bring both numbers back down (and
+ *  `TimeoutStartSec` with them) once #2229 restores the runtime.**
+ *
+ *  Because the per-scenario cap is `min(cap, budget remaining)`, total runtime is
+ *  bounded by the run budget itself; the backstop only needs headroom for teardown. */
 const SCENARIO_TIMEOUT_MS =
-  Number(process.env.SHEPHERD_ONBOARDING_SCENARIO_TIMEOUT_MS) || 30 * 60_000;
-const RUN_BUDGET_MS = Number(process.env.SHEPHERD_ONBOARDING_BUDGET_MS) || 3 * 60 * 60_000;
+  Number(process.env.SHEPHERD_ONBOARDING_SCENARIO_TIMEOUT_MS) || 45 * 60_000;
+const RUN_BUDGET_MS = Number(process.env.SHEPHERD_ONBOARDING_BUDGET_MS) || 6 * 60 * 60_000;
 
 /** A scenario the run never got a verdict on. It is NOT green and NOT a launch
  *  failure, so it gates red: an unverified gate scenario must never read as a pass.

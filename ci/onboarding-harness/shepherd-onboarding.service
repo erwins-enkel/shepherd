@@ -15,8 +15,12 @@ Environment=SHEPHERD_ONBOARDING_REPORT_ISSUE=1
 # SIGTERM never reaches the JS handler, so no cleanup runs at all. That is what
 # happened on 2026-08-20 at the old 2h — which sat BELOW the harness's worst case,
 # making the dirty kill the guaranteed outcome on a slow night rather than an edge
-# case. The harness now caps itself at 3h per run + 30m per scenario, so 5h leaves
+# case. The harness now caps itself at 6h per run + 45m per scenario, so 7h leaves
 # room for the final sweep and should never actually be reached.
-TimeoutStartSec=5h
+#
+# Those numbers are sized to the runtime the harness ACTUALLY has: a full run was
+# ~14 min until Aug 2026 and is now ~4h (see #2229). Bring this back down with the
+# harness's own budget once that is fixed — it only has to stay above it.
+TimeoutStartSec=7h
 # Give the teardown room to destroy up to ten instances if a stop ever does arrive.
 TimeoutStopSec=5min

@@ -128,9 +128,12 @@ units, not raw token counts, reflect true usage.
 
 ### Reasoning effort
 
-A cost/quality dial (`low`, `medium`, `high`, `xhigh`, `max`) that sets how much
-the model reasons before answering — higher effort spends more tokens for deeper
-reasoning, lower is faster and cheaper. Selectable per session in the New Task
+A cost/quality dial (`low`, `medium`, `high`, `xhigh`, `max`, `ultra`) that sets
+how much the model reasons before answering — higher effort spends more tokens
+for deeper reasoning, lower is faster and cheaper. `max` allows deeper
+reasoning; `ultra` also uses automatic subagents. Which levels are on offer
+depends on the CLI and the model: Claude stops at `max`, and among the curated
+Codex models only the newest ones reach `ultra`. Selectable per session in the New Task
 picker — and when spawning a variant, comparison, or replacement — with a per-repo
 or global default in Settings, plus a per-role override for each satellite pass
 (critic, planner, recap, doc-agent, distiller, optimizer, merge-suggester, namer,

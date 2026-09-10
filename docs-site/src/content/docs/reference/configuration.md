@@ -242,7 +242,7 @@ one (a per-repo in-flight guard means at most one run per repo at a time):
 | `SHEPHERD_DOC_AGENT_ACT` | `0` (off) | **Phase-1 act.** Set `1` to escalate finalize to actually commit, push, and open the **pull request**. Meaningful only when `SHEPHERD_DOC_AGENT` is also on |
 | `SHEPHERD_DOC_AGENT_CLI` | `inherit` | Agent CLI for the doc-agent spawn: `inherit` follows the global default provider, or pin `claude` / `codex`. Seeds a fresh DB; persisted + UI-configurable |
 | `SHEPHERD_DOC_AGENT_MODEL` | `default` | Model for the doc-agent spawn: `default` follows the global default model, or pin a `<model alias>`. Seeds a fresh DB; persisted + UI-configurable |
-| `SHEPHERD_DOC_AGENT_EFFORT` | `low` | Reasoning-effort tier for the doc-agent spawn: `default` follows the CLI's own effort, or pin a tier (`low` / `medium` / `high` / `xhigh` / `max`). Seeds a fresh DB; persisted + UI-configurable |
+| `SHEPHERD_DOC_AGENT_EFFORT` | `low` | Reasoning-effort tier for the doc-agent spawn: `default` follows the CLI's own effort, or pin a tier (`low` / `medium` / `high` / `xhigh` / `max` / `ultra` — `ultra` is Codex-only). Seeds a fresh DB; persisted + UI-configurable |
 | `SHEPHERD_DOC_AGENT_NIGHTLY_HOUR` | `3` | Local hour (0–23) at/after which the nightly sweep evaluates each repo; invalid values fall back to `3` |
 
 ## Maintain loop (self-health bands)
@@ -330,7 +330,7 @@ its worktree reclaimed by the boot reconcile; the breach is re-diagnosed on the 
 | `SHEPHERD_MAINTAIN_HOUR` | `4` | Local hour (0–23) at/after which the once-a-day band sweep may run — an hour after the doc agent's nightly so the two spawns don't land together. Invalid values fall back to `4` |
 | `SHEPHERD_MAINTAIN_CLI` | `inherit` | Agent CLI for the diagnosis spawn: `inherit` follows the global default provider, or pin `claude` / `codex`. Env-only (not persisted or UI-configurable) |
 | `SHEPHERD_MAINTAIN_MODEL` | `default` | Model for the diagnosis spawn: `default` follows the global default model, or pin a `<model alias>`. Env-only |
-| `SHEPHERD_MAINTAIN_EFFORT` | `default` | Reasoning-effort tier for the diagnosis spawn: `default` follows the CLI's own effort, or pin a tier (`low` / `medium` / `high` / `xhigh` / `max`). Env-only |
+| `SHEPHERD_MAINTAIN_EFFORT` | `default` | Reasoning-effort tier for the diagnosis spawn: `default` follows the CLI's own effort, or pin a tier (`low` / `medium` / `high` / `xhigh` / `max` / `ultra` — `ultra` is Codex-only). Env-only |
 | `SHEPHERD_MAINTAIN_THRESHOLDS` | _(unset)_ | JSON object deep-merged over the threshold table above, so a recalibration ships without a deploy. Parsed field-by-field and **fail-soft**: an unparseable value or a typo in one number falls back to that default rather than disarming a band. E.g. `{"critic_error_rate":{"tier1":0.2}}`. Retunes numbers only — a band's tier-3 fix class is not overridable, because `SHEPHERD_MAINTAIN_PR` is the one switch that disarms tier 3 |
 
 ## Anonymous usage telemetry

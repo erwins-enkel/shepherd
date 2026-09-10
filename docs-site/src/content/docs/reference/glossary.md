@@ -46,6 +46,18 @@ with you, and no automatic merge is possible at all. On Codex it applies only
 when Shepherd owns an isolated worktree, and stands down entirely without one —
 its resume path would otherwise target a sibling session in the shared directory.
 
+### Task amendment
+
+Operator-authored text added to a running task after it started, via **Amend
+task…** in a session's card menu. It ranks alongside the original task and is
+shown to the critic, the plan reviewer and the recap, so it can widen or narrow
+what the work may contain — the original task itself stays on the record
+unchanged. It cannot excuse a bug or a security problem, and an agent can never
+write one: the routes that record an amendment are closed to agent ingress.
+Amendments are append-only — retracting one stops it reaching every prompt but
+leaves it in the record — and you can optionally send an amendment straight to
+the live agent as you record it.
+
 ### Critic
 
 Shepherd's isolated, read-only review agent that inspects a PR's diff once CI is

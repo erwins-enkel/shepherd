@@ -163,3 +163,22 @@ describe("CardMenu stop action", () => {
     expect(onstop).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("CardMenu amend action (#2225)", () => {
+  it("renders the Amend item only when onamend is provided", async () => {
+    const { rerender } = await render(CardMenu, { props: base() });
+    expect(page.getByRole("menuitem", { name: m.cardmenu_amend() }).query()).toBeNull();
+
+    await rerender(base({ onamend: vi.fn() }));
+    await expect
+      .element(page.getByRole("menuitem", { name: m.cardmenu_amend() }))
+      .toBeInTheDocument();
+  });
+
+  it("fires onamend on a SINGLE click — the dialog's own submit is the confirmation", async () => {
+    const onamend = vi.fn();
+    render(CardMenu, { props: base({ onamend }) });
+    await page.getByRole("menuitem", { name: m.cardmenu_amend() }).click();
+    expect(onamend).toHaveBeenCalledTimes(1);
+  });
+});

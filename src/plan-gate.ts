@@ -47,6 +47,7 @@ import {
   type ClampRecord,
 } from "./prompt-fit";
 import { UNTRUSTED_CONTENT_DIRECTIVE, fenceUntrusted } from "./untrusted";
+import { amendmentBlock, type TaskAmendment } from "./task-amendments";
 import { type OperatorLanguage } from "./operator-language";
 import { resumeThenSteer } from "./resume-then-steer";
 // The ROUND block + effective-round arithmetic are shared verbatim with the PR critic (#1948) so the
@@ -250,7 +251,14 @@ export function planReviewPrompt(
    *  round the caller already computed (see {@link effectiveRound}); absent ⇒ no ROUND block, so
    *  every existing caller and test keeps a byte-identical prompt. `planClamped` (#1944) rides here
    *  for the same reason. */
-  opts: { round?: number; cap?: number; planClamped?: boolean } = {},
+  opts: {
+    round?: number;
+    cap?: number;
+    planClamped?: boolean;
+    /** #2225: the operator's standing task amendments. Absent/empty ⇒ no block, so an un-amended
+     *  session's plan-review prompt stays byte-identical. */
+    amendments?: readonly TaskAmendment[];
+  } = {},
 ): string {
   const lines = [
     "You are an adversarial plan reviewer. Read-only — do NOT modify, build, commit, or run anything.",
@@ -296,6 +304,10 @@ export function planReviewPrompt(
     "TASK:",
     task,
     "",
+    // #2225: directly under the task, above every fenced block — the operator's amendments ARE task
+    // ground truth, and a plan written after one has to satisfy the amended task, not the original.
+    // No `priorFindings` flag: this prompt's re-raise rules are its own (see below).
+    ...amendmentBlock(opts.amendments ?? []),
   ];
   if (issueBody && issueBody.trim()) {
     lines.push(
@@ -516,6 +528,7 @@ export interface PlanGateServiceDeps extends MembraneSeams {
   store: Pick<
     SessionStore,
     | "getPlanGate"
+    | "listActiveTaskAmendments"
     | "putPlanGate"
     | "dropPlanGate"
     | "snapshotPlanGates"
@@ -883,6 +896,9 @@ export class PlanGateService {
       this.cap,
     );
     const language = this.deps.operatorLanguage?.() ?? "en";
+    // #2225: resolved ONCE here with the rest of the per-run context — the clamp ladder re-composes
+    // this prompt many times while binary-searching, and this is a store read.
+    const amendments = this.deps.store.listActiveTaskAmendments(session.id);
     return (plan, planClamped = false) =>
       planReviewPrompt(
         session.prompt,
@@ -892,7 +908,7 @@ export class PlanGateService {
         language,
         anchor.anchored ? { sha: anchor.sha, ahead: anchor.ahead } : undefined,
         staleness && staleness.behind > 0 ? staleness : undefined,
-        { round, cap: this.cap, planClamped },
+        { round, cap: this.cap, planClamped, amendments },
       );
   }
 

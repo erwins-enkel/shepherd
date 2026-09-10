@@ -51,6 +51,7 @@ import {
   type EpicBaseDelta,
   type EpicContext,
 } from "./critic-core";
+import type { TaskAmendment } from "./task-amendments";
 import { scrubStaleVerdictArtifacts } from "./codex-last-message";
 // Generic secret-redactor for a bounded diagnostic string, despite the recap-flavoured name — the
 // critic's pane tail gets the same treatment before it reaches the log.
@@ -293,6 +294,7 @@ export interface ReviewServiceDeps extends MembraneSeams {
     SessionStore,
     | "getRepoConfig"
     | "getPlanGate"
+    | "listActiveTaskAmendments"
     | "getReview"
     | "putReview"
     | "bumpReviewHead"
@@ -687,6 +689,9 @@ export class ReviewService {
     // the files the diff actually touches. Synchronous store read, resolved here (not cached from
     // the criticEnabled gate) so a learnings toggle takes effect on the next review round.
     const houseRules = this.repoHouseRules(session.repoPath, files);
+    // #2225: the operator's standing amendments to the task. Synchronous store read, resolved here
+    // with the rest of the per-run context; retracted ones are already excluded at the source.
+    const amendments = this.deps.store.listActiveTaskAmendments(session.id);
     // #1948: the rework round the critic is briefed with.
     const round = this.briefedRound(prior);
     const composePrompt = this.criticPromptComposer(
@@ -700,6 +705,7 @@ export class ReviewService {
       round,
       houseRules,
       planCtx.approved,
+      amendments,
     );
     const argvFor = (p: string): string[] => this.criticArgvFor(p, reviewerEnv, criticSessionId);
     const argv = argvFor(
@@ -1015,6 +1021,7 @@ export class ReviewService {
     round: number,
     houseRules: string | null,
     planApproved: boolean,
+    amendments: readonly TaskAmendment[],
   ): (v: ComposeVars) => string {
     // Shared with the plan reviewer: same read-only injection-contained sandbox (the PR diff is
     // UNTRUSTED). The prompt is the only critic-specific part. `diffBase` is the resolved base
@@ -1030,6 +1037,8 @@ export class ReviewService {
     // Absent plan + no epic + smellLens off ⇒ the non-epic session-critic prompt is unchanged.
     // #2154: `reviewPolicy` is a ladder-varied argument (it is clampable); `houseRules` is captured
     // (it is already bounded by the house-rules char budget, so it never clamps).
+    // #2225: `amendments` is captured for the same reason — operator ground truth, NOT clampable,
+    // and already bounded by AMENDMENT_MAX_CHARS × the block's own item cap. See fitCriticPrompt.
     return (v) =>
       reviewPrompt(diffBase, session.prompt, priorFindings, authorNotes, issueBody, epic, {
         plan: v.plan,
@@ -1042,6 +1051,7 @@ export class ReviewService {
         planCurrentClamped: v.planCurrentClamped,
         reviewPolicy: v.reviewPolicy,
         houseRules,
+        amendments,
       });
   }
 
@@ -2151,7 +2161,10 @@ function defaultReadPlan(worktreePath: string): string | null {
  *  row is built only from this round's output, and `seenNoteIds` is derived before assembly and
  *  already marks those notes delivered, so a dropped one could never be re-raised or re-fed. The
  *  house-rules block (#2154) is likewise not listed: it is already bounded by the house-rules char
- *  budget. `diffBase` is a SHA, not the diff.
+ *  budget, and neither are the operator's task amendments (#2225) — those ARE the third piece of
+ *  human-authored ground truth alongside `task` and `issueBody`, so truncating one would silently
+ *  narrow an authorization the operator gave; they are bounded at the point of entry instead
+ *  (AMENDMENT_MAX_CHARS, times the block's own item cap). `diffBase` is a SHA, not the diff.
  *
  *  ORDER IS THE POLICY DECISION: the plan blocks give way first, the edited working file before the
  *  approved snapshot. They are the larger and more redundant blocks (the critic can re-derive intent

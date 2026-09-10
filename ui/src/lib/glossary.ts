@@ -61,6 +61,12 @@ const glossary: readonly GlossaryTerm[] = [
     },
   },
   {
+    id: "task-amendment",
+    kind: "internal",
+    termKey: "gloss_task_amendment_term",
+    bodyKey: "gloss_task_amendment_def",
+  },
+  {
     id: "critic",
     kind: "internal",
     termKey: "gloss_critic_term",

@@ -346,6 +346,15 @@ export interface RelaunchOverrides {
   epicAuthoring?: boolean;
   /** Epic-landing-PR repair task kind override; absent → keep original. */
   landingRepair?: boolean;
+  /** #2225: carry the original's standing operator task amendments onto the replacement. Defaults
+   *  to TRUE — a relaunch continues the SAME task, so the operator's amendments still apply.
+   *  `startVariant` sets it false: a variant is a comparison arm and must run the ORIGINAL task, or
+   *  the arms are not comparable.
+   *
+   *  INTERNAL ONLY. Deliberately absent from `RELAUNCH_ALLOWED_KEYS` and from the `fields` table in
+   *  `validateRelaunchOverrides`, so a wire client that sends it gets the usual `unknown key`
+   *  rejection: whether amendments carry is Shepherd's decision, not a caller's. */
+  carryAmendments?: boolean;
 }
 
 /** Selectable Claude model aliases; absent/"default" means no --model flag.

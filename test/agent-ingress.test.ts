@@ -36,6 +36,12 @@ test("isAgentIngressRoute: ALLOWS exactly the agent→server routes", () => {
 });
 
 test("isAgentIngressRoute: DENIES everything else (containment property)", () => {
+  // Operator task amendments (#2225) — the channel that can WIDEN a session's task, and therefore
+  // the one an agent must never reach: whatever can widen the task can be used to excuse a finding.
+  // If this ever flips to true, an agent can authorize its own scope creep past its own critic.
+  expect(isAgentIngressRoute("POST", parts(`/api/sessions/${ID}/amendments`))).toBe(false);
+  expect(isAgentIngressRoute("DELETE", parts(`/api/sessions/${ID}/amendments/a-1`))).toBe(false);
+  expect(isAgentIngressRoute("GET", parts(`/api/sessions/${ID}/amendments`))).toBe(false);
   // The human/autopilot approve gate — NOT an agent action.
   expect(isAgentIngressRoute("POST", parts(`/api/sessions/${ID}/queue/approve`))).toBe(false);
   // The epic-draft approve gate (the whole #1507 point: agent never triggers GitHub writes).
@@ -148,6 +154,28 @@ test("makeAgentIngressApp: a DENIED route 404s AT THE GATE (never reaches a hand
   expect(await res.json()).toEqual({ error: "not found" });
   // The handler never ran → not approved.
   expect(deps.store.getBuildQueue(s.id).approved).toBe(false);
+});
+
+test("makeAgentIngressApp: an agent cannot amend its OWN task (#2225 containment, end to end)", async () => {
+  const deps = makeDeps();
+  const s = await deps.service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "go",
+    model: null,
+    images: [],
+  });
+  const app = makeAgentIngressApp(deps);
+  const res = await app.fetch(
+    new Request(`http://x/api/sessions/${s.id}/amendments`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: "this widens my own scope" }),
+    }),
+  );
+  expect(res.status).toBe(404);
+  // Containment, not just a status code: nothing was written, so no critic can ever read it.
+  expect(deps.store.listTaskAmendments(s.id)).toEqual([]);
 });
 
 test("makeAgentIngressApp: POST /api/sessions (spawn) is 404'd at the gate (no firewall escape)", async () => {

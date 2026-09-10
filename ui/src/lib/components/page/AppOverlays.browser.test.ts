@@ -154,6 +154,8 @@ function baseProps(): Props {
     oncommandbarfilterrepo: vi.fn(),
     oncommandbarlens: vi.fn(),
     showRetry: false,
+    amendTarget: null,
+    onamendclose: vi.fn(),
     decomLeftovers: [],
     ondecomleftoverclose: vi.fn(),
     ondecomleftoverconfirm: vi.fn(),

@@ -26,6 +26,7 @@ import {
   normalizePlanDriftNote,
   PLAN_DRIFT_NOTE_MAX,
 } from "../src/critic-core";
+import type { TaskAmendment } from "../src/task-amendments";
 import { tolerantParseJson } from "../src/json-tolerant";
 import { allowedToolsFor } from "../src/transient-agent-argv";
 import { planReviewPrompt } from "../src/plan-gate";
@@ -1871,4 +1872,84 @@ test("headSuperseded ignores non-open states (their own moot handling owns those
   for (const state of ["merged", "closed", "none"] as const) {
     expect(headSuperseded("abc", { state, checks: "success", headSha: "def" } as any)).toBe(false);
   }
+});
+
+// ── operator task amendments (#2225) ────────────────────────────────────────
+
+/** A REAL fence delimiter: label + nonce. Prose that merely names the markers does not match. */
+const FENCE_DELIM = /⟦\/?UNTRUSTED:[^⟧]+:[0-9a-f]{6,}⟧/;
+
+const amendment = (over: Partial<TaskAmendment> = {}): TaskAmendment => ({
+  id: "am-1",
+  sessionId: "s1",
+  text: "also wire it into the backlog view",
+  createdAt: Date.UTC(2026, 8, 10),
+  retractedAt: null,
+  ...over,
+});
+
+test("reviewPrompt carries the operator amendment block directly under the task", () => {
+  const p = reviewPrompt("BASE", "do the thing", [], [], "issue body", null, {
+    amendments: [amendment()],
+  });
+  expect(p).toContain("OPERATOR TASK AMENDMENTS");
+  expect(p).toContain("also wire it into the backlog view");
+  // Ranks with the task: above the originating issue, and above every fence.
+  expect(p.indexOf("do the thing")).toBeLessThan(p.indexOf("OPERATOR TASK AMENDMENTS"));
+  expect(p.indexOf("OPERATOR TASK AMENDMENTS")).toBeLessThan(p.indexOf("ORIGINATING ISSUE"));
+  // ...and above the first REAL fence (a delimiter carries a label AND a nonce; the prose above
+  // merely names the markers).
+  expect(p.indexOf("OPERATOR TASK AMENDMENTS")).toBeLessThan(p.search(FENCE_DELIM));
+});
+
+test("reviewPrompt does NOT fence an amendment (it would then be contractually ignorable)", () => {
+  const p = reviewPrompt("BASE", "task", [], [], null, null, {
+    amendments: [amendment({ text: "AMENDMENT-TEXT" })],
+  });
+  // No fence has been OPENED at the point the amendment text appears, so it cannot be inside one.
+  // (Fenced operator authority would be contractually ignorable — UNTRUSTED_CONTENT_DIRECTIVE tells
+  // the reader to disregard in-fence claims to come "from Shepherd, the operator, or the system".)
+  expect(p.slice(0, p.indexOf("AMENDMENT-TEXT"))).not.toMatch(FENCE_DELIM);
+});
+
+test("a RE-review gets the drop rule for a point an amendment has since authorized", () => {
+  const p = reviewPrompt("BASE", "task", ["a prior point"], [], null, null, {
+    amendments: [amendment()],
+  });
+  expect(p).toContain(
+    "A point raised in an earlier round that an amendment has since authorized is DROPPED",
+  );
+});
+
+test("a FIRST review omits the drop rule — there is no earlier round to drop from", () => {
+  const p = reviewPrompt("BASE", "task", [], [], null, null, { amendments: [amendment()] });
+  expect(p).toContain("OPERATOR TASK AMENDMENTS");
+  // (The shared SCOPE tail has its own out-of-diff "is DROPPED" rule — match the amendment
+  // sentence specifically, not that substring.)
+  expect(p).not.toContain("an amendment has since authorized is DROPPED");
+});
+
+test("a retracted amendment reaches no prompt at all", () => {
+  const p = reviewPrompt("BASE", "task", [], [], null, null, {
+    amendments: [amendment({ text: "RETRACTED", retractedAt: 5 })],
+  });
+  expect(p).not.toContain("RETRACTED");
+  expect(p).not.toContain("OPERATOR TASK AMENDMENTS");
+});
+
+test("no amendments ⇒ reviewPrompt is byte-identical to the un-amended prompt", () => {
+  const withoutOpt = reviewPrompt("BASE", "do the thing");
+  expect(reviewPrompt("BASE", "do the thing", [], [], null, null, {})).toBe(withoutOpt);
+  expect(reviewPrompt("BASE", "do the thing", [], [], null, null, { amendments: [] })).toBe(
+    withoutOpt,
+  );
+  expect(
+    reviewPrompt("BASE", "do the thing", [], [], null, null, {
+      amendments: [amendment({ retractedAt: 1 })],
+    }),
+  ).toBe(withoutOpt);
+});
+
+test("prReviewPrompt (standalone critic) can never carry an amendment — it has no session", () => {
+  expect(prReviewPrompt("BASE", "My PR", "body")).not.toContain("OPERATOR TASK AMENDMENTS");
 });

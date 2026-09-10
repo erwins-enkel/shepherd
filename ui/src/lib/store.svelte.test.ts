@@ -1,4 +1,5 @@
 import { test, expect, vi, afterEach } from "vitest";
+import { amendments } from "./amendments.svelte";
 import { HerdStore } from "./store.svelte";
 import { toasts } from "./toasts.svelte";
 
@@ -1521,4 +1522,30 @@ test("spawn:progress lands as transient state for the New Task dialog", () => {
     },
   });
   expect(s.spawnProgress?.completed).toHaveLength(2);
+});
+
+test("session:amendments routes to the amendments store", async () => {
+  const s = new HerdStore();
+  s.apply({
+    event: "session:amendments",
+    data: {
+      id: "s1",
+      amendments: [
+        { id: "a1", sessionId: "s1", text: "widen it", createdAt: 1000, retractedAt: null },
+      ],
+    },
+  });
+  expect(amendments.forSession("s1").map((a) => a.text)).toEqual(["widen it"]);
+});
+
+test("archiving a session drops its amendments from the live cache", () => {
+  const s = new HerdStore();
+  amendments.apply({
+    id: "s1",
+    amendments: [
+      { id: "a1", sessionId: "s1", text: "widen it", createdAt: 1000, retractedAt: null },
+    ],
+  });
+  s.apply({ event: "session:archived", data: { id: "s1" } });
+  expect(amendments.forSession("s1")).toEqual([]);
 });

@@ -55,6 +55,7 @@ import type {
 import type { VisualBlock } from "./visual-blocks";
 import type { ManualStep } from "./manual-steps";
 import type { PromptBlockMeasure } from "./prompt-budget";
+import type { TaskAmendment } from "./task-amendments";
 import type {
   CapRow,
   CapStore,
@@ -959,6 +960,23 @@ function parsePostMergeStepsJson(raw: string | null | undefined): PostMergeStep[
   }
 }
 
+/** Raw `task_amendments` row (issue #2225). SQLite hands back `retractedAt` as `number | null`. */
+type TaskAmendmentRow = {
+  id: string;
+  sessionId: string;
+  text: string;
+  createdAt: number;
+  retractedAt: number | null;
+};
+
+const hydrateTaskAmendment = (r: TaskAmendmentRow): TaskAmendment => ({
+  id: r.id,
+  sessionId: r.sessionId,
+  text: r.text,
+  createdAt: r.createdAt,
+  retractedAt: r.retractedAt ?? null,
+});
+
 /** Raw `session_prompt_budget` row joined with its session (issue #1999). */
 type PromptBudgetRow = {
   sessionId: string;
@@ -1393,6 +1411,19 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       livePlanHash TEXT,
       approvedAt INTEGER)`);
     this.migratePlanGateColumns();
+    // Operator task amendments (#2225). APPEND-ONLY BY DESIGN: no method anywhere updates `text`,
+    // so an authorization record can never be rewritten after the fact. `retractedAt` is the soft
+    // delete — a retracted row stops reaching every prompt but stays in the operator's record.
+    // A fresh table (not a sessions column), so the generic `update()` whitelist is not in play.
+    this.db.run(`CREATE TABLE IF NOT EXISTS task_amendments (
+      id TEXT PRIMARY KEY,
+      sessionId TEXT NOT NULL,
+      text TEXT NOT NULL,
+      createdAt INTEGER NOT NULL,
+      retractedAt INTEGER)`);
+    this.db.run(
+      `CREATE INDEX IF NOT EXISTS idx_task_amendments_session ON task_amendments (sessionId, createdAt)`,
+    );
     this.db.run(`CREATE TABLE IF NOT EXISTS recaps (
       sessionId TEXT PRIMARY KEY,
       state TEXT NOT NULL,
@@ -3609,6 +3640,114 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     this.db.run(`DELETE FROM spawn_notices WHERE sessionId = ?`, [sessionId]);
   }
 
+  // ── operator task amendments (issue #2225) ─────────────────────────────────
+  //
+  // The ONLY writers of `task_amendments`. There is deliberately no setter for `text`: the table is
+  // append-only with a soft retraction, because an authorization record that can be edited after
+  // the fact is exactly the property that would make this channel a scope-laundering vector.
+  //
+  // Every read orders by `createdAt ASC, rowid ASC`. The rowid tiebreak is load-bearing, not
+  // decoration: two amendments recorded in the SAME millisecond are ordinary (a fast operator, or
+  // copyTaskAmendments writing a whole set), and ordering them by the random uuid `id` would show
+  // them to the critic in an arbitrary order — with "newest last" and later amendments superseding
+  // earlier ones, that inverts what the operator authorized. SQLite's implicit rowid is insertion
+  // order, which is exactly the intended tiebreak.
+
+  /** Record one operator amendment. `text` is stored verbatim (already trimmed + length-checked at
+   *  the HTTP boundary — see AMENDMENT_MAX_CHARS). */
+  addTaskAmendment(sessionId: string, text: string, now: number = Date.now()): TaskAmendment {
+    const row: TaskAmendment = {
+      id: randomUUID(),
+      sessionId,
+      text,
+      createdAt: now,
+      retractedAt: null,
+    };
+    this.db.run(
+      `INSERT INTO task_amendments (id, sessionId, text, createdAt, retractedAt) VALUES (?,?,?,?,?)`,
+      [row.id, row.sessionId, row.text, row.createdAt, null],
+    );
+    return row;
+  }
+
+  /** Every amendment on a session, retracted ones included, oldest first. The UI's record view —
+   *  prompt builders want {@link listActiveTaskAmendments}. */
+  listTaskAmendments(sessionId: string): TaskAmendment[] {
+    return (
+      this.db
+        .query(
+          `SELECT id, sessionId, text, createdAt, retractedAt FROM task_amendments
+           WHERE sessionId = ? ORDER BY createdAt ASC, rowid ASC`,
+        )
+        .all(sessionId) as TaskAmendmentRow[]
+    ).map(hydrateTaskAmendment);
+  }
+
+  /** The amendments that still STAND, oldest first — what every prompt builder reads. Retracted
+   *  rows are excluded here, at the source, so no consumer can forget to filter them. */
+  listActiveTaskAmendments(sessionId: string): TaskAmendment[] {
+    return (
+      this.db
+        .query(
+          `SELECT id, sessionId, text, createdAt, retractedAt FROM task_amendments
+           WHERE sessionId = ? AND retractedAt IS NULL ORDER BY createdAt ASC, rowid ASC`,
+        )
+        .all(sessionId) as TaskAmendmentRow[]
+    ).map(hydrateTaskAmendment);
+  }
+
+  /** Soft-retract one amendment. Scoped to `sessionId` as well as `id` so a caller cannot retract
+   *  another session's amendment by guessing an id, and idempotent: re-retracting keeps the FIRST
+   *  retraction's timestamp rather than moving it. Returns the row, or null when it does not exist
+   *  on that session. */
+  retractTaskAmendment(
+    sessionId: string,
+    id: string,
+    now: number = Date.now(),
+  ): TaskAmendment | null {
+    this.db.run(
+      `UPDATE task_amendments SET retractedAt = ? WHERE id = ? AND sessionId = ? AND retractedAt IS NULL`,
+      [now, id, sessionId],
+    );
+    const r = this.db
+      .query(
+        `SELECT id, sessionId, text, createdAt, retractedAt FROM task_amendments
+         WHERE id = ? AND sessionId = ?`,
+      )
+      .get(id, sessionId) as TaskAmendmentRow | null;
+    return r ? hydrateTaskAmendment(r) : null;
+  }
+
+  /** Bootstrap snapshot for the UI: every non-archived session's amendments, keyed by session id.
+   *  Sessions with none are absent (the client treats a missing key as an empty list). */
+  snapshotTaskAmendments(): Record<string, TaskAmendment[]> {
+    const rows = this.db
+      .query(
+        `SELECT a.id, a.sessionId, a.text, a.createdAt, a.retractedAt FROM task_amendments a
+         JOIN sessions s ON s.id = a.sessionId
+         WHERE s.archivedAt IS NULL ORDER BY a.createdAt ASC, a.rowid ASC`,
+      )
+      .all() as TaskAmendmentRow[];
+    const out: Record<string, TaskAmendment[]> = {};
+    for (const r of rows) (out[r.sessionId] ??= []).push(hydrateTaskAmendment(r));
+    return out;
+  }
+
+  /** Copy the STANDING amendments of `fromSessionId` onto `toSessionId` as fresh rows (#2225).
+   *  Used by relaunch, where the replacement continues the SAME task and the operator's amendments
+   *  still apply. Retracted rows are deliberately not carried — they no longer stand, and copying
+   *  them would resurrect them into the new session's record. Fresh ids, but the ORIGINAL
+   *  `createdAt` is kept: it records when the operator actually said it, which is what the prompt
+   *  block and the UI display, and keeping it preserves the source ordering for free. */
+  copyTaskAmendments(fromSessionId: string, toSessionId: string): number {
+    const src = this.listActiveTaskAmendments(fromSessionId);
+    if (src.length === 0) return 0;
+    this.db.transaction(() => {
+      for (const a of src) this.addTaskAmendment(toSessionId, a.text, a.createdAt);
+    })();
+    return src.length;
+  }
+
   // ── spawn-prompt budget (issue #1999) ──────────────────────────────────────
 
   /** Record what one spawn's assembled system prompt cost, block by block. Upsert by sessionId:
@@ -4599,6 +4738,10 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       );
       this.db.run(
         `DELETE FROM session_prompt_budget WHERE sessionId IN (SELECT id FROM sessions WHERE ${victims})`,
+        params,
+      );
+      this.db.run(
+        `DELETE FROM task_amendments WHERE sessionId IN (SELECT id FROM sessions WHERE ${victims})`,
         params,
       );
       // NOTE: post_merge_steps is INTENTIONALLY NOT cascaded here (#1061) — owed manual steps must

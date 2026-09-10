@@ -108,6 +108,7 @@ import {
 import { buildTaskExport, resolveTranscript } from "./task-export";
 import { listWorktree, resolveWorktreeFile } from "./worktree-files";
 import { loadSteers, saveSteers } from "./steers";
+import { AMENDMENT_MAX_CHARS, amendmentSteerText } from "./task-amendments";
 import { loadIcons, setIcon } from "./project-icons";
 import { listBranches } from "./branches";
 import { computeDiff, toSessionDiff } from "./diff";
@@ -1120,6 +1121,16 @@ function handlePlanGates({ req, parts, deps }: Ctx): Response | null {
 function handleRecaps({ req, parts, deps }: Ctx): Response | null {
   if (req.method === "GET" && parts[0] === "api" && parts[1] === "recaps") {
     if (!parts[2]) return json(deps.recapCache?.snapshot() ?? {});
+  }
+  return null;
+}
+
+// GET /api/amendments — bootstrap snapshot of operator task amendments keyed by session id
+// (issue #2225), the parallel of /api/recaps. Read straight from the store rather than through a
+// cache: amendments are few, small, and written by hand.
+function handleAmendments({ req, parts, deps }: Ctx): Response | null {
+  if (req.method === "GET" && parts[0] === "api" && parts[1] === "amendments" && !parts[2]) {
+    return json(deps.store.snapshotTaskAmendments());
   }
   return null;
 }
@@ -2746,7 +2757,10 @@ async function handleSessionsClearMerged({ req, parts, deps }: Ctx): Promise<Res
 // DELETE /api/sessions/:id — archive. An optional `{reap: string[]}` body lists the
 // leftover keys (from GET …/leftovers) the operator chose to terminate alongside.
 async function handleSessionDelete({ req, parts, deps }: Ctx): Promise<Response | null> {
-  if (!(req.method === "DELETE" && parts[2])) return null;
+  // `!parts[3]`: archive owns `DELETE /api/sessions/:id` and NOTHING below it. Without the guard
+  // this claims every DELETE under the session — so a sub-resource delete (e.g. retracting one
+  // amendment) would silently archive the whole session instead.
+  if (!(req.method === "DELETE" && parts[2] && !parts[3])) return null;
   const body = (await req.json().catch(() => null)) as { reap?: unknown } | null;
   const reap = Array.isArray(body?.reap)
     ? (body!.reap as unknown[]).filter((x): x is string => typeof x === "string")
@@ -2773,6 +2787,71 @@ async function handleSessionReply({ req, parts, deps }: Ctx): Promise<Response |
   // service.reply() directly, so they never trip that path.
   const ok = await deps.service.operatorReply(parts[2], (body as { text: string }).text);
   return ok ? json({ ok: true }) : json({ error: "not found" }, 404);
+}
+
+// ── operator task amendments (issue #2225) ──────────────────────────────────
+//   POST   /api/sessions/:id/amendments                 {text, steer?} → 201 {amendment, steered}
+//   DELETE /api/sessions/:id/amendments/:amendmentId                   → 200 {amendment}
+//
+// The ONE channel that carries a genuine operator scope decision to the critic. Both mutations are
+// deliberately ABSENT from AGENT_LEAF_ROUTES, so `isAgentIngressRoute` denies them and an agent can
+// never amend its own task — the property that stops this being a scope-laundering vector. Do not
+// "tidy" them into that allowlist; test/agent-ingress.test.ts fails if anyone does.
+
+/** Broadcast a session's FULL current amendment list, so an empty array is a genuine all-clear
+ *  rather than a no-op (mirrors the spawn-notices payload contract). */
+function emitAmendments(deps: AppDeps, id: string): void {
+  deps.events.emit("session:amendments", { id, amendments: deps.store.listTaskAmendments(id) });
+}
+
+/** Deliver one amendment to the session's agent. NO gate of its own: `operatorReply` already owns
+ *  the whole decision (it resolves the live pane, ACCEPTS a target whose agentStatus is `working`,
+ *  force-resumes a dead isolated Codex pane, rejects a dead or uninspectable one) and returns false
+ *  rather than throwing for every "didn't land" case. Its one throw is the terminal-session guard,
+ *  caught here — an amendment on a clean-terminal session is still recorded, it just has no agent
+ *  to tell. A working agent is the PRIMARY case: the scenario this feature exists for is the
+ *  operator saying "actually, go ahead and build it" to an agent that is mid-task.
+ *  The raw operator text rides as the `reply` signal payload; the wrapper is PTY-only. */
+async function deliverAmendment(deps: AppDeps, id: string, text: string): Promise<boolean> {
+  try {
+    return await deps.service.operatorReply(id, amendmentSteerText(text), text);
+  } catch {
+    return false;
+  }
+}
+
+async function handleSessionAmendmentCreate({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(req.method === "POST" && parts[2] && parts[3] === "amendments" && !parts[4])) return null;
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  const body = (await req.json().catch(() => null)) as { text?: unknown; steer?: unknown } | null;
+  if (!body || typeof body.text !== "string") {
+    return json({ error: "body must be {text: string, steer?: boolean}" }, 400);
+  }
+  const text = body.text.trim();
+  if (!text) return json({ error: "text must not be empty" }, 400);
+  if (text.length > AMENDMENT_MAX_CHARS) {
+    return json({ error: `text must be at most ${AMENDMENT_MAX_CHARS} characters` }, 400);
+  }
+  const id = parts[2];
+  if (!deps.store.get(id)) return json({ error: "not found" }, 404);
+  // PERSIST FIRST, steer second: the amendment is the durable authorization the reviewer reads, so
+  // it must not depend on a pane being reachable. `steered` then reports what actually happened —
+  // a delivery that did not land must never read as one that did.
+  const amendment = deps.store.addTaskAmendment(id, text);
+  emitAmendments(deps, id);
+  const steered = body.steer === true ? await deliverAmendment(deps, id, text) : false;
+  return json({ amendment, steered }, 201);
+}
+
+async function handleSessionAmendmentRetract({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(req.method === "DELETE" && parts[2] && parts[3] === "amendments" && parts[4] && !parts[5]))
+    return null;
+  // Scoped to the path session, so a caller cannot retract another session's amendment by id.
+  const amendment = deps.store.retractTaskAmendment(parts[2], parts[4]);
+  if (!amendment) return json({ error: "not found" }, 404);
+  emitAmendments(deps, parts[2]);
+  return json({ amendment });
 }
 
 // POST /api/sessions/:id/interrupt — interrupt ONE running session: a lone ESC to its pane and
@@ -3988,6 +4067,8 @@ async function handleSessions(ctx: Ctx): Promise<Response | null> {
     handleSessionWorktree,
     handleSessionDelete,
     handleSessionReply,
+    handleSessionAmendmentCreate,
+    handleSessionAmendmentRetract,
     handleSessionInterrupt,
     handleSessionRecommend,
     handleSessionGo,
@@ -8005,6 +8086,7 @@ const ROUTE_HANDLERS = [
   handlePlanGates,
   handleSpawnNotices,
   handleRecaps,
+  handleAmendments,
   handleUpNext,
   handleDrain,
   handleAutoMerge,

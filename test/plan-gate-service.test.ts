@@ -73,6 +73,8 @@ function harness(over: any = {}) {
     },
     clearSpawnNotice: (sessionId: string, kind: string) => notices.delete(`${sessionId}:${kind}`),
     getPlanGate: () => null,
+    // #2225: no amendments by default — the ordinary un-amended session.
+    listActiveTaskAmendments: () => [],
     putPlanGate(g: any) {
       (store as any).gate = g;
     },

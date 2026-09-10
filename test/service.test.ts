@@ -8861,3 +8861,47 @@ test("interrupt queues behind an in-flight reply: paste, CR, then ESC", async ()
 
   expect(order).toEqual(["\x1b[200~hello\x1b[201~", "\r", "\x1b"]);
 });
+
+// ── relaunch carries operator task amendments (#2225) ───────────────────────
+
+test("relaunch carries the original's STANDING amendments onto the replacement", async () => {
+  const store = new SessionStore(":memory:");
+  const { service } = relaunchHarness(store);
+  const orig = originalSession(store);
+  store.addTaskAmendment(orig.id, "first widening", 1000);
+  const retracted = store.addTaskAmendment(orig.id, "withdrawn", 1500);
+  store.addTaskAmendment(orig.id, "second widening", 2000);
+  store.retractTaskAmendment(orig.id, retracted.id, 1600);
+
+  const fresh = await service.relaunch(orig.id);
+
+  // The replacement continues the SAME task, so the operator's amendments still apply...
+  expect(store.listActiveTaskAmendments(fresh.id).map((a) => a.text)).toEqual([
+    "first widening",
+    "second widening",
+  ]);
+  // ...but a retracted one is NOT resurrected.
+  expect(store.listTaskAmendments(fresh.id).map((a) => a.text)).not.toContain("withdrawn");
+  // The original keeps its own record.
+  expect(store.listActiveTaskAmendments(orig.id)).toHaveLength(2);
+});
+
+test("a VARIANT does not inherit amendments — the arms must run the same task", async () => {
+  const store = new SessionStore(":memory:");
+  const { service } = relaunchHarness(store);
+  const orig = originalSession(store);
+  store.addTaskAmendment(orig.id, "mid-flight widening", 1000);
+
+  const { variant } = await service.startVariant(orig.id, { model: "opus" });
+
+  expect(store.listTaskAmendments(variant.id)).toEqual([]);
+  expect(store.listActiveTaskAmendments(orig.id)).toHaveLength(1);
+});
+
+test("relaunch of a session with no amendments writes none", async () => {
+  const store = new SessionStore(":memory:");
+  const { service } = relaunchHarness(store);
+  const orig = originalSession(store);
+  const fresh = await service.relaunch(orig.id);
+  expect(store.listTaskAmendments(fresh.id)).toEqual([]);
+});

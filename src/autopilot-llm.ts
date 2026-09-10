@@ -9,6 +9,7 @@ import {
 import type { SessionStore } from "./store";
 import type { AutopilotVerdict, AgentProvider } from "./types";
 import type { OperatorLanguage } from "./operator-language";
+import type { TaskAmendment } from "./task-amendments";
 import { apiKeyFailClosed, apiKeyPassthroughEnv } from "./spawn-auth";
 import { buildTransientAgentArgv } from "./transient-agent-argv";
 import type { SessionUsage } from "./usage";
@@ -53,6 +54,9 @@ export interface ClassifierDeps {
   /** Operator language for the classifier prompt (issue #1627). "en" (default) → byte-identical
    *  historical prompt; "de" → `summary` in German with `kind` pinned to the exact English enum. */
   operatorLanguage?: OperatorLanguage;
+  /** #2225: the session's standing operator task amendments, resolved by the caller (the binding
+   *  site already holds the store + the task session id). Absent/empty ⇒ byte-identical prompt. */
+  amendments?: readonly TaskAmendment[];
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
   timeoutMs?: number;
@@ -237,6 +241,7 @@ export async function classifyStop(
     model = "haiku",
     effort = null,
     operatorLanguage = "en",
+    amendments = [],
     now = Date.now,
     sleep = realSleep,
     // Deliberately shorter than the critic's 10m: this is a fast tail-triage on haiku, not a
@@ -263,7 +268,7 @@ export async function classifyStop(
   let spawnAccountDir: string | undefined;
   try {
     cwd = makeTmpDir();
-    const prompt = classifierPrompt(tail, taskPrompt, operatorLanguage);
+    const prompt = classifierPrompt(tail, taskPrompt, operatorLanguage, amendments);
     try {
       const built = classifierArgv(provider, model, prompt, effort);
       classifierSessionId = built.sessionId;

@@ -70,6 +70,7 @@
     onpreview,
     ondecommission,
     onrename,
+    onamend,
     onrelaunch,
     onrelaunchElsewhere,
     onvariant,
@@ -106,6 +107,8 @@
     ondecommission?: (id: string) => void;
     // when provided, the right-click / long-press CardMenu gains a Rename action
     onrename?: (id: string) => void;
+    /** Open the amend-task dialog for this session (#2225). */
+    onamend?: (id: string) => void;
     // when provided, the right-click / long-press CardMenu gains a two-step armed
     // Relaunch action (spawns a fresh replacement + decommissions this session)
     onrelaunch?: (id: string) => void;
@@ -627,6 +630,7 @@
       resumable ||
       !!ondecommission ||
       !!onrename ||
+      !!onamend ||
       relaunchable ||
       relaunchElsewhereAble ||
       variantable ||
@@ -709,6 +713,10 @@
   function renameFromMenu() {
     menu = null;
     onrename?.(session.id);
+  }
+  function amendFromMenu() {
+    menu = null;
+    onamend?.(session.id);
   }
   function relaunchFromMenu() {
     menu = null;
@@ -1019,6 +1027,7 @@
     onstop={onStop}
     onresume={resumeFromMenu}
     onrename={onrename ? renameFromMenu : undefined}
+    onamend={onamend ? amendFromMenu : undefined}
     onrelaunch={relaunchable ? relaunchFromMenu : undefined}
     onrelaunchElsewhere={relaunchElsewhereAble ? relaunchElsewhereFromMenu : undefined}
     onvariant={variantable ? variantFromMenu : undefined}

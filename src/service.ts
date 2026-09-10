@@ -3982,6 +3982,12 @@ export class SessionService {
         enabled: pickOverride(overrides?.autopilotEnabled, s.autopilotEnabled),
       });
       this.deps.store.setAutoMergeState(newSession.id, { enabled: s.autoMergeEnabled });
+      // #2225: the replacement continues the SAME task, so the operator's standing amendments
+      // still apply and must reach its critic. Inside this try for a reason: a partial copy would
+      // leave the new session authorized by half an amendment set, so a throw tears it down with
+      // everything else. `carryAmendments === false` is the variant path (see startVariant).
+      if (overrides?.carryAmendments !== false)
+        this.deps.store.copyTaskAmendments(s.id, newSession.id);
     } catch (e) {
       // best-effort teardown so no orphaned new session leaks alongside the intact original
       try {
@@ -4266,6 +4272,9 @@ export class SessionService {
         agentProvider: opts.agentProvider,
         model: opts.model,
         effort: opts.effort,
+        // #2225: a variant runs the ORIGINAL task so the arms stay comparable — carrying a
+        // mid-flight scope widening onto one arm only would make the comparison meaningless.
+        carryAmendments: false,
       },
       "clamp",
     );
@@ -4951,8 +4960,14 @@ export class SessionService {
    * An uninspectable listed pane is rejected rather than risking shell input. Dead Claude and
    * non-isolated Codex panes remain rejected. The injection itself lives in steerWithEpicNotice,
    * shared with broadcast() so both operator free-text channels behave identically.
+   *
+   * `signalPayload` (default = `text`) lets a caller whose `text` is a Shepherd-composed wrapper
+   * record the operator's RAW words in the `reply` signal instead — the same reason the epic notice
+   * rides the PTY only: the learnings distiller mines those signals and must never mine Shepherd's
+   * own boilerplate. Used by the task-amendment channel (#2225); every other caller omits it and
+   * behaves exactly as before.
    */
-  async operatorReply(id: string, text: string): Promise<boolean> {
+  async operatorReply(id: string, text: string, signalPayload: string = text): Promise<boolean> {
     const s = this.deps.store.get(id);
     if (!s) return false;
     this.assertNotTerminal(s, "reply");
@@ -4974,7 +4989,7 @@ export class SessionService {
       steer: async () => {
         const current = this.deps.store.get(id);
         if (!current) return false;
-        await this.steerWithEpicNotice(current, text);
+        await this.steerWithEpicNotice(current, text, signalPayload);
         return true;
       },
     });
@@ -5406,15 +5421,19 @@ export class SessionService {
    *  behave identically — a broadcast that says "make these epics" gets the same guidance a single
    *  reply would. Callers have already confirmed the pane is live, so injecting == delivering and
    *  marking here can't burn the one-shot on a non-delivery. */
-  private async steerWithEpicNotice(s: Session, text: string): Promise<void> {
+  private async steerWithEpicNotice(
+    s: Session,
+    text: string,
+    signalPayload: string = text,
+  ): Promise<void> {
     const combined = this.#epicNoticeSteered.has(s.id) ? null : composeEpicSteer(text);
-    if (!combined) return this.sendSteerTo(s, text);
+    if (!combined) return this.sendSteerTo(s, text, signalPayload);
     // Claim the one-shot BEFORE the await, not after: the send is async now (#1567), so two
     // concurrent epic-intent steers to one session would both see an unmarked set and inject the
     // notice twice. Roll the claim back if delivery throws, preserving "mark only on success".
     this.#epicNoticeSteered.add(s.id);
     try {
-      await this.sendSteerTo(s, combined, /* signalPayload */ text);
+      await this.sendSteerTo(s, combined, signalPayload);
     } catch (err) {
       this.#epicNoticeSteered.delete(s.id);
       throw err;

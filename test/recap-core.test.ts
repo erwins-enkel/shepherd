@@ -1273,3 +1273,43 @@ test("#2209 buildRecapPrompt: the markup rides OUTSIDE the pinned block-guidance
     Buffer.byteLength(blockGuidanceRegion(bareRecapPrompt()), "utf8"),
   );
 });
+
+// ── operator task amendments (#2225) ────────────────────────────────────────
+
+test("buildRecapPrompt carries standing amendments under the task, outside the fence", () => {
+  const p = buildRecapPrompt({
+    taskPrompt: "do the thing",
+    plan: "",
+    changedFiles: [],
+    digest: "",
+    context: "",
+    amendments: [
+      {
+        id: "am-1",
+        sessionId: "s1",
+        text: "the operator also asked for the gate",
+        createdAt: Date.UTC(2026, 8, 10),
+        retractedAt: null,
+      },
+    ],
+  });
+  expect(p).toContain("OPERATOR TASK AMENDMENTS");
+  expect(p).toContain("the operator also asked for the gate");
+  // The amendment must sit AFTER the task's closing fence, never inside it.
+  expect(p.indexOf("⟦/UNTRUSTED:task")).toBeLessThan(p.indexOf("OPERATOR TASK AMENDMENTS"));
+});
+
+test("buildRecapPrompt without amendments is byte-identical", () => {
+  const input = {
+    taskPrompt: "do the thing",
+    plan: "",
+    changedFiles: [],
+    digest: "",
+    context: "",
+  };
+  // The task fence carries a random nonce, so compare with the nonce normalized away.
+  const strip = (t: string) => t.replace(/⟦(\/?)UNTRUSTED:([^⟧]+):[0-9a-f]+⟧/g, "⟦$1UNTRUSTED:$2⟧");
+  expect(strip(buildRecapPrompt({ ...input, amendments: [] }))).toBe(
+    strip(buildRecapPrompt(input)),
+  );
+});

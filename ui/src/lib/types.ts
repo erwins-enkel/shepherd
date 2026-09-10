@@ -749,6 +749,17 @@ export interface Recap {
   blocks?: VisualBlock[]; // arrives over session:recap WS payload; optional for back-compat
 }
 
+/** One operator amendment to a session's task (#2225) — mirrors the server's `TaskAmendment`.
+ *  Append-only: `text` is never edited. `retractedAt` is the soft delete: a retracted amendment
+ *  reaches no prompt but stays visible (struck through) in the record. */
+export interface TaskAmendment {
+  id: string;
+  sessionId: string;
+  text: string;
+  createdAt: number;
+  retractedAt: number | null;
+}
+
 export type ReviewDecision = "changes_requested" | "commented" | "error";
 /** Sentinel for a server-authored no-verdict reason, rendered per-locale in the UI (mirrors server
  *  `ReviewSummaryCode`). Only `error` verdicts carry one. */
@@ -2194,6 +2205,7 @@ export type WsEvent =
   | { event: "plugin-update:status"; data: PluginUpdatesStatus }
   | { event: "project-icons:update"; data: ProjectIcons }
   | { event: "session:recap"; data: { id: string; recap: Recap | null } }
+  | { event: "session:amendments"; data: { id: string; amendments: TaskAmendment[] } }
   | { event: "upnext:snapshot"; data: { snapshot: UpNextSnapshot } }
   | { event: "session:review"; data: { id: string; review: ReviewVerdict | null } }
   | {

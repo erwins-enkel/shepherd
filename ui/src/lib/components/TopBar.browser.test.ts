@@ -1570,7 +1570,7 @@ describe("TopBar — CR extra-credit gauge", () => {
     await nextFrame();
     const pop = hud.querySelector<HTMLElement>(".gauge-pop-desk");
     expect(pop, "popover opens").not.toBeNull();
-    expect(pop!.querySelector(".mw-bar"), "Fable passthrough bar in popover").not.toBeNull();
+    expect(pop!.querySelector(".uw-bar"), "Fable passthrough bar in popover").not.toBeNull();
   });
 
   it("per-model-only (touch): collapsed button isn't blank and opens the popover", async () => {
@@ -1640,6 +1640,68 @@ describe("TopBar — CR extra-credit gauge", () => {
     expect(pop!.querySelector(".usage-refresh"), "refresh button reachable").not.toBeNull();
   });
 
+  it("dims the promoted hero when the window it promoted is stale", async () => {
+    // Claude stale (no observed contract → limits.stale applies) and no Codex windows, so the
+    // hottest window is a stale Claude one. The hero is rendered OUTSIDE .gauge-pop-claude, so it
+    // needs its own dimming or the same window reads fresh up top and stale in its section below.
+    const hud = await renderDesktop({
+      session5h: { pct: 42, resetAt: 1_700_003_600_000 },
+      week: { pct: 30, resetAt: 1_700_600_000_000 },
+      perModelWeek: [],
+      credits: null,
+      stale: true,
+      calibratedAt: 1_700_000_000_000,
+      subscriptionOnly: false,
+    });
+    openDesktopPopover(hud);
+    await nextFrame();
+    const hero = hud.querySelector<HTMLElement>(".usage-hero");
+    expect(hero, "hero renders for a stale window").not.toBeNull();
+    expect(hero!.classList.contains("stale"), "stale hero is dimmed like its source row").toBe(
+      true,
+    );
+    expect(
+      hud.querySelector(".gauge-pop-claude")!.classList.contains("stale"),
+      "and agrees with the section it was promoted from",
+    ).toBe(true);
+  });
+
+  it("leaves the hero lit when the window it promoted is fresh", async () => {
+    // Fresh Codex weekly is hotter than the stale Claude windows: dimming must follow the SELECTED
+    // window's provider row, not whichever provider happens to be stale.
+    const hud = await renderDesktop({
+      session5h: { pct: 42, resetAt: 1_700_003_600_000 },
+      week: { pct: 30, resetAt: 1_700_600_000_000 },
+      perModelWeek: [],
+      credits: null,
+      stale: true,
+      calibratedAt: 1_700_000_000_000,
+      subscriptionOnly: false,
+      providers: [
+        {
+          provider: "codex",
+          kind: "tokens",
+          totalTokens: 1_000_000,
+          session5hTokens: 100_000,
+          weekTokens: 1_000_000,
+          session5h: null,
+          week: { pct: 88, resetAt: 1_700_600_000_000 },
+          updatedAt: 1_700_000_000_000,
+          stale: false,
+        },
+      ],
+    });
+    openDesktopPopover(hud);
+    await nextFrame();
+    const hero = hud.querySelector<HTMLElement>(".usage-hero");
+    expect(hero!.textContent ?? "", "the fresh Codex window won promotion").toContain("88");
+    expect(hero!.classList.contains("stale"), "fresh hero stays lit").toBe(false);
+    expect(
+      hud.querySelector(".gauge-pop-claude")!.classList.contains("stale"),
+      "while the stale Claude section below is still dimmed",
+    ).toBe(true);
+  });
+
   it("a stale Claude snapshot dims only the Claude section, not fresh Codex usage", async () => {
     // Claude limits stale + a fresh Codex provider: the Claude subsection dims, but the Codex
     // section (own codexUsage.stale=false) must stay lit — the stale must not ride the popover root.
@@ -1686,10 +1748,14 @@ describe("TopBar — CR extra-credit gauge", () => {
     openDesktopPopover(hud);
     await nextFrame();
     const pop = hud.querySelector<HTMLElement>(".gauge-pop-desk");
-    // reset-time text is rendered (visible) inside the dialog — in the a11y tree on open, not
-    // behind a hover/aria-label
-    const resets = pop!.querySelectorAll(".gauge-pop-reset");
-    expect(resets.length, "per-window reset lines present").toBeGreaterThan(0);
+    // reset text is rendered (visible) inside the dialog — in the a11y tree on open, not behind a
+    // hover/aria-label. It now rides in each window's row as a countdown rather than its own line.
+    const rests = [...pop!.querySelectorAll<HTMLElement>(".gauge-pop-claude .uw-rest")];
+    expect(rests.length, "every window row carries a reset countdown cell").toBeGreaterThan(0);
+    expect(
+      rests.some((r) => (r.textContent ?? "").trim().length > 0),
+      "at least one countdown is populated",
+    ).toBe(true);
     expect(pop!.textContent ?? "", "period name present").toContain(m.topbar_gauge_period_5h());
   });
 

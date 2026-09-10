@@ -14,8 +14,10 @@
     claudeObservedWindows,
     codexTokenUsage,
     hotterGauge,
+    hottestCapacityWindow,
     modelWeekList,
     overspending,
+    providerDisplayCapacityRows,
     shouldRefreshObservedOnOpen,
     type CompactUsageView,
     type GaugeKey,
@@ -286,6 +288,9 @@
   // breakdown — including reset times — through a tap popover instead.
   const gauges = $derived(claudeDisplayGauges(limits));
   const hotter = $derived(hotterGauge(limits));
+  // The window nearest its cap across BOTH CLIs — promoted to the popover's hero so the limit that
+  // actually gates the next agent is read first. Same selection the gear menu's one-line gauge uses.
+  const hottestWindow = $derived(hottestCapacityWindow(providerDisplayCapacityRows(limits)));
   // Per-model weekly passthrough sub-limits (e.g. Fable) — their own bars, never in gaugeList/hotter.
   const perModel = $derived(modelWeekList(limits));
   // api-key auth mode: subscription usage windows carry no data. Fail closed —
@@ -815,6 +820,7 @@
         {codexUsage}
         {claudeAvailable}
         {observed}
+        hottest={hottestWindow}
         {activeCompactUsageView}
         {compactUsageRotating}
         {overspend}

@@ -1,3 +1,4 @@
+import { herdrStubCommand, outdatedHerdrVersion } from "./herdr-stub";
 import type { Scenario } from "./types";
 
 /**
@@ -96,10 +97,17 @@ export const SCENARIOS: Scenario[] = [
   },
   {
     // A live-but-OUTDATED herdr: `herdr --version` reports below HERDR_MIN_VERSION → `warning`,
-    // while the daemon still answers `agent list` (liveness ok) so it reads outdated, NOT
-    // offline. The baseline stub reports HERDR_LAST_SUPPORTED_VERSION (ok); this seed overwrites
-    // it to report an old version. Present-but-old passes the boot preflight (it fail-fasts only
-    // on a MISSING binary, src/preflight.ts), so the instance boots and self-diagnoses.
+    // while the daemon still answers the liveness probe so it reads outdated, NOT offline. The
+    // baseline stub reports HERDR_LAST_SUPPORTED_VERSION (ok); this seed overwrites it with one
+    // reporting a version below the floor. Present-but-old passes the boot preflight (it
+    // fail-fasts only on a MISSING binary, src/preflight.ts), so the instance boots and
+    // self-diagnoses.
+    //
+    // The stub is LEGACY-shaped (no `status` command) because that is what a real herdr this old
+    // is: the probe falls through to `probeLegacy` and classifies it live. Hand-writing it as a
+    // single `{"version":…}` line is what broke this scenario in #2239 — #2216 taught the probe to
+    // parse `herdr status --json`, and the hand-written line parsed as a malformed document, i.e.
+    // `error`. herdr-stub.ts derives both the version (below the floor) and the shape.
     //
     // DETECTION-ONLY: applies no remediation, so it exercises NONE of the #1578
     // `herdr update --handoff` remediation and largely duplicates the outdated→warning unit
@@ -108,11 +116,7 @@ export const SCENARIOS: Scenario[] = [
     // the header NOTE (no install.sh version pinning → no real old daemon to hand off from).
     id: "herdr-outdated",
     image: "images:archlinux",
-    seed: [
-      "mkdir -p ~/.local/bin",
-      "cat > ~/.local/bin/herdr <<'HERDR_STUB'\n#!/bin/sh\necho '{\"version\":\"0.6.5\"}'\nHERDR_STUB",
-      "chmod +x ~/.local/bin/herdr",
-    ],
+    seed: [herdrStubCommand(outdatedHerdrVersion())],
     expect: [{ id: "herdr", state: "warning" }],
     coaching: "prose",
     detectionOnly: true,

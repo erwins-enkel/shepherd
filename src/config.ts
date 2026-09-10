@@ -11,6 +11,7 @@ import {
 import { normalizeDefaultEffortSetting, effortBelowHigh } from "./default-effort";
 import { normalizeAuthModeSetting } from "./auth-mode";
 import { normalizeAgentProvider } from "./agent-provider";
+import type { AgentProvider } from "./types";
 import { normalizeTelemetryConsent } from "./telemetry-consent";
 import { normalizeOperatorLanguage } from "./operator-language";
 import { thresholdsFromEnv } from "./maintain-core";
@@ -909,6 +910,11 @@ export const config = {
   // UI-configurable; env seeds a fresh DB.
   defaultAgentProvider:
     normalizeAgentProvider(process.env.SHEPHERD_DEFAULT_AGENT_PROVIDER) ?? "claude",
+  // Capacity failover (src/provider-failover.ts): the provider `defaultAgentProvider` was
+  // switched AWAY from because its weekly window ran out of headroom, and which the 30s usage
+  // tick restores once that headroom is back. null = no failover active. Runtime state, not
+  // configuration — persisted, but deliberately not env-seeded (like previewHost).
+  providerFailoverFrom: null as AgentProvider | null,
   // Global fable availability flag. When false, any spawn requesting --model fable is
   // transparently rerouted to opus[1m] at argv-assembly time without rewriting the
   // stored session model (so cost accounting + fable intent survive for later replay).

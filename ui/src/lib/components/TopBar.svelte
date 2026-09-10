@@ -6,6 +6,8 @@
     HerdrUpdateStatus,
     CodexUpdateStatus,
     DiagnosticState,
+    DiagnosticsSnapshot,
+    ProviderFailoverStatus,
   } from "$lib/types";
   import { displayStatus } from "$lib/display-status";
   import {
@@ -27,10 +29,12 @@
     listHeld,
     spawnHeld,
     discardHeld,
+    actProviderFailover,
     getSettings,
     putUsageHoldAutoRelease,
   } from "$lib/api";
   import type { AgentProvider, HeldTask } from "$lib/types";
+  import { providerFailoverOffer } from "$lib/provider-capacity";
   import { m } from "$lib/paraglide/messages";
   import { openFeedback } from "$lib/feedback-dialog.svelte";
   import type { FeedbackKind } from "$lib/feedback-link";
@@ -67,6 +71,7 @@
     statusFilter = null,
     onstatusfilter,
     workingBlocked = {},
+    diagnostics = null,
     diagnosticsOverall = "ok",
     ondiagnose,
     learnings = 0,
@@ -103,6 +108,8 @@
     // working-while-blocked display flags (store map); tallies + gear pip read the
     // DISPLAY status through it — the halt e-stop keeps the raw status (see below)
     workingBlocked?: Record<string, boolean>;
+    /** Full diagnostics snapshot; capacity failover needs per-CLI readiness, not just worst-of. */
+    diagnostics?: DiagnosticsSnapshot | null;
     /** Worst-of diagnostics state; hidden when "ok". */
     diagnosticsOverall?: DiagnosticState;
     /** Called when the health pip is clicked — should open Settings → Diagnose tab. */
@@ -410,6 +417,8 @@
     }
   }
   function refreshOnStaleOpen() {
+    failoverFailed = false;
+    void loadFailover();
     if (claudeAvailable && !subscriptionOnly && shouldRefreshObservedOnOpen(limits, nowMs)) {
       void doRefresh();
     }
@@ -420,6 +429,50 @@
   // REFRESH control inside it stays reachable. `gaugeWrap` anchors the outside-click test.
   let popoverOpen = $state(false);
   let gaugeWrap = $state<HTMLElement | null>(null);
+
+  // ── Capacity failover ─────────────────────────────────────────────────────
+  // Whether to OFFER the switch is predicted locally from data already pushed over the WS; the
+  // server re-derives it and can still refuse (409 → failoverFailed). The default provider and
+  // the active-failover record are read from settings when the popover opens, mirroring
+  // loadHeldAutoRelease() below, so an out-of-band change (settings API, the 30s auto-release)
+  // shows up rather than a stale value.
+  // null until the first load lands. Seeding a provider instead would let the popover's first
+  // frame compute the offer against a guessed default and briefly render the OPPOSITE button —
+  // clickable, and wrong.
+  let defaultAgentProvider = $state<AgentProvider | null>(null);
+  let failover = $state<ProviderFailoverStatus | null>(null);
+  let failoverBusy = $state(false);
+  let failoverFailed = $state(false);
+  const failoverOffer = $derived(
+    defaultAgentProvider === null
+      ? null
+      : providerFailoverOffer(limits, defaultAgentProvider, diagnostics),
+  );
+
+  async function loadFailover() {
+    try {
+      const s = await getSettings();
+      failover = s.providerFailover ?? null;
+      defaultAgentProvider = s.defaultAgentProvider ?? "claude";
+    } catch {
+      // best-effort; leave the last known values
+    }
+  }
+
+  async function actFailover(action: "engage" | "release") {
+    if (failoverBusy) return;
+    failoverBusy = true;
+    failoverFailed = false;
+    try {
+      failover = await actProviderFailover(action);
+      defaultAgentProvider = failover.current;
+    } catch {
+      failoverFailed = true;
+      void loadFailover(); // the server refused — resync rather than keep a guessed state
+    } finally {
+      failoverBusy = false;
+    }
+  }
 
   // ── Held-tasks popover ────────────────────────────────────────────────────
   // Non-modal anchored popover (design-system "small anchored popover" exemption:
@@ -833,6 +886,12 @@
         onRefresh={doRefresh}
         onOpenPopover={refreshOnStaleOpen}
         {periodLabel}
+        {failoverOffer}
+        {failover}
+        {failoverBusy}
+        {failoverFailed}
+        onEngageFailover={() => void actFailover("engage")}
+        onReleaseFailover={() => void actFailover("release")}
         onusage={chooseUsage}
         bind:popoverOpen
         bind:gaugeWrap

@@ -3944,5 +3944,13 @@
   "gloss_task_amendment_term": "task amendment",
   "gloss_task_amendment_def": "Operator-authored text added to a running task after it started. It ranks alongside the original task and is shown to the critic, the plan reviewer and the recap, so it can widen or narrow what the work may contain. It cannot excuse a bug or a security problem, and an agent can never write one.",
   "feat_task_amendment_title": "Amend a task after it starts",
-  "feat_task_amendment_body": "A task's wording used to be frozen the moment it was spawned, so deciding mid-session to widen or narrow the work never reached the critic — which then blocked the PR against the task you had already superseded. A session's card menu now has “Amend task…”: what you write is recorded on the session, ranks alongside the original task for the critic, the plan reviewer and the recap, and can optionally be sent straight to the agent. An amendment can move scope but never excuses a bug, and an agent can never write one."
+  "feat_task_amendment_body": "A task's wording used to be frozen the moment it was spawned, so deciding mid-session to widen or narrow the work never reached the critic — which then blocked the PR against the task you had already superseded. A session's card menu now has “Amend task…”: what you write is recorded on the session, ranks alongside the original task for the critic, the plan reviewer and the recap, and can optionally be sent straight to the agent. An amendment can move scope but never excuses a bug, and an agent can never write one.",
+  "usage_failover_offer_reason": "{from} weekly {fromFreePct}% free · {to} {toFreePct}% free",
+  "usage_failover_engage": "Switch default CLI to {provider}",
+  "usage_failover_active_reason": "Default CLI is {to} instead of {from} until {from} has weekly capacity again.",
+  "usage_failover_revert": "Back to {provider}",
+  "usage_failover_failed": "Could not switch the default CLI.",
+  "settings_default_cli_desc_failover": "Temporarily {to} instead of {from}: {from} is below 30% weekly capacity. Switches back on its own; picking one here ends the substitution.",
+  "feat_usage_provider_failover_title": "Switch coding CLI when one runs out of weekly capacity",
+  "feat_usage_provider_failover_body": "When your default coding CLI drops below 30% remaining weekly capacity and the other one still has room, the usage popover offers a one-click switch. Shepherd switches back on its own once the exhausted CLI has capacity again."
 }

@@ -2804,6 +2804,7 @@
         {statusFilter}
         onstatusfilter={(s) => (statusFilter = s)}
         workingBlocked={store.workingBlocked}
+        diagnostics={store.diagnostics}
         diagnosticsOverall={store.diagnosticsOverall}
         ondiagnose={() => {
           settingsTab = "diagnose";

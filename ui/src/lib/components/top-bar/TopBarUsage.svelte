@@ -1,6 +1,12 @@
 <script lang="ts">
   import { m } from "$lib/paraglide/messages";
-  import type { CreditWindow, ModelWeekWindow, ObservedLimitWindows } from "$lib/types";
+  import type {
+    CreditWindow,
+    ModelWeekWindow,
+    ObservedLimitWindows,
+    ProviderFailoverStatus,
+  } from "$lib/types";
+  import type { ProviderFailoverOffer } from "$lib/provider-capacity";
   import type { UsageProviderSnapshot } from "$lib/types";
   import { formatTokenLabel } from "$lib/format";
   import {
@@ -37,6 +43,12 @@
     onRefresh,
     onOpenPopover,
     periodLabel,
+    failoverOffer,
+    failover,
+    failoverBusy,
+    failoverFailed,
+    onEngageFailover,
+    onReleaseFailover,
     onusage,
     popoverOpen = $bindable(),
     gaugeWrap = $bindable(null),
@@ -63,6 +75,13 @@
     onRefresh: () => void;
     onOpenPopover: () => void;
     periodLabel: (k: GaugeKey) => string;
+    /** Capacity failover: the switch worth offering right now, and the one already in effect. */
+    failoverOffer: ProviderFailoverOffer | null;
+    failover: ProviderFailoverStatus | null;
+    failoverBusy: boolean;
+    failoverFailed: boolean;
+    onEngageFailover: () => void;
+    onReleaseFailover: () => void;
     onusage?: () => void;
     popoverOpen: boolean;
     gaugeWrap: HTMLElement | null;
@@ -137,6 +156,12 @@
     {refreshError}
     {onRefresh}
     {periodLabel}
+    {failoverOffer}
+    {failover}
+    {failoverBusy}
+    {failoverFailed}
+    {onEngageFailover}
+    {onReleaseFailover}
     onClose={closePopover}
     onOpenUsage={openUsage}
   />

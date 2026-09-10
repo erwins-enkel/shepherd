@@ -700,6 +700,17 @@ export interface PlanGate {
   cap: number; // the round cap this run used — surfaced so the UI badge need not mirror it
   approved: boolean; // load-bearing gate flag: execution allowed only when true
   plan: string; // snapshot of the reviewed plan text (surfaced in the UI panel)
+  /** sha256 of the LIVE `.shepherd-plan.md` as of the last settle-edge check (#2224), or null when
+   *  it has never been checked. `livePlanHash !== planHash` ⇒ the plan was edited after the verdict
+   *  — the only state in which an operator may re-review an already-`approved` gate. Persisted (not
+   *  in-memory) so the marker survives a restart and rides this row to the UI. */
+  livePlanHash?: string | null;
+  /** When this session's plan was most recently APPROVED (ms), carried forward across later
+   *  verdicts (#2224). Two jobs: `approvedAt != null && !approved` identifies a session
+   *  DELIBERATELY re-gated out of execution (which `advanceToExecutionOnPr` must not undo), and it
+   *  is the baseline for the reviewer's round-lateness count, so a re-review streak starts at round
+   *  1 instead of inheriting the pre-approval spawns. Null for a gate never approved. */
+  approvedAt?: number | null;
   /** Resolved Plan Gate reviewer environment for the run that produced this verdict.
    *  Optional/null for legacy rows and restart-adopted reviews whose reviewer_spawns row predates
    *  provider/effort persistence. */

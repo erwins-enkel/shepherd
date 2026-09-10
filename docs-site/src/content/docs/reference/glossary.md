@@ -32,7 +32,10 @@ off you give the explicit Go; with it on (or for a drain-spawned session) Shephe
 releases it itself. On Codex that automatic release additionally requires an
 isolated worktree: a session sharing its working directory waits for your Go even
 with Autopilot on. Either way, a gated agent asks you its questions first:
-Autopilot stands down for the whole planning phase.
+Autopilot stands down for the whole planning phase. If the plan file changes after
+it was approved, Shepherd marks it as edited and offers a re-review — during
+execution too; a re-review that requests changes returns the session to the
+planning phase and stops the agent implementing until the revised plan is approved.
 
 ### Autopilot
 

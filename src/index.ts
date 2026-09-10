@@ -94,7 +94,7 @@ import { Presence } from "./presence";
 import { ReviewService } from "./review";
 import { StandalonePrCriticService } from "./standalone-critic";
 import { createIssueLogger } from "./issue-log";
-import { PlanGateService, shouldConsiderOnSettle } from "./plan-gate";
+import { PlanGateService, shouldConsiderOnSettle, shouldCheckPlanDrift } from "./plan-gate";
 import { backfillCodexSpawnUsage } from "./codex-activity";
 import { AutopilotService, AUTOPILOT_LABEL } from "./autopilot";
 import { NAMER_LABEL } from "./namer";
@@ -1592,6 +1592,11 @@ const planGate = new PlanGateService({
   release: async (id) => {
     await service.releasePlanGate(id);
   },
+  // Mirror of `release` for the re-gate direction (#2224): discards the boolean for the same reason
+  // — the contract is "re-gate it", not "was it re-gatable".
+  regate: async (id) => {
+    await service.regatePlanGate(id);
+  },
   // Per-role plan-reviewer model thunk (read per spawn → live settings).
   env: () => roleEnv(config.plannerCli, config.plannerModel, config.plannerEffort),
   operatorLanguage: () => config.operatorLanguage,
@@ -2180,9 +2185,16 @@ const sessionRouter = new SessionRouter(
     // after `changes_requested` settles to idle, not done) — see shouldConsiderOnSettle (#1610).
     onStatusIndependent: (change) => {
       const sess = change.snapshot.session;
-      const priorDecision = store.getPlanGate(sess.id)?.decision;
-      if (shouldConsiderOnSettle(change.status, sess.planPhase, priorDecision))
+      const prior = store.getPlanGate(sess.id);
+      if (shouldConsiderOnSettle(change.status, sess.planPhase, prior?.decision))
         void planGate.consider(sess).catch((err) => console.warn("[plan-gate] consider:", err));
+      // #2224: an APPROVED gate's plan can still be rewritten — by the operator, or by an agent
+      // replanning mid-execution. Re-hash it on the same settle edge (never per tick) so the UI can
+      // say the live plan no longer matches what was signed off, and offer a re-review.
+      if (shouldCheckPlanDrift(change.status, prior))
+        void planGate
+          .noteLivePlan(sess)
+          .catch((err) => console.warn("[plan-gate] noteLivePlan:", err));
     },
   },
 );

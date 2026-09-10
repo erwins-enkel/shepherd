@@ -11,9 +11,11 @@
     type PlanReviewError,
   } from "$lib/api";
   import {
+    canOfferPlanReview,
     canRelease,
     canShowPlanStallActions,
     canTriggerPlanReview,
+    planEdited,
     planGateChip,
   } from "./plan-gate-badge";
   import SpawnFailureNotice from "./SpawnFailureNotice.svelte";
@@ -41,14 +43,20 @@
   const reviewing = $derived(planGates.isReviewing(session.id));
   const chip = $derived(planGateChip(session, gate, reviewing));
   const releasable = $derived(canRelease(session, gate));
-  // Manual re-review only makes sense while still planning (not once executing).
-  const canReviewNow = $derived(session.planPhase === "planning");
-  // During execution the plan is viewable read-only — hide Go + Review (issue #809).
-  const readonly = $derived(session.planPhase !== "planning");
-  // question-form answers steer back to the planning agent — only while planning (the gate +
-  // its questions persist past approval), with submit locked while a review is in flight.
+  const planning = $derived(session.planPhase === "planning");
+  // Manual re-review: always available while planning; during execution ONLY for a plan edited
+  // after approval (#2224), whose re-review can re-gate the session.
+  const canReviewNow = $derived(canOfferPlanReview(session, gate));
+  // During execution the plan is viewable read-only — hide Go (issue #809). Not the Review control:
+  // an edited plan is exactly what an executing operator needs to act on.
+  const readonly = $derived(!planning);
+  // The live plan no longer matches what was approved — what the panel renders below is the
+  // APPROVED snapshot, not what the agent is working from.
+  const edited = $derived(planEdited(gate));
+  // question-form answers steer back to the PLANNING agent — only while planning (the gate + its
+  // questions persist past approval), with submit locked while a review is in flight.
   const planAnswerCtx = $derived(
-    canReviewNow ? { sessionId: session.id, locked: reviewing } : undefined,
+    planning ? { sessionId: session.id, locked: reviewing } : undefined,
   );
   const planStalled = $derived(canShowPlanStallActions(session, gate, reviewing));
   // #1944: a REFUSED plan-gate spawn. Rendered INDEPENDENTLY of `planStalled` — deliberately.
@@ -73,9 +81,21 @@
   const rework = $derived(
     gate?.decision === "changes_requested" && !gate.approved ? gate : undefined,
   );
-  // Only `approved` renders the Review control inert: `force` re-reviews an unchanged plan, but the
-  // server never bypasses `approved`. (The `reviewing` case is handled by the in-flight spinner path.)
+  // Only an UNEDITED `approved` gate renders the Review control inert: `force` re-reviews an
+  // unchanged plan, and since #2224 an EDITED approved one, so only that state dead no-ops. (The
+  // `reviewing` case is handled by the in-flight spinner path.)
   const planReviewBlock = $derived(canTriggerPlanReview(session, gate, reviewing));
+  // The control's inert state, resolved once here rather than re-tested per attribute: the template
+  // stays declarative and its synthetic complexity stays under the Tier-1 Svelte bar (.fallowrc.jsonc).
+  const reviewInert = $derived(planReviewBlock === "approved");
+  const reviewAriaLabel = $derived(
+    reviewInert
+      ? `${m.planpanel_review_now()} — ${m.planpanel_review_already_approved()}`
+      : undefined,
+  );
+  // Rendered whenever the footer has at least one control: Review (planning, or an edited plan
+  // mid-execution) or Go (planning only).
+  const showActions = $derived(!readonly || canReviewNow);
   let envOpen = $state(false);
 
   const planEnv = $derived(
@@ -225,7 +245,9 @@
   }
 
   async function review() {
-    if (inFlight || !canReviewNow) return;
+    // `reviewInert` is guarded HERE, not at the click site: the button stays focusable and
+    // screen-reader-announced (aria-disabled + label), so the no-op belongs in the handler.
+    if (inFlight || !canReviewNow || reviewInert) return;
     busy = true;
     outcome = null;
     planUnavailable = false;
@@ -297,6 +319,13 @@
   const statusNote = $derived(planStatusNote(chip, planStalled));
   const statusTone = $derived(planStatusTone(chip));
 
+  // Footer attribute state, resolved in the script for the same reason as `reviewInert` above —
+  // the markup stays declarative and each template unit stays under the Tier-1 Svelte bar.
+  const describedBy = $derived(statusNote ? statusNoteId : undefined);
+  const reviewAriaDisabled = $derived(reviewInert ? "true" : undefined);
+  const reviewDisabled = $derived(inFlight || !!quotaBusy);
+  const goDisabled = $derived(busy || !!quotaBusy || !releasable);
+
   function planStatusNote(currentChip: typeof chip, stalledActionsVisible: boolean): string | null {
     switch (currentChip.kind) {
       case "ready":
@@ -313,6 +342,8 @@
         return m.planpanel_status_reviewing();
       case "view":
         return m.planpanel_status_view();
+      case "edited":
+        return m.planpanel_status_edited();
       case "none":
         return null;
     }
@@ -329,7 +360,7 @@
 
   function planStatusTone(currentChip: typeof chip): "ready" | "changes" | "error" | "muted" {
     if (currentChip.kind === "ready") return "ready";
-    if (currentChip.kind === "changes") return "changes";
+    if (currentChip.kind === "changes" || currentChip.kind === "edited") return "changes";
     if (currentChip.kind === "error") return "error";
     return "muted";
   }
@@ -420,6 +451,9 @@
 
     <div class="body">
       <section class="plan">
+        {#if edited}
+          <p class="note edited-note" role="status">{m.planpanel_edited_note()}</p>
+        {/if}
         {#if planBlocks.length > 0}
           <div class="plan-blocks">
             <span class="micro plan-blocks-caption">{m.planpanel_proposed_caption()}</span>
@@ -515,49 +549,58 @@
         <p class="note err" role="alert">{m.planpanel_quota_failed()}</p>
       {/if}
 
-      {#if !readonly}
-        <div class="actions" aria-describedby={statusNote ? statusNoteId : undefined}>
-          {#if canReviewNow}
-            <button
-              type="button"
-              class="review"
-              disabled={inFlight || !!quotaBusy}
-              aria-disabled={planReviewBlock === "approved" ? "true" : undefined}
-              aria-label={planReviewBlock === "approved"
-                ? `${m.planpanel_review_now()} — ${m.planpanel_review_already_approved()}`
-                : undefined}
-              title={reviewHint}
-              onclick={() => {
-                if (planReviewBlock === "approved") return;
-                review();
-              }}
-            >
-              {#if inFlight}
-                <span class="rev-dot" aria-hidden="true"></span><span class="rev-text"
-                  >{reviewingButtonLabel}</span
-                >
-              {:else}
-                {m.planpanel_review_now()}
-              {/if}
-            </button>
-          {/if}
-          <button
-            type="button"
-            class="go"
-            onclick={go}
-            disabled={busy || !!quotaBusy || !releasable}
-            aria-describedby={statusNote ? statusNoteId : undefined}
-          >
-            {m.planpanel_go()}
-          </button>
-        </div>
-        {#if planReviewBlock === "approved"}
-          <p class="note" role="status">{m.planpanel_review_already_approved()}</p>
-        {/if}
-      {/if}
+      {@render actionsFooter()}
     </div>
   </div>
 </div>
+
+<!-- The Review control as its own unit: its in-flight/idle label swap is what pushed the footer
+     over the template-complexity bar as one block. -->
+{#snippet reviewButton()}
+  <button
+    type="button"
+    class="review"
+    disabled={reviewDisabled}
+    aria-disabled={reviewAriaDisabled}
+    aria-label={reviewAriaLabel}
+    title={reviewHint}
+    onclick={review}
+  >
+    {#if inFlight}
+      <span class="rev-dot" aria-hidden="true"></span><span class="rev-text"
+        >{reviewingButtonLabel}</span
+      >
+    {:else}
+      {m.planpanel_review_now()}
+    {/if}
+  </button>
+{/snippet}
+
+<!-- The action footer, likewise: fallow scores a top-level {#snippet} as its own unit, which keeps
+     the card body within the health bar. Rendering is unchanged. -->
+{#snippet actionsFooter()}
+  {#if showActions}
+    <div class="actions" aria-describedby={describedBy}>
+      {#if canReviewNow}
+        {@render reviewButton()}
+      {/if}
+      {#if !readonly}
+        <button
+          type="button"
+          class="go"
+          onclick={go}
+          disabled={goDisabled}
+          aria-describedby={describedBy}
+        >
+          {m.planpanel_go()}
+        </button>
+      {/if}
+    </div>
+    {#if reviewInert}
+      <p class="note" role="status">{m.planpanel_review_already_approved()}</p>
+    {/if}
+  {/if}
+{/snippet}
 
 <style>
   .overlay {
@@ -855,6 +898,13 @@
   }
   .note.err {
     color: var(--color-red);
+  }
+  /* #2224: sits ABOVE the plan text (the other notes are right-aligned action footnotes) and says
+     the text below is the approved snapshot, not the live file. */
+  .edited-note {
+    text-align: left;
+    color: var(--color-amber);
+    margin-bottom: 10px;
   }
   .status-note {
     margin: 0;

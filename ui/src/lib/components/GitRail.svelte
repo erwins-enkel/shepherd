@@ -18,7 +18,7 @@
   import { checksCleared } from "$lib/checks-cleared";
   import { isConflicting } from "$lib/pr-conflict";
   import { criticChip, criticBadgeLabel, criticTitle } from "./critic-badge";
-  import { canTriggerPlanReview } from "./plan-gate-badge";
+  import { canOfferPlanReview, canTriggerPlanReview } from "./plan-gate-badge";
   import RailStatusActions from "./git-rail/RailStatusActions.svelte";
   import PlanDriftNote from "./git-rail/PlanDriftNote.svelte";
   import AutomationPanel from "./AutomationPanel.svelte";
@@ -445,13 +445,16 @@
           ? m.gitrail_rereview()
           : m.gitrail_review(),
   );
-  // Manual plan-review trigger: visible only while the plan gate is active
-  // (planPhase === "planning"), matching PlanPanel's canReviewNow.
-  const canReviewPlan = $derived(planPhase === "planning");
+  // Manual plan-review trigger: visible while the plan gate is active (planPhase === "planning"),
+  // and — since #2224 — during execution when the approved plan has been edited since sign-off.
+  // Matches PlanPanel's canReviewNow. The arm/confirm latch below matters more in that second case:
+  // a re-review whose verdict requests changes returns the session to planning and stops the agent.
+  const canReviewPlan = $derived(canOfferPlanReview({ planPhase }, planGates.map[sessionId]));
   const planReviewing = $derived(planGates.isReviewing(sessionId) || awaitingPlanReview);
-  // Only `approved` is a genuine block: `force` re-reviews an unchanged/at-cap plan, but the
-  // server never bypasses `approved`, so a click there would dead no-op. Pass GitRail's own
-  // `planReviewing` (store flag ∪ the 3 s optimistic bridge) so the block can't re-enable mid-bridge.
+  // Only an UNEDITED `approved` gate is a genuine block: `force` re-reviews an unchanged/at-cap
+  // plan, and since #2224 an edited approved one too, so that is the sole state a click dead
+  // no-ops. Pass GitRail's own `planReviewing` (store flag ∪ the 3 s optimistic bridge) so the
+  // block can't re-enable mid-bridge.
   // (The "reviewing" case is already covered by the button's `disabled={planReviewing}` busy state.)
   const planReviewBlock = $derived(
     canTriggerPlanReview({ planPhase }, planGates.map[sessionId], planReviewing),

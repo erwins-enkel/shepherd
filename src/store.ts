@@ -729,6 +729,13 @@ type ReviewVerdictRow = {
   updatedAt: number;
 };
 
+/** `undefined` → `null` for a SQLite bind. Optional fields on a row-shaped object cannot be bound
+ *  as-is (the driver rejects `undefined`), and inlining `?? null` per field pushes the big
+ *  hand-written binders past their complexity bar. */
+function orNull<T>(v: T | null | undefined): T | null {
+  return v ?? null;
+}
+
 /** SQLite row shape for the plan_gates table. */
 type PlanGateRow = {
   sessionId: string;
@@ -750,6 +757,8 @@ type PlanGateRow = {
   reviewerEffort: string | null;
   finalRoundPending: number | null;
   dismissed: number | null;
+  livePlanHash: string | null;
+  approvedAt: number | null;
 };
 
 /** SQLite row shape for the recaps table. */
@@ -1363,7 +1372,9 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       answeredQuestionKeys TEXT NOT NULL DEFAULT '[]',
       reviewerProvider TEXT,
       reviewerModel TEXT,
-      reviewerEffort TEXT)`);
+      reviewerEffort TEXT,
+      livePlanHash TEXT,
+      approvedAt INTEGER)`);
     this.migratePlanGateColumns();
     this.db.run(`CREATE TABLE IF NOT EXISTS recaps (
       sessionId TEXT PRIMARY KEY,
@@ -3425,13 +3436,15 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       answeredQuestionKeys,
       finalRoundPending: !!r.finalRoundPending,
       dismissed: !!r.dismissed,
+      livePlanHash: r.livePlanHash,
+      approvedAt: r.approvedAt,
     } as PlanGate;
   }
 
   getPlanGate(sessionId: string): PlanGate | null {
     const r = this.db
       .query(
-        `SELECT sessionId, planHash, decision, summary, summaryCode, body, findings, round, cap, approved, plan, updatedAt, blocks, answeredQuestionKeys, reviewerProvider, reviewerModel, reviewerEffort, finalRoundPending, dismissed
+        `SELECT sessionId, planHash, decision, summary, summaryCode, body, findings, round, cap, approved, plan, updatedAt, blocks, answeredQuestionKeys, reviewerProvider, reviewerModel, reviewerEffort, finalRoundPending, dismissed, livePlanHash, approvedAt
               FROM plan_gates WHERE sessionId = ?`,
       )
       .get(sessionId) as PlanGateRow | null;
@@ -3440,8 +3453,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
 
   putPlanGate(g: PlanGate): void {
     this.db.run(
-      `INSERT INTO plan_gates (sessionId, planHash, decision, summary, summaryCode, body, findings, round, cap, approved, plan, updatedAt, blocks, answeredQuestionKeys, reviewerProvider, reviewerModel, reviewerEffort, finalRoundPending, dismissed)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      `INSERT INTO plan_gates (sessionId, planHash, decision, summary, summaryCode, body, findings, round, cap, approved, plan, updatedAt, blocks, answeredQuestionKeys, reviewerProvider, reviewerModel, reviewerEffort, finalRoundPending, dismissed, livePlanHash, approvedAt)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(sessionId) DO UPDATE SET planHash=excluded.planHash, decision=excluded.decision,
          summary=excluded.summary, summaryCode=excluded.summaryCode, body=excluded.body, findings=excluded.findings,
          round=excluded.round, cap=excluded.cap, approved=excluded.approved,
@@ -3449,7 +3462,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
          answeredQuestionKeys=excluded.answeredQuestionKeys,
          reviewerProvider=excluded.reviewerProvider, reviewerModel=excluded.reviewerModel,
          reviewerEffort=excluded.reviewerEffort,
-         finalRoundPending=excluded.finalRoundPending, dismissed=excluded.dismissed`,
+         finalRoundPending=excluded.finalRoundPending, dismissed=excluded.dismissed,
+         livePlanHash=excluded.livePlanHash, approvedAt=excluded.approvedAt`,
       [
         g.sessionId,
         g.planHash ?? "",
@@ -3470,6 +3484,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         g.reviewerEffort ?? null,
         g.finalRoundPending ? 1 : 0,
         g.dismissed ? 1 : 0,
+        orNull(g.livePlanHash),
+        orNull(g.approvedAt),
       ],
     );
   }
@@ -3652,7 +3668,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   snapshotPlanGates(): Record<string, PlanGate> {
     const rows = this.db
       .query(
-        `SELECT sessionId, planHash, decision, summary, summaryCode, body, findings, round, cap, approved, plan, updatedAt, blocks, answeredQuestionKeys, reviewerProvider, reviewerModel, reviewerEffort, finalRoundPending, dismissed FROM plan_gates`,
+        `SELECT sessionId, planHash, decision, summary, summaryCode, body, findings, round, cap, approved, plan, updatedAt, blocks, answeredQuestionKeys, reviewerProvider, reviewerModel, reviewerEffort, finalRoundPending, dismissed, livePlanHash, approvedAt FROM plan_gates`,
       )
       .all() as PlanGateRow[];
     const out: Record<string, PlanGate> = {};
@@ -4831,6 +4847,11 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // summaryCode: sentinel for a server-authored summary (error → "no-verdict"), rendered per-locale
     // in the UI. Pre-existing rows backfill to NULL (render their stored `summary` prose verbatim).
     add("summaryCode", `summaryCode TEXT`);
+    // livePlanHash: hash of the live plan file at the last settle-edge check; approvedAt: when the
+    // plan was last approved (#2224). Pre-existing rows backfill to NULL — "never checked" / "never
+    // approved", which is exactly how an unmigrated gate should read: not edited, not re-gated.
+    add("livePlanHash", `livePlanHash TEXT`);
+    add("approvedAt", `approvedAt INTEGER`);
     // Migrate legacy `error` rows that baked the English summary in: flip the exact known prose to the
     // sentinel code + clear the summary so the UI localizes it. Idempotent (after the flip the WHERE
     // no longer matches) and no-clobber (only the exact prose string, only `error` rows).

@@ -139,6 +139,57 @@ describe("PlanPanel read-only during execution", () => {
   });
 });
 
+describe("PlanPanel: a plan edited after approval (#2224)", () => {
+  const editedGate = (id: string) => gate(id, { planHash: "APPROVED", livePlanHash: "REWRITTEN" });
+
+  it("during execution: notes the divergence and offers Re-review, but never Go", async () => {
+    const id = "s-edited";
+    planGates.map = { [id]: editedGate(id) };
+
+    render(PlanPanel, {
+      props: { session: session({ id, planPhase: "executing" }), onclose: vi.fn() },
+    });
+
+    await expect.element(page.getByText(m.planpanel_edited_note())).toBeVisible();
+    await expect.element(page.getByText(m.planpanel_status_edited())).toBeVisible();
+    const review = page.getByRole("button", { name: m.planpanel_review_now() });
+    await expect.element(review).toBeVisible();
+    // Go stays planning-only: this session is (still) executing.
+    expect(document.querySelector("button.go")).toBeNull();
+
+    await userEvent.click(review);
+    expect(vi.mocked(reviewPlan)).toHaveBeenCalledWith(id);
+  });
+
+  it("during execution: an UNEDITED approved plan keeps the read-only view", async () => {
+    const id = "s-unedited";
+    planGates.map = { [id]: gate(id, { planHash: "APPROVED", livePlanHash: "APPROVED" }) };
+
+    render(PlanPanel, {
+      props: { session: session({ id, planPhase: "executing" }), onclose: vi.fn() },
+    });
+
+    expect(document.querySelector(".actions")).toBeNull();
+    expect(document.querySelector(".edited-note")).toBeNull();
+    await expect.element(page.getByText(m.planpanel_status_view())).toBeVisible();
+  });
+
+  it("while planning: the edited note shows and Review is live rather than blocked", async () => {
+    const id = "s-edited-planning";
+    planGates.map = { [id]: editedGate(id) };
+
+    render(PlanPanel, {
+      props: { session: session({ id, planPhase: "planning" }), onclose: vi.fn() },
+    });
+
+    await expect.element(page.getByText(m.planpanel_edited_note())).toBeVisible();
+    // The "already approved" block is lifted for an edited plan.
+    expect(document.querySelector("button.review")!.getAttribute("aria-disabled")).toBeNull();
+    await userEvent.click(page.getByRole("button", { name: m.planpanel_review_now() }));
+    expect(vi.mocked(reviewPlan)).toHaveBeenCalledWith(id);
+  });
+});
+
 describe("PlanPanel release state", () => {
   it("keeps Go disabled for requested changes and explains approval is still required", async () => {
     const id = "s-changes";

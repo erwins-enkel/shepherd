@@ -38,6 +38,7 @@ const tooltipCopy: PlanGateTooltipCopy = {
   ready: "Plan approved.",
   error: "Review did not complete.",
   view: "Execution started.",
+  edited: "Plan edited after approval.",
 };
 
 describe("planGateChip", () => {

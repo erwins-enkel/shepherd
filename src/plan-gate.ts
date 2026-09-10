@@ -98,6 +98,52 @@ export function shouldConsiderOnSettle(
   return false;
 }
 
+/** Whether a settle edge should re-hash the live plan file to see whether it still matches the
+ *  APPROVED snapshot (#2224). Only an approved gate qualifies: before approval the plan is expected
+ *  to move (that is what `shouldConsiderOnSettle` is for), and after archive there is no row.
+ *  Phase-agnostic on purpose — a plan can be edited while the operator holds Go (`planning`) just as
+ *  easily as mid-execution, and both surface the same marker.
+ *
+ *  Settle-only, never per-tick: this reads a file on the single server loop, and one bounded read
+ *  per settle edge is the same cost `consider()` already pays there. */
+export function shouldCheckPlanDrift(status: string, gate: PlanGate | undefined | null): boolean {
+  if (status !== "idle" && status !== "done") return false;
+  return gate?.approved === true;
+}
+
+/** Is this spawn a RE-REVIEW — a reviewer that started after the verdict the gate now holds (#2224)?
+ *  `updatedAt` dates that verdict, so a spawn newer than it cannot be the crash-window husk of the
+ *  run that produced it; it is the operator-forced re-review of an edited plan, whose verdict is
+ *  still wanted. (The settle-edge drift write carries `updatedAt` forward precisely so this stays
+ *  true.) Only meaningful for an APPROVED gate: an un-approved one never blocks adoption anyway. */
+function isReReviewSpawn(gate: PlanGate | null | undefined, spawnedAt: number): boolean {
+  return gate?.approved === true && spawnedAt > gate.updatedAt;
+}
+
+/** What {@link PlanGateService.adoptOrphans} should do with a restart-orphaned plan reviewer.
+ *  Pure, and the single place the two phase/approval rules meet — keeping that loop's branching
+ *  within the health bar.
+ *   - `adopt` — its verdict is still wanted: an ordinary planning-phase orphan, or (#2224) a
+ *     re-review in either phase.
+ *   - `reap`  — the crash-window husk of the run that produced an approved gate, which would
+ *     otherwise resurrect `approved` + a reviewer in flight and steer into an executing agent.
+ *   - `skip`  — not ours: a session past the gate whose orphan is not a re-review (gcStale-
+ *     ReviewWorktrees owns that worktree), or one with no plan phase at all.
+ *
+ *  The `executing` arm is load-bearing: without it a restart mid-re-review left the reviewer
+ *  neither adopted nor reaped — verdict unread, terminal alive, spawn row `completedAt` NULL, and
+ *  gcStaleReviewWorktrees then deleting the very worktree the verdict lives in. */
+function orphanDisposition(
+  s: Session,
+  gate: PlanGate | null,
+  spawnedAt: number,
+): "adopt" | "reap" | "skip" {
+  const reReview = isReReviewSpawn(gate, spawnedAt);
+  if (s.planPhase === "executing") return reReview ? "adopt" : "skip";
+  if (s.planPhase !== "planning") return "skip";
+  return gate?.approved && !reReview ? "reap" : "adopt";
+}
+
 /** The plan the planning agent writes in its LIVE session worktree; the reviewer reads its text. */
 const PLAN_FILE = ".shepherd-plan.md";
 
@@ -510,6 +556,10 @@ export interface PlanGateServiceDeps extends MembraneSeams {
   /** Release an APPROVED autonomous (auto/autopilot) session into execution (SessionService.releasePlanGate).
    *  Async since #1567: the release steers the agent, so it resolves once that steer has landed. */
   release: (sessionId: string) => Promise<void>;
+  /** Return an EXECUTING session to the planning phase because a re-review of its edited plan
+   *  requested changes (SessionService.regatePlanGate, #2224). Its guard reads the STORE, so the
+   *  revoking verdict must already be persisted when this is called — see applyChangesRequested. */
+  regate: (sessionId: string) => Promise<void>;
   onChange: (id: string, gate: PlanGate) => void;
   /** #1944: broadcast a spawn-notice change. DELIBERATELY separate from `onChange`, which carries a
    *  PlanGate — a clamp or a refusal must never synthesize a gating row (see the `spawn_notices`
@@ -692,10 +742,13 @@ export class PlanGateService {
    *  each still short-circuit exactly as on the auto-path. */
   async consider(session: Session, opts?: { force?: boolean }): Promise<PlanReviewTrigger> {
     const force = opts?.force === true;
-    if (session.planPhase !== "planning") return "skipped"; // only gate before execution
+    if (session.planPhase == null) return "skipped"; // plan gate off for this session
+    if (!force && session.planPhase !== "planning") return "skipped"; // auto-path only gates before execution
     if (this.inflight.has(session.id) || this.starting.has(session.id)) return "skipped"; // in flight / mid-spawn
     const prior = this.deps.store.getPlanGate(session.id);
-    if (prior?.approved) return "skipped"; // already cleared → execution allowed, don't re-review (force does NOT bypass this)
+    // An approved gate still short-circuits the AUTO path unconditionally. The forced path defers
+    // its decision until the plan is hashed (#2224) — the one bypass is an EDITED approved plan.
+    if (!force && prior?.approved) return "skipped"; // already cleared → execution allowed, don't re-review
     const plan = (this.readPlan(session.worktreePath) ?? "").trim();
     if (!plan) return "plan-unavailable"; // missing / unreadable / empty → nothing usable to review
     // Claim the slot SYNCHRONOUSLY, before any await — hashPlan is async, so two concurrent
@@ -704,22 +757,64 @@ export class PlanGateService {
     this.starting.add(session.id);
     try {
       const planHash = await PlanGateService.hashPlan(plan);
-      // Dedupe an unchanged plan on the auto-path — but NEVER when `force` (the manual re-review
-      // path) is set, and NEVER skip past an `error` verdict. `force` makes a click re-review the
-      // same plan text instead of no-opping; a timeout/unparseable run produced no real verdict, so
-      // re-running it must retry rather than no-op on the stale error. Mirrors review.ts rebaseSkip.
-      if (!force && prior?.planHash === planHash && prior.decision !== "error") return "skipped";
-      // #1944: a spawn REFUSED for this exact plan text will refuse again — the composition is
-      // deterministic — so don't re-allocate a worktree and re-do the work every sweep. Read after
-      // every pre-existing skip and bypassed by `force`, exactly like the dedupe above. Only a
-      // `failed` notice carries an inputKey; a `clamped` one never suppresses anything.
-      if (!force && this.deps.store.getSpawnNotice(session.id, "plan")?.inputKey === planHash) {
-        return "skipped";
-      }
+      if (this.skipForPlanHash(session, prior, planHash, force)) return "skipped";
       return await this.begin(session, plan, planHash, prior, force);
     } finally {
       this.starting.delete(session.id);
     }
+  }
+
+  /** The post-hash short-circuits, split out of {@link consider} to keep its branching within the
+   *  health bar. True ⇒ this call must not spawn a reviewer.
+   *
+   *  #2224: `reReview` is the ONE thing that may run past an approved gate, or off the planning
+   *  phase — an operator-forced re-review of an approved plan whose live text has since DIVERGED
+   *  from the reviewed snapshot. An unedited approved plan, and any non-approved gate off the
+   *  planning phase, still short-circuit exactly as before. A `request-changes` verdict on such a
+   *  run re-gates an executing session (applyChangesRequested).
+   *
+   *  Then the two pre-existing dedupes, both bypassed by `force`:
+   *  - an UNCHANGED plan on the auto-path — but never past an `error` verdict, which produced no
+   *    real verdict to dedupe against (mirrors review.ts rebaseSkip);
+   *  - #1944, a spawn already REFUSED for this exact plan text: the composition is deterministic, so
+   *    it would refuse again — don't re-allocate a worktree every sweep. Only a `failed` notice
+   *    carries an inputKey; a `clamped` one never suppresses anything. */
+  private skipForPlanHash(
+    session: Session,
+    prior: PlanGate | null,
+    planHash: string,
+    force: boolean,
+  ): boolean {
+    const reReview = force && prior?.approved === true && prior.planHash !== planHash;
+    if (prior?.approved && !reReview) return true;
+    if (session.planPhase !== "planning" && !reReview) return true;
+    if (!force && prior?.planHash === planHash && prior.decision !== "error") return true;
+    return !force && this.deps.store.getSpawnNotice(session.id, "plan")?.inputKey === planHash;
+  }
+
+  /** Settle-edge divergence check (#2224): re-hash the live plan file of a session whose gate is
+   *  APPROVED and record it as `livePlanHash`, so the UI can say the plan no longer matches what
+   *  was signed off and offer a re-review. Call it behind {@link shouldCheckPlanDrift}.
+   *
+   *  Churn-guarded: an unchanged hash writes nothing and emits nothing, so the steady state (a
+   *  session settling over and over on an untouched plan) costs one file read. The write CARRIES
+   *  `updatedAt` forward rather than restamping it — that field dates the VERDICT, and both
+   *  `planStallStatus` and `adoptOrphans`' re-review discriminator read it.
+   *
+   *  Skipped while a review is in flight: that run stamps `livePlanHash` itself at finalize, and a
+   *  mid-flight write would race it. A missing/empty plan file leaves the last known marker alone —
+   *  an unreadable artifact is not evidence the plan changed. */
+  async noteLivePlan(session: Session): Promise<void> {
+    const prior = this.deps.store.getPlanGate(session.id);
+    if (!prior?.approved) return;
+    if (this.inflight.has(session.id) || this.starting.has(session.id)) return;
+    const plan = (this.readPlan(session.worktreePath) ?? "").trim();
+    if (!plan) return;
+    const livePlanHash = await PlanGateService.hashPlan(plan);
+    if (prior.livePlanHash === livePlanHash) return;
+    const gate: PlanGate = { ...prior, livePlanHash };
+    this.deps.store.putPlanGate(gate);
+    this.deps.onChange(session.id, gate);
   }
 
   /** How many plan reviews this session has already had (#1948). Unlike `gate.round` this survives
@@ -735,10 +830,14 @@ export class PlanGateService {
    *  repeatedly-failing reviewer reads as later than its delivered-round count. Accepted — the row
    *  represents tokens genuinely spent on this plan, and per `roundBlock` lateness never downgrades
    *  a blocking finding or demotes one already raised. */
-  private countPlanGateSpawns(sessionId: string): number {
+  private countPlanGateSpawns(sessionId: string, since = 0): number {
     let n = 0;
-    for (const row of this.deps.store.listReviewerSpawns())
-      if (row.kind === "plan_gate" && row.taskSessionId === sessionId) n++;
+    for (const row of this.deps.store.listReviewerSpawns()) {
+      if (row.kind !== "plan_gate" || row.taskSessionId !== sessionId) continue;
+      // `since <= 0` means "no baseline" (never approved) → every row counts, as before #2224.
+      if (since > 0 && !(row.spawnedAt > since)) continue;
+      n++;
+    }
     return n;
   }
 
@@ -774,7 +873,15 @@ export class PlanGateService {
     // a reset-proof spawn count. Resolved ONCE here with the rest of the per-run context (#1944):
     // the clamp ladder re-composes the prompt many times while binary-searching, and this counts
     // spawn rows.
-    const round = effectiveRound(prior?.round ?? 0, this.countPlanGateSpawns(session.id), this.cap);
+    // #2224: spawns are counted only SINCE the last approval. A re-review of an edited plan is a
+    // fresh streak over fresh text, so it must be briefed as round 1 — inheriting the pre-approval
+    // count would hand it `roundBlock`'s late-round posture (don't open new fronts) against a plan
+    // no reviewer has ever seen. Never approved ⇒ `0` ⇒ every row counts, exactly as before.
+    const round = effectiveRound(
+      prior?.round ?? 0,
+      this.countPlanGateSpawns(session.id, prior?.approvedAt ?? 0),
+      this.cap,
+    );
     const language = this.deps.operatorLanguage?.() ?? "en";
     return (plan, planClamped = false) =>
       planReviewPrompt(
@@ -1146,19 +1253,23 @@ export class PlanGateService {
       const id = sp.taskSessionId;
       if (this.inflight.has(id) || this.starting.has(id)) continue;
       const s = this.deps.store.get(id);
-      if (!s || s.planPhase !== "planning") continue; // session gone or already past the gate
-      // Reaped worktree ⇒ the review finalized (finalize removes it); nothing to re-adopt.
-      if (!this.worktreeExists(sp.worktreePath)) continue;
+      if (!s) continue; // session gone
+      // The gate is read BEFORE the disposition: an execution-phase re-review (#2224) is a
+      // legitimate in-flight reviewer, and telling that from a husk needs the gate.
       const prior = this.deps.store.getPlanGate(id);
+      const disposition = orphanDisposition(s, prior, sp.spawnedAt);
+      if (disposition === "skip") continue;
+      // Reaped worktree ⇒ the review finalized (finalize removes it); nothing to re-adopt or reap.
+      if (!this.worktreeExists(sp.worktreePath)) continue;
       // Uphold `approved ⇒ no reviewer in flight`. This method is the SECOND maintainer of that
-      // invariant (the first is consider()'s `prior?.approved` short-circuit): a crash between
-      // applyApproved's putPlanGate and finalize's worktree.remove leaves an approved gate whose
-      // orphan spawn still satisfies the adoption predicate. Re-adopting it would resurrect exactly
-      // the state the invariant forbids and let finalize() steer into an executing agent. Reap it
-      // properly instead — a bare `continue` would strand the reviewer terminal + a NULL-totals
-      // spawn row (gcStaleReviewWorktrees only reaps the worktree; reapReviewer only acts on
-      // entries already in `inflight`, which this is not). See reapOrphanSpawn.
-      if (prior?.approved) {
+      // invariant (the first is consider()'s short-circuit): a crash between applyApproved's
+      // putPlanGate and finalize's worktree.remove leaves an approved gate whose orphan spawn still
+      // satisfies the adoption predicate. Re-adopting it would resurrect exactly the state the
+      // invariant forbids and let finalize() steer into an executing agent. Reap it properly
+      // instead — a bare `continue` would strand the reviewer terminal + a NULL-totals spawn row
+      // (gcStaleReviewWorktrees only reaps the worktree; reapReviewer only acts on entries already
+      // in `inflight`, which this is not). See reapOrphanSpawn.
+      if (disposition === "reap") {
         await this.reapOrphanSpawn(sp);
         continue;
       }
@@ -1436,6 +1547,23 @@ export class PlanGateService {
     // reset the round WHILE this review was in flight must win over this finalize, not be clobbered
     // back to the pre-reset value (the reviewer captured f.priorRound before the reset).
     const priorRound = prior?.round ?? f.priorRound;
+    // #2224: a re-review of an edited plan can land on a session that is already EXECUTING. Re-gate
+    // it BEFORE the findings steer, so they arrive at an agent that has just been told to stop
+    // implementing rather than at one still writing code against the old plan.
+    //
+    // ORDER IS LOAD-BEARING: this method's own write is at the tail, and regatePlanGate's guard
+    // reads the STORE — so the revoking verdict is persisted FIRST, here. The provisional write
+    // carries this run's `round` (the tail write settles it once delivery is known) and, being
+    // `approved: false` on a gate with `approvedAt` stamped, it engages advanceToExecutionOnPr's
+    // suppression at the same instant the phase flips, closing the git-poll race.
+    if (this.deps.store.get(f.sessionId)?.planPhase === "executing") {
+      this.deps.store.putPlanGate(gate);
+      try {
+        await this.deps.regate(f.sessionId);
+      } catch (err) {
+        console.warn(`[plan-gate] regate failed for ${f.sessionId}:`, err);
+      }
+    }
     let delivered = false;
     if (priorRound < this.cap) {
       try {
@@ -1509,6 +1637,11 @@ export class PlanGateService {
    * broken. Churn-guarded on planHash + summaryCode: an unchanged row is neither re-put nor
    * re-broadcast. No `addSignal` — unlike `applyError` this is one host fault, not a per-session
    * stall, and one signal per session per sweep would bury the herd.
+   *
+   * NEVER writes over an APPROVED gate (#2224). On a re-review of an edited plan this row would
+   * revoke a live approval AND replace the approved snapshot with the unreviewed text the refused
+   * reviewer never saw — which is what the PR critic is then told was signed off (#2223). A host
+   * that cannot launch the reviewer is not a verdict on the plan; same reasoning as `applyError`.
    */
   private publishSpawnRefusal(
     session: Session,
@@ -1517,6 +1650,7 @@ export class PlanGateService {
     prior: PlanGate | null,
     summaryCode: PlanSummaryCode,
   ): void {
+    if (prior?.approved) return; // re-review of an approved plan — leave the signed-off row intact
     if (prior?.planHash === planHash && prior.summaryCode === summaryCode) return; // already surfaced
     const gate: PlanGate = {
       sessionId: session.id,
@@ -1537,10 +1671,22 @@ export class PlanGateService {
     this.deps.onChange(session.id, gate);
   }
 
-  /** Persist the error gate + escalate, but don't steer (no real findings) and don't release. */
+  /** Persist the error gate + escalate, but don't steer (no real findings) and don't release.
+   *
+   *  EXCEPT on a re-review of an already-approved plan (#2224), where the row is left ALONE: a
+   *  reviewer that timed out or wrote garbage is not a rejection, and `buildGate` writes
+   *  `approved: false` for every non-approve decision — so persisting here would let a broken
+   *  reviewer revoke a live approval, strand an executing session's gate as un-approved, and (via
+   *  the retained `approvedAt`) engage the re-gate suppression on a session nobody re-gated. The
+   *  approved snapshot and the `livePlanHash` divergence marker both stand, so the operator's
+   *  Re-review control is still there to click again. The stall signal is still emitted — that is
+   *  the part that says "this needs a human". */
   private applyError(f: PlanInFlight, gate: PlanGate): void {
-    this.deps.store.putPlanGate(gate);
-    this.deps.onChange(f.sessionId, gate);
+    const live = this.deps.store.getPlanGate(f.sessionId);
+    if (!live?.approved) {
+      this.deps.store.putPlanGate(gate);
+      this.deps.onChange(f.sessionId, gate);
+    }
     this.deps.store.addSignal({
       repoPath: f.repoPath,
       sessionId: f.sessionId,
@@ -1611,6 +1757,14 @@ export class PlanGateService {
       // changed plan → [] so planQuestionsUnanswered re-fires against the new question set (#1332).
       answeredQuestionKeys:
         live && live.planHash === f.planHash ? [...(live.answeredQuestionKeys ?? [])] : [],
+      // The reviewed text IS the live text as far as this verdict knows, so the divergence marker
+      // clears here; the next settle edge re-checks and re-raises it if the agent edited the plan
+      // while the review ran. Self-correcting, so no read of the file is needed at finalize.
+      livePlanHash: f.planHash,
+      // #2224: stamp on approval, carry forward otherwise — a `changes_requested` verdict on a
+      // previously-approved gate keeps the stamp, which is exactly what marks the session as
+      // deliberately re-gated (approvedAt set, approved false) for `advanceToExecutionOnPr`.
+      approvedAt: resolved === "approved" ? this.now() : (live?.approvedAt ?? null),
       updatedAt: this.now(),
     };
   }

@@ -97,6 +97,7 @@
         ready: m.plangate_tip_ready(),
         error: m.plangate_tip_error(),
         view: m.plangate_tip_view(),
+        edited: m.plangate_tip_edited(),
       },
       { stalledActionsVisible },
     ),
@@ -230,6 +231,8 @@
       {m.plangate_error()}
     {:else if chip.kind === "view"}
       {m.plangate_view()}
+    {:else if chip.kind === "edited"}
+      {m.plangate_edited()}
     {:else}
       {m.plangate_planning()}
     {/if}
@@ -359,6 +362,14 @@
   }
   .pg-view:hover {
     color: var(--color-ink-bright);
+  }
+  /* #2224: the approved plan has been edited since sign-off. Same read-only surface as .pg-view
+     (it opens the panel, nothing else), toned amber because what the panel shows is no longer what
+     the agent is working from — and the re-review that fixes that can re-gate the session. */
+  .pg-edited {
+    border-color: var(--color-amber);
+    color: var(--color-amber);
+    font-weight: 500;
   }
   /* plan reviewer running now: amber outline + pulsing dot (mirrors CriticBadge) */
   .pg-reviewing {

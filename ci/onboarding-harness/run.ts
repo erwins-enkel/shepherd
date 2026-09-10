@@ -1,8 +1,10 @@
 import { execFileSync } from "node:child_process";
-import { closeSync, mkdirSync, mkdtempSync, openSync, unlinkSync, writeFileSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { mkdirSync, mkdtempSync, unlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { IncusDriver } from "./incus";
+import { acquireHostLock, LockHeldError, LOCK_PATH } from "./lock";
+import { onboardingLastRunMarker } from "../../src/onboarding-paths";
 import { SCENARIOS } from "./scenarios";
 import { seedInstance } from "./seed";
 import {
@@ -297,18 +299,22 @@ async function applyDispatch(
   return { appliedVia: "agent", detectionOnly: false };
 }
 
-export async function runScenario(
-  driver: IncusDriver,
-  scenario: Scenario,
-  tarball: string,
-): Promise<ScenarioResult> {
-  const base: ScenarioBase = {
+function scenarioBase(scenario: Scenario): ScenarioBase {
+  return {
     scenarioId: scenario.id,
     image: scenario.image,
     // Part of the deterministic release gate iff structured AND not detection-only
     // (mirrors onboarding-gate.sh). Prose/agent + detection-only never gate.
     gateEligible: scenario.coaching === "structured" && !scenario.detectionOnly,
   };
+}
+
+export async function runScenario(
+  driver: IncusDriver,
+  scenario: Scenario,
+  tarball: string,
+): Promise<ScenarioResult> {
+  const base = scenarioBase(scenario);
   let detection: DetectionResult | undefined;
   try {
     if (scenario.serviceLifecycle)
@@ -354,47 +360,6 @@ export async function runScenario(
   }
 }
 
-// FIXED absolute path under the host-global Shepherd state dir (~/.shepherd) — NOT
-// $TMPDIR. A systemd-user timer service and an interactive shell can see different
-// $TMPDIR (PrivateTmp, per-session dirs), which would defeat the lock; $HOME is
-// stable and identical for both (same user), so the lock is genuinely host-wide.
-const LOCK_PATH = join(homedir(), ".shepherd", "onboarding-harness.lock");
-
-/** Acquire a host-wide exclusive lock so concurrent runs never share the Incus
- *  host. `wx` fails if the lock already exists. Returns an idempotent release fn.
- *  The release is ALSO wired to SIGINT/SIGTERM: Node skips `finally` on a
- *  signal-kill, so without this a Ctrl-C'd or `systemctl stop`-ed run would leave
- *  a stale lock that blocks every future run at exit 3. (A hard SIGKILL still
- *  can't be caught — `--reap-orphans` clears such a leak.) */
-function acquireHostLock(): () => void {
-  mkdirSync(dirname(LOCK_PATH), { recursive: true });
-  let fd: number;
-  try {
-    fd = openSync(LOCK_PATH, "wx");
-  } catch {
-    console.error(`another onboarding-harness run holds ${LOCK_PATH}; aborting`);
-    process.exit(3);
-  }
-  let released = false;
-  const release = () => {
-    if (released) return;
-    released = true;
-    closeSync(fd);
-    try {
-      unlinkSync(LOCK_PATH);
-    } catch {
-      /* already gone */
-    }
-  };
-  for (const sig of ["SIGINT", "SIGTERM"] as const) {
-    process.once(sig, () => {
-      release();
-      process.exit(130);
-    });
-  }
-  return release;
-}
-
 /** Accountability + traceability: on a FULL run (never a single `--scenario`,
  *  which checks one defect and must not open/close the rolling issue or stamp a
  *  verdict), report the outcome to GitHub — a rolling regression issue AND a
@@ -417,6 +382,84 @@ async function maybeReportRun(
     console.log(`[github] status: ${ok ? "success" : "failure"} on ${sha.slice(0, 7)}`);
   } catch (err) {
     console.error(`[github] reporting failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+/** Stamp "a full run reached a verdict" for the server's staleness probe. Written
+ *  for a red run too — liveness, not health: a red run already shouts through the
+ *  rolling issue and a red commit status, whereas a harness that stops running says
+ *  nothing at all. That silence is the failure being closed here: after Aug 20 2026
+ *  the nightly aborted in under a second for 21 consecutive nights and the only
+ *  thing that ever noticed was a release gate, three weeks later.
+ *
+ *  Skipped for `--scenario` (one defect is not a run) and best-effort by design —
+ *  failing to write a marker must never change the run's verdict. */
+function recordRunCompleted(only: string | null | undefined): void {
+  if (only) return;
+  try {
+    const marker = onboardingLastRunMarker();
+    mkdirSync(dirname(marker), { recursive: true });
+    writeFileSync(marker, new Date().toISOString());
+  } catch (err) {
+    console.error(`could not record the run marker: ${err instanceof Error ? err.message : err}`);
+  }
+}
+
+/** Bound on ONE scenario, and on the whole run. Both exist so the harness always
+ *  finishes on its OWN terms: the service's `TimeoutStartSec` is a backstop that
+ *  must never be reached, because systemd's SIGTERM is a dirty kill — in Aug 2026
+ *  it left a lock file and a running instance behind and disabled the nightly for
+ *  21 days. The harness's previous innermost bound was per `incus` CALL (20 min);
+ *  with many calls per scenario and ten scenarios, its own worst case sat far above
+ *  the 2h unit timeout, so systemd was GUARANTEED to win on a slow night.
+ *
+ *  The cap is generous against real observation: a healthy full run is ~14 min, a
+ *  slow night ~61 min, and the worst single scenario ever seen took 26 min (the
+ *  wall-clock is in-container package installs, so it tracks network weather, not
+ *  anything the harness controls). 30 min per scenario / 3h per run therefore only
+ *  trips when a night is genuinely pathological rather than merely slow. */
+const SCENARIO_TIMEOUT_MS =
+  Number(process.env.SHEPHERD_ONBOARDING_SCENARIO_TIMEOUT_MS) || 30 * 60_000;
+const RUN_BUDGET_MS = Number(process.env.SHEPHERD_ONBOARDING_BUDGET_MS) || 3 * 60 * 60_000;
+
+/** A scenario the run never got a verdict on. It is NOT green and NOT a launch
+ *  failure, so it gates red: an unverified gate scenario must never read as a pass.
+ *  `detected: false` with no misses matches the pre-detection-throw sentinel, and
+ *  `unverified` keeps the report from mislabelling it a BOOT CRASH. */
+function unverifiedResult(scenario: Scenario, why: string): ScenarioResult {
+  return {
+    ...scenarioBase(scenario),
+    detection: { scenarioId: scenario.id, detected: false, misses: [] },
+    appliedVia: "skipped",
+    reachedGreen: false,
+    unverified: true,
+    error: why,
+  };
+}
+
+/** Run one scenario under a hard cap. On expiry the scenario is abandoned and
+ *  recorded unverified; its instance is not leaked, because the caller's
+ *  own-prefix `sweep()` destroys whatever the abandoned work left behind. */
+async function runScenarioBounded(
+  driver: IncusDriver,
+  scenario: Scenario,
+  tarball: string,
+  capMs: number,
+): Promise<ScenarioResult> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const capped = new Promise<ScenarioResult>((resolve) => {
+    timer = setTimeout(
+      () =>
+        resolve(
+          unverifiedResult(scenario, `exceeded its ${Math.round(capMs / 60_000)}m cap — abandoned`),
+        ),
+      capMs,
+    );
+  });
+  try {
+    return await Promise.race([runScenario(driver, scenario, tarball), capped]);
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -444,22 +487,66 @@ async function main() {
     process.exit(2);
   }
 
-  const release = acquireHostLock();
   // Per-run prefix isolates this run's instances; `sweep()` then only ever
   // touches our own, so overlapping runs can't destroy each other (point 5).
   const runId = `${Date.now().toString(36)}-${process.pid}`;
+  let release: () => void;
+  let reclaimed: boolean;
+  try {
+    ({ release, reclaimed } = acquireHostLock(runId));
+  } catch (err) {
+    if (!(err instanceof LockHeldError)) throw err;
+    console.error(err.message);
+    process.exit(3); // documented "another run holds the host" code
+  }
   const driver = new IncusDriver(undefined, `shep-onb-${runId}-`);
+  // A signal must not leave the host dirty. Aug 2026: the service's start timeout
+  // SIGTERMed a run and BOTH the lock file and a running instance survived — the
+  // instance for 21 days, restarted by incus autostart on every boot. Sweeping here
+  // is best-effort by nature (a SIGKILL, or a signal arriving while the process is
+  // wedged, skips it); the authoritative fix is that a leaked lock is now reclaimed.
+  for (const sig of ["SIGINT", "SIGTERM"] as const) {
+    process.once(sig, () => {
+      console.error(`\nreceived ${sig} — sweeping this run's instances and releasing the lock`);
+      void driver
+        .sweep()
+        .catch((err) => console.error(`sweep on ${sig} failed: ${err}`))
+        .finally(() => {
+          release();
+          process.exit(130);
+        });
+    });
+  }
   const results: ScenarioResult[] = [];
   try {
+    // We inherited the host from a run that is provably dead, so anything it left
+    // running is an orphan and only we can clear it. This is the instance half of
+    // the same self-healing: the dead run's own teardown never got to execute (a
+    // SIGTERM while Bun awaits a child skips JS cleanup entirely), and until Sep
+    // 2026 nothing else ever did — one such instance survived 21 days and every
+    // reboot. Cross-prefix by necessity: the orphans carry the DEAD run's prefix.
+    if (reclaimed) {
+      console.warn("reclaimed the host from a dead run — sweeping any instances it leaked");
+      await new IncusDriver(undefined, "shep-onb-").sweep();
+    }
     // Ensure the shared `shep-onb` profile exists with the in-repo spec before any
     // instance is launched. Runs for both full and --scenario paths (only --reap-orphans
     // returns early above, so this is never reached on that path). Fail-closed: a wrong
     // or missing profile would silently OOM every instance, so we fix it up front.
     await driver.ensureProfile();
     const tarball = buildTarball();
+    const deadline = Date.now() + RUN_BUDGET_MS;
     for (const s of scenarios) {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) {
+        console.error(`=== ${s.id} — NOT RUN, the run budget is exhausted ===`);
+        results.push(unverifiedResult(s, "not run — the run budget was exhausted"));
+        continue;
+      }
       console.log(`\n=== ${s.id} (${s.image}) ===`);
-      results.push(await runScenario(driver, s, tarball));
+      results.push(
+        await runScenarioBounded(driver, s, tarball, Math.min(SCENARIO_TIMEOUT_MS, remaining)),
+      );
     }
   } finally {
     await driver.sweep(); // teardown — own-prefix instances only
@@ -477,6 +564,7 @@ async function main() {
   // still gate.
   const gateOk = gateGapScenarios(results).length === 0;
   await maybeReportRun(results, report, only, gateOk);
+  recordRunCompleted(only);
   process.exit(gateOk ? 0 : 1);
 }
 

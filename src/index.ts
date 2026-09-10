@@ -60,6 +60,11 @@ import { sweepStaging, STAGING_TTL_MS } from "./uploads";
 import { validateRoot } from "./dirs";
 import { bootstrapAuth } from "./operator-auth";
 import { backupConfiguredMarker, lastSuccessMarker } from "./backup-paths";
+import {
+  onboardingLastRunMarker,
+  onboardingRunAgeMs,
+  onboardingTimerUnit,
+} from "./onboarding-paths";
 import { UpdateService } from "./update";
 import { HerdrUpdateService } from "./herdr-update";
 import { CodexUpdateService, parseCodexUpdateChannel } from "./codex-update";
@@ -2440,6 +2445,64 @@ const checkBackupStaleness = async (): Promise<void> => {
     .catch((err) => console.warn("[push] backup_stale notify failed:", err));
 };
 
+/** One missed night trips it. Deliberately tighter than the release gate's 48h
+ *  max-age, so the operator hears about a dead nightly BEFORE it blocks a release
+ *  — the failure mode this exists to end is a gate discovering the problem weeks
+ *  late. The daily sweep means worst-case detection latency is ~24h regardless. */
+const ONBOARDING_STALENESS_MS = 30 * 60 * 60 * 1000;
+
+/**
+ * Read-only staleness probe for the nightly onboarding harness — the exact sibling of
+ * `checkBackupStaleness`, and closing the same class of hole. In Aug 2026 the nightly
+ * aborted on a leaked lock in under a second, every night for 21 nights, and nothing
+ * anywhere said a word; a release gate finally noticed three weeks later.
+ *
+ * Only a host that is *expected* to run the harness is checked — the systemd timer unit
+ * has to exist — so a laptop or a core-only box stays silent while the Incus host that
+ * genuinely stopped gets flagged. A host with the timer but no marker at all IS flagged:
+ * "it has never once completed a run" is precisely the state worth shouting about.
+ *
+ * The marker is liveness, not health: a red run still writes it, because a red run
+ * already shouts through the rolling issue and a red commit status. Alerts on the same
+ * three channels as the backup probe — a guaranteed log line, a durable signal row, and
+ * a best-effort web push.
+ */
+const checkOnboardingStaleness = async (): Promise<void> => {
+  try {
+    await stat(onboardingTimerUnit());
+  } catch {
+    return; // no nightly timer on this host → nothing is expected → stay silent
+  }
+  let contents: string | null;
+  try {
+    contents = await readFile(onboardingLastRunMarker(), "utf8");
+  } catch {
+    contents = null; // timer installed but no run has ever completed
+  }
+  const ageMs = onboardingRunAgeMs(contents);
+  if (ageMs !== null && ageMs <= ONBOARDING_STALENESS_MS) return;
+  const staleHours = ageMs === null ? null : Math.floor(ageMs / (60 * 60 * 1000));
+  console.warn(
+    `[onboarding] STALE: ${ageMs === null ? "no harness run has ever completed" : `newest run ~${staleHours}h old`} — the nightly may not be running.`,
+  );
+  store.addSignal({
+    repoPath: HOST_SIGNAL_REPO,
+    sessionId: null,
+    kind: "onboarding_stale",
+    payload: JSON.stringify({ ageMs, thresholdMs: ONBOARDING_STALENESS_MS }),
+  });
+  void push
+    .notify({
+      kind: "onboarding_stale",
+      sessionId: "",
+      tag: "onboarding-stale",
+      name: "onboarding",
+      staleHours: staleHours ?? undefined,
+      cooldownKey: "onboarding_stale",
+    })
+    .catch((err) => console.warn("[push] onboarding_stale notify failed:", err));
+};
+
 const runDailySweep = (opts?: { skipTmpSweep?: boolean }) => {
   if (maintenance.active) return;
   if (config.sessionHousekeepingEnabled)
@@ -2526,6 +2589,9 @@ const runDailySweep = (opts?: { skipTmpSweep?: boolean }) => {
   if (!opts?.skipTmpSweep) fireTmpSweep("daily");
   // Read-only backup-staleness probe (#1080); fire-and-forget so it never blocks the sweep.
   void checkBackupStaleness();
+  // Same, for the nightly onboarding harness — the host-health probe that would have
+  // caught the Aug 2026 outage on night two instead of week three.
+  void checkOnboardingStaleness();
 };
 deferredStarts.push(() => {
   setTimeout(() => runDailySweep({ skipTmpSweep: true }), 10_000); // once shortly after boot

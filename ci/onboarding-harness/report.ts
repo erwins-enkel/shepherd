@@ -34,7 +34,8 @@ type Classification =
   | "INSTALL GAP"
   | "DETECTION-ONLY"
   | "HARNESS ERROR"
-  | "BOOT CRASH";
+  | "BOOT CRASH"
+  | "NOT VERIFIED";
 
 /** Pure: render the per-scenario outcomes as a markdown gap report. Classifies
  *  each scenario as PASS, DETECTION GAP (defect missed/misclassified), ADVICE GAP
@@ -47,6 +48,10 @@ type Classification =
  *  counts only apply-able scenarios so detection-only AND harness-errored ones don't
  *  drag the denominator. */
 function classify(r: ScenarioResult): Classification {
+  // Ahead of everything else: we have no evidence about this scenario at all, so no
+  // other label could be honest. It still gates (it is not green and not a launch
+  // failure) — an unverified gate scenario must never be read as a pass.
+  if (r.unverified) return "NOT VERIFIED";
   // install-e2e takes precedence over the infra check: it has no seeded defect, so a
   // miss — including a thrown install.sh/boot/probe failure — is an installer regression
   // (INSTALL GAP), never a HARNESS ERROR or a DETECTION GAP ("a defect was missed").
@@ -100,6 +105,10 @@ function gapEntry(
   return `- **${r.scenarioId}** (${klass})${misses ? ` — ${misses}` : ""}${r.error ? ` — ${r.error}` : ""}`;
 }
 
+function unverifiedEntry(r: ScenarioResult): string {
+  return `- **${r.scenarioId}** (NOT VERIFIED — no verdict was reached)${r.error ? ` — ${r.error}` : ""}`;
+}
+
 function harnessErrorEntry(r: ScenarioResult): string {
   return `- **${r.scenarioId}** (HARNESS ERROR — infra, not a product gap)${r.error ? ` — ${r.error}` : ""}`;
 }
@@ -126,6 +135,7 @@ export function buildGapReport(results: ScenarioResult[]): string {
   ];
   const gaps: string[] = [];
   const errors: string[] = [];
+  const unverified: string[] = [];
   for (const r of results) {
     const klass = classify(r);
     lines.push(tableRow(r, klass));
@@ -138,6 +148,8 @@ export function buildGapReport(results: ScenarioResult[]): string {
       gaps.push(gapEntry(r, klass));
     } else if (klass === "HARNESS ERROR") {
       errors.push(harnessErrorEntry(r));
+    } else if (klass === "NOT VERIFIED") {
+      unverified.push(unverifiedEntry(r));
     }
   }
   if (gaps.length) {
@@ -145,6 +157,9 @@ export function buildGapReport(results: ScenarioResult[]): string {
   }
   if (errors.length) {
     lines.push("", "## Harness errors", "", ...errors);
+  }
+  if (unverified.length) {
+    lines.push("", "## Not verified", "", ...unverified);
   }
   return lines.join("\n") + "\n";
 }

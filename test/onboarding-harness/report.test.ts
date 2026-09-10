@@ -324,3 +324,39 @@ describe("buildGapReport", () => {
     expect(md).not.toContain("## Gaps"); // DETECTION-ONLY is not a gap
   });
 });
+
+describe("unverified scenarios", () => {
+  const unverified = (over: Partial<ScenarioResult> = {}): ScenarioResult => ({
+    scenarioId: "gh-missing",
+    image: "images:debian/12",
+    detection: { scenarioId: "gh-missing", detected: false, misses: [] },
+    appliedVia: "skipped",
+    reachedGreen: false,
+    gateEligible: true,
+    unverified: true,
+    error: "exceeded its 30m cap — abandoned",
+    ...over,
+  });
+
+  it("gates: a scenario with no verdict must never be read as a pass", () => {
+    expect(gateGapScenarios([unverified()]).map((r) => r.scenarioId)).toEqual(["gh-missing"]);
+  });
+
+  it("is classified NOT VERIFIED, not BOOT CRASH — it never got to crash", () => {
+    const report = buildGapReport([unverified()]);
+    expect(report).toContain("NOT VERIFIED");
+    expect(report).not.toContain("BOOT CRASH");
+  });
+
+  it("surfaces why it was not verified, so a red night explains itself", () => {
+    const report = buildGapReport([
+      unverified({ error: "not run — the run budget was exhausted" }),
+    ]);
+    expect(report).toContain("## Not verified");
+    expect(report).toContain("not run — the run budget was exhausted");
+  });
+
+  it("says so in the commit-status line the release gate reads", () => {
+    expect(statusDescription([unverified()])).toContain("gh-missing");
+  });
+});

@@ -1324,6 +1324,7 @@ export type SignalKind =
   | "stall"
   | "egress_drop"
   | "backup_stale"
+  | "onboarding_stale"
   | "injection_detected"
   | "untrusted_author"
   | "evidence_repo_mismatch";

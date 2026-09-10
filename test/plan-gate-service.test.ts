@@ -112,6 +112,7 @@ function harness(over: any = {}) {
     resume: async () => ({}),
     deferSteer: () => false,
     async release() {},
+    async regate() {},
     onChange() {},
     onSpawnNotice(id: string) {
       noticeEvents.push(id);
@@ -266,6 +267,7 @@ test("answered Codex planning question resumes through a readable plan into auto
       paneAlive: () => true,
       resume: async () => ({}),
       async release() {},
+      async regate() {},
       onChange() {},
       baseSha: () => ({ sha: "abc", anchored: true, ahead: 0 }),
       anchorStaleness: () => ({ behind: 0, changedSince: [] }),
@@ -3022,3 +3024,414 @@ test.skipIf(!onLinux)(
     expect(PLAN_MIN_USEFUL_BYTES).toBe(8192);
   },
 );
+
+// ── #2224: re-review of a plan edited AFTER approval ──────────────────────────
+// consider() gains exactly one bypass — an operator force on an APPROVED gate whose live plan text
+// has diverged from the reviewed snapshot. It is the only path that runs past an approved gate or
+// off the planning phase; everything else about those two guards is unchanged.
+
+const approvedGate = (over: any = {}) => ({
+  planHash: "OLD-HASH",
+  decision: "approved",
+  approved: true,
+  approvedAt: 500,
+  round: 0,
+  cap: 3,
+  findings: [],
+  plan: "OLD PLAN",
+  summary: "ok",
+  body: "B",
+  updatedAt: 900,
+  ...over,
+});
+
+test("#2224: force re-reviews an approved gate whose plan was edited", async () => {
+  const h = harness({ store: { getPlanGate: () => approvedGate() } });
+  // readPlan returns "PLAN TEXT", the gate remembers "OLD-HASH" → diverged.
+  expect(await h.svc.consider(planningSession() as any, { force: true })).toBe("started");
+  expect(h.started.length).toBe(1);
+});
+
+test("#2224: an EDITED approved plan is re-reviewable mid-execution too", async () => {
+  const h = harness({ store: { getPlanGate: () => approvedGate() } });
+  const status = await h.svc.consider({ ...planningSession(), planPhase: "executing" } as any, {
+    force: true,
+  });
+  expect(status).toBe("started");
+});
+
+test("#2224: an UNEDITED approved plan is not re-reviewable, in either phase", async () => {
+  const hash = await PlanGateService.hashPlan("PLAN TEXT");
+  const h = harness({ store: { getPlanGate: () => approvedGate({ planHash: hash }) } });
+  expect(await h.svc.consider(planningSession() as any, { force: true })).toBe("skipped");
+  expect(
+    await h.svc.consider({ ...planningSession(), planPhase: "executing" } as any, { force: true }),
+  ).toBe("skipped");
+  expect(h.started.length).toBe(0);
+});
+
+test("#2224: the auto path never re-reviews an approved gate, edited or not", async () => {
+  const h = harness({ store: { getPlanGate: () => approvedGate() } });
+  expect(await h.svc.consider(planningSession() as any)).toBe("skipped");
+  expect(await h.svc.consider({ ...planningSession(), planPhase: "executing" } as any)).toBe(
+    "skipped",
+  );
+  expect(h.started.length).toBe(0);
+});
+
+test("#2224: an executing session with a NON-approved gate stays unreviewable", async () => {
+  // Only a re-review may run off the planning phase; a `changes_requested` gate on an executing
+  // session is a leftover, not a re-review, and a force must not resurrect the plan loop there.
+  const h = harness({
+    store: { getPlanGate: () => ({ planHash: "OLD", approved: false, round: 1 }) },
+  });
+  const status = await h.svc.consider({ ...planningSession(), planPhase: "executing" } as any, {
+    force: true,
+  });
+  expect(status).toBe("skipped");
+  expect(h.started.length).toBe(0);
+});
+
+test("#2224: a session with the plan gate off is never re-reviewed", async () => {
+  const h = harness({ store: { getPlanGate: () => approvedGate() } });
+  const status = await h.svc.consider({ ...planningSession(), planPhase: null } as any, {
+    force: true,
+  });
+  expect(status).toBe("skipped");
+});
+
+test("#2224: a re-review is briefed as round 1, not as a late round", async () => {
+  // Nine spawns predate the approval; the tenth is the re-review. Counting all of them would hand a
+  // plan no reviewer has ever seen roundBlock's late-round posture.
+  const spawns = Array.from({ length: 9 }, (_, i) => ({
+    kind: "plan_gate",
+    taskSessionId: "s1",
+    reviewerSessionId: `r${i}`,
+    worktreePath: `/wt-${i}`,
+    spawnedAt: 100 + i,
+  }));
+  const h = harness({
+    cap: 12,
+    store: { getPlanGate: () => approvedGate(), listReviewerSpawns: () => spawns },
+  });
+  await h.svc.consider(planningSession() as any, { force: true });
+  expect(promptOf(h)).toContain("rework round 1 of at most 12");
+});
+
+test("#2224: an approve verdict re-points the snapshot and clears the edited marker", async () => {
+  const h = harness({
+    store: { getPlanGate: () => approvedGate(), get: () => ({ id: "s1", auto: false }) },
+    readVerdict: () => ({ decision: "approve", summary: "ok", body: "B", findings: [] }),
+  });
+  await h.svc.consider(planningSession() as any, { force: true });
+  await h.svc.tick();
+  const hash = await PlanGateService.hashPlan("PLAN TEXT");
+  expect(h.store.gate.approved).toBe(true);
+  expect(h.store.gate.planHash).toBe(hash); // the EDITED text is now what was approved
+  expect(h.store.gate.plan).toBe("PLAN TEXT");
+  expect(h.store.gate.livePlanHash).toBe(hash); // no longer diverged
+  expect(h.store.gate.approvedAt).toBe(1000); // restamped (harness now())
+});
+
+test("#2224: an error verdict on a re-review leaves the approved gate untouched", async () => {
+  // A reviewer that times out is not a rejection: persisting buildGate's `approved: false` here
+  // would let a broken reviewer revoke a live approval (and, via the retained approvedAt, engage
+  // the re-gate suppression on a session nobody re-gated).
+  let t = 1000;
+  const signals: any[] = [];
+  const h = harness({
+    now: () => t,
+    timeoutMs: 5_000,
+    readVerdict: () => null, // never writes a verdict → timeout → error
+    store: {
+      getPlanGate: () => approvedGate(),
+      addSignal: (s: any) => signals.push(s),
+      get: () => ({ id: "s1", auto: false }),
+    },
+  });
+  await h.svc.consider(planningSession() as any, { force: true });
+  t += 6_000;
+  await h.svc.tick();
+  expect(h.store.gate).toBeUndefined(); // nothing written to the row at all
+  expect(signals.length).toBe(1); // the "needs a human" stall signal still fires
+});
+
+test("#2224: adoptOrphans adopts an execution-phase re-review orphan", async () => {
+  // Both guards matter: the phase check (which fired first, before the gate was even read) and the
+  // approved-gate reap branch. The discriminator is spawnedAt vs the gate's updatedAt — a reviewer
+  // that started AFTER the stored verdict cannot be the husk of the run that produced it.
+  const h = harness({
+    store: {
+      get: () => ({ id: "s1", repoPath: "/r", worktreePath: "/wt", planPhase: "executing" }),
+      getPlanGate: () => approvedGate({ updatedAt: 900 }),
+      listReviewerSpawns: () => [orphanSpawn({ spawnedAt: 1500 })],
+    },
+  });
+  await h.svc.adoptOrphans();
+  expect(h.svc.reviewingIds()).toEqual(["s1"]);
+});
+
+test("#2224: an ordinary execution-phase orphan is still left alone", async () => {
+  // A spawn OLDER than the approval belongs to the run that produced it — a released session's
+  // husk, which gcStaleReviewWorktrees owns. Unchanged by #2224.
+  const h = harness({
+    store: {
+      get: () => ({ id: "s1", repoPath: "/r", worktreePath: "/wt", planPhase: "executing" }),
+      getPlanGate: () => approvedGate({ updatedAt: 900 }),
+      listReviewerSpawns: () => [orphanSpawn({ spawnedAt: 800 })],
+    },
+  });
+  await h.svc.adoptOrphans();
+  expect(h.svc.reviewingIds()).toEqual([]);
+});
+
+test("#2224: a planning-phase crash-window husk is still reaped, not adopted", async () => {
+  const h = harness({
+    store: {
+      get: () => ({ id: "s1", repoPath: "/r", worktreePath: "/wt", planPhase: "planning" }),
+      getPlanGate: () => approvedGate({ updatedAt: 900 }),
+      listReviewerSpawns: () => [orphanSpawn({ spawnedAt: 800 })],
+    },
+  });
+  await h.svc.adoptOrphans();
+  expect(h.svc.reviewingIds()).toEqual([]);
+  expect(h.removed).toContain("/wt-detached"); // reaped properly, not left stranded
+});
+
+test("#2224: a planning-phase re-review orphan is adopted, not reaped", async () => {
+  const h = harness({
+    store: {
+      get: () => ({ id: "s1", repoPath: "/r", worktreePath: "/wt", planPhase: "planning" }),
+      getPlanGate: () => approvedGate({ updatedAt: 900 }),
+      listReviewerSpawns: () => [orphanSpawn({ spawnedAt: 1500 })],
+    },
+  });
+  await h.svc.adoptOrphans();
+  expect(h.svc.reviewingIds()).toEqual(["s1"]);
+});
+
+test("#2224: a request-changes re-review re-gates an EXECUTING session, wired to the real service", async () => {
+  // Deliberately NOT a mocked `regate` dep: a mock passes whatever the ordering is. The real
+  // regatePlanGate reads the STORE, so this only goes green when applyChangesRequested persists the
+  // revoking verdict BEFORE calling it. Reverse the two and no stop steer is ever sent.
+  const worktreePath = mkdtempSync(join(process.cwd(), ".plan-regate-"));
+  const store = new SessionStore(":memory:");
+  const sent: string[] = [];
+  const herdr = {
+    start: async () => ({ terminalId: "term-review", agentStatus: "working" }) as any,
+    async stop() {},
+    paneForegroundProcs: async () => ["claude"],
+    send: async (_t: string, text: string) => {
+      sent.push(text);
+    },
+    list: () => [
+      {
+        agent: "claude",
+        terminalId: "term-agent",
+        paneId: "pane-agent",
+        tabId: "tab-agent",
+        workspaceId: "workspace",
+        name: "executing",
+        cwd: worktreePath,
+        agentStatus: "idle" as const,
+      },
+    ],
+  };
+  try {
+    const service = new SessionService({
+      store,
+      namer: async () => "executing",
+      worktree: {
+        create: () => ({}) as any,
+        ensureBaseRef: async () => {},
+        remove: () => {},
+        branchExists: () => false,
+      } as any,
+      herdr,
+      detectBackend: () => null,
+      detectEgressBackend: () => null,
+    } as any);
+    const session = store.create({
+      name: "executing",
+      prompt: "ship the thing",
+      repoPath: process.cwd(),
+      baseBranch: "main",
+      branch: "shepherd/regate",
+      worktreePath,
+      isolated: true,
+      herdrSession: "default",
+      herdrAgentId: "term-agent",
+      planGateEnabled: true,
+      planPhase: "executing",
+    });
+    // The state a re-review starts from: approved, released into execution, plan since rewritten.
+    store.putPlanGate({
+      sessionId: session.id,
+      planHash: "OLD-HASH",
+      decision: "approved",
+      summary: "ok",
+      body: "B",
+      findings: [],
+      round: 0,
+      cap: 3,
+      approved: true,
+      plan: "OLD PLAN",
+      approvedAt: 500,
+      livePlanHash: "NEW-HASH",
+      updatedAt: 900,
+    });
+    const planGate = new PlanGateService({
+      store,
+      herdr,
+      worktree: {
+        createDetached: async () => ({ worktreePath, branch: "main", isolated: true }),
+        remove: () => {},
+        gitCommonDir: () => "/fake-git-common",
+      },
+      detectBackend: () => null,
+      reply: (id: string, text: string) => service.reply(id, text),
+      paneAlive: () => true,
+      resume: async () => ({}),
+      async release() {},
+      regate: async (id: string) => {
+        await service.regatePlanGate(id);
+      },
+      onChange() {},
+      baseSha: () => ({ sha: "abc", anchored: true, ahead: 0 }),
+      anchorStaleness: () => ({ behind: 0, changedSince: [] }),
+      readPlan: () => "REWRITTEN PLAN",
+      readVerdict: () => ({
+        decision: "request-changes",
+        summary: "the rewrite drops the migration",
+        body: "B",
+        findings: ["restore the migration step"],
+      }),
+      worktreeExists: () => true,
+      cap: 3,
+    } as any);
+
+    expect(await planGate.consider(store.get(session.id)!, { force: true })).toBe("started");
+    await planGate.tick();
+
+    // Phase flipped back, approval withdrawn.
+    expect(store.get(session.id)!.planPhase).toBe("planning");
+    const gate = store.getPlanGate(session.id)!;
+    expect(gate.approved).toBe(false);
+    expect(gate.decision).toBe("changes_requested");
+    expect(gate.approvedAt).toBe(500); // retained — this is what marks a deliberate re-gate
+    // The stop steer landed FIRST, then the findings. Both are only reachable through the guard.
+    const stopIdx = sent.findIndex((t) => t.includes("STOP implementing"));
+    const findingsIdx = sent.findIndex((t) => t.includes("restore the migration step"));
+    expect(stopIdx).toBeGreaterThanOrEqual(0);
+    expect(findingsIdx).toBeGreaterThan(stopIdx);
+    // ...and the PR poller can no longer undo it.
+    expect(service.advanceToExecutionOnPr(session.id)).toBe(false);
+    expect(store.get(session.id)!.planPhase).toBe("planning");
+  } finally {
+    rmSync(worktreePath, { recursive: true, force: true });
+  }
+});
+
+test("#2224: a REFUSED re-review spawn leaves the approved gate and its snapshot intact", async () => {
+  // publishSpawnRefusal writes decision:"error", approved:false and the CURRENT plan text. On a
+  // re-review that would revoke a live approval and hand the PR critic the unreviewed rewrite as
+  // "the plan that was approved" (#2223). A host that cannot launch the reviewer is not a verdict.
+  const h = harness({
+    store: { getPlanGate: () => approvedGate() },
+    detectBackend: () => "bwrap",
+    membraneLaunch: async () => ({ state: "broken", detail: "mise EROFS" }) as const,
+    membraneEnv: () => ({
+      claudeDir: "/fake/.claude",
+      home: "/fake/home",
+      nodeBinReal: "/fake/bin/node",
+    }),
+  });
+  expect(await h.svc.consider(planningSession() as any, { force: true })).toBe("skipped");
+  expect(h.started).toHaveLength(0);
+  expect(h.store.gate).toBeUndefined(); // the approved row was never overwritten
+});
+
+test("#2224: a refused spawn on a NON-approved gate still publishes the error row", async () => {
+  const h = harness({
+    store: { getPlanGate: () => null },
+    detectBackend: () => "bwrap",
+    membraneLaunch: async () => ({ state: "broken", detail: "mise EROFS" }) as const,
+    membraneEnv: () => ({
+      claudeDir: "/fake/.claude",
+      home: "/fake/home",
+      nodeBinReal: "/fake/bin/node",
+    }),
+  });
+  expect(await h.svc.consider(planningSession() as any)).toBe("skipped");
+  expect(h.store.gate.decision).toBe("error");
+  expect(h.store.gate.summaryCode).toBe("membrane-launch");
+});
+
+test("#2224: a refused spawn on a RE-GATED session keeps the re-gate marker", async () => {
+  // The chain the marker exists to survive: a re-gated session (approved false, approvedAt stamped,
+  // back in planning) revises its plan, the settle edge re-considers it, and the membrane refuses
+  // the spawn. A fresh gate literal that omits approvedAt NULLs the column — and the next git poll's
+  // advanceToExecutionOnPr then flips the session back to "executing" holding an un-approved error
+  // gate, undoing the re-gate exactly as if nobody had re-gated it.
+  const regated = approvedGate({
+    decision: "changes_requested",
+    approved: false,
+    approvedAt: 500,
+    livePlanHash: "REWRITTEN",
+    round: 1,
+    findings: ["restore the migration step"],
+  });
+  const h = harness({
+    store: { getPlanGate: () => regated },
+    detectBackend: () => "bwrap",
+    membraneLaunch: async () => ({ state: "broken", detail: "mise EROFS" }) as const,
+    membraneEnv: () => ({
+      claudeDir: "/fake/.claude",
+      home: "/fake/home",
+      nodeBinReal: "/fake/bin/node",
+    }),
+  });
+  expect(await h.svc.consider(planningSession() as any)).toBe("skipped");
+  // The error row IS published (this gate was never approved — nothing to protect)...
+  expect(h.store.gate.decision).toBe("error");
+  expect(h.store.gate.approved).toBe(false);
+  // ...but it must not forget that this session was deliberately re-gated.
+  expect(h.store.gate.approvedAt).toBe(500);
+  expect(h.store.gate.livePlanHash).toBe("REWRITTEN");
+});
+
+test("#2224: a FIRST-review verdict on a latched executing session never re-gates", async () => {
+  // The #809 latch: the agent opened a PR while still planning, so advanceToExecutionOnPr moved the
+  // session to "executing" — possibly WHILE this first review was in flight (tick() iterates a
+  // snapshot and only re-checks `f.finalizing`, so a mid-tick reapReviewer doesn't stop the
+  // finalize). This gate was never approved, so re-gating it would tell the agent its plan "was
+  // approved and the approval is withdrawn" when no approval ever existed, and the next git poll
+  // would flip the phase straight back (approvedAt is null → no suppression).
+  const regated: string[] = [];
+  const replied: string[] = [];
+  const h = harness({
+    store: {
+      getPlanGate: () => ({ planHash: "OLD", approved: false, approvedAt: null, round: 0 }),
+      get: () => ({ id: "s1", auto: false, planPhase: "executing" }),
+    },
+    readVerdict: () => ({
+      decision: "request-changes",
+      summary: "fix it",
+      body: "B",
+      findings: ["do A"],
+    }),
+    regate: async (id: string) => {
+      regated.push(id);
+    },
+    reply: (id: string) => {
+      replied.push(id);
+      return true;
+    },
+  });
+  await h.svc.consider(planningSession() as any);
+  await h.svc.tick();
+  expect(regated).toEqual([]); // no phase flip, no false "approval withdrawn" steer
+  expect(replied).toEqual(["s1"]); // findings still steered — the pre-#2224 behaviour
+  expect(h.store.gate.decision).toBe("changes_requested");
+  expect(h.store.gate.approvedAt).toBeNull();
+});

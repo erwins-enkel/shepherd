@@ -1561,6 +1561,18 @@ export function planGoSteer(draftMode: boolean): string {
   return draftMode ? `${PLAN_GO_STEER_BASE} ${DRAFT_PR_NOTE}` : PLAN_GO_STEER_BASE;
 }
 
+/** The inverse of {@link PLAN_GO_STEER_BASE}: sent when a re-review of an edited plan requests
+ *  changes on a session that was already EXECUTING (#2224), returning it to the planning phase.
+ *  Deliberately says nothing about the findings — applyChangesRequested steers those separately,
+ *  immediately after, so this message stays true whether or not that steer lands. Work already
+ *  committed is left alone; only the phase changes. NOT i18n'd (agent-facing, like its twin). */
+const PLAN_REGATE_STEER =
+  "STOP implementing. Your plan was edited after it was approved, and the re-review of the edited " +
+  "plan requested changes — this session is back in the planning phase and its approval is " +
+  "withdrawn. Do not write or modify any further product code. Leave what you have already " +
+  "committed in place, revise `.shepherd-plan.md` to address the findings that follow, then stop " +
+  "and wait for the plan to be approved again.";
+
 /**
  * The operator-language directive re-carried as a suffix on an internal steer (#1624). Codex has no
  * `--append-system-prompt` on resume (buildCodexResumeArgv carries no directive), so the
@@ -5450,6 +5462,37 @@ export class SessionService {
   }
 
   /**
+   * The inverse of {@link releasePlanGate} (#2224): return an EXECUTING session to the planning
+   * phase because a re-review of its edited plan requested changes. Flips planPhase → "planning",
+   * emits session:plangate, and steers the agent to stop implementing and revise. Committed work is
+   * untouched — this changes phase and steers, nothing else.
+   *
+   * CALLER CONTRACT: persist the revoking (`approved: false`) verdict BEFORE calling. The guard
+   * below reads the STORE, not the caller's in-memory gate, so a caller that steers first and
+   * persists last (the shape `applyChangesRequested` had) would silently no-op here — leaving the
+   * approval revoked, the session executing, and no stop steer sent. The guard is deliberately one
+   * the caller can satisfy rather than "trust me": it is also what keeps `advanceToExecutionOnPr`'s
+   * suppression (same `approvedAt != null && !approved` shape) engaged from this moment on, so no
+   * git poll can race the phase flip back to "executing".
+   *
+   * Returns true when a real transition occurred; false (no-op) when the session is unknown, not
+   * executing, or has no persisted non-approved gate.
+   */
+  async regatePlanGate(id: string): Promise<boolean> {
+    const s = this.deps.store.get(id);
+    if (!s || s.planPhase !== "executing") return false;
+    const gate = this.deps.store.getPlanGate(id);
+    if (!gate || gate.approved) return false;
+    this.deps.store.setPlanPhase(id, "planning");
+    this.deps.events?.emit("session:plangate", { id, planPhase: "planning" });
+    // Awaited for the same reason releasePlanGate awaits its steer: the phase flip is only honest
+    // once the "stop implementing" instruction has actually reached the pane. A dead pane still
+    // transitions the phase — the operator sees a re-gated session either way.
+    await this.reply(id, PLAN_REGATE_STEER);
+    return true;
+  }
+
+  /**
    * Auto-advance a manually-driven (or otherwise un-released) planning session into execution
    * once a PR appears. When the operator reviews the plan then steers the agent instead of
    * clicking Go, the agent writes code and opens a PR while planPhase is still "planning" —
@@ -5468,6 +5511,13 @@ export class SessionService {
   advanceToExecutionOnPr(id: string): boolean {
     const s = this.deps.store.get(id);
     if (!s || s.planPhase !== "planning") return false;
+    // #2224: never undo a DELIBERATE re-gate. A gate that has been approved before (`approvedAt`
+    // stamped) but is not approved now was returned to planning by regatePlanGate, and this runs on
+    // EVERY git poll — without the guard it would flip a re-gated PR-bearing session straight back
+    // to "executing" within one poll cycle. Derived, not a flag: re-approval lifts the suppression
+    // on its own, so this can never latch a session in the planning phase.
+    const gate = this.deps.store.getPlanGate(id);
+    if (gate && !gate.approved && gate.approvedAt != null) return false;
     this.#enterExecution(id);
     return true;
   }

@@ -549,6 +549,10 @@ export interface PlanGate {
   cap: number; // the round cap this run used — the badge reads it instead of mirroring
   approved: boolean; // load-bearing gate flag: execution allowed only when true
   plan: string; // snapshot of the reviewed plan text (surfaced in the UI panel)
+  // sha256 of the LIVE .shepherd-plan.md as of the last settle-edge check (#2224); null/absent when
+  // never checked. `livePlanHash !== planHash` on an APPROVED gate ⇒ the plan was edited after
+  // sign-off — the state that offers a re-review. Read through planEdited() in plan-gate-badge.ts.
+  livePlanHash?: string | null;
   /** Resolved Plan Gate reviewer environment. Null/absent when unavailable for legacy or
    *  restart-adopted reviews. */
   reviewerProvider?: AgentProvider | null;

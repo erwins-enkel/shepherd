@@ -195,3 +195,23 @@ test("putPlanGate without blocks round-trips as empty array", () => {
   const got = s.getPlanGate("s1");
   expect(got?.blocks).toEqual([]);
 });
+
+test("plan_gate round-trips livePlanHash + approvedAt (legacy rows default null) (#2224)", () => {
+  const s = new SessionStore(":memory:");
+  // A gate written before #2224 carries neither → both hydrate as null ("never checked" / "never
+  // approved"), which is how an unmigrated row must read: not edited, not re-gated.
+  s.putPlanGate(g());
+  expect(s.getPlanGate("s1")?.livePlanHash).toBeNull();
+  expect(s.getPlanGate("s1")?.approvedAt).toBeNull();
+  // An approval stamps approvedAt and points livePlanHash at the reviewed text.
+  s.putPlanGate(g({ decision: "approved", approved: true, livePlanHash: "h1", approvedAt: 1_700 }));
+  expect(s.getPlanGate("s1")?.livePlanHash).toBe("h1");
+  expect(s.getPlanGate("s1")?.approvedAt).toBe(1_700);
+  // A settle-edge drift check moves ONLY livePlanHash; the approved snapshot + stamp stand.
+  s.putPlanGate(g({ decision: "approved", approved: true, livePlanHash: "h2", approvedAt: 1_700 }));
+  const drifted = s.getPlanGate("s1")!;
+  expect(drifted.planHash).toBe("h1");
+  expect(drifted.livePlanHash).toBe("h2");
+  expect(s.snapshotPlanGates().s1!.livePlanHash).toBe("h2");
+  expect(s.snapshotPlanGates().s1!.approvedAt).toBe(1_700);
+});

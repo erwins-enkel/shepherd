@@ -1551,12 +1551,23 @@ export class PlanGateService {
     // it BEFORE the findings steer, so they arrive at an agent that has just been told to stop
     // implementing rather than at one still writing code against the old plan.
     //
-    // ORDER IS LOAD-BEARING: this method's own write is at the tail, and regatePlanGate's guard
+    // BOTH conditions are load-bearing. `prior.approved` is what makes this run a RE-review — the
+    // same test every sibling guard applies (skipForPlanHash, isReReviewSpawn, publishSpawnRefusal,
+    // applyError). An executing session whose gate was NEVER approved is the #809 latch instead: it
+    // opened a PR while still planning and advanceToExecutionOnPr moved it, possibly WHILE this very
+    // first review was in flight (tick() iterates a snapshot and only re-checks `f.finalizing`, so a
+    // mid-tick reapReviewer doesn't stop this finalize). Re-gating that session would tell an agent
+    // its plan "was approved and the approval is withdrawn" when no approval ever existed, and the
+    // next git poll would flip the phase straight back — `approvedAt` is null, so the suppression
+    // that makes a real re-gate stick does not apply. It gets the pre-#2224 behaviour: findings
+    // steered, phase untouched.
+    //
+    // ORDER IS LOAD-BEARING TOO: this method's own write is at the tail, and regatePlanGate's guard
     // reads the STORE — so the revoking verdict is persisted FIRST, here. The provisional write
     // carries this run's `round` (the tail write settles it once delivery is known) and, being
     // `approved: false` on a gate with `approvedAt` stamped, it engages advanceToExecutionOnPr's
     // suppression at the same instant the phase flips, closing the git-poll race.
-    if (this.deps.store.get(f.sessionId)?.planPhase === "executing") {
+    if (prior?.approved && this.deps.store.get(f.sessionId)?.planPhase === "executing") {
       this.deps.store.putPlanGate(gate);
       try {
         await this.deps.regate(f.sessionId);

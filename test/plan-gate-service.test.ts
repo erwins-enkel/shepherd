@@ -3399,3 +3399,39 @@ test("#2224: a refused spawn on a RE-GATED session keeps the re-gate marker", as
   expect(h.store.gate.approvedAt).toBe(500);
   expect(h.store.gate.livePlanHash).toBe("REWRITTEN");
 });
+
+test("#2224: a FIRST-review verdict on a latched executing session never re-gates", async () => {
+  // The #809 latch: the agent opened a PR while still planning, so advanceToExecutionOnPr moved the
+  // session to "executing" — possibly WHILE this first review was in flight (tick() iterates a
+  // snapshot and only re-checks `f.finalizing`, so a mid-tick reapReviewer doesn't stop the
+  // finalize). This gate was never approved, so re-gating it would tell the agent its plan "was
+  // approved and the approval is withdrawn" when no approval ever existed, and the next git poll
+  // would flip the phase straight back (approvedAt is null → no suppression).
+  const regated: string[] = [];
+  const replied: string[] = [];
+  const h = harness({
+    store: {
+      getPlanGate: () => ({ planHash: "OLD", approved: false, approvedAt: null, round: 0 }),
+      get: () => ({ id: "s1", auto: false, planPhase: "executing" }),
+    },
+    readVerdict: () => ({
+      decision: "request-changes",
+      summary: "fix it",
+      body: "B",
+      findings: ["do A"],
+    }),
+    regate: async (id: string) => {
+      regated.push(id);
+    },
+    reply: (id: string) => {
+      replied.push(id);
+      return true;
+    },
+  });
+  await h.svc.consider(planningSession() as any);
+  await h.svc.tick();
+  expect(regated).toEqual([]); // no phase flip, no false "approval withdrawn" steer
+  expect(replied).toEqual(["s1"]); // findings still steered — the pre-#2224 behaviour
+  expect(h.store.gate.decision).toBe("changes_requested");
+  expect(h.store.gate.approvedAt).toBeNull();
+});

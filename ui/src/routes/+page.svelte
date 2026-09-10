@@ -1,5 +1,6 @@
 <script module lang="ts">
   import { relaunchOverrides } from "./relaunch-payload";
+  import { amendTargetState } from "./amend-target";
   import { cleanTerminalCreateInput } from "$lib/format";
 </script>
 
@@ -320,9 +321,15 @@
   // #2225: the session whose amend-task dialog is open (null = closed). Resolved to the live row
   // here rather than inline in the template — the template sits at its complexity gate.
   let amendTargetId = $state<string | null>(null);
-  const amendTarget = $derived(
-    amendTargetId ? (store.sessions.find((s) => s.id === amendTargetId) ?? null) : null,
-  );
+  const amendState = $derived(amendTargetState(amendTargetId, store.sessions));
+  const amendTarget = $derived(amendState.target);
+  // The row can leave the herd under an open dialog (archive / decommission / clear-merged), and
+  // the dialog's own onamendclose is then unreachable — it has already unmounted. Drop the id
+  // here instead: it gates nothing directly any more (anyOverlayOpen tests the TARGET), but a
+  // `restore` brings a session back under the same id, and a stale id would re-open the dialog.
+  $effect(() => {
+    if (amendState.stale) amendTargetId = null;
+  });
   // Epic-diagnosis entry (command bar → arbitrary parent #, #1657). Defaults its repo
   // picker to the in-focus repo when the herd is filtered to exactly one.
   let showEpicDiagnose = $state(false);
@@ -1588,7 +1595,7 @@
       showBacklog ||
       showBroadcast ||
       showRetry ||
-      !!amendTargetId ||
+      !!amendTarget ||
       showUpdate ||
       showHerdrUpdate ||
       showCodexUpdate ||

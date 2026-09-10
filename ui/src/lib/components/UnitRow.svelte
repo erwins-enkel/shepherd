@@ -188,11 +188,6 @@
   // the session status bar share this one resolver so they can never disagree about the same run.
   const environment = $derived(sessionEnvironment(session, activity));
   const environmentText = $derived(environment.segments.join(" · "));
-  const environmentTitle = $derived(
-    environment.observed
-      ? m.unitrow_env_title_observed({ env: environmentText })
-      : m.unitrow_env_title_configured({ env: environmentText }),
-  );
   function toggleRepoFilter() {
     // Non-additive: a plain click resets the filter to this repo (or clears it when this repo
     // is already the sole selection — handled by the page's nextRepoFilter).
@@ -933,7 +928,7 @@
     {/if}
 
     <span class="meta">
-      <span class="meta-text" use:statusTip={{ text: environmentTitle }}
+      <span class="meta-text" use:statusTip={{ text: environment.tooltip }}
         ><TaskIdButton {session} /> · {environmentText}</span
       >
       {#if session.manualSteps.length > 0}

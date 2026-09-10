@@ -20,8 +20,9 @@
   // spawn resolves to is not necessarily what was configured — pushModelFlag applies usage-downgrade
   // and availability fallbacks argv-only, and a session left on "default" passes no flag at all, so
   // only the provider's own runtime log ever names the concrete choice. `sessionEnvironment` is the
-  // same resolver the task card uses, so the two surfaces cannot disagree about one run; the hover
-  // title says which kind of value is on screen.
+  // same resolver the task card uses, so the two surfaces cannot disagree about one run, and it
+  // carries the hover title too — one sentence per segment, each naming where THAT segment came
+  // from, since a mixed identity (observed model, configured effort) is the ordinary Claude case.
   //
   // The session row's model/effort remain AUTHORITATIVE as the configured fallback: null explicitly
   // means "provider default" (what a replace/relaunch with provider defaults writes), so it must
@@ -43,11 +44,7 @@
     ),
   );
   const identity = $derived([providerLabel(provider), ...environment.segments].join(" · "));
-  const identityTitle = $derived(
-    environment.observed
-      ? m.statusbar_identity_observed_title({ identity })
-      : m.statusbar_identity_title({ identity }),
-  );
+  const identityTitle = $derived(environment.tooltip);
 
   // The elapsed segment is SESSION AGE — wall-clock since createdAt (to archive time for
   // archived sessions; archivedAt ?? updatedAt matches DoneRecapPanel's finishedAt

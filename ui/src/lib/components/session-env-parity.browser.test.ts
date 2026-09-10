@@ -7,6 +7,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import "../../app.css";
 import type { Session, SessionActivity } from "$lib/types";
+import { m } from "$lib/paraglide/messages";
 
 const { default: UnitRow } = await import("./UnitRow.svelte");
 const { default: SessionStatusBar } = await import("./SessionStatusBar.svelte");
@@ -131,5 +132,37 @@ describe("card ↔ status bar parity", () => {
 
     expect(cardText).toBe(barText);
     expect(cardText).not.toContain("·");
+  });
+
+  // Mixed provenance travels the same way on both surfaces: neither may claim the configured effort
+  // came from the runtime log.
+  it("a mixed identity: both name the model as observed and the effort as configured", async () => {
+    const s = session({
+      id: "mixed",
+      agentProvider: "claude",
+      model: null,
+      effort: "high",
+      runtimeModel: "claude-opus-5",
+    });
+    const expected = `${m.session_env_model_observed({ model: "Opus 5" })} ${m.session_env_effort_configured({ effort: "High" })}`;
+
+    render(UnitRow, { session: s, onselect: () => {} } as never);
+    const cardText = cardEnvironment();
+    // The card carries its explanation in a statusTip popover, not a native title — open it and
+    // read the rendered text, so this asserts the card's own string and not the bar's.
+    const meta = document.querySelector(".meta-text") as HTMLElement;
+    meta.dispatchEvent(new PointerEvent("pointerenter", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 400));
+    const cardTip = (document.querySelector(".status-tip") as HTMLElement).textContent;
+    document.body.innerHTML = "";
+
+    render(SessionStatusBar, { session: s, usage: null });
+    const barTip = (document.querySelector(".ssb-identity") as HTMLElement).title;
+    const barText = barEnvironment();
+
+    expect(cardText).toBe("Opus 5 · High");
+    expect(barText).toBe(cardText);
+    expect(cardTip).toBe(expected);
+    expect(barTip).toBe(expected);
   });
 });

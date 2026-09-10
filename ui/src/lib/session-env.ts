@@ -8,12 +8,18 @@ import type { Session, SessionActivity } from "$lib/types";
 export interface SessionEnvironment {
   /** Model segment; the localized "default" when neither an observed nor a configured value exists. */
   model: string;
+  /** True when `model` is what the agent was OBSERVED to run, false when it is the configured value
+   *  (or the default standing in for one). */
+  modelObserved: boolean;
   /** Effort segment, or null when it is not worth its own segment (see {@link segments}). */
   effort: string | null;
-  /** True when at least one segment comes from what the agent was OBSERVED to run, rather than from
-   *  what the operator configured — drives which explanatory tooltip a surface shows. */
-  observed: boolean;
+  /** True when `effort` is observed rather than configured. Always false for Claude sessions, whose
+   *  transcripts record no effort at all. */
+  effortObserved: boolean;
   segments: string[];
+  /** Ready-to-show explanation: one complete sentence per rendered segment, each naming where THAT
+   *  segment came from. Both session surfaces show this verbatim. */
+  tooltip: string;
 }
 
 /**
@@ -29,6 +35,12 @@ export interface SessionEnvironment {
  * Observed values are labeled with `runtimeModelLabel` (concrete provider ids like `gpt-6-astra`)
  * and configured ones with `modelLabel` (spawn-time aliases); mixing the two would relabel an
  * already-run session.
+ *
+ * **Provenance is per FIELD, and so is the tooltip.** A mixed identity is the NORMAL case, not an
+ * edge one: `claudeRuntimeIdentity()` only ever reports a model, so an ordinary Claude session has
+ * an observed model beside a configured effort. One flag covering both segments would let the
+ * tooltip claim the runtime log named a value it never mentioned, so each segment carries its own
+ * sentence saying where it came from.
  *
  * **Never two identical default labels.** With both fields unknown, the model and effort segments
  * would both render the same localized "default" word, which says nothing twice. `segments` then
@@ -51,14 +63,35 @@ export function sessionEnvironment(
   const knownEffort = observedEffort ?? configuredEffort;
   const effort = knownEffort ? effortLabel(knownEffort) : m.effort_default();
 
+  const modelObserved = !!observedModel;
+  const effortObserved = !!observedEffort;
   const effortKnown = !!knownEffort;
+
+  // One complete sentence per rendered segment — never assembled from fragments, so both locales
+  // keep their own word order. An unknown effort renders no segment and gets no sentence: saying
+  // nothing about it is the honest option when nothing is known.
+  const sentences = [
+    modelObserved
+      ? m.session_env_model_observed({ model })
+      : m.session_env_model_configured({ model }),
+    ...(effortKnown
+      ? [
+          effortObserved
+            ? m.session_env_effort_observed({ effort })
+            : m.session_env_effort_configured({ effort }),
+        ]
+      : []),
+  ];
+
   return {
     model,
+    modelObserved,
     effort: effortKnown ? effort : null,
-    observed: !!(observedModel || observedEffort),
+    effortObserved,
     // The model segment always stands, so the operator can always see which model a task ran on;
     // the effort segment joins it only when there is something concrete to say. Dropping an unknown
     // effort is exactly what keeps a fully-unknown environment from printing the same word twice.
     segments: effortKnown ? [model, effort] : [model],
+    tooltip: sentences.join(" "),
   };
 }

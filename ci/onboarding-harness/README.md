@@ -86,11 +86,11 @@ The report lands at `onboarding-gap-report.md` in the working directory. Exit co
 
 ## Time budget
 
-The harness bounds itself so it always finishes on its own terms — **30 min per scenario** (`SHEPHERD_ONBOARDING_SCENARIO_TIMEOUT_MS`) and **3h per run** (`SHEPHERD_ONBOARDING_BUDGET_MS`). A scenario that blows its cap is abandoned; scenarios with no budget left are never started. Either way they are recorded **NOT VERIFIED** — not green, not a harness error, so a gate-eligible one still gates red and the report says plainly that no verdict was reached.
+The harness bounds itself so it always finishes on its own terms — **45 min per scenario** (`SHEPHERD_ONBOARDING_SCENARIO_TIMEOUT_MS`) and **6h per run** (`SHEPHERD_ONBOARDING_BUDGET_MS`). A scenario that blows its cap is abandoned; scenarios with no budget left are never started. Either way they are recorded **NOT VERIFIED** — not green, not a harness error, so a gate-eligible one still gates red and the report says plainly that no verdict was reached.
 
-Those caps are generous against observation: a healthy full run is ~14 min, a slow night ~61 min, and the worst single scenario ever seen took 26 min. Wall-clock is dominated by in-container package installs, so it tracks network weather rather than anything the harness controls.
+Those caps are sized to the runtime the harness **actually has**, not the one it ought to have: a full run was ~14 min until Aug 2026 and is now ~4h, with every scenario taking 20–28 min ([#2229](https://github.com/erwins-enkel/shepherd/issues/2229)). Wall-clock is dominated by in-container package installs and image pulls, which the harness does not control. Sizing the caps to the old runtime would cut off a legitimate, working run and report it NOT VERIFIED — a red release gate on a healthy harness. **Bring both numbers down, with `TimeoutStartSec`, once #2229 restores the runtime.**
 
-The service's `TimeoutStartSec` (5h) is a **backstop that must never be reached**, and must always stay above the harness's own budget. When it sat _below_ the worst case (the old 2h), systemd's dirty kill was the guaranteed outcome on a slow night rather than an edge case.
+The service's `TimeoutStartSec` (7h) is a **backstop that must never be reached**, and must always stay above the harness's own budget. When it sat _below_ the worst case (the old 2h), systemd's dirty kill was the guaranteed outcome on a slow night rather than an edge case.
 
 ## Run isolation
 

@@ -2,6 +2,7 @@ import { mapGiteaActionStatus, mapStatusState } from "./checks";
 import { classifyPr } from "./pr-kind";
 import { labelColorsFrom } from "./labels";
 import { mapBounded } from "../map-bounded";
+import { makeUserCache } from "./user-cache";
 import type {
   ChecksState,
   ForgeConfig,
@@ -183,20 +184,19 @@ export class GiteaForge implements GitForge {
     }
   }
 
-  private cachedUser: string | null | undefined;
-  /** The authenticated Gitea login (`GET /api/v1/user`), cached for the forge's
-   *  lifetime — it never changes mid-session. Drives the "mine & unassigned" issue
-   *  filter (#824) so the chip is live on Gitea too, not just GitHub. Null when it
-   *  can't be resolved (no token / network error) → fail open (show all). */
+  /** The authenticated Gitea login (`GET /api/v1/user`). Drives the "mine & unassigned"
+   *  issue filter (#824) so the chip is live on Gitea too, not just GitHub. A resolved
+   *  login is cached for the forge's lifetime (it never changes mid-session); a failure
+   *  (no token / network error) reads as "unknown me" → fail open (show all), and stays
+   *  retryable rather than pinning the viewer to null until a restart (#2140). Gitea has
+   *  a single transport, so there is no second one to fall back to. */
+  private readonly resolveUser = makeUserCache(async () => {
+    const u = (await this.req("GET", "/api/v1/user")) as { login?: string } | null;
+    return u?.login || null;
+  });
+
   async currentUser(): Promise<string | null> {
-    if (this.cachedUser !== undefined) return this.cachedUser;
-    try {
-      const u = (await this.req("GET", "/api/v1/user")) as { login?: string } | null;
-      this.cachedUser = u?.login || null;
-    } catch {
-      this.cachedUser = null; // unauth / offline → treat as "unknown me"
-    }
-    return this.cachedUser;
+    return this.resolveUser();
   }
 
   /** One combined-status call yields both the worst-of rollup (top-level `state`)

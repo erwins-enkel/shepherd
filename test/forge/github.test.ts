@@ -2957,3 +2957,61 @@ test("GithubForge.listPullRequests: maps mergeStateStatus so the PRs-tab conflic
   expect(prs[0]!.mergeStateStatus).toBe("dirty");
   expect(prs[0]!.mergeable).toBeNull();
 });
+
+// ── currentUser: two transports, and a failure that stays retryable (#2140) ──────
+// REST (`gh api user`) and GraphQL (`{viewer{login}}`) sit on independent GitHub
+// budgets, so the login resolves over whichever one answers. TTL expiry itself is the
+// user-cache's contract (test/forge/user-cache.test.ts); these cover the wiring.
+
+const VIEWER_JSON = JSON.stringify({ data: { viewer: { login: "octocat" } } });
+
+/** A runner keyed by `gh` subcommand path, recording every call. */
+function userRunner(responses: Record<string, string | Error>) {
+  const calls: string[][] = [];
+  const run = async (args: string[]): Promise<string> => {
+    calls.push(args);
+    const key = `${args[0]} ${args[1] ?? ""}`.trim();
+    const res = responses[key];
+    if (res instanceof Error) throw res;
+    return res ?? "";
+  };
+  return { run, calls };
+}
+
+test("GithubForge.currentUser: REST answers → login, cached for the forge's lifetime", async () => {
+  const { run, calls } = userRunner({ "api user": "octocat\n" });
+  const forge = new GithubForge("o/r", {}, run);
+
+  expect(await forge.currentUser()).toBe("octocat");
+  expect(await forge.currentUser()).toBe("octocat");
+  expect(calls.length).toBe(1);
+});
+
+test("GithubForge.currentUser: a failing REST call falls back to GraphQL (#2140)", async () => {
+  const { run, calls } = userRunner({
+    "api user": new Error("gh: HTTP 403 API rate limit exceeded for user ID"),
+    "api graphql": VIEWER_JSON,
+  });
+  const forge = new GithubForge("o/r", {}, run);
+
+  expect(await forge.currentUser()).toBe("octocat");
+  expect(calls.map((c) => `${c[0]} ${c[1]}`)).toEqual(["api user", "api graphql"]);
+});
+
+test("GithubForge.currentUser: a REST answer carrying no login also falls back", async () => {
+  const { run } = userRunner({ "api user": "\n", "api graphql": VIEWER_JSON });
+  expect(await new GithubForge("o/r", {}, run).currentUser()).toBe("octocat");
+});
+
+test("GithubForge.currentUser: both transports failing → null, not re-probed within the TTL", async () => {
+  const { run, calls } = userRunner({
+    "api user": new Error("boom"),
+    "api graphql": new Error("boom"),
+  });
+  const forge = new GithubForge("o/r", {}, run);
+
+  expect(await forge.currentUser()).toBeNull();
+  expect(await forge.currentUser()).toBeNull();
+  // One pass over both transports — the second call read the negative cache.
+  expect(calls.length).toBe(2);
+});

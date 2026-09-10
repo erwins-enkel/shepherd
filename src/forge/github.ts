@@ -10,6 +10,7 @@ import {
   runningCheckNames,
 } from "./checks";
 import { classifyPr } from "./pr-kind";
+import { makeUserCache } from "./user-cache";
 import { labelColorsFrom } from "./labels";
 import {
   attachAttempts,
@@ -1678,17 +1679,42 @@ export class GithubForge implements GitForge {
       .map((r) => r.slice("refs/heads/".length));
   }
 
-  private cachedUser: string | null | undefined;
-  /** The authenticated gh login (`gh api user`), cached for the forge's lifetime —
-   *  it never changes mid-session, so one call serves every handoff computation. */
+  /** `gh api user` — the REST-bucket transport for {@link currentUser}. */
+  private async currentUserRest(): Promise<string | null> {
+    return (await this.run(["api", "user", "--jq", ".login"])).trim() || null;
+  }
+
+  /** `gh api graphql {viewer{login}}` — the GraphQL-bucket transport for
+   *  {@link currentUser}. */
+  private async currentUserGraphql(): Promise<string | null> {
+    const out = await this.run(["api", "graphql", "-f", "query=query{viewer{login}}"]);
+    const json = JSON.parse(out || "null") as { data?: { viewer?: { login?: string } } } | null;
+    return json?.data?.viewer?.login?.trim() || null;
+  }
+
+  /**
+   * The authenticated gh login, over whichever transport answers.
+   *
+   * REST first (`gh api user`), then GraphQL (`{viewer{login}}`) on ANY failure or on
+   * an answer that carries no login. The two draw on INDEPENDENT GitHub budgets, so
+   * either can be exhausted while the other is healthy — observed live on #2139, where
+   * every REST call 403'd while `gh api graphql` answered normally. The order is fixed
+   * rather than flipped on `graphRateLimit.blocked()` the way `listIssues` does it:
+   * that signal describes the GraphQL bucket only, and there is no REST-side tracker to
+   * argue for GraphQL-first. The fallback runs even inside an active GraphQL backoff —
+   * REST has just proved unusable and the backoff is only a heuristic (the same
+   * trade-off `listIssues`' REST→CLI direction makes).
+   *
+   * A resolved login is cached for the forge's lifetime; a failure only until a short
+   * TTL elapses. See {@link makeUserCache} for why the failure must stay retryable.
+   */
+  private readonly resolveUser = makeUserCache(async () => {
+    const rest = await this.currentUserRest().catch(() => null);
+    return rest ?? (await this.currentUserGraphql());
+  });
+
   async currentUser(): Promise<string | null> {
-    if (this.cachedUser !== undefined) return this.cachedUser;
-    try {
-      this.cachedUser = (await this.run(["api", "user", "--jq", ".login"])).trim() || null;
-    } catch {
-      this.cachedUser = null; // unauth / offline → treat as "unknown me"
-    }
-    return this.cachedUser;
+    return this.resolveUser();
   }
 
   /** Whether the authenticated user can push. Returns a DEFINITIVE boolean only;

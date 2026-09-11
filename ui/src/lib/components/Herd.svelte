@@ -33,7 +33,7 @@
   import { groupSessionsByExperiment } from "./experiment-grouping";
   import { collectReadyPrs } from "./merge-train";
   import { displayStatus } from "$lib/display-status";
-  import { modelsMixed } from "$lib/session-env";
+  import { modelsMixed, providersMixed } from "$lib/session-env";
   import { isReworkRunning as isReworkRunningSession } from "./rework-running";
   import { reviews, planGates } from "$lib/reviews.svelte";
   import { m } from "$lib/paraglide/messages";
@@ -337,6 +337,10 @@
   // grouping — so epic- and experiment-grouped rows are judged by the set they are actually
   // displayed in rather than by whichever partition bucket they happen to land in.
   const modelMix = $derived(modelsMixed(shown, activity));
+  // Same decision for the CLI chip, kept INDEPENDENT of the model one: a herd running two Claude
+  // models wants the models named but not the same CLI word on every row, and a Claude/Codex herd
+  // wants both.
+  const cliMix = $derived(providersMixed(shown));
 
   // ONE partition per epic group, keyed by group key — the cue chips, the grouped
   // ready/merged tallies, and the "in epics above" annotation all read from it, so we
@@ -438,6 +442,7 @@
     onackmanualsteps,
     onshowowed,
     showModel: modelMix,
+    showCli: cliMix,
   });
 
   // Lifecycle groups in display order — each entry maps to a <HerdGroup> render.

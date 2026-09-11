@@ -34,6 +34,7 @@
     pressDecommission,
     previewChoiceOpen = false,
     onpreviewchoice,
+    showCli = true,
     elapsedEl = $bindable(),
   }: {
     session: Session;
@@ -55,6 +56,9 @@
     pressDecommission: () => void;
     previewChoiceOpen?: boolean;
     onpreviewchoice?: (anchor: HTMLElement) => void;
+    /** Render the CLI chip. False when every session on display runs the same CLI — see
+     *  providersMixed. Defaults to true for rows rendered outside a list. */
+    showCli?: boolean;
     elapsedEl?: HTMLSpanElement;
   } = $props();
 
@@ -163,7 +167,7 @@
       >
     </span>
   {/if}
-  <CliBadge {session} />
+  {#if showCli}<CliBadge {session} />{/if}
   <ResearchBadge {session} tip />
   <TerminalBadge {session} tip />
   {#if !stepperTerminal}<PrBadge {git} sessionId={session.id} />{/if}

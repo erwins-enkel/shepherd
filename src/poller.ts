@@ -23,10 +23,16 @@ import {
   type BlockReason,
 } from "./blocked";
 import { DEFAULT_STALL } from "./stall";
-import { jsonlPathFor } from "./usage";
-import { readTranscriptSignals, STRIP_WINDOW_MS, type SessionActivity } from "./activity-signal";
+import { jsonlPathFor, resumeSignalFrom, type ResumeSignal } from "./usage";
+import {
+  claudeRuntimeIdentity,
+  readTranscriptSignals,
+  STRIP_WINDOW_MS,
+  type SessionActivity,
+} from "./activity-signal";
 import { readTranscriptTail } from "./activity";
 import { detectAuthUrl, detectPendingAuthUrl, detectLoginAuthUrl } from "./auth-url";
+import { isApiKeyMode } from "./spawn-auth";
 import { statSync } from "node:fs";
 import { classifyHalt, assistantSideText } from "./usage-halt";
 import type { UsageLimits } from "./usage-limits";
@@ -179,6 +185,34 @@ function readAuthUrl(s: Session): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Price a resume of a session that has just parked (default `readResumeSignal` seam, #2042).
+ *
+ * Claude-only: a Codex rollout carries no cache-write premium to model, so there is nothing to
+ * warn about. One bounded tail read serves both the model and the reading — only the LAST
+ * main-thread record matters and it is always at the end of the file, so the tail is not a
+ * compromise here.
+ *
+ * The model is the one the transcript last named, which is what a resume will actually run on —
+ * not the session's historically dominant model, and not the configured `model` (null whenever the
+ * operator left the picker on default). Falls back to the persisted observed identity.
+ *
+ * TTL follows auth mode: Claude Code requests the 1h cache only on a subscription; an api key gets
+ * 5m. Both under-warn rather than over-warn if the real TTL is shorter (plan overage, or an
+ * operator's own promptCacheTtl), which is the safe direction.
+ */
+function readParkedResumeSignal(s: Session): ResumeSignal | null {
+  if ((s.agentProvider ?? "claude") === "codex" || !s.claudeSessionId) return null;
+  let text: string;
+  try {
+    text = readTranscriptTail(jsonlPathFor(s.worktreePath, s.claudeSessionId, s.spawnAccountDir));
+  } catch {
+    return null; // transcript absent/unreadable — nothing to price
+  }
+  const model = claudeRuntimeIdentity(text).runtimeModel ?? s.runtimeModel ?? null;
+  return resumeSignalFrom(text.split("\n"), model, isApiKeyMode() ? "5m" : "1h");
 }
 
 /** Transcript mtime for the resting-auth probe (default `authMtime` seam). Missing/unreadable
@@ -518,6 +552,12 @@ export class StatusPoller {
     private archiveTerminal?: (id: string) => void,
     /** Resolves a Codex session's provider-native rollout for the default probe. */
     codexTranscripts: CodexTranscriptLocator = new CodexTranscriptLocator(),
+    /**
+     * Prices a resume of a session that has just parked (#2042), for the cold-resume marker.
+     * Injectable for tests so the park/resume edges can be driven without touching disk; defaults
+     * to a bounded tail read + `resumeSignalFrom`.
+     */
+    private readResumeSignal: (s: Session) => ResumeSignal | null = readParkedResumeSignal,
   ) {
     this.probe =
       probe ??
@@ -1060,6 +1100,49 @@ export class StatusPoller {
   private handleStatusEdge(s: Session, status: Session["status"]): void {
     if (status === "done" && s.status !== "done") this.handleDoneEdge(s);
     else if (status === "running" && s.haltReason) this.clearHaltOnResume(s);
+    // Separate statement, NOT chained onto the branches above: a running→done edge is both a done
+    // edge and a park, and an `else if` here would let handleDoneEdge swallow the capture.
+    this.trackResumeCost(s, status);
+  }
+
+  /** True when this row currently carries a cold-resume reading (#2042). All three move together,
+   *  so any one being set means there is something to clear. */
+  private hasResumeSignal(s: Session): boolean {
+    return s.contextTokens != null || s.coldResumeAt != null || s.resumeCostUnits != null;
+  }
+
+  /**
+   * Maintain the cold-resume reading across the running↔parked boundary (#2042).
+   *
+   * PARK (running → idle/done/blocked): measure what the next turn back will cost and store it. A
+   * parked session's transcript cannot change, so this is measured ONCE rather than polled — and
+   * `maybeProbe` only runs for RUNNING sessions, so a per-tick derivation would never see the
+   * parked sessions this whole feature is about. Blocked counts as parked: a session waiting on the
+   * operator goes cold exactly like an idle one.
+   *
+   * RESUME (→ running): clear it. That first turn back pays the cost the reading predicted and
+   * every turn after it is warm, so leaving the row set would strand a `coldResumeAt` in the past —
+   * permanently true against "now", pinning the HUD's warning across active, rewarmed work.
+   *
+   * Both directions skip the write when there is nothing to change, so a warm session is not
+   * rewritten on every start and a Codex session is never written at all.
+   */
+  private trackResumeCost(s: Session, status: Session["status"]): void {
+    const wasRunning = s.status === "running";
+    const isRunning = status === "running";
+    if (wasRunning === isRunning) return; // not a boundary crossing
+    if (isRunning) {
+      if (this.hasResumeSignal(s)) this.store.setResumeSignal(s.id, null);
+      return;
+    }
+    let signal: ResumeSignal | null;
+    try {
+      signal = this.readResumeSignal(s);
+    } catch (err) {
+      console.warn(`[poller] cold-resume read failed for ${s.id}:`, err);
+      return; // best-effort, same contract as maybeProbe: leave the row untouched, retry next park
+    }
+    if (signal || this.hasResumeSignal(s)) this.store.setResumeSignal(s.id, signal);
   }
 
   /**

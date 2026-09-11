@@ -2,7 +2,7 @@ import { statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { config } from "./config";
-import { weightedUnits } from "./pricing";
+import { coldResumeUnits, weightedUnits, type CacheTtl } from "./pricing";
 
 /** Dashify a cwd into its ~/.claude/projects directory name: every `/` and `.` → `-`. */
 export function dashify(cwd: string): string {
@@ -95,7 +95,9 @@ export interface SessionUsage {
   messageCount: number;
   lastActivity: number | null;
   byModel: Record<string, number>;
-  /** Count of main-thread warm→cold prefix rebuilds: cacheRead dropped to 0 with a non-zero cache write, after a warm (cacheRead>0) main-thread record. Sidechain records are excluded. */
+  /** Count of main-thread warm→cold prefix rebuilds: a record that cache-WROTE more than half of
+   *  its own context, following a warm (cacheRead>0) main-thread record. Sidechain records are
+   *  excluded. See `tallyRecache` for why this is a ratio and not a cacheRead===0 test. */
   fullRecaches: number;
   /** Count of accepted records whose isSidechain is true. */
   sidechainCount: number;
@@ -121,10 +123,24 @@ interface RecacheCursor {
   prevMainCacheRead: number;
 }
 
+/** Share of a record's own context that must be cache-WRITTEN for it to count as a prefix rebuild.
+ *  Measured over 13,569 consecutive main-thread turn pairs: a warm turn rewrites 0.5–1.4% of its
+ *  context (median), a turn after an expired cache rewrites 82–91%. Nothing lands near the middle,
+ *  so the exact cut point is not sensitive — 0.5 sits in the empty gap. */
+const REBUILD_RATIO = 0.5;
+
 /**
  * Update fullRecaches/sidechainCount for one ACCEPTED (post-dedupe) record.
- * Main-thread warm→cold drop (cacheRead 0 with a write, after a warm record) increments
- * fullRecaches; sidechain records only bump sidechainCount and never touch the cursor.
+ * A main-thread record that rewrites most of its own context, following a warm (cacheRead>0)
+ * main-thread record, increments fullRecaches; sidechain records only bump sidechainCount and
+ * never touch the cursor.
+ *
+ * The test is a RATIO, not `cacheRead === 0`. A real cold resume does not drop cacheRead to zero:
+ * Claude Code layers each request `system prompt → project context → conversation`, and a herd of
+ * parallel sessions keeps that shared leading layer warm, so ~24k of prefix survives (p10 20.8k /
+ * p50 23.5k / p90 28.5k over 168 measured cold resumes) while the conversation body is rewritten.
+ * The old zero test therefore fired on 3 of those 168 — it reported ~0 while cache-miss premium
+ * was 12.9% of all spend in the sampled corpus.
  */
 function tallyRecache(out: SessionUsage, r: ParsedRecord, cursor: RecacheCursor): void {
   if (r.isSidechain) {
@@ -132,8 +148,66 @@ function tallyRecache(out: SessionUsage, r: ParsedRecord, cursor: RecacheCursor)
     return;
   }
   const cacheWrite = r.cacheWrite5m + r.cacheWrite1h;
-  if (cursor.prevMainCacheRead > 0 && r.cacheRead === 0 && cacheWrite > 0) out.fullRecaches += 1;
+  const context = r.input + r.cacheRead + cacheWrite;
+  if (cursor.prevMainCacheRead > 0 && context > 0 && cacheWrite / context > REBUILD_RATIO)
+    out.fullRecaches += 1;
   cursor.prevMainCacheRead = r.cacheRead;
+}
+
+// ── Cold-resume signal (#2042) ───────────────────────────────────────────────
+
+/** What resuming a parked session will cost, derived from its transcript at park time. */
+export interface ResumeSignal {
+  /** Context size the next turn must re-send: the last main-thread record's whole prompt. */
+  contextTokens: number;
+  /** ms epoch the main conversation's cache expires (last main-thread record + the TTL). */
+  coldResumeAt: number;
+  /** Weighted units that first turn back costs once the cache HAS expired. */
+  resumeCostUnits: number;
+}
+
+const TTL_MS: Record<CacheTtl, number> = { "5m": 5 * 60_000, "1h": 60 * 60_000 };
+
+/**
+ * Price the next turn into a session whose transcript is `lines`, from its LAST MAIN-THREAD
+ * record. Returns null when there is nothing to price: no usable record, no known model, or a
+ * record carrying no context.
+ *
+ * Works on any line iterable, so a bounded tail read is as valid as the whole file — only the last
+ * qualifying record matters, and it is by definition at the end.
+ *
+ * SIDECHAINS ARE IGNORED, for the timestamp as much as for the tokens. A subagent runs its own
+ * system prompt and tool set, so its requests neither read nor refresh the parent conversation's
+ * cached prefix — anchoring the TTL on one would postpone `coldResumeAt` past the moment the cache
+ * it describes has actually expired, suppressing the warning exactly when it comes due. (A *fork*
+ * does inherit and re-warm the parent prefix but is recorded the same way, so a session whose last
+ * activity was a fork can be called cold slightly early. Plain subagents dominate, and erring
+ * early is the safe direction.)
+ *
+ * `model` is the model a resume will actually run on — not the session's historical dominant one.
+ */
+export function resumeSignalFrom(
+  lines: Iterable<string>,
+  model: string | null,
+  ttl: CacheTtl,
+): ResumeSignal | null {
+  if (!model) return null;
+  let contextTokens = 0;
+  let lastMainTs = 0;
+  for (const line of lines) {
+    const r = parseLine(line);
+    if (!r || r.isSidechain) continue;
+    const context = r.input + r.cacheRead + r.cacheWrite5m + r.cacheWrite1h;
+    if (context <= 0) continue;
+    contextTokens = context;
+    lastMainTs = r.ts;
+  }
+  if (contextTokens <= 0 || lastMainTs <= 0) return null;
+  return {
+    contextTokens,
+    coldResumeAt: lastMainTs + TTL_MS[ttl],
+    resumeCostUnits: coldResumeUnits(contextTokens, model, ttl),
+  };
 }
 
 /** Accumulate per-session token totals from JSONL lines, deduping by requestId. */

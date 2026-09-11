@@ -2515,3 +2515,86 @@ test("pruneMaintainRuns drops old completed rows but never the in-flight adoptio
       .sort(),
   ).toEqual(["new-done", "old-inflight"]);
 });
+
+// ── cold-resume reading (#2042) ────────────────────────────────────────────
+
+test("setResumeSignal round-trips the reading and a fresh session starts null", () => {
+  const s = mk();
+  const row = s.create(base);
+  expect(row.contextTokens).toBeNull();
+  expect(row.coldResumeAt).toBeNull();
+  expect(row.resumeCostUnits).toBeNull();
+  // A freshly-created row and a read-back row must agree — create() builds its return value
+  // rather than re-selecting, so the two shapes can drift silently.
+  expect(s.get(row.id)!.contextTokens).toBeNull();
+
+  s.setResumeSignal(row.id, {
+    contextTokens: 180_000,
+    coldResumeAt: 1_800_000_000_000,
+    resumeCostUnits: 1.572,
+  });
+  const parked = s.get(row.id)!;
+  expect(parked.contextTokens).toBe(180_000);
+  expect(parked.coldResumeAt).toBe(1_800_000_000_000);
+  expect(parked.resumeCostUnits).toBeCloseTo(1.572, 6);
+});
+
+// The stale-warning guard: without a full clear, a resumed session keeps a coldResumeAt that is
+// already in the past, which satisfies "now > coldResumeAt" forever and pins the HUD warning
+// across active, rewarmed work. So null must blank ALL three, not coalesce like setRuntimeIdentity.
+test("setResumeSignal(null) clears all three fields, not just some", () => {
+  const s = mk();
+  const row = s.create(base);
+  s.setResumeSignal(row.id, {
+    contextTokens: 180_000,
+    coldResumeAt: 1_800_000_000_000,
+    resumeCostUnits: 1.572,
+  });
+  s.setResumeSignal(row.id, null);
+  const resumed = s.get(row.id)!;
+  expect(resumed.contextTokens).toBeNull();
+  expect(resumed.coldResumeAt).toBeNull();
+  expect(resumed.resumeCostUnits).toBeNull();
+});
+
+test("setResumeSignal overwrites a previous park's reading outright", () => {
+  const s = mk();
+  const row = s.create(base);
+  s.setResumeSignal(row.id, {
+    contextTokens: 180_000,
+    coldResumeAt: 1_800_000_000_000,
+    resumeCostUnits: 1.572,
+  });
+  s.setResumeSignal(row.id, {
+    contextTokens: 40_000,
+    coldResumeAt: 1_900_000_000_000,
+    resumeCostUnits: 0.172,
+  });
+  const parked = s.get(row.id)!;
+  expect(parked.contextTokens).toBe(40_000);
+  expect(parked.coldResumeAt).toBe(1_900_000_000_000);
+  expect(parked.resumeCostUnits).toBeCloseTo(0.172, 6);
+});
+
+test("a sessions row predating the migration reads the new columns back as null", () => {
+  const dir = mkdtempSync(join(tmpdir(), "shep-store-resume-"));
+  const path = join(dir, "s.db");
+  try {
+    const first = new SessionStore(path);
+    const row = first.create(base);
+    // Simulate a pre-#2042 database: drop the columns the migration adds.
+    const raw = new Database(path);
+    for (const col of ["contextTokens", "coldResumeAt", "resumeCostUnits"]) {
+      raw.run(`ALTER TABLE sessions DROP COLUMN ${col}`);
+    }
+    raw.close();
+    // Re-opening runs migrateSessionColumns, which must re-add them as nullable.
+    const reopened = new SessionStore(path);
+    const migrated = reopened.get(row.id)!;
+    expect(migrated.contextTokens).toBeNull();
+    expect(migrated.coldResumeAt).toBeNull();
+    expect(migrated.resumeCostUnits).toBeNull();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

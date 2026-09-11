@@ -149,6 +149,15 @@ const glossary: readonly GlossaryTerm[] = [
     bodyKey: "gloss_weighted_units_def",
   },
   {
+    // Internal rather than external: "cold cache" has no article of its own, and what the operator
+    // needs is Shepherd's specific meaning — THIS session's prompt cache has expired, so the next
+    // turn back into it is priced at the write rate.
+    id: "cold-cache",
+    kind: "internal",
+    termKey: "gloss_cold_cache_term",
+    bodyKey: "gloss_cold_cache_def",
+  },
+  {
     id: "satellite-pass",
     kind: "internal",
     termKey: "gloss_satellite_pass_term",

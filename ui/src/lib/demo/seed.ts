@@ -257,6 +257,12 @@ function buildSessions(): Session[] {
       lastState: "done",
       createdAt: NOW - 8 * HOUR,
       updatedAt: NOW - 70 * MIN,
+      // Cold-resume marker (#2042): an 8-hour session parked 70 minutes ago, so its 1h prompt
+      // cache lapsed ten minutes back. 214k of context re-sent at the sonnet write rate is ~1.1
+      // weighted units — the one demo session that exercises the warn chip and status-bar segment.
+      contextTokens: 214_000,
+      coldResumeAt: NOW - 10 * MIN,
+      resumeCostUnits: 1.147,
       manualSteps: [
         {
           id: "envflag-ms-1",

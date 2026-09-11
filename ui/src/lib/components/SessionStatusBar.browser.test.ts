@@ -304,3 +304,75 @@ describe("SessionStatusBar", () => {
     expect(document.querySelector('[role="status"]')).toBeNull();
   });
 });
+
+// ── cold-resume marker (#2042) ──────────────────────────────────────────────
+// The bar sits directly above the compose box, so this segment names money the operator is about
+// to spend by typing. It must appear exactly when the cache has expired AND the resume is worth
+// warning about — and must not linger once the session is working again.
+
+const HOUR = 3_600_000;
+
+/** A session parked with a cold, expensive reading: 180k context, ~1.6 weighted units. */
+function coldSession(partial: Partial<Session> = {}): Session {
+  return session({
+    id: "cold",
+    status: "idle",
+    contextTokens: 180_000,
+    coldResumeAt: Date.now() - HOUR,
+    resumeCostUnits: 1.572,
+    ...partial,
+  });
+}
+
+const coldEl = () => document.querySelector(".ssb-cold");
+
+describe("SessionStatusBar cold-resume marker", () => {
+  it("shows the priced marker once the cache has expired", async () => {
+    render(SessionStatusBar, { session: coldSession(), usage: usage() });
+    await expect.element(page.getByText("cold")).toBeInTheDocument();
+    expect(coldEl()?.textContent).toContain("1.6");
+    // The tooltip carries the context size the estimate is built from.
+    expect(coldEl()?.getAttribute("title")).toContain("180k");
+  });
+
+  it("stays silent while the cache is still warm", async () => {
+    render(SessionStatusBar, {
+      session: coldSession({ coldResumeAt: Date.now() + HOUR }),
+      usage: usage(),
+    });
+    expect(coldEl()).toBeNull();
+  });
+
+  it("stays silent below the cost floor, however stale the cache", async () => {
+    // 0.4 units — real, but not worth interrupting for.
+    render(SessionStatusBar, {
+      session: coldSession({ contextTokens: 60_000, resumeCostUnits: 0.4 }),
+      usage: usage(),
+    });
+    expect(coldEl()).toBeNull();
+  });
+
+  it("stays silent when the session was never parked with a reading (Codex, fresh)", async () => {
+    render(SessionStatusBar, {
+      session: coldSession({ contextTokens: null, coldResumeAt: null, resumeCostUnits: null }),
+      usage: usage(),
+    });
+    expect(coldEl()).toBeNull();
+  });
+
+  // DoneRecapPanel renders this bar retrospectively; a ⚠ there reads as a verdict on finished work.
+  it("stays silent on an archived session", async () => {
+    render(SessionStatusBar, {
+      session: coldSession({ status: "archived", archivedAt: Date.now() }),
+      usage: usage(),
+    });
+    expect(coldEl()).toBeNull();
+  });
+
+  // The stale-warning guard: a reading stranded by a crash between the park and resume edges sits
+  // permanently in the past, so "now > coldResumeAt" alone would pin the marker across live work.
+  it("stays silent on a RUNNING session even with a past coldResumeAt still on the row", async () => {
+    render(SessionStatusBar, { session: coldSession({ status: "running" }), usage: usage() });
+    expect(coldEl()).toBeNull();
+  });
+});

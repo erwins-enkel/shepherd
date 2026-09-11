@@ -3965,5 +3965,12 @@
   "settings_card_issue_ref_on": "Issue number shown",
   "settings_card_issue_ref_off": "Issue number hidden",
   "feat_card_issue_ref_title": "See which issue a session is working",
-  "feat_card_issue_ref_body": "A session card named its task but not its origin: the issue number was buried in the truncated prompt line, so telling two sessions on neighbouring issues apart meant opening one. Cards spawned from a backlog issue now carry a small #1234 chip beside the PR badge, and Settings → Device turns it off for anyone who wants the quieter card."
+  "feat_card_issue_ref_body": "A session card named its task but not its origin: the issue number was buried in the truncated prompt line, so telling two sessions on neighbouring issues apart meant opening one. Cards spawned from a backlog issue now carry a small #1234 chip beside the PR badge, and Settings → Device turns it off for anyone who wants the quieter card.",
+  "gloss_cold_cache_term": "cold cache",
+  "gloss_cold_cache_def": "A session's prompt cache expires after a stretch of inactivity — one hour on a Claude subscription, five minutes on an API key. Once it has, the next turn re-sends the whole conversation at the cache-write rate instead of reading it back cheaply, which makes that single turn many times more expensive than the turns around it.",
+  "coldresume_label": "[[cold-cache|cold]] · ≈{units} units",
+  "coldresume_chip": "cold · ≈{units} units",
+  "feat_cold_resume_marker_title": "See what a resume costs before you click",
+  "feat_cold_resume_marker_body": "A session's prompt cache expires while it sits parked, and the first turn back re-sends its whole context at the cache-write rate — often the most expensive request of the session. Parked sessions that have gone cold now carry a ⚠ chip in The Herd, and a matching marker in the session status bar, estimating that cost in weighted units so you can see it before you open the session.",
+  "coldresume_title": "Prompt cache expired — this session has been idle longer than its cache lifetime. Its {context} of context must be re-sent at the cache-write rate, so the next turn costs about {units} weighted units instead of a small fraction of that."
 }

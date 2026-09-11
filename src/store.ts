@@ -65,7 +65,7 @@ import type {
   ModelWeekStore,
   WindowKey,
 } from "./usage-limits";
-import { dominantModel, type SessionUsage } from "./usage";
+import { dominantModel, type ResumeSignal, type SessionUsage } from "./usage";
 import { type SandboxProfile, isSandboxProfile } from "./sandbox";
 import { normalizeRepoDefaultModelSetting } from "./default-model";
 import { normalizeRepoDefaultEffortSetting } from "./default-effort";
@@ -644,12 +644,12 @@ const COLS = `id, desig, name, prompt, repoPath, baseBranch, branch, worktreePat
 
 /**
  * The SELECT column list: everything {@link COLS} inserts, plus the OBSERVED runtime identity
- * (#1823). Those two are never part of an INSERT — they are written by the poller once a
- * transcript/rollout actually reports what the agent ran, so a fresh row starts NULL ("not observed
- * yet") on its own. Keeping them out of `COLS` also keeps that constant aligned with `create()`'s
- * placeholder list.
+ * (#1823) and the cold-resume reading (#2042). Neither group is ever part of an INSERT — both are
+ * written by the poller from a transcript (what the agent ran; what resuming it would cost), so a
+ * fresh row starts NULL ("not observed yet" / "never parked") on its own. Keeping them out of
+ * `COLS` also keeps that constant aligned with `create()`'s placeholder list.
  */
-const READ_COLS = `${COLS}, runtimeModel, runtimeEffort`;
+const READ_COLS = `${COLS}, runtimeModel, runtimeEffort, contextTokens, coldResumeAt, resumeCostUnits`;
 
 // ── SQLite row shapes ──────────────────────────────────────────────────────────
 
@@ -673,6 +673,9 @@ type SessionRow = {
   effort: string | null;
   runtimeModel: string | null;
   runtimeEffort: string | null;
+  contextTokens: number | null;
+  coldResumeAt: number | null;
+  resumeCostUnits: number | null;
   readyToMerge: number;
   status: string;
   lastState: string;
@@ -2630,6 +2633,10 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       // These are NOT part of the INSERT (see COLS): the columns default to NULL on their own.
       runtimeModel: null,
       runtimeEffort: null,
+      // Same story for the cold-resume reading (#2042): a brand-new session has never parked.
+      contextTokens: null,
+      coldResumeAt: null,
+      resumeCostUnits: null,
       claudeSessionId: input.claudeSessionId ?? "",
       providerSessionId: strOrEmpty(input.providerSessionId),
       agentProvider: input.agentProvider ?? "claude",
@@ -4122,6 +4129,34 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   }
 
   /**
+   * Write — or with `null`, CLEAR — a session's cold-resume reading (#2042).
+   *
+   * Unlike {@link setRuntimeIdentity} this does NOT coalesce: the three fields are one measurement
+   * of one park and must move together, so a null argument blanks all three rather than preserving
+   * the last park's numbers. That clear is what keeps a resumed session from carrying a
+   * `coldResumeAt` that is already in the past — which would otherwise satisfy "now > coldResumeAt"
+   * forever and pin the HUD's warning across active, rewarmed work.
+   *
+   * Also deliberately not routed through {@link update}: this runs off the poller's status-edge
+   * path and must not restamp `updatedAt`, for the same reason {@link setRuntimeIdentity} doesn't.
+   */
+  setResumeSignal(id: string, signal: ResumeSignal | null): void {
+    this.db.run(
+      `UPDATE sessions
+         SET contextTokens = ?,
+             coldResumeAt = ?,
+             resumeCostUnits = ?
+       WHERE id = ?`,
+      [
+        signal?.contextTokens ?? null,
+        signal?.coldResumeAt ?? null,
+        signal?.resumeCostUnits ?? null,
+        id,
+      ],
+    );
+  }
+
+  /**
    * Sessions whose observed runtime identity is still incomplete, newest first — the boot backfill's
    * candidate set (see `src/runtime-identity.ts`).
    *
@@ -4773,6 +4808,13 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // — nothing is known at insert time.
     add("runtimeModel", `runtimeModel TEXT`);
     add("runtimeEffort", `runtimeEffort TEXT`);
+    // Cold-resume reading (#2042) — what the NEXT turn into this session will cost, measured by the
+    // poller at the moment the session parks and cleared the moment it resumes. Like the runtime
+    // identity above, nullable with no default and absent from `COLS`/`create()`: nothing is known
+    // at insert time. NULL means "not parked with a usable reading", never a cost of zero.
+    add("contextTokens", `contextTokens INTEGER`);
+    add("coldResumeAt", `coldResumeAt INTEGER`);
+    add("resumeCostUnits", `resumeCostUnits REAL`);
     add("claudeSessionId", `claudeSessionId TEXT NOT NULL DEFAULT ''`);
     add("providerSessionId", `providerSessionId TEXT NOT NULL DEFAULT ''`);
     add("agentProvider", `agentProvider TEXT NOT NULL DEFAULT 'claude'`);

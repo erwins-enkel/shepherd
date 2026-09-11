@@ -1560,3 +1560,66 @@ describe("UnitRow issue reference", () => {
     expect(document.querySelector(".issue-badge")).toBeNull();
   });
 });
+
+// ── cold-resume chip (#2042) ────────────────────────────────────────────────
+// The Herd is where the operator PICKS which session to resume, so the chip has to be here — the
+// status bar only ever shows the session already open. Gated on the row's own `nowMs` tick.
+
+describe("UnitRow cold-resume chip", () => {
+  const HOUR = 3_600_000;
+
+  /** A session parked with a cold, expensive reading: 180k context, ~1.6 weighted units. */
+  function coldSession(partial: Partial<Session> = {}): Session {
+    return session({
+      id: "cold",
+      status: "idle",
+      contextTokens: 180_000,
+      coldResumeAt: Date.now() - HOUR,
+      resumeCostUnits: 1.572,
+      ...partial,
+    });
+  }
+
+  function renderRow(s: Session, nowMs = Date.now()) {
+    render(UnitRow, { session: s, selected: false, nowMs, onselect: () => {} });
+    return document.querySelector(".chip-cold-resume");
+  }
+
+  it("shows the priced chip once the cache has expired", () => {
+    const chip = renderRow(coldSession());
+    expect(chip?.textContent?.replace(/\s+/g, " ").trim()).toBe("⚠ cold · ≈1.6 units");
+    expect(chip?.getAttribute("title")).toContain("180k");
+  });
+
+  // A plain <span>, never a button: the row is one big click target, and a nested interactive
+  // element (a GlossaryTerm, say) would compete with it for the tap.
+  it("does not add an interactive element to the row's click target", () => {
+    const chip = renderRow(coldSession());
+    expect(chip?.tagName).toBe("SPAN");
+    expect(chip?.querySelector("button")).toBeNull();
+  });
+
+  it("stays silent while the cache is still warm", () => {
+    expect(renderRow(coldSession({ coldResumeAt: Date.now() + HOUR }))).toBeNull();
+  });
+
+  it("stays silent below the cost floor", () => {
+    expect(renderRow(coldSession({ contextTokens: 60_000, resumeCostUnits: 0.4 }))).toBeNull();
+  });
+
+  it("stays silent when the session was never parked with a reading", () => {
+    expect(
+      renderRow(coldSession({ contextTokens: null, coldResumeAt: null, resumeCostUnits: null })),
+    ).toBeNull();
+  });
+
+  // The stale-warning guard: a reading stranded by a crash between the park and resume edges sits
+  // permanently in the past, so "now > coldResumeAt" alone would pin the chip across live work.
+  it("stays silent on a RUNNING session even with a past coldResumeAt still on the row", () => {
+    expect(renderRow(coldSession({ status: "running" }))).toBeNull();
+  });
+
+  it("appears on a blocked session — waiting on the operator goes cold like idling does", () => {
+    expect(renderRow(coldSession({ status: "blocked" }))).not.toBeNull();
+  });
+});

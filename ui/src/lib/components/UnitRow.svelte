@@ -41,6 +41,9 @@
   import { toasts } from "$lib/toasts.svelte";
   import { projectIcons } from "$lib/projectIcons.svelte";
   import { m } from "$lib/paraglide/messages";
+  import { formatTokens } from "$lib/format";
+  import { formatUnits } from "$lib/components/usage/format";
+  import { isColdResume } from "$lib/cold-resume";
   import { sessionEnvironment } from "$lib/session-env";
   import { statusTip } from "$lib/actions/statusTip.svelte";
   import { onDestroy } from "svelte";
@@ -598,6 +601,23 @@
           }
         : null,
   );
+  // Cold-resume marker (#2042). The Herd is where the operator PICKS which session to resume, so
+  // the cost belongs here, before the click — not only in the status bar they reach afterwards.
+  // `nowMs` is the Herd's own tick, so the chip appears when the cache actually expires.
+  // Unlike the status bar this renders the term unmarked: a GlossaryTerm is a <button>, and nesting
+  // one inside the row's full-card click target would fight it for the tap. The title carries the
+  // explanation instead.
+  const coldResume = $derived(isColdResume(session, nowMs));
+  const coldResumeChip = $derived(
+    m.coldresume_chip({ units: formatUnits(session.resumeCostUnits ?? 0) }),
+  );
+  const coldResumeTitle = $derived(
+    m.coldresume_title({
+      context: formatTokens(session.contextTokens ?? 0),
+      units: formatUnits(session.resumeCostUnits ?? 0),
+    }),
+  );
+
   // Relaunch is offered only for an in-flight task (see canRelaunch) AND only when the
   // parent wired a handler — never on a concluded/merged record, where it would spawn a
   // duplicate and tear down the finished row.
@@ -952,6 +972,11 @@
       <span class="meta-text" use:statusTip={{ text: environment.tooltip }}
         ><TaskIdButton {session} />{environmentSuffix}</span
       >
+      {#if coldResume}
+        <span class="chip-cold-resume" title={coldResumeTitle}
+          ><span aria-hidden="true">⚠</span> {coldResumeChip}</span
+        >
+      {/if}
       {#if session.manualSteps.length > 0}
         {#if onshowowed}
           <button
@@ -1582,6 +1607,23 @@
     border-radius: 2px;
     color: var(--status-warn);
     background: color-mix(in oklab, var(--status-warn) 12%, transparent);
+  }
+  /* "cold · ≈N units" chip (#2042) — same warn recipe as .chip-manual-steps: both say "this will
+     cost you something if you act on it", and neither is an error. Stays a plain <span> so the
+     row's single click target is untouched. */
+  .chip-cold-resume {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-size: var(--fs-micro);
+    letter-spacing: 0.08em;
+    padding: 1px 6px;
+    border: 1px solid var(--status-warn);
+    border-radius: 2px;
+    color: var(--status-warn);
+    background: color-mix(in oklab, var(--status-warn) 12%, transparent);
+    cursor: help;
   }
   /* chip-as-button variant (#1275) — a <button> resets font/background, so restate the base look
      and layer on the same hover/focus treatment as .manual-steps-ack for a consistent affordance.

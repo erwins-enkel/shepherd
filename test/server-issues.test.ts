@@ -8,6 +8,7 @@ import type { EventHub } from "../src/events";
 import type { GitForge, Issue } from "../src/forge/types";
 import { attachAttempts, type GhFetchAttempt } from "../src/forge/gh-attempt";
 import { EMPTY_BACKLOG_COUNTS } from "../src/forge/types";
+import { clearIssuePeekCacheForTests } from "../src/issue-peek";
 import { config } from "../src/config";
 
 let tmpRoot: string;
@@ -392,4 +393,101 @@ test("POST /api/issues without JSON content type → 415", async () => {
     new Request("http://localhost/api/issues", { method: "POST", body: "{}" }),
   );
   expect(res.status).toBe(415);
+});
+
+// ── GET /api/issues/:number ───────────────────────────────────────────────────
+// One issue for the session card's hover preview. Always behind the peek cache, so
+// the tests clear it between cases or a stale hit would answer for the next forge.
+
+function oneIssueReq(repo: string, number: string): Request {
+  return new Request(`http://localhost/api/issues/${number}?repo=${encodeURIComponent(repo)}`);
+}
+
+test("GET /api/issues/:number resolves one issue via the forge", async () => {
+  clearIssuePeekCacheForTests();
+  const app = makeApp(makeDeps(() => fakeForge({ getIssue: async () => ISSUE })));
+  const res = await app.fetch(oneIssueReq(repoDir, "1"));
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ issue: ISSUE });
+});
+
+test("GET /api/issues/:number with no forge for repo → {issue:null}", async () => {
+  clearIssuePeekCacheForTests();
+  const app = makeApp(makeDeps(() => null));
+  const res = await app.fetch(oneIssueReq(repoDir, "1"));
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ issue: null });
+});
+
+// A forge without single-issue reads (or a gone issue, or a rate-limited transport) is
+// NOT an error here: the preview degrades to the launch-time snapshot on the card.
+test("GET /api/issues/:number on a forge without getIssue → {issue:null}", async () => {
+  clearIssuePeekCacheForTests();
+  const app = makeApp(makeDeps(() => fakeForge()));
+  const res = await app.fetch(oneIssueReq(repoDir, "1"));
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ issue: null });
+});
+
+test("GET /api/issues/:number swallows a throwing forge → {issue:null}", async () => {
+  clearIssuePeekCacheForTests();
+  const app = makeApp(
+    makeDeps(() =>
+      fakeForge({
+        getIssue: async () => {
+          throw new Error("gh not authed");
+        },
+      }),
+    ),
+  );
+  const res = await app.fetch(oneIssueReq(repoDir, "1"));
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ issue: null });
+});
+
+test("GET /api/issues/:number?repo outside root → 400", async () => {
+  clearIssuePeekCacheForTests();
+  const app = makeApp(makeDeps(() => fakeForge({ getIssue: async () => ISSUE })));
+  const res = await app.fetch(oneIssueReq("/etc", "1"));
+  expect(res.status).toBe(400);
+});
+
+test("GET /api/issues/:number rejects a non-numeric number", async () => {
+  clearIssuePeekCacheForTests();
+  let called = false;
+  const app = makeApp(
+    makeDeps(() =>
+      fakeForge({
+        getIssue: async () => {
+          called = true;
+          return ISSUE;
+        },
+      }),
+    ),
+  );
+  const res = await app.fetch(oneIssueReq(repoDir, "abc"));
+  expect(res.status).toBe(400);
+  expect(called).toBe(false);
+});
+
+test("GET /api/issues/:number rejects a zero-prefixed or oversized number", async () => {
+  clearIssuePeekCacheForTests();
+  const app = makeApp(makeDeps(() => fakeForge({ getIssue: async () => ISSUE })));
+  expect((await app.fetch(oneIssueReq(repoDir, "0"))).status).toBe(400);
+  expect((await app.fetch(oneIssueReq(repoDir, "1234567890"))).status).toBe(400);
+});
+
+// The POST on /api/issues and the GET on /api/issues/:number share a path prefix;
+// neither may swallow the other.
+test("POST /api/issues/:number is not a route", async () => {
+  clearIssuePeekCacheForTests();
+  const app = makeApp(makeDeps(() => fakeForge({ getIssue: async () => ISSUE })));
+  const res = await app.fetch(
+    new Request(`http://localhost/api/issues/1?repo=${encodeURIComponent(repoDir)}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    }),
+  );
+  expect(res.status).toBe(404);
 });

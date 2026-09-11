@@ -1614,6 +1614,9 @@ describe("UnitRow cold-resume chip", () => {
     await vi.waitFor(() => {
       const tip = document.querySelector(".status-tip:popover-open");
       expect(tip?.textContent).toContain(m.coldresume_why());
+      // `wide` is not decoration: at the default 260px the two-sentence body stacks into an
+      // unreadable column, which is exactly the state this chip was in before.
+      expect(tip?.classList.contains("status-tip-wide")).toBe(true);
     });
 
     const rowClick = vi.fn();

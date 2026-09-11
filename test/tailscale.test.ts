@@ -503,3 +503,155 @@ describe("TailscaleServeService.permissionDenied", () => {
     expect(svc.permissionDenied()).toBe(false);
   });
 });
+
+// ── revalidatePermission ──────────────────────────────────────────────────────
+// The latch alone cannot answer "is the host still denying us?" after the operator
+// runs the documented fix: only a successful `register` clears it, so a Diagnostics
+// re-check reads stale memory and the row can never go green from the panel (#2272).
+
+/** `tailscale debug prefs` output, trimmed to the field the revalidation reads.
+ *  Shaped like the real thing (top-level JSON object, `OperatorUser` a username string). */
+function prefsStdout(operatorUser: string): string {
+  return JSON.stringify({
+    ControlURL: "https://controlplane.tailscale.com",
+    WantRunning: true,
+    OperatorUser: operatorUser,
+  });
+}
+
+/** Runner that refuses every serve mutation but answers `debug prefs` with `operatorUser`. */
+function deniedThenPrefs(operatorUser: string): { calls: string[][]; run: TailscaleRunner } {
+  const calls: string[][] = [];
+  const run: TailscaleRunner = async (args) => {
+    calls.push(args);
+    if (args[0] === "debug") return { stdout: prefsStdout(operatorUser) };
+    throw deniedError();
+  };
+  return { calls, run };
+}
+
+describe("TailscaleServeService.revalidatePermission", () => {
+  test("clears a latched denial once the host names us --operator", async () => {
+    const { calls, run } = deniedThenPrefs("moe");
+    const svc = new TailscaleServeService({
+      base: 8001,
+      count: 5,
+      enabled: true,
+      run,
+      identity: () => ({ uid: 1000, username: "moe" }),
+    });
+
+    await svc.register("s1", 8001);
+    expect(svc.permissionDenied()).toBe(true);
+
+    expect(await svc.revalidatePermission()).toBe(false);
+    // Cleared on the service itself, not just for the caller: every consumer of
+    // permissionDenied must stop believing preview is dark.
+    expect(svc.permissionDenied()).toBe(false);
+    expect(calls.at(-1)).toEqual(["debug", "prefs"]);
+  });
+
+  test("keeps the denial when the host names a different --operator", async () => {
+    const { run } = deniedThenPrefs("someone-else");
+    const svc = new TailscaleServeService({
+      base: 8001,
+      count: 5,
+      enabled: true,
+      run,
+      identity: () => ({ uid: 1000, username: "moe" }),
+    });
+
+    await svc.register("s1", 8001);
+
+    expect(await svc.revalidatePermission()).toBe(true);
+    expect(svc.permissionDenied()).toBe(true);
+  });
+
+  test("clears a latched denial when running as root (rights never depend on --operator)", async () => {
+    const { run } = deniedThenPrefs("");
+    const svc = new TailscaleServeService({
+      base: 8001,
+      count: 5,
+      enabled: true,
+      run,
+      identity: () => ({ uid: 0, username: "root" }),
+    });
+
+    await svc.register("s1", 8001);
+
+    expect(await svc.revalidatePermission()).toBe(false);
+    expect(svc.permissionDenied()).toBe(false);
+  });
+
+  test("does not probe at all when nothing was ever denied", async () => {
+    const { calls, run } = makeRun();
+    const svc = new TailscaleServeService({ base: 8001, count: 5, enabled: true, run });
+
+    expect(await svc.revalidatePermission()).toBe(false);
+    expect(calls).toEqual([]);
+  });
+
+  // Fail-safe: an unreadable prefs answer must never downgrade an observed denial to green.
+  test("keeps the denial when the prefs probe rejects", async () => {
+    const run: TailscaleRunner = async (args) => {
+      if (args[0] === "debug") throw new Error("spawn tailscale ENOENT");
+      throw deniedError();
+    };
+    const svc = new TailscaleServeService({
+      base: 8001,
+      count: 5,
+      enabled: true,
+      run,
+      identity: () => ({ uid: 1000, username: "moe" }),
+    });
+
+    await svc.register("s1", 8001);
+
+    expect(await svc.revalidatePermission()).toBe(true);
+    expect(svc.permissionDenied()).toBe(true);
+  });
+
+  test("keeps the denial when prefs output is not the JSON we expect", async () => {
+    const run: TailscaleRunner = async (args) => {
+      if (args[0] === "debug") return { stdout: "not json" };
+      throw deniedError();
+    };
+    const svc = new TailscaleServeService({
+      base: 8001,
+      count: 5,
+      enabled: true,
+      run,
+      identity: () => ({ uid: 1000, username: "moe" }),
+    });
+
+    await svc.register("s1", 8001);
+
+    expect(await svc.revalidatePermission()).toBe(true);
+    expect(svc.permissionDenied()).toBe(true);
+  });
+
+  // A cleared latch is not a permanent verdict: the next real refusal re-latches, so the
+  // row reports the host as it is rather than as it was at the moment of the re-check.
+  test("re-latches when a later mutation is refused again", async () => {
+    let operator = "moe";
+    const run: TailscaleRunner = async (args) => {
+      if (args[0] === "debug") return { stdout: prefsStdout(operator) };
+      throw deniedError();
+    };
+    const svc = new TailscaleServeService({
+      base: 8001,
+      count: 5,
+      enabled: true,
+      run,
+      identity: () => ({ uid: 1000, username: "moe" }),
+    });
+
+    await svc.register("s1", 8001);
+    expect(await svc.revalidatePermission()).toBe(false);
+
+    operator = "";
+    await svc.register("s2", 8002);
+
+    expect(await svc.revalidatePermission()).toBe(true);
+  });
+});

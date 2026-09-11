@@ -2811,10 +2811,12 @@ const diagnostics = new DiagnosticsService({
   // Diagnose row reflects the same cell the sweeps read (a fresh ProcessReaper
   // would carry an always-cold cell). Pure read, no spawn.
   probeHealth: () => reaper.health(),
-  // Pure read of the serve service's latched permission verdict — no extra spawn. Lets the
-  // `tailscale` row report a host that refuses our serve-config writes, which the
-  // HUD-port-only serve-status check cannot see.
-  previewServeDenied: () => tailscaleServe.permissionDenied(),
+  // Lets the `tailscale` row report a host that refuses our serve-config writes, which the
+  // HUD-port-only serve-status check cannot see. Re-verifies rather than reading the latch:
+  // the latch clears only on a successful register, so without this a re-check kept showing
+  // the denial after the operator ran `tailscale set --operator=$USER`. Costs one read-only
+  // `tailscale debug prefs` and only while a denial actually stands.
+  previewServeDenied: () => tailscaleServe.revalidatePermission(),
   anyForgeRepo: () =>
     listRepos(config.repoRoot).some((r) => store.getRepoConfig(r.path).repoMode === "forge"),
   anyLightweightRepo: () =>

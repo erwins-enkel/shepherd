@@ -1273,6 +1273,22 @@ export async function listIssues(repoPath: string): Promise<{
   return r.json();
 }
 
+/**
+ * One issue, for the session card's hover preview. Null whenever the forge can't produce
+ * it — a local repo, a host without single-issue reads, a deleted issue, an un-authed or
+ * rate-limited `gh`. That is an EMPTY preview, not a failure: the card still has the
+ * number and the title it recorded at launch, so callers render those and say the rest
+ * couldn't be loaded. Only a non-2xx (a genuinely broken request) throws.
+ */
+export async function getIssue(repoPath: string, number: number): Promise<Issue | null> {
+  const r = await fetch(`/api/issues/${number}?repo=${encodeURIComponent(repoPath)}`);
+  if (!r.ok) throw await failed(r, "issue");
+  // `issue` is absent rather than null on the demo router's permissive stub — treat both
+  // as "nothing to show" instead of handing an undefined to the preview.
+  const body = (await r.json()) as { issue?: Issue | null };
+  return body.issue ?? null;
+}
+
 export async function getRepoWeb(repoPath: string): Promise<{
   slug: string | null;
   webUrl: string | null;

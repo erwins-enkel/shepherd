@@ -61,6 +61,19 @@ export interface Session {
    *  `runtimeEffort` stays null for Claude sessions: Claude transcripts don't record one. */
   runtimeModel?: string | null;
   runtimeEffort?: string | null;
+  /** COLD-RESUME reading (#2042) — what the next turn into this session will cost, measured by the
+   *  poller from the transcript at the moment the session PARKED, and cleared again the moment it
+   *  resumes. All three move together; null means there is no current park to price (running,
+   *  never parked, Codex, or no usable transcript record).
+   *
+   *  Captured once rather than polled because a parked session's transcript cannot change, and
+   *  persisted rather than pushed because the poller only probes RUNNING sessions — a transient
+   *  signal would be lost on restart for exactly the long-parked sessions this is about. */
+  contextTokens?: number | null;
+  /** ms epoch the main conversation's prompt cache expires. Absolute, so the client decides
+   *  cold-ness against its own ticking clock instead of waiting for a server re-evaluation. */
+  coldResumeAt?: number | null;
+  resumeCostUnits?: number | null;
   readyToMerge: boolean; // manually-toggled "parked / done" flag; orthogonal to status
   /** Epoch ms when a launched merge train marked this PR-session as in-flight;
    *  null when not in a train. Transient: cleared on merge/close, train archive,

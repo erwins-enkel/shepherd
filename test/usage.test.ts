@@ -10,6 +10,7 @@ import {
   dominantModelOf,
   foldSessionBuckets,
   SessionUsageRollup,
+  resumeSignalFrom,
   type RollupSession,
 } from "../src/usage";
 import { sessionCost } from "../src/usage";
@@ -142,7 +143,7 @@ test("warm → cold main-thread sequence counts as 1 fullRecache", () => {
   expect(u.fullRecaches).toBe(1);
 });
 
-test("record with cacheRead>0 is never a fullRecache", () => {
+test("a mostly-CACHED record is not a fullRecache, even with a small write", () => {
   const u = accumulate([
     asst({ requestId: "r1", cacheRead: 5000 }), // warm
     asst({ requestId: "r2", cacheRead: 3000, w5m: 500 }), // still warm → not a recache
@@ -701,4 +702,127 @@ test("SessionUsageRollup: prune walks all records even when first record is ts=0
   const wAfterReappend = r.windowedAccum(sessionId, cutoff);
   expect(wAfterReappend).not.toBeNull();
   expect(wAfterReappend!.input).toBe(11 + 99 + 500); // 610
+});
+
+// ── resumeSignalFrom (#2042) ────────────────────────────────────────────────
+// The cold-resume marker's whole input. Every case here is about picking the right RECORD; the
+// pricing arithmetic is pinned separately in pricing.test.ts.
+
+const HOUR = 3_600_000;
+const T0 = "2026-05-30T09:00:00.000Z";
+const T1 = "2026-05-30T10:00:00.000Z";
+const T2 = "2026-05-30T11:00:00.000Z";
+
+test("resumeSignalFrom — reads the LAST main-thread record, not the largest", () => {
+  const sig = resumeSignalFrom(
+    [
+      asst({ requestId: "r1", ts: T0, cacheRead: 400_000 }), // biggest, but superseded
+      asst({ requestId: "r2", ts: T1, cacheRead: 100_000, w1h: 20_000 }),
+    ],
+    "claude-opus-5",
+    "1h",
+  );
+  expect(sig?.contextTokens).toBe(120_000);
+  expect(sig?.coldResumeAt).toBe(Date.parse(T1) + HOUR);
+});
+
+test("resumeSignalFrom — context is the record's WHOLE prompt, not the session's cumulative total", () => {
+  const sig = resumeSignalFrom(
+    [asst({ requestId: "r1", ts: T0, input: 7, cacheRead: 90_000, w5m: 1_000, w1h: 2_000 })],
+    "claude-opus-5",
+    "1h",
+  );
+  expect(sig?.contextTokens).toBe(93_007);
+});
+
+// The bug this guards: SessionUsage.lastActivity advances for EVERY accepted record, sidechains
+// included. Anchoring the TTL there lets a subagent that finished after the main conversation went
+// quiet push coldResumeAt into the future and suppress the warning exactly when it comes due — the
+// subagent never warmed the parent's prefix.
+test("resumeSignalFrom — a sidechain NEWER than the last main record moves neither field", () => {
+  const mainOnly = resumeSignalFrom(
+    [asst({ requestId: "r1", ts: T0, cacheRead: 150_000 })],
+    "claude-opus-5",
+    "1h",
+  );
+  const withLateSidechain = resumeSignalFrom(
+    [
+      asst({ requestId: "r1", ts: T0, cacheRead: 150_000 }),
+      asst({ requestId: "r2", ts: T2, cacheRead: 9_000, w5m: 500, sidechain: true }),
+    ],
+    "claude-opus-5",
+    "1h",
+  );
+  expect(withLateSidechain).toEqual(mainOnly!);
+  expect(withLateSidechain?.coldResumeAt).toBe(Date.parse(T0) + HOUR);
+});
+
+test("resumeSignalFrom — a transcript of only sidechain records yields null", () => {
+  expect(
+    resumeSignalFrom(
+      [asst({ requestId: "r1", ts: T0, cacheRead: 150_000, sidechain: true })],
+      "claude-opus-5",
+      "1h",
+    ),
+  ).toBeNull();
+});
+
+test("resumeSignalFrom — the TTL picks the expiry: 1h subscription vs 5m api-key", () => {
+  const lines = [asst({ requestId: "r1", ts: T0, cacheRead: 150_000 })];
+  expect(resumeSignalFrom(lines, "claude-opus-5", "1h")?.coldResumeAt).toBe(Date.parse(T0) + HOUR);
+  expect(resumeSignalFrom(lines, "claude-opus-5", "5m")?.coldResumeAt).toBe(
+    Date.parse(T0) + 300_000,
+  );
+});
+
+test("resumeSignalFrom — no model → null, rather than a price guessed at default weights", () => {
+  expect(
+    resumeSignalFrom([asst({ requestId: "r1", ts: T0, cacheRead: 150_000 })], null, "1h"),
+  ).toBeNull();
+});
+
+test("resumeSignalFrom — empty / context-less / timestamp-less transcripts yield null", () => {
+  expect(resumeSignalFrom([], "claude-opus-5", "1h")).toBeNull();
+  expect(resumeSignalFrom(["", "not json"], "claude-opus-5", "1h")).toBeNull();
+  expect(resumeSignalFrom([asst({ requestId: "r1", ts: T0 })], "claude-opus-5", "1h")).toBeNull();
+  expect(
+    resumeSignalFrom(
+      [asst({ requestId: "r1", ts: "", cacheRead: 150_000 })],
+      "claude-opus-5",
+      "1h",
+    ),
+  ).toBeNull();
+});
+
+test("resumeSignalFrom — a bounded TAIL gives the same answer as the whole file", () => {
+  // The poller feeds it readTranscriptTail output; only the last record matters, and it is always
+  // at the end, so a truncated head cannot change the result.
+  const whole = [
+    asst({ requestId: "r1", ts: T0, cacheRead: 400_000 }),
+    asst({ requestId: "r2", ts: T1, cacheRead: 180_000 }),
+  ];
+  expect(resumeSignalFrom(whole, "claude-opus-5", "1h")).toEqual(
+    resumeSignalFrom(whole.slice(1), "claude-opus-5", "1h")!,
+  );
+});
+
+// ── fullRecaches: the real-world cold-resume shape ──────────────────────────
+
+test("fullRecaches — a 24k surviving prefix with a 150k rebuild IS a recache", () => {
+  // Exactly the shape measured in production, and exactly what the old cacheRead===0 rule missed:
+  // it caught 3 of 168 such events.
+  const u = accumulate([
+    asst({ requestId: "r1", cacheRead: 120_000 }), // warm
+    asst({ requestId: "r2", input: 2, cacheRead: 24_000, w1h: 150_000 }), // cold resume
+  ]);
+  expect(u.fullRecaches).toBe(1);
+});
+
+test("fullRecaches — an ordinary warm turn appends a little and is NOT a recache", () => {
+  // A warm turn rewrites ~0.5-1.4% of its context; this is 2k of 152k.
+  const u = accumulate([
+    asst({ requestId: "r1", cacheRead: 120_000 }),
+    asst({ requestId: "r2", input: 2, cacheRead: 150_000, w1h: 2_000 }),
+  ]);
+  expect(u.fullRecaches).toBe(0);
 });

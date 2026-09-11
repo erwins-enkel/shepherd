@@ -3965,5 +3965,12 @@
   "settings_card_issue_ref_on": "Issue-Nummer sichtbar",
   "settings_card_issue_ref_off": "Issue-Nummer ausgeblendet",
   "feat_card_issue_ref_title": "Erkennen, an welchem Issue eine Session arbeitet",
-  "feat_card_issue_ref_body": "Eine Session-Karte nannte ihre Aufgabe, aber nicht deren Herkunft: Die Issue-Nummer steckte in der abgeschnittenen Prompt-Zeile, also musste man eine Session öffnen, um sie von der auf dem Nachbar-Issue zu unterscheiden. Karten, die aus einem Backlog-Issue gestartet wurden, tragen jetzt einen kleinen #1234-Chip neben dem PR-Badge — unter Einstellungen → Gerät lässt er sich für die ruhigere Karte abschalten."
+  "feat_card_issue_ref_body": "Eine Session-Karte nannte ihre Aufgabe, aber nicht deren Herkunft: Die Issue-Nummer steckte in der abgeschnittenen Prompt-Zeile, also musste man eine Session öffnen, um sie von der auf dem Nachbar-Issue zu unterscheiden. Karten, die aus einem Backlog-Issue gestartet wurden, tragen jetzt einen kleinen #1234-Chip neben dem PR-Badge — unter Einstellungen → Gerät lässt er sich für die ruhigere Karte abschalten.",
+  "gloss_cold_cache_term": "kalter Cache",
+  "gloss_cold_cache_def": "Der Prompt-Cache einer Session läuft nach einer Zeit ohne Aktivität ab — eine Stunde im Claude-Abonnement, fünf Minuten mit API-Schlüssel. Danach sendet der nächste Zug das gesamte Gespräch zum Cache-Schreibtarif erneut, statt es günstig zurückzulesen; dieser eine Zug kostet dadurch ein Vielfaches der Züge davor und danach.",
+  "coldresume_label": "[[cold-cache|kalt]] · ≈{units} Einheiten",
+  "coldresume_chip": "kalt · ≈{units} Einheiten",
+  "feat_cold_resume_marker_title": "Sieh vor dem Klick, was ein Fortsetzen kostet",
+  "feat_cold_resume_marker_body": "Der Prompt-Cache einer geparkten Session läuft mit der Zeit ab, und der erste Zug zurück sendet ihren gesamten Kontext zum Cache-Schreibtarif erneut — oft die teuerste Anfrage der ganzen Session. Geparkte Sessions, die kalt geworden sind, tragen jetzt einen ⚠-Chip in der Herde und eine passende Markierung in der Status-Leiste, die diese Kosten in gewichteten Einheiten schätzt — sichtbar, bevor du die Session öffnest.",
+  "coldresume_title": "Prompt-Cache abgelaufen — diese Session war länger untätig als ihre Cache-Lebensdauer. Ihre {context} Kontext müssen zum Cache-Schreibtarif erneut gesendet werden, daher kostet der nächste Zug etwa {units} gewichtete Einheiten statt eines kleinen Bruchteils davon."
 }

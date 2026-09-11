@@ -1109,6 +1109,19 @@ export interface Session {
    *  Read through `sessionEnvironment()` rather than directly. */
   runtimeModel?: string | null;
   runtimeEffort?: string | null;
+  /** COLD-RESUME reading (#2042) — what the FIRST turn back into this parked session will cost,
+   *  measured server-side from the transcript when the session parked and cleared again when it
+   *  resumes. All three move together; null/absent means there is no current park to price
+   *  (running, never parked, Codex, or no usable transcript record).
+   *
+   *  Read through `isColdResume()` / `coldResumeUnits()` in `$lib/cold-resume` rather than
+   *  directly — the threshold and the parked-only rule belong in one place, so the Herd row and
+   *  the status bar cannot disagree about one session. */
+  contextTokens?: number | null;
+  /** ms epoch the prompt cache expires. Absolute rather than a server-evaluated boolean, so the
+   *  marker flips on the client's own clock tick instead of waiting for the next poll. */
+  coldResumeAt?: number | null;
+  resumeCostUnits?: number | null;
   status: SessionStatus;
   /** Operator-set "parked / done" flag, orthogonal to status. Default false. */
   readyToMerge: boolean;

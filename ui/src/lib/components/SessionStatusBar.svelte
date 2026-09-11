@@ -3,8 +3,11 @@
   import { providerLabel } from "$lib/reviewer-env";
   import { sessionEnvironment } from "$lib/session-env";
   import { formatTokens, elapsedCoarse } from "$lib/format";
+  import { formatUnits } from "$lib/components/usage/format";
+  import { isColdResume } from "$lib/cold-resume";
   import { clock } from "$lib/now.svelte";
   import { m } from "$lib/paraglide/messages";
+  import GlossaryText from "./GlossaryText.svelte";
 
   // `activity` is the LIVE runtime-identity carrier: the poller persists what it observes, but that
   // write raises no session patch, so a running session's fresh model/effort reaches the client only
@@ -78,6 +81,20 @@
       ? m.statusbar_tokens_unavailable_codex_title()
       : m.statusbar_tokens_unavailable_title(),
   );
+
+  // Cold-resume marker (#2042). Priced server-side at the moment the session parked; the only
+  // client-side judgement is "has that instant passed", against the same 30s clock the elapsed
+  // segment ticks on — so the marker appears when the cache actually expires, not at the next poll.
+  const cold = $derived(isColdResume(session, clock.current));
+  const coldLabel = $derived(
+    m.coldresume_label({ units: formatUnits(session.resumeCostUnits ?? 0) }),
+  );
+  const coldTitle = $derived(
+    m.coldresume_title({
+      context: formatTokens(session.contextTokens ?? 0),
+      units: formatUnits(session.resumeCostUnits ?? 0),
+    }),
+  );
 </script>
 
 <!-- Deliberately NOT a live region (no role="status"/aria-live): the elapsed tick and the
@@ -96,6 +113,13 @@
       title={tokensUnavailableTitle}
       aria-label={tokensUnavailableTitle}>—</span
     >
+  {/if}
+  {#if cold}
+    <span class="ssb-sep" aria-hidden="true">·</span>
+    <span class="ssb-cold" title={coldTitle}>
+      <span aria-hidden="true">⚠</span>
+      <GlossaryText text={coldLabel} />
+    </span>
   {/if}
   <span class="ssb-sep" aria-hidden="true">·</span>
   <span class="ssb-elapsed" title={elapsedTitle}>{elapsedText}</span>
@@ -134,6 +158,17 @@
 
   .ssb-unavailable {
     color: var(--color-faint);
+    cursor: help;
+  }
+
+  /* Cold-resume marker (#2042): the one segment allowed to break the muted meta row, because it
+     names money the operator is about to spend by typing into the box below this bar. */
+  .ssb-cold {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+    color: var(--color-warn);
     cursor: help;
   }
 </style>

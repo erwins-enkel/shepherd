@@ -137,3 +137,51 @@ export function dollars(
     1_000_000
   );
 }
+
+// ── Cold-resume estimate (#2042) ─────────────────────────────────────────────
+
+/** The cache TTL that applies to a session's MAIN conversation. Claude Code requests the one-hour
+ *  TTL only on a Claude subscription within the plan's included usage; an api key (or a cloud
+ *  provider) gets five minutes. Subagents are always on 5m and are irrelevant here — a resume
+ *  re-sends the main conversation. */
+export type CacheTtl = "5m" | "1h";
+
+/**
+ * Tokens of a resumed session's prefix that stay cached even after its conversation has gone cold.
+ *
+ * A cold resume is NOT a full rebuild. Claude Code layers each request `system prompt → project
+ * context → conversation`, and Shepherd runs many sessions against the same system prompt, so that
+ * leading layer is continuously re-warmed by the rest of the herd while an individual session's
+ * conversation body expires alone.
+ *
+ * Measured over 168 real cold resumes (>1h idle, >50% of context rebuilt) in a 211-transcript
+ * corpus, the surviving prefix was p10 20.8k / p50 23.5k / p90 28.5k tokens — stable even across a
+ * 675-hour gap. 24k is that median. Pricing the WHOLE context at the write rate instead would
+ * overstate a 175k-context resume by ~14%.
+ */
+export const WARM_PREFIX_TOKENS = 24_000;
+
+/**
+ * Weighted units the NEXT turn into a cold session will cost: the surviving prefix is re-read at
+ * the cache-read rate and everything beyond it is re-written at `ttl`'s cache-write rate.
+ *
+ * Validated against the same 168 resumes: predicted/actual p50 0.99x, 97% within ±33%.
+ *
+ * Built on the public `weightedUnits` rather than the private `weightsFor`, the same way
+ * `accumulateCostRecord` isolates cacheRead-only units.
+ */
+export function coldResumeUnits(contextTokens: number, model: string, ttl: CacheTtl): number {
+  if (contextTokens <= 0) return 0;
+  const warm = Math.min(contextTokens, WARM_PREFIX_TOKENS);
+  const rebuilt = contextTokens - warm;
+  return weightedUnits(
+    {
+      input: 0,
+      output: 0,
+      cacheRead: warm,
+      cacheWrite5m: ttl === "5m" ? rebuilt : 0,
+      cacheWrite1h: ttl === "1h" ? rebuilt : 0,
+    },
+    model,
+  );
+}

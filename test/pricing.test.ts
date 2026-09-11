@@ -1,5 +1,10 @@
 import { test, expect } from "bun:test";
-import { cacheWriteUnits, weightedUnits } from "../src/pricing";
+import {
+  cacheWriteUnits,
+  coldResumeUnits,
+  weightedUnits,
+  WARM_PREFIX_TOKENS,
+} from "../src/pricing";
 
 test("cacheWriteUnits — opus 5m-only: 1M tokens = 6.25 units", () => {
   expect(cacheWriteUnits({ cacheWrite5m: 1_000_000, cacheWrite1h: 0 }, "claude-opus-4-8")).toBe(
@@ -77,4 +82,53 @@ test("Fable in/out and cache-write rates are identical across both rows", () => 
   expect(cacheWriteUnits({ cacheWrite5m: 1_000_000, cacheWrite1h: 0 }, "claude-fable-5-1")).toBe(
     12.5,
   );
+});
+
+// ── coldResumeUnits (#2042) ─────────────────────────────────────────────────
+// The estimate behind the HUD's cold-resume marker. Its accuracy is what makes showing a NUMBER
+// defensible rather than a bare warning icon, so the arithmetic is pinned exactly.
+
+test("coldResumeUnits — 180k opus on the 1h TTL: 24k re-read + 156k re-written", () => {
+  // 24_000 * 0.5 + 156_000 * 10 = 1_572_000 → 1.572 units.
+  expect(coldResumeUnits(180_000, "claude-opus-5", "1h")).toBeCloseTo(1.572, 6);
+});
+
+test("coldResumeUnits — the same context WARM costs ~17x less", () => {
+  const warm = weightedUnits(
+    { input: 0, output: 0, cacheRead: 180_000, cacheWrite5m: 0, cacheWrite1h: 0 },
+    "claude-opus-5",
+  );
+  expect(warm).toBeCloseTo(0.09, 6);
+  expect(coldResumeUnits(180_000, "claude-opus-5", "1h") / warm).toBeGreaterThan(17);
+});
+
+test("coldResumeUnits — the 5m TTL is cheaper than 1h for the same context", () => {
+  // api-key mode gets the five-minute TTL, whose write rate is 6.25 vs 10 on opus.
+  // 24_000 * 0.5 + 156_000 * 6.25 = 987_000 → 0.987 units.
+  expect(coldResumeUnits(180_000, "claude-opus-5", "5m")).toBeCloseTo(0.987, 6);
+  expect(coldResumeUnits(180_000, "claude-opus-5", "5m")).toBeLessThan(
+    coldResumeUnits(180_000, "claude-opus-5", "1h"),
+  );
+});
+
+test("coldResumeUnits — context at or below the warm prefix prices ENTIRELY at the read rate", () => {
+  // No negative remainder, and the TTL cannot matter when nothing is rewritten.
+  expect(coldResumeUnits(WARM_PREFIX_TOKENS, "claude-opus-5", "1h")).toBeCloseTo(0.012, 6);
+  expect(coldResumeUnits(10_000, "claude-opus-5", "1h")).toBe(
+    coldResumeUnits(10_000, "claude-opus-5", "5m"),
+  );
+  expect(coldResumeUnits(10_000, "claude-opus-5", "1h")).toBeCloseTo(0.005, 6);
+});
+
+test("coldResumeUnits — zero/negative context is free, never NaN", () => {
+  expect(coldResumeUnits(0, "claude-opus-5", "1h")).toBe(0);
+  expect(coldResumeUnits(-1, "claude-opus-5", "1h")).toBe(0);
+});
+
+test("coldResumeUnits — the SAME context costs different money per model", () => {
+  // Why the marker's floor is a unit threshold, not a token count: 150k context is 1.272 units on
+  // opus but 0.2544 on haiku — a token-count floor would mean a ~5x different amount of money.
+  expect(coldResumeUnits(150_000, "claude-opus-5", "1h")).toBeCloseTo(1.272, 6);
+  expect(coldResumeUnits(150_000, "claude-haiku-4-5-20251001", "1h")).toBeCloseTo(0.2544, 6);
+  expect(coldResumeUnits(150_000, "claude-fable-5-1", "1h")).toBeCloseTo(2.526, 6);
 });

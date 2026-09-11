@@ -253,7 +253,11 @@ interface RolloutTokenCountEvent {
   timestamp?: string;
   payload?: {
     type?: string;
-    rate_limits?: { primary?: RolloutLimitWindow; secondary?: RolloutLimitWindow } | null;
+    rate_limits?: {
+      limit_id?: string;
+      primary?: RolloutLimitWindow;
+      secondary?: RolloutLimitWindow;
+    } | null;
   };
 }
 
@@ -270,6 +274,7 @@ function toLimitWindow(w: RolloutLimitWindow | null | undefined, now: number): L
 type WindowBucket = "session5h" | "week";
 
 const UNKNOWN_WINDOW_DURATIONS_WARNED = new Set<number>();
+const UNKNOWN_RATE_LIMIT_IDS_WARNED = new Set<string>();
 
 function bucketForWindow(
   w: RolloutLimitWindow,
@@ -332,6 +337,13 @@ function rateLimitsFromEvent(obj: RolloutTokenCountEvent, now: number): CodexRat
   if (obj.type !== "event_msg" || obj.payload?.type !== "token_count") return null;
   const rl = obj.payload.rate_limits;
   if (!rl) return null;
+  if (rl.limit_id !== undefined && rl.limit_id !== "codex") {
+    if (!UNKNOWN_RATE_LIMIT_IDS_WARNED.has(rl.limit_id)) {
+      UNKNOWN_RATE_LIMIT_IDS_WARNED.add(rl.limit_id);
+      console.warn(`[codex-usage] ignoring unrecognized rate-limit id: ${rl.limit_id}`);
+    }
+    return null;
+  }
   const windows: { session5h: LimitWindow | null; week: LimitWindow | null } = {
     session5h: null,
     week: null,
@@ -355,7 +367,8 @@ function rateLimitsFromEvent(obj: RolloutTokenCountEvent, now: number): CodexRat
  * `{type:"event_msg", payload:{type:"token_count", rate_limits:{primary,secondary}}}` line on each
  * turn. Codex has emitted both positional primary=5h/secondary=weekly and duration-labelled
  * primary=weekly shapes; prefer `window_minutes` when present and fall back to position only for
- * older duration-less rollouts. The last such line is the current state.
+ * older duration-less rollouts. The last line for the Codex bucket (or a legacy line without an
+ * id) is the current state; lines for other buckets are ignored.
  *
  * This is a line-based scan, which assumes the JSONL invariant of one complete JSON object per line
  * (Codex writes exactly that) — a pretty-printed, multi-line object would not parse. The pre-filter

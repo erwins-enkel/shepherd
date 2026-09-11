@@ -34,8 +34,15 @@
           if (meta) meta.setAttribute("content", dark ? "#0a0d0c" : "#e7ebe9");
           if (localStorage.getItem("shepherd:contrast") === "high")
             document.documentElement.dataset.contrast = "high";
+          // Motion preference before first paint too: app.css keys the
+          // decorative-motion kill switch on [data-motion], so setting it only at
+          // hydration would let a suppressed animation flash first.
+          var motion = localStorage.getItem("shepherd:motion");
+          document.documentElement.dataset.motion =
+            motion === "full" || motion === "reduced" ? motion : "system";
         } catch (e) {
           document.documentElement.dataset.theme = "dark";
+          document.documentElement.dataset.motion = "system";
         }
       })();
     </script>

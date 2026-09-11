@@ -6,11 +6,14 @@
 
 export type ThemePref = "dark" | "light" | "system";
 export type Resolved = "dark" | "light";
+export type MotionPref = "system" | "full" | "reduced";
 
 const STORAGE_KEY = "shepherd:theme";
 const CONTRAST_KEY = "shepherd:contrast";
 const COLORBLIND_KEY = "shepherd:colorblind";
+const MOTION_KEY = "shepherd:motion";
 const DARK_QUERY = "(prefers-color-scheme: dark)";
+const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
 
 function readPref(): ThemePref {
   try {
@@ -40,8 +43,22 @@ function readColorblind(): boolean {
   }
 }
 
+function readMotion(): MotionPref {
+  try {
+    const v = localStorage.getItem(MOTION_KEY);
+    if (v === "system" || v === "full" || v === "reduced") return v;
+  } catch {
+    /* localStorage unavailable (SSR / privacy mode) */
+  }
+  return "system";
+}
+
 function systemPrefersDark(): boolean {
   return typeof matchMedia !== "undefined" ? matchMedia(DARK_QUERY).matches : true;
+}
+
+function systemReducesMotion(): boolean {
+  return typeof matchMedia !== "undefined" ? matchMedia(REDUCED_MOTION_QUERY).matches : false;
 }
 
 class ThemeController {
@@ -59,8 +76,20 @@ class ThemeController {
   // normal-sighted users, but a rotgrün-confused operator can switch it on.
   colorblind = $state<boolean>(readColorblind());
 
+  // Motion is a third independent layer. The OS hint (prefers-reduced-motion) is
+  // the default, but it is not always trustworthy — a bare Wayland session can
+  // report `reduce` with nothing in the DE actually asking for it, which silently
+  // kills every animation in the app. "full" / "reduced" let the operator say so
+  // explicitly; an in-app choice is more specific than a system-wide hint.
+  motion = $state<MotionPref>(readMotion());
+  systemReducedMotion = $state<boolean>(systemReducesMotion());
+
   resolved = $derived<Resolved>(
     this.pref === "system" ? (this.systemDark ? "dark" : "light") : this.pref,
+  );
+
+  motionResolved = $derived<"full" | "reduced">(
+    this.motion === "system" ? (this.systemReducedMotion ? "reduced" : "full") : this.motion,
   );
 
   /** Persist + apply a new preference. */
@@ -108,6 +137,17 @@ class ThemeController {
     this.setColorblind(!this.colorblind);
   }
 
+  /** Persist + apply the motion preference (drives [data-motion] in app.css). */
+  setMotion(p: MotionPref) {
+    this.motion = p;
+    try {
+      localStorage.setItem(MOTION_KEY, p);
+    } catch {
+      /* ignore — preference just won't survive reload */
+    }
+    this.#apply();
+  }
+
   #apply() {
     if (typeof document !== "undefined") {
       const root = document.documentElement;
@@ -119,20 +159,31 @@ class ThemeController {
       if (meta) meta.setAttribute("content", this.resolved === "dark" ? "#0a0d0c" : "#e7ebe9");
       if (this.contrast) root.dataset.contrast = "high";
       else delete root.dataset.contrast;
+      // The *preference* lands on the attribute, not the resolved value: app.css
+      // needs to tell "system (follow the media query)" apart from "full"/"reduced".
+      root.dataset.motion = this.motion;
     }
   }
 
-  /** Wire OS-theme changes. Call once on mount; returns a disposer. */
+  /** Wire OS-theme + OS-motion changes. Call once on mount; returns a disposer. */
   init(): () => void {
     this.#apply();
     if (typeof matchMedia === "undefined") return () => {};
-    const mq = matchMedia(DARK_QUERY);
-    const onChange = () => {
-      this.systemDark = mq.matches;
+    const dark = matchMedia(DARK_QUERY);
+    const onDark = () => {
+      this.systemDark = dark.matches;
       this.#apply();
     };
-    mq.addEventListener("change", onChange);
-    return () => mq.removeEventListener("change", onChange);
+    dark.addEventListener("change", onDark);
+    const motion = matchMedia(REDUCED_MOTION_QUERY);
+    const onMotion = () => {
+      this.systemReducedMotion = motion.matches;
+    };
+    motion.addEventListener("change", onMotion);
+    return () => {
+      dark.removeEventListener("change", onDark);
+      motion.removeEventListener("change", onMotion);
+    };
   }
 }
 

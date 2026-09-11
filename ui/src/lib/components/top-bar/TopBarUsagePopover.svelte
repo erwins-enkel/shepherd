@@ -18,7 +18,10 @@
     type Gauge,
     type HottestCapacityWindow,
   } from "../usage-gauges";
+  import type { ProviderFailoverOffer } from "$lib/provider-capacity";
+  import type { ProviderFailoverStatus } from "$lib/types";
   import CreditDetail from "./CreditDetail.svelte";
+  import UsageFailoverAction from "./UsageFailoverAction.svelte";
   import UsageRefreshButton from "./UsageRefreshButton.svelte";
   import UsageWindowRow from "./UsageWindowRow.svelte";
 
@@ -40,6 +43,12 @@
     refreshError,
     onRefresh,
     periodLabel,
+    failoverOffer,
+    failover,
+    failoverBusy,
+    failoverFailed,
+    onEngageFailover,
+    onReleaseFailover,
     onClose,
     onOpenUsage,
   }: {
@@ -61,6 +70,13 @@
     refreshError: boolean;
     onRefresh: () => void;
     periodLabel: (k: GaugeKey) => string;
+    /** Capacity failover: the switch worth offering right now, and the one already in effect. */
+    failoverOffer: ProviderFailoverOffer | null;
+    failover: ProviderFailoverStatus | null;
+    failoverBusy: boolean;
+    failoverFailed: boolean;
+    onEngageFailover: () => void;
+    onReleaseFailover: () => void;
     onClose: () => void;
     onOpenUsage: () => void;
   } = $props();
@@ -123,6 +139,17 @@
       : null,
   );
 </script>
+
+{#snippet failoverAction()}
+  <UsageFailoverAction
+    offer={failoverOffer}
+    {failover}
+    busy={failoverBusy}
+    failed={failoverFailed}
+    onEngage={onEngageFailover}
+    onRelease={onReleaseFailover}
+  />
+{/snippet}
 
 {#snippet sectionRule(title: string, note: string | null)}
   <div class="section-rule">
@@ -219,8 +246,14 @@
             <span>{formatReset(hottest.window.resetAt, nowMs, { withTime: true })}</span>
           {/if}
         </div>
+        {@render failoverAction()}
       </div>
     </div>
+  {:else if failover?.active}
+    <!-- No window data at all (hero suppressed) but a failover is still in effect: render the
+         revert on its own so the switch can never become unreachable from here. An OFFER cannot
+         reach this branch — it needs measured windows on both providers, which implies a hero. -->
+    {@render failoverAction()}
   {/if}
 
   <!-- `stale` (Claude limits staleness) dims ONLY this block — the Codex section below carries its

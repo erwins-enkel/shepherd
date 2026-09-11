@@ -16,6 +16,15 @@ export type SessionArchiveReason = "operator" | "merged" | "drain" | "relaunch";
 export const AGENT_PROVIDERS = ["claude", "codex"] as const;
 export type AgentProvider = (typeof AGENT_PROVIDERS)[number];
 
+/** Capacity failover state (`src/provider-failover.ts`): while `active`, `current` is the
+ *  counterpart the default was switched to and `from` the exhausted provider it will be
+ *  restored to once that one has weekly headroom again. */
+export interface ProviderFailoverStatus {
+  active: boolean;
+  from: AgentProvider | null;
+  current: AgentProvider;
+}
+
 /** Role a session plays in a comparison experiment: a `variant` is one of the same-prompt
  *  runs on a different model/CLI; the `comparison` session is the read-only agent that
  *  evaluates the variants' results. Sessions with no experiment carry `null`. */

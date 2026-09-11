@@ -255,6 +255,13 @@ import { validateHookEvent, type HookEvent, type SubagentEntry } from "./hooks-i
 import { quotaBlockReason, type BlockReason } from "./blocked";
 import { upstreamStatus } from "./upstream-status";
 import { shouldHold } from "./usage-hold";
+import {
+  clearProviderFailover,
+  providerFailoverOffer,
+  providerFailoverStatus,
+  readyAgentProviders,
+  writeProviderFailover,
+} from "./provider-failover";
 import { PluginSpawnAborted } from "./plugins/types";
 import { signedOff, type SignoffView } from "./signoff";
 import { scanInstalled, installPlugin, uninstallPlugin } from "./plugins/manage";
@@ -5107,6 +5114,36 @@ async function runStarPromptAction(
   }
 }
 
+/** GET → the current capacity-failover state. POST {action} → engage / release.
+ *
+ *  `engage` re-derives the offer from THIS process's numbers rather than trusting the client:
+ *  a HUD holding a stale snapshot must not be able to point the default CLI at a provider that
+ *  has meanwhile run out too (409). `release` is idempotent — restoring an already-restored
+ *  default is the same no-op either way. */
+async function handleProviderFailover({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(parts[0] === "api" && parts[1] === "provider-failover" && !parts[2])) return null;
+  if (req.method === "GET") return json(providerFailoverStatus());
+  if (req.method !== "POST") return json({ error: "method not allowed" }, 405);
+
+  const body = (await req.json().catch(() => null)) as { action?: string } | null;
+  if (body?.action === "release") {
+    const from = config.providerFailoverFrom;
+    if (from === null) return json(providerFailoverStatus());
+    return json(writeProviderFailover(deps.store, { defaultProvider: from, from: null }));
+  }
+  if (body?.action !== "engage") return json({ error: "unknown action" }, 400);
+
+  const offer = providerFailoverOffer({
+    limits: deps.usageLimits.limits(Date.now()),
+    defaultProvider: config.defaultAgentProvider,
+    readyProviders: readyAgentProviders(
+      deps.diagnostics ? await deps.diagnostics.current(Date.now()) : null,
+    ),
+  });
+  if (!offer) return json({ error: "no failover offer" }, 409);
+  return json(writeProviderFailover(deps.store, { defaultProvider: offer.to, from: offer.from }));
+}
+
 function handleUploads({ req, parts, deps }: Ctx): Promise<Response> | null {
   if (parts[0] === "api" && parts[1] === "uploads" && !parts[2]) {
     if (req.method === "POST") {
@@ -5389,6 +5426,9 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       autopilotModel: config.autopilotModel,
       autopilotEffort: config.autopilotEffort,
       defaultAgentProvider: config.defaultAgentProvider,
+      // capacity failover: while active, defaultAgentProvider above is a temporary substitution
+      // and `from` names the exhausted provider it will be restored to.
+      providerFailover: providerFailoverStatus(),
       // when true, Up Next quick-start skips the "Choose coding CLI" picker and launches
       // directly with the operator's default coding CLI.
       upnextSkipCliPicker: config.upnextSkipCliPicker,
@@ -5653,6 +5693,9 @@ function putDefaultAgentProvider(value: unknown, deps: Ctx["deps"]): Response {
   if (v === null) return json({ error: "unknown agent provider" }, 400);
   config.defaultAgentProvider = v;
   deps.store.setSetting("defaultAgentProvider", v);
+  // A deliberate pick outranks an active capacity failover: forget the remembered origin so the
+  // 30s sweeper never yanks this choice back when the exhausted provider frees up.
+  clearProviderFailover(deps.store);
   return json({ defaultAgentProvider: config.defaultAgentProvider });
 }
 
@@ -8136,6 +8179,7 @@ const ROUTE_HANDLERS = [
   handleDiagnostics,
   handleDiagnosticsFix,
   handleStarPrompt,
+  handleProviderFailover,
   handleUploads,
   handleRepos,
   handleProjects,

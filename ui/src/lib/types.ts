@@ -7,6 +7,15 @@ export type SessionArchiveReason = "operator" | "merged" | "drain" | "relaunch";
 export const AGENT_PROVIDERS = ["claude", "codex"] as const;
 export type AgentProvider = (typeof AGENT_PROVIDERS)[number];
 
+/** Capacity failover state. While `active`, `current` is the counterpart the default CLI was
+ *  switched to and `from` the exhausted provider it will be restored to once that one has
+ *  weekly headroom again. Mirrors `ProviderFailoverStatus` in the server's `src/types.ts`. */
+export interface ProviderFailoverStatus {
+  active: boolean;
+  from: AgentProvider | null;
+  current: AgentProvider;
+}
+
 /** Role a session plays in a comparison experiment (see server `ExperimentRole`). */
 export type ExperimentRole = "variant" | "comparison";
 
@@ -168,6 +177,8 @@ export interface Settings {
   distillerIntervalDaysMax?: number;
   /** Default interactive agent provider for newly spawned task sessions. */
   defaultAgentProvider?: AgentProvider;
+  /** While active, `defaultAgentProvider` above is a temporary capacity substitution. */
+  providerFailover?: ProviderFailoverStatus;
   /** When true, Up Next quick-start launches with the default coding CLI without opening the
    *  "Choose coding CLI" picker, even when more than one CLI is ready. */
   upnextSkipCliPicker: boolean;

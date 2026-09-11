@@ -84,6 +84,21 @@
 
   const q = $derived(query.trim());
 
+  // Capacity failover: the default above may be a temporary substitution the operator never
+  // chose, so say so right where they'd otherwise read it as their own setting. Gated on the
+  // bound value still BEING the substitution — picking another provider in the select clears the
+  // failover server-side, and the note disappears with the same click rather than lingering
+  // until the next settings fetch.
+  const failover = $derived(payload?.providerFailover ?? null);
+  const failoverNote = $derived(
+    failover?.active && failover.from !== null && defaultAgentProvider === failover.current
+      ? m.settings_default_cli_desc_failover({
+          to: providerLabel(failover.current),
+          from: providerLabel(failover.from),
+        })
+      : null,
+  );
+
   // ── Local state (seeded from payload) ─────────────────────────────────────
   let defaultEffort = $state("default");
   let defaultEffortSaved = "default";
@@ -532,7 +547,7 @@
 
 <SettingRow
   title={m.settings_default_agent_provider_title()}
-  description={m.settings_default_cli_desc()}
+  description={failoverNote ?? m.settings_default_cli_desc()}
   {query}
 >
   {#snippet control()}

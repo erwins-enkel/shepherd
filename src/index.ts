@@ -195,6 +195,7 @@ import { detectPendingAuthUrl, detectLoginAuthUrl } from "./auth-url";
 import { readTranscriptTail } from "./activity";
 import { verifyApiKey, VERIFY_KEY_LABEL } from "./verify-key";
 import { releaseHeldTasks } from "./held-release";
+import { PROVIDER_FAILOVER_FROM_KEY, releaseProviderFailover } from "./provider-failover";
 import { snapshotSessionUsage } from "./usage-snapshot";
 import { hasCommittedChanges } from "./diff";
 import { HoldReasonService } from "./hold-service";
@@ -385,6 +386,10 @@ if (savedProvider !== null) {
   const v = normalizeAgentProvider(savedProvider);
   if (v !== null) config.defaultAgentProvider = v;
 }
+// An in-flight capacity failover outlives a restart — otherwise the temporary substitution above
+// would silently become the operator's permanent default. "" (the cleared marker, since the
+// settings store has no delete) normalizes to null, i.e. no failover.
+config.providerFailoverFrom = normalizeAgentProvider(store.getSetting(PROVIDER_FAILOVER_FROM_KEY));
 // a UI-set fableAvailable flag (persisted) overrides the env seed; absent or unrecognised → keep default.
 const savedFa = store.getSetting("fableAvailable");
 if (savedFa !== null) {
@@ -2640,6 +2645,10 @@ deferredStarts.push(() => {
     timerTask("usage", async () => {
       await accountIndex.refresh(Date.now());
       events.emit("usage:limits", usageLimits.limits(Date.now()));
+      // Restore the operator's default CLI once the provider a capacity failover switched away
+      // from has weekly headroom again. Synchronous and self-guarding (no-op unless a failover
+      // is active), so it needs no re-entrancy flag of its own.
+      releaseProviderFailover({ store, usageLimits }, Date.now());
       if (releasingHeld) return; // prior release still draining — skip this tick's release
       releasingHeld = true;
       try {

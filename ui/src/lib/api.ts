@@ -35,6 +35,7 @@ import type {
   InstalledPlugin,
   PluginUpdatesStatus,
   StarPromptStatus,
+  ProviderFailoverStatus,
   Steer,
   DiffResult,
   DiffAnnotationsResult,
@@ -2597,6 +2598,21 @@ export async function actStarPrompt(
     body: JSON.stringify({ action }),
   });
   if (!r.ok) throw await failed(r, "star prompt");
+  return r.json();
+}
+
+/** Engage or undo the capacity failover of the default coding CLI. `engage` is refused with a
+ *  409 when the server, on its own numbers, sees no offer — the popover's button was drawn from a
+ *  snapshot that has since moved. */
+export async function actProviderFailover(
+  action: "engage" | "release",
+): Promise<ProviderFailoverStatus> {
+  const r = await fetch("/api/provider-failover", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ action }),
+  });
+  if (!r.ok) throw await failed(r, "provider failover");
   return r.json();
 }
 

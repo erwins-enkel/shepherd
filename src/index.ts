@@ -88,6 +88,7 @@ import {
   attachMergePush,
   attachUsagePush,
   attachCreditsPush,
+  notifySessionDone,
 } from "./push";
 import { ReadyNotifier } from "./ready-notify";
 import { Presence } from "./presence";
@@ -1892,14 +1893,18 @@ const deliveryFacts = new DeliveryFactsService({ store });
 onSessionGit(({ id, git }) => deliveryFacts.onGit(id, git));
 // Turn-end backstop: herdr's `done` is a "finished and unseen" notification state that VIEWING the
 // pane clears back to `idle`, so an operator watching a session as it finishes destroys the only
-// edge the plan gate's first review and autopilot's onDone key on — and nothing re-checks. This
-// recovers that edge from a settled-idle sweep. `autopilot` is declared below and referenced lazily
-// (the closure runs long after boot); both targets are idempotent/self-guarding, and the `delivered`
-// mark from the real `done` edge keeps a healthy session off this path entirely.
+// edge the plan gate's first review, autopilot's onDone and the "agent finished its turn" push
+// (#2267) key on — and nothing re-checks. This recovers that edge from a settled-idle sweep.
+// `autopilot` is declared below and referenced lazily (the closure runs long after boot); all
+// targets are idempotent/self-guarding, and the `delivered` mark from the real `done` edge keeps a
+// healthy session off this path entirely — which is also what stops a duplicate finish push.
 const turnEndBackstop = new TurnEndBackstopService({
   store,
   considerPlan: (s) => planGate.consider(s),
   autopilotDone: (id) => autopilot.onDone(id),
+  // Same helper attachPush() uses on the real edge, so the recovered push is the one the operator
+  // missed (same kind/tag/cooldown key) rather than a second, separate notification.
+  notifyDone: (id) => notifySessionDone(push, store, id),
 });
 deferredStarts.push(() => {
   setInterval(() => {

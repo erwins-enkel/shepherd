@@ -4,20 +4,21 @@
 // state: viewing the pane clears it back to `idle`, permanently (verified live — `herdr agent focus`
 // on a `done` pane flips it to `idle` and it stays there; `agent read` and the HUD's
 // `terminal session control` attach do NOT clear it). Shepherd keys "the agent finished a turn" on
-// `done` in exactly two places:
+// `done` in exactly three places:
 //   - plan-gate.ts shouldConsiderOnSettle() — fires the FIRST plan review on `done`; on `idle` only
 //     when a prior gate already said `changes_requested`, which a first draft never has.
 //   - autopilot.ts handle() — calls onDone() only on `done`.
+//   - push.ts attachPush() — the "agent finished its turn" notification, gated on `status === "done"`.
 // So an operator watching the pane as the agent finishes destroys the only trigger, and nothing
-// re-checks: the session hangs forever. The plan gate concentrates the failure because its directive
-// makes the agent ask questions via AskUserQuestion, so the operator is on that tab exactly when the
-// plan lands.
+// re-checks: the session hangs forever and its finish push is silently dropped (#2267). The plan
+// gate concentrates the failure because its directive makes the agent ask questions via
+// AskUserQuestion, so the operator is on that tab exactly when the plan lands.
 //
 // This service does NOT change status semantics, mapState(), or shouldConsiderOnSettle(): the fast
 // path stays as-is and still fires instantly. The backstop only does work when the fast path already
 // failed, so its settle threshold costs latency ONLY in the broken case.
 //
-// It borrows RecapService's / BuildQueueReminderService's settled-idle debounce STRUCTURE. Both
+// It borrows RecapService's / BuildQueueReminderService's settled-idle debounce STRUCTURE. All
 // dispatch targets are already fully self-guarding, which is what makes re-driving them safe:
 //   - PlanGateService.consider() short-circuits on gate-off, phase not `planning`, a review in
 //     flight or mid-spawn, an already-`approved` gate, a missing/empty plan, an unchanged plan hash,
@@ -25,6 +26,8 @@
 //   - AutopilotService.onDone() runs through eligible(), which stands down on archived, planning
 //     phase, autopilot disabled, non-isolated codex, pending MCP OAuth, paused, complete, an open PR
 //     outside full-auto, and a classify already in flight.
+//   - push.notify() drops a send inside its own cooldown window and honors each device's category
+//     selection, on top of the `delivered` stand-down below.
 
 import { isSettledIdle } from "./recap-core";
 import type { SessionStore } from "./store";
@@ -33,8 +36,15 @@ import type { Session, SessionStatus } from "./types";
 /** Matches RecapService and BuildQueueReminderService — the house settled-idle dwell. */
 const DEFAULT_IDLE_THRESHOLD_MS = 120_000;
 
-/** Per-session lifetime cap on recovery ATTEMPTS (runaway guard). */
-const DEFAULT_MAX_ATTEMPTS = 3;
+/** Per-session, PER-CONSUMER cap on consecutive failed dispatches (runaway guard). Deliberately not
+ *  a lifetime cap on recoveries: a session whose pane the operator keeps open loses its turn-end
+ *  edge on EVERY turn, so a lifetime cap would let it hang (or go un-notified) again after the third
+ *  turn. Re-driving once per resting episode is exactly what a healthy `done` edge already does
+ *  every turn — the thing that actually needs bounding is a dispatch that throws every time. */
+const DEFAULT_MAX_CONSECUTIVE_FAILURES = 3;
+
+/** The turn-end consumers this service re-drives, each tracked separately per resting episode. */
+type Consumer = "push" | "phase";
 
 /** The two statuses that mean "the agent is at rest": herdr's view-clearable `done` and the `idle`
  *  it decays into. The pair {@link isSettledIdle} accepts — kept as a named predicate here because
@@ -47,12 +57,18 @@ function isResting(status: SessionStatus): boolean {
 interface DebounceEntry {
   /** epoch ms when the current resting episode began; null whenever the session isn't resting. */
   settledSince: number | null;
-  /** true once this episode's turn end was recovered (reset when the session re-activates). */
-  firedThisEpisode: boolean;
+  /** the consumers whose recovery has landed for THIS episode (reset when the session re-activates).
+   *  Tracked per consumer, not as one flag: a pass dispatches both, so a single flag would mean a
+   *  failing plan-gate/autopilot spawn replays an ALREADY-SENT push on the next 15s tick. */
+  fired: Record<Consumer, boolean>;
   /** true once the REAL `done` edge was routed for this episode — set by {@link
    *  TurnEndBackstopService.markDelivered}. A healthy session must never pay for a redundant
-   *  autopilot classify, so a delivered episode is never backstopped. Cleared on re-activation so
-   *  the next turn's edge re-marks it. */
+   *  autopilot classify or a DUPLICATE finish notification, so a delivered episode is never
+   *  backstopped. Cleared on re-activation so the next turn's edge re-marks it.
+   *
+   *  Deliberately keyed on the status EDGE, not on the push having actually reached a device: a
+   *  send suppressed by push.notify()'s cooldown or by a device muting the `agent` category is the
+   *  existing intended behavior, and re-driving it here would defeat both. */
   delivered: boolean;
   /** true once we've observed this session NOT resting. The evidence gate that makes a restart
    *  safe: a session already at rest when the process starts was never observed active, so it is
@@ -60,11 +76,17 @@ interface DebounceEntry {
    *  BuildQueueReminderService's `sawRunning`. Deliberately NOT reset per episode — it is evidence
    *  about the session, not about the current rest. */
   sawActive: boolean;
-  /** lifetime recovery ATTEMPTS for this session, successful or not (runaway guard). Counting
-   *  failures too is deliberate: a rejection leaves `firedThisEpisode` unset so a TRANSIENT failure
-   *  retries on the next tick, and without a bounded attempt count a persistently throwing dispatch
-   *  would retry every sweep forever. */
-  attemptCount: number;
+  /** consecutive REJECTED dispatches per consumer, reset to 0 by that consumer's next success. A
+   *  rejection leaves the consumer's `fired` flag unset so a TRANSIENT failure retries on the next
+   *  tick; this streak is what stops a persistently throwing dispatch from being re-driven every
+   *  15s forever.
+   *
+   *  Counted per consumer, like `fired`: a plan-gate spawn that throws every time must not also
+   *  silence the finish push, which is a different dependency that is working fine.
+   *
+   *  Like `sawActive` these survive re-activation — a dependency that has failed every pass does
+   *  not become healthy because the agent started another turn, and only a success clears it. */
+  failStreak: Record<Consumer, number>;
 }
 
 interface Deps {
@@ -73,27 +95,31 @@ interface Deps {
   considerPlan: (s: Session) => Promise<unknown>;
   /** Re-drive autopilot's turn-end handler. Self-guarding via eligible(); see the header note. */
   autopilotDone: (id: string) => Promise<void>;
+  /** Send the "agent finished its turn" push the lost `done` edge never triggered (#2267).
+   *  Phase-agnostic, because the real edge in attachPush() is too. */
+  notifyDone: (id: string) => Promise<unknown>;
   now?: () => number;
   idleThresholdMs?: number;
-  maxAttempts?: number;
+  maxConsecutiveFailures?: number;
 }
 
 export class TurnEndBackstopService {
   private now: () => number;
   private idleThresholdMs: number;
-  private maxAttempts: number;
+  private maxConsecutiveFailures: number;
   private debounce = new Map<string, DebounceEntry>();
   /** True while a sweep is in flight. The sweep awaits each dispatch, so a slow one can still be
    *  running when the next tick fires; without this an overlapping sweep would re-pass readyToFire
-   *  for the same session (firedThisEpisode is only set once the dispatch resolves) and deliver a
-   *  duplicate. The tick is DROPPED rather than queued — this is an idle-debounced recovery, so the
-   *  next tick re-evaluates from fresh state. Mirrors BuildQueueReminderService's guard. */
+   *  for the same session (a consumer's `fired` flag is only set once its dispatch resolves) and
+   *  deliver a duplicate. The tick is DROPPED rather than queued — this is an idle-debounced
+   *  recovery, so the next tick re-evaluates from fresh state. Mirrors
+   *  BuildQueueReminderService's guard. */
   private sweeping = false;
 
   constructor(private deps: Deps) {
     this.now = deps.now ?? Date.now;
     this.idleThresholdMs = deps.idleThresholdMs ?? DEFAULT_IDLE_THRESHOLD_MS;
-    this.maxAttempts = deps.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
+    this.maxConsecutiveFailures = deps.maxConsecutiveFailures ?? DEFAULT_MAX_CONSECUTIVE_FAILURES;
   }
 
   /** Drop a session's debounce state (call on archive). */
@@ -105,10 +131,11 @@ export class TurnEndBackstopService {
    * Record that the REAL `done` status edge was routed for this session, so the backstop stands
    * down for the current resting episode. Fed from the `session:status` subscriber in index.ts.
    *
-   * Belt-and-braces rather than load-bearing — a redundant `considerPlan` is free — but it keeps a
-   * healthy session from paying an autopilot classify it doesn't need: onDone() can legitimately
-   * classify and then leave the session idle (e.g. an `unknown` verdict that just surfaces), which
-   * without this flag the backstop would re-drive every episode.
+   * Load-bearing for the push consumer — without it a healthy session would be notified twice, by
+   * attachPush() on the edge and again by this sweep two minutes later. For the other two it also
+   * keeps a healthy session from paying an autopilot classify it doesn't need: onDone() can
+   * legitimately classify and then leave the session idle (e.g. an `unknown` verdict that just
+   * surfaces), which without this flag the backstop would re-drive every episode.
    */
   markDelivered(id: string): void {
     this.entry(id).delivered = true;
@@ -141,21 +168,21 @@ export class TurnEndBackstopService {
     if (!e) {
       e = {
         settledSince: null,
-        firedThisEpisode: false,
+        fired: { push: false, phase: false },
         delivered: false,
         sawActive: false,
-        attemptCount: 0,
+        failStreak: { push: 0, phase: 0 },
       };
       this.debounce.set(id, e);
     }
     return e;
   }
 
-  /** End the current resting episode. `sawActive`/`attemptCount` survive — they are per-session
+  /** End the current resting episode. `sawActive`/`failStreak` survive — they are per-session
    *  evidence, not per-episode state. */
   private resetEpisode(e: DebounceEntry): void {
     e.settledSince = null;
-    e.firedThisEpisode = false;
+    e.fired = { push: false, phase: false };
     e.delivered = false;
   }
 
@@ -208,42 +235,83 @@ export class TurnEndBackstopService {
     await this.recover(s, e);
   }
 
-  /** Whether this resting episode is owed a recovered turn end. */
+  /** Whether this resting episode still owes at least one consumer a recovered turn end. */
   private readyToFire(e: DebounceEntry): boolean {
     return (
-      !e.firedThisEpisode && // once per episode
       !e.delivered && // the real edge already fired
       e.sawActive && // evidence gate → restart-safe
-      e.attemptCount < this.maxAttempts // runaway guard
+      (this.owes(e, "push") || this.owes(e, "phase"))
     );
   }
 
+  /** Whether one consumer still owes this episode a dispatch: not yet fired (once per consumer per
+   *  episode) and not written off by its own runaway guard. */
+  private owes(e: DebounceEntry, c: Consumer): boolean {
+    return !e.fired[c] && e.failStreak[c] < this.maxConsecutiveFailures;
+  }
+
   /**
-   * Dispatch the missed edge to the one consumer that owns this session's phase. Routing by phase
-   * (rather than calling both and leaning on autopilot's planning stand-down) keeps the intent
-   * legible: while `planning`, the plan gate owns the session and autopilot is suppressed anyway.
+   * Dispatch the missed edge to every consumer this episode still owes.
    *
-   * A rejection does NOT burn the EPISODE — `firedThisEpisode` stays unset, so a transient failure
-   * retries on the next tick. The ATTEMPT is still counted, which is what bounds a persistently
-   * throwing dispatch: without that, a dependency failing every time would be re-driven every 15s
-   * forever.
+   * The push is phase-agnostic (attachPush() does not look at the phase either) and goes FIRST: it
+   * is the cheapest and the most time-sensitive of the three, and a plan-gate or autopilot spawn
+   * failure must not swallow the operator's notification.
+   *
+   * The other dispatch is routed BY PHASE rather than calling both and leaning on autopilot's
+   * planning stand-down, which keeps the intent legible: while `planning`, the plan gate owns the
+   * session and autopilot is suppressed anyway.
+   *
+   * A rejection does NOT burn that consumer's episode flag, so a transient failure retries on the
+   * next tick — and neither the flag nor the failure streak is shared, so one consumer can neither
+   * replay the other's success nor silence it by failing. What bounds a persistently throwing
+   * dispatch is its own `failStreak` against `maxConsecutiveFailures`.
    */
   private async recover(s: Session, e: DebounceEntry): Promise<void> {
     const phase = s.planPhase ?? "none";
-    e.attemptCount++;
-    try {
-      if (s.planPhase === "planning") await this.deps.considerPlan(s);
-      else await this.deps.autopilotDone(s.id);
-    } catch (err) {
-      console.warn(`[turn-end-backstop] recovery failed for ${s.id} (phase=${phase}):`, err);
-      return;
+    const fired: Consumer[] = [];
+
+    if (this.owes(e, "push")) {
+      if (await this.run(s.id, phase, e, "push", () => this.deps.notifyDone(s.id)))
+        fired.push("push");
     }
-    e.firedThisEpisode = true;
+
+    if (this.owes(e, "phase")) {
+      const dispatch = () =>
+        s.planPhase === "planning" ? this.deps.considerPlan(s) : this.deps.autopilotDone(s.id);
+      if (await this.run(s.id, phase, e, "phase", dispatch)) fired.push("phase");
+    }
+
+    if (fired.length === 0) return;
     // Logged on success only (never per tick), so the previously-invisible rate of lost turn-end
     // edges is measurable in ~/.shepherd/shepherd.log.
     console.log(
       `[turn-end-backstop] recovered lost turn-end id=${s.id} phase=${phase} ` +
-        `status=${s.status} attempt=${e.attemptCount}`,
+        `status=${s.status} consumers=${fired.join(",")}`,
     );
+  }
+
+  /** Run one consumer's dispatch and record the outcome against that consumer alone. Returns
+   *  whether it landed; never throws, so the sweep goes on to the next consumer and next session. */
+  private async run(
+    id: string,
+    phase: string,
+    e: DebounceEntry,
+    c: Consumer,
+    dispatch: () => Promise<unknown>,
+  ): Promise<boolean> {
+    try {
+      await dispatch();
+    } catch (err) {
+      e.failStreak[c]++;
+      console.warn(
+        `[turn-end-backstop] ${c} recovery failed for ${id} ` +
+          `(phase=${phase}, consecutive=${e.failStreak[c]}):`,
+        err,
+      );
+      return false;
+    }
+    e.fired[c] = true;
+    e.failStreak[c] = 0;
+    return true;
   }
 }

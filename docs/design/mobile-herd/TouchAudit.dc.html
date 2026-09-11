@@ -1,0 +1,559 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <script src="./support.js"></script>
+  </head>
+  <body>
+    <x-dc>
+      <helmet>
+        <link
+          rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&display=swap"
+        />
+        <style>
+          body {
+            margin: 0;
+          }
+          a {
+            color: #2f6fb0;
+          }
+          a:hover {
+            color: #1c5590;
+          }
+          .sheet {
+            --bg: #e7ebe9;
+            --panel: #f7f9f8;
+            --panel-2: #eef1ef;
+            --inset: #f3f6f4;
+            --sel: #d2dbd6;
+            --line: #d2dad6;
+            --line-bright: #b9c4bf;
+            --ink: #2b3633;
+            --ink-bright: #131a18;
+            --muted: #5a6862;
+            --faint: #93a09a;
+            --amber: #a8680a;
+            --green: #1d8a5d;
+            --red: #c2363b;
+            --blue: #2f6fb0;
+            --slate: #6b7873;
+            --wash-attention: oklch(0.965 0.016 23);
+            --fs-micro: 10px;
+            --fs-meta: 11px;
+            --fs-base: 13px;
+            font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+            letter-spacing: 0.02em;
+            color: var(--ink);
+          }
+          .h1 {
+            font-size: 20px;
+            font-weight: 700;
+            letter-spacing: 0.06em;
+            color: var(--ink-bright);
+          }
+          .lbl {
+            font-size: var(--fs-micro);
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+            color: var(--muted);
+          }
+          .bbox {
+            font-size: var(--fs-micro);
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            padding: 1px 6px;
+            border: 1px solid var(--line);
+            border-radius: 2px;
+            white-space: nowrap;
+            color: var(--muted);
+          }
+          .bad {
+            outline: 1px dashed var(--red);
+            outline-offset: 2px;
+          }
+          th {
+            font-size: var(--fs-micro);
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: var(--muted);
+            text-align: left;
+            font-weight: 500;
+            padding: 0 8px 7px 0;
+            border-bottom: 1px solid var(--line-bright);
+            white-space: nowrap;
+          }
+          td {
+            font-size: var(--fs-meta);
+            padding: 5px 8px 5px 0;
+            border-bottom: 1px solid var(--line);
+            white-space: nowrap;
+          }
+          .no {
+            color: var(--red);
+            font-weight: 700;
+          }
+          .ok {
+            color: var(--green);
+          }
+          .meh {
+            color: var(--muted);
+          }
+          .card {
+            position: relative;
+            display: grid;
+            grid-template-columns: 16px 1fr auto;
+            column-gap: 12px;
+            row-gap: 3px;
+            padding: 11px 13px 11px 14px;
+            background: var(--wash-attention);
+          }
+          .name {
+            color: var(--ink-bright);
+            font-weight: 500;
+            letter-spacing: 0.04em;
+            font-size: var(--fs-base);
+          }
+          .u-repo {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            margin-top: 3px;
+            color: var(--ink);
+            font-size: var(--fs-meta);
+          }
+          .u-sub {
+            color: var(--muted);
+            margin-top: 3px;
+            font-size: var(--fs-base);
+            line-height: 1.35;
+          }
+          .box {
+            border: 1px solid var(--ink-bright);
+            display: inline-flex;
+            align-items: flex-end;
+            justify-content: center;
+            box-sizing: border-box;
+            font-size: 9px;
+            color: var(--muted);
+            padding-bottom: 2px;
+          }
+        </style>
+      </helmet>
+
+      <div
+        class="sheet"
+        style="
+          width: 1000px;
+          height: 800px;
+          background: var(--bg);
+          padding: 24px;
+          box-sizing: border-box;
+          display: flex;
+          flex-direction: column;
+          gap: 18px;
+        "
+      >
+        <div style="display: flex; align-items: baseline; gap: 16px">
+          <div class="h1">Touch-Audit &mdash; Mobile-Listenansicht</div>
+          <div style="font-size: var(--fs-meta); color: var(--muted)">
+            richtungsunabh&auml;ngig: gilt f&uuml;r A wie f&uuml;r B
+          </div>
+          <div style="flex: 1"></div>
+          <div style="display: flex; gap: 14px; font-size: var(--fs-micro); color: var(--muted)">
+            <span
+              ><b style="color: var(--ink-bright)">44&times;44</b> iOS HIG &middot;
+              verbindlich</span
+            >
+            <span
+              ><b style="color: var(--ink-bright)">48&times;48</b> Material &middot; Zielwert</span
+            >
+            <span
+              ><b style="color: var(--ink-bright)">24&times;24</b> WCAG 2.5.8 AA &middot; harte
+              Grenze</span
+            >
+          </div>
+        </div>
+
+        <div style="display: flex; gap: 22px; align-items: flex-start">
+          <!-- SPECIMEN -->
+          <div style="width: 430px; flex: none; display: flex; flex-direction: column; gap: 14px">
+            <div class="lbl">Befund am lebenden Objekt &mdash; 1:1</div>
+            <div style="border: 1px solid var(--line-bright); background: var(--panel)">
+              <div class="card">
+                <span
+                  style="
+                    position: absolute;
+                    left: 0;
+                    top: 8px;
+                    bottom: 8px;
+                    width: 1px;
+                    background: var(--red);
+                  "
+                ></span>
+                <span
+                  style="
+                    width: 16px;
+                    height: 16px;
+                    border-radius: 4px;
+                    background: color-mix(in srgb, var(--red) 88%, #000);
+                    color: #fff;
+                    font-weight: 800;
+                    font-size: var(--fs-base);
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    margin-top: 2px;
+                  "
+                  >!</span
+                >
+                <div style="min-width: 0">
+                  <div style="display: flex; align-items: baseline">
+                    <span
+                      class="bad"
+                      style="font-size: var(--fs-base); padding: 0 3px; margin-right: 6px"
+                      >&#9670;</span
+                    >
+                    <span class="name">werkstattbericht-redaktion</span>
+                  </div>
+                  <div class="u-repo">
+                    <span style="color: var(--muted); font-size: var(--fs-micro)">&#9635;</span
+                    >media-bib-and-rendering
+                  </div>
+                  <div class="u-sub">
+                    Auftrag von Kai:<br />Werkstattbericht-Redaktion im&hellip;
+                  </div>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 4px; align-items: flex-end">
+                  <span class="bbox bad" style="border-color: var(--blue); color: var(--blue)"
+                    >VORSCHAU</span
+                  >
+                  <span class="bbox bad">CLAUDE</span>
+                  <span class="bbox bad">PLANUNG</span>
+                  <span style="color: var(--ink); font-size: var(--fs-meta); letter-spacing: 0.08em"
+                    >7h 21m</span
+                  >
+                </div>
+                <div
+                  style="
+                    grid-column: 2 / span 2;
+                    display: flex;
+                    align-items: center;
+                    gap: 10px;
+                    margin-top: 3px;
+                  "
+                >
+                  <span style="color: var(--muted); font-size: var(--fs-meta)"
+                    >TASK-1095 &middot; Opus 5</span
+                  >
+                </div>
+              </div>
+            </div>
+            <div style="font-size: var(--fs-micro); color: var(--red); line-height: 1.6">
+              Gestrichelt = echtes Bedien&shy;element (<code>&lt;button&gt;</code> bzw.
+              <code>role="button"</code> mit <code>onclick</code>), gerendert mit
+              <code>--fs-micro</code> 10&nbsp;px und <code>padding: 1px 6px</code> &rarr;
+              <b>~15&nbsp;px hoch</b>. Kein <code>@media (pointer: coarse)</code>-Boden.
+              Stapelabstand <code>gap: 4px</code>; Material fordert &ge;8.
+            </div>
+
+            <div class="lbl" style="margin-top: 4px">
+              Ma&szlig;stab 1:1 &mdash; was gefordert ist, was da ist
+              <span style="text-transform: none; letter-spacing: 0.02em; color: var(--faint)"
+                >(Beschriftung 8&ndash;9&nbsp;px: die K&auml;sten SIND nur 15&ndash;18&nbsp;px
+                hoch)</span
+              >
+            </div>
+            <div
+              style="
+                display: flex;
+                align-items: flex-end;
+                gap: 10px;
+                padding: 10px;
+                border: 1px solid var(--line);
+                background: var(--panel);
+              "
+            >
+              <span class="box" style="width: 48px; height: 48px; border-color: var(--green)"
+                >48</span
+              >
+              <span class="box" style="width: 44px; height: 44px; border-color: var(--amber)"
+                >44</span
+              >
+              <span class="box" style="width: 24px; height: 24px; border-style: dashed">24</span>
+              <span style="color: var(--faint)">|</span>
+              <span
+                class="box"
+                style="
+                  width: 44px;
+                  height: 44px;
+                  border-color: var(--amber);
+                  background: var(--inset);
+                "
+                >&#9881;</span
+              >
+              <span
+                class="box"
+                style="width: 24px; height: 44px; border-color: var(--red); font-size: 8px"
+                >!1</span
+              >
+              <span
+                class="box"
+                style="
+                  width: 62px;
+                  height: 15px;
+                  border-color: var(--red);
+                  font-size: 8px;
+                  align-items: center;
+                  padding: 0;
+                "
+                >PR&nbsp;#314</span
+              >
+              <span
+                class="box"
+                style="
+                  width: 19px;
+                  height: 18px;
+                  border-color: var(--red);
+                  font-size: 8px;
+                  align-items: center;
+                  padding: 0;
+                "
+                >&#9670;</span
+              >
+            </div>
+          </div>
+
+          <!-- TABELLE -->
+          <div style="flex: 1; min-width: 0">
+            <div class="lbl" style="margin-bottom: 10px">Jedes interaktive Element der Ansicht</div>
+            <table style="width: 100%; border-collapse: collapse">
+              <tr>
+                <th>Element</th>
+                <th>Quelle</th>
+                <th>Ist (touch)</th>
+                <th>44</th>
+                <th>48</th>
+                <th>24</th>
+              </tr>
+              <tr>
+                <td>Karte</td>
+                <td class="meh">UnitRow &rarr; .unit</td>
+                <td>&ge;44 &times; voll</td>
+                <td class="ok">ok</td>
+                <td class="ok">ok</td>
+                <td class="ok">ok</td>
+              </tr>
+              <tr>
+                <td>Repo-Chip</td>
+                <td class="meh">RepoSwitcher &rarr; .rs-chip</td>
+                <td>44 &times; &ge;44</td>
+                <td class="ok">ok</td>
+                <td class="meh">&ndash;</td>
+                <td class="ok">ok</td>
+              </tr>
+              <tr>
+                <td>Lens-Tab</td>
+                <td class="meh">HerdSegRow &rarr; .seg-btn</td>
+                <td>44 &times; ~78</td>
+                <td class="ok">ok</td>
+                <td class="meh">&ndash;</td>
+                <td class="ok">ok</td>
+              </tr>
+              <tr>
+                <td>Gear</td>
+                <td class="meh">TopBarGear &rarr; .gear</td>
+                <td>44 &times; 44</td>
+                <td class="ok">ok</td>
+                <td class="meh">&ndash;</td>
+                <td class="ok">ok</td>
+              </tr>
+              <tr>
+                <td>ActionBar-Buttons</td>
+                <td class="meh">ActionBar &rarr; .btn</td>
+                <td>44 &times; n</td>
+                <td class="ok">ok</td>
+                <td class="meh">&ndash;</td>
+                <td class="ok">ok</td>
+              </tr>
+              <tr>
+                <td><b>Status-Tally</b></td>
+                <td class="meh">TopBarTallies &rarr; .ctally</td>
+                <td class="no">44 &times; 24</td>
+                <td class="no">nein</td>
+                <td class="no">nein</td>
+                <td class="meh">knapp</td>
+              </tr>
+              <tr>
+                <td><b>PR-Badge</b></td>
+                <td class="meh">PrBadge</td>
+                <td class="no">~15 &times; 40&ndash;70</td>
+                <td class="no">nein</td>
+                <td class="no">nein</td>
+                <td class="no">nein</td>
+              </tr>
+              <tr>
+                <td><b>Plan-Gate-Badge</b></td>
+                <td class="meh">PlanGateBadge</td>
+                <td class="no">~15 &times; 40&ndash;70</td>
+                <td class="no">nein</td>
+                <td class="no">nein</td>
+                <td class="no">nein</td>
+              </tr>
+              <tr>
+                <td><b>Critic-Badge</b></td>
+                <td class="meh">CriticBadge</td>
+                <td class="no">~15 &times; 40&ndash;70</td>
+                <td class="no">nein</td>
+                <td class="no">nein</td>
+                <td class="no">nein</td>
+              </tr>
+              <tr>
+                <td><b>Build-Queue-Badge</b></td>
+                <td class="meh">BuildQueueBadge</td>
+                <td class="no">~15 &times; 40&ndash;70</td>
+                <td class="no">nein</td>
+                <td class="no">nein</td>
+                <td class="no">nein</td>
+              </tr>
+              <tr>
+                <td><b>Preview-Badge</b></td>
+                <td class="meh">UnitRowRight &rarr; .preview-badge</td>
+                <td class="no">~15 &times; 60</td>
+                <td class="no">nein</td>
+                <td class="no">nein</td>
+                <td class="no">nein</td>
+              </tr>
+              <tr>
+                <td><b>Repo-Emoji</b></td>
+                <td class="meh">UnitRow &rarr; .name-icon.actionable</td>
+                <td class="no">~18 &times; 19</td>
+                <td class="no">nein</td>
+                <td class="no">nein</td>
+                <td class="no">nein</td>
+              </tr>
+            </table>
+            <div
+              style="
+                font-size: var(--fs-micro);
+                color: var(--muted);
+                line-height: 1.7;
+                margin-top: 12px;
+                border-left: 1px solid var(--line-bright);
+                padding-left: 10px;
+              "
+            >
+              <b style="color: var(--ink-bright)">Kein Befund:</b> die Lens-Tabs liegen ohne Abstand
+              aneinander. Bei einem Segmented Control ist das idiomatisch &mdash; iOS macht es
+              genauso. Wird hier ausdr&uuml;cklich nicht als Versto&szlig; gez&auml;hlt.<br />
+              <b style="color: var(--ink-bright)">Ebenfalls kein Befund:</b> der Stepper
+              (5&times;10&times;3&nbsp;px). Sein Hit-Bereich ist ein <code>::before</code> mit
+              <code>inset: -8px -6px</code> und <code>cursor: help</code>; auf Touch bleibt er stumm
+              (<code>onEnter</code> &uuml;berspringt <code>pointerType === "touch"</code>). Kein
+              Ziel, also kein Versto&szlig;.
+            </div>
+          </div>
+        </div>
+
+        <!-- WAS DARAUS FOLGT -->
+        <div>
+          <div class="lbl" style="margin-bottom: 10px">
+            Was daraus folgt &mdash; Stufe 1, vor jeder Layout-Entscheidung
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px">
+            <div
+              style="border: 1px solid var(--line-bright); background: var(--panel); padding: 12px"
+            >
+              <div
+                style="
+                  font-size: var(--fs-meta);
+                  font-weight: 700;
+                  color: var(--ink-bright);
+                  letter-spacing: 0.06em;
+                "
+              >
+                D4 &mdash; Badges werden Anzeigen
+              </div>
+              <div
+                style="
+                  font-size: var(--fs-micro);
+                  color: var(--ink);
+                  line-height: 1.65;
+                  margin-top: 7px;
+                "
+              >
+                Auf coarse pointer verlieren die f&uuml;nf Badges ihre Tap-Rolle; ihre Aktionen
+                leben im vorhandenen Long-Press-Men&uuml; (<code>CardMenu</code>,
+                <code>longpress.ts</code>).<br />
+                <span style="color: var(--red)"
+                  >Preis: ein Tap mehr f&uuml;r PR-Men&uuml; und Plan-Gate.</span
+                ><br />
+                <span style="color: var(--muted)"
+                  >Verworfen: 44&nbsp;px je Badge &mdash; f&uuml;nf davon treiben die Karte
+                  &uuml;ber 200&nbsp;px.</span
+                >
+              </div>
+            </div>
+            <div
+              style="border: 1px solid var(--line-bright); background: var(--panel); padding: 12px"
+            >
+              <div
+                style="
+                  font-size: var(--fs-meta);
+                  font-weight: 700;
+                  color: var(--ink-bright);
+                  letter-spacing: 0.06em;
+                "
+              >
+                D5 &mdash; Repo-Emoji wird stumm
+              </div>
+              <div
+                style="
+                  font-size: var(--fs-micro);
+                  color: var(--ink);
+                  line-height: 1.65;
+                  margin-top: 7px;
+                "
+              >
+                Das 18&times;19&nbsp;px gro&szlig;e Emoji schaltet heute den Repo-Filter. Auf Touch
+                verliert es diese Rolle.<br />
+                <span style="color: var(--green)"
+                  >Kein Verlust: der Repo-Chip leistet dasselbe mit einem konformen Ziel.</span
+                >
+              </div>
+            </div>
+            <div
+              style="border: 1px solid var(--line-bright); background: var(--panel); padding: 12px"
+            >
+              <div
+                style="
+                  font-size: var(--fs-meta);
+                  font-weight: 700;
+                  color: var(--ink-bright);
+                  letter-spacing: 0.06em;
+                "
+              >
+                D6 &mdash; Tallies werden 44&times;44
+              </div>
+              <div
+                style="
+                  font-size: var(--fs-micro);
+                  color: var(--ink);
+                  line-height: 1.65;
+                  margin-top: 7px;
+                "
+              >
+                Ab 360&nbsp;px Viewport. Darunter bleibt der im Code dokumentierte
+                24&nbsp;px-Kompromiss &mdash; dort sprengen vier 44&nbsp;px-Ziele das Zeilenbudget
+                wirklich.<br />
+                <span style="color: var(--muted)"
+                  >Die Ausnahme steht danach namentlich im Test.</span
+                >
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </x-dc>
+  </body>
+</html>

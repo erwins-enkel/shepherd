@@ -6,6 +6,7 @@
   import CliBadge from "../CliBadge.svelte";
   import ResearchBadge from "../ResearchBadge.svelte";
   import TerminalBadge from "../TerminalBadge.svelte";
+  import IssueBadge from "../IssueBadge.svelte";
   import PrBadge from "../PrBadge.svelte";
   import CriticBadge from "../CriticBadge.svelte";
   import BuildQueueBadge from "../BuildQueueBadge.svelte";
@@ -166,6 +167,9 @@
   <CliBadge {session} />
   <ResearchBadge {session} tip />
   <TerminalBadge {session} tip />
+  <!-- Issue before PR: the backlog issue is what the session was spawned for, the PR is
+       what came out of it — reading them left-to-right follows that order. -->
+  <IssueBadge {session} />
   {#if !stepperTerminal}<PrBadge {git} sessionId={session.id} />{/if}
   <CriticBadge sessionId={session.id} tip prUrl={git?.url} />
   <BuildQueueBadge

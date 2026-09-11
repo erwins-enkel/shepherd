@@ -3957,5 +3957,13 @@
   "usage_failover_failed": "Could not switch the default CLI.",
   "settings_default_cli_desc_failover": "Temporarily {to} instead of {from}: {from} is below 30% weekly capacity. Switches back on its own; picking one here ends the substitution.",
   "feat_usage_provider_failover_title": "Switch coding CLI when one runs out of weekly capacity",
-  "feat_usage_provider_failover_body": "When your default coding CLI drops below 30% remaining weekly capacity and the other one still has room, the usage popover offers a one-click switch. Shepherd switches back on its own once the exhausted CLI has capacity again."
+  "feat_usage_provider_failover_body": "When your default coding CLI drops below 30% remaining weekly capacity and the other one still has room, the usage popover offers a one-click switch. Shepherd switches back on its own once the exhausted CLI has capacity again.",
+  "issuebadge_label": "Issue #{number}",
+  "issuebadge_title": "Spawned for issue #{number}",
+  "settings_card_issue_ref_title": "Issue number on session cards",
+  "settings_card_issue_ref_hint": "Show the number of the issue a session was spawned for (#1234) next to its PR badge. Cards launched without an issue show nothing either way. On by default.",
+  "settings_card_issue_ref_on": "Issue number shown",
+  "settings_card_issue_ref_off": "Issue number hidden",
+  "feat_card_issue_ref_title": "See which issue a session is working",
+  "feat_card_issue_ref_body": "A session card named its task but not its origin: the issue number was buried in the truncated prompt line, so telling two sessions on neighbouring issues apart meant opening one. Cards spawned from a backlog issue now carry a small #1234 chip beside the PR badge, and Settings → Device turns it off for anyone who wants the quieter card."
 }

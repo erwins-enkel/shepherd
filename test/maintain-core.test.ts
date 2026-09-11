@@ -128,14 +128,19 @@ describe("critic_error_rate band", () => {
 });
 
 describe("incident_spike band", () => {
-  it("excludes the `reply` kind — the correction stream is not an incident class", () => {
+  it("excludes the high-volume-by-design kinds, whatever their counts", () => {
     const readings = evaluate({
       incidents: [
+        // The operator-correction stream...
         { kind: "reply", occurrences: 500, sessions: 40 },
+        // ...and an agent asking the operator a question (#2242). Neither is a fault class, so
+        // neither may produce a reading however far past the tier-2 counts it runs.
+        { kind: "block", occurrences: 500, sessions: 40 },
         { kind: "stall", occurrences: 1, sessions: 1 },
       ],
     });
     expect(readings.some((r) => r.key === "incident_spike:reply")).toBe(false);
+    expect(readings.some((r) => r.key === "incident_spike:block")).toBe(false);
     expect(readings.some((r) => r.key === "incident_spike:stall")).toBe(true);
   });
 
@@ -149,21 +154,21 @@ describe("incident_spike band", () => {
 
   it("logs when both tier-1 counts are met", () => {
     const r = readingFor(
-      evaluate({ incidents: [{ kind: "block", occurrences: 10, sessions: 3 }] }),
-      "incident_spike:block",
+      evaluate({ incidents: [{ kind: "critic", occurrences: 10, sessions: 3 }] }),
+      "incident_spike:critic",
     );
     expect(r.tier).toBe(1);
   });
 
   it("diagnoses only when both tier-2 counts are met", () => {
     const nearMiss = readingFor(
-      evaluate({ incidents: [{ kind: "block", occurrences: 25, sessions: 4 }] }),
-      "incident_spike:block",
+      evaluate({ incidents: [{ kind: "critic", occurrences: 25, sessions: 4 }] }),
+      "incident_spike:critic",
     );
     expect(nearMiss.tier).toBe(1);
     const hit = readingFor(
-      evaluate({ incidents: [{ kind: "block", occurrences: 25, sessions: 5 }] }),
-      "incident_spike:block",
+      evaluate({ incidents: [{ kind: "critic", occurrences: 25, sessions: 5 }] }),
+      "incident_spike:critic",
     );
     expect(hit.tier).toBe(2);
   });
@@ -247,11 +252,11 @@ describe("breaches", () => {
     const readings = evaluate({
       incidents: [
         { kind: "stall", occurrences: 30, sessions: 9 },
-        { kind: "block", occurrences: 30, sessions: 9 },
+        { kind: "critic", occurrences: 30, sessions: 9 },
       ],
     });
     expect(breaches(readings).map((r) => r.key)).toEqual([
-      "incident_spike:block",
+      "incident_spike:critic",
       "incident_spike:stall",
     ]);
   });

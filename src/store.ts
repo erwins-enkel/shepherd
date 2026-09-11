@@ -4615,6 +4615,28 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     );
   }
 
+  /**
+   * Drop every reading whose band key the latest sweep did NOT produce, and return how many went
+   * (#2242).
+   *
+   * `upsertMaintainReading` only ever writes, so a band that stops being evaluated — a kind added
+   * to the incident-band exclusion, a repo that no longer exists — would otherwise leave its last
+   * reading in the table forever. That is not merely untidy: `listMaintainReadings` orders
+   * `tier DESC`, so a retired tier-2 row pins itself to the top of the Delivery lens band card at
+   * a frozen `evaluatedAt`, and the exclusion that retired it looks inert to the operator.
+   *
+   * An EMPTY `keepKeys` deletes nothing. A sweep always produces at least the global bands, so an
+   * empty set means the caller has no measurement rather than a measurement of nothing — wiping
+   * the table on it would turn a degraded gather into data loss.
+   */
+  pruneMaintainReadings(keepKeys: readonly string[]): number {
+    if (keepKeys.length === 0) return 0;
+    const placeholders = keepKeys.map(() => "?").join(",");
+    return this.db.run(`DELETE FROM maintain_readings WHERE bandKey NOT IN (${placeholders})`, [
+      ...keepKeys,
+    ]).changes;
+  }
+
   /** Every band's latest reading, most severe first then most recent. */
   listMaintainReadings(): BandReading[] {
     const rows = this.db

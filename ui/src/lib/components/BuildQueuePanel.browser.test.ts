@@ -389,11 +389,16 @@ describe("BuildQueuePanel — real themes and mobile layout", () => {
           });
           const button = document.querySelector<HTMLButtonElement>(".bqp-approve")!;
           const panel = document.querySelector<HTMLElement>(".bqp")!;
+          // .badge-pending is gone by design — the pending state is now carried by
+          // the spine ring and the step title, so those are what must stay legible.
           for (const selector of [
             ".bqp-approve",
             ".bqp-hint",
             ".bqp-awaiting-chip",
-            ".badge-pending",
+            ".bqp-title-input",
+            ".bqp-detail-input",
+            ".bqp-num",
+            ".bqp-count",
           ]) {
             expect(
               contrast(document.querySelector<HTMLElement>(selector)!),
@@ -644,6 +649,65 @@ describe("BuildQueuePanel — title commit guards", () => {
     expect(putBuildQueue).toHaveBeenCalledTimes(1);
     expect(vi.mocked(putBuildQueue).mock.calls[0][1][0].title).toBe("Install dependencies");
   });
+
+  // The detail field is a textarea so a two-sentence detail wraps instead of being
+  // clipped mid-word — but the VALUE stays single-line: Enter must commit, never
+  // insert a newline into the stored string.
+  it("commits the detail on Enter without writing a newline into the value", async () => {
+    render(BuildQueuePanel, {
+      sessionId: "s1",
+      enabled: true,
+      queue: curationQueue,
+      onbootstrap: noop,
+    });
+    const detail = document.querySelector<HTMLTextAreaElement>("textarea.bqp-detail-input")!;
+    detail.focus();
+    detail.value = "Prüft die Rollen-Aufrufpfade und die Validatoren.";
+    await userEvent.keyboard("{Enter}");
+    expect(detail.value).not.toContain("\n");
+    expect(document.activeElement).not.toBe(detail);
+    expect(putBuildQueue).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(putBuildQueue).mock.calls[0][1][0].detail).toBe(
+      "Prüft die Rollen-Aufrufpfade und die Validatoren.",
+    );
+  });
+
+  // Regression guard for the clipping this replaced: a detail long enough to run
+  // past two lines must be fully visible, not hidden behind the field's scrollbar.
+  it("grows the detail field rather than clipping a long detail", async () => {
+    render(BuildQueuePanel, {
+      sessionId: "s1",
+      enabled: true,
+      queue: {
+        ...curationQueue,
+        steps: [
+          {
+            ...curationQueue.steps[0],
+            detail:
+              "CLAUDE.md, Rollen-Aufrufpfade, Ergebnisvalidatoren und aktuelle Codex-Dokumentation prüfen; konkrete Scope-Fragen im Gespräch klären. Danach den Umsetzungsplan als .shepherd-plan.md ablegen, mit Ansatz, betroffenen Dateien, Testfällen, Risiken und Erfolgskriterien, und anschließend anhalten.",
+          },
+        ],
+      },
+      onbootstrap: noop,
+    });
+    const detail = document.querySelector<HTMLTextAreaElement>("textarea.bqp-detail-input")!;
+    expect(detail.scrollHeight).toBeLessThanOrEqual(detail.clientHeight);
+  });
+
+  it("reverts the detail on Escape without a PUT", async () => {
+    render(BuildQueuePanel, {
+      sessionId: "s1",
+      enabled: true,
+      queue: { ...curationQueue, steps: [{ ...curationQueue.steps[0], detail: "Original" }] },
+      onbootstrap: noop,
+    });
+    const detail = document.querySelector<HTMLTextAreaElement>("textarea.bqp-detail-input")!;
+    detail.focus();
+    detail.value = "verworfen";
+    await userEvent.keyboard("{Escape}");
+    expect(detail.value).toBe("Original");
+    expect(putBuildQueue).not.toHaveBeenCalled();
+  });
 });
 
 describe("BuildQueuePanel — approved/running state", () => {
@@ -799,17 +863,86 @@ describe("BuildQueuePanel — approved/running state", () => {
       .toBeInTheDocument();
   });
 
-  it("renders status badges for done and active steps", async () => {
+  // A word-badge renders only where it adds something the spine glyph cannot:
+  // "active" and "skipped". Pending and done are carried by the glyph (ring /
+  // green check) plus the header's run state, so repeating them visually put the
+  // least informative column in the most-scanned position. Every step still
+  // announces its status to assistive tech through .bqp-sr.
+  it("badges only the active step, and carries done as a check glyph", async () => {
     render(BuildQueuePanel, {
       sessionId: "s1",
       enabled: true,
       queue: approvedQueue,
       onbootstrap: noop,
     });
-    const doneBadges = document.querySelectorAll(".badge-done");
-    const activeBadges = document.querySelectorAll(".badge-active");
-    expect(doneBadges.length).toBeGreaterThan(0);
-    expect(activeBadges.length).toBeGreaterThan(0);
+    expect(document.querySelectorAll(".badge-active")).toHaveLength(1);
+    expect(document.querySelectorAll(".badge-done")).toHaveLength(0);
+    // done → check glyph; active → pulsing pip
+    expect(document.querySelectorAll(".bqp-check")).toHaveLength(1);
+    expect(document.querySelectorAll(".bqp-glyph.is-active")).toHaveLength(1);
+    // …and both statuses stay announced, badge or not
+    const announced = [...document.querySelectorAll(".bqp-sr")].map((e) => e.textContent);
+    expect(announced).toEqual([m.buildqueue_status_done(), m.buildqueue_status_active()]);
+  });
+
+  // Regression guard: this label used to read --status-done (slate), 3.0:1 on
+  // --color-panel — below AA for a 10px label. It must stay in the quiet register
+  // without dropping under 4.5:1, and must never become green (Four-Light Rule).
+  it("keeps the finished run-state label legible and un-green", async () => {
+    render(BuildQueuePanel, {
+      sessionId: "s1",
+      enabled: true,
+      queue: {
+        ...approvedQueue,
+        steps: approvedQueue.steps.map((st) => ({ ...st, status: "done" as const })),
+      },
+      onbootstrap: noop,
+    });
+    const label = document.querySelector<HTMLElement>(".bqp-approved")!;
+    expect(label.className).toContain("bqp-run-done");
+    expect(contrast(label)).toBeGreaterThanOrEqual(4.5);
+    expect(getComputedStyle(label).color).not.toBe(
+      getComputedStyle(document.documentElement).getPropertyValue("--color-green").trim(),
+    );
+  });
+
+  it("badges a skipped step and opens its glyph into a dash", async () => {
+    render(BuildQueuePanel, {
+      sessionId: "s1",
+      enabled: true,
+      queue: {
+        ...approvedQueue,
+        steps: [
+          { id: "a", title: "Install deps", status: "skipped", position: 0 },
+          { id: "b", title: "Run tests", status: "active", position: 1 },
+        ],
+      },
+      onbootstrap: noop,
+    });
+    expect(document.querySelectorAll(".badge-skipped")).toHaveLength(1);
+    expect(document.querySelectorAll(".bqp-dash")).toHaveLength(1);
+    // the strike marks the TITLE that was passed over, not the word "skipped"
+    const skippedTitle = document.querySelector<HTMLElement>(".bqp-row-skipped .bqp-step-title")!;
+    expect(getComputedStyle(skippedTitle).textDecorationLine).toBe("line-through");
+    expect(
+      getComputedStyle(document.querySelector<HTMLElement>(".badge-skipped")!).textDecorationLine,
+    ).toBe("none");
+    // resolved, but never green: skipped fills the meter segment grey
+    expect(document.querySelectorAll(".bqp-meter i.seg-skipped")).toHaveLength(1);
+    expect(document.querySelectorAll(".bqp-meter i.seg-done")).toHaveLength(0);
+  });
+
+  it("counts resolved steps in the header meter", async () => {
+    render(BuildQueuePanel, {
+      sessionId: "s1",
+      enabled: true,
+      queue: approvedQueue,
+      onbootstrap: noop,
+    });
+    await expect.element(page.getByText("1/2")).toBeVisible();
+    await expect
+      .element(page.getByRole("img", { name: m.buildqueue_progress_aria({ done: 1, total: 2 }) }))
+      .toBeInTheDocument();
   });
 });
 

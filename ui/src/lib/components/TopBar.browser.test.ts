@@ -994,11 +994,11 @@ describe("TopBarHeldBadge — mobile held-task dialog", () => {
 
     // The failure surfaces inline (a toast would render behind the fullscreen dialog),
     // announced assertively so it reaches a screen reader.
-    await expect.element(page.getByRole("alert")).toHaveTextContent(m.topbar_held_spawn_failed());
+    await expect.element(page.getByRole("alert")).toMatchTextContent(m.topbar_held_spawn_failed());
     // …and carries the server's real cause so the operator can see *why* it failed.
     await expect
       .element(page.getByRole("alert"))
-      .toHaveTextContent("task name already in use, retry");
+      .toMatchTextContent("task name already in use, retry");
   });
 
   it("shows in-flight state on the spawn button while a held-task spawn is pending", async () => {
@@ -1119,8 +1119,8 @@ describe("TopBar — working-while-blocked counts in the working tally, not bloc
       m.topbar_tally_filter_title({ status: m.topbar_blocked_label() }),
     );
     // display tallies: flagged session counts as working (2), not blocked (1)
-    await expect.element(working).toHaveTextContent("2");
-    await expect.element(blocked).toHaveTextContent("1");
+    await expect.element(working).toMatchTextContent("2");
+    await expect.element(blocked).toMatchTextContent("1");
     // the e-stop stays RAW: only 1 raw-running agent is haltable, so the gear menu
     // offers "Halt 1", not 2 (the server's haltAll can't reach the latched session)
     await page.getByRole("button", { name: m.topbar_menu_aria() }).click();

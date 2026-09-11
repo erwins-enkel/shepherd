@@ -134,7 +134,7 @@ describe("CommandBar — grouping & recency", () => {
     await expect.element(page.getByText(m.commandbar_group_repos())).toBeVisible();
     await expect.element(page.getByText(m.commandbar_group_lenses())).toBeVisible();
     // First option is the most-recently-updated session ("newer" = s2).
-    await expect.element(page.getByRole("option").first()).toHaveTextContent("newer");
+    await expect.element(page.getByRole("option").first()).toMatchTextContent("newer");
   });
 
   it("promotes blocks-backed sessions above newer waiting sessions", async () => {
@@ -147,8 +147,8 @@ describe("CommandBar — grouping & recency", () => {
     });
 
     const first = page.getByRole("option").first();
-    await expect.element(first).toHaveTextContent("needs-input");
-    await expect.element(first).toHaveTextContent(m.status_blocked());
+    await expect.element(first).toMatchTextContent("needs-input");
+    await expect.element(first).toMatchTextContent(m.status_blocked());
   });
 
   it("promotes held-style blocked sessions through blocks alone", async () => {
@@ -160,7 +160,7 @@ describe("CommandBar — grouping & recency", () => {
       blocks: { held: block() },
     });
 
-    await expect.element(page.getByRole("option").first()).toHaveTextContent("held-needs-input");
+    await expect.element(page.getByRole("option").first()).toMatchTextContent("held-needs-input");
   });
 
   it("does not promote working-while-blocked sessions even with a block entry", async () => {
@@ -174,8 +174,8 @@ describe("CommandBar — grouping & recency", () => {
     });
 
     const first = page.getByRole("option").first();
-    await expect.element(first).toHaveTextContent("reviewer-cli-metadata");
-    await expect.element(first).toHaveTextContent(m.status_done());
+    await expect.element(first).toMatchTextContent("reviewer-cli-metadata");
+    await expect.element(first).toMatchTextContent(m.status_done());
   });
 
   it("promotes autopilot-paused sessions and explains them with the needs-you label", async () => {
@@ -193,10 +193,10 @@ describe("CommandBar — grouping & recency", () => {
     });
 
     const first = page.getByRole("option").first();
-    await expect.element(first).toHaveTextContent("autopilot-paused");
+    await expect.element(first).toMatchTextContent("autopilot-paused");
     await expect
       .element(first)
-      .toHaveTextContent(m.session_autopilot_paused_label().toLocaleUpperCase());
+      .toMatchTextContent(m.session_autopilot_paused_label().toLocaleUpperCase());
     expect(first.element().textContent).not.toContain(m.status_done());
   });
 
@@ -261,7 +261,7 @@ describe("CommandBar — fuzzy matching", () => {
     // Matched letters are wrapped for highlighting…
     expect(document.querySelectorAll("mark.cb-hl").length).toBeGreaterThan(0);
     // …yet the option still reads as the full, untouched title.
-    await expect.element(page.getByRole("option").first()).toHaveTextContent("newer");
+    await expect.element(page.getByRole("option").first()).toMatchTextContent("newer");
   });
 
   it("does not stitch one fuzzy match across separate session fields", async () => {
@@ -293,7 +293,7 @@ describe("CommandBar — fuzzy matching", () => {
 
     await page.getByRole("combobox").fill("task-99");
 
-    await expect.element(page.getByRole("option", { name: /alpha/ })).toHaveTextContent("TASK-99");
+    await expect.element(page.getByRole("option", { name: /alpha/ })).toMatchTextContent("TASK-99");
   });
 
   it("highlights the repository name when it is the winning session field", async () => {
@@ -411,11 +411,11 @@ describe("CommandBar — repo secondary action (filter)", () => {
     const betaRow = page.getByRole("option", {
       name: new RegExp(m.commandbar_repo_affordance()),
     });
-    await expect.element(betaRow).toHaveTextContent(m.commandbar_repo_filter_affordance());
+    await expect.element(betaRow).toMatchTextContent(m.commandbar_repo_filter_affordance());
     // The session-less repo (gamma) keeps "Repository" but shows no filter hint.
     await page.getByRole("combobox").fill("gamma");
     const gammaRow = page.getByRole("option").first();
-    await expect.element(gammaRow).toHaveTextContent(m.commandbar_repo_affordance());
+    await expect.element(gammaRow).toMatchTextContent(m.commandbar_repo_affordance());
     expect(gammaRow.element().textContent).not.toContain(m.commandbar_repo_filter_affordance());
   });
 });
@@ -427,7 +427,7 @@ describe("CommandBar — demo showcase seeding", () => {
     await expect.element(page.getByRole("combobox")).toHaveValue("newer");
     const opts = page.getByRole("option");
     expect(opts.elements()).toHaveLength(1);
-    await expect.element(opts.first()).toHaveTextContent("newer");
+    await expect.element(opts.first()).toMatchTextContent("newer");
   });
 
   it("without initialFilter the filter stays empty (inert by default)", async () => {
@@ -470,7 +470,7 @@ describe("CommandBar — Commands group", () => {
     await page.getByRole("combobox").fill("cost");
     await expect.element(page.getByText(m.commandbar_group_commands())).toBeVisible();
     const opts = page.getByRole("option");
-    await expect.element(opts.first()).toHaveTextContent("Usage");
+    await expect.element(opts.first()).toMatchTextContent("Usage");
     expect(opts.elements()).toHaveLength(1);
   });
 
@@ -507,7 +507,7 @@ describe("CommandBar — Commands group", () => {
     await page.getByRole("combobox").fill("new");
 
     const first = page.getByRole("option").first();
-    await expect.element(first).toHaveTextContent(m.commandbar_cmd_new_task());
+    await expect.element(first).toMatchTextContent(m.commandbar_cmd_new_task());
     expect(document.querySelector(".cb-group")?.textContent).toBe(m.commandbar_group_commands());
     expect(
       page
@@ -547,7 +547,7 @@ describe("CommandBar — Commands group", () => {
     await page.getByRole("combobox").fill("learn");
     await expect.element(page.getByText(m.commandbar_group_commands())).toBeVisible();
     const opts = page.getByRole("option");
-    await expect.element(opts.first()).toHaveTextContent("Learnings");
+    await expect.element(opts.first()).toMatchTextContent("Learnings");
     expect(opts.elements()).toHaveLength(1);
 
     await page.getByRole("option", { name: /Learnings/ }).click();
@@ -742,7 +742,7 @@ describe("CommandBar — destructive command two-step arm", () => {
 
     await userEvent.keyboard("{Enter}");
     // Armed: the row swaps to the confirm copy, nothing has run, the bar stays open.
-    await expect.element(decomRow()).toHaveTextContent(CONFIRM);
+    await expect.element(decomRow()).toMatchTextContent(CONFIRM);
     expect(decomRow().element().classList.contains("armed")).toBe(true);
     expect(run).not.toHaveBeenCalled();
     expect(onclose).not.toHaveBeenCalled();
@@ -773,7 +773,7 @@ describe("CommandBar — destructive command two-step arm", () => {
     await page.getByRole("combobox").fill("decom");
 
     await decomRow().click();
-    await expect.element(decomRow()).toHaveTextContent(CONFIRM);
+    await expect.element(decomRow()).toMatchTextContent(CONFIRM);
     expect(run).not.toHaveBeenCalled();
 
     await pastDwell();
@@ -842,7 +842,7 @@ describe("CommandBar — destructive command two-step arm", () => {
 
     // Arm for real, then hold Enter / Space on the row itself: cannot confirm.
     await decomRow().click();
-    await expect.element(decomRow()).toHaveTextContent(CONFIRM);
+    await expect.element(decomRow()).toMatchTextContent(CONFIRM);
     await pastDwell();
     repeatKey(decomRow().element(), "Enter");
     repeatKey(decomRow().element(), " ");
@@ -871,7 +871,7 @@ describe("CommandBar — destructive command two-step arm", () => {
       await decomRow().click(); // second click, still at t0 — inside the dwell
       expect(run).not.toHaveBeenCalled();
       // Still armed, so a deliberate confirm afterwards works.
-      await expect.element(decomRow()).toHaveTextContent(CONFIRM);
+      await expect.element(decomRow()).toMatchTextContent(CONFIRM);
 
       now.mockReturnValue(t0 + 320); // past the dwell
       await decomRow().click();
@@ -888,15 +888,15 @@ describe("CommandBar — destructive command two-step arm", () => {
 
     await input.fill("decom");
     await userEvent.keyboard("{Enter}");
-    await expect.element(decomRow()).toHaveTextContent(CONFIRM);
+    await expect.element(decomRow()).toMatchTextContent(CONFIRM);
     await input.fill("decomm"); // query change re-ranks the list → arm abandoned
-    await expect.element(decomRow()).toHaveTextContent("Decommission TASK-07");
+    await expect.element(decomRow()).toMatchTextContent("Decommission TASK-07");
     await vi.waitFor(() => expect(srText()).toBe(""));
 
     await userEvent.keyboard("{Enter}");
-    await expect.element(decomRow()).toHaveTextContent(CONFIRM);
+    await expect.element(decomRow()).toMatchTextContent(CONFIRM);
     await userEvent.keyboard("{ArrowDown}"); // cursor move → arm abandoned
-    await expect.element(decomRow()).toHaveTextContent("Decommission TASK-07");
+    await expect.element(decomRow()).toMatchTextContent("Decommission TASK-07");
 
     expect(run).not.toHaveBeenCalled();
   });
@@ -982,7 +982,7 @@ describe("CommandBar — armed row survives a live option-list change", () => {
     });
 
     await decomRow().click();
-    await expect.element(decomRow()).toHaveTextContent(CONFIRM); // arms afresh, does not fire
+    await expect.element(decomRow()).toMatchTextContent(CONFIRM); // arms afresh, does not fire
     expect(run).not.toHaveBeenCalled();
   });
 });
@@ -998,18 +998,18 @@ describe("CommandBar — arming by click keeps focus on the combobox", () => {
     await input.fill("decom");
 
     await decomRow().click();
-    await expect.element(decomRow()).toHaveTextContent(CONFIRM);
+    await expect.element(decomRow()).toMatchTextContent(CONFIRM);
     expect(document.activeElement).toBe(input.element());
 
     // Escape hatch 1: typing disarms (the keystroke reaches the input's oninput).
     await userEvent.keyboard("m");
-    await expect.element(decomRow()).toHaveTextContent("Decommission TASK-07");
+    await expect.element(decomRow()).toMatchTextContent("Decommission TASK-07");
 
     // Escape hatch 2: moving the cursor disarms (the arrow reaches onKey).
     await decomRow().click();
-    await expect.element(decomRow()).toHaveTextContent(CONFIRM);
+    await expect.element(decomRow()).toMatchTextContent(CONFIRM);
     await userEvent.keyboard("{ArrowDown}");
-    await expect.element(decomRow()).toHaveTextContent("Decommission TASK-07");
+    await expect.element(decomRow()).toMatchTextContent("Decommission TASK-07");
 
     expect(run).not.toHaveBeenCalled();
   });

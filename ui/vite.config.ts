@@ -108,17 +108,23 @@ export default defineConfig({
           // `bun run test` is unchanged. Note: a global `--maxWorkers` CLI flag does
           // NOT cap the browser pool — it must live in the project's test config.
           ...(process.env.CI ? { maxWorkers: 2, sequence: { groupOrder: 1 } } : {}),
+          // vitest's default browser server port (63315) has strictPort on by
+          // default, causing a hard failure when a leftover/concurrent test
+          // process holds the port. strictPort:false lets Vite auto-increment
+          // to the next free port; vitest discovers the bound port and hands
+          // it to the browser client, so a predictable port isn't needed. (#817)
+          // vitest 5 moved this off `browser.api` onto the project's `test.api`.
+          api: { strictPort: false },
           browser: {
             enabled: true,
             provider: playwright(),
             headless: true,
             instances: [{ browser: "chromium" }],
-            // vitest's default browser server port (63315) has strictPort on by
-            // default, causing a hard failure when a leftover/concurrent test
-            // process holds the port. strictPort:false lets Vite auto-increment
-            // to the next free port; vitest discovers the bound port and hands
-            // it to the browser client, so a predictable port isn't needed. (#817)
-            api: { strictPort: false },
+            // vitest 5 flipped locator text matching to exact + case-sensitive by
+            // default; this suite was written against the substring semantics of
+            // v4 (e.g. getByText("limit") matching a cell reading "limit required").
+            // Revert to the previous default rather than rewrite every assertion.
+            locators: { exact: false },
           },
         },
       },
@@ -131,12 +137,13 @@ export default defineConfig({
           // emulation does not restore Chromium's desktop pointer/hover media queries.
           maxWorkers: 1,
           sequence: { groupOrder: 2 },
+          api: { strictPort: false },
           browser: {
             enabled: true,
             provider: playwright({ contextOptions: { hasTouch: true } }),
             headless: true,
             instances: [{ browser: "chromium" }],
-            api: { strictPort: false },
+            locators: { exact: false },
           },
         },
       },

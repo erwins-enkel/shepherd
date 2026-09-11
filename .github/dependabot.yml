@@ -28,6 +28,15 @@ updates:
       prefix: "chore(deps)"
       prefix-development: "chore(deps-dev)"
     groups:
+      # vitest pins its own packages as *exact* peers of each other
+      # (`vitest@5.0.0` peers `@vitest/browser-playwright: 5.0.0`, and back), so
+      # the family is only ever installable as a set. Ungrouped, a major landed as
+      # one PR per package — each individually un-mergeable, and each red or (worse)
+      # green-but-inert. This group is listed first so it wins the match, and it
+      # covers majors, which the two blanket groups below deliberately do not.
+      vitest:
+        patterns: ["vitest", "@vitest/*", "vitest-browser-svelte"]
+        update-types: ["major", "minor", "patch"]
       production-dependencies:
         dependency-type: "production"
         update-types: ["minor", "patch"]

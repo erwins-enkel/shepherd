@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
-import { page } from "@vitest/browser/context";
+import { page } from "vitest/browser";
 import "../../../app.css";
 import type {
   BandReading,

@@ -50,7 +50,7 @@ describe("RepoSelect — keyboard cursor on open", () => {
     await expect.element(selected).toBeVisible();
 
     // The cursor row must contain "gamma", not "alpha" (which is row 0 / pinned).
-    await expect.element(selected).toHaveTextContent("gamma");
+    await expect.element(selected).toMatchTextContent("gamma");
     // And confirm row 0 (alpha) is NOT the cursor.
     const alphaRow = page.getByRole("option", { name: /alpha/ }).first();
     await expect.element(alphaRow).toHaveAttribute("aria-selected", "false");
@@ -77,7 +77,7 @@ describe("RepoSelect — keyboard cursor on open", () => {
     // The first (and only) option should now have aria-selected="true".
     const firstOption = page.getByRole("option").first();
     await expect.element(firstOption).toHaveAttribute("aria-selected", "true");
-    await expect.element(firstOption).toHaveTextContent("alpha");
+    await expect.element(firstOption).toMatchTextContent("alpha");
   });
 
   it("falls back to the first row when value matches no repo in the list", async () => {
@@ -98,7 +98,7 @@ describe("RepoSelect — keyboard cursor on open", () => {
     // Row 0 (alpha, the first pinned repo) must be the keyboard cursor.
     const firstOption = page.getByRole("option").first();
     await expect.element(firstOption).toHaveAttribute("aria-selected", "true");
-    await expect.element(firstOption).toHaveTextContent("alpha");
+    await expect.element(firstOption).toMatchTextContent("alpha");
   });
 });
 

@@ -196,7 +196,7 @@ describe("PrReviewRequestPopover", () => {
       },
     });
 
-    await expect.element(page.getByRole("alert")).toHaveTextContent(m.prreview_load_failed());
+    await expect.element(page.getByRole("alert")).toMatchTextContent(m.prreview_load_failed());
     await page.getByRole("button", { name: m.common_retry() }).click();
     await expect
       .element(page.getByRole("combobox", { name: m.roles_reviewer_label() }))
@@ -217,7 +217,7 @@ describe("PrReviewRequestPopover", () => {
       },
     });
 
-    await expect.element(page.getByRole("alert")).toHaveTextContent(m.prreview_load_failed());
+    await expect.element(page.getByRole("alert")).toMatchTextContent(m.prreview_load_failed());
     await expect
       .element(page.getByRole("link", { name: m.prbadge_open_pr() }))
       .toHaveAttribute("href", "https://github.test/upstream/project/pull/42");
@@ -246,11 +246,13 @@ describe("PrReviewRequestPopover", () => {
     await expect
       .element(page.getByRole("combobox", { name: m.roles_reviewer_label() }))
       .toBeVisible();
-    const rect = document.querySelector<HTMLElement>(".review-popover")!.getBoundingClientRect();
+    const rectOf = () =>
+      document.querySelector<HTMLElement>(".review-popover")!.getBoundingClientRect();
+    await expect.poll(() => rectOf().bottom).toBeLessThanOrEqual(window.innerHeight - 8);
+    const rect = rectOf();
     expect(rect.left).toBeGreaterThanOrEqual(8);
     expect(rect.right).toBeLessThanOrEqual(window.innerWidth - 8);
     expect(rect.top).toBeGreaterThanOrEqual(8);
-    expect(rect.bottom).toBeLessThanOrEqual(window.innerHeight - 8);
     await expect.element(dialog).toBeVisible();
   });
 
@@ -278,7 +280,7 @@ describe("PrReviewRequestPopover", () => {
     });
 
     await page.getByRole("button", { name: m.prreview_title() }).click();
-    await expect.element(page.getByRole("alert")).toHaveTextContent(message());
+    await expect.element(page.getByRole("alert")).toMatchTextContent(message());
   });
 
   it("focuses the select and closes on Escape, outside click, or a changed PR", async () => {

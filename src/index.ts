@@ -190,6 +190,7 @@ import { RecapService, type LandedWorkEvidence } from "./recap";
 import { PostMergeStepsService } from "./post-merge-steps";
 import { DeliveryFactsService } from "./delivery";
 import { BuildQueueReminderService } from "./build-queue-reminder";
+import { TurnEndBackstopService } from "./turn-end-backstop";
 import { jsonlPathFor } from "./usage";
 import { detectPendingAuthUrl, detectLoginAuthUrl } from "./auth-url";
 import { readTranscriptTail } from "./activity";
@@ -1889,6 +1890,17 @@ onSessionGit(({ id, git }) => {
 // and write-free in the steady state, so it can ride this per-poll event.
 const deliveryFacts = new DeliveryFactsService({ store });
 onSessionGit(({ id, git }) => deliveryFacts.onGit(id, git));
+// Turn-end backstop: herdr's `done` is a "finished and unseen" notification state that VIEWING the
+// pane clears back to `idle`, so an operator watching a session as it finishes destroys the only
+// edge the plan gate's first review and autopilot's onDone key on — and nothing re-checks. This
+// recovers that edge from a settled-idle sweep. `autopilot` is declared below and referenced lazily
+// (the closure runs long after boot); both targets are idempotent/self-guarding, and the `delivered`
+// mark from the real `done` edge keeps a healthy session off this path entirely.
+const turnEndBackstop = new TurnEndBackstopService({
+  store,
+  considerPlan: (s) => planGate.consider(s),
+  autopilotDone: (id) => autopilot.onDone(id),
+});
 deferredStarts.push(() => {
   setInterval(() => {
     if (maintenance.active) return;
@@ -1920,6 +1932,10 @@ deferredStarts.push(() => {
     void buildQueueReminder
       .sweep()
       .catch((err) => console.warn("[build-queue] reminder sweep failed:", err));
+    // settled-idle recovery for a turn end herdr never reported as `done`
+    void turnEndBackstop
+      .sweep()
+      .catch((err) => console.warn("[turn-end-backstop] sweep failed:", err));
   }, 15_000);
 });
 // The standalone critic's enumeration runs on its OWN 60s timer, separate from the 15s
@@ -1952,6 +1968,7 @@ events.subscribe((event, data) => {
     recapService.onArchived(id);
     autoMergedRecapEvidence.delete(id);
     buildQueueReminder.forget(id);
+    turnEndBackstop.forget(id);
     docAgent.onArchived(id);
   }
 });
@@ -2214,6 +2231,9 @@ const sessionRouter = new SessionRouter(
 events.subscribe((event, data) => {
   if (event === "session:status") {
     const { id, status } = data as { id: string; status: string };
+    // The real turn-end edge landed → stand the backstop down for this resting episode, so a
+    // healthy session never pays a redundant autopilot classify 2 minutes later.
+    if (status === "done") turnEndBackstop.markDelivered(id);
     void sessionRouter
       .onStatus(id, status)
       .catch((err) => console.warn("[session-router] onStatus:", err));

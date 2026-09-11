@@ -15,6 +15,10 @@ import { HerdrUnavailableError } from "../src/herdr";
 import { __setApiKeyConfigDirProvisionForTest } from "../src/spawn-auth";
 import { config } from "../src/config";
 import type { RoleEnvironment } from "../src/default-model";
+import { CODEX_ROLE_OUTPUT_SCHEMAS } from "../src/codex-role-output-schema";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 beforeEach(() => {
   __setApiKeyConfigDirProvisionForTest(() => "/tmp/shepherd-test-apikey-config");
@@ -417,6 +421,8 @@ for (const entryPoint of ["optimizeOne", "optimizeAllFlagged"] as const) {
           "model_reasoning_effort=high",
           "-o",
           ".shepherd-last-message.txt",
+          "--output-schema",
+          CODEX_ROLE_OUTPUT_SCHEMAS.optimizer,
           expect.any(String),
         ]);
       }
@@ -429,6 +435,48 @@ for (const entryPoint of ["optimizeOne", "optimizeAllFlagged"] as const) {
     });
   }
 }
+
+test("Codex chat-only optimizer output is read by the service and revises its known learning", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "optimizer-schema-chat-"));
+  try {
+    const store = new SessionStore(":memory:");
+    const learning = store.addLearning({
+      repoPath: "/r",
+      rule: "old generated protocol rule",
+      rationale: "Keep this rationale when the model returns null.",
+      evidence: [],
+    });
+    store.setLearningStatus(learning.id, "active");
+    const id = learning.id;
+    flag(store, "/r", id);
+    const fixture = JSON.parse(
+      readFileSync(join(import.meta.dir, "fixtures/codex-role-output/optimizer.json"), "utf8"),
+    );
+    fixture.revisions[0].id = id;
+    const { deps, cap } = optimizerSpawnCapture(
+      store,
+      () => null,
+      () => ({ provider: "codex", model: "gpt-5.5", effort: "high" }),
+    );
+    deps.scratch.create = () => ({ dir });
+    deps.scratch.remove = () => 0;
+    delete (deps as any).readOutput;
+
+    const svc = new OptimizerService(deps as any);
+    await svc.optimizeOne(id);
+    const argv = cap.argv[0]!;
+    writeFileSync(join(dir, argv[argv.indexOf("-o") + 1]!), JSON.stringify(fixture));
+    await svc.tick();
+
+    expect(store.getLearning(id)).toMatchObject({
+      rule: "Regenerate protocol types after editing the protocol schema.",
+      rationale: "Keep this rationale when the model returns null.",
+      ineffectiveCount: 0,
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 test("resolves a fresh environment for every optimizer spawn", async () => {
   const store = new SessionStore(":memory:");

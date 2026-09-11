@@ -121,6 +121,10 @@ export interface TransientAgentArgvOptions {
    *  (nor, for the checkout-running kinds, a fixed `-o` target a committed symlink could redirect).
    *  Claude spawns ignore it (Claude has no `-o`). Default false. */
   captureLastMessage?: boolean;
+  /** Absolute path to the consuming role's trusted JSON Schema for the Codex final response.
+   *  Opt-in alongside captureLastMessage: this constrains shape, not the `-o` destination.
+   *  Non-consumers omit it; Claude ignores it. */
+  outputSchemaFile?: string;
   /** Extra directories the agent may read, emitted as `--add-dir` (Claude only, issue #2158).
    *  This is the ONLY thing that grants file access outside the spawn's cwd: the allowlist decides
    *  WHICH tools may run, not WHERE they may reach, so a temp-cwd kind (`writer-ro`/`writer-only`)
@@ -244,6 +248,7 @@ export function buildTransientAgentArgv(
         sanitizePromptArg(opts.prompt),
         opts.effort ?? null,
         lastMessageFile,
+        opts.outputSchemaFile ?? null,
       ),
       sessionId,
     };

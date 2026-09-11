@@ -113,6 +113,7 @@ export function codexRoleArgv(
   prompt: string,
   effort: string | null,
   lastMessageFile: string | null,
+  outputSchemaFile: string | null = null,
 ): string[] {
   const argv = [
     "codex",
@@ -139,6 +140,9 @@ export function codexRoleArgv(
   // mode is an UNTRUSTED PR-head checkout — would let a committed symlink at that path redirect the
   // CLI's final-message write onto a real file. No consumer ⇒ no `-o` ⇒ no such surface.
   if (lastMessageFile !== null) argv.push("-o", lastMessageFile);
+  // Shape and destination are independent: the schema constrains the final response, while `-o`
+  // still delivers it to the existing fallback reader. Only structured-result consumers opt in.
+  if (outputSchemaFile !== null) argv.push("--output-schema", outputSchemaFile);
   argv.push(prompt);
   return argv;
 }

@@ -42,6 +42,7 @@
     "@types/bun": "latest",
     "@types/node": "^26.4.1",
     "@types/web-push": "^3.6.4",
+    "ajv": "^8",
     "eslint": "^10.10.0",
     "eslint-plugin-svelte": "^3.23.0",
     "github-slugger": "^2.0.0",

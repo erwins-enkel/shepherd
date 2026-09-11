@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { buildTransientAgentArgv, type TransientAgentKind } from "../src/transient-agent-argv";
 import { config } from "../src/config";
+import { codexRoleArgv } from "../src/codex-role-argv";
 
 // Temporarily set config auth fields, always restoring them.
 function withAuth(mode: typeof config.authMode, helper: string | null, fn: () => void): void {
@@ -362,6 +363,53 @@ const CODEX_PREFIX = [
 // when the caller sets `captureLastMessage` (i.e. the role READS the fallback). When set, the name
 // matches the kind's trust posture: `reviewer` (untrusted checkout) → a PER-SPAWN unguessable name;
 // every other kind (disposable tmpdir) → the fixed name.
+
+test("codex: schema opt-in preserves capture names and the sanitized positional prompt", () => {
+  for (const kind of ALL_KINDS) {
+    const { argv } = buildTransientAgentArgv(kind, {
+      provider: "codex",
+      model: null,
+      prompt: "answer\0here",
+      sessionId: "schema-test-session",
+      captureLastMessage: true,
+      outputSchemaFile: "/trusted install/recap.json",
+    });
+    const name =
+      kind === "reviewer"
+        ? ".shepherd-last-message-schema-test-session.txt"
+        : ".shepherd-last-message.txt";
+    expect(argv).toEqual([
+      ...CODEX_PREFIX,
+      "-o",
+      name,
+      "--output-schema",
+      "/trusted install/recap.json",
+      "answer\\0here",
+    ]);
+  }
+});
+
+test("claude: output schema is ignored without changing its invocation", () => {
+  for (const kind of ALL_KINDS) {
+    const opts = { model: null, prompt: "answer", sessionId: "schema-test-session" };
+    expect(
+      buildTransientAgentArgv(kind, {
+        ...opts,
+        outputSchemaFile: "/trusted install/recap.json",
+      }),
+    ).toEqual(buildTransientAgentArgv(kind, opts));
+  }
+});
+
+test("codex: schema changes only the response shape, never opts into capture", () => {
+  expect(codexRoleArgv(null, "answer", null, null, "/trusted/schema.json")).toEqual([
+    ...CODEX_PREFIX,
+    "--output-schema",
+    "/trusted/schema.json",
+    "answer",
+  ]);
+  expect(codexRoleArgv(null, "answer", null, null)).toEqual([...CODEX_PREFIX, "answer"]);
+});
 
 test("codex: every role carries the explicit shepherd thread source", () => {
   for (const kind of ALL_KINDS) {

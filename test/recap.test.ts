@@ -11,6 +11,7 @@ import { buildRecapPrompt, buildUiMarkupDigest } from "../src/recap-core";
 import { hostArgvBudget, joinedElementBytes } from "../src/argv-limit";
 import { config } from "../src/config";
 import { __setApiKeyConfigDirProvisionForTest } from "../src/spawn-auth";
+import { CODEX_ROLE_OUTPUT_SCHEMAS } from "../src/codex-role-output-schema";
 
 beforeEach(() => {
   __setApiKeyConfigDirProvisionForTest(() => "/tmp/shepherd-test-apikey-config");
@@ -1149,6 +1150,10 @@ test("generate: codex provider spawns headless `codex exec` (no claude flags)", 
   });
   await svc.regenerate(s);
   const argv = herdr.started[0]!.argv;
+  expect(argv.slice(argv.indexOf("--output-schema"), -1)).toEqual([
+    "--output-schema",
+    CODEX_ROLE_OUTPUT_SCHEMAS.recap,
+  ]);
   expect(argv.slice(0, 13)).toEqual([
     "codex",
     "exec",
@@ -2669,9 +2674,15 @@ test("#2209 generate: the markup yields argv bytes BEFORE the plan does (#1944 l
     makeTmpDir: () => "/tmp/r",
     computeDiff: async () => uiDiff(400),
     readPlan: () => plan,
+    env: () => ({ provider: "codex", model: "gpt-5.5", effort: "high" }),
   });
   await svc.regenerate(s);
-  const prompt = herdr.started[0]!.argv.at(-1)!;
+  const argv = herdr.started[0]!.argv;
+  const prompt = argv.at(-1)!;
+  expect(argv.slice(argv.indexOf("--output-schema"), -1)).toEqual([
+    "--output-schema",
+    CODEX_ROLE_OUTPUT_SCHEMAS.recap,
+  ]);
 
   // Exactly one block gave bytes up, and it was the markup — the marker sits inside its fence.
   const markers = [...prompt.matchAll(/\[… \d+ bytes elided …\]/g)];

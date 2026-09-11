@@ -1,0 +1,108 @@
+{
+  "verdict": "ready",
+  "headline": "Strukturierte Ausgabe ist verdrahtet",
+  "body": "**Fertig.** Die Zeile sagt: „Pfad `src\\core.ts` bleibt.“\n\nNächster Absatz.",
+  "openItems": ["CLI-Smoke ausführen"],
+  "blocks": [
+    {
+      "type": "rich-text",
+      "id": "recap-rich-text",
+      "markdown": "**Resultat:** Alle Verträge sind erfasst."
+    },
+    {
+      "type": "callout",
+      "id": "recap-callout",
+      "tone": "success",
+      "markdown": "Die Ausgabe bleibt inline verfügbar."
+    },
+    {
+      "type": "file-tree",
+      "id": "recap-file-tree",
+      "title": null,
+      "entries": [{ "path": "src/schema.ts", "change": "added", "note": null }]
+    },
+    {
+      "type": "diff",
+      "id": "recap-diff",
+      "path": "src/parser.ts",
+      "summary": "Bindet den strukturierten Vertrag an.",
+      "annotations": [{ "label": null, "note": "Der bestehende Lesepfad bleibt erhalten." }]
+    },
+    {
+      "type": "code",
+      "id": "recap-code",
+      "filename": "src/schema.ts"
+    },
+    {
+      "type": "annotated-code",
+      "id": "recap-annotated-code",
+      "filename": "src/parser.ts",
+      "annotations": [{ "label": "Fallback", "note": "Liest die letzte Nachricht." }]
+    },
+    {
+      "type": "data-model",
+      "id": "recap-data-model",
+      "entities": [
+        {
+          "id": "role-output",
+          "name": "RoleOutput",
+          "fields": [
+            {
+              "name": "kind",
+              "type": "string",
+              "pk": true,
+              "fk": null,
+              "nullable": false,
+              "change": "added",
+              "was": null
+            }
+          ]
+        }
+      ],
+      "relations": null
+    },
+    {
+      "type": "api-endpoint",
+      "id": "recap-api-endpoint",
+      "method": "POST",
+      "path": "/roles/run",
+      "summary": null,
+      "change": "structured response",
+      "deprecated": false,
+      "params": [
+        {
+          "name": "role",
+          "in": "body",
+          "type": "string",
+          "required": true,
+          "note": null
+        }
+      ],
+      "responses": [{ "status": 200, "description": "Accepted", "example": null }]
+    },
+    {
+      "type": "table",
+      "id": "recap-table",
+      "columns": ["Rolle", "Schema"],
+      "rows": [["Recap", "recap.json"]]
+    },
+    {
+      "type": "checklist",
+      "id": "recap-checklist",
+      "items": [{ "id": "schema", "label": "Schema kompiliert", "note": null, "checked": true }]
+    },
+    {
+      "type": "mermaid",
+      "id": "recap-mermaid",
+      "source": "flowchart LR\n  Chat --> Fallback --> Parser",
+      "caption": null
+    },
+    {
+      "type": "wireframe",
+      "id": "recap-wireframe",
+      "surface": "panel",
+      "html": "<section><h2>Recap</h2><p>Bereit</p></section>",
+      "caption": null
+    }
+  ]
+}

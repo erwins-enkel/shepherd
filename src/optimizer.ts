@@ -8,6 +8,7 @@ import { HerdrUnavailableError } from "./herdr";
 import type { Promoter } from "./promote";
 import { apiKeyFailClosed, apiKeyPassthroughEnv } from "./spawn-auth";
 import { buildTransientAgentArgv } from "./transient-agent-argv";
+import { CODEX_ROLE_OUTPUT_SCHEMAS } from "./codex-role-output-schema";
 import { reapTransientByLabel } from "./transient-tab-reaper";
 import type { RoleEnvironment } from "./default-model";
 import {
@@ -239,6 +240,7 @@ export class OptimizerService {
       prompt: optimizePrompt(),
       // The optimizer READS the `-o` last-message fallback → opt in.
       captureLastMessage: true,
+      outputSchemaFile: CODEX_ROLE_OUTPUT_SCHEMAS.optimizer,
     });
     const agentName = OPTIMIZE_LABEL + sessionId.slice(0, 8);
     // Reserve the inflight slot SYNCHRONOUSLY — before the async spawn yields — so a same-tick

@@ -14,6 +14,10 @@ import { LearningEvidenceRepoMismatchError, SessionStore } from "../src/store";
 import { config } from "../src/config";
 import { __setApiKeyConfigDirProvisionForTest } from "../src/spawn-auth";
 import { HerdrUnavailableError } from "../src/herdr";
+import { CODEX_ROLE_OUTPUT_SCHEMAS } from "../src/codex-role-output-schema";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 beforeEach(() => {
   __setApiKeyConfigDirProvisionForTest(() => "/tmp/shepherd-test-apikey-config");
@@ -522,9 +526,44 @@ test("distill spawn: a resolved Codex environment uses codex exec with its model
     "model_reasoning_effort=high",
     "-o",
     ".shepherd-last-message.txt",
+    "--output-schema",
+    CODEX_ROLE_OUTPUT_SCHEMAS.distiller,
     expect.any(String),
   ]);
   expect(cap.env).toBeUndefined();
+});
+
+test("Codex chat-only distiller output is read by the service and persists a supported rule", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "distiller-schema-chat-"));
+  try {
+    const store = new SessionStore(":memory:");
+    seedSignals(store, "/r", 3);
+    const signalId = store.listSignals("/r")[0]!.id;
+    const fixture = JSON.parse(
+      readFileSync(join(import.meta.dir, "fixtures/codex-role-output/distiller.json"), "utf8"),
+    );
+    fixture.rules[0].evidence = [signalId];
+    const { deps, cap } = spawnCapture(store);
+    deps.environment = () => ({ provider: "codex", model: "gpt-5.5", effort: "high" });
+    deps.scratch.create = () => ({ dir });
+    deps.scratch.remove = () => {};
+    delete deps.readProposals;
+
+    const svc = new DistillerService(deps as any);
+    await svc.distillNow("/r");
+    const output = cap.argv[cap.argv.indexOf("-o") + 1]!;
+    writeFileSync(join(dir, output), JSON.stringify(fixture));
+    await svc.tick();
+
+    expect(store.listLearnings("/r", { status: "proposed" })).toContainEqual(
+      expect.objectContaining({
+        rule: "Generated protocol types come from scripts/gen-herdr-types.ts.",
+        evidence: [signalId],
+      }),
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("distill spawn: an explicit Claude environment keeps the writer-ro Claude argv", async () => {

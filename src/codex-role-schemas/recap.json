@@ -1,0 +1,322 @@
+{
+  "$defs": {
+    "nullableString": {
+      "anyOf": [{ "type": "string" }, { "type": "null" }]
+    },
+    "nullableBoolean": {
+      "anyOf": [{ "type": "boolean" }, { "type": "null" }]
+    },
+    "annotation": {
+      "type": "object",
+      "properties": {
+        "label": { "$ref": "#/$defs/nullableString" },
+        "note": { "type": "string" }
+      },
+      "required": ["label", "note"],
+      "additionalProperties": false
+    },
+    "nullableAnnotations": {
+      "anyOf": [{ "type": "array", "items": { "$ref": "#/$defs/annotation" } }, { "type": "null" }]
+    },
+    "richText": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "enum": ["rich-text"] },
+        "id": { "type": "string", "minLength": 1 },
+        "markdown": { "type": "string" }
+      },
+      "required": ["type", "id", "markdown"],
+      "additionalProperties": false
+    },
+    "callout": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "enum": ["callout"] },
+        "id": { "type": "string", "minLength": 1 },
+        "tone": {
+          "type": "string",
+          "enum": ["info", "decision", "risk", "warning", "success"]
+        },
+        "markdown": { "type": "string" }
+      },
+      "required": ["type", "id", "tone", "markdown"],
+      "additionalProperties": false
+    },
+    "fileTreeEntry": {
+      "type": "object",
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "change": {
+          "type": "string",
+          "enum": ["added", "modified", "removed", "renamed"]
+        },
+        "note": { "$ref": "#/$defs/nullableString" }
+      },
+      "required": ["path", "change", "note"],
+      "additionalProperties": false
+    },
+    "fileTree": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "enum": ["file-tree"] },
+        "id": { "type": "string", "minLength": 1 },
+        "title": { "$ref": "#/$defs/nullableString" },
+        "entries": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/fileTreeEntry" },
+          "minItems": 1
+        }
+      },
+      "required": ["type", "id", "title", "entries"],
+      "additionalProperties": false
+    },
+    "diff": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "enum": ["diff"] },
+        "id": { "type": "string", "minLength": 1 },
+        "path": { "type": "string", "minLength": 1 },
+        "summary": { "type": "string" },
+        "annotations": { "$ref": "#/$defs/nullableAnnotations" }
+      },
+      "required": ["type", "id", "path", "summary", "annotations"],
+      "additionalProperties": false
+    },
+    "code": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "enum": ["code"] },
+        "id": { "type": "string", "minLength": 1 },
+        "filename": { "type": "string", "minLength": 1 }
+      },
+      "required": ["type", "id", "filename"],
+      "additionalProperties": false
+    },
+    "annotatedCode": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "enum": ["annotated-code"] },
+        "id": { "type": "string", "minLength": 1 },
+        "filename": { "type": "string", "minLength": 1 },
+        "annotations": { "$ref": "#/$defs/nullableAnnotations" }
+      },
+      "required": ["type", "id", "filename", "annotations"],
+      "additionalProperties": false
+    },
+    "dataModelField": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "type": { "type": "string" },
+        "pk": { "$ref": "#/$defs/nullableBoolean" },
+        "fk": { "$ref": "#/$defs/nullableString" },
+        "nullable": { "$ref": "#/$defs/nullableBoolean" },
+        "change": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": ["added", "modified", "removed", "renamed"]
+            },
+            { "type": "null" }
+          ]
+        },
+        "was": { "$ref": "#/$defs/nullableString" }
+      },
+      "required": ["name", "type", "pk", "fk", "nullable", "change", "was"],
+      "additionalProperties": false
+    },
+    "dataModelEntity": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string" },
+        "fields": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/dataModelField" },
+          "minItems": 1
+        }
+      },
+      "required": ["id", "name", "fields"],
+      "additionalProperties": false
+    },
+    "relation": {
+      "type": "object",
+      "properties": {
+        "from": { "type": "string" },
+        "to": { "type": "string" },
+        "kind": { "type": "string" }
+      },
+      "required": ["from", "to", "kind"],
+      "additionalProperties": false
+    },
+    "nullableRelations": {
+      "anyOf": [{ "type": "array", "items": { "$ref": "#/$defs/relation" } }, { "type": "null" }]
+    },
+    "dataModel": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "enum": ["data-model"] },
+        "id": { "type": "string", "minLength": 1 },
+        "entities": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/dataModelEntity" },
+          "minItems": 1
+        },
+        "relations": { "$ref": "#/$defs/nullableRelations" }
+      },
+      "required": ["type", "id", "entities", "relations"],
+      "additionalProperties": false
+    },
+    "apiParam": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "in": { "type": "string" },
+        "type": { "type": "string" },
+        "required": { "$ref": "#/$defs/nullableBoolean" },
+        "note": { "$ref": "#/$defs/nullableString" }
+      },
+      "required": ["name", "in", "type", "required", "note"],
+      "additionalProperties": false
+    },
+    "apiResponse": {
+      "type": "object",
+      "properties": {
+        "status": { "type": "number" },
+        "description": { "$ref": "#/$defs/nullableString" },
+        "example": { "$ref": "#/$defs/nullableString" }
+      },
+      "required": ["status", "description", "example"],
+      "additionalProperties": false
+    },
+    "nullableParams": {
+      "anyOf": [{ "type": "array", "items": { "$ref": "#/$defs/apiParam" } }, { "type": "null" }]
+    },
+    "nullableResponses": {
+      "anyOf": [{ "type": "array", "items": { "$ref": "#/$defs/apiResponse" } }, { "type": "null" }]
+    },
+    "apiEndpoint": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "enum": ["api-endpoint"] },
+        "id": { "type": "string", "minLength": 1 },
+        "method": { "type": "string", "minLength": 1 },
+        "path": { "type": "string", "minLength": 1 },
+        "summary": { "$ref": "#/$defs/nullableString" },
+        "change": { "$ref": "#/$defs/nullableString" },
+        "deprecated": { "$ref": "#/$defs/nullableBoolean" },
+        "params": { "$ref": "#/$defs/nullableParams" },
+        "responses": { "$ref": "#/$defs/nullableResponses" }
+      },
+      "required": [
+        "type",
+        "id",
+        "method",
+        "path",
+        "summary",
+        "change",
+        "deprecated",
+        "params",
+        "responses"
+      ],
+      "additionalProperties": false
+    },
+    "table": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "enum": ["table"] },
+        "id": { "type": "string", "minLength": 1 },
+        "columns": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1
+        },
+        "rows": {
+          "type": "array",
+          "items": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "required": ["type", "id", "columns", "rows"],
+      "additionalProperties": false
+    },
+    "checklistItem": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "label": { "type": "string" },
+        "note": { "$ref": "#/$defs/nullableString" },
+        "checked": { "$ref": "#/$defs/nullableBoolean" }
+      },
+      "required": ["id", "label", "note", "checked"],
+      "additionalProperties": false
+    },
+    "checklist": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "enum": ["checklist"] },
+        "id": { "type": "string", "minLength": 1 },
+        "items": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/checklistItem" },
+          "minItems": 1
+        }
+      },
+      "required": ["type", "id", "items"],
+      "additionalProperties": false
+    },
+    "mermaid": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "enum": ["mermaid"] },
+        "id": { "type": "string", "minLength": 1 },
+        "source": { "type": "string", "minLength": 1, "maxLength": 8000 },
+        "caption": { "$ref": "#/$defs/nullableString" }
+      },
+      "required": ["type", "id", "source", "caption"],
+      "additionalProperties": false
+    },
+    "wireframe": {
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "enum": ["wireframe"] },
+        "id": { "type": "string", "minLength": 1 },
+        "surface": {
+          "type": "string",
+          "enum": ["browser", "desktop", "mobile", "popover", "panel"]
+        },
+        "html": { "type": "string", "minLength": 1, "maxLength": 20000 },
+        "caption": { "$ref": "#/$defs/nullableString" }
+      },
+      "required": ["type", "id", "surface", "html", "caption"],
+      "additionalProperties": false
+    }
+  },
+  "type": "object",
+  "properties": {
+    "verdict": { "type": "string", "enum": ["ready", "parked", "needs_attention"] },
+    "headline": { "type": "string", "maxLength": 100 },
+    "body": { "type": "string" },
+    "openItems": { "type": "array", "items": { "type": "string" } },
+    "blocks": {
+      "type": "array",
+      "items": {
+        "anyOf": [
+          { "$ref": "#/$defs/richText" },
+          { "$ref": "#/$defs/callout" },
+          { "$ref": "#/$defs/fileTree" },
+          { "$ref": "#/$defs/diff" },
+          { "$ref": "#/$defs/code" },
+          { "$ref": "#/$defs/annotatedCode" },
+          { "$ref": "#/$defs/dataModel" },
+          { "$ref": "#/$defs/apiEndpoint" },
+          { "$ref": "#/$defs/table" },
+          { "$ref": "#/$defs/checklist" },
+          { "$ref": "#/$defs/mermaid" },
+          { "$ref": "#/$defs/wireframe" }
+        ]
+      }
+    }
+  },
+  "required": ["verdict", "headline", "body", "openItems", "blocks"],
+  "additionalProperties": false
+}

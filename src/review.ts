@@ -17,6 +17,7 @@ import type {
 } from "./types";
 import type { RoleEnvironment } from "./default-model";
 import { buildTransientAgentArgv } from "./transient-agent-argv";
+import { CODEX_ROLE_OUTPUT_SCHEMAS } from "./codex-role-output-schema";
 import { apiKeyFailClosed } from "./spawn-auth";
 import { type SessionUsage } from "./usage";
 import {
@@ -707,7 +708,8 @@ export class ReviewService {
       planCtx.approved,
       amendments,
     );
-    const argvFor = (p: string): string[] => this.criticArgvFor(p, reviewerEnv, criticSessionId);
+    const argvFor = (p: string): string[] =>
+      this.criticArgvFor(p, reviewerEnv, criticSessionId, planCtx.planShown);
     const argv = argvFor(
       composePrompt({
         plan: planCtx.plan,
@@ -964,7 +966,12 @@ export class ReviewService {
    *  recorded `criticSessionId` keys `inflight`, `recordReviewerSpawn`, `readVerdict`, `readUsage`
    *  and the codex last-message file, so a disagreeing `--session-id` means the verdict is written
    *  where nothing ever looks. */
-  private criticArgvFor(prompt: string, env: RoleEnvironment, sessionId: string): string[] {
+  private criticArgvFor(
+    prompt: string,
+    env: RoleEnvironment,
+    sessionId: string,
+    planShown: boolean,
+  ): string[] {
     return buildTransientAgentArgv("reviewer", {
       provider: env.provider,
       model: env.model,
@@ -972,6 +979,9 @@ export class ReviewService {
       prompt,
       // The critic READS the `-o` last-message fallback (per-spawn name for its untrusted checkout).
       captureLastMessage: true,
+      outputSchemaFile: planShown
+        ? CODEX_ROLE_OUTPUT_SCHEMAS.criticWithPlan
+        : CODEX_ROLE_OUTPUT_SCHEMAS.critic,
       sessionId,
     }).argv;
   }

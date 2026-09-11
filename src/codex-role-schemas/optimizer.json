@@ -1,0 +1,23 @@
+{
+  "$defs": {
+    "nullableString": {
+      "anyOf": [{ "type": "string" }, { "type": "null" }]
+    },
+    "revision": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "rule": { "type": "string", "pattern": "\\S", "maxLength": 240 },
+        "rationale": { "$ref": "#/$defs/nullableString" }
+      },
+      "required": ["id", "rule", "rationale"],
+      "additionalProperties": false
+    }
+  },
+  "type": "object",
+  "properties": {
+    "revisions": { "type": "array", "items": { "$ref": "#/$defs/revision" } }
+  },
+  "required": ["revisions"],
+  "additionalProperties": false
+}

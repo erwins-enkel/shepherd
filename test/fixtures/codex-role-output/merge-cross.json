@@ -1,0 +1,8 @@
+{
+  "groups": [
+    {
+      "memberIds": ["repo-a-rule", "repo-b-rule"],
+      "canonicalRule": "Run the repository generator after editing generated inputs."
+    }
+  ]
+}

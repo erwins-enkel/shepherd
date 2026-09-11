@@ -9,6 +9,7 @@ import type { Learning, Signal, SignalKind } from "./types";
 import { sanitizeScopeGlobs } from "./house-rules";
 import { apiKeyFailClosed, apiKeyPassthroughEnv } from "./spawn-auth";
 import { buildTransientAgentArgv } from "./transient-agent-argv";
+import { CODEX_ROLE_OUTPUT_SCHEMAS } from "./codex-role-output-schema";
 import { reapTransientByLabel } from "./transient-tab-reaper";
 import type { RoleEnvironment } from "./default-model";
 import { normalizeRule } from "./learning-rule";
@@ -287,6 +288,7 @@ export class DistillerService {
       prompt: distillPrompt(),
       // The distiller READS the `-o` last-message fallback → opt in.
       captureLastMessage: true,
+      outputSchemaFile: CODEX_ROLE_OUTPUT_SCHEMAS.distiller,
     });
     const agentName = DISTILL_LABEL + sessionId.slice(0, 8);
     // Reserve the inflight slot SYNCHRONOUSLY — before the async spawn yields — so the daily

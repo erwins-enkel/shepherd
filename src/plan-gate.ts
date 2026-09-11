@@ -29,6 +29,7 @@ import {
   groundPlanBlocks,
 } from "./visual-blocks";
 import { buildTransientAgentArgv } from "./transient-agent-argv";
+import { CODEX_ROLE_OUTPUT_SCHEMAS } from "./codex-role-output-schema";
 import { apiKeyFailClosed } from "./spawn-auth";
 import { type SessionUsage } from "./usage";
 import {
@@ -488,6 +489,7 @@ export function reviewerArgv(
     prompt,
     effort,
     captureLastMessage: true,
+    outputSchemaFile: CODEX_ROLE_OUTPUT_SCHEMAS.planReview,
     sessionId,
   });
 }

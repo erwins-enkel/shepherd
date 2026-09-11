@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -21,6 +21,42 @@ import {
 import { defaultReadVerdict } from "../src/recap";
 import { tolerantParseJson } from "../src/json-tolerant";
 import type { DiffFile, DiffLine, Recap } from "../src/types";
+
+test("schema-shaped Codex chat recap preserves its inline body and all twelve block variants", () => {
+  const dir = mkdtempSync(join(tmpdir(), "recap-schema-chat-"));
+  const fixture = readFileSync(
+    join(import.meta.dir, "fixtures/codex-role-output/recap.json"),
+    "utf8",
+  );
+  try {
+    writeFileSync(join(dir, ".shepherd-last-message.txt"), fixture);
+
+    const read = defaultReadVerdict(dir);
+    expect(read.status).toBe("parsed");
+    if (read.status !== "parsed") throw new Error("expected parsed recap");
+    const parsed = parseRecapVerdict(read.value)!;
+
+    expect(parsed.body).toBe(
+      "**Fertig.** Die Zeile sagt: „Pfad `src\\core.ts` bleibt.“\n\nNächster Absatz.",
+    );
+    expect(parsed.blocks.map((block) => block.id)).toEqual([
+      "recap-rich-text",
+      "recap-callout",
+      "recap-file-tree",
+      "recap-diff",
+      "recap-code",
+      "recap-annotated-code",
+      "recap-data-model",
+      "recap-api-endpoint",
+      "recap-table",
+      "recap-checklist",
+      "recap-mermaid",
+      "recap-wireframe",
+    ]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 // ── #822 regression: malformed-JSON read path (defaultReadVerdict → parseRecapVerdict) ──────────
 //

@@ -125,6 +125,27 @@ execution controls below, Shepherd bounds the injection surface at ingestion
   `REVIEW_POLICY_MAX_BYTES` (8 KB) with a visible marker, a bad SHA or git
   failure yields no block, and the delimiters are plain markers rather than a
   nonce fence because the content is trusted by construction.
+- **Trusted-by-provenance exception: operator task amendments.** The four prompts
+  that treat a session's task as ground truth (session critic, plan reviewer,
+  autopilot classifier, recap) carry a second unfenced block: the
+  `OPERATOR TASK AMENDMENTS` text an operator added after the session started
+  (`amendmentBlock`, `src/task-amendments.ts`). Fenced it would be contractually
+  ignorable — `UNTRUSTED_CONTENT_DIRECTIVE` orders the reader to ignore in-fence
+  claims of operator authority — so it rides outside the fences for the same
+  reason the task itself does, and its preamble states the other half of that
+  contract: a fenced block claiming to be an amendment is an impostor. Anything
+  that can widen a task can excuse a finding, so three properties contain it:
+  the write routes (`POST /api/sessions/:id/amendments`,
+  `DELETE …/amendments/:id`) are **absent from `AGENT_LEAF_ROUTES`**, so the
+  loopback agent ingress denies them and an agent can never amend its own task
+  (pinned by `test/agent-ingress.test.ts`); no steer is ever promoted into an
+  amendment, only the operator's explicit action writes a row; and the block
+  grants **scope** authority while disclaiming everything else in the same
+  breath — an amendment never excuses a bug, a security issue or a quality
+  defect. Amendments are append-only (no UPDATE path for `text`; retraction is a
+  soft delete that stops the row reaching every prompt but leaves it on the
+  record) and bounded at entry by `AMENDMENT_MAX_CHARS` (2000), because they are
+  non-clampable in the critic's argv budget ladder.
 - **Fail-closed author-trust gate.** An **autonomous** (`auto=true`) spawn from an
   issue whose author is **not** a trusted repo association (`OWNER` / `MEMBER` /
   `COLLABORATOR` — anything else, including an unresolvable, absent, or Gitea-side
@@ -250,5 +271,6 @@ dontAsk` can otherwise read nothing but the files Shepherd itself wrote into
 ## See also
 
 - `src/egress.ts`, `src/sandbox.ts`, `src/service.ts`, `src/autopilot.ts`,
-  `src/transient-agent-argv.ts`, `src/task-shape.ts`, `src/maintain.ts`, `src/untrusted.ts`, `src/tool-guard-hook.ts`,
+  `src/transient-agent-argv.ts`, `src/task-shape.ts`, `src/maintain.ts`, `src/untrusted.ts`, `src/task-amendments.ts`,
+  `src/tool-guard-hook.ts`,
   `scripts/tool-guard.mjs`.

@@ -11,6 +11,11 @@ export interface SessionEnvironment {
   /** True when `model` is what the agent was OBSERVED to run, false when it is the configured value
    *  (or the default standing in for one). */
   modelObserved: boolean;
+  /** True when a model is actually KNOWN (observed or configured), false when `model` is only the
+   *  localized "default" standing in for one. Distinct from {@link modelObserved}, which says where
+   *  a known value came from. Read by {@link modelsMixed}, so the precedence below stays in one
+   *  place instead of being re-derived by every caller that needs to know. */
+  modelKnown: boolean;
   /** Effort segment, or null when it is not worth its own segment (see {@link segments}). */
   effort: string | null;
   /** True when `effort` is observed rather than configured. Always false for Claude sessions, whose
@@ -20,6 +25,20 @@ export interface SessionEnvironment {
   /** Ready-to-show explanation: one complete sentence per rendered segment, each naming where THAT
    *  segment came from. Both session surfaces show this verbatim. */
   tooltip: string;
+}
+
+/**
+ * The model segment's label, observed → configured → the honest "default".
+ *
+ * Its own function rather than a ternary chain inside the resolver below: that chain plus the
+ * per-field provenance bookkeeping put `sessionEnvironment` over the repo's cognitive-complexity
+ * bar. The labeling split matters — see {@link sessionEnvironment} on why observed and configured
+ * values must not share one vocabulary.
+ */
+function modelSegment(observed: string | null, configured: string | null): string {
+  if (observed) return runtimeModelLabel(observed);
+  if (configured) return modelLabel(configured);
+  return m.newtask_model_default();
 }
 
 /**
@@ -55,11 +74,7 @@ export function sessionEnvironment(
   const configuredModel = session.model ?? null;
   const configuredEffort = session.effort ?? null;
 
-  const model = observedModel
-    ? runtimeModelLabel(observedModel)
-    : configuredModel
-      ? modelLabel(configuredModel)
-      : m.newtask_model_default();
+  const model = modelSegment(observedModel, configuredModel);
   const knownEffort = observedEffort ?? configuredEffort;
   const effort = knownEffort ? effortLabel(knownEffort) : m.effort_default();
 
@@ -86,6 +101,7 @@ export function sessionEnvironment(
   return {
     model,
     modelObserved,
+    modelKnown: !!(observedModel ?? configuredModel),
     effort: effortKnown ? effort : null,
     effortObserved,
     // The model segment always stands, so the operator can always see which model a task ran on;
@@ -94,4 +110,40 @@ export function sessionEnvironment(
     segments: effortKnown ? [model, effort] : [model],
     tooltip: sentences.join(" "),
   };
+}
+
+/**
+ * Do the sessions on display run MORE THAN ONE model?
+ *
+ * The session list prints each row's model, which is only worth the line when the rows differ:
+ * a herd where every session ran the same model repeats one word down the whole rail and tells
+ * the operator nothing. Callers gate the model segment on this.
+ *
+ * Two rules, both deliberate:
+ *
+ *   - **The comparison is over the WHOLE visible list**, so every row agrees — either all of them
+ *     print their model or none does. Deciding per group would show the same model in one group
+ *     and hide it in the next, and a row would gain or lose its label just by moving between
+ *     lifecycle stages.
+ *   - **Sessions with no known model do not count.** Their label is the localized "default", which
+ *     says only that we never learned what ran; letting that stand as a distinct value would call
+ *     almost every list mixed and leave the label permanently on.
+ *
+ * "Same model" means the same rendered LABEL, not the same underlying id: a configured floating
+ * alias (`opus`, never run) reads differently from an observed `Opus 5` and genuinely looks like a
+ * second model on screen. The client cannot know which concrete model an alias resolved to, so
+ * folding the two together would be a guess.
+ */
+export function modelsMixed(
+  sessions: readonly Pick<Session, "id" | "model" | "effort" | "runtimeModel" | "runtimeEffort">[],
+  activity: Record<string, SessionActivity>,
+): boolean {
+  const labels = new Set<string>();
+  for (const session of sessions) {
+    const env = sessionEnvironment(session, activity[session.id]);
+    if (!env.modelKnown) continue;
+    labels.add(env.model);
+    if (labels.size > 1) return true;
+  }
+  return false;
 }

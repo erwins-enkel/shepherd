@@ -1108,3 +1108,87 @@ describe("Herd jump flash", () => {
     await expect.poll(() => flashed(screen.container)).toEqual([]);
   });
 });
+
+// The model segment earns its place in a row only when the rail is showing more than one model.
+// Where the unit tests pin the decision, these pin the WIRING: the flag is derived over the full
+// visible set and reaches every row, and suppressing it leaves no dangling separator behind.
+describe("Herd model label", () => {
+  // The task-id button contributes its own layout whitespace, so collapse runs before comparing —
+  // these assert the SEGMENTS, not the row's internal spacing.
+  const meta = (container: HTMLElement) =>
+    [...container.querySelectorAll(".meta-text")].map((el) =>
+      el.textContent!.replace(/\s+/g, " ").trim(),
+    );
+
+  it("one model across the rail: no row prints it, and no row is left with a trailing separator", async () => {
+    const screen = await render(Herd, {
+      ...base,
+      sessions: [
+        session({ id: "a", desig: "TASK-01", runtimeModel: "claude-opus-5" }),
+        session({ id: "b", desig: "TASK-02", runtimeModel: "claude-opus-5" }),
+      ],
+      git: {},
+    });
+    await expect.poll(() => meta(screen.container)).toEqual(["TASK-01", "TASK-02"]);
+  });
+
+  it("a second model on display brings the label back on every row", async () => {
+    const screen = await render(Herd, {
+      ...base,
+      sessions: [
+        session({ id: "a", desig: "TASK-01", runtimeModel: "claude-opus-5" }),
+        session({ id: "b", desig: "TASK-02", runtimeModel: "gpt-6-astra" }),
+      ],
+      git: {},
+    });
+    await expect
+      .poll(() => meta(screen.container))
+      .toEqual(["TASK-01 · Opus 5", "TASK-02 · GPT-6 Astra"]);
+  });
+
+  it("a session with no known model does not by itself make a mix", async () => {
+    const screen = await render(Herd, {
+      ...base,
+      sessions: [
+        session({ id: "a", desig: "TASK-01", runtimeModel: "claude-opus-5" }),
+        session({ id: "b", desig: "TASK-02" }),
+      ],
+      git: {},
+    });
+    await expect.poll(() => meta(screen.container)).toEqual(["TASK-01", "TASK-02"]);
+  });
+
+  it("the decision spans the whole visible list, not one group", async () => {
+    // The differing model sits in the Merged group at the bottom while the other row is active.
+    // A per-group decision would hide the label on the active row; deriving over `shown` (before
+    // grouping) is what makes both rows agree.
+    const screen = await render(Herd, {
+      ...base,
+      sessions: [
+        session({ id: "a", desig: "TASK-01", runtimeModel: "claude-opus-5" }),
+        session({ id: "b", desig: "TASK-02", runtimeModel: "gpt-6-astra" }),
+      ],
+      git: { b: { kind: "github", state: "merged", checks: "success", deployConfigured: false } },
+    });
+    await expect
+      .poll(() => meta(screen.container))
+      .toEqual(["TASK-01 · Opus 5", "TASK-02 · GPT-6 Astra"]);
+  });
+
+  it("the effort segment is unaffected when the model is suppressed", async () => {
+    const screen = await render(Herd, {
+      ...base,
+      sessions: [
+        session({
+          id: "a",
+          desig: "TASK-01",
+          runtimeModel: "claude-opus-5",
+          runtimeEffort: "high",
+        }),
+        session({ id: "b", desig: "TASK-02", runtimeModel: "claude-opus-5" }),
+      ],
+      git: {},
+    });
+    await expect.poll(() => meta(screen.container)).toEqual(["TASK-01 · High", "TASK-02"]);
+  });
+});

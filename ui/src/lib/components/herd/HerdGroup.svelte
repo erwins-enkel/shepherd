@@ -34,6 +34,10 @@
     onackmanualsteps?: (id: string) => void;
     // manual-steps chip -> Owed lens (#1275)
     onshowowed?: (id: string) => void;
+    // print each row's model — false when every session on display runs the same one, where the
+    // label repeats down the whole rail and says nothing. Decided once, over the full visible set,
+    // so every group agrees (see modelsMixed).
+    showModel: boolean;
   };
 
   type ActionDef = {
@@ -146,6 +150,7 @@
       hold={ctx.holdFor(session.id)}
       onackmanualsteps={ctx.onackmanualsteps}
       onshowowed={ctx.onshowowed}
+      showModel={ctx.showModel}
     />
   {/each}
 {/if}

@@ -84,6 +84,7 @@
     hold = undefined,
     onackmanualsteps,
     onshowowed,
+    showModel = true,
   }: {
     session: Session;
     selected: boolean;
@@ -140,6 +141,11 @@
     onackmanualsteps?: (id: string) => void;
     // when provided, the manual-steps chip becomes a button that opens the Owed lens (#1275)
     onshowowed?: (id: string) => void;
+    /** Print the model segment. The rail passes false when every session on display runs the same
+     *  model, where repeating one word down every row tells the operator nothing (see modelsMixed).
+     *  Defaults to TRUE: a row rendered outside a list has no peers to compare against, so showing
+     *  the model is the only honest standalone behaviour. */
+    showModel?: boolean;
   } = $props();
 
   // Every status-driven DISPLAY branch below reads this, not session.status: a
@@ -190,7 +196,14 @@
   // Model + effort, resolved observed → configured → default (see sessionEnvironment). The card and
   // the session status bar share this one resolver so they can never disagree about the same run.
   const environment = $derived(sessionEnvironment(session, activity));
-  const environmentText = $derived(environment.segments.join(" · "));
+  // Suppressing the model can leave nothing to print (an unknown effort renders no segment of its
+  // own — the ordinary Claude case), so the leading separator hangs off the text rather than the
+  // template: `TASK-01 ·` with nothing after it is the one regression this gate can produce. The
+  // hover tip still names the model either way, so nothing becomes unknowable.
+  const environmentText = $derived(
+    (showModel ? environment.segments : environment.effort ? [environment.effort] : []).join(" · "),
+  );
+  const environmentSuffix = $derived(environmentText ? ` · ${environmentText}` : "");
   function toggleRepoFilter() {
     // Non-additive: a plain click resets the filter to this repo (or clears it when this repo
     // is already the sole selection — handled by the page's nextRepoFilter).
@@ -937,7 +950,7 @@
 
     <span class="meta">
       <span class="meta-text" use:statusTip={{ text: environment.tooltip }}
-        ><TaskIdButton {session} /> · {environmentText}</span
+        ><TaskIdButton {session} />{environmentSuffix}</span
       >
       {#if session.manualSteps.length > 0}
         {#if onshowowed}

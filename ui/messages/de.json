@@ -3980,5 +3980,10 @@
   "settings_motion_system": "System",
   "settings_motion_reduced": "Reduziert",
   "feat_motion_pref_title": "Wähle, wie viel Bewegung Shepherd nutzt",
-  "feat_motion_pref_body": "Unter Einstellungen → Gerät gibt es jetzt „Bewegung“: Voll, System oder Reduziert. Manche Desktops melden „Bewegung reduzieren“, ohne dass du das je verlangt hättest — und damit stand jede Animation in Shepherd still. Stell auf Voll, und sie laufen wieder. Status-Pulse, die laufende Arbeit anzeigen, waren nie betroffen."
+  "feat_motion_pref_body": "Unter Einstellungen → Gerät gibt es jetzt „Bewegung“: Voll, System oder Reduziert. Manche Desktops melden „Bewegung reduzieren“, ohne dass du das je verlangt hättest — und damit stand jede Animation in Shepherd still. Stell auf Voll, und sie laufen wieder. Status-Pulse, die laufende Arbeit anzeigen, waren nie betroffen.",
+  "issuebadge_open_label": "Issue #{number} öffnen",
+  "issuepeek_loading": "Issue wird geladen …",
+  "issuepeek_unavailable": "Dieses Issue konnte nicht geladen werden.",
+  "feat_card_issue_peek_title": "Ein Issue direkt von der Session-Karte ansehen",
+  "feat_card_issue_peek_body": "Der #1234-Chip nannte das Issue, für das eine Session gestartet wurde, verriet aber nichts darüber — wer eine Nummer einer Aufgabe zuordnen wollte, musste weiterhin zur Forge. Ein Zeigen auf den Chip öffnet jetzt eine kleine Vorschau: Titel, Labels, Autor und der Anfang der Beschreibung. Ein Klick öffnet das Issue in einem neuen Tab auf der Forge; auf dem Touchscreen zeigt der erste Tipp die Vorschau, der zweite öffnet sie."
 }

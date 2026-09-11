@@ -3980,5 +3980,10 @@
   "settings_motion_system": "System",
   "settings_motion_reduced": "Reduced",
   "feat_motion_pref_title": "Choose how much motion Shepherd uses",
-  "feat_motion_pref_body": "Settings → Device now has a Motion control: Full, System or Reduced. Some desktops report \"reduce motion\" without you ever asking for it — which silenced every animation in Shepherd. Set it to Full to get them back. Status pulses that signal live work were never affected."
+  "feat_motion_pref_body": "Settings → Device now has a Motion control: Full, System or Reduced. Some desktops report \"reduce motion\" without you ever asking for it — which silenced every animation in Shepherd. Set it to Full to get them back. Status pulses that signal live work were never affected.",
+  "issuebadge_open_label": "Open issue #{number}",
+  "issuepeek_loading": "Loading issue …",
+  "issuepeek_unavailable": "Couldn't load this issue.",
+  "feat_card_issue_peek_title": "Preview an issue from the session card",
+  "feat_card_issue_peek_body": "The #1234 chip named the issue a session was spawned for but told you nothing about it, so putting a number to a task still meant a trip to the forge. Hovering the chip now opens a small preview — title, labels, author and the start of the description — and clicking it opens the issue on the forge in a new tab. On a touchscreen the first tap shows the preview, the second opens it."
 }

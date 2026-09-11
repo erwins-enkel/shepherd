@@ -210,6 +210,7 @@ import {
 import { repoHasNoCiCached } from "./checks-gate";
 import { parseEpicBody } from "./epic-parse";
 import { countDefinedWorkflows, type CountsService, type RepoCounts } from "./backlog";
+import { peekIssue } from "./issue-peek";
 import type { OpenPrSnapshotService } from "./open-pr-snapshot";
 import { join, normalize, basename } from "node:path";
 import { homedir, tmpdir } from "node:os";
@@ -6302,6 +6303,26 @@ async function handleIssues({ req, parts, url, deps }: Ctx): Promise<Response | 
   return null;
 }
 
+// GET /api/issues/:number — ONE issue, for the session card's hover preview. Its own
+// handler rather than a second branch inside handleIssues, which stays a router (the
+// same split POST /api/issues takes on the shared path).
+//
+// Always through peekIssue (short TTL + in-flight coalescing), never the raw forge read:
+// the trigger is a mouse crossing a chip, and `getIssue` is one `gh` subprocess a call.
+// A repo without a forge (or without single-issue support) answers `{issue:null}` rather
+// than an error — the preview falls back to what the session recorded at launch.
+async function handleIssuePeek({ req, parts, url, deps }: Ctx): Promise<Response | null> {
+  if (req.method !== "GET" || parts[0] !== "api" || parts[1] !== "issues") return null;
+  const number = parts[2];
+  if (!number || parts[3]) return null;
+  const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
+  if (!dir) return json({ error: "invalid repo" }, 400);
+  if (!/^[1-9][0-9]{0,8}$/.test(number)) return json({ error: "invalid issue number" }, 400);
+  const forge = deps.resolveForge?.(dir) ?? null;
+  if (!forge) return json({ issue: null });
+  return json({ issue: await peekIssue(forge, dir, Number(number)) });
+}
+
 // POST /api/issues — open a new issue on a repo's forge (capture-extension
 // delivery path). Coexists with handleIssues' GET on the same path.
 async function handleIssueCreate({ req, parts, deps }: Ctx): Promise<Response | null> {
@@ -8199,6 +8220,7 @@ const ROUTE_HANDLERS = [
   handleRepoWeb,
   handleRepoInitEmptyCommit,
   handleIssues,
+  handleIssuePeek,
   handleIssueCreate,
   handlePrsList,
   handleActionsList,

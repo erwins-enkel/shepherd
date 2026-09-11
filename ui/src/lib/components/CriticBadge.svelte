@@ -14,8 +14,17 @@
   let {
     sessionId,
     tip = false,
+    interactive = true,
     prUrl = undefined,
-  }: { sessionId: string; tip?: boolean; prUrl?: string } = $props();
+  }: {
+    sessionId: string;
+    tip?: boolean;
+    // D4 (docs/design/mobile-herd): on a coarse pointer this badge is a READ-ONLY readout,
+    // not a tap target — its ~15px box cannot meet iOS HIG 44x44. The critic detail opens
+    // from the detail screen instead, which the card tap already reaches.
+    interactive?: boolean;
+    prUrl?: string;
+  } = $props();
 
   const reviewing = $derived(reviews.isReviewing(sessionId));
   const verdict = $derived(reviews.map[sessionId]);
@@ -194,7 +203,7 @@
 
   {#if !tip}
     <span class="critic-badge {view.cls}" title={view.title}>{@render content()}</span>
-  {:else if !openPrUrl}
+  {:else if !openPrUrl || !interactive}
     <span
       class="critic-badge {view.cls}"
       role="img"

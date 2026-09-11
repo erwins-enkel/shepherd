@@ -18,6 +18,7 @@
   let {
     session,
     allowView = true,
+    interactive = true,
     pulseReady = false,
     labelOverride = null,
     fallbackLabel = null,
@@ -27,6 +28,11 @@
   }: {
     session: Session;
     allowView?: boolean;
+    // D4 (docs/design/mobile-herd): on a coarse pointer this badge is a READ-ONLY readout,
+    // not a tap target. Its ~15px box cannot meet iOS HIG 44x44, and five of them stack in one
+    // card — inflating them would push the card past 200px. The action moves to the detail
+    // screen, which the card tap already opens. Default true leaves desktop untouched.
+    interactive?: boolean;
     pulseReady?: boolean;
     labelOverride?: string | null;
     fallbackLabel?: string | null;
@@ -200,25 +206,7 @@
 </script>
 
 {#if chip.kind !== "none"}
-  <button
-    bind:this={btnEl}
-    type="button"
-    class="pg-badge pg-{chip.kind}{pulseClass}"
-    class:pg-stalled={stalled}
-    class:pg-noticed-clamped={notice?.severity === "clamped"}
-    class:pg-noticed-failed={notice?.severity === "failed"}
-    title={fullTitle}
-    use:coachTarget={"spawn-notice-badge"}
-    aria-haspopup={stalled ? "menu" : undefined}
-    aria-expanded={stalled ? menu !== null : undefined}
-    onclick={toggle}
-    oncontextmenu={(e) => {
-      if (!stalled) return;
-      e.preventDefault();
-      e.stopPropagation();
-      openMenu(true);
-    }}
-  >
+  {#snippet chipLabel()}
     {#if chip.kind === "reviewing"}
       <span class="rev-dot" aria-hidden="true"></span>{m.plangate_reviewing()}
     {:else if labelOverride}
@@ -236,7 +224,42 @@
     {:else}
       {m.plangate_planning()}
     {/if}
-  </button>
+  {/snippet}
+  {#if !interactive}
+    <!-- D4: coarse pointer — read-only readout; the action lives in the detail screen. -->
+    <span
+      class="pg-badge pg-{chip.kind}{pulseClass}"
+      class:pg-stalled={stalled}
+      class:pg-noticed-clamped={notice?.severity === "clamped"}
+      class:pg-noticed-failed={notice?.severity === "failed"}
+      role="img"
+      aria-label={fullTitle}
+      title={tip ? undefined : fullTitle}
+      use:statusTip={tip ? { text: fullTitle } : null}>{@render chipLabel()}</span
+    >
+  {:else}
+    <button
+      bind:this={btnEl}
+      type="button"
+      class="pg-badge pg-{chip.kind}{pulseClass}"
+      class:pg-stalled={stalled}
+      class:pg-noticed-clamped={notice?.severity === "clamped"}
+      class:pg-noticed-failed={notice?.severity === "failed"}
+      title={fullTitle}
+      use:coachTarget={"spawn-notice-badge"}
+      aria-haspopup={stalled ? "menu" : undefined}
+      aria-expanded={stalled ? menu !== null : undefined}
+      onclick={toggle}
+      oncontextmenu={(e) => {
+        if (!stalled) return;
+        e.preventDefault();
+        e.stopPropagation();
+        openMenu(true);
+      }}
+    >
+      {@render chipLabel()}
+    </button>
+  {/if}
 {:else if fallbackLabel}
   <span
     class="pg-badge pg-changes pg-stalled pg-fallback"

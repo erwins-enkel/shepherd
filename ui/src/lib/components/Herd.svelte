@@ -15,7 +15,6 @@
   import HerdGroup from "./herd/HerdGroup.svelte";
   import type { HerdRowCtx } from "./herd/HerdGroup.svelte";
   import HerdLensStrip from "./herd/HerdLensStrip.svelte";
-  import HerdSegRow from "./herd/HerdSegRow.svelte";
   import HerdEpicGroups from "./herd/HerdEpicGroups.svelte";
   import HerdExperimentGroups from "./herd/HerdExperimentGroups.svelte";
   import HerdDoneList from "./herd/HerdDoneList.svelte";
@@ -662,9 +661,11 @@
 
 <div class="panel bracket" class:flow>
   {#if flow}
-    <!-- mobile flow: the .phead title is hidden by CSS; the seg row is the control -->
+    <!-- mobile flow: the .phead title is hidden by CSS. The lens control is NOT here — it moved
+         to the bottom navigation bar (ActionBar) so it sits in the thumb zone and stays put while
+         the list scrolls (D10, docs/design/mobile-herd). `filter` stays bindable because the page
+         still drives it; only the control moved. -->
     <div class="phead"><span class="micro">{m.herd_title()}</span></div>
-    <HerdSegRow bind:filter {statusFilter} {onstatusfilter} />
   {:else}
     <!-- desktop / touch-wide: the icon-over-label lens strip IS the panel header
          (no separate "The Herd" title row) -->

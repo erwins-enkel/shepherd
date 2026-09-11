@@ -116,8 +116,12 @@
   --mobile-actionbar-hit: 44px;
   --mobile-actionbar-pad: 10px;
   --actionbar-border: 1px;
+  /* Gap between the bar's two ranks (D10, docs/design/mobile-herd): the lens segments on top,
+     the actions below. Both ranks are --mobile-actionbar-hit tall. */
+  --mobile-actionbar-rowgap: 4px;
   --mobile-actionbar-h: calc(
-    var(--mobile-actionbar-hit) + var(--mobile-actionbar-pad) + 2 * var(--actionbar-border)
+    2 * var(--mobile-actionbar-hit) + var(--mobile-actionbar-rowgap) + var(--mobile-actionbar-pad) +
+      2 * var(--actionbar-border)
   );
   /* Mobile shell's base edge padding — single source shared by .shell.mobile
      (+page.svelte) and the full-bleed herd panel's negative margin

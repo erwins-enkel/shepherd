@@ -126,6 +126,7 @@
   import DoneRecapPanel from "$lib/components/DoneRecapPanel.svelte";
   import type { KickoffChoice } from "$lib/components/NewProject.svelte";
   import ActionBar from "$lib/components/ActionBar.svelte";
+  import ReposSheet from "$lib/components/ReposSheet.svelte";
   import QueueStrip from "$lib/components/QueueStrip.svelte";
   import RepoSwitcher from "$lib/components/RepoSwitcher.svelte";
   import {
@@ -1324,6 +1325,10 @@
   });
 
   let showBacklog = $state(false);
+  // Phone-only repo surface (D14, docs/design/mobile-herd): the repo filter + the way into the
+  // backlog, one tap from REPOS in the bottom navigation. Replaces the top-edge repo rail, which
+  // is now desktop/tablet chrome only.
+  let showRepos = $state(false);
 
   // EPIC badge → open the backlog targeted at that session's repo + epic issue
   // (Issues tab, row expanded + scrolled). Cleared on every backlog close so a
@@ -2788,6 +2793,7 @@
           settingsDeepLink = false;
           showSettings = true;
         }}
+        ondonelens={mobile.current ? () => (herdFilter = "done") : undefined}
         onusage={() => (showUsage = true)}
         onhalt={haltHerd}
         update={store.update}
@@ -2823,15 +2829,20 @@
         }}
         settingsChordAllowed={() => !anyOverlayOpen()}
       />
-      <RepoSwitcher
-        chips={repoChips}
-        {repoFilter}
-        {pinnedRepo}
-        mobile={mobile.current}
-        onrepofilter={applyRepoFilter}
-        onpinrepo={setPinnedRepo}
-        oncleanterminal={openCleanTerminal}
-      />
+      <!-- The repo rail is desktop/tablet chrome only. On a phone it cost 48px of the screen's
+           top edge for three 10px labels and put a filter out of thumb reach; it now lives in the
+           REPOS sheet, one tap from the bottom bar (D14, docs/design/mobile-herd). -->
+      {#if !mobile.current}
+        <RepoSwitcher
+          chips={repoChips}
+          {repoFilter}
+          {pinnedRepo}
+          mobile={mobile.current}
+          onrepofilter={applyRepoFilter}
+          onpinrepo={setPinnedRepo}
+          oncleanterminal={openCleanTerminal}
+        />
+      {/if}
       <QueueStrip autoMerge={store.autoMerge} onselect={jumpToSession} />
     </header>
   {/if}
@@ -2950,8 +2961,12 @@
         </div>
         <ActionBar
           onnew={() => (showNew = true)}
-          onbacklog={store.sessions.length > 0 ? () => (showBacklog = true) : undefined}
+          onbacklog={() => (showRepos = true)}
           mobile={mobile.current}
+          lens
+          bind:filter={herdFilter}
+          {statusFilter}
+          onstatusfilter={(s) => (statusFilter = s)}
         />
       {:else if herdFilter === "done"}
         <!-- Done lens detail (mobile): read-only recap; back returns to the done list -->
@@ -3459,6 +3474,19 @@
   onselect={selectUnit}
 />
 
+{#if showRepos}
+  <!-- D14 (docs/design/mobile-herd): REPOS in the bottom navigation opens this. It carries both
+       things the button's label promises — the per-repo filter that used to live in the top rail,
+       and the way into the backlog. -->
+  <ReposSheet
+    chips={repoChips}
+    {repoFilter}
+    onrepofilter={applyRepoFilter}
+    onbacklog={store.sessions.length > 0 ? () => (showBacklog = true) : undefined}
+    onclose={() => (showRepos = false)}
+  />
+{/if}
+
 <Toasts aboveActionBar={mobileActionBarPresent} />
 
 <style>
@@ -3723,6 +3751,13 @@
     display: flex;
     flex-direction: column;
     gap: inherit;
+  }
+  /* The phone list's chrome bands are separated by their own hairlines, which is how this design
+     system builds boundaries (DESIGN.md, Elevation). The inherited 10px gaps drew nothing and
+     cost 20px of a 932px screen, so they go here — and only here, where vertical room is the
+     scarce resource. */
+  .shell.mobile.list .chrome {
+    gap: 0;
   }
 
   /* Mobile list screen becomes a document-scroll app-shell: the shell grows with

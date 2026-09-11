@@ -144,148 +144,186 @@
          <button>, which would be invalid inside the row's own button) with
          stopPropagation so the row's select doesn't also fire. -->
     <span class="preview-wrap" bind:this={previewWrapEl}>
-      <span
-        class="preview-badge"
-        class:preview-badge--degraded={previewServeFailed}
-        class:preview-badge--busy={previewBusy}
-        role="button"
-        tabindex={previewBusy ? -1 : 0}
-        aria-busy={previewBusy}
-        aria-disabled={previewBusy}
-        aria-expanded={previewOpenMode === "ask" ? previewChoiceOpen : undefined}
-        title={previewBusy
-          ? m.unitrow_preview_loading()
-          : previewServeFailed
+      {#if coarsePointer}
+        <!-- D4: touch — a read-only marker. The preview opens from the detail screen's
+             preview tab, which the card tap already reaches. -->
+        <span
+          class="preview-badge preview-badge--readonly"
+          class:preview-badge--degraded={previewServeFailed}
+          role="img"
+          aria-label={previewServeFailed
             ? m.unitrow_preview_badge_degraded()
             : m.unitrow_preview_badge()}
-        onclick={onPreviewActivate}
-        onkeydown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            onPreviewActivate(e);
-          }
-        }}>{m.unitrow_preview_badge()}</span
-      >
+          use:statusTip={{
+            text: previewServeFailed
+              ? m.unitrow_preview_badge_degraded()
+              : m.unitrow_preview_badge(),
+          }}>{m.unitrow_preview_badge()}</span
+        >
+      {:else}
+        <span
+          class="preview-badge"
+          class:preview-badge--degraded={previewServeFailed}
+          class:preview-badge--busy={previewBusy}
+          role="button"
+          tabindex={previewBusy ? -1 : 0}
+          aria-busy={previewBusy}
+          aria-disabled={previewBusy}
+          aria-expanded={previewOpenMode === "ask" ? previewChoiceOpen : undefined}
+          title={previewBusy
+            ? m.unitrow_preview_loading()
+            : previewServeFailed
+              ? m.unitrow_preview_badge_degraded()
+              : m.unitrow_preview_badge()}
+          onclick={onPreviewActivate}
+          onkeydown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              onPreviewActivate(e);
+            }
+          }}>{m.unitrow_preview_badge()}</span
+        >
+      {/if}
     </span>
   {/if}
-  {#if showCli}<CliBadge {session} />{/if}
-  <ResearchBadge {session} tip />
-  <TerminalBadge {session} tip />
-  <!-- Issue before PR: the backlog issue is what the session was spawned for, the PR is
-       what came out of it — reading them left-to-right follows that order. `git` carries
-       the forge-derived issue URL, which is what the chip opens on rows whose launch
-       metadata predates the field. -->
-  <IssueBadge {session} {git} />
-  {#if !stepperTerminal}<PrBadge {git} sessionId={session.id} />{/if}
-  <CriticBadge sessionId={session.id} tip prUrl={git?.url} />
-  <BuildQueueBadge
-    sessionId={session.id}
-    planPhase={session.planPhase}
-    {git}
-    {selected}
-    {onselect}
-    tip
-  />
-  <PlanGateBadge
-    {session}
-    allowView={false}
-    labelOverride={quotaKind === "plan" ? m.unitrow_quota_plan() : null}
-    fallbackLabel={quotaKind === "plan" ? m.unitrow_quota_plan() : null}
-    fallbackTitle={quotaKind === "plan" ? m.unitrow_quota_title() : null}
-    {openPanelTick}
-    tip
-  />
-  {#if quotaKind && quotaKind !== "plan"}
-    <span
-      class="badge quota-stalled"
-      role="img"
-      aria-label={quotaLabel}
-      use:statusTip={{ text: quotaTip }}>{quotaLabel}</span
-    >
-  {/if}
-  <!-- REVIEWING (in-flight critic) outranks the autopilot badge -->
-  {#if !reviewing}<AutopilotBadge
-      {session}
-      repoAutopilotDefault={repoConfig.isAutopilotEnabled(session.repoPath)}
+  <!-- D4 (docs/design/mobile-herd): on a coarse pointer every badge below that has a click of its
+       own is a READ-ONLY readout. Six ~15px tap targets stacked in one card cannot meet iOS HIG
+       44x44 (several miss even the hard WCAG 2.5.8 floor of 24x24), and inflating them would push
+       the card past 200px — the opposite of what the mobile list needs. Each action stays
+       reachable: the card tap opens the detail screen, where GitRail / PlanGateBadge /
+       BuildQueuePanel / the preview tab carry the same controls at a conformant size, and the
+       issue chip's own href is reachable from the session's issue link there. -->
+  <div class="u-badges">
+    {#if showCli}<CliBadge {session} />{/if}
+    <ResearchBadge {session} tip />
+    <TerminalBadge {session} tip />
+    <!-- Issue before PR: the backlog issue is what the session was spawned for, the PR is
+         what came out of it — reading them left-to-right follows that order. `git` carries
+         the forge-derived issue URL, which is what the chip opens on rows whose launch
+         metadata predates the field. -->
+    <IssueBadge {session} {git} interactive={!coarsePointer} />
+    {#if !stepperTerminal}<PrBadge {git} sessionId={session.id} interactive={!coarsePointer} />{/if}
+    <CriticBadge sessionId={session.id} tip interactive={!coarsePointer} prUrl={git?.url} />
+    <BuildQueueBadge
+      sessionId={session.id}
+      planPhase={session.planPhase}
+      {git}
+      {selected}
+      {onselect}
       tip
-    />{/if}
-  <!-- Sandbox state: degraded/unconfined are warnings (amber); confined profiles
+      interactive={!coarsePointer}
+    />
+    <PlanGateBadge
+      {session}
+      allowView={false}
+      labelOverride={quotaKind === "plan" ? m.unitrow_quota_plan() : null}
+      fallbackLabel={quotaKind === "plan" ? m.unitrow_quota_plan() : null}
+      fallbackTitle={quotaKind === "plan" ? m.unitrow_quota_title() : null}
+      {openPanelTick}
+      tip
+      interactive={!coarsePointer}
+    />
+    {#if quotaKind && quotaKind !== "plan"}
+      <span
+        class="badge quota-stalled"
+        role="img"
+        aria-label={quotaLabel}
+        use:statusTip={{ text: quotaTip }}>{quotaLabel}</span
+      >
+    {/if}
+    <!-- REVIEWING (in-flight critic) outranks the autopilot badge -->
+    {#if !reviewing}<AutopilotBadge
+        {session}
+        repoAutopilotDefault={repoConfig.isAutopilotEnabled(session.repoPath)}
+        tip
+      />{/if}
+    <!-- Sandbox state: degraded/unconfined are warnings (amber); confined profiles
        are quiet informational badges (slate). Trusted-manual renders nothing. -->
-  {#if session.sandboxDegraded}
-    <span
-      class="badge sandbox-warn"
-      role="img"
-      aria-label={m.session_sandbox_degraded_label()}
-      use:statusTip={{ text: m.session_sandbox_degraded_title() }}
-      >{m.session_sandbox_degraded_label()}</span
-    >
-  {:else if session.sandboxApplied === "autonomous" && session.egressDegraded}
-    <span
-      class="badge sandbox-warn"
-      role="img"
-      aria-label={m.session_sandbox_egress_degraded_label()}
-      use:statusTip={{ text: m.session_sandbox_egress_degraded_title() }}
-      >{m.session_sandbox_egress_degraded_label()}</span
-    >
-  {:else if session.sandboxApplied === "autonomous"}
-    <span
-      class="badge sandbox"
-      role="img"
-      aria-label={m.session_sandbox_autonomous_label()}
-      use:statusTip={{ text: m.session_sandbox_autonomous_title() }}
-      >{m.session_sandbox_autonomous_label()}</span
-    >
-  {:else if session.sandboxApplied === "standard"}
-    <span
-      class="badge sandbox"
-      role="img"
-      aria-label={m.session_sandbox_standard_label()}
-      use:statusTip={{ text: m.session_sandbox_standard_title() }}
-      >{m.session_sandbox_standard_label()}</span
-    >
-  {:else if session.sandboxApplied === "trusted" && session.auto}
-    <span
-      class="badge sandbox-warn"
-      role="img"
-      aria-label={m.session_sandbox_unconfined_label()}
-      use:statusTip={{ text: m.session_sandbox_unconfined_title() }}
-      >{m.session_sandbox_unconfined_label()}</span
-    >
-  {/if}
-  {#if changesRequested}
-    <span
-      class="badge attention"
-      id="u-status-{session.id}"
-      use:statusTip={{
-        text: m.unitrow_changes_requested_title({
+    {#if session.sandboxDegraded}
+      <span
+        class="badge sandbox-warn"
+        role="img"
+        aria-label={m.session_sandbox_degraded_label()}
+        use:statusTip={{ text: m.session_sandbox_degraded_title() }}
+        >{m.session_sandbox_degraded_label()}</span
+      >
+    {:else if session.sandboxApplied === "autonomous" && session.egressDegraded}
+      <span
+        class="badge sandbox-warn"
+        role="img"
+        aria-label={m.session_sandbox_egress_degraded_label()}
+        use:statusTip={{ text: m.session_sandbox_egress_degraded_title() }}
+        >{m.session_sandbox_egress_degraded_label()}</span
+      >
+    {:else if session.sandboxApplied === "autonomous"}
+      <span
+        class="badge sandbox"
+        role="img"
+        aria-label={m.session_sandbox_autonomous_label()}
+        use:statusTip={{ text: m.session_sandbox_autonomous_title() }}
+        >{m.session_sandbox_autonomous_label()}</span
+      >
+    {:else if session.sandboxApplied === "standard"}
+      <span
+        class="badge sandbox"
+        role="img"
+        aria-label={m.session_sandbox_standard_label()}
+        use:statusTip={{ text: m.session_sandbox_standard_title() }}
+        >{m.session_sandbox_standard_label()}</span
+      >
+    {:else if session.sandboxApplied === "trusted" && session.auto}
+      <span
+        class="badge sandbox-warn"
+        role="img"
+        aria-label={m.session_sandbox_unconfined_label()}
+        use:statusTip={{ text: m.session_sandbox_unconfined_title() }}
+        >{m.session_sandbox_unconfined_label()}</span
+      >
+    {/if}
+    {#if changesRequested}
+      <span
+        class="badge attention"
+        id="u-status-{session.id}"
+        use:statusTip={{
+          text: m.unitrow_changes_requested_title({
+            reviewer: git?.reviewBlock?.reviewer ?? m.unitrow_unknown_reviewer(),
+          }),
+        }}
+        >{m.unitrow_changes_requested({
           reviewer: git?.reviewBlock?.reviewer ?? m.unitrow_unknown_reviewer(),
-        }),
-      }}
-      >{m.unitrow_changes_requested({
-        reviewer: git?.reviewBlock?.reviewer ?? m.unitrow_unknown_reviewer(),
-      })}</span
-    >
-  {:else if branchProtectionBlocked}
-    <span
-      class="badge attention"
-      id="u-status-{session.id}"
-      use:statusTip={{ text: m.unitrow_merge_blocked_title() }}>{m.unitrow_merge_blocked()}</span
-    >
-  {:else if isMerging(session, nowMs)}
-    <span
-      class="badge merging"
-      id="u-status-{session.id}"
-      use:statusTip={{ text: m.status_merging_tip() }}>{m.status_merging()}</span
-    >
-  {:else if session.readyToMerge}
-    <span class="badge" id="u-status-{session.id}" use:statusTip={{ text: m.status_ready_tip() }}
-      >{m.status_ready_to_merge()}</span
-    >
-  {/if}
+        })}</span
+      >
+    {:else if branchProtectionBlocked}
+      <span
+        class="badge attention"
+        id="u-status-{session.id}"
+        use:statusTip={{ text: m.unitrow_merge_blocked_title() }}>{m.unitrow_merge_blocked()}</span
+      >
+    {:else if isMerging(session, nowMs)}
+      <span
+        class="badge merging"
+        id="u-status-{session.id}"
+        use:statusTip={{ text: m.status_merging_tip() }}>{m.status_merging()}</span
+      >
+    {:else if session.readyToMerge}
+      <span class="badge" id="u-status-{session.id}" use:statusTip={{ text: m.status_ready_tip() }}
+        >{m.status_ready_to_merge()}</span
+      >
+    {/if}
+  </div>
   <span class="elapsed" bind:this={elapsedEl}>{elapsed(session.createdAt, nowMs)}</span>
 </div>
 
 <style>
+  /* The badge stack, separated from the clock so a touch cap can apply to the badges alone. */
+  .u-badges {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    align-items: flex-end;
+    min-width: 0;
+  }
+
   .u-right {
     grid-area: right;
     text-align: right;
@@ -296,9 +334,12 @@
     flex-shrink: 0;
   }
 
-  /* Raise the interactive badge above the overlay so it's clickable. */
-  .u-right > :global(button),
-  .u-right > :global([role="button"]) {
+  /* Raise the interactive badge above the overlay so it's clickable. A DESCENDANT selector, not
+     a child one: the badges sit inside .u-badges (so the touch cap can apply to them without
+     catching the clock), and a `>` here would leave every one of them under .unit-hit, where the
+     row overlay swallows their clicks. */
+  .u-right :global(button),
+  .u-right :global([role="button"]) {
     position: relative;
     z-index: 1;
   }
@@ -382,6 +423,10 @@
     cursor: pointer;
     background: transparent;
   }
+  /* D4 read-only twin: same chrome, no pointer affordance. */
+  .preview-badge--readonly {
+    cursor: default;
+  }
   .preview-badge:hover,
   .preview-badge:focus-visible {
     background: color-mix(in srgb, var(--color-blue) 14%, transparent);
@@ -434,6 +479,53 @@
     border-radius: 2px;
     color: var(--color-amber);
     font-weight: 600;
+  }
+
+  /* Cap the stack at two badges on the phone list. Uncapped it is the TALLEST thing in the card:
+     three badges plus the clock measure ~76px against the name+repo+prompt column's ~59.5px, so
+     the rail — not the content — was setting every row's height. Two badges (40px) + gap + the
+     micro-rung clock come to ~57px, just under the content, which hands the height back.
+
+     `nth-last-child`, NOT `nth-child`: the stack is ordered least- to most-specific (agent,
+     research, terminal, issue, then PR, critic, queue, plan gate, status), so keeping the FIRST
+     two would keep the identity badges and drop exactly the ones worth a glance. Keeping the LAST
+     two keeps the state.
+
+     The overflow mark is absolutely positioned so it costs no row — a third flex line would give
+     back the height the cap just won. It sits in the gutter left of the stack, where the card has
+     horizontal room a 288px sidebar does not.
+
+     Scoped to `.units.flow` (the phone list), NOT to `(pointer: coarse)`: this is a layout
+     decision about one screen, and a touch laptop driving the desktop sidebar has the room. */
+  :global(.units.flow) .u-badges {
+    position: relative;
+  }
+  /* The whole selector goes inside :global(): the badges are rendered by CHILD components, so
+     they carry their own scope classes — a Svelte-scoped `> :nth-last-child(...)` would be
+     rewritten to this component's class and match nothing. */
+  :global(.units.flow .u-badges > :nth-last-child(n + 3)) {
+    display: none;
+  }
+  :global(.units.flow .u-badges:has(> :nth-last-child(3)))::before {
+    content: "…";
+    position: absolute;
+    left: -11px;
+    top: 0;
+    font-size: var(--fs-micro);
+    line-height: 1.4;
+    color: var(--color-faint);
+    pointer-events: none;
+  }
+
+  /* Phone list: the clock drops to the micro rung — the type scale's documented floor for "the
+     tightest metadata", and it is a readout, never a tap target. Together with the tighter stack
+     gap it brings the rail to ~59px, just under the ~59.5px content column beside it, so the
+     content sets the card height again. That is the difference between 6.4 and 6.8 cards. */
+  :global(.units.flow) .u-badges {
+    gap: 2px;
+  }
+  :global(.units.flow) .elapsed {
+    font-size: var(--fs-micro);
   }
 
   .elapsed {

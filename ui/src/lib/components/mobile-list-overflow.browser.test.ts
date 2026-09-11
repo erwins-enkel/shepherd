@@ -242,3 +242,48 @@ describe("mobile list row never overflows its container", () => {
     }
   }
 });
+
+// The list screen's whole point is how many sessions fit (D10, docs/design/mobile-herd). On the
+// 430x932 reference phone the budget is: 113px of chrome above (59px safe area + a 54px TopBar)
+// and 138px of bottom navigation below (--mobile-actionbar-h + its safe-area inset, whose
+// arithmetic Toasts.browser.test.ts holds), leaving ~681px of list.
+//
+// The card diet — one prompt line, 9px padding, a two-badge cap, and a micro-rung clock so the
+// badge rail stops out-measuring the content beside it — brings the row from ~119px to ~99.5px.
+// With the 2px inter-card margin that is a ~101.5px pitch, so ~6.7 cards fit where ~5.1 did.
+//
+// NOT seven: the design sheet's "7,0" was computed from an estimated 97px card and forgot the
+// inter-card margin entirely. The measured number is the real one; squeezing the last 4px out of
+// a touch list's padding to reach a round figure would buy the figure and spend the ergonomics.
+//
+// The budget is set from the REGRESSIONS it has to catch, not from the current measurement: a
+// second prompt line is +17.5px and an uncapped badge rail is +6px, so anything from ~106px up is
+// a real loss. 104 sits under that and clear of platform text-rendering variance — the same row
+// measures 99.5px locally and 100.05px on CI, and a bar pinned to the local figure fails on the
+// 0.05px difference while proving nothing.
+describe("mobile list row height keeps the density budget", () => {
+  const BUDGET = 104;
+  for (const locale of LOCALES) {
+    it(`fully loaded row stays within ${BUDGET}px [${locale}]`, async () => {
+      overwriteGetLocale(() => locale);
+      const id = `density-${locale}`;
+      const host = unitsFlow(430);
+      host.classList.add("units", "flow");
+      render(UnitRow, {
+        target: host,
+        props: {
+          session: session({ id, status: "idle", planPhase: "planning" }),
+          selected: false,
+          nowMs: Date.now(),
+          onselect: () => {},
+        },
+      });
+      await new Promise((r) => requestAnimationFrame(() => r(null)));
+      const unit = host.querySelector<HTMLElement>(".unit")!;
+      expect(
+        unit.getBoundingClientRect().height,
+        `[${locale}] card height — ~681px of list / (this + 2px margin) = cards per screen`,
+      ).toBeLessThanOrEqual(BUDGET);
+    });
+  }
+});

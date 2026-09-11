@@ -28,9 +28,9 @@ afterEach(async () => {
 });
 
 describe("Toasts mobile inset above the action bar (#810)", () => {
-  it("env(safe-area-inset-bottom) resolves to 0 in headless chromium (keeps 66px stable)", () => {
+  it("env(safe-area-inset-bottom) resolves to 0 in headless chromium (keeps 114px stable)", () => {
     // Sanity: the expected inset assumes no notch safe-area. If a future headless
-    // env reported a non-zero inset, the 66px assertion below would drift — guard it.
+    // env reported a non-zero inset, the 114px assertion below would drift — guard it.
     const probe = document.createElement("div");
     probe.style.paddingBottom = "env(safe-area-inset-bottom)";
     document.body.appendChild(probe);
@@ -43,9 +43,11 @@ describe("Toasts mobile inset above the action bar (#810)", () => {
     toasts.info("decommissioned", { sticky: true });
     render(Toasts, { aboveActionBar: true });
     await tick();
-    // --mobile-actionbar-h (44 + 10 + 2·1 = 56px) + max(--mobile-actionbar-pad 10px, 0) = 66px
+    // --mobile-actionbar-h is TWO ranks since D10 (docs/design/mobile-herd): the lens segments
+    // above the actions, both --mobile-actionbar-hit tall, separated by --mobile-actionbar-rowgap.
+    // 2·44 + 4 + 10 + 2·1 = 104px, + max(--mobile-actionbar-pad 10px, 0) = 114px.
     const inset = toastsBottomPx();
-    expect(inset).toBeCloseTo(66, 0); // within ~0.5px
+    expect(inset).toBeCloseTo(114, 0); // within ~0.5px
     expect(inset).toBeGreaterThan(0); // strictly above the flush (false) case
   });
 

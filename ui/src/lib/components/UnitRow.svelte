@@ -904,7 +904,11 @@
 
     <div class="u-main">
       <div class="u-top">
-        {#if repoIcon && onrepofilter}
+        <!-- D5 (docs/design/mobile-herd): the emoji is an ~18x19px tap target — under iOS HIG
+             44x44 AND under the hard WCAG 2.5.8 floor of 24x24. On a coarse pointer it drops to
+             the plain, non-interactive branch below; the repo filter stays reachable through the
+             REPOS sheet, which offers it at a conformant size. -->
+        {#if repoIcon && onrepofilter && !coarse.current}
           <!-- The emoji doubles as the repo-filter toggle: hover names the repo,
                click narrows the herd to it, click again clears. role=button (not a
                nested <button> — the row overlay is a sibling button) raised above
@@ -1714,11 +1718,45 @@
     }
   }
 
+  /* Card diet for the phone list (D10, docs/design/mobile-herd). The two-line prompt was sized to
+     fill the vertical space the badge rail occupied — with the rail capped at two badges (see
+     UnitRowRight) that space is gone, so the second line would only pad the row. One line plus
+     9px padding brings the card from ~119px to ~97px: at 681px of list that is 7 cards on a
+     430x932 phone instead of 5. Scoped to `.units.flow` so the desktop sidebar keeps its two
+     lines — there the rail still sets the height and the second line costs nothing. */
+  :global(.units.flow) .unit {
+    padding-top: 9px;
+    padding-bottom: 9px;
+  }
+  :global(.units.flow) .u-sub {
+    -webkit-line-clamp: 1;
+    line-clamp: 1;
+  }
+
   /* Touch devices at any width (landscape foldables, tablets) get the same
      44px row floor — the width-based rule above misses coarse pointers > 768px. */
   @media (pointer: coarse) {
     .unit {
       min-height: 44px;
+    }
+    /* The hold CTA (Go / Re-review / Resume / Answer) is the PRIMARY operator action on a card
+       that is, by definition, waiting for the operator — so on touch it gets a real 44x44 target
+       rather than the desktop row's dense 17px chip. The ::after hit-expander above is clamped to
+       -2px at the top (a larger upward bleed would let prompt-band taps arm the CTA), so it cannot
+       reach 44px on its own: the button itself has to grow. It is one button per card, and only on
+       the cards that carry a hold, so the height is affordable here in a way five stacked badges
+       (D4) were not. Baseline alignment is dropped to center so the taller button doesn't drag the
+       subline's text off its own baseline. */
+    .u-hold {
+      align-items: center;
+    }
+    .hold-cta {
+      min-height: 44px;
+      min-width: 44px;
+      padding-inline: 12px;
+    }
+    .hold-cta::after {
+      inset: 0;
     }
   }
 

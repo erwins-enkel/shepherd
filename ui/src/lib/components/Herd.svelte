@@ -33,6 +33,7 @@
   import { groupSessionsByExperiment } from "./experiment-grouping";
   import { collectReadyPrs } from "./merge-train";
   import { displayStatus } from "$lib/display-status";
+  import { modelsMixed } from "$lib/session-env";
   import { isReworkRunning as isReworkRunningSession } from "./rework-running";
   import { reviews, planGates } from "$lib/reviews.svelte";
   import { m } from "$lib/paraglide/messages";
@@ -332,6 +333,11 @@
   // Global (over `shown`, not `rest`) so grouped epic-child PRs still arm the action.
   const readyPrCount = $derived(collectReadyPrs(shown, git, inReview).length);
 
+  // One model-label decision for the whole rail. Derived from `shown` — the post-filter set, BEFORE
+  // grouping — so epic- and experiment-grouped rows are judged by the set they are actually
+  // displayed in rather than by whichever partition bucket they happen to land in.
+  const modelMix = $derived(modelsMixed(shown, activity));
+
   // ONE partition per epic group, keyed by group key — the cue chips, the grouped
   // ready/merged tallies, and the "in epics above" annotation all read from it, so we
   // partition each small group exactly once. Re-derives on the same inputs the per-group
@@ -431,6 +437,7 @@
     holdFor,
     onackmanualsteps,
     onshowowed,
+    showModel: modelMix,
   });
 
   // Lifecycle groups in display order — each entry maps to a <HerdGroup> render.

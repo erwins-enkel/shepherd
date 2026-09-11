@@ -1,8 +1,8 @@
 import { describe, expect, test } from "vitest";
-import { sessionEnvironment } from "./session-env";
+import { modelsMixed, sessionEnvironment } from "./session-env";
 import { runtimeModelLabel } from "./model-label";
 import { m } from "$lib/paraglide/messages";
-import type { SessionActivity } from "./types";
+import type { Session, SessionActivity } from "./types";
 
 const empty = { model: null, effort: null, runtimeModel: null, runtimeEffort: null };
 
@@ -156,5 +156,77 @@ describe("tooltip provenance is per segment", () => {
               env.tooltip.includes(m.session_env_effort_configured({ effort: env.effort ?? "x" }));
             expect(claimsEffort).toBe(env.effort !== null);
           }
+  });
+});
+
+// The rail prints each row's model only when the rows actually differ; `modelsMixed` is that
+// decision. Both rules it encodes are load-bearing and easy to "simplify" wrongly, so each gets a
+// test naming what would break.
+describe("modelsMixed", () => {
+  type EnvFields = Pick<Session, "model" | "effort" | "runtimeModel" | "runtimeEffort">;
+  const row = (id: string, fields: Partial<EnvFields>) => ({ id, ...empty, ...fields });
+
+  test("one model down the whole list is not a mix", () => {
+    expect(
+      modelsMixed(
+        [row("a", { runtimeModel: "claude-opus-5" }), row("b", { runtimeModel: "claude-opus-5" })],
+        {},
+      ),
+    ).toBe(false);
+  });
+
+  test("two different models are", () => {
+    expect(
+      modelsMixed(
+        [row("a", { runtimeModel: "claude-opus-5" }), row("b", { runtimeModel: "gpt-6-astra" })],
+        {},
+      ),
+    ).toBe(true);
+  });
+
+  test("an unknown model is not a second model", () => {
+    // The rule that makes the feature work: unknowns render the localized "default", which says
+    // only that we never learned what ran. Counting it would call nearly every list mixed and
+    // leave the label permanently on — exactly what this gate exists to stop.
+    expect(modelsMixed([row("a", { runtimeModel: "claude-opus-5" }), row("b", {})], {})).toBe(
+      false,
+    );
+  });
+
+  test("a list that knows nothing is not a mix", () => {
+    expect(modelsMixed([row("a", {}), row("b", {})], {})).toBe(false);
+  });
+
+  test("an empty list is not a mix", () => {
+    expect(modelsMixed([], {})).toBe(false);
+  });
+
+  test("the live activity signal decides, same as the rendered row", () => {
+    // Both sessions are CONFIGURED alike; only the observed models differ. Comparing the configured
+    // field instead of the resolved label would miss this and hide a genuine mix.
+    expect(
+      modelsMixed([row("a", { model: "opus" }), row("b", { model: "opus" })], {
+        a: signal({ runtimeModel: "claude-opus-5" }),
+        b: signal({ runtimeModel: "gpt-6-astra" }),
+      }),
+    ).toBe(true);
+  });
+
+  test("the same model reached by different routes is one model", () => {
+    // Observed on one row, configured (pinned) on the other: same label, so no mix.
+    expect(
+      modelsMixed(
+        [row("a", { runtimeModel: "claude-opus-5" }), row("b", { model: "claude-opus-5" })],
+        {},
+      ),
+    ).toBe(false);
+  });
+
+  test("a floating alias beside its resolved name counts as a mix", () => {
+    // Stated assumption, pinned: `opus` and `Opus 5` look like two models on screen, and the client
+    // cannot know which concrete model the alias resolved to. Folding them together is a guess.
+    expect(
+      modelsMixed([row("a", { model: "opus" }), row("b", { runtimeModel: "claude-opus-5" })], {}),
+    ).toBe(true);
   });
 });

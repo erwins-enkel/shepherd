@@ -147,3 +147,23 @@ export function modelsMixed(
   }
   return false;
 }
+
+/**
+ * Do the sessions on display run MORE THAN ONE coding CLI?
+ *
+ * The rail marks each row with its CLI. Like the model segment above, that chip is worth its space
+ * only when the rows differ: an operator running Claude across the board reads the same word on
+ * every card and learns nothing from it. Same two-rule shape as {@link modelsMixed} — decided over
+ * the whole visible list so every row agrees — with one difference: a provider is never unknown.
+ * An absent `agentProvider` is a pre-field row, which was Claude, so it counts as Claude rather
+ * than as a second CLI. That default MUST match the one CliBadge renders with, or a pre-field row
+ * would turn the chips on for a herd that is in fact all-Claude.
+ */
+export function providersMixed(sessions: readonly Pick<Session, "agentProvider">[]): boolean {
+  const providers = new Set<string>();
+  for (const session of sessions) {
+    providers.add(session.agentProvider ?? "claude");
+    if (providers.size > 1) return true;
+  }
+  return false;
+}

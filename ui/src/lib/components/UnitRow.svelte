@@ -88,6 +88,7 @@
     onackmanualsteps,
     onshowowed,
     showModel = true,
+    showCli = true,
   }: {
     session: Session;
     selected: boolean;
@@ -149,6 +150,10 @@
      *  Defaults to TRUE: a row rendered outside a list has no peers to compare against, so showing
      *  the model is the only honest standalone behaviour. */
     showModel?: boolean;
+    /** Print the CLI chip. The rail passes false when every session on display runs the same CLI,
+     *  where the chip repeats one word down every row (see providersMixed). Defaults to TRUE for
+     *  the same reason as {@link showModel}. */
+    showCli?: boolean;
   } = $props();
 
   // Every status-driven DISPLAY branch below reads this, not session.status: a
@@ -959,6 +964,7 @@
       {pressDecommission}
       previewChoiceOpen={previewChoice?.anchor != null}
       onpreviewchoice={togglePreviewChoice}
+      {showCli}
       bind:elapsedEl
     />
 

@@ -9,6 +9,7 @@ import { isReworkRunning } from "./rework-running";
 import { reviews, planGates } from "$lib/reviews.svelte";
 import { postMergeSteps } from "$lib/post-merge-steps.svelte";
 import { expectMinPx } from "$lib/test-support/geometry";
+import { m } from "$lib/paraglide/messages";
 import type { Session, GitState, Epic, EpicChild, PostMergeSteps, ReviewVerdict } from "$lib/types";
 
 function session(partial: Partial<Session> & { id: string }): Session {
@@ -1190,5 +1191,80 @@ describe("Herd model label", () => {
       git: {},
     });
     await expect.poll(() => meta(screen.container)).toEqual(["TASK-01 · High", "TASK-02"]);
+  });
+});
+
+// The CLI chip is the label the operator actually sees repeated on an all-Claude herd, so it gets
+// the same gate as the model segment — and its own, independent decision.
+describe("Herd CLI chip", () => {
+  const chips = (container: HTMLElement) =>
+    [...container.querySelectorAll(".cli-badge")].map((el) => el.textContent!.trim());
+
+  it("one CLI across the rail: no row wears the chip", async () => {
+    const screen = await render(Herd, {
+      ...base,
+      sessions: [
+        session({ id: "a", desig: "TASK-01", agentProvider: "claude" }),
+        session({ id: "b", desig: "TASK-02", agentProvider: "claude" }),
+      ],
+      git: {},
+    });
+    await expect.poll(() => chips(screen.container)).toEqual([]);
+  });
+
+  it("a second CLI on display puts the chip on every row, Claude included", async () => {
+    // Chips must not appear on the Codex rows alone: "no chip" would then be an invisible
+    // convention for Claude, which is what CliBadge's always-on rendering originally guarded.
+    const screen = await render(Herd, {
+      ...base,
+      sessions: [
+        session({ id: "a", desig: "TASK-01", agentProvider: "claude" }),
+        session({ id: "b", desig: "TASK-02", agentProvider: "codex" }),
+      ],
+      git: {},
+    });
+    await expect
+      .poll(() => chips(screen.container))
+      .toEqual([m.clibadge_label_claude(), m.clibadge_label_codex()]);
+  });
+
+  it("a pre-field row is Claude, not a second CLI", async () => {
+    const screen = await render(Herd, {
+      ...base,
+      sessions: [
+        session({ id: "a", desig: "TASK-01", agentProvider: "claude" }),
+        session({ id: "b", desig: "TASK-02", agentProvider: undefined }),
+      ],
+      git: {},
+    });
+    await expect.poll(() => chips(screen.container)).toEqual([]);
+  });
+
+  it("the CLI and model decisions are independent", async () => {
+    // Two Claude models: name the models, but say "Claude" nowhere — there is only one CLI.
+    const screen = await render(Herd, {
+      ...base,
+      sessions: [
+        session({
+          id: "a",
+          desig: "TASK-01",
+          agentProvider: "claude",
+          runtimeModel: "claude-opus-5",
+        }),
+        session({
+          id: "b",
+          desig: "TASK-02",
+          agentProvider: "claude",
+          runtimeModel: "claude-fable-5-1",
+        }),
+      ],
+      git: {},
+    });
+    await expect.poll(() => chips(screen.container)).toEqual([]);
+    expect(
+      [...screen.container.querySelectorAll(".meta-text")].map((el) =>
+        el.textContent!.replace(/\s+/g, " ").trim(),
+      ),
+    ).toEqual(["TASK-01 · Opus 5", "TASK-02 · Fable 5.1"]);
   });
 });

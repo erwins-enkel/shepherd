@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { modelsMixed, sessionEnvironment } from "./session-env";
+import { modelsMixed, providersMixed, sessionEnvironment } from "./session-env";
 import { runtimeModelLabel } from "./model-label";
 import { m } from "$lib/paraglide/messages";
 import type { Session, SessionActivity } from "./types";
@@ -228,5 +228,29 @@ describe("modelsMixed", () => {
     expect(
       modelsMixed([row("a", { model: "opus" }), row("b", { runtimeModel: "claude-opus-5" })], {}),
     ).toBe(true);
+  });
+});
+
+// The CLI chip gets the same treatment as the model segment, with one difference worth pinning: a
+// provider is never unknown, so there is no skip rule — only a default that has to agree with the
+// badge's own.
+describe("providersMixed", () => {
+  test("one CLI across the rail is not a mix", () => {
+    expect(providersMixed([{ agentProvider: "claude" }, { agentProvider: "claude" }])).toBe(false);
+  });
+
+  test("two CLIs are", () => {
+    expect(providersMixed([{ agentProvider: "claude" }, { agentProvider: "codex" }])).toBe(true);
+  });
+
+  test("a pre-field row counts as Claude, not as a second CLI", () => {
+    // CliBadge renders a null provider as Claude. Counting it as its own value here would light the
+    // chips up across an all-Claude herd — exactly the noise this gate removes.
+    expect(providersMixed([{ agentProvider: "claude" }, { agentProvider: undefined }])).toBe(false);
+    expect(providersMixed([{ agentProvider: undefined }, { agentProvider: "codex" }])).toBe(true);
+  });
+
+  test("an empty list is not a mix", () => {
+    expect(providersMixed([])).toBe(false);
   });
 });

@@ -38,6 +38,9 @@
     // label repeats down the whole rail and says nothing. Decided once, over the full visible set,
     // so every group agrees (see modelsMixed).
     showModel: boolean;
+    // print each row's CLI chip — false when every session on display runs the same CLI. Same
+    // whole-visible-list decision as showModel (see providersMixed).
+    showCli: boolean;
   };
 
   type ActionDef = {
@@ -151,6 +154,7 @@
       onackmanualsteps={ctx.onackmanualsteps}
       onshowowed={ctx.onshowowed}
       showModel={ctx.showModel}
+      showCli={ctx.showCli}
     />
   {/each}
 {/if}

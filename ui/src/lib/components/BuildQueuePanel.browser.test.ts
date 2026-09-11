@@ -185,7 +185,9 @@ describe("BuildQueuePanel — action lifecycle", () => {
       expect(button.disabled).toBe(true);
       expect(buildQueueCollapse.collapsed).toBe(true);
       pending.reject(new Error("offline"));
-      await expect.element(page.getByRole("alert")).toHaveTextContent(m.buildqueue_action_failed());
+      await expect
+        .element(page.getByRole("alert"))
+        .toMatchTextContent(m.buildqueue_action_failed());
       expect(button.disabled).toBe(false);
       await page
         .getByRole("button", {
@@ -194,7 +196,7 @@ describe("BuildQueuePanel — action lifecycle", () => {
         .click();
       expect(api).toHaveBeenCalledTimes(2);
       expect(buildQueueCollapse.collapsed).toBe(true);
-      await expect.element(page.getByRole("status")).toHaveTextContent(m.buildqueue_action_sent());
+      await expect.element(page.getByRole("status")).toMatchTextContent(m.buildqueue_action_sent());
     });
   }
 
@@ -204,9 +206,9 @@ describe("BuildQueuePanel — action lifecycle", () => {
     const { rerender } = await render(BuildQueuePanel, { ...props, folded: true });
     await page.getByRole("button", { name: m.buildqueue_start() }).click();
     await rerender({ sessionStatus: "running", enabled: false, queue: { ...waiting, steps: [] } });
-    await expect.element(page.getByRole("status")).toHaveTextContent(m.buildqueue_sending());
+    await expect.element(page.getByRole("status")).toMatchTextContent(m.buildqueue_sending());
     pending.resolve();
-    await expect.element(page.getByRole("status")).toHaveTextContent(m.buildqueue_action_sent());
+    await expect.element(page.getByRole("status")).toMatchTextContent(m.buildqueue_action_sent());
     await rerender({ sessionId: "s2", queue: { ...waiting, sessionId: "s2" } });
     expect(document.querySelector(".bqp")).toBeNull();
   });

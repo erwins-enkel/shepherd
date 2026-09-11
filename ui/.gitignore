@@ -26,5 +26,7 @@ vite.config.ts.timestamp-*
 /src/lib/paraglide
 
 # Vitest browser-test failure artifacts (regenerated on failing runs)
+# vitest 5 writes these under .vitest/attachments (v4 used .vitest-attachments).
 __screenshots__/
+.vitest/
 .vitest-attachments/

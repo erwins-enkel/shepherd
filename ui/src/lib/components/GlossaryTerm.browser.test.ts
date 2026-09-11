@@ -16,7 +16,7 @@ describe("GlossaryTerm — activation-only inline disclosure", () => {
 
     // inline panel present with correct role and body text
     await expect.element(page.getByRole("note")).toBeVisible();
-    await expect.element(page.getByRole("note")).toHaveTextContent(m.gloss_epic_def());
+    await expect.element(page.getByRole("note")).toMatchTextContent(m.gloss_epic_def());
 
     // no floating tooltip open
     const tooltips = document.querySelectorAll(".gloss-tooltip:popover-open");

@@ -16,6 +16,7 @@ function harness(planPhase: Session["planPhase"] = "planning") {
   const state = { status: "running" as SessionStatus, planPhase, t: 0 };
   const plans: string[] = [];
   const dones: string[] = [];
+  const pushes: string[] = [];
   const svc = new TurnEndBackstopService({
     store: { list: () => [session(state.status, state.planPhase)] } as never,
     considerPlan: async (s: Session) => {
@@ -24,11 +25,14 @@ function harness(planPhase: Session["planPhase"] = "planning") {
     autopilotDone: async (id: string) => {
       dones.push(id);
     },
+    notifyDone: async (id: string) => {
+      pushes.push(id);
+    },
     now: () => state.t,
     idleThresholdMs: THRESHOLD,
-    maxAttempts: 3,
+    maxConsecutiveFailures: 3,
   });
-  return { svc, state, plans, dones };
+  return { svc, state, plans, dones, pushes };
 }
 
 /** running → idle → settle. The exact shape of the bug: a turn that ends without `done`. */
@@ -116,10 +120,13 @@ test("re-arms after the session goes back to work and rests again", async () => 
   expect(h.plans).toEqual(["S", "S"]);
 });
 
-test("stops firing at the lifetime cap", async () => {
+test("successful recoveries are NOT capped — every lost turn end is recovered", async () => {
+  // The bug this service exists for repeats on EVERY turn of a watched session, so a lifetime cap
+  // on successes would let it hang (and go un-notified) again from the 4th turn on.
   const h = harness("planning");
   for (let i = 0; i < 5; i++) await restWithoutDone(h);
-  expect(h.plans).toHaveLength(3); // maxAttempts
+  expect(h.plans).toHaveLength(5);
+  expect(h.pushes).toHaveLength(5);
 });
 
 test("an executing session routes to autopilot, not the plan gate", async () => {
@@ -162,6 +169,7 @@ test("forget() drops a session's state so a stale episode can't fire after archi
 test("a rejected dispatch does not burn the episode — the next sweep retries", async () => {
   const state = { status: "running" as SessionStatus, t: 0 };
   let calls = 0;
+  const pushes: string[] = [];
   const svc = new TurnEndBackstopService({
     store: { list: () => [session(state.status, "planning")] } as never,
     considerPlan: async () => {
@@ -169,9 +177,12 @@ test("a rejected dispatch does not burn the episode — the next sweep retries",
       throw new Error("spawn failed");
     },
     autopilotDone: async () => {},
+    notifyDone: async (id: string) => {
+      pushes.push(id);
+    },
     now: () => state.t,
     idleThresholdMs: THRESHOLD,
-    maxAttempts: 3,
+    maxConsecutiveFailures: 3,
   });
   await svc.sweep();
   state.status = "idle";
@@ -182,9 +193,52 @@ test("a rejected dispatch does not burn the episode — the next sweep retries",
   await svc.sweep(); // episode not burned → retried
   expect(calls).toBe(2);
   // ...but the retry is BOUNDED: a dependency that throws every time must not be re-driven
-  // every 15s forever, so failed attempts count toward the cap too.
+  // every 15s forever, so consecutive failed passes stop it.
   for (let i = 0; i < 10; i++) await svc.sweep();
-  expect(calls).toBe(3); // maxAttempts
+  expect(calls).toBe(3); // maxConsecutiveFailures
+  // The push consumer succeeded on the first pass and must NOT be replayed by the retries of the
+  // one that failed — the whole reason the episode flags are per consumer.
+  expect(pushes).toEqual(["S"]);
+});
+
+test("a clean pass resets the failure streak", async () => {
+  const state = { status: "running" as SessionStatus, t: 0, fail: true };
+  let calls = 0;
+  const svc = new TurnEndBackstopService({
+    store: { list: () => [session(state.status, "planning")] } as never,
+    considerPlan: async () => {
+      calls++;
+      if (state.fail) throw new Error("spawn failed");
+    },
+    autopilotDone: async () => {},
+    notifyDone: async () => {},
+    now: () => state.t,
+    idleThresholdMs: THRESHOLD,
+    maxConsecutiveFailures: 3,
+  });
+  const rest = async () => {
+    state.status = "running";
+    await svc.sweep();
+    state.status = "idle";
+    await svc.sweep();
+    state.t += THRESHOLD + 1;
+    await svc.sweep();
+  };
+  await rest(); // fail #1
+  await rest(); // fail #2
+  expect(calls).toBe(2);
+  state.fail = false;
+  await rest(); // succeeds → streak back to 0
+  expect(calls).toBe(3);
+  state.fail = true;
+  // A fresh run of failures gets the full budget again, rather than the session being permanently
+  // written off by two failures that a healthy pass has since disproved.
+  await rest();
+  await rest();
+  await rest();
+  expect(calls).toBe(6);
+  await rest(); // streak exhausted again
+  expect(calls).toBe(6);
 });
 
 // ── 1 Hz markActive path: a working burst between two sweeps is invisible to the sample ──────
@@ -242,9 +296,10 @@ test("sweep prunes state for sessions that are no longer listed", async () => {
       plans.push(s.id);
     },
     autopilotDone: async () => {},
+    notifyDone: async () => {},
     now: () => state.t,
     idleThresholdMs: THRESHOLD,
-    maxAttempts: 3,
+    maxConsecutiveFailures: 3,
   });
   await svc.sweep(); // observe running
   state.listed = false;
@@ -255,4 +310,121 @@ test("sweep prunes state for sessions that are no longer listed", async () => {
   state.t += THRESHOLD + 1;
   await svc.sweep();
   expect(plans).toEqual([]);
+});
+
+// ── the finish push (#2267): a third consumer of the same lost edge ──────────
+
+test("recovers the finish push for a session that rests as idle (never done)", async () => {
+  const h = harness("planning");
+  await restWithoutDone(h);
+  expect(h.pushes).toEqual(["S"]);
+});
+
+test("recovers the finish push regardless of plan phase", async () => {
+  // attachPush() does not look at planPhase, so neither may the recovery: an executing session
+  // that loses its `done` edge must still notify.
+  for (const phase of ["executing", null] as const) {
+    const h = harness(phase);
+    await restWithoutDone(h);
+    expect(h.pushes).toEqual(["S"]);
+  }
+});
+
+test("a delivered done edge suppresses the recovered push — no duplicate notification", async () => {
+  const h = harness("planning");
+  h.state.status = "running";
+  await h.svc.sweep();
+  h.state.status = "done"; // attachPush() already notified off this edge
+  h.svc.markDelivered("S");
+  await h.svc.sweep();
+  h.state.status = "idle"; // operator views the pane; herdr clears `done`
+  h.state.t += THRESHOLD * 10;
+  await h.svc.sweep();
+  expect(h.pushes).toEqual([]);
+});
+
+test("does not push before the settle threshold, or without observed activity", async () => {
+  const early = harness("planning");
+  early.state.status = "running";
+  await early.svc.sweep();
+  early.state.status = "idle";
+  await early.svc.sweep();
+  early.state.t += THRESHOLD - 1;
+  await early.svc.sweep();
+  expect(early.pushes).toEqual([]);
+
+  // Restart safety: a session already at rest when the process started was never observed active.
+  const restarted = harness("planning");
+  restarted.state.status = "idle";
+  await restarted.svc.sweep();
+  restarted.state.t += THRESHOLD * 10;
+  await restarted.svc.sweep();
+  expect(restarted.pushes).toEqual([]);
+});
+
+test("pushes at most once per resting episode, and again on the next lost turn end", async () => {
+  const h = harness("planning");
+  await restWithoutDone(h);
+  h.state.t += THRESHOLD * 5;
+  await h.svc.sweep();
+  await h.svc.sweep();
+  expect(h.pushes).toEqual(["S"]);
+  await restWithoutDone(h); // next turn, edge lost again
+  expect(h.pushes).toEqual(["S", "S"]);
+});
+
+test("a failing push does not suppress the phase-routed recovery", async () => {
+  const state = { status: "running" as SessionStatus, t: 0 };
+  const plans: string[] = [];
+  const svc = new TurnEndBackstopService({
+    store: { list: () => [session(state.status, "planning")] } as never,
+    considerPlan: async (s: Session) => {
+      plans.push(s.id);
+    },
+    autopilotDone: async () => {},
+    notifyDone: async () => {
+      throw new Error("no subscriptions");
+    },
+    now: () => state.t,
+    idleThresholdMs: THRESHOLD,
+    maxConsecutiveFailures: 3,
+  });
+  await svc.sweep();
+  state.status = "idle";
+  await svc.sweep();
+  state.t += THRESHOLD + 1;
+  await svc.sweep();
+  expect(plans).toEqual(["S"]); // the hang fix must not depend on the notification succeeding
+});
+
+test("a permanently failing phase consumer does not silence the finish push", async () => {
+  // The runaway guard is per consumer for this reason: a plan-gate spawn that throws every time is
+  // a different dependency from web-push, and must not write the session off for both.
+  const state = { status: "running" as SessionStatus, t: 0 };
+  let plans = 0;
+  const pushes: string[] = [];
+  const svc = new TurnEndBackstopService({
+    store: { list: () => [session(state.status, "planning")] } as never,
+    considerPlan: async () => {
+      plans++;
+      throw new Error("spawn failed");
+    },
+    autopilotDone: async () => {},
+    notifyDone: async (id: string) => {
+      pushes.push(id);
+    },
+    now: () => state.t,
+    idleThresholdMs: THRESHOLD,
+    maxConsecutiveFailures: 3,
+  });
+  for (let i = 0; i < 6; i++) {
+    state.status = "running";
+    await svc.sweep();
+    state.status = "idle";
+    await svc.sweep();
+    state.t += THRESHOLD + 1;
+    await svc.sweep();
+  }
+  expect(plans).toBe(3); // written off by its own streak
+  expect(pushes).toHaveLength(6); // every lost turn end still notified
 });

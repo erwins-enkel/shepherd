@@ -545,14 +545,34 @@ export function attachReviewPush(events: EventHub, store: SessionStore, push: Pu
   });
 }
 
+/**
+ * Send the "agent finished its turn" push for one session.
+ *
+ * Two callers reach the same turn end by different routes and MUST produce the same payload —
+ * same kind, same tag, same cooldown key — or a recovered push would land as a second, separate
+ * notification instead of the one the operator missed:
+ *   - {@link attachPush}, on the real `session:status` = `done` edge (the fast path), and
+ *   - TurnEndBackstopService, when herdr never reported `done` because the operator had the pane
+ *     open as the turn ended (#2267).
+ *
+ * Returns the notify promise so the backstop can see a rejection; {@link attachPush} voids it.
+ */
+export function notifySessionDone(
+  push: PushService,
+  store: Pick<SessionStore, "get">,
+  id: string,
+): Promise<boolean> {
+  const name = store.get(id)?.name ?? id;
+  return push.notify({ kind: "done", sessionId: id, tag: id, name });
+}
+
 /** Bridge F3 state events to push notifications. Both events are already edge-triggered. */
 export function attachPush(events: EventHub, store: SessionStore, push: PushService): void {
   events.subscribe((event, data) => {
     if (event === "session:status") {
       const { id, status } = data as { id: string; status: string };
       if (status !== "done") return;
-      const name = store.get(id)?.name ?? id;
-      void push.notify({ kind: "done", sessionId: id, tag: id, name });
+      void notifySessionDone(push, store, id);
     } else if (event === "session:block") {
       const { id, block } = data as { id: string; block: BlockReason | null };
       if (!block) return;

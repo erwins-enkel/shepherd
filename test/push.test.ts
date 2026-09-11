@@ -11,6 +11,7 @@ import {
   attachCreditsPush,
   blockSummary,
   buildPayload,
+  notifySessionDone,
   USAGE_WARN_PCT,
   type NotifyInput,
   type SendFn,
@@ -176,6 +177,30 @@ test("attachPush pushes on session:status=done", async () => {
   await Promise.resolve();
   expect(calls.length).toBe(1);
   expect(calls[0]).toMatchObject({ kind: "done", sessionId: "abc", tag: "abc" });
+});
+
+test("notifySessionDone builds the same payload attachPush sends on the real edge", async () => {
+  // The turn-end backstop recovers a finish push herdr's lost `done` edge never triggered (#2267).
+  // It must reproduce the fast path's payload exactly — a different kind/tag/cooldown key would
+  // land as a SECOND notification instead of the one the operator missed.
+  const calls: any[] = [];
+  const { store, push } = svc(async () => ({}));
+  (push as any).notify = async (p: any) => calls.push(p);
+  const events = new EventHub();
+  attachPush(events, store, push);
+  events.emit("session:status", { id: "abc", status: "done" });
+  await Promise.resolve();
+  await notifySessionDone(push, store, "abc");
+  expect(calls.length).toBe(2);
+  expect(calls[1]).toEqual(calls[0]);
+});
+
+test("notifySessionDone falls back to the id when the session is unknown", async () => {
+  const calls: any[] = [];
+  const { store, push } = svc(async () => ({}));
+  (push as any).notify = async (p: any) => calls.push(p);
+  await notifySessionDone(push, store, "gone");
+  expect(calls[0]).toMatchObject({ kind: "done", sessionId: "gone", tag: "gone", name: "gone" });
 });
 
 test("attachPush ignores non-done statuses", async () => {

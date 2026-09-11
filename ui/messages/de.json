@@ -3972,5 +3972,13 @@
   "coldresume_chip": "kalt · ≈{units} Einheiten",
   "feat_cold_resume_marker_title": "Sieh vor dem Klick, was ein Fortsetzen kostet",
   "feat_cold_resume_marker_body": "Der Prompt-Cache einer geparkten Session läuft mit der Zeit ab, und der erste Zug zurück sendet ihren gesamten Kontext zum Cache-Schreibtarif erneut — oft die teuerste Anfrage der ganzen Session. Geparkte Sessions, die kalt geworden sind, tragen jetzt einen ⚠-Chip in der Herde und eine passende Markierung in der Status-Leiste, die diese Kosten in gewichteten Einheiten schätzt — sichtbar, bevor du die Session öffnest.",
-  "coldresume_title": "Prompt-Cache abgelaufen — diese Session war länger untätig als ihre Cache-Lebensdauer. Ihre {context} Kontext müssen zum Cache-Schreibtarif erneut gesendet werden, daher kostet der nächste Zug etwa {units} gewichtete Einheiten statt eines kleinen Bruchteils davon."
+  "coldresume_title": "Prompt-Cache abgelaufen — diese Session war länger untätig als ihre Cache-Lebensdauer. Ihre {context} Kontext müssen zum Cache-Schreibtarif erneut gesendet werden, daher kostet der nächste Zug etwa {units} gewichtete Einheiten statt eines kleinen Bruchteils davon.",
+  "settings_motion_title": "Bewegung",
+  "settings_motion_hint": "Überstimmt die Angabe deines Systems. Animationen, die laufende Arbeit anzeigen (Spinner, Status-Pulse), laufen immer weiter.",
+  "settings_motion_hint_system": "Folgt deinem System, das gerade meldet: {resolved}. Animationen, die laufende Arbeit anzeigen, laufen immer weiter.",
+  "settings_motion_full": "Voll",
+  "settings_motion_system": "System",
+  "settings_motion_reduced": "Reduziert",
+  "feat_motion_pref_title": "Wähle, wie viel Bewegung Shepherd nutzt",
+  "feat_motion_pref_body": "Unter Einstellungen → Gerät gibt es jetzt „Bewegung“: Voll, System oder Reduziert. Manche Desktops melden „Bewegung reduzieren“, ohne dass du das je verlangt hättest — und damit stand jede Animation in Shepherd still. Stell auf Voll, und sie laufen wieder. Status-Pulse, die laufende Arbeit anzeigen, waren nie betroffen."
 }

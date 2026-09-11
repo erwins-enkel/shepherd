@@ -4,6 +4,7 @@ import { page } from "vitest/browser";
 import "../../../app.css";
 import { m } from "$lib/paraglide/messages";
 import { infoTips } from "$lib/info-tips.svelte";
+import { theme } from "$lib/theme.svelte";
 
 // Stub $lib/push so pushState resolves to unsupported — avoids navigator.
 vi.mock("$lib/push", async (importOriginal) => {
@@ -107,5 +108,68 @@ describe("SettingsDevicePanel hide-info-tips switch", () => {
 
     expect(infoTips.hidden).toBe(true);
     await expect.element(tipsSwitchOn()).toHaveAttribute("aria-checked", "true");
+  });
+});
+
+// The motion picker is a device pref like theme/contrast — the panel drives the
+// controller directly. It exists so an operator can overrule a system that reports
+// `prefers-reduced-motion: reduce` without being asked to (see app.css).
+const motionOpt = (label: string) => page.getByRole("button", { name: label, exact: true });
+
+describe("SettingsDevicePanel motion picker", () => {
+  afterEach(() => {
+    theme.setMotion("system");
+    localStorage.removeItem("shepherd:motion");
+    delete document.documentElement.dataset.motion;
+  });
+
+  // The attribute is written by the controller's #apply() — from the pre-paint
+  // script in app.html and theme.init() in the real app, and on every pick. A bare
+  // panel render runs neither, so this only asserts the control's own state.
+  it("defaults to system", async () => {
+    render(SettingsDevicePanel, {});
+
+    await expect
+      .element(motionOpt(m.settings_motion_system()))
+      .toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("picking Full persists the choice and flips the attribute", async () => {
+    render(SettingsDevicePanel, {});
+
+    await motionOpt(m.settings_motion_full()).click();
+
+    expect(theme.motion).toBe("full");
+    expect(document.documentElement.dataset.motion).toBe("full");
+    expect(localStorage.getItem("shepherd:motion")).toBe("full");
+    await expect
+      .element(motionOpt(m.settings_motion_full()))
+      .toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("picking Reduced stills decorative motion via the app.css guard", async () => {
+    render(SettingsDevicePanel, {});
+    const probe = document.createElement("div");
+    const css = document.createElement("style");
+    css.textContent = `@keyframes dp { to { opacity: 0 } } .dp { animation: dp 1s linear infinite }`;
+    probe.className = "dp";
+    document.head.appendChild(css);
+    document.body.appendChild(probe);
+
+    await motionOpt(m.settings_motion_reduced()).click();
+    expect(getComputedStyle(probe).animationName).toBe("none");
+
+    css.remove();
+    probe.remove();
+  });
+
+  it("names the resolved system value while on System", async () => {
+    render(SettingsDevicePanel, {});
+
+    const resolved =
+      theme.motionResolved === "reduced" ? m.settings_motion_reduced() : m.settings_motion_full();
+    await expect
+      .element(page.getByText(m.settings_motion_hint_system({ resolved })))
+      .toBeInTheDocument();
   });
 });

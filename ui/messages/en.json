@@ -3972,5 +3972,13 @@
   "coldresume_chip": "cold · ≈{units} units",
   "feat_cold_resume_marker_title": "See what a resume costs before you click",
   "feat_cold_resume_marker_body": "A session's prompt cache expires while it sits parked, and the first turn back re-sends its whole context at the cache-write rate — often the most expensive request of the session. Parked sessions that have gone cold now carry a ⚠ chip in The Herd, and a matching marker in the session status bar, estimating that cost in weighted units so you can see it before you open the session.",
-  "coldresume_title": "Prompt cache expired — this session has been idle longer than its cache lifetime. Its {context} of context must be re-sent at the cache-write rate, so the next turn costs about {units} weighted units instead of a small fraction of that."
+  "coldresume_title": "Prompt cache expired — this session has been idle longer than its cache lifetime. Its {context} of context must be re-sent at the cache-write rate, so the next turn costs about {units} weighted units instead of a small fraction of that.",
+  "settings_motion_title": "Motion",
+  "settings_motion_hint": "Overrides what your system reports. Animations that signal live work (spinners, status pulses) always keep running.",
+  "settings_motion_hint_system": "Following your system, which currently reports: {resolved}. Animations that signal live work always keep running.",
+  "settings_motion_full": "Full",
+  "settings_motion_system": "System",
+  "settings_motion_reduced": "Reduced",
+  "feat_motion_pref_title": "Choose how much motion Shepherd uses",
+  "feat_motion_pref_body": "Settings → Device now has a Motion control: Full, System or Reduced. Some desktops report \"reduce motion\" without you ever asking for it — which silenced every animation in Shepherd. Set it to Full to get them back. Status pulses that signal live work were never affected."
 }

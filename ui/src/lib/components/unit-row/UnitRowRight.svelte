@@ -172,8 +172,10 @@
   <ResearchBadge {session} tip />
   <TerminalBadge {session} tip />
   <!-- Issue before PR: the backlog issue is what the session was spawned for, the PR is
-       what came out of it — reading them left-to-right follows that order. -->
-  <IssueBadge {session} />
+       what came out of it — reading them left-to-right follows that order. `git` carries
+       the forge-derived issue URL, which is what the chip opens on rows whose launch
+       metadata predates the field. -->
+  <IssueBadge {session} {git} />
   {#if !stepperTerminal}<PrBadge {git} sessionId={session.id} />{/if}
   <CriticBadge sessionId={session.id} tip prUrl={git?.url} />
   <BuildQueueBadge

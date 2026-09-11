@@ -2234,6 +2234,13 @@ events.subscribe((event, data) => {
     // The real turn-end edge landed → stand the backstop down for this resting episode, so a
     // healthy session never pays a redundant autopilot classify 2 minutes later.
     if (status === "done") turnEndBackstop.markDelivered(id);
+    // Arm the backstop's evidence gate + end its resting episode from the poller's 1 Hz transitions,
+    // not just its own coarse 15s sweep sample: `status` is a point-in-time level, so a working
+    // burst between two sweeps is invisible to the sample (the #1617 problem, same shape as
+    // buildQueueReminder.markRan above). Without this a short turn never arms the gate, a stale
+    // `delivered` suppresses the NEXT turn's genuinely lost edge, and a carried-over settle clock
+    // fires the backstop mid-turn against a half-written plan.
+    if (status === "running" || status === "blocked") turnEndBackstop.markActive(id);
     void sessionRouter
       .onStatus(id, status)
       .catch((err) => console.warn("[session-router] onStatus:", err));

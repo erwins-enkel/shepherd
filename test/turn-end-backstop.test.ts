@@ -187,6 +187,52 @@ test("a rejected dispatch does not burn the episode — the next sweep retries",
   expect(calls).toBe(3); // maxAttempts
 });
 
+// ── 1 Hz markActive path: a working burst between two sweeps is invisible to the sample ──────
+
+test("markActive arms the evidence gate for a burst the sweep never samples", async () => {
+  const h = harness("planning");
+  // The session ran and finished entirely between two sweeps — every sample sees it resting.
+  h.state.status = "idle";
+  h.svc.markActive("S"); // the 1 Hz running transition
+  h.state.status = "idle";
+  await h.svc.sweep(); // first settled tick
+  h.state.t += THRESHOLD + 1;
+  await h.svc.sweep();
+  expect(h.plans).toEqual(["S"]);
+});
+
+test("markActive clears a previous turn's delivered flag", async () => {
+  const h = harness("planning");
+  h.state.status = "running";
+  await h.svc.sweep();
+  h.state.status = "done";
+  h.svc.markDelivered("S"); // turn 1 ended normally
+  await h.svc.sweep();
+  // Turn 2: the session resumes and finishes between sweeps, and THIS turn end is lost.
+  h.svc.markActive("S");
+  h.state.status = "idle";
+  await h.svc.sweep();
+  h.state.t += THRESHOLD + 1;
+  await h.svc.sweep();
+  expect(h.plans).toEqual(["S"]); // not suppressed by turn 1's delivered flag
+});
+
+test("markActive resets the settle clock so a resumed session can't fire mid-turn", async () => {
+  const h = harness("planning");
+  h.state.status = "running";
+  await h.svc.sweep();
+  h.state.status = "idle";
+  await h.svc.sweep(); // clock starts
+  h.state.t += THRESHOLD * 5; // a long rest accrues
+  h.svc.markActive("S"); // ...then the operator steers it; it's working again
+  h.state.status = "idle"; // a sample lands while it is briefly at its prompt mid-turn
+  await h.svc.sweep(); // must be treated as a FIRST settled tick, not an overdue one
+  expect(h.plans).toEqual([]);
+  h.state.t += THRESHOLD + 1; // only a fresh full settle may fire
+  await h.svc.sweep();
+  expect(h.plans).toEqual(["S"]);
+});
+
 test("sweep prunes state for sessions that are no longer listed", async () => {
   const state = { status: "running" as SessionStatus, t: 0, listed: true };
   const plans: string[] = [];

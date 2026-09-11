@@ -114,6 +114,28 @@ export class TurnEndBackstopService {
     this.entry(id).delivered = true;
   }
 
+  /**
+   * Record that the session is ACTIVE again — the RELIABLE arming path, fed from the poller's 1 Hz
+   * `session:status` running/blocked transitions (wired in index.ts). The sweep's own 15s sample is
+   * kept as the coarse fallback but cannot carry this alone: `status` is a point-in-time LEVEL, not
+   * a "recently-active" latch, so a working burst that starts and finishes between two sweeps is
+   * invisible to it (the same problem #1617 fixed for BuildQueueReminderService's `markRan`).
+   *
+   * All three consequences of missing a burst are real, and the third is the dangerous one:
+   *  - `sawActive` never arms, so {@link readyToFire} is false forever and the backstop silently
+   *    does nothing — for exactly the short turns a plan-gate question round produces;
+   *  - the PREVIOUS turn's `delivered` flag survives into the next episode, suppressing a genuinely
+   *    lost `done` edge so the session hangs anyway;
+   *  - `settledSince` is carried over, so a session that resumed work seconds ago already reads as
+   *    settled past the threshold and fires MID-TURN against a half-written plan — precisely what
+   *    the once-on-settled-idle house rule exists to prevent.
+   */
+  markActive(id: string): void {
+    const e = this.entry(id);
+    e.sawActive = true;
+    this.resetEpisode(e);
+  }
+
   private entry(id: string): DebounceEntry {
     let e = this.debounce.get(id);
     if (!e) {
@@ -167,10 +189,10 @@ export class TurnEndBackstopService {
     const e = this.entry(s.id);
 
     // Active (running/blocked) → the episode is over. `blocked` counts as active: a session waiting
-    // on the operator has not finished its turn.
+    // on the operator has not finished its turn. Delegates to {@link markActive} so the sweep's
+    // coarse sample and the 1 Hz event path can never diverge.
     if (!isResting(s.status)) {
-      e.sawActive = true;
-      this.resetEpisode(e);
+      this.markActive(s.id);
       return;
     }
 

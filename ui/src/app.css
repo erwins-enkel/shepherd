@@ -384,13 +384,30 @@ body {
    indicators ("work happening": CI dot-pulse, pip-pulse, critic rev-pulse,
    in-progress blink) intentionally override this with `animation: ... !important`
    in their components — the pulse encodes state, not decoration, so suppressing
-   it would drop information rather than polish. */
+   it would drop information rather than polish.
+
+   Two branches, because the OS hint is a default and not a verdict: the media
+   query applies unless the operator explicitly chose "full" motion in Settings →
+   Device, and `[data-motion="reduced"]` reduces even where the OS says nothing
+   (see `motion` in theme.svelte.ts).
+
+   The `html` guard MUST stay wrapped in `:where()`. These selectors are `*` —
+   specificity 0,0,0 — and the functional indicators above beat them purely by
+   having a more specific selector of their own. `:where()` contributes nothing to
+   specificity, so the guard leaves that balance exactly as it was; an unwrapped
+   `html[data-motion=...] *` would outrank those components and silence the status
+   pulses along with the decoration. */
 @media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
+  :where(html:not([data-motion="full"])) *,
+  :where(html:not([data-motion="full"])) *::before,
+  :where(html:not([data-motion="full"])) *::after {
     animation: none !important;
   }
+}
+:where(html[data-motion="reduced"]) *,
+:where(html[data-motion="reduced"]) *::before,
+:where(html[data-motion="reduced"]) *::after {
+  animation: none !important;
 }
 
 /* touch ergonomics (mobile) */

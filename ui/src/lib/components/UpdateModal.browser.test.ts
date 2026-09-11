@@ -11,6 +11,7 @@ vi.mock("$lib/api", async (orig) => ({
 }));
 
 import UpdateModal from "./UpdateModal.svelte";
+import { theme } from "$lib/theme.svelte";
 import { applyUpdate, getUpdateDirty } from "$lib/api";
 
 const mockApply = applyUpdate as unknown as ReturnType<typeof vi.fn>;
@@ -52,6 +53,7 @@ afterEach(async () => {
   mockApply.mockImplementation(() => new Promise(() => {}));
   mockDirty.mockReset();
   mockDirty.mockResolvedValue({ dirty: false, dirtyFiles: [], dirtyCount: 0, sig: null });
+  theme.setMotion("system");
   await page.viewport(1280, 900);
 });
 
@@ -200,6 +202,90 @@ describe("UpdateModal", () => {
     expect(sheet!.querySelector('[data-flock-actor="dog"]')).not.toBeNull();
     expect(sheet!.querySelector("pre")).toBeNull();
     expect(sheet!.querySelector("[data-sheep-body]")).not.toBeNull();
+  });
+
+  it("faces every actor the way it actually travels", async () => {
+    await page.viewport(1280, 900);
+
+    render(UpdateModal, { props: { update, updating: true, deploy } });
+
+    const actors = [...document.querySelectorAll<SVGElement>('[data-flock="backdrop"] .actor')];
+    expect(actors.length).toBeGreaterThan(4);
+    for (const a of actors) {
+      // `--distance` is the signed ground travel; the sprites are drawn facing
+      // right. A mismatch here is an animal moon-walking across the pasture.
+      const travel = parseFloat(a.style.getPropertyValue("--distance"));
+      expect(travel, `${a.className.baseVal} has no travel`).not.toBe(0);
+      expect(a.dataset.facing, `${a.className.baseVal} travels ${travel}vw`).toBe(
+        travel < 0 ? "left" : "right",
+      );
+    }
+  });
+
+  it("keeps every actor inside the pasture band — nothing clipped at the edges", async () => {
+    for (const [w, h] of [
+      [1280, 900],
+      [1440, 900],
+    ] as const) {
+      await page.viewport(w, h);
+      render(UpdateModal, { props: { update, updating: true, deploy } });
+
+      const flock = document.querySelector<HTMLElement>('[data-flock="backdrop"]')!;
+      const band = flock.querySelector<HTMLElement>(".pasture")!.getBoundingClientRect();
+      const actors = [...flock.querySelectorAll<SVGElement>(".actor")];
+      expect(actors.length).toBeGreaterThan(4);
+      for (const a of actors) {
+        const r = a.getBoundingClientRect();
+        expect(
+          r.bottom,
+          `${a.className.baseVal} at ${w}x${h} sinks below the band`,
+        ).toBeLessThanOrEqual(band.bottom + 0.5);
+        expect(
+          r.top,
+          `${a.className.baseVal} at ${w}x${h} rises above the band`,
+        ).toBeGreaterThanOrEqual(band.top - 0.5);
+      }
+      document.body.innerHTML = "";
+    }
+  });
+
+  it("stands the flock on a horizon rather than letting it float", async () => {
+    await page.viewport(1280, 900);
+
+    render(UpdateModal, { props: { update, updating: true, deploy } });
+
+    const flock = document.querySelector<HTMLElement>('[data-flock="backdrop"]')!;
+    const horizon = flock.querySelector<HTMLElement>(".horizon")!;
+    expect(horizon).not.toBeNull();
+    const hr = horizon.getBoundingClientRect();
+    // Far animals stand beyond the horizon line, near ones in front of it.
+    const far = flock.querySelector<SVGElement>(".actor.far")!.getBoundingClientRect();
+    const near = flock.querySelector<SVGElement>(".actor.near")!.getBoundingClientRect();
+    expect(far.bottom).toBeGreaterThan(hr.bottom);
+    expect(near.bottom).toBeGreaterThan(far.bottom);
+    expect(far.height).toBeLessThan(near.height);
+  });
+
+  it('keeps the flock moving when the operator picked "full" motion', async () => {
+    mockReducedMotion(true); // the system says reduce…
+    theme.setMotion("full"); // …and the operator overruled it
+
+    render(UpdateModal, { props: { update, updating: true, deploy } });
+
+    const flock = document.querySelector<HTMLElement>('[data-flock="backdrop"]')!;
+    expect(flock.dataset.reduced).toBe("false");
+    expect(getComputedStyle(flock.querySelector(".actor")!).animationName).not.toBe("none");
+  });
+
+  it('stills the flock when the operator picked "reduced" motion', async () => {
+    mockReducedMotion(false); // the system says nothing…
+    theme.setMotion("reduced"); // …and the operator asked for calm
+
+    render(UpdateModal, { props: { update, updating: true, deploy } });
+
+    const flock = document.querySelector<HTMLElement>('[data-flock="backdrop"]')!;
+    await vi.waitFor(() => expect(flock.dataset.reduced).toBe("true"));
+    expect(getComputedStyle(flock.querySelector(".actor")!).animationName).toBe("none");
   });
 
   it("uses a testable static flock state when reduced motion is requested", async () => {

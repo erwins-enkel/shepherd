@@ -9,7 +9,7 @@
     type PushStatus,
     type PushCategories,
   } from "$lib/push";
-  import { theme, type ThemePref } from "$lib/theme.svelte";
+  import { theme, type ThemePref, type MotionPref } from "$lib/theme.svelte";
   import { tabTicker } from "$lib/tab-ticker.svelte";
   import { infoTips } from "$lib/info-tips.svelte";
   import { issueRef } from "$lib/issue-ref.svelte";
@@ -46,6 +46,27 @@
     { pref: "light", icon: "sun", label: m.theme_light },
     { pref: "system", icon: "auto", label: m.theme_system },
   ];
+
+  // Motion picker. The OS hint is the default, but it is not always trustworthy —
+  // a bare Wayland session can report `prefers-reduced-motion: reduce` with nothing
+  // in the desktop actually asking for it, and app.css then stills every animation
+  // in Shepherd. This is the escape hatch, and the hint line below names what the
+  // system is currently reporting so the diagnosis doesn't need a browser console.
+  const MOTIONS: { pref: MotionPref; label: () => string }[] = [
+    { pref: "full", label: m.settings_motion_full },
+    { pref: "system", label: m.settings_motion_system },
+    { pref: "reduced", label: m.settings_motion_reduced },
+  ];
+  const motionHint = $derived(
+    theme.motion === "system"
+      ? m.settings_motion_hint_system({
+          resolved:
+            theme.motionResolved === "reduced"
+              ? m.settings_motion_reduced()
+              : m.settings_motion_full(),
+        })
+      : m.settings_motion_hint(),
+  );
 
   let push = $state<PushStatus>({ supported: false, permission: "unsupported", subscribed: false });
   let pushBusy = $state(false);
@@ -98,6 +119,21 @@
         aria-pressed={theme.pref === t.pref}
         aria-label={m.actionbar_theme_option({ label: t.label() })}
         onclick={() => theme.setPref(t.pref)}><ThemeIcon icon={t.icon} /></button
+      >
+    {/each}
+  </div>
+</div>
+<div class="motion-row">
+  <span class="micro"><HighlightText text={m.settings_motion_title()} {query} /></span>
+  <p class="hint"><HighlightText text={motionHint} {query} /></p>
+  <div class="theme-seg" role="group" aria-label={m.settings_motion_title()}>
+    {#each MOTIONS as mo (mo.pref)}
+      <button
+        type="button"
+        class="t-opt wide"
+        class:on={theme.motion === mo.pref}
+        aria-pressed={theme.motion === mo.pref}
+        onclick={() => theme.setMotion(mo.pref)}>{mo.label()}</button
       >
     {/each}
   </div>
@@ -451,11 +487,13 @@
      every viewport so the menu reads identically on mobile and desktop — desktop
      additionally mirrors the theme switcher in the ActionBar for quick access. */
   .theme-row,
+  .motion-row,
   .contrast-row {
     display: flex;
     flex-direction: column;
     gap: 6px;
   }
+  .motion-row .hint,
   .contrast-row .hint {
     color: var(--color-faint);
     font-size: var(--fs-meta);
@@ -485,6 +523,14 @@
   .t-opt.on {
     color: var(--color-amber);
     background: var(--color-inset);
+  }
+  /* Text options rather than glyphs, so they need the smaller label type and
+     room to wrap on a narrow phone instead of overflowing the segment. */
+  .t-opt.wide {
+    font-size: var(--fs-meta);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 0 12px;
   }
   .feedback {
     display: flex;

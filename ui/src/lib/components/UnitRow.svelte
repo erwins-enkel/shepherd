@@ -609,18 +609,27 @@
   // Cold-resume marker (#2042). The Herd is where the operator PICKS which session to resume, so
   // the cost belongs here, before the click — not only in the status bar they reach afterwards.
   // `nowMs` is the Herd's own tick, so the chip appears when the cache actually expires.
-  // Unlike the status bar this renders the term unmarked: a GlossaryTerm is a <button>, and nesting
-  // one inside the row's full-card click target would fight it for the tap. The title carries the
-  // explanation instead.
+  //
+  // "cold · ≈3.1 units" means nothing to someone meeting it for the first time, and the native
+  // `title` it used to carry explained it to a resting mouse only — never to touch, keyboard or a
+  // screen reader, and never the *why*. `statusTip` is the row's own explanation affordance (the
+  // designation/environment segment above uses it): hover opens it, a real click PINS it, Esc or an
+  // outside click dismisses, focus opens it for the keyboard, and the prose reaches AT through
+  // `aria-description`. It also raises the chip above the `.unit-hit` overlay and swallows the
+  // click, so explaining the chip no longer selects the row. A GlossaryTerm is still the wrong
+  // tool here: its click presentation pushes content down, which would reflow the card.
+  //
+  // Two sentences, deliberately: what is true of THIS session (with its numbers), then why
+  // Shepherd puts the number on the card at all. `wide` keeps that from stacking into a column.
   const coldResume = $derived(isColdResume(session, nowMs));
   const coldResumeChip = $derived(
     m.coldresume_chip({ units: formatUnits(session.resumeCostUnits ?? 0) }),
   );
-  const coldResumeTitle = $derived(
-    m.coldresume_title({
+  const coldResumeTip = $derived(
+    `${m.coldresume_title({
       context: formatTokens(session.contextTokens ?? 0),
       units: formatUnits(session.resumeCostUnits ?? 0),
-    }),
+    })} ${m.coldresume_why()}`,
   );
 
   // Relaunch is offered only for an in-flight task (see canRelaunch) AND only when the
@@ -979,7 +988,7 @@
         ><TaskIdButton {session} />{environmentSuffix}</span
       >
       {#if coldResume}
-        <span class="chip-cold-resume" title={coldResumeTitle}
+        <span class="chip-cold-resume" use:statusTip={{ text: coldResumeTip, wide: true }}
           ><span aria-hidden="true">⚠</span> {coldResumeChip}</span
         >
       {/if}

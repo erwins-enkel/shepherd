@@ -1588,15 +1588,38 @@ describe("UnitRow cold-resume chip", () => {
   it("shows the priced chip once the cache has expired", () => {
     const chip = renderRow(coldSession());
     expect(chip?.textContent?.replace(/\s+/g, " ").trim()).toBe("⚠ cold · ≈1.6 units");
-    expect(chip?.getAttribute("title")).toContain("180k");
   });
 
-  // A plain <span>, never a button: the row is one big click target, and a nested interactive
-  // element (a GlossaryTerm, say) would compete with it for the tap.
-  it("does not add an interactive element to the row's click target", () => {
-    const chip = renderRow(coldSession());
-    expect(chip?.tagName).toBe("SPAN");
-    expect(chip?.querySelector("button")).toBeNull();
+  // "cold · ≈1.6 units" is jargon on first meeting, so the chip has to answer both questions an
+  // operator actually has: what is true of THIS session, and why Shepherd is telling them. The
+  // native title it used to carry reached a resting mouse only; aria-description reaches AT too.
+  it("carries the reading AND the rationale, with no native title left to double up", async () => {
+    const chip = renderRow(coldSession()) as HTMLElement;
+    await vi.waitFor(() => expect(chip.hasAttribute("aria-description")).toBe(true));
+    const explanation = chip.getAttribute("aria-description") ?? "";
+    expect(explanation).toContain("180k");
+    expect(explanation).toContain(m.coldresume_why());
+    expect(chip.hasAttribute("title")).toBe(false);
+  });
+
+  // Still a plain <span> with no nested button competing for the row's tap — but no longer mute:
+  // statusTip raises it above the .unit-hit overlay so hover/click land on the chip, and swallows
+  // the click so reading the explanation never doubles as selecting the row.
+  it("reveals the explanation on hover without letting the click reach the row", async () => {
+    const chip = renderRow(coldSession()) as HTMLElement;
+    expect(chip.tagName).toBe("SPAN");
+    expect(chip.querySelector("button")).toBeNull();
+
+    chip.dispatchEvent(new PointerEvent("pointerenter", { pointerType: "mouse", bubbles: true }));
+    await vi.waitFor(() => {
+      const tip = document.querySelector(".status-tip:popover-open");
+      expect(tip?.textContent).toContain(m.coldresume_why());
+    });
+
+    const rowClick = vi.fn();
+    document.querySelector(".unit")?.addEventListener("click", rowClick);
+    chip.dispatchEvent(new MouseEvent("click", { detail: 1, bubbles: true, cancelable: true }));
+    expect(rowClick).not.toHaveBeenCalled();
   });
 
   it("stays silent while the cache is still warm", () => {

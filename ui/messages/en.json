@@ -3971,7 +3971,7 @@
   "coldresume_label": "[[cold-cache|cold]] · ≈{units} units",
   "coldresume_chip": "cold · ≈{units} units",
   "feat_cold_resume_marker_title": "See what a resume costs before you click",
-  "feat_cold_resume_marker_body": "A session's prompt cache expires while it sits parked, and the first turn back re-sends its whole context at the cache-write rate — often the most expensive request of the session. Parked sessions that have gone cold now carry a ⚠ chip in The Herd, and a matching marker in the session status bar, estimating that cost in weighted units so you can see it before you open the session.",
+  "feat_cold_resume_marker_body": "A session's prompt cache expires while it sits parked, and the first turn back re-sends its whole context at the cache-write rate — often the most expensive request of the session. Parked sessions that have gone cold now carry a ⚠ chip in The Herd, and a matching marker in the session status bar, estimating that cost in weighted units so you can see it before you open the session. Hover or click the chip and it explains itself: what expired, how much context has to be re-sent, and why you want to know before you open it.",
   "coldresume_title": "Prompt cache expired — this session has been idle longer than its cache lifetime. Its {context} of context must be re-sent at the cache-write rate, so the next turn costs about {units} weighted units instead of a small fraction of that.",
   "settings_motion_title": "Motion",
   "settings_motion_hint": "Overrides what your system reports. Animations that signal live work (spinners, status pulses) always keep running.",
@@ -3985,5 +3985,6 @@
   "issuepeek_loading": "Loading issue …",
   "issuepeek_unavailable": "Couldn't load this issue.",
   "feat_card_issue_peek_title": "Preview an issue from the session card",
-  "feat_card_issue_peek_body": "The #1234 chip named the issue a session was spawned for but told you nothing about it, so putting a number to a task still meant a trip to the forge. Hovering the chip now opens a small preview — title, labels, author and the start of the description — and clicking it opens the issue on the forge in a new tab. On a touchscreen the first tap shows the preview, the second opens it."
+  "feat_card_issue_peek_body": "The #1234 chip named the issue a session was spawned for but told you nothing about it, so putting a number to a task still meant a trip to the forge. Hovering the chip now opens a small preview — title, labels, author and the start of the description — and clicking it opens the issue on the forge in a new tab. On a touchscreen the first tap shows the preview, the second opens it.",
+  "coldresume_why": "It sits on the card rather than inside the session because resuming is the moment the money is spent: seeing the price here lets you pick a session that is still warm, hand the task to a fresh one, or resume this one knowing what the first turn costs."
 }

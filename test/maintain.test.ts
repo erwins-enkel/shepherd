@@ -301,6 +301,42 @@ describe("sweep gating", () => {
     expect(keys).toContain("first_pass_collapse:/repos/b");
   });
 
+  it("retires a reading the sweep no longer produces", async () => {
+    const h = harness({ repoDelivery: () => [repoRow(SELF, 1, 20)] });
+    // A band that WAS evaluated once and never will be again: an excluded signal kind (#2242), a
+    // repo that has since been removed. Readings are upserted and never overwritten by absence, so
+    // without the prune this row sits at the top of the Delivery lens (ordered tier DESC) forever.
+    h.store.upsertMaintainReading({
+      key: "incident_spike:block",
+      bandId: "incident_spike",
+      repoPath: null,
+      subject: "block",
+      tier: 2,
+      value: 125,
+      sampleN: 21,
+      belowMinSample: false,
+      evaluatedAt: NOW - 86_400_000,
+    });
+    await h.svc.sweep();
+    const keys = h.store.listMaintainReadings().map((r) => r.key);
+    expect(keys).not.toContain("incident_spike:block");
+    expect(keys).toContain("first_pass_collapse:/repos/shepherd"); // this sweep's own survive
+  });
+
+  it("keeps every reading when a sweep produces none, rather than wiping the table", async () => {
+    const h = harness({ repoDelivery: () => [repoRow(SELF, 1, 20)] });
+    await h.svc.sweep();
+    const before = h.store.listMaintainReadings().length;
+    expect(before).toBeGreaterThan(0);
+    // An empty produce-set is "no measurement", not "a measurement of nothing" — a degraded
+    // gather must not read as data loss.
+    expect(h.store.pruneMaintainReadings([])).toBe(0);
+    expect(h.store.listMaintainReadings()).toHaveLength(before);
+    // ...and it reports what it actually removed, so a caller can log the retirement.
+    const keys = h.store.listMaintainReadings().map((r) => r.key);
+    expect(h.store.pruneMaintainReadings(keys.slice(0, 1))).toBe(before - 1);
+  });
+
   it("evaluates once per local day", async () => {
     const h = harness({ repoDelivery: collapsing });
     await h.svc.sweep();

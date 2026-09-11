@@ -258,7 +258,7 @@ disposable worktree and nothing else. **Tier 3** skips the issue and opens a **p
 | Band | Measures | Window | Tier 1 | Tier 2 |
 | --- | --- | --- | --- | --- |
 | `critic_error_rate` | Share of outcome-bearing review spawns that errored (produced no verdict) | 7 days, min sample 10 | ≥ `0.15` | ≥ `0.30` |
-| `incident_spike` | `signals` per kind — needs **both** an occurrence count and a distinct-session count, so one thrashing task can't trip it. The `reply` kind is excluded (operator corrections are high-volume by design) | 7 days | ≥ 10 occurrences **and** ≥ 3 sessions | ≥ 25 occurrences **and** ≥ 5 sessions |
+| `incident_spike` | `signals` per kind — needs **both** an occurrence count and a distinct-session count, so one thrashing task can't trip it. The `reply` and `block` kinds are excluded — operator corrections and an agent asking the operator a question are both high-volume by design, not fault classes | 7 days | ≥ 10 occurrences **and** ≥ 3 sessions | ≥ 25 occurrences **and** ≥ 5 sessions |
 | `first_pass_collapse` | Per-repo first-pass review rate — direction is **inverted**, a lower rate is worse | 30 days, min sample 8 | ≤ `0.60` | ≤ `0.40` |
 | `dead_code_drift` | Auto-fixable dead-code findings in Shepherd's own checkout (`fallow dead-code`). Point-in-time, no window and no minimum sample. Declares a tier-3 fix class, so its tier-2 breach is **promoted to tier 3** | now | ≥ 1 finding | ≥ 3 findings |
 

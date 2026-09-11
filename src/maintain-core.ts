@@ -46,11 +46,18 @@ export const FIRST_PASS_RANGE = "30d" as const;
 const FIRST_PASS_WINDOW_DAYS = 30;
 
 /**
- * `incident_spike` evaluates every SignalKind EXCEPT this one. `reply` is the learnings flywheel's
- * operator-correction stream — high-volume by design and not an incident class, so including it
- * would put the band permanently in breach on a healthy install.
+ * `incident_spike` evaluates every SignalKind EXCEPT these. Both are high-volume BY DESIGN rather
+ * than fault streams, so including them puts the band permanently in breach on a healthy install:
+ *
+ * - `reply` is the learnings flywheel's operator-correction stream.
+ * - `block` is an agent asking the operator a question (#2242). Every payload in the breach that
+ *   filed that issue was a healthy planning dialog — which ruleset to use, how far a fix should go.
+ *   Deduping the repaint noise alone does NOT rescue this band: measured on a live install, one
+ *   row per episode still left 52–78 occurrences across 32 sessions against a 25/5 tier-2
+ *   threshold, so the band would simply re-file. Genuine faults stay covered by `stall`, `critic`
+ *   and `injection_detected`.
  */
-const INCIDENT_KIND_EXCLUDED: SignalKind = "reply";
+const INCIDENT_KINDS_EXCLUDED: ReadonlySet<SignalKind> = new Set<SignalKind>(["reply", "block"]);
 
 /** How long a band is suppressed after a run COMPLETES, whatever its outcome or tier. */
 export const DEFAULT_COOLDOWN_MS = 14 * 24 * 60 * 60 * 1000;
@@ -440,7 +447,7 @@ export function evaluateBands(
 
   // ── incident_spike (global, one row per signal kind) ────────────────────────
   for (const row of input.incidents) {
-    if (row.kind === INCIDENT_KIND_EXCLUDED) continue;
+    if (INCIDENT_KINDS_EXCLUDED.has(row.kind)) continue;
     out.push({
       key: bandKey("incident_spike", row.kind),
       bandId: "incident_spike",

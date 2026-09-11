@@ -222,6 +222,7 @@ export type MaintainStore = Pick<
   | "countSignalsByKind"
   | "listSignalsByKind"
   | "upsertMaintainReading"
+  | "pruneMaintainReadings"
   | "listMaintainReadings"
   | "insertMaintainRun"
   | "finishMaintainRun"
@@ -407,6 +408,10 @@ export class MaintainService {
 
     const readings = evaluateBands(await this.gather(now), this.thresholds, now);
     for (const r of readings) this.deps.store.upsertMaintainReading(r);
+    // Retire readings this sweep did not produce, so a band that stopped being evaluated (an
+    // excluded signal kind, a repo that no longer exists) can't sit on the Delivery lens forever
+    // at its last tier. See `pruneMaintainReadings` for why an empty set is a no-op.
+    this.deps.store.pruneMaintainReadings(readings.map((r) => r.key));
 
     // Tier 1 IS this log line plus the persisted reading — deliberately not a `signals` row.
     const breached = breaches(readings);

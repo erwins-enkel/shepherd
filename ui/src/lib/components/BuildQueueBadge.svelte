@@ -2,7 +2,7 @@
   import { buildQueues } from "$lib/buildQueues.svelte";
   import { m } from "$lib/paraglide/messages";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
-  import { statusTip } from "$lib/actions/statusTip.svelte";
+  import { statusTip } from "$lib/tooltips/statusTip.svelte";
   import { buildQueueCollapse } from "$lib/build-queue-collapse.svelte";
   import type { Session, GitState } from "$lib/types";
 

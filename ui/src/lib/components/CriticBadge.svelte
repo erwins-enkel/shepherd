@@ -3,7 +3,7 @@
   import { criticChip, addressRoundInfo, criticTitle } from "./critic-badge";
   import { clock } from "$lib/now.svelte";
   import { m } from "$lib/paraglide/messages";
-  import { statusTip } from "$lib/actions/statusTip.svelte";
+  import { statusTip } from "$lib/tooltips/statusTip.svelte";
   import { firstSafeHttpUrl } from "$lib/url";
   import { anchorPopover } from "$lib/floating-anchor";
   import CriticSpawnFailure from "./CriticSpawnFailure.svelte";

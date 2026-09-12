@@ -8,6 +8,17 @@ site).
 > load automatically when you touch the files they govern. They are published under
 > **Reference** on the docs site.
 
+Explanatory hover text must be scannable: **a descriptive title, a short summary,
+and labelled sections with one idea each**. Use lists for genuinely parallel choices
+and emphasize costs, consequences and next steps. Plain strings are for short action
+or status labels, not multi-sentence explanations. Reuse `ui/src/lib/tooltips/`
+(`TooltipExplanation`, `TooltipBody`, `statusTip`) instead of adding local markup,
+HTML/Markdown strings or native `title` essays. Keep all copy in EN + DE catalogs.
+The module's typed interface documents this rule at the call site; live examples
+and copy-paste usage live at `/design-system`. Preserve hover-to-panel reading,
+Escape dismissal, keyboard/touch access and viewport-safe wrapping when changing
+an explanation surface. Longer instructions belong in a disclosure or docs.
+
 ## Verify
 
 **Always `bun run test`, never bare `bun test`.** Root's script scopes to `./test`; `ui/` and

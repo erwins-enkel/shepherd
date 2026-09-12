@@ -2,7 +2,7 @@
   import type { Session } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import { codexAutopilotUnavailable } from "$lib/format";
-  import { statusTip } from "$lib/actions/statusTip.svelte";
+  import { statusTip } from "$lib/tooltips/statusTip.svelte";
 
   // `tip` (Herd card only): swap the native title for the styled statusTip tooltip.
   let {

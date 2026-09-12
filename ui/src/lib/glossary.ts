@@ -1,3 +1,6 @@
+import { planGateExplanation, autopilotExplanation } from "$lib/tooltips/explanations";
+import type { TooltipExplanation } from "$lib/tooltips/content";
+
 // Glossary registry driving inline term tooltips throughout the UI.
 //
 // CONTRACT: each GlossaryTerm pairs a stable id with i18n keys (termKey /
@@ -12,6 +15,7 @@ type GlossaryTerm = {
   kind: "internal" | "external";
   termKey: string;
   bodyKey: string;
+  explanation?: () => TooltipExplanation;
   wikipedia?: { en: string; de: string };
 };
 
@@ -33,12 +37,14 @@ const glossary: readonly GlossaryTerm[] = [
     kind: "internal",
     termKey: "gloss_plan_gate_term",
     bodyKey: "gloss_plan_gate_def",
+    explanation: planGateExplanation,
   },
   {
     id: "autopilot",
     kind: "internal",
     termKey: "gloss_autopilot_term",
     bodyKey: "gloss_autopilot_def",
+    explanation: autopilotExplanation,
   },
   {
     id: "pr",

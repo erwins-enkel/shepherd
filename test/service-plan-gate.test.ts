@@ -327,3 +327,33 @@ test("tmpfs-worktree-notice explains the inode failure mode, not just the prohib
   expect(p).toContain("ENOSPC");
   expect(p).toContain("df -i");
 });
+
+test("#1947 both plan-gate directives carry the density budget", () => {
+  // The mandated section list is a floor with no ceiling, so a planner satisfies it by padding
+  // (observed: 32.6 KB, 28 success criteria, three "why not X" sections, an addressed-findings
+  // ledger). planSteerText says the same thing but only on REWORK rounds — these directives are
+  // the only reach into round 1.
+  for (const d of [PLAN_GATE_DIRECTIVE_INTERACTIVE, PLAN_GATE_DIRECTIVE_AUTO]) {
+    expect(d).toContain("success criteria are verifiable checks");
+    expect(d).toContain("record decisions rather than the arguments for them");
+    expect(d).toContain('"why not X" essay');
+    expect(d).toContain("no ledger of which finding each change answers");
+    // The budget must never license dropping a mandated section — the section list stands.
+    expect(d).toContain("testing seams + decisions");
+  }
+});
+
+test("#1947 the density budget states no numeric size cap", () => {
+  // Deliberate: a byte/count target is arbitrary and unverifiable, and a planner up against a cap
+  // trims substance (out of scope, risks) rather than padding. Guard against one creeping in.
+  // Scoped to the budget paragraph itself (it is one line, terminated by its own newline) so an
+  // unrelated number elsewhere in the directive cannot fail this with a misleading message.
+  for (const d of [PLAN_GATE_DIRECTIVE_INTERACTIVE, PLAN_GATE_DIRECTIVE_AUTO]) {
+    const start = d.indexOf("Keep the plan dense:");
+    expect(start).toBeGreaterThan(-1);
+    const budget = d.slice(start, d.indexOf("\n", start));
+    expect(budget).not.toMatch(/\d/);
+    expect(budget.toLowerCase()).not.toContain("at most");
+    expect(budget.toLowerCase()).not.toContain("no more than");
+  }
+});

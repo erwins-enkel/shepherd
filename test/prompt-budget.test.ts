@@ -132,10 +132,13 @@ test("#1999 reproduces the epic's measured spawn-payload baseline (chars)", () =
   // PreToolUse guard, the PR-time pair and the preview hint load from Shepherd's own skills, and
   // the posture block keeps only its always-on core. The epic's scoreboard therefore moves — these
   // are the numbers it moved TO, against the 8,389 / 9,347 / 13,171 / 6,320 it started from.
+  // Plan-gate interactive was 7,130 / 7,198 before #1947 added the density budget to both
+  // plan-gate directives (+321 chars) — a deliberate spend that exists to shrink a far larger
+  // artifact, the plan itself.
   const baseline: [string, number, string][] = [
     ["attended Claude, no house rules", 2148, "2174"],
     ["+ autopilot", 3106, "3136"],
-    ["plan-gate interactive", 7130, "7198"],
+    ["plan-gate interactive", 7451, "7521"],
     ["research", 2957, "2987"],
   ];
   const payloads = [

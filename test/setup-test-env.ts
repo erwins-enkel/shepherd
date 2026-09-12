@@ -32,11 +32,11 @@ for (const key of Object.keys(process.env)) {
   if (key.startsWith("SHEPHERD_") && !KEEP.has(key)) delete process.env[key];
 }
 
-// #740 flipped SHEPHERD_HOOKS_INGEST to default-ON (kill-switch `!== "0"` form). The strip above
-// removes the ambient var, so config would otherwise read the *code* default (on) and
-// spawnSettingsOverlay would bake a `hooks` blob into every spawn/resume argv — breaking the
-// snapshot tests this preload exists to keep deterministic. Pin both hook flags OFF so the suite
-// keeps CI-equivalent, hooks-off isolation. The on-path stays covered by the tests that set
-// `config.hooksIngest` / `config.hooksSignals` directly (service.test.ts, poller*.test.ts).
+// #740 flipped BOTH hook flags to default-ON (kill-switch `!== "0"` form) — ingest first, then
+// signals. The strip above removes the ambient vars, so config would otherwise read the *code*
+// defaults (on) and spawnSettingsOverlay would bake a `hooks` blob into every spawn/resume argv —
+// breaking the snapshot tests this preload exists to keep deterministic. Pin both hook flags OFF
+// so the suite keeps CI-equivalent, hooks-off isolation. The on-path stays covered by the tests
+// that set `config.hooksIngest` / `config.hooksSignals` directly (service.test.ts, poller*.test.ts).
 process.env.SHEPHERD_HOOKS_INGEST = "0";
 process.env.SHEPHERD_HOOKS_SIGNALS = "0";

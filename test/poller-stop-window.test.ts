@@ -16,11 +16,13 @@ function withListAsync<T extends { list: () => HerdrAgent[] }>(
 }
 import { classifyBlocked } from "../src/blocked";
 import { config } from "../src/config";
+import { setDetectedHerdrVersion } from "../src/herdr-capabilities";
 
 // Observe-only Stop↔herdr-done window measurement (issue #713). Polling stays authoritative;
 // these tests assert the SIGNED window emission + marker bookkeeping only, never any routing
-// change. `config.hooksSignals` gates the whole feature — save/restore it per-test so the
-// flag never leaks across the suite.
+// change. `hookSignalsActive()` gates the whole feature (the `config.hooksSignals` flag OR the
+// ≥0.7.5 external-registration path) — save/restore both inputs per-test so neither leaks
+// across the suite.
 
 const baseSession = {
   name: "x",
@@ -93,7 +95,7 @@ function stopHarness() {
   };
 }
 
-test("stop-window: inert when config.hooksSignals is off", async () => {
+test("stop-window: inert when hook signals are inactive", async () => {
   const orig = config.hooksSignals;
   config.hooksSignals = false;
   try {
@@ -104,6 +106,30 @@ test("stop-window: inert when config.hooksSignals is off", async () => {
     expect(h.windows).toHaveLength(0);
   } finally {
     config.hooksSignals = orig;
+  }
+});
+
+// #740: the gate is `hookSignalsActive()` — the flag OR the ≥0.7.5 external-registration path —
+// not the raw flag. Measurement used to read `config.hooksSignals` directly, so on herdr ≥0.7.5
+// with the kill switch set the sink was wired and Stop events arrived, yet every window was
+// silently dropped. Pins the override so that split state can't come back.
+test("stop-window: active on herdr >=0.7.5 even with the hooksSignals kill switch set", async () => {
+  const orig = config.hooksSignals;
+  config.hooksSignals = false;
+  setDetectedHerdrVersion("0.7.5");
+  try {
+    const h = stopHarness();
+    const t1 = h.now();
+    h.poller.ingestStopMeasure(h.id, t1);
+    h.advance(2000);
+    const t2 = h.now();
+    h.setStatus("done");
+    await h.poller.tick();
+    expect(h.windows).toEqual([{ id: h.id, windowMs: t2 - t1 }]);
+  } finally {
+    config.hooksSignals = orig;
+    // Module-level state shared across the whole run — always hand it back.
+    setDetectedHerdrVersion(null);
   }
 });
 

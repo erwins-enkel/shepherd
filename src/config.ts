@@ -692,9 +692,14 @@ export const config = {
   toolGuard: parseKillSwitch(process.env.SHEPHERD_TOOL_GUARD),
   // Phase 1: feed received hook events into the poller (the single owner of signal state).
   // Meaningful only when `hooksIngest` is also on — with ingest off no events arrive to feed.
-  // Still OPT-IN (=== "1"): #740 flipped only ingest on. Promoting signals to default awaits
-  // confirmed soak of the #711 netns transport (autonomous/egress) it would consume events over.
-  hooksSignals: process.env.SHEPHERD_HOOKS_SIGNALS === "1",
+  // DEFAULT ON as of #740, completing the flip #1686 started on `hooksIngest`. The soak gate this
+  // waited on was overtaken by #1890: on herdr ≥0.7.5 (external-registration spawn) the poller's
+  // `hookSignalsActive()` forces signals on regardless of this flag, because the
+  // `Notification(permission_prompt)` hook is then the ONLY awaiting-input source (#1891). So the
+  // flag's remaining reach is herdr ≤0.7.4 — which is exactly the configuration the operator box
+  // soaked under with SHEPHERD_HOOKS_SIGNALS=1 from 2026-06-15 on. Additive + fail-open either way.
+  // SHEPHERD_HOOKS_SIGNALS=0 is the kill switch, and it only takes effect on herdr ≤0.7.4.
+  hooksSignals: parseKillSwitch(process.env.SHEPHERD_HOOKS_SIGNALS),
   // PR-gated AI doc agent (issue #882, epic #875 Phase 3). Opt-in soak flag, mirroring
   // SHEPHERD_HOOKS_INGEST→HOOKS_SIGNALS: default-off and reversible. This is now Phase-0
   // OBSERVE — when on, the trigger spawns a scoped, dontAsk doc agent that edits stale prose

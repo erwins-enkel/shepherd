@@ -720,3 +720,647 @@ describe("GETs whose {} fallback threw in the caller (#1821)", () => {
     expect(body).toEqual([]);
   });
 });
+
+// #2295: the repo-scoped Backlog tabs. Each of these was on the permissive `{}` tail one
+// tab click away from a visitor, with a caller that assigns a response field straight into
+// a `$state` array or a required-field prop — the #1800 flush-abort again. The assertions
+// are on the shape CONTRACT plus the cross-source consistency that keeps the demo from
+// contradicting itself, never on incidental seeded prose.
+describe("repo-scoped lens GETs never fall back to {} (#2295)", () => {
+  const repo = encodeURIComponent(REPO);
+
+  it("GET /api/prs carries prs[] and agrees with the herd about its PR numbers", async () => {
+    const { status, body } = await get(`/api/prs?repo=${repo}`);
+    expect(status).toBe(200);
+    expect(Array.isArray(body.prs)).toBe(true);
+    expect(body.prs.length).toBeGreaterThan(0);
+    // Every session with an open PR must appear in the tab under the SAME number, else the
+    // PRs tab and the session row next to it disagree about the same pull request.
+    const gitStates = (await get("/api/git")).body as Record<
+      string,
+      { state: string; number?: number }
+    >;
+    const openFromHerd = Object.values(gitStates)
+      .filter((g) => g.state === "open")
+      .map((g) => g.number);
+    const listed = body.prs.map((p: { number: number }) => p.number);
+    for (const n of openFromHerd) expect(listed).toContain(n);
+  });
+
+  it("GET /api/prs derives slug + webUrl from the repo index, not a private seed", async () => {
+    const { body } = await get(`/api/prs?repo=${repo}`);
+    const fromIndex = (await get("/api/repos")).body.repos.find(
+      (e: { path: string }) => e.path === REPO,
+    );
+    expect(body.slug).toBe(fromIndex.remoteSlug);
+    expect(body.webUrl).toBe(`https://github.com/${fromIndex.remoteSlug}`);
+  });
+
+  it("GET /api/prs seeds both bot PR kinds so the kind badges have subjects", async () => {
+    const { body } = await get(`/api/prs?repo=${repo}`);
+    const kinds = new Set(body.prs.map((p: { kind: string }) => p.kind));
+    expect(kinds).toContain("dependabot");
+    expect(kinds).toContain("release");
+  });
+
+  it("GET /api/prs gives an unknown repo an empty list, never {}", async () => {
+    const { status, body } = await get("/api/prs?repo=/nope");
+    expect(status).toBe(200);
+    expect(body.prs).toEqual([]);
+    expect(body.slug).toBeNull();
+  });
+
+  it("GET /api/actions carries runs[] plus the three capability flags", async () => {
+    const { status, body } = await get(`/api/actions?repo=${repo}`);
+    expect(status).toBe(200);
+    expect(Array.isArray(body.runs)).toBe(true);
+    expect(body.runs.length).toBeGreaterThan(0);
+    expect(body.supportsActions).toBe(true);
+    expect(body.canRerun).toBe(true);
+    expect(body.canCancel).toBe(true);
+    expect(body.kind).toBe("github");
+  });
+
+  it("GET /api/actions reports an unknown repo as Actions-less, not empty-but-capable", async () => {
+    const { body } = await get("/api/actions?repo=/nope");
+    expect(body.runs).toEqual([]);
+    expect(body.supportsActions).toBe(false);
+    expect(body.kind).toBeNull();
+  });
+
+  it("GET /api/actions/history returns runs for a workflow the listing actually names", async () => {
+    const listed = (await get(`/api/actions?repo=${repo}`)).body.runs[0];
+    const { status, body } = await get(
+      `/api/actions/history?repo=${repo}&workflowId=${listed.workflowId}&limit=10`,
+    );
+    expect(status).toBe(200);
+    expect(Array.isArray(body.runs)).toBe(true);
+    expect(body.runs.length).toBeGreaterThan(0);
+    // The listed (latest) run must be the newest history row, or expanding a run shows a
+    // history that does not contain the run being expanded.
+    expect(body.runs[0].runId).toBe(listed.runId);
+  });
+
+  it("GET /api/actions/history gives an unknown workflow an empty list, never {}", async () => {
+    const { body } = await get(`/api/actions/history?repo=${repo}&workflowId=0&limit=10`);
+    expect(body.runs).toEqual([]);
+  });
+
+  it("GET /api/actions/run-jobs carries jobs[] for every run history offers", async () => {
+    const listed = (await get(`/api/actions?repo=${repo}`)).body.runs[0];
+    const history = (
+      await get(`/api/actions/history?repo=${repo}&workflowId=${listed.workflowId}&limit=10`)
+    ).body.runs as Array<{ runId: number }>;
+    for (const run of history) {
+      const { body } = await get(`/api/actions/run-jobs?repo=${repo}&runId=${run.runId}`);
+      expect(Array.isArray(body.jobs)).toBe(true);
+      expect(body.jobs.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("GET /api/readiness carries checks[] and a score consistent with them", async () => {
+    const { status, body } = await get(`/api/readiness?repo=${repo}`);
+    expect(status).toBe(200);
+    expect(body.applicable).toBe(true);
+    expect(Array.isArray(body.checks)).toBe(true);
+    const total = body.checks.reduce((n: number, c: { weight: number }) => n + c.weight, 0);
+    const present = body.checks
+      .filter((c: { present: boolean }) => c.present)
+      .reduce((n: number, c: { weight: number }) => n + c.weight, 0);
+    // The headline number must not contradict the list under it.
+    expect(body.score).toBe(Math.round((present / total) * 100));
+  });
+
+  it("GET /api/readiness leaves real gaps so the adopt column is never empty", async () => {
+    const { body } = await get(`/api/readiness?repo=${repo}`);
+    expect(body.checks.some((c: { present: boolean }) => !c.present)).toBe(true);
+    expect(body.claudeMd.length).toBeGreaterThan(0);
+    expect(body.issueTemplate.length).toBeGreaterThan(0);
+  });
+
+  it("GET /api/readiness reports an unknown repo as not-applicable, not as a zero score", async () => {
+    const { body } = await get("/api/readiness?repo=/nope");
+    expect(body.applicable).toBe(false);
+    expect(body.ecosystem).toBeNull();
+    expect(body.checks).toEqual([]);
+  });
+
+  it("GET /api/repo-web derives its link from the repo index", async () => {
+    const { body } = await get(`/api/repo-web?repo=${repo}`);
+    expect(body.slug).toBe("acme/storefront");
+    expect(body.webUrl).toBe("https://github.com/acme/storefront");
+    expect(body.kind).toBe("github");
+    expect((await get("/api/repo-web?repo=/nope")).body).toEqual({
+      slug: null,
+      webUrl: null,
+      kind: null,
+    });
+  });
+
+  it("GET /api/drain/queue is an ARRAY of unclaimed issues, never {}", async () => {
+    const { status, body } = await get(`/api/drain/queue?repo=${repo}`);
+    expect(status).toBe(200);
+    expect(Array.isArray(body)).toBe(true);
+    // Derived from the seeded issues: work the herd visibly already owns must never be
+    // offered as queued — whether it was claimed as an epic child or by a live session.
+    const epic = (await get(`/api/epic?repo=${repo}&parent=100`)).body;
+    const claimed = [
+      ...epic.children
+        .filter((c: { claimed: boolean }) => c.claimed)
+        .map((c: { number: number }) => c.number),
+      ...(await get("/api/sessions")).body
+        .map((s: { issueNumber: number | null }) => s.issueNumber)
+        .filter((n: number | null) => n != null),
+    ];
+    expect(claimed.length).toBeGreaterThan(0);
+    const queued = body.map((i: { number: number }) => i.number);
+    for (const n of claimed) expect(queued).not.toContain(n);
+    // An epic PARENT is an umbrella, never drainable work.
+    expect(queued).not.toContain(100);
+  });
+
+  it("GET /api/repo-roles + /api/repo-collaborators shape Settings → Automation", async () => {
+    const roles = (await get(`/api/repo-roles?repo=${repo}`)).body;
+    expect(roles.roles).toMatchObject({ reviewer: expect.any(String) });
+    expect(typeof roles.me).toBe("string");
+
+    const collabs = (await get(`/api/repo-collaborators?repo=${repo}`)).body;
+    expect(Array.isArray(collabs.logins)).toBe(true);
+    expect(collabs.collaboratorsUnavailable).toBe(false);
+    // A configured reviewer the picker cannot offer would render as a blank selection.
+    expect(collabs.logins).toContain(roles.roles.reviewer);
+  });
+
+  it("GET /api/repo-roles gives an unconfigured repo null roles, never {}", async () => {
+    const { body } = await get("/api/repo-roles?repo=/nope");
+    expect(body.roles).toEqual({ reviewer: null, merger: null });
+  });
+
+  it("GET /api/doc-agent/runs carries runs[] even though the demo never fires it", async () => {
+    const { status, body } = await get(`/api/doc-agent/runs?repo=${repo}`);
+    expect(status).toBe(200);
+    expect(body.running).toBe(false);
+    expect(Array.isArray(body.runs)).toBe(true);
+    // Unreachable by construction: BacklogView gates the fetch on this setting.
+    expect((await get("/api/settings")).body.docAgentEnabled).toBe(false);
+  });
+});
+
+// #2295: the Usage lens. Every loader in Usage.svelte wraps its call in try/catch, but a
+// `{}` body is `r.ok` — so nothing throws at fetch time, `{}` lands in `$state`, and the
+// render `$derived` throws inside Svelte's flush instead. These assert the array/required
+// fields those `$derived`s dereference.
+describe("usage lens GETs never fall back to {} (#2295)", () => {
+  it("GET /api/usage/breakdown carries the arrays the Spend + Overhead lenses read", async () => {
+    const { status, body } = await get("/api/usage/breakdown?range=7d");
+    expect(status).toBe(200);
+    expect(Array.isArray(body.repos)).toBe(true);
+    expect(Array.isArray(body.satelliteByKind)).toBe(true);
+    expect(body.repos.length).toBeGreaterThan(0);
+    expect(body.repos.every((r: { tasks: unknown[] }) => Array.isArray(r.tasks))).toBe(true);
+    expect(body.models.claude).toBeDefined();
+    expect(body.models.codex).toBeDefined();
+    // Subscription auth in the demo settings, so absolute USD cannot exist.
+    expect(body.dollars).toBeNull();
+  });
+
+  it("GET /api/usage/timeline carries hours[] with a peak that matches them", async () => {
+    const { status, body } = await get("/api/usage/timeline?range=24h");
+    expect(status).toBe(200);
+    expect(Array.isArray(body.hours)).toBe(true);
+    expect(body.hours.length).toBeGreaterThan(0);
+    expect(body.peakHourUnits).toBe(Math.max(...body.hours.map((h: { units: number }) => h.units)));
+    expect(body.totalUnits).toBe(
+      body.hours.reduce((n: number, h: { units: number }) => n + h.units, 0),
+    );
+    // Idle hours are excluded, not zero-padded — an absent hour and a zero hour differ.
+    expect(body.hours.every((h: { units: number }) => h.units > 0)).toBe(true);
+  });
+
+  it("GET /api/usage/delivery carries all four of its arrays", async () => {
+    const { status, body } = await get("/api/usage/delivery?range=7d");
+    expect(status).toBe(200);
+    for (const key of ["repos", "incidents", "trend", "tasks"]) {
+      expect(Array.isArray(body[key])).toBe(true);
+      expect(body[key].length).toBeGreaterThan(0);
+    }
+    expect(body.totals.firstPassRate).toMatchObject({ n: expect.any(Number) });
+  });
+
+  it("GET /api/usage/delivery reports an unmeasured metric as null, never as a zero", async () => {
+    const { body } = await get("/api/usage/delivery?range=7d");
+    // `api` has no CI, so no first-push conclusion was ever observed there. A 0 would read
+    // as "measured and terrible" rather than "not measured".
+    const api = body.repos.find((r: { repo: string }) => r.repo === "api");
+    expect(api.firstPushGreenRate).toEqual({ value: null, n: 0 });
+  });
+
+  it("every usage GET echoes the range it was asked for", async () => {
+    for (const range of ["24h", "7d", "30d", "all"]) {
+      expect((await get(`/api/usage/breakdown?range=${range}`)).body.range).toBe(range);
+      expect((await get(`/api/usage/timeline?range=${range}`)).body.range).toBe(range);
+      expect((await get(`/api/usage/delivery?range=${range}`)).body.range).toBe(range);
+    }
+  });
+
+  it("an unrecognized range falls back to the lens's own default rather than echoing junk", async () => {
+    expect((await get("/api/usage/breakdown?range=nonsense")).body.range).toBe("7d");
+  });
+
+  it("GET /api/usage/github carries all three buckets and a clear backoff", async () => {
+    const { status, body } = await get("/api/usage/github");
+    expect(status).toBe(200);
+    for (const bucket of ["rest", "graphql", "search"]) {
+      expect(body[bucket]).toMatchObject({
+        limit: expect.any(Number),
+        remaining: expect.any(Number),
+      });
+    }
+    expect(body.backoff.blocked).toBe(false);
+  });
+
+  it("GET /api/prompt-budget wraps its array under `records`, one attended + one auto", async () => {
+    const { status, body } = await get("/api/prompt-budget");
+    expect(status).toBe(200);
+    // `getPromptBudgets()` reads `body.records ?? []`, so a bare array is silently
+    // dropped and the lens falls back to its "nothing measured yet" empty state.
+    expect(Array.isArray(body.records)).toBe(true);
+    expect(body.records.every((r: { blocks: unknown[] }) => Array.isArray(r.blocks))).toBe(true);
+    // Both `auto` states are shown. `delivery` is NOT varied: it follows from the provider,
+    // and every seeded session is claude — a second mode would invent a provider the herd
+    // does not have.
+    const autos = new Set(body.records.map((r: { auto: boolean }) => r.auto));
+    expect(autos).toEqual(new Set([true, false]));
+    for (const r of body.records) expect(r.delivery).toBe("append-system-prompt");
+  });
+
+  it("each prompt-budget total is the sum of its own blocks", async () => {
+    const { body } = await get("/api/prompt-budget");
+    for (const r of body.records) {
+      const chars = r.blocks.reduce((n: number, b: { chars: number }) => n + b.chars, 0);
+      // The lens renders each block's share OF this total; a stated total that drifted
+      // from its blocks would render shares that never reach 100%.
+      expect(r.totalChars).toBe(chars);
+    }
+  });
+});
+
+// #2295: the ambient reads, and the issue peek.
+describe("ambient GETs + issue peek (#2295)", () => {
+  it("GET /api/issues/:number wraps the Issue under `issue`, from the list's own source", async () => {
+    const repo = encodeURIComponent(REPO);
+    const listed = (await get(`/api/issues?repo=${repo}`)).body.issues[0];
+    const { status, body } = await get(`/api/issues/${listed.number}?repo=${repo}`);
+    expect(status).toBe(200);
+    // `getIssue()` reads `body.issue ?? null` — a BARE Issue here is discarded exactly
+    // like the old `{}` tail was, and the preview renders blank fields either way.
+    expect(body.issue).toEqual(listed);
+  });
+
+  it("GET /api/issues/:number answers {issue:null} for an issue the repo does not have", async () => {
+    const { status, body } = await get(`/api/issues/999999?repo=${encodeURIComponent(REPO)}`);
+    expect(status).toBe(200);
+    expect(body.issue).toBeNull();
+  });
+
+  it("GET /api/plugins/manage/installed agrees with /api/plugins about what is installed", async () => {
+    const { status, body } = await get("/api/plugins/manage/installed");
+    expect(status).toBe(200);
+    expect(Array.isArray(body.installed)).toBe(true);
+    // The manager unions this with the live PluginInfo[] BY ID, and reports any loaded
+    // plugin missing here as "removed, restart to unload" — so a separately-seeded list
+    // makes the panel accuse the demo's own plugins of having been uninstalled.
+    const live = (await get("/api/plugins")).body.plugins.map((p: { id: string }) => p.id);
+    expect(body.installed.map((p: { id: string }) => p.id).sort()).toEqual([...live].sort());
+    // `folder` is the uninstall key — a duplicate would make two rows uninstall each other.
+    const folders = body.installed.map((p: { folder: string }) => p.folder);
+    expect(new Set(folders).size).toBe(folders.length);
+  });
+
+  it("GET /api/github/owners carries orgs[] — the New Project owner picker iterates it", async () => {
+    const { body } = await get("/api/github/owners");
+    expect(Array.isArray(body.orgs)).toBe(true);
+    expect(typeof body.login).toBe("string");
+  });
+
+  it("GET /api/update/dirty reports a clean tree with a shaped body", async () => {
+    const { body } = await get("/api/update/dirty");
+    expect(body.dirty).toBe(false);
+    expect(body.dirtyFiles).toEqual([]);
+    expect(body.sig).toBeNull();
+  });
+
+  it("GET /api/codex-update/notes carries notes[] and claims to be complete", async () => {
+    const { body } = await get("/api/codex-update/notes");
+    expect(Array.isArray(body.notes)).toBe(true);
+    // `complete:false` would offer a retry for a fetch that was never truncated.
+    expect(body.complete).toBe(true);
+  });
+
+  it("GET /api/plugins/voice-whisper/status reports the plugin absent", async () => {
+    const { body } = await get("/api/plugins/voice-whisper/status");
+    expect(body.available).toBe(false);
+    expect(body.engine).toBeNull();
+  });
+
+  it("the three Record-typed reads answer {} because {} is genuinely correct", async () => {
+    for (const path of ["/api/blocks", "/api/amendments", "/api/spawn-notices"]) {
+      const { status, body } = await get(path);
+      expect(status).toBe(200);
+      // Typed `Record<…>` by their api.ts callers, so an empty object IS "none" — unlike
+      // an array-typed caller, where {} is the #1800 crash.
+      expect(body).toEqual({});
+    }
+  });
+});
+
+// #2295: the two mutations that reach a surface this change made live.
+describe("repo mutations (#2295)", () => {
+  it("POST /api/projects returns a real RepoEntry the caller can read .path off", async () => {
+    const r = await handleApi("POST", u("/api/projects"), {
+      name: "checkout-svc",
+      createRemote: false,
+    });
+    const body = await r.json();
+    expect(r.status).toBe(200);
+    // NewProject passes this straight into ondone(entry) and the caller reads entry.path.
+    expect(typeof body.path).toBe("string");
+    expect(body.name).toBe("checkout-svc");
+    expect(body.realPath).toBe(body.path);
+    // A local-only project genuinely has no remote, so no slug is invented for it.
+    expect(body.remoteSlug).toBeUndefined();
+  });
+
+  it("POST /api/projects adds the repo to the index so its panels can mount", async () => {
+    await handleApi("POST", u("/api/projects"), { name: "checkout-svc", createRemote: false });
+    const paths = (await get("/api/repos")).body.repos.map((e: { path: string }) => e.path);
+    expect(paths).toContain("/demo/acme/checkout-svc");
+  });
+
+  it("POST /api/projects with createRemote carries the owner-qualified slug", async () => {
+    const r = await handleApi("POST", u("/api/projects"), {
+      name: "checkout-svc",
+      owner: "acme",
+      createRemote: true,
+    });
+    expect((await r.json()).remoteSlug).toBe("acme/checkout-svc");
+  });
+
+  it("POST /api/projects rejects a nameless body instead of inventing a repo", async () => {
+    const r = await handleApi("POST", u("/api/projects"), {});
+    expect(r.status).toBe(400);
+    expect((await get("/api/repos")).body.repos.length).toBe(2);
+  });
+
+  it("a repo created in-session degrades to empty lenses rather than a crash", async () => {
+    await handleApi("POST", u("/api/projects"), { name: "checkout-svc", createRemote: false });
+    const p = encodeURIComponent("/demo/acme/checkout-svc");
+    expect((await get(`/api/prs?repo=${p}`)).body.prs).toEqual([]);
+    expect((await get(`/api/branches?repo=${p}`)).body.branches).toEqual([]);
+    expect((await get(`/api/issues?repo=${p}`)).body.issues).toEqual([]);
+    expect((await get(`/api/readiness?repo=${p}`)).body.applicable).toBe(false);
+  });
+
+  it("POST /api/adopt-gitignore answers `already` — the demo opens no PRs", async () => {
+    const r = await handleApi(
+      "POST",
+      u(`/api/adopt-gitignore?repo=${encodeURIComponent(REPO)}`),
+      undefined,
+    );
+    expect((await r.json()).status).toBe("already");
+  });
+});
+
+// #2295 review round 2: the fixtures added for the repo lenses and the Usage lens are
+// VIEWS of the herd, and every one of them renders next to the thing it is a view of.
+// The tests below are the joins themselves — each one failed on the first draft, where
+// the fixture restated a fact instead of deriving it (a "2 queued" button expanding to
+// four rows, a "PRs · 2" tab over four PRs, TASK-40 and TASK-43 that exist nowhere, and
+// TASK-42/TASK-44 swapped between two sessions).
+describe("lens fixtures agree with the herd they describe (#2295)", () => {
+  const repo = encodeURIComponent(REPO);
+
+  it("the drain queue is exactly as long as the queued count on the button", async () => {
+    const drain = (await get("/api/drain")).body as Array<{ repoPath: string; queued: number }>;
+    expect(drain.length).toBeGreaterThan(0);
+    for (const d of drain) {
+      const queue = (await get(`/api/drain/queue?repo=${encodeURIComponent(d.repoPath)}`)).body;
+      // DrainStatus.queued IS the count of these rows — RepoChipTelemetry renders the
+      // count on the button and this list inside it.
+      expect(queue.length).toBe(d.queued);
+    }
+  });
+
+  it("the drain queue never offers an issue the demo renders as blocked", async () => {
+    const queued = (await get(`/api/drain/queue?repo=${repo}`)).body.map(
+      (i: { number: number }) => i.number,
+    );
+    const issues = (await get(`/api/issues?repo=${repo}`)).body.issues as Array<{
+      number: number;
+      blockedBy?: number[];
+    }>;
+    const blocked = issues.filter((i) => (i.blockedBy ?? []).length > 0).map((i) => i.number);
+    expect(blocked.length).toBeGreaterThan(0); // the seed really does have blocked issues
+    for (const n of blocked) expect(queued).not.toContain(n);
+  });
+
+  it("the backlog's PR counts are the PR fixture's own counts", async () => {
+    const projects = (await get("/api/backlog")).body.projects as Array<{
+      path: string;
+      openPRs: number;
+      prKinds: { release: number; dependabot: number; regular: number };
+    }>;
+    for (const project of projects) {
+      const prs = (await get(`/api/prs?repo=${encodeURIComponent(project.path)}`)).body
+        .prs as Array<{ kind: string }>;
+      // `openPRs` counts EVERY open PR, bots included (forge/github.ts) — it is what
+      // prsTabLabel() renders as "PRs · N" over exactly these rows.
+      expect(project.openPRs).toBe(prs.length);
+      const kinds = (k: string) => prs.filter((pr) => pr.kind === k).length;
+      expect(project.prKinds).toEqual({
+        release: kinds("release"),
+        dependabot: kinds("dependabot"),
+        regular: prs.length - kinds("release") - kinds("dependabot"),
+      });
+    }
+  });
+
+  it("the bot PRs actually light the ProjectRow badges they were seeded for", async () => {
+    const storefront = (await get("/api/backlog")).body.projects.find(
+      (p: { path: string }) => p.path === REPO,
+    );
+    // ProjectRow only renders each badge when its count is > 0; zeroes here mean the two
+    // bot PRs in the fixture are invisible and their stated purpose is unachieved.
+    expect(storefront.prKinds.dependabot).toBeGreaterThan(0);
+    expect(storefront.prKinds.release).toBeGreaterThan(0);
+  });
+
+  it("every seeded PR belongs to a session that has it open, or to a bot", async () => {
+    const gitStates = (await get("/api/git")).body as Record<
+      string,
+      { state: string; number?: number }
+    >;
+    const open = new Set(
+      Object.values(gitStates)
+        .filter((g) => g.state === "open")
+        .map((g) => g.number),
+    );
+    for (const path of [REPO, "/demo/acme/api"]) {
+      const prs = (await get(`/api/prs?repo=${encodeURIComponent(path)}`)).body.prs as Array<{
+        number: number;
+        kind: string;
+      }>;
+      for (const pr of prs) {
+        // A regular PR with no owning session is invented — it contradicts the session
+        // cards beside it, which is what PR 318 ("TASK-41" on the wrong repo) did.
+        if (pr.kind === "regular") expect(open).toContain(pr.number);
+      }
+    }
+  });
+
+  it("the Actions fixture matches the workflow count and CI rollup the tab label uses", async () => {
+    const projects = (await get("/api/backlog")).body.projects as Array<{
+      path: string;
+      workflows: number;
+      ciStatus: string;
+    }>;
+    for (const project of projects) {
+      const runs = (await get(`/api/actions?repo=${encodeURIComponent(project.path)}`)).body
+        .runs as Array<{ state: string }>;
+      // One run per workflow, so the tab's "Actions · N" cannot exceed the panel's rows.
+      expect(runs.length).toBe(project.workflows);
+      const rollup = runs.some((r) => r.state === "failure")
+        ? "failure"
+        : runs.some((r) => r.state === "pending")
+          ? "pending"
+          : "success";
+      // A red LATEST run would contradict the tab's own green marker. Past failures
+      // belong in the history fixture, which is what "older runs" means.
+      expect(rollup).toBe(project.ciStatus);
+    }
+  });
+
+  it("every usage row's identity comes from the session it names", async () => {
+    const herd = [
+      ...(await get("/api/sessions")).body,
+      ...(await get("/api/sessions/done")).body,
+    ] as Array<{
+      id: string;
+      desig: string;
+      name: string;
+      model: string | null;
+      repoPath: string;
+      issueNumber: number | null;
+    }>;
+    const byId = new Map(herd.map((s) => [s.id, s]));
+    const basename = (p: string) => p.split("/").pop();
+
+    // Spend / Overhead task rows.
+    for (const repoRow of (await get("/api/usage/breakdown?range=7d")).body.repos) {
+      expect(repoRow.repoName).toBe(basename(repoRow.repoPath));
+      for (const t of repoRow.tasks) {
+        const s = byId.get(t.sessionId);
+        expect(s, `usage names unknown session ${t.sessionId}`).toBeDefined();
+        expect(t.desig).toBe(s!.desig);
+        expect(t.name).toBe(s!.name);
+        expect(t.model).toBe(s!.model);
+        expect(repoRow.repoPath).toBe(s!.repoPath);
+      }
+    }
+
+    // Delivery task rows.
+    const gitStates = (await get("/api/git")).body as Record<string, { number?: number }>;
+    for (const t of (await get("/api/usage/delivery?range=7d")).body.tasks) {
+      const s = byId.get(t.sessionId);
+      expect(s, `delivery names unknown session ${t.sessionId}`).toBeDefined();
+      expect(t.desig).toBe(s!.desig);
+      expect(t.repo).toBe(basename(s!.repoPath));
+      expect(t.issueNumber).toBe(s!.issueNumber);
+      expect(t.prNumber).toBe(gitStates[t.sessionId]?.number ?? null);
+    }
+
+    // Prompt-budget rows.
+    for (const r of (await get("/api/prompt-budget")).body.records) {
+      const s = byId.get(r.sessionId);
+      expect(s, `prompt budget names unknown session ${r.sessionId}`).toBeDefined();
+      expect(r.desig).toBe(s!.desig);
+      expect(r.repoPath).toBe(s!.repoPath);
+    }
+  });
+
+  it("each provider's models block holds the two invariants the real builder holds", async () => {
+    const { models } = (await get("/api/usage/breakdown?range=7d")).body;
+    for (const provider of ["claude", "codex"]) {
+      const data = models[provider];
+      // `byModel` is every role folded together (foldModels in src/usage-breakdown.ts) —
+      // not just `coding`. A byModel missing the satellite roles makes ModelsLens render
+      // each role's share as `tokens / totalTokens` ≈ 0.0%.
+      const folded: Record<string, number> = {};
+      for (const perModel of Object.values(data.byRole) as Array<Record<string, number>>) {
+        for (const [model, tokens] of Object.entries(perModel ?? {})) {
+          folded[model] = (folded[model] ?? 0) + tokens;
+        }
+      }
+      expect(data.byModel, `${provider}.byModel is not byRole folded`).toEqual(folded);
+
+      // `totalTokens` is the sum of `byModel` — it is the provider header ModelsLens
+      // prints above that very model list.
+      const summed = Object.values(data.byModel as Record<string, number>).reduce(
+        (n, t) => n + t,
+        0,
+      );
+      expect(data.totalTokens, `${provider}.totalTokens is not sum(byModel)`).toBe(summed);
+    }
+  });
+
+  it("the models block and the task rows are expressed in one unit", async () => {
+    const { models, repos, satelliteByKind } = (await get("/api/usage/breakdown?range=7d")).body;
+    const authoringTokens = repos
+      .flatMap(
+        (r: {
+          tasks: Array<{
+            tokens: { input: number; output: number; cacheRead: number; cacheWrite: number };
+          }>;
+        }) => r.tasks,
+      )
+      .reduce(
+        (n: number, t: { tokens: Record<string, number> }) =>
+          n + t.tokens.input + t.tokens.output + t.tokens.cacheRead + t.tokens.cacheWrite,
+        0,
+      );
+    const satelliteTokens = satelliteByKind.reduce(
+      (n: number, k: { units: number }) => n + k.units * 1000,
+      0,
+    );
+    // Coding + satellite in the SAME scale as the per-task token detail. The first draft
+    // mixed weighted units into byModel against a token totalTokens, so the header read
+    // 3.9M over a model list summing to 3.9k.
+    expect(models.claude.totalTokens).toBe(authoringTokens + satelliteTokens);
+  });
+
+  it("the per-kind satellite tally adds up to the satellite total", async () => {
+    const { satelliteUnits, satelliteByKind } = (await get("/api/usage/breakdown?range=7d")).body;
+    // Two groupings of the same passes — by kind for the Overhead lens, by task for Spend.
+    expect(satelliteByKind.reduce((n: number, k: { units: number }) => n + k.units, 0)).toBe(
+      satelliteUnits,
+    );
+  });
+
+  it("the breakdown's totals are the sum of its own rows", async () => {
+    const { body } = await get("/api/usage/breakdown?range=7d");
+    const sum = (key: "authoringUnits" | "satelliteUnits") =>
+      body.repos.reduce((n: number, r: Record<string, number>) => n + r[key], 0);
+    expect(body.authoringUnits).toBe(sum("authoringUnits"));
+    expect(body.satelliteUnits).toBe(sum("satelliteUnits"));
+    expect(body.totalUnits).toBe(body.authoringUnits + body.satelliteUnits);
+    // The Spend lens draws each repo's bar as a share of the total, so a repo row whose
+    // own tasks do not add up to it would render a bar disagreeing with its list.
+    for (const repoRow of body.repos) {
+      const tasks = repoRow.tasks.reduce(
+        (n: number, t: { authoringUnits: number }) => n + t.authoringUnits,
+        0,
+      );
+      expect(repoRow.authoringUnits).toBe(tasks);
+    }
+  });
+});

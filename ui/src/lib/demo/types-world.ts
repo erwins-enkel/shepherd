@@ -41,6 +41,17 @@ import type {
   RepoEntry,
   Issue,
   DirListing,
+  PullRequest,
+  WorkflowRun,
+  WorkflowJob,
+  ReadinessReport,
+  RepoRoles,
+  DocAgentRun,
+  UsageBreakdown,
+  UsageTimeline,
+  DeliveryMetrics,
+  GithubRateLimit,
+  PromptBudgetRecord,
 } from "$lib/types";
 
 /** Mirrors `RepoConfigResponse` from `$lib/api` (`RepoConfig` + optimistic-automation
@@ -132,4 +143,43 @@ export interface DemoWorld {
   steers: Steer[];
   projectIcons: ProjectIcons;
   pendingLearnings: Learning[];
+
+  // ── repo-scoped lenses (#2295) ──────────────────────────────────────────
+  // The Backlog drawer's PRs / Actions / Readiness tabs and the two repo-scoped
+  // Settings → Automation reads, all keyed by repo path. Every one of these was
+  // falling through to the router's permissive `{}` tail with a shape its caller
+  // cannot survive — `listPullRequests()`, `listWorkflowRuns()` and `getReadiness()`
+  // each assign a response array straight into a `$state` array typed non-optional.
+  /** GET /api/prs?repo= — the Backlog PRs tab. */
+  pullRequests: Record<string, PullRequest[]>;
+  /** GET /api/actions?repo= — latest run per workflow on the default branch. */
+  workflowRuns: Record<string, WorkflowRun[]>;
+  /** GET /api/actions/history?repo=&workflowId= — prior runs, keyed repo → workflow id. */
+  workflowHistory: Record<string, Record<number, WorkflowRun[]>>;
+  /** GET /api/actions/run-jobs?repo=&runId= — per-job breakdown, keyed repo → run id. */
+  runJobs: Record<string, Record<number, WorkflowJob[]>>;
+  /** GET /api/readiness?repo= — the Backlog Readiness tab's guardrail scorecard. */
+  readiness: Record<string, ReadinessReport>;
+  /** GET /api/repo-roles?repo= — Settings → Automation's reviewer/merger handoff. */
+  repoRoles: Record<string, RepoRoles>;
+  /** GET /api/repo-collaborators?repo= — the logins the roles pickers offer. */
+  repoCollaborators: Record<string, string[]>;
+  /** GET /api/doc-agent/runs?repo= — doc-agent history; empty, and unreachable while
+   *  `settings.docAgentEnabled` stays false. Seeded anyway so the shape is stated. */
+  docAgentRuns: Record<string, DocAgentRun[]>;
+
+  // ── usage lens (#2295) ──────────────────────────────────────────────────
+  // `Usage.svelte`'s five loaders all try/catch, but a `{}` body is `r.ok` so nothing
+  // throws at fetch time — it lands in `$state` and the render `$derived` throws
+  // inside Svelte's flush. Single datasets; the getters echo the requested range.
+  /** GET /api/usage/breakdown?range= — the Spend + Overhead lenses. */
+  usageBreakdown: UsageBreakdown;
+  /** GET /api/usage/timeline?range= — the per-hour heatmap. */
+  usageTimeline: UsageTimeline;
+  /** GET /api/usage/delivery?range= — the Delivery lens. */
+  deliveryMetrics: DeliveryMetrics;
+  /** GET /api/usage/github — REST/GraphQL/search rate-limit buckets. */
+  githubRateLimit: GithubRateLimit;
+  /** GET /api/prompt-budget — per-spawn assembled-directive breakdowns. */
+  promptBudgets: PromptBudgetRecord[];
 }

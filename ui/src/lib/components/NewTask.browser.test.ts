@@ -4474,7 +4474,7 @@ describe("NewTask 7A keyboard-compose state", () => {
       expect(displayOf(".cfoot")).toBe("none");
       expect(displayOf(".toolbar")).toBe("none");
       // …the pinned action row and the in-field meta line appear…
-      expect(document.querySelectorAll(".compose-actions button").length).toBe(3);
+      expect(document.querySelectorAll(".compose-actions button").length).toBe(4);
       expect(displayOf(".compose-meta")).not.toBe("none");
       // …and the header compresses to the read-only context line.
       expect(document.querySelector(".ctx-line")).toBeTruthy();
@@ -4739,11 +4739,34 @@ describe("NewTask 7A keyboard-compose state", () => {
     }
   });
 
+  it.each([320, 390])("keeps a long repo chip beside Next within a %ipx phone", async (width) => {
+    overwriteGetLocale(() => "de");
+    const longRepo = { ...composeRepo, name: "a-repository-with-a-very-long-name" };
+    const { fake, restore } = await mountMobile({}, true, [longRepo]);
+    try {
+      await page.viewport(width, 844);
+      await enterCompose(fake);
+      const chip = document.querySelector<HTMLButtonElement>(".ca-repo")!;
+      await expect.poll(() => chip.textContent).toContain(longRepo.name);
+      const rect = chip.getBoundingClientRect();
+      const nextRect = nextButton().getBoundingClientRect();
+      expectMinPx(rect.height, 44, "repo chip tap-target height");
+      expectMinPx(rect.width, 44, "repo chip tap-target width");
+      expect(rect.right).toBeLessThan(nextRect.left);
+      expect(rect.top).toBe(nextRect.top);
+      expect(nextRect.right).toBeLessThanOrEqual(width);
+      expect(nextRect.bottom).toBeLessThanOrEqual(fake.height);
+      expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width);
+    } finally {
+      restore();
+    }
+  });
+
   // Switching repo mid-compose used to cost five taps and drop the soft keyboard twice:
   // the context line was inert (tap 1 only blurred), a pick left the sheet open (tap 4
   // dismissed it) and the prompt unfocused (tap 5). These pin the two-tap replacement.
-  describe("compose-state repo switching", () => {
-    const repoSeg = () => document.querySelector<HTMLButtonElement>(".ctx-seg-repo")!;
+  describe.each([".ctx-seg-repo", ".ca-repo"])("compose repo switch via %s", (selector) => {
+    const repoSeg = () => document.querySelector<HTMLButtonElement>(selector)!;
     const engineSeg = () => document.querySelector<HTMLButtonElement>(".ctx-seg-engine")!;
 
     async function mountTwoRepos() {
@@ -4796,6 +4819,11 @@ describe("NewTask 7A keyboard-compose state", () => {
         expect(document.querySelector(".ctx-sheet")).toBeNull();
         expect(document.activeElement).toBe(promptField());
         expect(promptField().selectionStart).toBe("half a thought".length);
+        await expect
+          .poll(() => document.querySelector(".ctx-seg-repo")?.textContent)
+          .toContain("other-repo");
+        expect(document.querySelector(".ca-repo")?.textContent).toContain("other-repo");
+        expect(promptField().value).toBe("half a thought");
       } finally {
         restore();
       }

@@ -4021,5 +4021,7 @@
   "feat_structured_tooltips_title": "Tooltips you can scan",
   "feat_structured_tooltips_body": "Cold-cache, Plan gate and Autopilot explanations now use headings and short sections to make costs, approvals and choices easier to find.",
   "feat_plan_gate_identity_title": "Plan Gate: safe automatic release for both CLIs",
-  "feat_plan_gate_identity_body": "With Autopilot on, Claude and Codex can release approved plans in isolated worktrees and shared checkouts. Shepherd resumes the exact task conversation for review feedback and execution. Missing or ambiguous identity keeps the task stopped for you; older Codex tasks without launch attribution need a relaunch."
+  "feat_plan_gate_identity_body": "With Autopilot on, Claude and Codex can release approved plans in isolated worktrees and shared checkouts. Shepherd resumes the exact task conversation for review feedback and execution. Missing or ambiguous identity keeps the task stopped for you; older Codex tasks without launch attribution need a relaunch.",
+  "feat_mobile_compose_repo_title": "Switch repos within thumb reach",
+  "feat_mobile_compose_repo_body": "On phones, a repo chip beside Next opens the repo picker while you type. Search or choose a recent repo, then continue writing. The header and chip both show your current selection."
 }

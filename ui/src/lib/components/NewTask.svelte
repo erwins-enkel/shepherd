@@ -526,7 +526,7 @@
   // ── 7A keyboard-compose state (touch only) ────────────────────────────────
   // While the soft keyboard is up, the modal collapses to the visible viewport:
   // everything already confirmed (mode, engine, footer CTA) folds away and a
-  // pinned action row (attach · hide keyboard · Next →) rides above the keys.
+  // pinned action row (attach · hide keyboard · repo · Next →) rides above the keys.
   // Gated on the keyboard being REALLY open (visualViewport occlusion, computed
   // in syncViewport) — focus alone must not fold controls: the programmatic
   // focus() on open raises no keyboard on iOS, and hardware-keyboard tablets
@@ -2440,6 +2440,22 @@
           </button>
           <button
             type="button"
+            class="ca-btn ca-repo"
+            aria-haspopup="dialog"
+            aria-expanded={activeSheet === "context"}
+            aria-label={m.newtask_context_chip_aria({
+              repo: selectedRepoName || m.reposelect_placeholder(),
+              branch: baseBranch,
+            })}
+            onpointerdown={(e) => e.preventDefault()}
+            onclick={openRepoPicker}
+          >
+            <span aria-hidden="true">{projectIcons.iconFor(repoPath) ?? "▣"}</span>
+            <b>{selectedRepoName || m.reposelect_placeholder()}</b>
+            <span class="chev" aria-hidden="true">▾</span>
+          </button>
+          <button
+            type="button"
             class="ca-next"
             onpointerdown={(e) => {
               e.preventDefault();
@@ -3897,7 +3913,7 @@
     .compose-meta .cm-hint {
       margin-left: auto;
     }
-    /* Pinned action row: attach · hide keyboard · Next →. */
+    /* Pinned action row: attach · hide keyboard · repo · Next →. */
     .compose-actions {
       flex-shrink: 0;
       display: flex;
@@ -3923,8 +3939,37 @@
     .ca-btn:disabled {
       opacity: 0.6;
     }
-    .ca-next {
+    .ca-repo {
+      flex: 0 1 auto;
+      min-width: 44px;
+      width: auto;
       margin-left: auto;
+      gap: 4px;
+      padding: 0 8px;
+      font-size: var(--fs-meta);
+    }
+    .ca-repo b {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .ca-repo > span {
+      flex-shrink: 0;
+    }
+    .ca-repo .chev {
+      color: var(--color-muted);
+      font-size: var(--fs-micro);
+    }
+    .ca-repo:hover {
+      background: var(--color-hover);
+      border-color: var(--color-line-bright);
+    }
+    .ca-repo:focus-visible {
+      outline: 1px solid var(--color-amber);
+      outline-offset: 2px;
+    }
+    .ca-next {
+      flex-shrink: 0;
       min-height: 44px;
       display: flex;
       align-items: center;

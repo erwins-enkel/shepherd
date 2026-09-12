@@ -206,13 +206,26 @@ tmpfs /tmp tmpfs nr_inodes=4194304 0 0
 ```
 
 The relevant override env vars (`SHEPHERD_NODE_COMPILE_CACHE`,
-`SHEPHERD_TMP_INODE_PCT`, `SHEPHERD_TMP_STALE_HOURS`, `SHEPHERD_TMP_SWEEP_DIR`) are
-listed in [Configuration](/reference/configuration/).
+`SHEPHERD_TMP_INODE_PCT`, `SHEPHERD_TMP_ENTRY_LIMIT`, `SHEPHERD_TMP_STALE_HOURS`,
+`SHEPHERD_TMP_SWEEP_DIR`) are listed in [Configuration](/reference/configuration/).
 
 The **Temp filesystem inodes** row in Settings → Diagnose surfaces this live: it warns
 at `SHEPHERD_TMP_INODE_PCT` (the same threshold that gates the sweep) and errors at 95% by
 default. The bands stay ordered: if you raise the knob above 95 the error band rises with it, so
 the row never alarms below the line you set.
+
+Not every filesystem has an inode ceiling to express as a percentage — btrfs, XFS and ZFS allocate
+inodes on demand and report a total of zero. There the sweep and the row both fall back
+to counting how many leftover top-level entries have accumulated in each temp root, warning at
+`SHEPHERD_TMP_ENTRY_LIMIT` and erroring at ten times it. Both signals are evaluated **per root**,
+and the row reports the worst — a quiet `/tmp` can sit beside a disk-backed agent temp root that is
+filling steadily, and one reading would hide the other. "Worst" is ranked by the state each root
+would report, not by a raw ratio, because the two signals reach their warning band at different
+fractions of their error band.
+
+The row measures only the roots a sweep can **reclaim**. Session-scratch roots are excluded: their
+contents belong to live sessions, are reclaimed at archival instead, and cannot be removed by the
+row's Fix — so counting them would pin the row at a warning that no action clears.
 This matters because inode exhaustion is easy to misdiagnose — writes start failing with
 "no space" errors while `df -h` still shows the volume mostly empty. `df -i` is what shows
 the real cause.

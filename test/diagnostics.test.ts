@@ -119,7 +119,13 @@ function healthyDeps(): DiagnosticsDeps {
     // tmp_inodes (#1862): a roomy temp filesystem → ok. Injected because the default statfs's the
     // REAL tmpdir(), whose inode use varies by host — without pinning it, every all-ok/overall
     // assertion here would flip on a machine whose /tmp happens to be under pressure.
-    readTmpInodes: async () => ({ usePct: 12, warnPct: 80, errorPct: 95 }),
+    readTmpInodes: async () => ({
+      signal: { kind: "inode-pct" as const, usePct: 12 },
+      warnPct: 80,
+      errorPct: 95,
+      warnEntries: 1000,
+      errorEntries: 10000,
+    }),
     // preview_probes (#1912): backend healthy + cell fresh → ok. Pinned so the row is
     // deterministic regardless of the test host's real /proc/lsof state.
     runPreviewProbe: async () => "ok",
@@ -2197,11 +2203,21 @@ describe("codex_model_auth advisory", () => {
 describe("classifyTmpInodes", () => {
   // Bands are PASSED, never read from env here — that is the whole point of the parameterisation:
   // the row must warn at exactly the point `SHEPHERD_TMP_INODE_PCT` makes the sweeper act.
-  const facts = (usePct: number | null, warnPct = 80, errorPct = 95) => ({
-    usePct,
+  const bands = { warnPct: 80, errorPct: 95, warnEntries: 1000, errorEntries: 10000 };
+  const facts = (usePct: number, warnPct = 80, errorPct = 95) => ({
+    ...bands,
+    signal: { kind: "inode-pct" as const, usePct },
     warnPct,
     errorPct,
   });
+  /** The entry-count signal, used where a filesystem allocates inodes dynamically (#1862). */
+  const entryFacts = (entries: number, warnEntries = 1000, errorEntries = 10000) => ({
+    ...bands,
+    signal: { kind: "entry-count" as const, entries, limit: warnEntries, atCap: false },
+    warnEntries,
+    errorEntries,
+  });
+  const unreadable = { ...bands, signal: { kind: "uninspectable" as const, why: "root-missing" } };
 
   it("below the warning band → ok", () => {
     const c = classifyTmpInodes(facts(46));
@@ -2232,10 +2248,10 @@ describe("classifyTmpInodes", () => {
     expect(classifyTmpInodes(facts(92, 90)).state).toBe("warning");
   });
 
-  it("null use% → optional/uninspectable, never a pip degrade and never a fix", () => {
-    // Covers BOTH read failures: statfs absent (non-Linux), and a btrfs tmp reporting files: 0
-    // (it allocates inodes dynamically, so a percentage would be meaningless).
-    const c = classifyTmpInodes(facts(null));
+  it("an unmeasurable root → optional/uninspectable, never a pip degrade and never a fix", () => {
+    // statfs absent (non-Linux), an absent root, or an unreadable directory: nothing to report.
+    // A btrfs tmp reporting `files: 0` is NOT this case any more — it yields an entry count.
+    const c = classifyTmpInodes(unreadable);
     expect(c).toEqual({
       id: "tmp_inodes",
       state: "optional",
@@ -2243,13 +2259,52 @@ describe("classifyTmpInodes", () => {
     });
     expect(c.fixActionKey).toBeUndefined();
   });
+
+  // #1862: on btrfs/XFS/ZFS there is no inode ceiling, so the row bands an accumulated ENTRY
+  // COUNT instead — and says so in its own copy, since "plenty of inodes free" is not a true
+  // statement about a filesystem that has no inode table to be free of.
+  it("entry-count signal bands on the entry limit, with its own hint copy", () => {
+    expect(classifyTmpInodes(entryFacts(12))).toEqual({
+      id: "tmp_inodes",
+      state: "ok",
+      hintKey: "diagnostics_hint_tmp_entries_ok",
+    });
+
+    const warn = classifyTmpInodes(entryFacts(1000));
+    expect(warn.state).toBe("warning");
+    expect(warn.hintKey).toBe("diagnostics_hint_tmp_entries_high");
+    expect(warn.fixActionKey).toBe("diagnostics_fix_action_tmp_inodes");
+
+    const err = classifyTmpInodes(entryFacts(24158));
+    expect(err.state).toBe("error");
+    expect(err.hintKey).toBe("diagnostics_hint_tmp_entries_critical");
+    expect(err.fixActionKey).toBe("diagnostics_fix_action_tmp_inodes");
+  });
+
+  it("a raised SHEPHERD_TMP_ENTRY_LIMIT moves the entry-count warning boundary", () => {
+    expect(classifyTmpInodes(entryFacts(1500, 1000)).state).toBe("warning");
+    expect(classifyTmpInodes(entryFacts(1500, 2000, 20000)).state).toBe("ok");
+  });
+
+  it("the two signals never borrow each other's bands", () => {
+    // 90 entries is healthy; 90% inode use is a warning. Same number, opposite verdicts — a
+    // regression here would mean one signal is being classified against the other's thresholds.
+    expect(classifyTmpInodes(entryFacts(90)).state).toBe("ok");
+    expect(classifyTmpInodes(facts(90)).state).toBe("warning");
+  });
 });
 
 describe("tmp_inodes probe + fix dispatch", () => {
   it("surfaces the row from injected facts", async () => {
     const svc = new DiagnosticsService({
       ...healthyDeps(),
-      readTmpInodes: async () => ({ usePct: 99, warnPct: 80, errorPct: 95 }),
+      readTmpInodes: async () => ({
+        signal: { kind: "inode-pct" as const, usePct: 99 },
+        warnPct: 80,
+        errorPct: 95,
+        warnEntries: 1000,
+        errorEntries: 10000,
+      }),
     });
     const checks = (await svc.check(0)).checks;
     expect(checks.find((c) => c.id === "tmp_inodes")?.state).toBe("error");
@@ -2274,7 +2329,13 @@ describe("tmp_inodes probe + fix dispatch", () => {
     let swept = 0;
     const svc = new DiagnosticsService({
       ...healthyDeps(),
-      readTmpInodes: async () => ({ usePct: 99, warnPct: 80, errorPct: 95 }),
+      readTmpInodes: async () => ({
+        signal: { kind: "inode-pct" as const, usePct: 99 },
+        warnPct: 80,
+        errorPct: 95,
+        warnEntries: 1000,
+        errorEntries: 10000,
+      }),
       runTmpSweep: async () => {
         swept += 1;
       },

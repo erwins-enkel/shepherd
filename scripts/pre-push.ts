@@ -357,6 +357,25 @@ export function plannedLaneCount(delta: boolean, changed: string[]): number {
   return n;
 }
 
+/**
+ * A throwaway `SHEPHERD_REPO_ROOT` for the root-tests lane, removed when the orchestrator exits.
+ *
+ * Created HERE rather than by the test preload (`test/setup-test-env.ts`, which redirects TMPDIR
+ * for the run) because this is the PARENT process — it is not preloaded, so without its own
+ * cleanup this dir survives every push and accumulates (#1862).
+ */
+function makeRepoRoot(): string {
+  const dir = mkdtempSync(join(tmpdir(), "shepherd-reporoot-"));
+  process.on("exit", () => {
+    try {
+      rmSync(dir, { recursive: true, force: true });
+    } catch {
+      /* best-effort: never fail a green push over cleanup */
+    }
+  });
+  return dir;
+}
+
 function buildLanes(
   repoRoot: string,
   opts: { delta: boolean; changed: string[]; maxWorkers: number; laneTimeoutOverride?: number },
@@ -543,10 +562,7 @@ function buildLanes(
         args: ["test", "./test"],
         cwd: repoRoot,
         // Point server.test.ts's throwaway repo at a unique temp dir (never the real root).
-        env: {
-          ...process.env,
-          SHEPHERD_REPO_ROOT: mkdtempSync(join(tmpdir(), "shepherd-reporoot-")),
-        },
+        env: { ...process.env, SHEPHERD_REPO_ROOT: makeRepoRoot() },
       },
     ],
   });

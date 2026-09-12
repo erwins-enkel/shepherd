@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
-import { page } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 import "../../app.css";
 import { m } from "$lib/paraglide/messages";
 import { statusLabel } from "$lib/format";
@@ -82,9 +82,41 @@ describe("StatusPip tip mode (statusTip action)", () => {
     leave(); // pinned → stays open (a real affordance, not a fleeting hover)
     await new Promise((r) => setTimeout(r, 30));
     expect(tooltipOpen()).toBe(true);
-    // Esc dismisses the pinned tooltip.
-    pipEl().dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    // Esc dismisses the pinned tooltip. Driven as a REAL keystroke, deliberately: the pip is a
+    // non-focusable <span>, so a genuine keydown targets <body> and can never reach the trigger
+    // itself. Dispatching the event on the pip (as this spec once did) models something the
+    // browser cannot produce, and passed while the feature was broken — see #2283.
+    await userEvent.keyboard("{Escape}");
     await vi.waitFor(() => expect(tooltipOpen()).toBe(false));
+  });
+
+  it("Esc is preventDefaulted, so a11yDialog (checks defaultPrevented) won't also close the host", async () => {
+    render(StatusPip, { status: "running", tip: true });
+    enter();
+    click(1); // pin it, so the tooltip is the topmost transient overlay
+    await vi.waitFor(() => expect(tooltipOpen()).toBe(true));
+
+    const ev = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    document.body.dispatchEvent(ev);
+
+    await vi.waitFor(() => expect(tooltipOpen()).toBe(false));
+    // a11yDialog's Escape handler returns early on defaultPrevented, so an open tip inside the
+    // New Task modal dismisses itself WITHOUT discarding the operator's typed task.
+    expect(ev.defaultPrevented).toBe(true);
+  });
+
+  it("a HOVERED (unpinned) tip closes on Esc but does NOT swallow it", async () => {
+    render(StatusPip, { status: "running", tip: true });
+    enter(); // hover only — never pinned, so the operator never asked for this tip
+    await vi.waitFor(() => expect(tooltipOpen()).toBe(true));
+
+    const ev = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    document.body.dispatchEvent(ev);
+
+    await vi.waitFor(() => expect(tooltipOpen()).toBe(false));
+    // Must stay reachable: consuming it here would eat the Escape that closes the slash-command
+    // menu whose description the pointer is resting on (ComposeBar handles that on the textarea).
+    expect(ev.defaultPrevented).toBe(false);
   });
 
   it("detail (tip off) keeps the native title and does not add aria-description", async () => {

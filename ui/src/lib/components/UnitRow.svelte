@@ -620,11 +620,12 @@
   // `aria-description`. Raising it is also what keeps a click on the chip from selecting the row —
   // selection lives on the sibling `.unit-hit` button, which the click can no longer reach
   // (statusTip's stopPropagation is belt-and-braces; nothing between here and `.unit` listens).
-  // The chip stays a NON-FOCUSABLE <span>, like every statusTip trigger in the repo, so the
-  // keyboard reads `aria-description`, while Escape dismisses a mouse-opened panel globally.
-  // A tab stop per cold card would be a lot of noise in a long Herd. A GlossaryTerm
-  // is wrong for a different reason — its click presentation pushes content down and would
-  // reflow the card.
+  // The chip stays a NON-FOCUSABLE <span>, so the action's focus-to-open path never fires on it —
+  // a tab stop per cold card would be a lot of noise in a long Herd, and the row's own `.unit-hit`
+  // overlay is the keyboard entry point (it carries `aria-describedby`). Escape still dismisses a
+  // mouse-opened panel globally, and a PINNED one consumes the key so it can't also close a host
+  // dialog (#2283). A GlossaryTerm is wrong for a different reason — its click presentation pushes
+  // content down and would reflow the card.
   //
   // Shared structured explanation: cost first, then the choices before resuming.
   const coldResume = $derived(isColdResume(session, nowMs));

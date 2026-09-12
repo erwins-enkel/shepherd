@@ -37,11 +37,31 @@ let uid = 0;
  * Click propagation is stopped by default so read-only chips never select their
  * row; actionable controls can opt out while retaining the same explanation.
  *
- * The explanation is exposed to assistive tech via `aria-description` (a string —
- * always valid, no dangling IDREF, present from mount), so screen readers announce
- * it in browse mode even though the chip is not a Tab stop. The *visual* popover is
- * created lazily on first open. Pass `null` to disable (callers gate with
- * `tip ? {...} : null`).
+ * Triggers may be focusable or not, and both are supported. Most are plain `span` /
+ * `div` / `li`; BuildQueueBadge's interactive branches are real `<button>`s (its
+ * coarse-pointer branch is a read-only `<span>`), and those are what `focus`/`blur`
+ * (focus-to-open) serve. Escape dismissal does NOT depend on that — it is a
+ * window-level listener scoped to the open state, so it reaches a pinned tip on any
+ * trigger (see `onKeydown`).
+ *
+ * ON ASSISTIVE TECH — read before assuming this carries the meaning. The explanation
+ * is mirrored into `aria-description` (a string: always valid, no dangling IDREF,
+ * present from mount) and the *visual* popover is created lazily on first open, so
+ * hidden tooltip text never pollutes the DOM / text queries. But `aria-description`
+ * is **enrichment, not the carrier of meaning**: it and `aria-describedby` feed the
+ * same accessible-description property, and announcement of that property is gated by
+ * the trigger's ROLE — inconsistent on `role="img"` and on role-less generics, which
+ * is what nearly every trigger here is. Swapping the attribute would change nothing;
+ * only making the trigger interactive would, and that is deliberately not done (a tab
+ * stop per chip would be noise in a long Herd — #2269, #2283).
+ *
+ * So the invariant callers MUST honour: the trigger's accessible NAME already carries
+ * the meaning — `role="img"` + `aria-label` (StatusPip, the badges, the sandbox/quota
+ * chips) or visible text (SlashCommandMenu, PromptSources, IssueLoadAttempts, the
+ * attention/merging/ready badges) — with the Herd row's `.unit-hit` `aria-describedby`
+ * behind it. Never let this tooltip be the only place an explanation exists.
+ *
+ * Pass `null` to disable (callers gate with `tip ? {...} : null`).
  */
 export const statusTip: Action<HTMLElement, StatusTipParams | null | undefined> = (
   node,
@@ -141,7 +161,7 @@ export const statusTip: Action<HTMLElement, StatusTipParams | null | undefined> 
     open = true;
     stopAnchor = anchorPopover(node, pop, 6);
     document.addEventListener("pointerdown", onDocPointerDown, true);
-    document.addEventListener("keydown", onKeydown);
+    window.addEventListener("keydown", onKeydown, { capture: true });
     window.addEventListener("scroll", onScrollOrResize, { capture: true, passive: true });
     window.addEventListener("resize", onScrollOrResize, { passive: true });
   }
@@ -154,7 +174,7 @@ export const statusTip: Action<HTMLElement, StatusTipParams | null | undefined> 
     stopAnchor?.(); // stops autoUpdate + hidePopover()
     stopAnchor = null;
     document.removeEventListener("pointerdown", onDocPointerDown, true);
-    document.removeEventListener("keydown", onKeydown);
+    window.removeEventListener("keydown", onKeydown, { capture: true });
     window.removeEventListener("scroll", onScrollOrResize, true);
     window.removeEventListener("resize", onScrollOrResize);
   }
@@ -179,8 +199,30 @@ export const statusTip: Action<HTMLElement, StatusTipParams | null | undefined> 
     show();
     if (e.detail > 0) pinned = true; // genuine pointer click pins; keyboard (detail 0) does not
   }
+  // Escape lives on the WINDOW, in capture phase, only while a tip is open — not on the
+  // trigger. Most triggers are non-focusable, so a real keystroke targets <body> and would
+  // never reach a node listener (#2283); a pinned tip would then have no keyboard exit at
+  // all, failing WCAG 2.2 SC 1.4.13 (Dismissible).
+  //
+  // Whether the key is CONSUMED follows intent, because these two states differ:
+  //  - PINNED (a deliberate pointer click): the tip is an overlay the operator opened, so it
+  //    owns this Escape. Capture + preventDefault, because `a11yDialog` closes its host dialog
+  //    unless `defaultPrevented` and its listener sits on the dialog NODE — whose bubble phase
+  //    runs before any bubble-phase window listener. Without this, a pinned tip in the New Task
+  //    modal (InstrumentToggle's ON/OFF suffix) would dismiss itself only after the modal had
+  //    already closed, discarding the operator's typed task. Protocol per IssueDetailsPopover.
+  //  - HOVERED (incidental): the operator never asked for this tip, so it must NOT steal a
+  //    keystroke aimed elsewhere. Hide it, but let the event run on — otherwise hovering a
+  //    command description in SlashCommandMenu would swallow the Escape that closes the menu.
+  // `stopPropagation` (not `stopImmediatePropagation`) so several open tips close on one Esc.
   function onKeydown(e: KeyboardEvent) {
-    if (e.key === "Escape") hide();
+    if (e.key !== "Escape") return;
+    const owned = pinned; // hide() clears it — read first
+    if (owned) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    hide();
   }
 
   function enable(next: StatusTipParams) {
@@ -207,7 +249,6 @@ export const statusTip: Action<HTMLElement, StatusTipParams | null | undefined> 
       node.addEventListener("focus", onFocus);
       node.addEventListener("blur", onBlur);
       node.addEventListener("click", onClick);
-      node.addEventListener("keydown", onKeydown);
     }
   }
 
@@ -220,7 +261,6 @@ export const statusTip: Action<HTMLElement, StatusTipParams | null | undefined> 
       node.removeEventListener("focus", onFocus);
       node.removeEventListener("blur", onBlur);
       node.removeEventListener("click", onClick);
-      node.removeEventListener("keydown", onKeydown);
     }
     if (body) {
       void unmount(body);

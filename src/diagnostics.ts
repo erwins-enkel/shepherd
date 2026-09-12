@@ -954,7 +954,7 @@ const TMP_ENTRY_HINTS = {
 } as const;
 
 /** Non-secret temp-filesystem pressure facts for the `tmp_inodes` check. The signal is whichever
- *  reading the swept roots support — an inode percentage where the filesystem caps inodes, an
+ *  reading the measured roots support — an inode percentage where the filesystem caps inodes, an
  *  accumulated top-level entry count where it does not (btrfs/XFS/ZFS allocate them dynamically,
  *  so a percentage is meaningless), or nothing at all. Bands are passed in rather than read from
  *  env here so the classifier stays pure and testable. */
@@ -1001,10 +1001,12 @@ export function classifyTmpInodes(f: TmpInodeFacts): DiagnosticCheck {
   return { id, state: "ok", hintKey: keys.ok };
 }
 
-/** Default `readTmpInodes`: read the worst pressure across the roots the sweeper visits and pair
- *  it with the live bands. Deliberately the SWEPT roots rather than a fixed `tmpdir()`: post-#1875
- *  trusted agents write to a disk-backed root, so watching only the tmpfs reported a healthy
- *  filesystem while the one filling up went unseen (#1862). */
+/** Default `readTmpInodes`: read the worst pressure across `diagnosedRoots()` — the temp roots a
+ *  sweep can actually RECLAIM — and pair it with the live bands. Deliberately more than a fixed
+ *  `tmpdir()`: post-#1875 trusted agents write to a disk-backed root, so watching only the tmpfs
+ *  reported a healthy filesystem while the one filling up went unseen (#1862). Deliberately less
+ *  than the swept set: it omits the session-scratch roots, whose contents the row's Fix cannot
+ *  remove (see `diagnosedRoots`). */
 async function defaultReadTmpInodes(): Promise<TmpInodeFacts> {
   return { signal: await readTmpPressureSignal(), ...tmpInodeBands(), ...tmpEntryBands() };
 }

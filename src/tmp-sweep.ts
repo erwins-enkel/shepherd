@@ -507,9 +507,12 @@ export function tmpEntryBands(): { warnEntries: number; errorEntries: number } {
 
 /**
  * The roots a default (production) sweep visits — the bare disk `agentTmpDir()`, the claude root
- * and its nested `claude-$uid`, and the legacy tmpfs pair. Shared by `readTmpPressureSignal` and
- * the worktree reaper so both act on exactly the set `sweepClaudeTmp` does, rather than on a
- * filesystem the sweeper never touches.
+ * and its nested `claude-$uid`, and the legacy tmpfs pair. The worktree reaper's default root set,
+ * so it reclaims across exactly what `sweepClaudeTmp` walks rather than a filesystem the sweeper
+ * never touches.
+ *
+ * NOT what the `tmp_inodes` Diagnose row reads — that is the narrower `diagnosedRoots()`, which
+ * excludes the session-scratch roots a sweep cannot reclaim. See its doc for why the two differ.
  */
 function sweptRoots(): string[] {
   return resolveSweepRoots(claudeTmpRoot(), `claude-${uid()}`, false);
@@ -583,12 +586,13 @@ function severityOf(
 }
 
 /**
- * The worst pressure signal across the roots the sweeper actually visits — the value behind the
- * `tmp_inodes` Diagnose row.
+ * The worst pressure signal across `diagnosedRoots()` — the value behind the `tmp_inodes` Diagnose
+ * row.
  *
  * Post-#1875 no single path answers this. Trusted agents write to the disk `agentTmpDir()`, while
  * the tmpfs `tmpdir()` is still real for sandboxed spawns and tools that hardcode `/tmp`; reading
- * only one reports a healthy filesystem while the other fills. Roots that cannot be measured are
+ * only one reports a healthy filesystem while the other fills. "Worst" is ranked by the STATE each
+ * reading classifies to (see `severityOf`), never by a raw ratio. Roots that cannot be measured are
  * skipped rather than allowed to mask a measurable one; `uninspectable` is returned only when NO
  * root could be read.
  *

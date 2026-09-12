@@ -8,6 +8,7 @@ export function planGateExplanation(): TooltipExplanation {
     sections: [
       { label: m.tooltip_process(), text: m.tooltip_plan_gate_process() },
       { label: m.tooltip_release(), text: m.tooltip_plan_gate_release() },
+      { label: m.tooltip_claude(), text: m.tooltip_plan_gate_claude() },
       { label: m.tooltip_codex(), text: m.tooltip_plan_gate_codex() },
     ],
   };

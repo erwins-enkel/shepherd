@@ -852,15 +852,19 @@
   // The PR disclosure toggle's hue tracks merge-readiness — NOT mere PR existence
   // (that's prReady above, which still drives the decommission nudge). This toggle is a
   // single rolled-up verdict for the collapsed rail, so amber = "needs you" deliberately
-  // folds CI failure, critic changes_requested AND a stale/conflicting/protection-blocked
-  // PR into one attention hue. That diverges from PrBadge on purpose: PrBadge has room for
-  // granular per-check dots, so it keeps red for CI failure and amber for
-  // pending/changes_requested — red stays exclusive to those dots, never the rolled-up
-  // toggle. Green = CI green, critic clear AND genuinely merge-ready — where "clear" means
-  // only changes_requested blocks green; approved, commented, and no-review-yet all pass.
-  // Pending / merged / closed / none stay neutral, as does a green DRAFT (parked awaiting
-  // sign-off — never green, never amber). The rule itself lives in $lib/pr-ready so the
-  // whole matrix is unit-testable without mounting this component.
+  // folds CI failure, critic changes_requested AND an ACTIONABLE merge blocker (a conflict,
+  // or a behind-base PR whose CI has already cleared) into one attention hue. That diverges
+  // from PrBadge on purpose: PrBadge has room for granular per-check dots, so it keeps red
+  // for CI failure and amber for pending/changes_requested — red stays exclusive to those
+  // dots, never the rolled-up toggle. Green = CI green, critic clear AND genuinely
+  // merge-ready — where "clear" means only changes_requested blocks green; approved,
+  // commented, and no-review-yet all pass. Merged / closed / none stay neutral, and so do
+  // the two states that lose green without earning amber: a DRAFT (parked awaiting sign-off)
+  // and a branch-protection `blocked` PR (in a repo requiring approvals that is EVERY open
+  // PR, so amber would light the whole repo). CI still in flight stays neutral too unless
+  // the PR conflicts — a conflicting PR's checks can never clear, so it can't wait for them.
+  // The rule itself lives in $lib/pr-ready so the whole matrix is unit-testable without
+  // mounting this component.
   // Known limitation: there is no critic-pending field, so prClear goes green on CI
   // success even before the critic posts (latestReview undefined) — "ready to merge" can
   // show a beat early, and stays green when the critic is disabled (no gate to wait on).

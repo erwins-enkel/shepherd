@@ -73,9 +73,32 @@ describe("prRailHue", () => {
     expect(hue({ mergeStateStatus: "behind", mergeable: true })).toBe("attention");
   });
 
-  it("green + dirty / blocked are attention", () => {
+  it("green + dirty is attention", () => {
     expect(hue({ mergeStateStatus: "dirty" })).toBe("attention");
-    expect(hue({ mergeStateStatus: "blocked", mergeable: true })).toBe("attention");
+  });
+
+  // Branch protection blocks EVERY open PR in a repo that requires an approving review, so
+  // `blocked` loses green without claiming attention.
+  it("blocked loses green but never goes amber", () => {
+    expect(hue({ mergeStateStatus: "blocked", mergeable: true })).toBe("neutral");
+    expect(hue({ mergeStateStatus: "blocked", checks: "pending" })).toBe("neutral");
+  });
+
+  // While CI is in flight there is nothing to do but wait — amber there would flag a PR that
+  // was neutral before #1551.
+  it("behind is neutral while CI is still in flight, amber once it clears", () => {
+    expect(hue({ mergeStateStatus: "behind", checks: "pending" })).toBe("neutral");
+    expect(hue({ mergeStateStatus: "behind", checks: "none" })).toBe("neutral");
+    expect(hue({ mergeStateStatus: "behind", checks: "success" })).toBe("attention");
+    // No-CI repo: `none` is terminal there, so a stale PR is still flagged.
+    expect(hue({ mergeStateStatus: "behind", checks: "none", noCi: true })).toBe("attention");
+  });
+
+  // A conflicting PR's CI can never go green (GitHub can't build the merge ref), so it must
+  // not wait for a settled run — otherwise it would never be flagged at all.
+  it("a conflict is amber even with CI unsettled", () => {
+    expect(hue({ mergeStateStatus: "dirty", checks: "pending" })).toBe("attention");
+    expect(hue({ mergeStateStatus: "dirty", checks: "none" })).toBe("attention");
   });
 
   it("a green draft is neutral — parked, never amber and never green", () => {

@@ -1,4 +1,5 @@
 import { isConflicting } from "$lib/pr-conflict";
+import { checksCleared } from "$lib/checks-cleared";
 import type { GitState } from "$lib/types";
 
 /** The single reason an open PR is NOT merge-ready, or null when nothing blocks it.
@@ -34,13 +35,14 @@ export function prReadinessBlock(git: GitState | undefined): PrReadinessBlock {
 /** The viewport git-disclosure toggle's rolled-up hue.
  *
  *  - `attention` (amber) — needs you: CI failed, the configured reviewer requested changes, or the
- *    PR is stale/conflicting/protection-blocked. Stale is amber UNCONDITIONALLY: the hue does not
- *    consult whether Autopilot or the merge train is about to rebase it, so this stays one pure
- *    rule with no cross-store reads.
+ *    PR carries a readiness block the operator can act on (see {@link amberBlock}). Staleness is
+ *    amber regardless of whether Autopilot or the merge train is about to rebase it — the hue
+ *    stays one pure rule with no cross-store reads.
  *  - `clear` (green) — CI green, no requested changes, and genuinely merge-ready.
  *  - `neutral` — everything else, INCLUDING a green draft: `herd-partition.ts` treats a green idle
  *    draft as parked ("rendered in slate, never the green Your turn state"), so a draft drops out
- *    of green without claiming the operator's attention.
+ *    of green without claiming the operator's attention. A `blocked` PR is neutral too — it loses
+ *    green but never turns amber (see {@link amberBlock}).
  *
  *  Lifted out of Viewport.svelte so the whole matrix is unit-testable without mounting a
  *  3.6k-line component. `reviewing` is passed in (the caller wires it to the reviews store) to
@@ -54,15 +56,32 @@ export function prRailHue(input: {
   if (git?.state !== "open") return "neutral";
   const block = prReadinessBlock(git);
   const changesRequested = git.latestReview?.state === "changes_requested";
-  if (!reviewing && (git.checks === "failure" || changesRequested || isAmberBlock(block)))
+  if (!reviewing && (git.checks === "failure" || changesRequested || amberBlock(block, git)))
     return "attention";
   if (git.checks === "success" && !changesRequested && block === null) return "clear";
   return "neutral";
 }
 
-/** Readiness blocks that mean "needs you", as opposed to `draft` (parked, awaiting sign-off). */
-function isAmberBlock(block: PrReadinessBlock): boolean {
-  return block === "conflict" || block === "behind" || block === "blocked";
+/** Which readiness blocks actually mean "needs you" — deliberately NARROWER than the set that
+ *  costs a PR its green, because amber is a claim on the operator's attention and every block
+ *  that de-greens is not one they can act on:
+ *
+ *    • `conflict` — always amber, and NOT gated on CI below: a conflicting PR's CI can never go
+ *      green (GitHub cannot build the merge ref), so waiting for a settled run would mean it is
+ *      never flagged at all. Same reasoning as autopilot.ts's isDefiniteConflict waiver.
+ *    • `behind`   — amber only once CI has CLEARED (`checksCleared`, the same gate
+ *      herd-partition.ts's branchProtectionBlocked stage sits behind). While checks are still in
+ *      flight the operator has nothing to do but wait, and turning the toggle amber mid-run would
+ *      flag a PR that was neutral before #1551.
+ *    • `blocked`  — NEVER amber. In a repo whose branch protection requires an approving review,
+ *      every open PR reports BLOCKED until it is approved, so amber here would light the whole
+ *      repo. It still costs the PR its green (prReadinessBlock keeps it), which is the honest
+ *      part of the signal; the actionable detail lives on GitRail's merge-blocked reason line.
+ *    • `draft`    — never amber: parked awaiting sign-off, not stalled. */
+function amberBlock(block: PrReadinessBlock, git: GitState): boolean {
+  if (block === "conflict") return true;
+  if (block === "behind") return checksCleared(git.checks, git.noCi);
+  return false;
 }
 
 /** Whether the PR badge shows a stale/conflict marker, and which.

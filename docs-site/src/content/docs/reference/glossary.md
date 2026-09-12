@@ -141,6 +141,18 @@ A model-weighted measure of token spend that counts what actually draws down you
 subscription limits — output tokens cost far more than cached reads, so weighted
 units, not raw token counts, reflect true usage.
 
+### Cold cache
+
+A session's prompt cache expires after a stretch of inactivity — one hour on a
+Claude subscription, five minutes on an API key. Once it has, the next turn
+re-sends the whole conversation at the cache-write rate instead of reading it
+back cheaply, which makes that single turn many times more expensive than the
+turns around it. A parked session that has gone cold carries a warn chip in The
+Herd and a matching marker in its status bar, estimating that first turn's cost
+in [weighted units](#weighted-units) so you can see it before you resume.
+Codex sessions and archived ones stay silent, as does anything below a small
+cost floor.
+
 ### Reasoning effort
 
 A cost/quality dial (`low`, `medium`, `high`, `xhigh`, `max`, `ultra`) that sets

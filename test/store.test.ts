@@ -2598,3 +2598,114 @@ test("a sessions row predating the migration reads the new columns back as null"
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// ── settled clock (#1156) ─────────────────────────────────────────────────────
+
+test("settledAt is stamped when a session stops working and cleared when it resumes", () => {
+  const s = mk();
+  const a = s.create(base);
+  expect(a.settledAt ?? null).toBeNull(); // a fresh session is `running`
+
+  s.update(a.id, { status: "idle", lastState: "idle" });
+  const settled = s.get(a.id)!.settledAt;
+  expect(settled).toBeGreaterThan(0);
+
+  s.update(a.id, { status: "running", lastState: "working" });
+  expect(s.get(a.id)!.settledAt ?? null).toBeNull();
+
+  s.update(a.id, { status: "done", lastState: "done" });
+  expect(s.get(a.id)!.settledAt).toBeGreaterThan(0);
+});
+
+test("a settled→settled rewrite carries settledAt — boot reconcile must not reset the clock", () => {
+  const s = mk();
+  const a = s.create(base);
+  s.update(a.id, { status: "idle", lastState: "idle" });
+  const first = s.get(a.id)!.settledAt!;
+
+  // idle→done: the in-place settle that later loses its pane. Same episode, same clock.
+  s.update(a.id, { status: "done", lastState: "done" });
+  expect(s.get(a.id)!.settledAt).toBe(first);
+
+  // done→done: what reconcile() writes for every unmatched session on EVERY boot. If this
+  // re-stamped, nothing would ever age out of the auto-archive sweep.
+  s.update(a.id, { status: "done", lastState: "done" });
+  expect(s.get(a.id)!.settledAt).toBe(first);
+  expect(s.get(a.id)!.updatedAt).toBeGreaterThanOrEqual(first); // updatedAt DOES move
+});
+
+test("blocked does not count as settled — the agent is alive and waiting on the operator", () => {
+  const s = mk();
+  const a = s.create(base);
+  s.update(a.id, { status: "blocked", lastState: "blocked" });
+  expect(s.get(a.id)!.settledAt ?? null).toBeNull();
+
+  s.update(a.id, { status: "idle", lastState: "idle" });
+  const settled = s.get(a.id)!.settledAt!;
+  s.update(a.id, { status: "blocked", lastState: "blocked" });
+  expect(s.get(a.id)!.settledAt ?? null).toBeNull();
+  expect(settled).toBeGreaterThan(0);
+});
+
+test("setSettledAt writes the clock outright, and unarchive clears it", () => {
+  const s = mk();
+  const a = s.create(base);
+  s.setSettledAt(a.id, 1_700_000_000_000);
+  expect(s.get(a.id)!.settledAt).toBe(1_700_000_000_000);
+
+  s.archive(a.id, "stale");
+  expect(s.get(a.id)!.archiveReason).toBe("stale");
+  s.unarchive(a.id);
+  // A restored session is about to re-spawn; carrying the old clock would let the sweep
+  // re-archive it the moment it settles for a second.
+  expect(s.get(a.id)!.settledAt ?? null).toBeNull();
+});
+
+test("the settledAt migration backfills rows already sitting in a settled status", () => {
+  const dir = mkdtempSync(join(tmpdir(), "shep-store-settled-"));
+  const path = join(dir, "s.db");
+  try {
+    const first = new SessionStore(path);
+    const settledRow = first.create(base);
+    const workingRow = first.create({ ...base, herdrAgentId: "term_2" });
+    first.update(settledRow.id, { status: "done", lastState: "done" });
+
+    // Simulate a pre-#1156 database: drop the column the migration adds.
+    const raw = new Database(path);
+    raw.run(`ALTER TABLE sessions DROP COLUMN settledAt`);
+    const updatedAt = (
+      raw.query(`SELECT updatedAt FROM sessions WHERE id = ?`).get(settledRow.id) as {
+        updatedAt: number;
+      }
+    ).updatedAt;
+    raw.close();
+
+    const reopened = new SessionStore(path);
+    // Settled rows are seeded from updatedAt — the only evidence the DB holds.
+    expect(reopened.get(settledRow.id)!.settledAt).toBe(updatedAt);
+    // A still-working row has not settled, so it gets no clock.
+    expect(reopened.get(workingRow.id)!.settledAt ?? null).toBeNull();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("hasInflightReviewerSpawn is true only while a reviewer row is unfinished", () => {
+  const s = mk();
+  const a = s.create(base);
+  expect(s.hasInflightReviewerSpawn(a.id)).toBe(false);
+
+  s.recordReviewerSpawn({
+    reviewerSessionId: "rev-1",
+    taskSessionId: a.id,
+    kind: "review",
+    worktreePath: "/r-wt",
+    model: null,
+    spawnedAt: Date.now(),
+  });
+  expect(s.hasInflightReviewerSpawn(a.id)).toBe(true);
+  expect(s.hasInflightReviewerSpawn("some-other-session")).toBe(false);
+
+  s.completeReviewerSpawn("rev-1", null, Date.now());
+  expect(s.hasInflightReviewerSpawn(a.id)).toBe(false);
+});

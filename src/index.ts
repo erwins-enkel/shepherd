@@ -41,8 +41,14 @@ import { StatusPoller } from "./poller";
 import { PrPoller } from "./pr-poller";
 import { resolveDiffBase } from "./diff-base";
 import { BranchPruner } from "./branch-pruner";
+import { SessionArchiver } from "./session-archiver";
 import { reconcile } from "./reconcile";
-import { createOrphanTabSweeper, reapOrphanTabs, reapStaleReviewWorktrees } from "./tab-reaper";
+import {
+  archivedSessionTabLabels,
+  createOrphanTabSweeper,
+  reapOrphanTabs,
+  reapStaleReviewWorktrees,
+} from "./tab-reaper";
 import { reapTransientByLabel } from "./transient-tab-reaper";
 import { scanClaudeAliveByWorktree } from "./process-reaper";
 import { serve, serveAgentIngress, buildBacklogPayload, type AppDeps } from "./server";
@@ -304,6 +310,11 @@ if (savedRpm !== null) config.reducedPushMode = savedRpm === "1";
 // absent → keep the config default (on). Stored as "1"/"0".
 const savedHk = store.getSetting("sessionHousekeepingEnabled");
 if (savedHk !== null) config.sessionHousekeepingEnabled = savedHk === "1";
+// Auto-archive of settled sessions (#1156): a persisted `sessionAutoArchiveEnabled` row overrides
+// the env seed. There is no UI for it — the row is the operator's manual escape hatch alongside
+// SHEPHERD_SESSION_AUTO_ARCHIVE=0. Stored as "1"/"0".
+const savedAa = store.getSetting("sessionAutoArchiveEnabled");
+if (savedAa !== null) config.sessionAutoArchiveEnabled = savedAa === "1";
 // Auto-revive toggle (#1630): a UI-chosen value (persisted) overrides the env seed.
 const savedAr = store.getSetting("autoReviveEnabled");
 if (savedAr !== null) config.autoReviveEnabled = savedAr === "1";
@@ -1040,7 +1051,10 @@ deferredStarts.push(() => {
 // persisting anything. A `panes()` failure surfaces as a warning instead of reading as
 // "nothing to do".
 const orphanTabSweeper = createOrphanTabSweeper({
-  reap: (prev) => reapOrphanTabs(herdr, prev),
+  // Archived-session tabs join the helper husks in scope (#1156). Recomputed per sweep — the set
+  // changes as sessions archive — and derived through `archivedSessionTabLabels`, which subtracts
+  // every live session's name so a live tab can never enter scope.
+  reap: (prev) => reapOrphanTabs(herdr, prev, archivedSessionTabLabels(store)),
   schedule: (fn, ms) => void setTimeout(fn, ms),
   maintenanceActive: () => maintenance.active,
   confirmDelayMs: 30_000,
@@ -1063,8 +1077,8 @@ const orphanTabSweeper = createOrphanTabSweeper({
     // would check by hand, so "no helper tabs" is a fact, not an artifact of the filter.
     if (r.helperTabs > 0)
       console.warn(
-        `[tabs] sweep: ${r.helperTabs} helper tab(s) in scope — reaped ${r.closed.length}, ` +
-          `spared ${r.sparedLive} live, ${r.sparedError} undetermined`,
+        `[tabs] sweep: ${r.helperTabs} tab(s) in scope (${r.sessionTabs} archived-session) — ` +
+          `reaped ${r.closed.length}, spared ${r.sparedLive} live, ${r.sparedError} undetermined`,
       );
   },
   onError: (err) => console.warn("[tabs] orphan sweep failed:", err),
@@ -2254,6 +2268,31 @@ deferredStarts.push(() => {
     if (maintenance.active) return;
     void drain.tick().catch((err) => console.warn("[drain] tick:", err));
   }, 30_000);
+});
+
+// Hourly: archive sessions that stopped working a week ago and have nothing left in flight —
+// the only path that retires a settled session whose PR never merged (#1156). Constructed here,
+// after `drain`, because it must claim through DrainService: without `retainClaim` this teardown
+// would read to `onArchived` as an operator ABANDON and release the issue's claim label.
+// Disable with SHEPHERD_SESSION_AUTO_ARCHIVE=0 or setting sessionAutoArchiveEnabled="0".
+const sessionArchiver = new SessionArchiver({
+  store,
+  resolveForge,
+  // The poller owns claude-process liveness; the archiver only reads its verdicts, and only
+  // acts on a `husk` backed by a recent successful sweep.
+  livenessOf: (id) => poller.livenessOf(id),
+  livenessFreshAt: () => poller.livenessFreshAt(),
+  retainClaim: (id) => drain.retainClaim(id),
+  archive: (id, reason) => service.archive(id, undefined, reason),
+  dropPrCache: (id) => prPoller.drop(id),
+  emitArchived: (id) => events.emit("session:archived", { id }),
+});
+deferredStarts.push(() => {
+  // First sweep a minute in: late enough for the liveness sweep to have produced verdicts (without
+  // them every candidate fails the husk gate and the tick is wasted), early enough that a restart
+  // loop can still make progress on a backlog.
+  setTimeout(() => void sessionArchiver.tick(), 60_000);
+  sessionArchiver.start();
 });
 
 const autoMerge = new AutoMergeService({

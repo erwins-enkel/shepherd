@@ -1,5 +1,6 @@
 import { test, expect, describe } from "bun:test";
 import {
+  archivedSessionTabLabels,
   createOrphanTabSweeper,
   reapOrphanTabs,
   isShepherdHelperLabel,
@@ -14,6 +15,7 @@ import { MAINTAIN_AGENT_LABEL } from "../src/maintain";
 import { DISTILL_LABEL } from "../src/distiller";
 import { OPTIMIZE_LABEL } from "../src/optimizer";
 import type { HerdrPane, HerdrTab } from "../src/herdr";
+import { SessionStore } from "../src/store";
 
 /** One pane plus the label of the TAB that owns it. Deliberately split: on herdr 0.7.5 the pane
  *  itself carries NO label (measured live: 0 of 325 helper panes had one) and the label lives on
@@ -452,6 +454,107 @@ test("live pane DE-PRIMES a prior first-sighting; the shell sibling can never co
   expect(f.closed).toEqual(["w1:t1"]);
 });
 
+// ── extraLabels: archived-session tabs (#1156) ────────────────────────────────
+
+test("extraLabels: an archived session's husk tab is reaped on the same two-sweep debounce", async () => {
+  const panes = [pane("w1:p1", "w1:t1", "fix-login-redirect")];
+  const procMap: Record<string, string[]> = { "w1:p1": ["zsh"] };
+  const extra = new Set(["fix-login-redirect"]);
+
+  const f1 = procFake(panes, procMap);
+  const r1 = await reapOrphanTabs(f1.h, new Set(), extra);
+  expect(r1.helperTabs).toBe(1);
+  expect(r1.sessionTabs).toBe(1); // counted apart from the helper husks
+  expect(r1.closed).toEqual([]); // first sighting only
+
+  const f2 = procFake(panes, procMap);
+  const r2 = await reapOrphanTabs(f2.h, r1.shellOnly, extra);
+  expect(r2.closed).toEqual(["w1:t1"]);
+});
+
+test("extraLabels: a session tab still running claude is spared like any other live tab", async () => {
+  const panes = [pane("w1:p1", "w1:t1", "fix-login-redirect")];
+  const procMap: Record<string, string[]> = { "w1:p1": ["claude"] };
+  const extra = new Set(["fix-login-redirect"]);
+
+  const f1 = procFake(panes, procMap);
+  const r1 = await reapOrphanTabs(f1.h, new Set(), extra);
+  expect(r1.sparedLive).toBe(1);
+  expect(r1.closed).toEqual([]);
+  // Even primed from a previous sighting, a live pane is never closed.
+  const f2 = procFake(panes, procMap);
+  expect((await reapOrphanTabs(f2.h, new Set(["w1:t1"]), extra)).closed).toEqual([]);
+});
+
+test("a session tab NOT in extraLabels is out of scope entirely — husk or not", async () => {
+  // The caller omits live sessions and unattributable tabs; omission must mean untouchable, not
+  // merely "spared", or a live session's tab could be closed by a stale debounce entry.
+  const panes = [pane("w1:p1", "w1:t1", "still-running-session")];
+  const procMap: Record<string, string[]> = { "w1:p1": ["zsh"] };
+
+  const f = procFake(panes, procMap);
+  const r = await reapOrphanTabs(f.h, new Set(["w1:t1"]), new Set(["some-other-session"]));
+  expect(r.helperTabs).toBe(0);
+  expect(r.sessionTabs).toBe(0);
+  expect(r.closed).toEqual([]);
+  expect(f.closed).toEqual([]);
+  expect(f.panesCalls.n).toBe(0); // empty scope short-circuits the pane read
+});
+
+test("extraLabels alongside helper tabs: both populations reaped, counted separately", async () => {
+  const panes = [
+    pane("w1:p1", "w1:t1", PROBE_NAME),
+    pane("w1:p2", "w1:t2", "archived-session"),
+    pane("w1:p3", "w1:t3", "operators-own-tab"),
+  ];
+  const procMap: Record<string, string[]> = {
+    "w1:p1": ["zsh"],
+    "w1:p2": ["zsh"],
+    "w1:p3": ["zsh"],
+  };
+  const extra = new Set(["archived-session"]);
+
+  const f1 = procFake(panes, procMap);
+  const r1 = await reapOrphanTabs(f1.h, new Set(), extra);
+  expect(r1.helperTabs).toBe(2);
+  expect(r1.sessionTabs).toBe(1);
+
+  const f2 = procFake(panes, procMap);
+  const r2 = await reapOrphanTabs(f2.h, r1.shellOnly, extra);
+  expect(new Set(r2.closed)).toEqual(new Set(["w1:t1", "w1:t2"]));
+  expect(f2.closed).not.toContain("w1:t3"); // the unattributable tab is never touched
+});
+
+// ── archivedSessionTabLabels (#1156) ──────────────────────────────────────────
+
+test("archivedSessionTabLabels: archived names only, and never one a live session still holds", () => {
+  const store = new SessionStore(":memory:");
+  const mk = (name: string) =>
+    store.create({
+      name,
+      prompt: "",
+      repoPath: "/r",
+      baseBranch: "main",
+      branch: `shepherd/${name}`,
+      worktreePath: `/wt/${name}`,
+      isolated: true,
+      herdrSession: "default",
+      herdrAgentId: `term_${name}`,
+    });
+
+  const retired = mk("retired-task");
+  mk("live-task");
+  // A NEW session reusing an archived one's name: uniqueName only keeps names unique among LIVE
+  // sessions, and a tab label cannot tell the two apart — so the live one must win the subtraction.
+  const oldDup = mk("recycled-name");
+
+  store.archive(retired.id, "stale");
+  store.archive(oldDup.id, "operator");
+  mk("recycled-name"); // the live namesake, created after the archive
+
+  expect(archivedSessionTabLabels(store)).toEqual(new Set(["retired-task"]));
+});
+
 // ── createOrphanTabSweeper (#1852) ────────────────────────────────────────────
 
 function rr(over: Partial<ReapResult> = {}): ReapResult {
@@ -461,6 +564,7 @@ function rr(over: Partial<ReapResult> = {}): ReapResult {
     sparedError: 0,
     shellOnly: new Set(),
     helperTabs: 0,
+    sessionTabs: 0,
     panesFailed: false,
     tabsFailed: false,
     ...over,

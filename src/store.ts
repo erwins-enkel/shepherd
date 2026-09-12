@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import type {
   Session,
   SessionArchiveReason,
+  SessionStatus,
   ExperimentRole,
   ReviewVerdict,
   ReviewDecision,
@@ -368,9 +369,21 @@ function parseFailureReason(raw: string | null | undefined): RecapFailure | null
 }
 
 function parseArchiveReason(raw: string | null | undefined): SessionArchiveReason | null {
-  return raw === "operator" || raw === "merged" || raw === "drain" || raw === "relaunch"
+  return raw === "operator" ||
+    raw === "merged" ||
+    raw === "drain" ||
+    raw === "relaunch" ||
+    raw === "stale"
     ? raw
     : null;
+}
+
+/** Statuses in which a session is NOT working — the ones {@link SessionStore.update} stamps
+ *  `settledAt` for (#1156). `blocked` is deliberately absent: a blocked agent is alive and waiting
+ *  on the operator, so it has not settled. `archived` is absent because `archive()` writes the
+ *  status directly and never routes through `update()`. */
+function isSettledStatus(status: SessionStatus): boolean {
+  return status === "idle" || status === "done";
 }
 
 function parseRecapBlocks(raw: string | null | undefined): VisualBlock[] {
@@ -560,6 +573,7 @@ type NewSession = Omit<
   | "lastState"
   | "createdAt"
   | "updatedAt"
+  | "settledAt"
   | "archivedAt"
   | "archiveReason"
   | "model"
@@ -649,7 +663,7 @@ const COLS = `id, desig, name, prompt, repoPath, baseBranch, branch, worktreePat
  * fresh row starts NULL ("not observed yet" / "never parked") on its own. Keeping them out of
  * `COLS` also keeps that constant aligned with `create()`'s placeholder list.
  */
-const READ_COLS = `${COLS}, runtimeModel, runtimeEffort, contextTokens, coldResumeAt, resumeCostUnits`;
+const READ_COLS = `${COLS}, runtimeModel, runtimeEffort, contextTokens, coldResumeAt, resumeCostUnits, settledAt`;
 
 // ── SQLite row shapes ──────────────────────────────────────────────────────────
 
@@ -706,6 +720,7 @@ type SessionRow = {
   terminalPaneId: string | null;
   createdAt: number;
   updatedAt: number;
+  settledAt: number | null;
   archivedAt: number | null;
   archiveReason: string | null;
   mergingSince: number | null;
@@ -2950,8 +2965,19 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     const cur = this.get(id);
     if (!cur) return;
     const next = { ...cur, ...patch, updatedAt: Date.now() };
+    // Settled clock (#1156), derived from the status TRANSITION rather than from the patch alone:
+    // a settled→settled write — `idle`→`done`, and the `done`→`done` rewrite boot `reconcile()`
+    // performs for every unmatched session on EVERY restart — must CARRY the existing stamp. Were
+    // it re-stamped there, the clock would reset on every boot and nothing would ever age out
+    // (precisely the reason `updatedAt`, which that rewrite does bump, cannot serve as one).
+    // Computed here rather than accepted through `patch` so no caller can bypass it.
+    const settledAt = !isSettledStatus(next.status)
+      ? null
+      : isSettledStatus(cur.status)
+        ? (cur.settledAt ?? null)
+        : next.updatedAt;
     this.db.run(
-      `UPDATE sessions SET name=?, status=?, lastState=?, branch=?, herdrAgentId=?, claudeSessionId=?, providerSessionId=?, codexLaunchId=?, agentProvider=?, model=?, effort=?, readyToMerge=?, mergingSince=?, mergingTrainId=?, mergingPrNumber=?, planGateEnabled=?, planPhase=?, updatedAt=? WHERE id=?`,
+      `UPDATE sessions SET name=?, status=?, lastState=?, branch=?, herdrAgentId=?, claudeSessionId=?, providerSessionId=?, codexLaunchId=?, agentProvider=?, model=?, effort=?, readyToMerge=?, mergingSince=?, mergingTrainId=?, mergingPrNumber=?, planGateEnabled=?, planPhase=?, settledAt=?, updatedAt=? WHERE id=?`,
       [
         next.name,
         next.status,
@@ -2970,10 +2996,23 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         next.mergingPrNumber,
         next.planGateEnabled === null ? null : next.planGateEnabled ? 1 : 0,
         next.planPhase,
+        settledAt,
         next.updatedAt,
         id,
       ],
     );
+  }
+
+  /** Set (or clear) the settled clock explicitly. `update()` derives it from the status
+   *  transition on every status write, so this exists for the paths that must state it outright —
+   *  tests, and any future caller that knows a settle time `update()` cannot infer. Bumps
+   *  `updatedAt` like every other write. */
+  setSettledAt(id: string, settledAt: number | null): void {
+    this.db.run(`UPDATE sessions SET settledAt=?, updatedAt=? WHERE id=?`, [
+      settledAt,
+      Date.now(),
+      id,
+    ]);
   }
 
   /** Patch a session's applied sandbox state (set at spawn by the sandbox wrapper).
@@ -3215,10 +3254,14 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
 
   unarchive(id: string) {
     const now = Date.now();
-    this.db.run(`UPDATE sessions SET archivedAt=NULL, archiveReason=NULL, updatedAt=? WHERE id=?`, [
-      now,
-      id,
-    ]);
+    // settledAt is cleared with the archive flags: a restored session is about to be re-spawned,
+    // and carrying the clock from its previous life would let the auto-archive sweep (#1156)
+    // re-archive it the moment it settles for a second, however long it then runs. The next
+    // settle re-stamps it.
+    this.db.run(
+      `UPDATE sessions SET archivedAt=NULL, archiveReason=NULL, settledAt=NULL, updatedAt=? WHERE id=?`,
+      [now, id],
+    );
     // The archive-time usage snapshot is stale the moment the session is live again (a
     // replace can even swap its provider/lineage). Drop it so the archived-usage read can't
     // serve a pre-restore row — including a legacy blank-provenance one — as current; the
@@ -4322,6 +4365,23 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     );
   }
 
+  /** True when a reviewer (critic / plan-gate / doc-agent …) spawn for `taskSessionId` is still
+   *  in flight — a row whose `completedAt` is NULL. Drives the auto-archive sweep's
+   *  work-in-flight gate (#1156): tearing a session's worktree down under a running reviewer
+   *  would strand it. Indexed by `reviewer_spawns_task`.
+   *
+   *  A row left in-flight by a crash reads as busy until the boot reconcile that owns it
+   *  (adoptOrphans / reapOrphans) finalizes it — fail-closed, which is the side the sweep wants. */
+  hasInflightReviewerSpawn(taskSessionId: string): boolean {
+    return (
+      this.db
+        .query(
+          `SELECT 1 FROM reviewer_spawns WHERE taskSessionId = ? AND completedAt IS NULL LIMIT 1`,
+        )
+        .get(taskSessionId) != null
+    );
+  }
+
   /** Completed Codex spawn rows whose token totals are still UNKNOWN (NULL) — the rows a boot-time
    *  backfill can still fill once their rollout shows up. Newest first, capped: a rollout that never
    *  appears (GC'd) would otherwise be retried forever, and only recent runs still have one on disk.
@@ -4908,6 +4968,23 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     add("spawnAccountDir", `spawnAccountDir TEXT`);
     add("launchMetadataJson", `launchMetadataJson TEXT`);
     add("archiveReason", `archiveReason TEXT`);
+    // Settled clock (#1156): when the session last stopped working. Written ONLY by `update()`
+    // (which derives it from the status transition) and `setSettledAt`. Nullable — null means
+    // "never settled", never "settled at epoch 0".
+    //
+    // The backfill runs exactly once, in the same branch that creates the column, and seeds rows
+    // already sitting in a settled status from `updatedAt`. It CANNOT live outside that branch: a
+    // later boot would re-seed a row whose clock was deliberately cleared. `updatedAt` is a weak
+    // proxy (boot reconcile rewrites `done` rows and bumps it), so in practice this dates an
+    // existing backlog to roughly the last restart rather than to when it truly settled — a
+    // one-time imprecision that costs the operator one grace window, and the only evidence the DB
+    // actually holds.
+    if (!cols.some((c) => c.name === "settledAt")) {
+      this.db.run(`ALTER TABLE sessions ADD COLUMN settledAt INTEGER`);
+      this.db.run(
+        `UPDATE sessions SET settledAt = updatedAt WHERE status IN ('idle','done') AND settledAt IS NULL`,
+      );
+    }
     // Durable one-clean-terminal-per-repo invariant. Partial: only LIVE terminal rows count, so
     // archiving frees the slot. Created here (after the column adds above) so the terminal
     // column exists on legacy DBs before the index references it.

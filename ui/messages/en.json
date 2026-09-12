@@ -3954,6 +3954,8 @@
   "tasktip_amendments": "Amendments",
   "gloss_task_amendment_term": "task amendment",
   "gloss_task_amendment_def": "Operator-authored text added to a running task after it started. It ranks alongside the original task and is shown to the critic, the plan reviewer and the recap, so it can widen or narrow what the work may contain. It cannot excuse a bug or a security problem, and an agent can never write one.",
+  "feat_session_auto_archive_title": "Settled tasks now retire themselves",
+  "feat_session_auto_archive_body": "A task whose PR merged was always cleared away for you, but one whose PR was closed, never opened, or simply abandoned stayed in the Herd forever — holding its worktree and a terminal tab, which on a long-running host is measured in gigabytes. Shepherd now archives a task once it has been settled for seven days, and only with evidence that it is really finished: no agent process left in its worktree, no open PR, no uncommitted or unpushed work, and nothing in flight. Anything it cannot verify, it leaves alone. Archived tasks stay in the Done lens with their recap, and can still be restored. Set SHEPHERD_SESSION_AUTO_ARCHIVE=0 to turn it off.",
   "feat_task_amendment_title": "Amend a task after it starts",
   "feat_task_amendment_body": "A task's wording used to be frozen the moment it was spawned, so deciding mid-session to widen or narrow the work never reached the critic — which then blocked the PR against the task you had already superseded. A session's card menu now has “Amend task…”: what you write is recorded on the session, ranks alongside the original task for the critic, the plan reviewer and the recap, and can optionally be sent straight to the agent. An amendment can move scope but never excuses a bug, and an agent can never write one.",
   "usage_failover_offer_reason": "{from} weekly {fromFreePct}% free · {to} {toFreePct}% free",
@@ -4021,5 +4023,6 @@
   "feat_structured_tooltips_title": "Tooltips you can scan",
   "feat_structured_tooltips_body": "Cold-cache, Plan gate and Autopilot explanations now use headings and short sections to make costs, approvals and choices easier to find.",
   "feat_plan_gate_identity_title": "Plan Gate: safe automatic release for both CLIs",
-  "feat_plan_gate_identity_body": "With Autopilot on, Claude and Codex can release approved plans in isolated worktrees and shared checkouts. Shepherd resumes the exact task conversation for review feedback and execution. Missing or ambiguous identity keeps the task stopped for you; older Codex tasks without launch attribution need a relaunch."
+  "feat_plan_gate_identity_body": "With Autopilot on, Claude and Codex can release approved plans in isolated worktrees and shared checkouts. Shepherd resumes the exact task conversation for review feedback and execution. Missing or ambiguous identity keeps the task stopped for you; older Codex tasks without launch attribution need a relaunch.",
+  "done_recap_archive_stale": "Decommissioned automatically after 7 days settled"
 }

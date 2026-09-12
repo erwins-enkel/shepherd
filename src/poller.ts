@@ -411,8 +411,15 @@ export class StatusPoller {
   private pendingStopAt = new Map<string, number>();
   private pendingDoneAt = new Map<string, number>();
 
-  /** Timestamp of the last claude-liveness sweep (0 = never). */
+  /** Timestamp of the last claude-liveness sweep ATTEMPT (0 = never) — the throttle stamp. Set
+   *  before the scan runs, so it advances even when that scan fails. */
   private lastLivenessSweepAt = 0;
+  /** Timestamp of the last SUCCESSFUL claude-liveness sweep (0 = never): one that actually produced
+   *  verdicts. Distinct from {@link lastLivenessSweepAt} on purpose — a scan that throws, or that
+   *  returns `null` (no negative verdict available), leaves the previous verdicts in place, and a
+   *  consumer reading the attempt stamp would then treat an arbitrarily old verdict as current.
+   *  Read via {@link livenessFreshAt} by callers that act destructively on a `husk` (#1156). */
+  private lastLivenessSweepOkAt = 0;
   /** Throttle stamp for the clean-terminal pane sweep (`pane list` at most every
    *  TERMINAL_PANE_SWEEP_MS). */
   private lastTerminalSweepAt = 0;
@@ -886,6 +893,10 @@ export class StatusPoller {
         this.reviveGaveUp.delete(id);
       }
     }
+    // Every verdict in `lastLiveness` is now this sweep's. Stamped HERE — after the loop, and on
+    // neither early return above — so the freshness this publishes is the age of the verdicts, not
+    // of the last attempt to refresh them.
+    this.lastLivenessSweepOkAt = t;
     // Restart episode over (nothing stranded, nothing landing) → reset the outcome tally so the next
     // restart starts from zero.
     if (this.strandedCount() === 0 && this.reviveInFlight.size === 0)
@@ -959,6 +970,26 @@ export class StatusPoller {
         console.warn(`[poller] auto-revive dispatch failed for ${id}:`, err);
       })
       .finally(() => this.reviveInFlight.delete(id));
+  }
+
+  /**
+   * This session's folded claude-liveness verdict, or `undefined` when there is none to report —
+   * the session was never swept, or its liveness is currently UNKNOWN (the darwin / stale-snapshot
+   * case the sweep tracks in `livenessUnknown`, where a negative verdict cannot be supported).
+   *
+   * Never coerce the `undefined` to a verdict: `husk` is what authorizes teardown of a settled
+   * session (#1156), and "we could not tell" must read as "do not touch", not as "no claude".
+   * Pair it with {@link livenessFreshAt} — a verdict is only as good as the sweep that produced it.
+   */
+  livenessOf(id: string): LivenessState | undefined {
+    if (this.livenessUnknown.has(id)) return undefined;
+    return this.lastLiveness.get(id);
+  }
+
+  /** Epoch ms of the last sweep that actually produced verdicts (0 = never). The age bound for
+   *  anything read out of {@link livenessOf}. */
+  livenessFreshAt(): number {
+    return this.lastLivenessSweepOkAt;
   }
 
   /** Ids currently classified `stranded` — the set the batch "revive all" endpoint acts on. */

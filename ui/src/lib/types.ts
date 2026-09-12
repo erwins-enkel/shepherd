@@ -3,7 +3,7 @@ export type SessionStatus = "running" | "idle" | "blocked" | "done" | "archived"
  *  `husk` = the agent process is gone but not a daemon-restart strand (e.g. a normal Codex
  *  between-turns exit); `stranded` = a herdr-restored husk needing revival. */
 export type LivenessState = "alive" | "husk" | "stranded";
-export type SessionArchiveReason = "operator" | "merged" | "drain" | "relaunch";
+export type SessionArchiveReason = "operator" | "merged" | "drain" | "relaunch" | "stale";
 export const AGENT_PROVIDERS = ["claude", "codex"] as const;
 export type AgentProvider = (typeof AGENT_PROVIDERS)[number];
 

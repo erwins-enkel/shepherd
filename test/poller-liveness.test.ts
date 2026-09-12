@@ -454,3 +454,79 @@ test("liveness (succeed-then-freeze): a stale scan doesn't re-fire a false every
   // The last-known alive=true is retained but reported as unknown (omitted).
   expect(poller.claudeAliveSnapshot()).toEqual({});
 });
+
+// ── livenessOf / livenessFreshAt (#1156) ──────────────────────────────────────
+
+test("livenessOf reports the folded verdict; livenessFreshAt tracks SUCCESSFUL sweeps only", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSessionInput);
+  // Pin the spawn identity to the pane herdr reports. Without it `isStranded` reads any dead-claude
+  // session as a restored pane (`spawnTerminalId === null` satisfies its fingerprint), and the
+  // verdict would be `stranded` rather than `husk`.
+  store.setSpawnIdentity(s.id, baseHerdrAgent.terminalId, null);
+  let alive = true;
+  let scanFails = false;
+  let clock = 100_000;
+
+  const poller = makePoller({
+    store,
+    agents: [baseHerdrAgent],
+    scan: (worktrees) => {
+      if (scanFails) throw new Error("/proc scan exploded");
+      return new Map(worktrees.map((w) => [w, alive]));
+    },
+    onChange: () => {},
+    sweepMs: 4000,
+    now: () => clock,
+  });
+
+  // Never swept → no verdict at all. Callers must read this as "don't touch", not "no claude".
+  expect(poller.livenessOf(s.id)).toBeUndefined();
+  expect(poller.livenessFreshAt()).toBe(0);
+
+  await poller.tick();
+  expect(poller.livenessOf(s.id)).toBe("alive");
+  expect(poller.livenessFreshAt()).toBe(clock);
+
+  // claude exited, its pane lingering as a shell that herdr still lists: the husk case.
+  alive = false;
+  clock += 5000;
+  await poller.tick();
+  expect(poller.livenessOf(s.id)).toBe("husk");
+  expect(poller.livenessFreshAt()).toBe(clock);
+
+  // A throwing scan leaves the previous verdict in place — so the freshness stamp must NOT
+  // advance, or that stale `husk` would authorize teardown forever.
+  const staleAt = clock;
+  scanFails = true;
+  clock += 5000;
+  await poller.tick();
+  expect(poller.livenessOf(s.id)).toBe("husk"); // retained
+  expect(poller.livenessFreshAt()).toBe(staleAt); // but visibly stale
+});
+
+test("livenessOf withholds a verdict while liveness is UNKNOWN (scan returned null)", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSessionInput);
+  store.setSpawnIdentity(s.id, baseHerdrAgent.terminalId, null);
+  let scanNull = false;
+  let clock = 100_000;
+
+  const poller = makePoller({
+    store,
+    agents: [baseHerdrAgent],
+    scan: (worktrees) => (scanNull ? null : new Map(worktrees.map((w) => [w, false]))),
+    onChange: () => {},
+    sweepMs: 4000,
+    now: () => clock,
+  });
+
+  await poller.tick();
+  expect(poller.livenessOf(s.id)).toBe("husk");
+
+  // darwin / stale snapshot: the backend cannot support a negative verdict this sweep.
+  scanNull = true;
+  clock += 5000;
+  await poller.tick();
+  expect(poller.livenessOf(s.id)).toBeUndefined();
+});

@@ -12,7 +12,7 @@ export type SessionStatus = "running" | "idle" | "blocked" | "done" | "archived"
  *  a daemon-restart strand (e.g. a normal Codex between-turns exit at its own pane). `stranded` = a
  *  herdr-restored husk (the daemon restarted and re-created the pane; the agent needs reviving). */
 export type LivenessState = "alive" | "husk" | "stranded";
-export type SessionArchiveReason = "operator" | "merged" | "drain" | "relaunch";
+export type SessionArchiveReason = "operator" | "merged" | "drain" | "relaunch" | "stale";
 export const AGENT_PROVIDERS = ["claude", "codex"] as const;
 export type AgentProvider = (typeof AGENT_PROVIDERS)[number];
 
@@ -165,6 +165,16 @@ export interface Session {
   lastState: HerdrState;
   createdAt: number;
   updatedAt: number;
+  /** OPTIONAL like {@link Session.epicParent}: absent and null are equivalent, and the store always
+   *  hydrates a real `number | null`, so existing fixtures stay valid.
+   *
+   *  Epoch ms the session last STOPPED WORKING — stamped when it enters a settled status
+   *  (`idle`/`done`) from a working one, carried unchanged across settled→settled transitions
+   *  (`idle`→`done`, and the `done`→`done` rewrite boot reconcile performs on every restart), and
+   *  cleared when it goes back to `running`/`blocked`. Distinct from `updatedAt`, which every write
+   *  bumps — including that boot rewrite, which is why it cannot serve as a settled clock (#1156).
+   *  Null for a session that has never settled, and for legacy rows the migration could not seed. */
+  settledAt?: number | null;
   archivedAt: number | null;
   /** How this session was completed; null for active and pre-feature archived rows. */
   archiveReason?: SessionArchiveReason | null;

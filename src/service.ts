@@ -1382,6 +1382,28 @@ const PLAN_REFERENCE_STYLE =
   "path-attached line refs are stripped from the plan the reviewer is shown, and it is barred from " +
   "raising location findings either way, so a line citation is noise, not evidence.\n";
 
+/** How DENSE a plan must be (#1947). Shared verbatim by both plan-gate directives, same reason as
+ *  {@link PLAN_REFERENCE_STYLE}: a shared edit goes in the common body so neither provider can
+ *  silently lose it.
+ *
+ *  The mandated section list is a floor with no ceiling, so a planner satisfies it by padding:
+ *  TASK-1977's plan reached 32.6 KB with 28 success criteria, three "why not X" essay sections and
+ *  a ledger of where each reviewer finding was addressed — written for the reviewer rather than for
+ *  the implementer. A bigger plan is a bigger surface to attack, which drives more findings and
+ *  more rounds. `planSteerText` (plan-gate.ts) says the same thing, but it only ships on REWORK
+ *  rounds; round 1 is unreachable from there, which is what this closes. Phrasing echoes that
+ *  steer deliberately, so both moments are one ask rather than two.
+ *
+ *  Deliberately carries NO byte/count budget. A number here would be arbitrary and unverifiable,
+ *  and a planner up against a cap trims substance (out of scope, risks) rather than padding — the
+ *  failure the steer's "cut length, not substance" already guards against. Every rule below is
+ *  about what NOT to write; none licenses dropping a mandated section. */
+const PLAN_DENSITY_BUDGET =
+  "Keep the plan dense: success criteria are verifiable checks, not a restatement of the plan, and " +
+  'record decisions rather than the arguments for them. No rebuttal or "why not X" essay ' +
+  "sections, and no ledger of which finding each change answers — the plan is an instruction to " +
+  "the implementer, not a reply to the reviewer.\n";
+
 /**
  * The interactive plan-gate directive, provider-adjusted. Three Codex-specific divergences:
  *  - Codex has no AskUserQuestion tool, so step 2 tells it to ask in the conversation instead.
@@ -1434,6 +1456,7 @@ function planGateDirectiveInteractive(
     "unresolved / TBD questions — resolve every question by asking first; it may still record stated " +
     "assumptions and resolved decisions.\n" +
     PLAN_REFERENCE_STYLE +
+    PLAN_DENSITY_BUDGET +
     "An adversarial reviewer will critique the plan; address its findings by revising `.shepherd-plan.md`. " +
     "Begin implementing ONLY after the plan is approved and you are told to execute.\n\n" +
     planBlockInstructions({ allowQuestionForm: false, agentProvider, operatorLanguage })
@@ -1467,6 +1490,7 @@ function planGateDirectiveAuto(
     "any clearly simpler approach, and name what is unclear — resolve it HERE, because once the plan is " +
     "approved you execute autonomously and proceed on those stated assumptions rather than pausing.\n" +
     PLAN_REFERENCE_STYLE +
+    PLAN_DENSITY_BUDGET +
     "An adversarial reviewer " +
     "will critique it; revise `.shepherd-plan.md` to address findings. Begin implementing ONLY after you " +
     "are told the plan is approved.\n\n" +

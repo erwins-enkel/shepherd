@@ -54,16 +54,58 @@ test("renameBranch throws when the target name already exists", () => {
 });
 
 // ── SessionService.rename ──────────────────────────────────────────────────
-function makeService(store: SessionStore, wtLog: string[]) {
+/**
+ * Names a live herdr already answers to. `agents` is the ≤0.7.4 half and `tabs` the 0.7.5+
+ * half, both belonging to OTHER sessions; `own` is the renaming session's own entry (terminal
+ * `a1`), which herdr always holds — its tab was created with its own name as the label.
+ */
+type HerdrNames = {
+  agents?: string[];
+  tabs?: string[];
+  own?: { name?: string; label?: string };
+  listThrows?: boolean;
+};
+
+function fakeHerdr(relabels: string[], names: HerdrNames = {}) {
+  const own = names.own;
+  return {
+    list: () => {
+      if (names.listThrows) throw new Error("herdr unreachable");
+      const foreign = (names.agents ?? []).map((name, i) => ({
+        name,
+        terminalId: `foreign-${i}`,
+        tabId: `foreign-tab-${i}`,
+      }));
+      return own ? [...foreign, { name: own.name, terminalId: "a1", tabId: "own-tab" }] : foreign;
+    },
+    tabs: () => {
+      const foreign = (names.tabs ?? []).map((label, i) => ({
+        label,
+        tabId: `foreign-tab-${i}`,
+      }));
+      return own?.label ? [...foreign, { label: own.label, tabId: "own-tab" }] : foreign;
+    },
+    start: async () => ({}) as never,
+    stop: async () => {},
+    send: () => {},
+    // Records synchronously (before its first await), so a caller that fires this
+    // off without awaiting still leaves a deterministic trace for assertions.
+    relabel: async (terminalId: string, label: string) => {
+      relabels.push(`${terminalId}->${label}`);
+    },
+  } as never;
+}
+
+function makeService(
+  store: SessionStore,
+  wtLog: string[],
+  relabels: string[] = [],
+  names: HerdrNames = {},
+) {
   return new SessionService({
     store,
     namer: () => "x",
-    herdr: {
-      list: () => [],
-      start: async () => ({}) as never,
-      stop: async () => {},
-      send: () => {},
-    } as never,
+    herdr: fakeHerdr(relabels, names),
     worktree: {
       create: () => ({}) as never,
       remove: () => {},
@@ -73,13 +115,13 @@ function makeService(store: SessionStore, wtLog: string[]) {
   });
 }
 
-function seed(store: SessionStore) {
+function seed(store: SessionStore, name = "old-name") {
   return store.create({
-    name: "old-name",
+    name,
     prompt: "p",
     repoPath: "/repo",
     baseBranch: "main",
-    branch: "shepherd/old-name",
+    branch: `shepherd/${name}`,
     worktreePath: "/wt",
     isolated: true,
     herdrSession: "default",
@@ -119,6 +161,142 @@ test("service.rename returns null for an unknown id", () => {
   expect(svc.rename("nope", "x", { renameLocalBranch: true })).toBeNull();
 });
 
+// The herdr tab carries the session's name in the operator's terminal. Every rename path
+// must move it, or the tab keeps advertising a name the session no longer has.
+test("service.rename relabels the herdr agent/tab with the new slug", () => {
+  const store = new SessionStore(":memory:");
+  const relabels: string[] = [];
+  const svc = makeService(store, [], relabels);
+  const s = seed(store);
+
+  svc.rename(s.id, "new-name", { renameLocalBranch: true });
+
+  expect(relabels).toEqual(["a1->new-name"]);
+});
+
+// #1927's display-only rename is exactly the case that must still relabel: the branch is
+// pinned by an open PR, so the tab label is the ONLY thing left that can follow the name.
+test("service.rename relabels even when the branch is pinned (display-only)", () => {
+  const store = new SessionStore(":memory:");
+  const relabels: string[] = [];
+  const svc = makeService(store, [], relabels);
+  const s = seed(store);
+
+  svc.rename(s.id, "new-name", { renameLocalBranch: false });
+
+  expect(relabels).toEqual(["a1->new-name"]);
+});
+
+// herdr's name space is TRUNCATED to 32 chars while a slug runs to 60, so a session whose own
+// tab is in the taken set collides with ITSELF the moment a rename only edits the tail past
+// char 32 — and the tab then keeps advertising the old name, the exact bug this PR fixes.
+const LONG_NAME = "fix-the-session-rename-branch-deletion"; // 38 chars
+const LONG_NAME_V2 = `${LONG_NAME}-v2`; // distinct slug, identical once sanitized to 32
+
+test("service.rename relabels when only the truncated tail changes (own handle excluded)", () => {
+  const store = new SessionStore(":memory:");
+  const relabels: string[] = [];
+  const svc = makeService(store, [], relabels, {
+    own: { name: LONG_NAME, label: LONG_NAME },
+  });
+  const s = seed(store, LONG_NAME);
+
+  svc.rename(s.id, LONG_NAME_V2, { renameLocalBranch: false });
+
+  expect(relabels).toEqual([`a1->${LONG_NAME_V2}`]);
+});
+
+// The 0.7.5+ half on its own: no agent name, the session's own name lives only on its tab.
+test("service.rename does not collide with its own tab label", () => {
+  const store = new SessionStore(":memory:");
+  const relabels: string[] = [];
+  const svc = makeService(store, [], relabels, { own: { label: "old-name" } });
+  const s = seed(store);
+
+  svc.rename(s.id, "new-name", { renameLocalBranch: false });
+
+  expect(relabels).toEqual([`a1->new-name`]);
+});
+
+// …but a SIBLING holding the truncated name is still a real collision.
+test("service.rename still skips when a sibling holds the truncated name", () => {
+  const store = new SessionStore(":memory:");
+  const relabels: string[] = [];
+  const svc = makeService(store, [], relabels, {
+    own: { name: LONG_NAME, label: LONG_NAME },
+    tabs: [`${LONG_NAME}-elsewhere`], // a different session, same sanitized 32 chars
+  });
+  const s = seed(store, LONG_NAME);
+
+  svc.rename(s.id, LONG_NAME_V2, { renameLocalBranch: false });
+
+  expect(relabels).toEqual([]);
+});
+
+// Both automatic callers resolve their slug through uniqueName() first; the manual path
+// hands over the operator's raw choice. Pushing a duplicate into herdr's name space is what
+// makes agent_name_taken evict the UNRELATED sibling, so a taken name must pin the label.
+test("service.rename skips the relabel when a live agent already answers to the slug", () => {
+  const store = new SessionStore(":memory:");
+  const relabels: string[] = [];
+  const svc = makeService(store, [], relabels, { agents: ["sibling"] });
+  const s = seed(store);
+
+  const out = svc.rename(s.id, "sibling", { renameLocalBranch: false });
+
+  expect(out?.name).toBe("sibling"); // the session still renames…
+  expect(relabels).toEqual([]); // …the tab keeps its own unique label
+});
+
+// On herdr 0.7.5+ the agent half is empty and the name survives only as the TAB label.
+test("service.rename skips the relabel when a live tab label already holds the slug", () => {
+  const store = new SessionStore(":memory:");
+  const relabels: string[] = [];
+  const svc = makeService(store, [], relabels, { agents: [], tabs: ["sibling"] });
+  const s = seed(store);
+
+  svc.rename(s.id, "sibling", { renameLocalBranch: false });
+
+  expect(relabels).toEqual([]);
+});
+
+// herdr binds sanitized names, so `fix login` and `fix-login` are one name to it.
+test("service.rename compares the slug in sanitized space", () => {
+  const store = new SessionStore(":memory:");
+  const relabels: string[] = [];
+  const svc = makeService(store, [], relabels, { tabs: ["fix login"] });
+  const s = seed(store);
+
+  svc.rename(s.id, "fix-login", { renameLocalBranch: false });
+
+  expect(relabels).toEqual([]);
+});
+
+// Fail closed: an unreadable herdr can't prove the name is free. A stale tab label is
+// recoverable; an evicted sibling isn't. And it must not throw — the server reads any
+// throw out of rename() as a 409 name_taken.
+test("service.rename survives an unreadable herdr and skips the relabel", () => {
+  const store = new SessionStore(":memory:");
+  const relabels: string[] = [];
+  const svc = makeService(store, [], relabels, { listThrows: true });
+  const s = seed(store);
+
+  const out = svc.rename(s.id, "new-name", { renameLocalBranch: false });
+
+  expect(out?.name).toBe("new-name"); // rename landed
+  expect(relabels).toEqual([]);
+});
+
+test("service.rename does not relabel for an unknown id", () => {
+  const store = new SessionStore(":memory:");
+  const relabels: string[] = [];
+  const svc = makeService(store, [], relabels);
+
+  expect(svc.rename("nope", "x", { renameLocalBranch: true })).toBeNull();
+
+  expect(relabels).toEqual([]);
+});
+
 // ── POST /api/sessions/:id/rename ──────────────────────────────────────────
 function fakeForge(over: Partial<GitForge> = {}): GitForge {
   const base: GitForge = {
@@ -143,6 +321,7 @@ type RenameDeps = AppDeps & {
   emitted: { event: string; data: unknown }[];
   cacheWrites: string[];
   _wtLog: string[];
+  _relabels: string[];
   _prStatusCalls: string[];
   _sessionId: string;
 };
@@ -152,19 +331,17 @@ function makeDeps(opts: {
   /** Seed the poller cache with this PR state (no entry when absent). */
   cached?: "open" | "none";
   branchExists?: boolean;
+  /** Names a live herdr already answers to, so a relabel collision can be staged. */
+  herdrNames?: HerdrNames;
 }): RenameDeps {
   const store = new SessionStore(":memory:");
   const s = seed(store);
   const wtLog: string[] = [];
+  const relabels: string[] = [];
   const service = new SessionService({
     store,
     namer: () => "x",
-    herdr: {
-      list: () => [],
-      start: async () => ({}) as never,
-      stop: async () => {},
-      send: () => {},
-    } as never,
+    herdr: fakeHerdr(relabels, opts.herdrNames ?? {}),
     worktree: {
       create: () => ({}) as never,
       remove: () => {},
@@ -205,7 +382,14 @@ function makeDeps(opts: {
       resolveForge: () => forge,
       prCache,
     } as AppDeps,
-    { emitted, cacheWrites, _wtLog: wtLog, _prStatusCalls: prStatusCalls, _sessionId: s.id },
+    {
+      emitted,
+      cacheWrites,
+      _wtLog: wtLog,
+      _relabels: relabels,
+      _prStatusCalls: prStatusCalls,
+      _sessionId: s.id,
+    },
   );
 }
 
@@ -325,6 +509,58 @@ test("cache miss + forge lookup throws → assume open, branch kept", async () =
   expect(res.status).toBe(200);
   expect((await res.json()).branchRenamed).toBe(false);
   expect(deps._wtLog).toEqual([]);
+});
+
+// The operator-facing path from the bug report: rename from the UI must move the tab label
+// too, whether or not the branch is allowed to follow.
+test("POST rename relabels the herdr tab (branch moved)", async () => {
+  const deps = makeDeps({ forge: null });
+  const app = makeApp(deps);
+  const res = await app.fetch(
+    post(`/api/sessions/${deps._sessionId}/rename`, { name: "Fresh Name" }),
+  );
+  expect(res.status).toBe(200);
+  expect(deps._relabels).toEqual(["a1->fresh-name"]); // the slug, not the raw input
+});
+
+test("POST rename relabels the herdr tab (open PR pins the branch)", async () => {
+  const deps = makeDeps({ forge: fakeForge({ kind: "github" }), cached: "open" });
+  const app = makeApp(deps);
+  const res = await app.fetch(post(`/api/sessions/${deps._sessionId}/rename`, { name: "renamed" }));
+  expect(res.status).toBe(200);
+  expect((await res.json()).branchRenamed).toBe(false);
+  expect(deps._wtLog).toEqual([]); // branch still pinned
+  expect(deps._relabels).toEqual(["a1->renamed"]); // …but the tab follows the name
+});
+
+test("POST rename relabels when a long name is edited past the truncation point", async () => {
+  const deps = makeDeps({ forge: null, herdrNames: { own: { label: "old-name" } } });
+  const app = makeApp(deps);
+  const res = await app.fetch(
+    post(`/api/sessions/${deps._sessionId}/rename`, { name: LONG_NAME_V2 }),
+  );
+  expect(res.status).toBe(200);
+  expect(deps._relabels).toEqual([`a1->${LONG_NAME_V2}`]);
+});
+
+test("POST rename does not push a duplicate name into herdr", async () => {
+  const deps = makeDeps({ forge: null, herdrNames: { tabs: ["sibling"] } });
+  const app = makeApp(deps);
+  const res = await app.fetch(post(`/api/sessions/${deps._sessionId}/rename`, { name: "sibling" }));
+  expect(res.status).toBe(200); // the rename itself is the operator's call
+  expect((await res.json()).session.name).toBe("sibling");
+  expect(deps._relabels).toEqual([]); // but the tab label stays put
+});
+
+test("a no-op rename (same slug) does not touch the herdr tab", async () => {
+  const deps = makeDeps({ forge: null });
+  const app = makeApp(deps);
+  const res = await app.fetch(
+    post(`/api/sessions/${deps._sessionId}/rename`, { name: "old name" }),
+  );
+  expect(res.status).toBe(200);
+  expect((await res.json()).branchRenamed).toBe(false);
+  expect(deps._relabels).toEqual([]);
 });
 
 test("cached none confirmed by the forge → local branch renamed", async () => {

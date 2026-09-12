@@ -609,18 +609,33 @@
   // Cold-resume marker (#2042). The Herd is where the operator PICKS which session to resume, so
   // the cost belongs here, before the click — not only in the status bar they reach afterwards.
   // `nowMs` is the Herd's own tick, so the chip appears when the cache actually expires.
-  // Unlike the status bar this renders the term unmarked: a GlossaryTerm is a <button>, and nesting
-  // one inside the row's full-card click target would fight it for the tap. The title carries the
-  // explanation instead.
+  //
+  // "cold · ≈3.1 units" means nothing on first meeting, and the native `title` it used to carry
+  // never answered that — in practice it never even surfaced, because the chip sat unpositioned
+  // under the `.unit-hit` overlay that swallows the hover (the same trap documented for the name
+  // span above). `statusTip` is the row's own explanation affordance (the designation/environment
+  // segment uses it): it raises the chip above that overlay, so hover opens the panel, a real
+  // click PINS it, an outside click or a scroll dismisses it, and the prose reaches AT through
+  // `aria-description`. Raising it is also what keeps a click on the chip from selecting the row —
+  // selection lives on the sibling `.unit-hit` button, which the click can no longer reach
+  // (statusTip's stopPropagation is belt-and-braces; nothing between here and `.unit` listens).
+  // The chip stays a NON-FOCUSABLE <span>, like every statusTip trigger in the repo, so the
+  // action's Esc and focus-to-open paths never fire on it: the keyboard reads `aria-description`
+  // instead, and a tab stop per cold card would be a lot of noise in a long Herd. A GlossaryTerm
+  // is wrong for a different reason — its click presentation pushes content down and would
+  // reflow the card.
+  //
+  // Two sentences, deliberately: what is true of THIS session (with its numbers), then why
+  // Shepherd puts the number on the card at all. `wide` keeps that from stacking into a column.
   const coldResume = $derived(isColdResume(session, nowMs));
   const coldResumeChip = $derived(
     m.coldresume_chip({ units: formatUnits(session.resumeCostUnits ?? 0) }),
   );
-  const coldResumeTitle = $derived(
-    m.coldresume_title({
+  const coldResumeTip = $derived(
+    `${m.coldresume_title({
       context: formatTokens(session.contextTokens ?? 0),
       units: formatUnits(session.resumeCostUnits ?? 0),
-    }),
+    })} ${m.coldresume_why()}`,
   );
 
   // Relaunch is offered only for an in-flight task (see canRelaunch) AND only when the
@@ -979,7 +994,7 @@
         ><TaskIdButton {session} />{environmentSuffix}</span
       >
       {#if coldResume}
-        <span class="chip-cold-resume" title={coldResumeTitle}
+        <span class="chip-cold-resume" use:statusTip={{ text: coldResumeTip, wide: true }}
           ><span aria-hidden="true">⚠</span> {coldResumeChip}</span
         >
       {/if}
@@ -1615,8 +1630,9 @@
     background: color-mix(in oklab, var(--status-warn) 12%, transparent);
   }
   /* "cold · ≈N units" chip (#2042) — same warn recipe as .chip-manual-steps: both say "this will
-     cost you something if you act on it", and neither is an error. Stays a plain <span> so the
-     row's single click target is untouched. */
+     cost you something if you act on it", and neither is an error. Not a <button>, but not inert
+     either: statusTip raises it above the row's .unit-hit overlay so it can explain itself, which
+     deliberately punches a hole in the row's single click target. */
   .chip-cold-resume {
     flex: none;
     display: inline-flex;

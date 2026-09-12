@@ -1,7 +1,12 @@
 import { test, expect } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { classifyBlocked, hasActiveSpinner, quotaBlockReason } from "../src/blocked";
+import {
+  classifyBlocked,
+  hasActiveSpinner,
+  hasQueuedInput,
+  quotaBlockReason,
+} from "../src/blocked";
 import type { Session, PlanGate } from "../src/types";
 
 test("classifies a numbered permission menu", () => {
@@ -81,6 +86,36 @@ test("hasActiveSpinner rejects idle/blocked buffers", () => {
   expect(hasActiveSpinner("❯ 1. Yes\n  2. No")).toBe(false);
   expect(hasActiveSpinner("Enter to select · ↑/↓ to navigate · Esc to cancel")).toBe(false);
   expect(hasActiveSpinner("❯\n⏵⏵ bypass permissions on (shift+tab to cycle)")).toBe(false);
+});
+
+test("hasQueuedInput detects every queued-hint wording Claude Code ships", () => {
+  expect(hasQueuedInput("❯ Press up to edit queued messages")).toBe(true);
+  expect(hasQueuedInput("❯ Press up to select a queued message")).toBe(true);
+  expect(hasQueuedInput("❯ Press up to select a queued message to edit")).toBe(true);
+});
+
+test("hasQueuedInput detects the real captured pane from issue #2272", () => {
+  const pane = readFileSync(
+    join(import.meta.dir, "fixtures/fullscreen/queued-messages.txt"),
+    "utf8",
+  );
+  expect(hasQueuedInput(pane)).toBe(true);
+  // the same pane is exactly the no-evidence fallback, with no spinner to suppress on
+  expect(classifyBlocked(pane).shape).toBe("awaiting-input");
+  expect(hasActiveSpinner(pane)).toBe(false);
+});
+
+test("hasQueuedInput rejects idle/blocked buffers and scrollback mentions", () => {
+  expect(hasQueuedInput("❯\n⏵⏵ bypass permissions on (shift+tab to cycle)")).toBe(false);
+  expect(hasQueuedInput("❯ 1. Yes\n  2. No")).toBe(false);
+  // prose about the feature is not the hint
+  expect(hasQueuedInput("The queued message was dropped when the pane died.")).toBe(false);
+  // …and the hint scrolled out of the last-15-non-empty-lines window no longer counts
+  const scrolledOut = [
+    "❯ Press up to edit queued messages",
+    ...Array.from({ length: 15 }, (_, i) => `output line ${i + 1}`),
+  ].join("\n");
+  expect(hasQueuedInput(scrolledOut)).toBe(false);
 });
 
 test("hasActiveSpinner rejects spinner-shaped text on non-glyph-anchored lines", () => {

@@ -18,6 +18,7 @@ import { herdrUsesExternalRegistrationSpawn } from "./herdr-capabilities";
 import {
   classifyBlocked,
   hasActiveSpinner,
+  hasQueuedInput,
   quotaBlockReason,
   tailLines,
   type BlockReason,
@@ -1730,11 +1731,17 @@ export class StatusPoller {
    * a wedged turn (or a static tail merely quoting a spinner-like line) and falls
    * through to the normal emit, re-arming the block instead of suppressing forever.
    * The first sighting of an episode gets a one-cadence grace (nothing to compare
-   * yet; the common case is a genuinely working spinner). The suppression episode
-   * is surfaced as the working-while-blocked display flag: `onWorkingBlocked(id, true)`
-   * once on entry; on re-arm (any block that will be emitted) `onWorkingBlocked(id,
-   * false)` fires first, then `onBlock`, in the same tick — clients see the flag drop
-   * and the block land together.
+   * yet; the common case is a genuinely working spinner).
+   *
+   * A second, unconditional suppression covers the same herdr latch BEFORE the spinner
+   * appears: a pane carrying QUEUED operator input (issue #2272). That one has no
+   * freshness gate — queued input is an observed state, not a liveness inference — and is
+   * vetoed by a detected `authUrl`, which can share the pane with it.
+   *
+   * Either suppression episode is surfaced as the working-while-blocked display flag:
+   * `onWorkingBlocked(id, true)` once on entry; on re-arm (any block that will be
+   * emitted) `onWorkingBlocked(id, false)` fires first, then `onBlock`, in the same
+   * tick — clients see the flag drop and the block land together.
    */
   private maybeClassify(s: Session, term: string): boolean {
     const id = s.id;
@@ -1751,42 +1758,12 @@ export class StatusPoller {
       console.warn(`[poller] classify failed for ${id}:`, err);
       return false; // best-effort; retry next cadence (didn't classify → didn't look)
     }
-    if (reason.shape === "awaiting-input" && hasActiveSpinner(visible)) {
-      // herdr can latch "blocked" after an answered dialog; a live spinner means the
-      // agent resumed working — clear any announced block instead of emitting the
-      // no-evidence fallback. (suppression scoped to awaiting-input only: a genuine
-      // menu/y-n dialog must always surface, spinner or not)
-      if (this.trySuppressSpinner(id, visible)) return true; // looked this tick (suppressed emit)
-      // Freshness gate tripped: the buffer did NOT advance since the last classify
-      // read — a wedged turn or a static buffer quoting a spinner-like line, not a
-      // live spinner. Fall through to the normal emit so the block re-arms (flag-off
-      // before the block, below). `lastSuppressVisible` is deliberately KEPT: while
-      // the buffer stays frozen, every subsequent read lands here and dedupes on
-      // `lastSig` — deleting it would re-grant first-sighting grace each cadence
-      // (suppress/re-arm oscillation).
-    } else {
-      // Suppression context over (spinner gone, or a genuine menu/y-n dialog) →
-      // drop the episode memory so the next spinner sighting gets a fresh grace.
-      this.lastSuppressVisible.delete(id);
-    }
-    // Awaiting-input blocks may be an MCP OAuth prompt: attach the full authorize URL from
-    // the transcript (Claude word-wraps it un-clickably in the PTY). Gated to awaiting-input
-    // so a menu/y-n block never triggers the read; the read is bounded + throttled by the
-    // reclassifyMs gate above. `authUrl` is part of `reason`, so it rides the lastSig dedup
-    // and the block snapshot for free; null ⇒ field omitted (not an auth prompt).
     if (reason.shape === "awaiting-input") {
-      // Transcript first (MCP OAuth). If none, fall back to reconstructing a `/login` account URL
-      // from the visible buffer we already read — covers a login modal herdr happens to classify
-      // as `blocked`. Run it through the SAME two-read stability gate as the resting path
-      // (`confirmLoginUrl`) so a mid-paint truncated authorize URL never surfaces for a cadence.
-      // Cache the REAL tail (`reason.tail`, i.e. `tailLines(visible)`), not a placeholder: the
-      // confirmed cache is shared with the resting path, and a `blocked → idle` transition (not a
-      // leave-resting edge, so caches persist) inherits this entry — an empty tail would surface a
-      // context-less banner that the URL-keyed re-emit gate never corrects.
-      const authUrl =
-        this.detectAuth(s) ??
-        this.confirmLoginUrl(id, { url: detectLoginAuthUrl(visible), tail: reason.tail })?.url;
-      if (authUrl) reason.authUrl = authUrl;
+      if (this.suppressAwaitingInput(s, visible, reason)) return true; // looked, suppressed emit
+    } else {
+      // A genuine menu/y-n dialog ends any suppression context → drop the episode memory
+      // so the next spinner sighting gets a fresh grace.
+      this.lastSuppressVisible.delete(id);
     }
     const sig = JSON.stringify(reason);
     if (sig === this.lastSig.get(id)) return true; // looked this tick (dedup short-circuit)
@@ -1799,7 +1776,70 @@ export class StatusPoller {
   }
 
   /**
-   * Freshness-gated spinner suppression for `maybeClassify`. Records `visible`
+   * The `awaiting-input` half of `maybeClassify`: attach an `authUrl` when one is pending
+   * and decide whether this no-evidence fallback should be SUPPRESSED rather than emitted.
+   * Returns true when suppressed (announced block cleared once, working-while-blocked flag
+   * raised, nothing emitted); false to fall through to the normal emit. Mutates `reason`
+   * only by setting `authUrl`. Never runs for a menu/y-n dialog — those always surface.
+   */
+  private suppressAwaitingInput(s: Session, visible: string, reason: BlockReason): boolean {
+    const id = s.id;
+    // #2272: the pane carries QUEUED operator input — the agent has input it has not
+    // consumed, so it cannot be waiting for more. Computed first (pure, no I/O) because it
+    // also takes precedence over the spinner branch: a queued buffer must never be handed
+    // to the freshness gate, which re-armed this exact false block every cadence.
+    const queued = hasQueuedInput(visible);
+    if (!queued && hasActiveSpinner(visible)) {
+      // herdr can latch "blocked" after an answered dialog; a live spinner means the
+      // agent resumed working — clear any announced block instead of emitting the
+      // no-evidence fallback.
+      if (this.trySuppressSpinner(id, visible)) return true;
+      // Freshness gate tripped: the buffer did NOT advance since the last classify
+      // read — a wedged turn or a static buffer quoting a spinner-like line, not a
+      // live spinner. Fall through to the normal emit so the block re-arms (flag-off
+      // before the block, in the caller). `lastSuppressVisible` is deliberately KEPT:
+      // while the buffer stays frozen, every subsequent read lands here and dedupes on
+      // `lastSig` — deleting it would re-grant first-sighting grace each cadence
+      // (suppress/re-arm oscillation).
+    } else {
+      // Suppression context over (spinner gone), or the queued-input branch below owns
+      // this read → drop the episode memory so the next spinner sighting gets a fresh
+      // grace.
+      this.lastSuppressVisible.delete(id);
+    }
+    // Awaiting-input blocks may be an MCP OAuth prompt: attach the full authorize URL from
+    // the transcript (Claude word-wraps it un-clickably in the PTY). Gated to awaiting-input
+    // so a menu/y-n block never triggers the read; the read is bounded + throttled by the
+    // reclassifyMs gate in the caller. `authUrl` is part of `reason`, so it rides the lastSig
+    // dedup and the block snapshot for free; null ⇒ field omitted (not an auth prompt).
+    //
+    // Transcript first (MCP OAuth). If none, fall back to reconstructing a `/login` account URL
+    // from the visible buffer we already read — covers a login modal herdr happens to classify
+    // as `blocked`. Run it through the SAME two-read stability gate as the resting path
+    // (`confirmLoginUrl`) so a mid-paint truncated authorize URL never surfaces for a cadence.
+    // Cache the REAL tail (`reason.tail`, i.e. `tailLines(visible)`), not a placeholder: the
+    // confirmed cache is shared with the resting path, and a `blocked → idle` transition (not a
+    // leave-resting edge, so caches persist) inherits this entry — an empty tail would surface a
+    // context-less banner that the URL-keyed re-emit gate never corrects.
+    const authUrl =
+      this.detectAuth(s) ??
+      this.confirmLoginUrl(id, { url: detectLoginAuthUrl(visible), tail: reason.tail })?.url;
+    if (authUrl) reason.authUrl = authUrl;
+    // #2272: suppress the no-evidence fallback over a queued-input pane. An auth prompt
+    // VETOES it: the prompt renders above the at-rest input box and classifies as
+    // awaiting-input, so it can share a pane with queued input, and `maybeAuthAtRest` only
+    // covers idle/done — suppressing one would strand the operator with no re-arm path.
+    // Unlike the spinner branch there is no freshness gate: queued input is an observed
+    // state, not a liveness inference, so a frozen pane must keep suppressing.
+    if (queued && !authUrl) {
+      this.enterSuppression(id);
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Freshness-gated spinner suppression for `suppressAwaitingInput`. Records `visible`
    * as the episode baseline and returns true when the buffer is FRESH — first
    * sighting (one-cadence grace; nothing to compare yet) or advanced since the
    * previous read (a live spinner ticking its counters) — having suppressed the
@@ -1813,15 +1853,22 @@ export class StatusPoller {
     const prev = this.lastSuppressVisible.get(id);
     this.lastSuppressVisible.set(id, visible);
     if (prev !== undefined && prev === visible) return false; // frozen → re-arm
+    this.enterSuppression(id);
+    return true;
+  }
+
+  /** Shared body of both suppression branches (spinner + queued input): clear any
+   *  announced block exactly once and raise the working-while-blocked display flag once
+   *  per episode, not per cadence. */
+  private enterSuppression(id: string): void {
     if (this.lastSig.has(id)) {
       this.lastSig.delete(id);
       this.emitBlock(id, null);
     }
     if (!this.workingWhileBlocked.has(id)) {
       this.workingWhileBlocked.add(id);
-      this.onWorkingBlocked(id, true); // once per episode, not per cadence
+      this.onWorkingBlocked(id, true);
     }
-    return true;
   }
 
   /**

@@ -1,0 +1,15 @@
+    the mention reaches nobody, so if you ask a question, say
+    so. Such a reply can arrive
+    mid-turn, interrupting what you are doing: weave it into
+    the work in progress rather than
+    starting over, unless it tells you to stop.
+    If $BUZZ_BIN is unset, publishing is switched off for this
+    session: skip it entirely and
+    do not retry.
+─────────────────────────────────────────────────────────────────
+❯ Press up to edit queued messages
+─────────────────────────────────────────────────────────────────
+  …/.shepherd-worktrees/shepherd-plan-gate-cannot-re shepherd/…
+  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents
+                     Update available! Run: mise upgrade claude
+                                               ● high · /effort

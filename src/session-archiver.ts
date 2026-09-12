@@ -14,6 +14,20 @@ const execFileAsync = promisify(execFile);
 type SkipReason =
   "liveness" | "inflight" | "unrestorable" | "unsynced" | "pr-open" | "pr-unknown" | "failed";
 
+/**
+ * How recently a reviewer must have been SPAWNED for its unfinished row to count as work in
+ * flight. Unbounded, this gate never reopens: several spawn kinds have no completion sweep at all
+ * (`classifier`, `recap`, `maintain`) and `plan_gate` rows stay NULL whenever the boot reconcile's
+ * disposition is `skip` — which is exactly the arm a settled session lands in — so one row orphaned
+ * by a crash would bar its session from ever being archived.
+ *
+ * Six hours is far past any real reviewer (the critic's own wait caps at 1800 s) while still
+ * expiring an orphan. The risk it trades away is negligible in context: a candidate here has been
+ * settled for a week, so a reviewer spawned in the last six hours is the only one that could
+ * plausibly still be running.
+ */
+const INFLIGHT_REVIEWER_WINDOW_MS = 6 * 60 * 60 * 1000;
+
 /** How stale the liveness sweep may be and still authorize an archive: a minute, or three sweep
  *  cadences, whichever is longer. A minute is ~15 cadences at the 4 s default — enough slack to
  *  ride out a few failed scans, short enough that a wedged or stopped poller stops authorizing
@@ -159,7 +173,7 @@ export class SessionArchiver {
     return (
       s.mergingSince != null || // the merge train is carrying this session's PR
       s.planPhase === "planning" || // a plan-gate round is open
-      this.deps.store.hasInflightReviewerSpawn(s.id)
+      this.deps.store.hasInflightReviewerSpawn(s.id, this.now() - INFLIGHT_REVIEWER_WINDOW_MS)
     );
   }
 
@@ -233,14 +247,23 @@ export class SessionArchiver {
   }
 
   /**
-   * Retire one session. The ordering is load-bearing: `retainClaim` must precede `emitArchived`,
-   * because `DrainService.onArchived` consumes the flag synchronously (the same ordering
-   * `DrainService.doRetire` documents). `dropPrCache` + `emitArchived` mirror what the operator's
-   * own close route does, so every `session:archived` consumer stays correct.
+   * Retire one session. The ordering is load-bearing at BOTH ends, and the claim stamp has to sit
+   * between them:
+   *
+   *  - AFTER the archive resolves, because `retainClaimOnArchive` is a one-shot flag consumed by
+   *    the next `session:archived` for that id. Stamping first and then throwing would leave it
+   *    set on a still-live session, and the operator's own later close — a genuine ABANDON — would
+   *    be silently converted into a retire: the issue keeps `shepherd:active` and is never
+   *    re-queued. `DrainService.doRetire` returns from its catch before stamping for this reason,
+   *    and the relaunch route in `server.ts` names the hazard outright.
+   *  - BEFORE `emitArchived`, because `DrainService.onArchived` consumes the flag synchronously.
+   *
+   * `dropPrCache` + `emitArchived` mirror what the operator's own close route does, so every
+   * `session:archived` consumer stays correct.
    */
   private async archiveOne(s: Session): Promise<void> {
-    this.deps.retainClaim(s.id);
     await this.deps.archive(s.id, "stale");
+    this.deps.retainClaim(s.id);
     this.deps.dropPrCache(s.id);
     this.deps.emitArchived(s.id);
   }

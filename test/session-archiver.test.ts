@@ -174,13 +174,15 @@ afterEach(() => {
 
 // ── the happy path ────────────────────────────────────────────────────────────
 
-test("archives a settled idle husk, claiming BEFORE the emit", async () => {
+test("archives a settled idle husk, claiming after the archive and before the emit", async () => {
   const h = harness([session()]);
   await h.archiver.tick();
   expect(h.archived).toEqual(["s1"]);
-  // retainClaim must precede the emit: DrainService.onArchived consumes the flag synchronously,
-  // and without it the sweep releases the issue's claim label and re-queues it for the drain.
-  expect(h.order).toEqual(["claim:s1", "archive:s1", "drop:s1", "emit:s1"]);
+  // The claim stamp sits between the two: AFTER the archive resolves (a one-shot flag stamped for
+  // a teardown that then threw would arm the next, genuine abandon into a retire) and BEFORE the
+  // emit (DrainService.onArchived consumes it synchronously; without it the sweep would release
+  // the issue's claim label and re-queue it for the drain).
+  expect(h.order).toEqual(["archive:s1", "claim:s1", "drop:s1", "emit:s1"]);
 });
 
 test("a settled DONE session is archived too (both settled statuses are eligible)", async () => {
@@ -417,7 +419,7 @@ test("caps archives per tick and takes the oldest settle first", async () => {
   expect(h.archived).toEqual(["oldest", "middle"]);
 });
 
-test("one failing archive does not abort the sweep", async () => {
+test("one failing archive does not abort the sweep, and leaves no claim behind", async () => {
   const sessions = [session({ id: "boom" }), session({ id: "ok" })];
   const archived: string[] = [];
   const h = harness(sessions, {
@@ -428,6 +430,32 @@ test("one failing archive does not abort the sweep", async () => {
   });
   await h.archiver.tick();
   expect(archived).toEqual(["ok"]);
+  // retainClaimOnArchive is a ONE-SHOT flag consumed by the next session:archived for that id.
+  // Stamping it for a session that did not archive would leave it armed on a live session, and
+  // the operator's own later close — a real abandon — would be converted into a retire: the
+  // issue would keep its claim label and never be re-queued.
+  expect(h.claimed).toEqual(["ok"]);
+  expect(h.emitted).toEqual(["ok"]);
+});
+
+test("the in-flight reviewer gate only counts RECENT unfinished spawns", async () => {
+  // Several spawn kinds have no completion sweep, so a crash-orphaned row stays unfinished
+  // forever; an unbounded gate would bar its session from ever archiving.
+  const seen: number[] = [];
+  const h = harness([session()], {
+    store: {
+      list: () => [session()],
+      hasInflightReviewerSpawn: (_id: string, since: number) => {
+        seen.push(since);
+        return false;
+      },
+    } as unknown as SessionArchiverDeps["store"],
+  });
+  await h.archiver.tick();
+  expect(h.archived).toEqual(["s1"]);
+  // Six hours back: past any real reviewer (the critic caps its own wait at 1800s), and these
+  // candidates have been settled a week.
+  expect(seen).toEqual([NOW - 6 * 60 * 60 * 1000]);
 });
 
 test("no upstream and no base to measure against reads as unsynced", async () => {

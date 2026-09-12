@@ -2693,7 +2693,9 @@ test("the settledAt migration backfills rows already sitting in a settled status
 test("hasInflightReviewerSpawn is true only while a reviewer row is unfinished", () => {
   const s = mk();
   const a = s.create(base);
-  expect(s.hasInflightReviewerSpawn(a.id)).toBe(false);
+  const now = Date.now();
+  const since = now - 60_000;
+  expect(s.hasInflightReviewerSpawn(a.id, since)).toBe(false);
 
   s.recordReviewerSpawn({
     reviewerSessionId: "rev-1",
@@ -2701,11 +2703,29 @@ test("hasInflightReviewerSpawn is true only while a reviewer row is unfinished",
     kind: "review",
     worktreePath: "/r-wt",
     model: null,
-    spawnedAt: Date.now(),
+    spawnedAt: now,
   });
-  expect(s.hasInflightReviewerSpawn(a.id)).toBe(true);
-  expect(s.hasInflightReviewerSpawn("some-other-session")).toBe(false);
+  expect(s.hasInflightReviewerSpawn(a.id, since)).toBe(true);
+  expect(s.hasInflightReviewerSpawn("some-other-session", since)).toBe(false);
 
-  s.completeReviewerSpawn("rev-1", null, Date.now());
-  expect(s.hasInflightReviewerSpawn(a.id)).toBe(false);
+  s.completeReviewerSpawn("rev-1", null, now);
+  expect(s.hasInflightReviewerSpawn(a.id, since)).toBe(false);
+});
+
+test("hasInflightReviewerSpawn ignores a row spawned before the window", () => {
+  const s = mk();
+  const a = s.create(base);
+  const now = Date.now();
+  // A `classifier` row orphaned by a crash: no completion sweep covers that kind, so it stays
+  // NULL forever. Unbounded, it would bar this session from auto-archiving for good.
+  s.recordReviewerSpawn({
+    reviewerSessionId: "rev-old",
+    taskSessionId: a.id,
+    kind: "classifier",
+    worktreePath: "/r-wt",
+    model: null,
+    spawnedAt: now - 48 * 60 * 60 * 1000,
+  });
+  expect(s.hasInflightReviewerSpawn(a.id, now - 6 * 60 * 60 * 1000)).toBe(false);
+  expect(s.hasInflightReviewerSpawn(a.id, 0)).toBe(true); // still unfinished, just not recent
 });

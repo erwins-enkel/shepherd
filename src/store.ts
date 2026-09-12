@@ -4366,19 +4366,24 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   }
 
   /** True when a reviewer (critic / plan-gate / doc-agent …) spawn for `taskSessionId` is still
-   *  in flight — a row whose `completedAt` is NULL. Drives the auto-archive sweep's
-   *  work-in-flight gate (#1156): tearing a session's worktree down under a running reviewer
-   *  would strand it. Indexed by `reviewer_spawns_task`.
+   *  in flight — a row with no `completedAt`, spawned at or after `since`. Drives the auto-archive
+   *  sweep's work-in-flight gate (#1156): tearing a session's worktree down under a running
+   *  reviewer would strand it. Indexed by `reviewer_spawns_task`.
    *
-   *  A row left in-flight by a crash reads as busy until the boot reconcile that owns it
-   *  (adoptOrphans / reapOrphans) finalizes it — fail-closed, which is the side the sweep wants. */
-  hasInflightReviewerSpawn(taskSessionId: string): boolean {
+   *  `since` is REQUIRED, not a convenience. An unfinished row is not proof of a live reviewer:
+   *  the boot reconciles that finalize orphans cover only `review` (ReviewService.adoptOrphans)
+   *  and `doc_agent` (DocAgentService.sweepDanglingRows), so a `classifier`, `recap` or `maintain`
+   *  row orphaned by a crash mid-run stays NULL forever — as does a `plan_gate` row whose orphan
+   *  disposition is `skip`. Without an age bound, one such row would bar its session from ever
+   *  being archived, and the caller's fail-closed gate would have no way back open. */
+  hasInflightReviewerSpawn(taskSessionId: string, since: number): boolean {
     return (
       this.db
         .query(
-          `SELECT 1 FROM reviewer_spawns WHERE taskSessionId = ? AND completedAt IS NULL LIMIT 1`,
+          `SELECT 1 FROM reviewer_spawns
+             WHERE taskSessionId = ? AND completedAt IS NULL AND spawnedAt >= ? LIMIT 1`,
         )
-        .get(taskSessionId) != null
+        .get(taskSessionId, since) != null
     );
   }
 

@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { removeHelperScratch } from "./tmp-sweep";
 
 /**
  * Shared plumbing for the synchronous block-and-clean transient helpers (verify-key /
@@ -19,8 +20,18 @@ export function makeHelperTmpDir(prefix: string): string {
   return mkdtempSync(join(tmpdir(), prefix));
 }
 
-/** Best-effort recursive removal of a helper's throwaway tmpdir. */
+/**
+ * Best-effort recursive removal of a helper's throwaway tmpdir, AND of the claude-side scratch dir
+ * the helper's agent derived from that cwd (#2304) — claude mirrors its cwd into its own tmp root,
+ * and removing only the cwd leaked that mirror forever.
+ *
+ * The scratch removal is async and deliberately `void`ed: this stays a synchronous
+ * `(cwd: string) => void` so none of the injected `cleanup` seams in the six helpers change, and
+ * an `rm -rf` never runs synchronously on the single Bun event loop. `removeHelperScratch` never
+ * throws, so the floating promise needs no `.catch`.
+ */
 export function cleanupHelperDir(cwd: string): void {
+  void removeHelperScratch(cwd);
   try {
     rmSync(cwd, { recursive: true, force: true });
   } catch {

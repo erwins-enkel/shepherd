@@ -137,6 +137,7 @@ import {
   scratchpadHasFiles,
   agentTmpDir,
   agentClaudeTmpRoot,
+  sweepOrphanedScratch,
 } from "./tmp-sweep";
 import { runSessionUsageBackfill } from "./usage-backfill";
 import { PreviewService } from "./preview";
@@ -966,6 +967,27 @@ const fireTmpSweep = (phase: "boot" | "daily") => {
         `[tmp-sweep] ${phase}: ${reapLine}, ` +
           `pnpm store freed ${storeResult.freedFiles} file(s)/${storeResult.freedDirs} dir(s) ` +
           `(${storeResult.reason})`,
+      );
+
+      // #2304: reconcile scratch orphaned under the claude tmp roots by teardowns that never ran
+      // (crash/restart, pre-fix removal paths, retired helper prefixes). Reuses the `cwds`
+      // snapshot and live-session set already gathered above rather than re-scanning /proc.
+      // `cwds === null` (live cwds unknown) is forwarded verbatim: the helper half is then
+      // SKIPPED, matching the fail-closed stance of the worktree reap right above.
+      const scratch = await sweepOrphanedScratch({
+        worktreesRoots: listRepos(config.repoRoot).map((r) =>
+          join(dirname(r.path), ".shepherd-worktrees"),
+        ),
+        liveWorktreePaths: store
+          .list({ activeOnly: true })
+          .map((s) => s.worktreePath)
+          .filter(Boolean),
+        liveCwds: cwds,
+      });
+      console.warn(
+        `[tmp-sweep] ${phase}: scratch reconcile removed ${scratch.worktrees} worktree ` +
+          `scratch dir(s), ${scratch.helpers} helper scratch dir(s)` +
+          `${scratch.helpersSkipped ? " (helper half skipped: live cwds unknown)" : ""}`,
       );
     })
     .catch((err) => console.warn(`[tmp-sweep] ${phase} worktree/store reclaim failed:`, err));

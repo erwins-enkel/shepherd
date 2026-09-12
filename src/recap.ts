@@ -10,8 +10,7 @@
  * Spawn pattern mirrors src/namer-llm.ts: tmpdir cwd, Write-only, dontAsk,
  * disableAllHooks, disable-slash-commands. No worktree, no membrane.
  */
-import { mkdtempSync, readFileSync, rmSync, existsSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { buildTransientAgentArgv } from "./transient-agent-argv";
@@ -66,6 +65,7 @@ import {
   STARTUP_GRACE_MS,
 } from "./json-tolerant";
 import type { VerdictAction, VerdictRead } from "./json-tolerant";
+import { cleanupHelperDir, makeHelperTmpDir } from "./transient-helper-lifecycle";
 
 const execFileAsync = promisify(execFile);
 
@@ -268,15 +268,7 @@ export function sanitizeRecapFailureDetail(value: unknown): string | undefined {
 }
 
 function defaultMakeTmpDir(): string {
-  return mkdtempSync(join(tmpdir(), "shepherd-recap-"));
-}
-
-function defaultCleanup(cwd: string): void {
-  try {
-    rmSync(cwd, { recursive: true, force: true });
-  } catch {
-    /* best-effort */
-  }
+  return makeHelperTmpDir("shepherd-recap-");
 }
 
 async function defaultPrepareClaudeTrust(cwd: string, claudeDir: string): Promise<void> {
@@ -452,7 +444,7 @@ export class RecapService {
     this._landedWorkEvidence = optional(deps.landedWorkEvidence, () => null);
     this._makeTmpDir = optional(deps.makeTmpDir, defaultMakeTmpDir);
     this._prepareClaudeTrust = optional(deps.prepareClaudeTrust, defaultPrepareClaudeTrust);
-    this._cleanup = optional(deps.cleanup, defaultCleanup);
+    this._cleanup = optional(deps.cleanup, cleanupHelperDir);
   }
 
   // ── resolveTerminal ──────────────────────────────────────────────────────────

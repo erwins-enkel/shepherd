@@ -136,6 +136,24 @@ export function worktreeScratchDirCandidates(worktreePath: string): string[] {
 }
 
 /**
+ * Ordered, DEDUPED candidates for the SINGLE-base scratch root of a worktree —
+ * `<claudeTmpRoot>/<dashified>` plus its legacy-tmpfs twin (#1875). This is the parent of every
+ * `sessionScratchpadDir()` for that worktree (one child per claude session id), i.e. where a
+ * session's OWN agent writes.
+ *
+ * DELIBERATELY separate from `worktreeScratchDirCandidates` above rather than folded into it: the
+ * doubled `claude-$uid/<dashified>` base (a NESTED sub-agent's scratch) and this single base are
+ * different geometries, and conflating them is a bug this module has already paid for once — see
+ * the `sessionScratchpadDir` doc. `removeWorktreeScratch` reclaims both sets; keeping the builders
+ * apart keeps each one's contract legible at its call site.
+ */
+export function sessionScratchRootCandidates(worktreePath: string): string[] {
+  const primary = join(claudeTmpRoot(), dashify(worktreePath));
+  const legacy = join(legacyClaudeTmpRoot(), dashify(worktreePath));
+  return [...new Set([primary, legacy])];
+}
+
+/**
  * The per-session SCRATCHPAD dir for a Shepherd session's OWN (top-level) claude agent:
  * `<claudeTmpRoot>/<dashified-worktree>/<claudeSessionId>/scratchpad`.
  *
@@ -837,17 +855,67 @@ export async function sweepClaudeTmp(opts?: SweepOpts): Promise<SweepResult> {
 }
 
 /**
- * Best-effort targeted teardown of one worktree's scratch dir (e.g. on session retire). Reclaims
- * BOTH the disk and legacy-tmpfs candidates (#1875) so an adopted pre-upgrade session's nested
- * scratch on the tmpfs is still freed. No-op per candidate when absent (`force:true`), swallows
- * every error — never throws. An explicit `opts.dir` (tests) targets exactly that one dir.
+ * Best-effort targeted teardown of one worktree's scratch dirs (e.g. on session retire). Reclaims
+ * BOTH the disk and legacy-tmpfs candidates (#1875) so an adopted pre-upgrade session's scratch on
+ * the tmpfs is still freed. No-op per candidate when absent (`force:true`), swallows every error —
+ * never throws. An explicit `opts.dir` (tests) targets exactly that one dir.
+ *
+ * Two bases (#2304). The doubled `claude-$uid/<dashified>` base (a nested sub-agent's scratch) is
+ * always reclaimed. The SINGLE base — the session's own scratchpad tree, which is where the inodes
+ * and bytes actually accumulate — is reclaimed only when `worktreePath` is genuinely a worktree,
+ * i.e. contains `WORKTREE_MARKER`.
+ *
+ * That gate is load-bearing, not defensive noise. `WorktreeService.remove` does not itself verify
+ * it was handed a worktree; its callers guard individually (`wt.worktreePath !== repoPath`,
+ * `if (s.isolated)`). While only the doubled base was in scope, a mis-call on a MAIN CHECKOUT was
+ * harmless because nothing nests scratch under a main checkout's doubled base. The single base is
+ * different: `<claudeTmpRoot>/<dashified-main-checkout>` is exactly where the OPERATOR's own
+ * interactive claude sessions write, so an ungated widening would let one bad call delete their
+ * live scratch. Non-worktree paths therefore keep today's behavior byte-for-byte.
  */
 export async function removeWorktreeScratch(
   worktreePath: string,
   opts?: { dir?: string; rm?: typeof fsp.rm },
 ): Promise<void> {
-  const dirs = opts?.dir ? [opts.dir] : worktreeScratchDirCandidates(worktreePath);
+  const dirs = opts?.dir
+    ? [opts.dir]
+    : [
+        ...worktreeScratchDirCandidates(worktreePath),
+        ...(worktreePath.includes(WORKTREE_MARKER)
+          ? sessionScratchRootCandidates(worktreePath)
+          : []),
+      ];
   const rm = opts?.rm ?? fsp.rm;
+  for (const dir of dirs) {
+    try {
+      await rm(dir, { recursive: true, force: true });
+    } catch {
+      /* best-effort — continue to the next candidate */
+    }
+  }
+}
+
+/**
+ * Best-effort teardown of the claude-side scratch a TRANSIENT HELPER's agent derived from its
+ * throwaway mktemp cwd (#2304): `<claudeTmpRoot>/<dashify(cwd)>` plus the legacy-tmpfs twin.
+ *
+ * `cleanupHelperDir` already removes the mktemp cwd itself, but claude mirrors that cwd into its
+ * own tmp root and nothing removed THAT — ~2.5k such dirs had accumulated on the dev host. They
+ * are tiny individually (3-6 inodes) but dominate the top-level ENTRY COUNT, which is what makes
+ * every `readdir` of the root (this sweep, the fallow reaper) expensive.
+ *
+ * Async and non-throwing so callers can `void` it off a synchronous teardown path: a helper's
+ * scratch is normally trivial, but a sync `rm -rf` on the single Bun event loop is never worth the
+ * risk (it would freeze the live web terminal).
+ */
+export async function removeHelperScratch(
+  cwd: string,
+  opts?: { rm?: typeof fsp.rm },
+): Promise<void> {
+  const rm = opts?.rm ?? fsp.rm;
+  const dirs = [
+    ...new Set([join(claudeTmpRoot(), dashify(cwd)), join(legacyClaudeTmpRoot(), dashify(cwd))]),
+  ];
   for (const dir of dirs) {
     try {
       await rm(dir, { recursive: true, force: true });
@@ -1723,4 +1791,255 @@ export async function pruneRepoWorktrees(
     }
   }
   return { pruned, failed };
+}
+
+// ── orphaned-scratch reconcile (#2304) ───────────────────────────────────────────────────
+//
+// `removeWorktreeScratch` / `cleanupHelperDir` reclaim scratch at teardown, but only for
+// teardowns that actually run: anything orphaned by a crash, a restart, a removal path that
+// predates those fixes, or a helper prefix the code no longer produces stays forever. On the dev
+// host that backlog reached 2,915 top-level entries / 1.08M inodes / 8.2G.
+//
+// This is the reconcile for that backlog, in the mould of `SessionService.sweepEgressTmp` and
+// `reapAbandonedWorktrees`: enumerate what is provably live, and remove only entries provably not
+// in it. `dashify` is NOT invertible, so an entry name can never be decoded back into a path —
+// every allow-set here is therefore built FORWARD (dashify the things known to be live) and every
+// rule is FAIL-CLOSED: an entry is removed only on positive proof it is dead, and anything
+// unrecognised (`bundled-skills`, `fallow-base-path`, the operator's own `-home-<user>` scratch,
+// the nested `claude-$uid`) is left strictly alone.
+
+/**
+ * A transient helper's mktemp BASENAME, i.e. what remains of an entry name once its tmp-root
+ * prefix is stripped: a `shepherd-` prefix, the helper's own word(s), and the six random chars
+ * `mkdtemp` appends. Matched whole (anchored both ends) so a longer path tail cannot slip through.
+ */
+const HELPER_MKTEMP_BASENAME = /^shepherd-[a-z-]+-[A-Za-z0-9]{6}$/;
+
+/**
+ * Every root a transient helper's `mkdtemp` cwd may sit DIRECTLY under, deduped — the set the
+ * reconcile must recognise to classify a helper's claude-side scratch dir.
+ *
+ * Three, not one, because `makeHelperTmpDir` resolves `os.tmpdir()` at call time and the server
+ * has run under different `TMPDIR`s over its life. Both forms are on disk on the dev host:
+ * `-tmp-shepherd-recap-…` (server `TMPDIR` unset ⇒ `/tmp`, the current and dominant form) and
+ * `-home-…--cache-shepherd-tmp-shepherd-recap-…` (a window when it was set to `agentTmpDir()`).
+ * Reading only the live `tmpdir()` would therefore leave whichever form is not current today
+ * unreclaimable forever — the same dual-root migration reasoning as `legacyClaudeTmpRoot()`.
+ * `/tmp` is named explicitly for that reason: it is the platform default `os.tmpdir()` falls back
+ * to, and a `TMPDIR` set today must not hide scratch written before it was.
+ */
+export function helperTmpRootCandidates(): string[] {
+  const agentTmp = agentTmpDir();
+  return [...new Set([tmpdir(), ...(agentTmp ? [agentTmp] : []), "/tmp"])];
+}
+
+export interface SweepOrphanedScratchOpts {
+  /** Roots to scan (default: the disk + legacy claude tmp roots, deduped). */
+  roots?: string[];
+  /** `.shepherd-worktrees` dirs whose children are the live worktrees. */
+  worktreesRoots: string[];
+  /** Tmp roots a helper `mkdtemp`s its cwd directly under (default: `helperTmpRootCandidates()`). */
+  helperTmpRoots?: string[];
+  /** Worktree paths of non-archived sessions — belt-and-braces beside the on-disk enumeration. */
+  liveWorktreePaths: string[];
+  /** Live process cwds, or `null` when unknown (darwin / stale cell) ⇒ helper half is SKIPPED. */
+  liveCwds: string[] | null;
+  now?: number;
+  staleMs?: number;
+  fsOps?: Pick<FsOps, "readdir" | "stat" | "rm">;
+  log?: (msg: string) => void;
+}
+
+export interface SweepOrphanedScratchResult {
+  /** Orphaned per-session worktree scratch roots removed. */
+  worktrees: number;
+  /** Orphaned transient-helper scratch dirs removed. */
+  helpers: number;
+  /** True when the helper half was skipped because live cwds were unknown. */
+  helpersSkipped: boolean;
+}
+
+/**
+ * One enumerated `.shepherd-worktrees` root: the dashified prefix that identifies ITS entries, and
+ * the dashified names of its live children. A root whose `readdir` failed is absent from this list
+ * entirely, so none of its entries are ever eligible — an unreadable repo root can never cause a
+ * deletion.
+ */
+interface WorktreesRootIndex {
+  prefix: string;
+  live: Set<string>;
+}
+
+async function indexWorktreesRoots(
+  worktreesRoots: string[],
+  liveWorktreePaths: string[],
+  readdir: FsOps["readdir"],
+  log: (msg: string) => void,
+): Promise<WorktreesRootIndex[]> {
+  const extraLive = new Set(liveWorktreePaths.filter(Boolean).map(dashify));
+  const indexes: WorktreesRootIndex[] = [];
+  for (const root of [...new Set(worktreesRoots)]) {
+    let names: string[];
+    try {
+      names = (await readdir(root)) as unknown as string[];
+    } catch (err) {
+      // FAIL-CLOSED: unreadable ⇒ this root contributes no allow-set, so its entries stay off the
+      // eligible list entirely. ENOENT is the normal case (a repo that has never had a worktree),
+      // not a fault — logging it would spam a line per repo on every boot of a fresh host.
+      if ((err as NodeJS.ErrnoException)?.code !== "ENOENT")
+        log(`[tmp-sweep] scratch reconcile: skipping unreadable worktrees root ${root}`);
+      continue;
+    }
+    const live = new Set(names.map((n) => dashify(join(root, n))));
+    for (const d of extraLive) live.add(d);
+    indexes.push({ prefix: `${dashify(root)}-`, live });
+  }
+  // Longest prefix first, so nested repos (`/a/proj` and `/a/proj/sub`) can never have the outer
+  // root's prefix shadow the inner root's — the first match below is then always the right one.
+  return indexes.sort((a, b) => b.prefix.length - a.prefix.length);
+}
+
+/**
+ * Classify ONE top-level entry. Returns the reason it may be removed, or `null` to keep it.
+ * Every branch defaults to keeping.
+ */
+function classifyScratchEntry(
+  name: string,
+  ctx: {
+    indexes: WorktreesRootIndex[];
+    helperPrefixes: string[];
+    liveHelperCwds: Set<string> | null;
+  },
+): "worktree" | "helper" | null {
+  // Worktree scratch: the entry must belong to a root we SUCCESSFULLY enumerated, and not name
+  // one of that root's live children.
+  for (const idx of ctx.indexes) {
+    if (!name.startsWith(idx.prefix)) continue;
+    return idx.live.has(name) ? null : "worktree";
+  }
+
+  // Helper scratch: the entry must be the dashified form of a path DIRECTLY under a known helper
+  // tmp root, with a mktemp-shaped basename. Requiring the parent to BE a tmp root is what stops a
+  // worktree slug that merely looks mktemp-ish (`shepherd-fix-abc123`) matching — those live under
+  // `…/.shepherd-worktrees/`, a different root. The middle word is deliberately generic rather
+  // than an allowlist of current helpers, so retired prefixes (`rundown`, `skills`) are reclaimed
+  // too instead of leaking forever.
+  if (ctx.liveHelperCwds === null) return null;
+  for (const prefix of ctx.helperPrefixes) {
+    // `continue`, not an early `return null`: with nested tmp roots (`/tmp` and `/tmp/foo`) the
+    // outer prefix matches first but leaves a non-basename tail, and bailing there would stop the
+    // inner root from ever being tried.
+    if (!name.startsWith(prefix)) continue;
+    if (!HELPER_MKTEMP_BASENAME.test(name.slice(prefix.length))) continue;
+    return ctx.liveHelperCwds.has(name) ? null : "helper";
+  }
+  return null;
+}
+
+/**
+ * Best-effort reconcile of orphaned scratch under the claude tmp roots. TOTAL by contract: never
+ * throws or rejects, so callers can fire-and-forget it on a timer.
+ *
+ * Worktree entries are gated on the on-disk enumeration alone — it is authoritative, and an age
+ * gate would leave gigabytes sitting for a day after the fix ships. Helper entries carry two
+ * EXTRA gates because their liveness is proc-based and therefore racier: absent from `liveCwds`,
+ * AND stale by top-level mtime, so a helper spawned seconds before a DAILY run is never swept.
+ */
+export async function sweepOrphanedScratch(
+  opts: SweepOrphanedScratchOpts,
+): Promise<SweepOrphanedScratchResult> {
+  const log = opts.log ?? console.warn;
+  const result: SweepOrphanedScratchResult = {
+    worktrees: 0,
+    helpers: 0,
+    helpersSkipped: opts.liveCwds === null,
+  };
+  try {
+    const ctx = await resolveReconcileCtx(opts, log);
+    for (const root of ctx.roots) await reconcileRoot(root, ctx, result);
+  } catch (err) {
+    log(`[tmp-sweep] scratch reconcile: unexpected error: ${String(err)}`);
+  }
+  return result;
+}
+
+/** Everything one reconcile run needs, resolved once from its options. */
+interface ReconcileCtx {
+  ops: Pick<FsOps, "readdir" | "stat" | "rm">;
+  now: number;
+  staleMs: number;
+  roots: string[];
+  log: (msg: string) => void;
+  indexes: WorktreesRootIndex[];
+  helperPrefixes: string[];
+  liveHelperCwds: Set<string> | null;
+}
+
+async function resolveReconcileCtx(
+  opts: SweepOrphanedScratchOpts,
+  log: (msg: string) => void,
+): Promise<ReconcileCtx> {
+  const ops = opts.fsOps ?? { readdir: fsp.readdir, stat: fsp.stat, rm: fsp.rm };
+  return {
+    ops,
+    log,
+    now: opts.now ?? Date.now(),
+    staleMs: opts.staleMs ?? envNum(process.env.SHEPHERD_TMP_STALE_HOURS, 24) * 3600_000,
+    roots: [...new Set(opts.roots ?? [claudeTmpRoot(), legacyClaudeTmpRoot()])],
+    indexes: await indexWorktreesRoots(
+      opts.worktreesRoots,
+      opts.liveWorktreePaths,
+      ops.readdir,
+      log,
+    ),
+    helperPrefixes: [...new Set(opts.helperTmpRoots ?? helperTmpRootCandidates())].map(
+      (r) => `${dashify(r)}-`,
+    ),
+    liveHelperCwds:
+      opts.liveCwds === null ? null : new Set(opts.liveCwds.filter(Boolean).map(dashify)),
+  };
+}
+
+/** Reconcile ONE scratch root, accumulating into `result`. A missing/unreadable root is skipped. */
+async function reconcileRoot(
+  root: string,
+  ctx: ReconcileCtx,
+  result: SweepOrphanedScratchResult,
+): Promise<void> {
+  let entries: Dirent[];
+  try {
+    entries = (await ctx.ops.readdir(root, { withFileTypes: true })) as Dirent[];
+  } catch {
+    return; // missing/unreadable root — nothing to reconcile
+  }
+  for (const ent of entries) {
+    if (!ent.isDirectory()) continue;
+    const kind = classifyScratchEntry(ent.name, ctx);
+    if (kind !== null) await removeClassified(join(root, ent.name), kind, ctx, result);
+  }
+}
+
+/**
+ * Remove one entry the classifier condemned. Helper entries pass one EXTRA staleness gate, because
+ * their liveness signal (`liveCwds`) is proc-based and therefore racier than the worktree half's
+ * authoritative on-disk enumeration. Fail-closed per entry: a failure is surfaced and skipped,
+ * never miscounted as success.
+ */
+async function removeClassified(
+  p: string,
+  kind: "worktree" | "helper",
+  ctx: ReconcileCtx,
+  result: SweepOrphanedScratchResult,
+): Promise<void> {
+  try {
+    if (kind === "helper") {
+      const st = await ctx.ops.stat(p);
+      result.helpers += await removeIfStale(p, st, ctx);
+      return;
+    }
+    await ctx.ops.rm(p, { recursive: true, force: true });
+    result.worktrees += 1;
+  } catch (err) {
+    ctx.log(`[tmp-sweep] scratch reconcile: failed to remove ${p}: ${String(err)}`);
+  }
 }

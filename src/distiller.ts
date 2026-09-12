@@ -1,7 +1,6 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { readRoleResultText, CODEX_LAST_MESSAGE_FILE } from "./codex-last-message";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
 import { LearningEvidenceRepoMismatchError, type SessionStore } from "./store";
 import type { HerdrDriver } from "./herdr";
 import { HerdrUnavailableError } from "./herdr";
@@ -19,6 +18,7 @@ import {
   LEARNING_RULE_MAX_CHARS,
   trimRuleToLimit,
 } from "./learning-shape";
+import { cleanupHelperDir, makeHelperTmpDir } from "./transient-helper-lifecycle";
 
 const PROPOSALS_FILE = ".shepherd-learnings.json";
 
@@ -623,12 +623,6 @@ function defaultReadProposals(dir: string): RawProposals | null {
 
 /** Default scratch dir: a throwaway temp dir (the distiller needs no git, only Read/Write). */
 export const defaultScratch = {
-  create: () => ({ dir: mkdtempSync(join(tmpdir(), "shepherd-distill-")) }),
-  remove: (dir: string) => {
-    try {
-      rmSync(dir, { recursive: true, force: true });
-    } catch {
-      /* best-effort */
-    }
-  },
+  create: () => ({ dir: makeHelperTmpDir("shepherd-distill-") }),
+  remove: cleanupHelperDir,
 };

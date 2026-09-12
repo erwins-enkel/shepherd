@@ -1288,6 +1288,64 @@ describe("lens fixtures agree with the herd they describe (#2295)", () => {
     }
   });
 
+  it("each provider's models block holds the two invariants the real builder holds", async () => {
+    const { models } = (await get("/api/usage/breakdown?range=7d")).body;
+    for (const provider of ["claude", "codex"]) {
+      const data = models[provider];
+      // `byModel` is every role folded together (foldModels in src/usage-breakdown.ts) —
+      // not just `coding`. A byModel missing the satellite roles makes ModelsLens render
+      // each role's share as `tokens / totalTokens` ≈ 0.0%.
+      const folded: Record<string, number> = {};
+      for (const perModel of Object.values(data.byRole) as Array<Record<string, number>>) {
+        for (const [model, tokens] of Object.entries(perModel ?? {})) {
+          folded[model] = (folded[model] ?? 0) + tokens;
+        }
+      }
+      expect(data.byModel, `${provider}.byModel is not byRole folded`).toEqual(folded);
+
+      // `totalTokens` is the sum of `byModel` — it is the provider header ModelsLens
+      // prints above that very model list.
+      const summed = Object.values(data.byModel as Record<string, number>).reduce(
+        (n, t) => n + t,
+        0,
+      );
+      expect(data.totalTokens, `${provider}.totalTokens is not sum(byModel)`).toBe(summed);
+    }
+  });
+
+  it("the models block and the task rows are expressed in one unit", async () => {
+    const { models, repos, satelliteByKind } = (await get("/api/usage/breakdown?range=7d")).body;
+    const authoringTokens = repos
+      .flatMap(
+        (r: {
+          tasks: Array<{
+            tokens: { input: number; output: number; cacheRead: number; cacheWrite: number };
+          }>;
+        }) => r.tasks,
+      )
+      .reduce(
+        (n: number, t: { tokens: Record<string, number> }) =>
+          n + t.tokens.input + t.tokens.output + t.tokens.cacheRead + t.tokens.cacheWrite,
+        0,
+      );
+    const satelliteTokens = satelliteByKind.reduce(
+      (n: number, k: { units: number }) => n + k.units * 1000,
+      0,
+    );
+    // Coding + satellite in the SAME scale as the per-task token detail. The first draft
+    // mixed weighted units into byModel against a token totalTokens, so the header read
+    // 3.9M over a model list summing to 3.9k.
+    expect(models.claude.totalTokens).toBe(authoringTokens + satelliteTokens);
+  });
+
+  it("the per-kind satellite tally adds up to the satellite total", async () => {
+    const { satelliteUnits, satelliteByKind } = (await get("/api/usage/breakdown?range=7d")).body;
+    // Two groupings of the same passes — by kind for the Overhead lens, by task for Spend.
+    expect(satelliteByKind.reduce((n: number, k: { units: number }) => n + k.units, 0)).toBe(
+      satelliteUnits,
+    );
+  });
+
   it("the breakdown's totals are the sum of its own rows", async () => {
     const { body } = await get("/api/usage/breakdown?range=7d");
     const sum = (key: "authoringUnits" | "satelliteUnits") =>

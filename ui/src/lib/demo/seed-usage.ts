@@ -28,6 +28,8 @@ import type {
   Session,
   GitState,
   UsageBreakdown,
+  UsageByRole,
+  UsageRole,
   UsageTaskBreakdown,
   UsageTimeline,
   UsageTimelineHour,
@@ -53,6 +55,40 @@ function session(sessions: Session[], sessionId: string): Session {
 /** Display basename of a repo path — the `repo` field the delivery rows and breakdown
  *  headers render. Derived, so it cannot disagree with the session's own `repoPath`. */
 const repoName = (repoPath: string): string => repoPath.split("/").pop() ?? repoPath;
+
+/** The demo's one weighted-unit → token conversion. `task()` already splits a row's token
+ *  detail off `authoringUnits` at this rate; the models block below folds the same rate, so
+ *  the two sides of the breakdown are expressed in ONE unit rather than two that look alike. */
+const TOKENS_PER_UNIT = 1000;
+
+/** The satellite (non-coding) passes in range: which role ran, on what model, for how many
+ *  weighted units, across how many passes.
+ *
+ *  ONE source for both sides of the same fact — `satelliteByKind` feeds the Overhead lens,
+ *  and the per-role token entries feed the Models lens, which folds them into `byModel`.
+ *  Two literals would let the two lenses disagree about the same passes. */
+const SATELLITE: ReadonlyArray<{ role: UsageRole; model: string; units: number; count: number }> = [
+  { role: "review", model: "sonnet", units: 470, count: 14 },
+  { role: "plan_gate", model: "sonnet", units: 240, count: 9 },
+  { role: "recap", model: "sonnet", units: 110, count: 6 },
+  { role: "classifier", model: "sonnet", units: 55, count: 41 },
+  { role: "maintain", model: "sonnet", units: 35, count: 2 },
+];
+
+/** Sum a role→model→tokens map down to model→tokens, exactly as `foldModels` does in
+ *  `src/usage-breakdown.ts`. EVERY role folds in, not just coding: `ModelsLens` prints the
+ *  provider header from `totalTokens` and each role's share as `tokens / totalTokens`, so a
+ *  `byModel` missing the satellite roles renders a header that disagrees with its own model
+ *  list and role shares that round to 0.0%. */
+function foldModels(byRole: UsageByRole): Record<string, number> {
+  const byModel: Record<string, number> = {};
+  for (const models of Object.values(byRole)) {
+    for (const [model, tokens] of Object.entries(models ?? {})) {
+      byModel[model] = (byModel[model] ?? 0) + tokens;
+    }
+  }
+  return byModel;
+}
 
 /** One task row of a repo's breakdown: identity from the session, numbers from here.
  *
@@ -108,15 +144,21 @@ export function buildUsageBreakdown(sessions: Session[]): UsageBreakdown {
   // drifted from its own rows would render a bar that disagrees with the list under it.
   const authoringUnits = sum(storefrontTasks, "authoringUnits") + sum(apiTasks, "authoringUnits");
   const satelliteUnits = sum(storefrontTasks, "satelliteUnits") + sum(apiTasks, "satelliteUnits");
-  const modelUnits = (rows: UsageTaskBreakdown[]) =>
-    rows.reduce<Record<string, number>>((acc, r) => {
-      acc[r.model] = (acc[r.model] ?? 0) + r.authoringUnits;
+  // Role → model → TOKENS, the shape `claudeUsageByRole` produces server-side. `coding` is
+  // the authoring side of the task rows above; the rest are the satellite passes.
+  const byRole: UsageByRole = {
+    coding: [...storefrontTasks, ...apiTasks].reduce<Record<string, number>>((acc, r) => {
+      acc[r.model] = (acc[r.model] ?? 0) + r.authoringUnits * TOKENS_PER_UNIT;
       return acc;
-    }, {});
-  const byModel = { ...modelUnits(storefrontTasks) };
-  for (const [model, units] of Object.entries(modelUnits(apiTasks))) {
-    byModel[model] = (byModel[model] ?? 0) + units;
-  }
+    }, {}),
+    ...Object.fromEntries(
+      SATELLITE.map((sp) => [sp.role, { [sp.model]: sp.units * TOKENS_PER_UNIT }]),
+    ),
+  };
+  // The two invariants the real builder holds (src/usage-breakdown.ts): `byModel` is every
+  // role folded together, and `totalTokens` is the sum of `byModel`.
+  const byModel = foldModels(byRole);
+  const totalTokens = Object.values(byModel).reduce((n, tokens) => n + tokens, 0);
 
   return {
     range: "7d",
@@ -126,22 +168,17 @@ export function buildUsageBreakdown(sessions: Session[]): UsageBreakdown {
     satelliteUnits,
     cacheReadUnits: Math.round(authoringUnits * 0.83),
     generationUnits: Math.round(authoringUnits * 0.17),
-    satelliteByKind: [
-      { kind: "review", units: 470, count: 14 },
-      { kind: "plan_gate", units: 240, count: 9 },
-      { kind: "recap", units: 110, count: 6 },
-      { kind: "classifier", units: 55, count: 41 },
-      { kind: "maintain", units: 35, count: 2 },
-    ],
+    satelliteByKind: SATELLITE.map((sp) => ({
+      kind: sp.role,
+      units: sp.units,
+      count: sp.count,
+    })),
     dollars: null,
     models: {
-      // Every seeded session runs on Claude (see `mkSession`'s default), so the codex
-      // side is a true zero rather than an invented second provider.
-      claude: {
-        totalTokens: authoringUnits * 1000,
-        byModel,
-        byRole: { coding: byModel, review: { sonnet: 470 }, plan_gate: { sonnet: 240 } },
-      },
+      claude: { totalTokens, byModel, byRole },
+      // Every seeded session runs on Claude (see `mkSession`'s default), so the codex side
+      // is a true zero rather than an invented second provider — and 0 is the sum of `{}`,
+      // so it holds the same two invariants.
       codex: { totalTokens: 0, byModel: {}, byRole: {} },
     },
     repos: [

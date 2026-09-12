@@ -720,3 +720,400 @@ describe("GETs whose {} fallback threw in the caller (#1821)", () => {
     expect(body).toEqual([]);
   });
 });
+
+// #2295: the repo-scoped Backlog tabs. Each of these was on the permissive `{}` tail one
+// tab click away from a visitor, with a caller that assigns a response field straight into
+// a `$state` array or a required-field prop — the #1800 flush-abort again. The assertions
+// are on the shape CONTRACT plus the cross-source consistency that keeps the demo from
+// contradicting itself, never on incidental seeded prose.
+describe("repo-scoped lens GETs never fall back to {} (#2295)", () => {
+  const repo = encodeURIComponent(REPO);
+
+  it("GET /api/prs carries prs[] and agrees with the herd about its PR numbers", async () => {
+    const { status, body } = await get(`/api/prs?repo=${repo}`);
+    expect(status).toBe(200);
+    expect(Array.isArray(body.prs)).toBe(true);
+    expect(body.prs.length).toBeGreaterThan(0);
+    // Every session with an open PR must appear in the tab under the SAME number, else the
+    // PRs tab and the session row next to it disagree about the same pull request.
+    const gitStates = (await get("/api/git")).body as Record<
+      string,
+      { state: string; number?: number }
+    >;
+    const openFromHerd = Object.values(gitStates)
+      .filter((g) => g.state === "open")
+      .map((g) => g.number);
+    const listed = body.prs.map((p: { number: number }) => p.number);
+    for (const n of openFromHerd) expect(listed).toContain(n);
+  });
+
+  it("GET /api/prs derives slug + webUrl from the repo index, not a private seed", async () => {
+    const { body } = await get(`/api/prs?repo=${repo}`);
+    const fromIndex = (await get("/api/repos")).body.repos.find(
+      (e: { path: string }) => e.path === REPO,
+    );
+    expect(body.slug).toBe(fromIndex.remoteSlug);
+    expect(body.webUrl).toBe(`https://github.com/${fromIndex.remoteSlug}`);
+  });
+
+  it("GET /api/prs seeds both bot PR kinds so the kind badges have subjects", async () => {
+    const { body } = await get(`/api/prs?repo=${repo}`);
+    const kinds = new Set(body.prs.map((p: { kind: string }) => p.kind));
+    expect(kinds).toContain("dependabot");
+    expect(kinds).toContain("release");
+  });
+
+  it("GET /api/prs gives an unknown repo an empty list, never {}", async () => {
+    const { status, body } = await get("/api/prs?repo=/nope");
+    expect(status).toBe(200);
+    expect(body.prs).toEqual([]);
+    expect(body.slug).toBeNull();
+  });
+
+  it("GET /api/actions carries runs[] plus the three capability flags", async () => {
+    const { status, body } = await get(`/api/actions?repo=${repo}`);
+    expect(status).toBe(200);
+    expect(Array.isArray(body.runs)).toBe(true);
+    expect(body.runs.length).toBeGreaterThan(0);
+    expect(body.supportsActions).toBe(true);
+    expect(body.canRerun).toBe(true);
+    expect(body.canCancel).toBe(true);
+    expect(body.kind).toBe("github");
+  });
+
+  it("GET /api/actions reports an unknown repo as Actions-less, not empty-but-capable", async () => {
+    const { body } = await get("/api/actions?repo=/nope");
+    expect(body.runs).toEqual([]);
+    expect(body.supportsActions).toBe(false);
+    expect(body.kind).toBeNull();
+  });
+
+  it("GET /api/actions/history returns runs for a workflow the listing actually names", async () => {
+    const listed = (await get(`/api/actions?repo=${repo}`)).body.runs[0];
+    const { status, body } = await get(
+      `/api/actions/history?repo=${repo}&workflowId=${listed.workflowId}&limit=10`,
+    );
+    expect(status).toBe(200);
+    expect(Array.isArray(body.runs)).toBe(true);
+    expect(body.runs.length).toBeGreaterThan(0);
+    // The listed (latest) run must be the newest history row, or expanding a run shows a
+    // history that does not contain the run being expanded.
+    expect(body.runs[0].runId).toBe(listed.runId);
+  });
+
+  it("GET /api/actions/history gives an unknown workflow an empty list, never {}", async () => {
+    const { body } = await get(`/api/actions/history?repo=${repo}&workflowId=0&limit=10`);
+    expect(body.runs).toEqual([]);
+  });
+
+  it("GET /api/actions/run-jobs carries jobs[] for every run history offers", async () => {
+    const listed = (await get(`/api/actions?repo=${repo}`)).body.runs[0];
+    const history = (
+      await get(`/api/actions/history?repo=${repo}&workflowId=${listed.workflowId}&limit=10`)
+    ).body.runs as Array<{ runId: number }>;
+    for (const run of history) {
+      const { body } = await get(`/api/actions/run-jobs?repo=${repo}&runId=${run.runId}`);
+      expect(Array.isArray(body.jobs)).toBe(true);
+      expect(body.jobs.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("GET /api/readiness carries checks[] and a score consistent with them", async () => {
+    const { status, body } = await get(`/api/readiness?repo=${repo}`);
+    expect(status).toBe(200);
+    expect(body.applicable).toBe(true);
+    expect(Array.isArray(body.checks)).toBe(true);
+    const total = body.checks.reduce((n: number, c: { weight: number }) => n + c.weight, 0);
+    const present = body.checks
+      .filter((c: { present: boolean }) => c.present)
+      .reduce((n: number, c: { weight: number }) => n + c.weight, 0);
+    // The headline number must not contradict the list under it.
+    expect(body.score).toBe(Math.round((present / total) * 100));
+  });
+
+  it("GET /api/readiness leaves real gaps so the adopt column is never empty", async () => {
+    const { body } = await get(`/api/readiness?repo=${repo}`);
+    expect(body.checks.some((c: { present: boolean }) => !c.present)).toBe(true);
+    expect(body.claudeMd.length).toBeGreaterThan(0);
+    expect(body.issueTemplate.length).toBeGreaterThan(0);
+  });
+
+  it("GET /api/readiness reports an unknown repo as not-applicable, not as a zero score", async () => {
+    const { body } = await get("/api/readiness?repo=/nope");
+    expect(body.applicable).toBe(false);
+    expect(body.ecosystem).toBeNull();
+    expect(body.checks).toEqual([]);
+  });
+
+  it("GET /api/repo-web derives its link from the repo index", async () => {
+    const { body } = await get(`/api/repo-web?repo=${repo}`);
+    expect(body.slug).toBe("acme/storefront");
+    expect(body.webUrl).toBe("https://github.com/acme/storefront");
+    expect(body.kind).toBe("github");
+    expect((await get("/api/repo-web?repo=/nope")).body).toEqual({
+      slug: null,
+      webUrl: null,
+      kind: null,
+    });
+  });
+
+  it("GET /api/drain/queue is an ARRAY of unclaimed issues, never {}", async () => {
+    const { status, body } = await get(`/api/drain/queue?repo=${repo}`);
+    expect(status).toBe(200);
+    expect(Array.isArray(body)).toBe(true);
+    // Derived from the seeded issues: work the herd visibly already owns must never be
+    // offered as queued — whether it was claimed as an epic child or by a live session.
+    const epic = (await get(`/api/epic?repo=${repo}&parent=100`)).body;
+    const claimed = [
+      ...epic.children
+        .filter((c: { claimed: boolean }) => c.claimed)
+        .map((c: { number: number }) => c.number),
+      ...(await get("/api/sessions")).body
+        .map((s: { issueNumber: number | null }) => s.issueNumber)
+        .filter((n: number | null) => n != null),
+    ];
+    expect(claimed.length).toBeGreaterThan(0);
+    const queued = body.map((i: { number: number }) => i.number);
+    for (const n of claimed) expect(queued).not.toContain(n);
+    // An epic PARENT is an umbrella, never drainable work.
+    expect(queued).not.toContain(100);
+  });
+
+  it("GET /api/repo-roles + /api/repo-collaborators shape Settings → Automation", async () => {
+    const roles = (await get(`/api/repo-roles?repo=${repo}`)).body;
+    expect(roles.roles).toMatchObject({ reviewer: expect.any(String) });
+    expect(typeof roles.me).toBe("string");
+
+    const collabs = (await get(`/api/repo-collaborators?repo=${repo}`)).body;
+    expect(Array.isArray(collabs.logins)).toBe(true);
+    expect(collabs.collaboratorsUnavailable).toBe(false);
+    // A configured reviewer the picker cannot offer would render as a blank selection.
+    expect(collabs.logins).toContain(roles.roles.reviewer);
+  });
+
+  it("GET /api/repo-roles gives an unconfigured repo null roles, never {}", async () => {
+    const { body } = await get("/api/repo-roles?repo=/nope");
+    expect(body.roles).toEqual({ reviewer: null, merger: null });
+  });
+
+  it("GET /api/doc-agent/runs carries runs[] even though the demo never fires it", async () => {
+    const { status, body } = await get(`/api/doc-agent/runs?repo=${repo}`);
+    expect(status).toBe(200);
+    expect(body.running).toBe(false);
+    expect(Array.isArray(body.runs)).toBe(true);
+    // Unreachable by construction: BacklogView gates the fetch on this setting.
+    expect((await get("/api/settings")).body.docAgentEnabled).toBe(false);
+  });
+});
+
+// #2295: the Usage lens. Every loader in Usage.svelte wraps its call in try/catch, but a
+// `{}` body is `r.ok` — so nothing throws at fetch time, `{}` lands in `$state`, and the
+// render `$derived` throws inside Svelte's flush instead. These assert the array/required
+// fields those `$derived`s dereference.
+describe("usage lens GETs never fall back to {} (#2295)", () => {
+  it("GET /api/usage/breakdown carries the arrays the Spend + Overhead lenses read", async () => {
+    const { status, body } = await get("/api/usage/breakdown?range=7d");
+    expect(status).toBe(200);
+    expect(Array.isArray(body.repos)).toBe(true);
+    expect(Array.isArray(body.satelliteByKind)).toBe(true);
+    expect(body.repos.length).toBeGreaterThan(0);
+    expect(body.repos.every((r: { tasks: unknown[] }) => Array.isArray(r.tasks))).toBe(true);
+    expect(body.models.claude).toBeDefined();
+    expect(body.models.codex).toBeDefined();
+    // Subscription auth in the demo settings, so absolute USD cannot exist.
+    expect(body.dollars).toBeNull();
+  });
+
+  it("GET /api/usage/timeline carries hours[] with a peak that matches them", async () => {
+    const { status, body } = await get("/api/usage/timeline?range=24h");
+    expect(status).toBe(200);
+    expect(Array.isArray(body.hours)).toBe(true);
+    expect(body.hours.length).toBeGreaterThan(0);
+    expect(body.peakHourUnits).toBe(Math.max(...body.hours.map((h: { units: number }) => h.units)));
+    expect(body.totalUnits).toBe(
+      body.hours.reduce((n: number, h: { units: number }) => n + h.units, 0),
+    );
+    // Idle hours are excluded, not zero-padded — an absent hour and a zero hour differ.
+    expect(body.hours.every((h: { units: number }) => h.units > 0)).toBe(true);
+  });
+
+  it("GET /api/usage/delivery carries all four of its arrays", async () => {
+    const { status, body } = await get("/api/usage/delivery?range=7d");
+    expect(status).toBe(200);
+    for (const key of ["repos", "incidents", "trend", "tasks"]) {
+      expect(Array.isArray(body[key])).toBe(true);
+      expect(body[key].length).toBeGreaterThan(0);
+    }
+    expect(body.totals.firstPassRate).toMatchObject({ n: expect.any(Number) });
+  });
+
+  it("GET /api/usage/delivery reports an unmeasured metric as null, never as a zero", async () => {
+    const { body } = await get("/api/usage/delivery?range=7d");
+    // `api` has no CI, so no first-push conclusion was ever observed there. A 0 would read
+    // as "measured and terrible" rather than "not measured".
+    const api = body.repos.find((r: { repo: string }) => r.repo === "api");
+    expect(api.firstPushGreenRate).toEqual({ value: null, n: 0 });
+  });
+
+  it("every usage GET echoes the range it was asked for", async () => {
+    for (const range of ["24h", "7d", "30d", "all"]) {
+      expect((await get(`/api/usage/breakdown?range=${range}`)).body.range).toBe(range);
+      expect((await get(`/api/usage/timeline?range=${range}`)).body.range).toBe(range);
+      expect((await get(`/api/usage/delivery?range=${range}`)).body.range).toBe(range);
+    }
+  });
+
+  it("an unrecognized range falls back to the lens's own default rather than echoing junk", async () => {
+    expect((await get("/api/usage/breakdown?range=nonsense")).body.range).toBe("7d");
+  });
+
+  it("GET /api/usage/github carries all three buckets and a clear backoff", async () => {
+    const { status, body } = await get("/api/usage/github");
+    expect(status).toBe(200);
+    for (const bucket of ["rest", "graphql", "search"]) {
+      expect(body[bucket]).toMatchObject({
+        limit: expect.any(Number),
+        remaining: expect.any(Number),
+      });
+    }
+    expect(body.backoff.blocked).toBe(false);
+  });
+
+  it("GET /api/prompt-budget wraps its array under `records`, carrying both delivery modes", async () => {
+    const { status, body } = await get("/api/prompt-budget");
+    expect(status).toBe(200);
+    // `getPromptBudgets()` reads `body.records ?? []`, so a bare array is silently
+    // dropped and the lens falls back to its "nothing measured yet" empty state.
+    expect(Array.isArray(body.records)).toBe(true);
+    expect(body.records.every((r: { blocks: unknown[] }) => Array.isArray(r.blocks))).toBe(true);
+    const modes = new Set(body.records.map((r: { delivery: string }) => r.delivery));
+    expect(modes).toContain("append-system-prompt");
+    expect(modes).toContain("inline-prompt");
+  });
+});
+
+// #2295: the ambient reads, and the issue peek.
+describe("ambient GETs + issue peek (#2295)", () => {
+  it("GET /api/issues/:number wraps the Issue under `issue`, from the list's own source", async () => {
+    const repo = encodeURIComponent(REPO);
+    const listed = (await get(`/api/issues?repo=${repo}`)).body.issues[0];
+    const { status, body } = await get(`/api/issues/${listed.number}?repo=${repo}`);
+    expect(status).toBe(200);
+    // `getIssue()` reads `body.issue ?? null` — a BARE Issue here is discarded exactly
+    // like the old `{}` tail was, and the preview renders blank fields either way.
+    expect(body.issue).toEqual(listed);
+  });
+
+  it("GET /api/issues/:number answers {issue:null} for an issue the repo does not have", async () => {
+    const { status, body } = await get(`/api/issues/999999?repo=${encodeURIComponent(REPO)}`);
+    expect(status).toBe(200);
+    expect(body.issue).toBeNull();
+  });
+
+  it("GET /api/plugins/manage/installed agrees with /api/plugins about what is installed", async () => {
+    const { status, body } = await get("/api/plugins/manage/installed");
+    expect(status).toBe(200);
+    expect(Array.isArray(body.installed)).toBe(true);
+    // The manager unions this with the live PluginInfo[] BY ID, and reports any loaded
+    // plugin missing here as "removed, restart to unload" — so a separately-seeded list
+    // makes the panel accuse the demo's own plugins of having been uninstalled.
+    const live = (await get("/api/plugins")).body.plugins.map((p: { id: string }) => p.id);
+    expect(body.installed.map((p: { id: string }) => p.id).sort()).toEqual([...live].sort());
+    // `folder` is the uninstall key — a duplicate would make two rows uninstall each other.
+    const folders = body.installed.map((p: { folder: string }) => p.folder);
+    expect(new Set(folders).size).toBe(folders.length);
+  });
+
+  it("GET /api/github/owners carries orgs[] — the New Project owner picker iterates it", async () => {
+    const { body } = await get("/api/github/owners");
+    expect(Array.isArray(body.orgs)).toBe(true);
+    expect(typeof body.login).toBe("string");
+  });
+
+  it("GET /api/update/dirty reports a clean tree with a shaped body", async () => {
+    const { body } = await get("/api/update/dirty");
+    expect(body.dirty).toBe(false);
+    expect(body.dirtyFiles).toEqual([]);
+    expect(body.sig).toBeNull();
+  });
+
+  it("GET /api/codex-update/notes carries notes[] and claims to be complete", async () => {
+    const { body } = await get("/api/codex-update/notes");
+    expect(Array.isArray(body.notes)).toBe(true);
+    // `complete:false` would offer a retry for a fetch that was never truncated.
+    expect(body.complete).toBe(true);
+  });
+
+  it("GET /api/plugins/voice-whisper/status reports the plugin absent", async () => {
+    const { body } = await get("/api/plugins/voice-whisper/status");
+    expect(body.available).toBe(false);
+    expect(body.engine).toBeNull();
+  });
+
+  it("the three Record-typed reads answer {} because {} is genuinely correct", async () => {
+    for (const path of ["/api/blocks", "/api/amendments", "/api/spawn-notices"]) {
+      const { status, body } = await get(path);
+      expect(status).toBe(200);
+      // Typed `Record<…>` by their api.ts callers, so an empty object IS "none" — unlike
+      // an array-typed caller, where {} is the #1800 crash.
+      expect(body).toEqual({});
+    }
+  });
+});
+
+// #2295: the two mutations that reach a surface this change made live.
+describe("repo mutations (#2295)", () => {
+  it("POST /api/projects returns a real RepoEntry the caller can read .path off", async () => {
+    const r = await handleApi("POST", u("/api/projects"), {
+      name: "checkout-svc",
+      createRemote: false,
+    });
+    const body = await r.json();
+    expect(r.status).toBe(200);
+    // NewProject passes this straight into ondone(entry) and the caller reads entry.path.
+    expect(typeof body.path).toBe("string");
+    expect(body.name).toBe("checkout-svc");
+    expect(body.realPath).toBe(body.path);
+    // A local-only project genuinely has no remote, so no slug is invented for it.
+    expect(body.remoteSlug).toBeUndefined();
+  });
+
+  it("POST /api/projects adds the repo to the index so its panels can mount", async () => {
+    await handleApi("POST", u("/api/projects"), { name: "checkout-svc", createRemote: false });
+    const paths = (await get("/api/repos")).body.repos.map((e: { path: string }) => e.path);
+    expect(paths).toContain("/demo/acme/checkout-svc");
+  });
+
+  it("POST /api/projects with createRemote carries the owner-qualified slug", async () => {
+    const r = await handleApi("POST", u("/api/projects"), {
+      name: "checkout-svc",
+      owner: "acme",
+      createRemote: true,
+    });
+    expect((await r.json()).remoteSlug).toBe("acme/checkout-svc");
+  });
+
+  it("POST /api/projects rejects a nameless body instead of inventing a repo", async () => {
+    const r = await handleApi("POST", u("/api/projects"), {});
+    expect(r.status).toBe(400);
+    expect((await get("/api/repos")).body.repos.length).toBe(2);
+  });
+
+  it("a repo created in-session degrades to empty lenses rather than a crash", async () => {
+    await handleApi("POST", u("/api/projects"), { name: "checkout-svc", createRemote: false });
+    const p = encodeURIComponent("/demo/acme/checkout-svc");
+    expect((await get(`/api/prs?repo=${p}`)).body.prs).toEqual([]);
+    expect((await get(`/api/branches?repo=${p}`)).body.branches).toEqual([]);
+    expect((await get(`/api/issues?repo=${p}`)).body.issues).toEqual([]);
+    expect((await get(`/api/readiness?repo=${p}`)).body.applicable).toBe(false);
+  });
+
+  it("POST /api/adopt-gitignore answers `already` — the demo opens no PRs", async () => {
+    const r = await handleApi(
+      "POST",
+      u(`/api/adopt-gitignore?repo=${encodeURIComponent(REPO)}`),
+      undefined,
+    );
+    expect((await r.json()).status).toBe("already");
+  });
+});

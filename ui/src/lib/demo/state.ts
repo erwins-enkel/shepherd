@@ -49,9 +49,25 @@ import type {
   DirListing,
   AccessToken,
   PluginUpdatesStatus,
+  PullRequest,
+  WorkflowRun,
+  WorkflowJob,
+  ReadinessReport,
+  RepoRoles,
+  InstalledPlugin,
+  DocAgentRun,
+  UsageBreakdown,
+  UsageTimeline,
+  UsageRange,
+  DeliveryMetrics,
+  GithubRateLimit,
+  PromptBudgetRecord,
+  QueuedItem,
+  ForgeKind,
 } from "$lib/types";
 import { bus } from "./bus";
-import { buildSeed, mkSession, DEMO_VIEWER } from "./seed";
+import { buildSeed, mkSession } from "./seed";
+import { DEMO_VIEWER } from "./seed-constants";
 import type { DemoWorld, DemoRepoConfig, DemoBranchList } from "./types-world";
 
 // A canonical, never-mutated seed. Every `reset()` `structuredClone`s from THIS, so
@@ -153,6 +169,21 @@ function agentSession(num: number, input: StandardCreateInput): Session {
     createdAt: Date.now(),
     updatedAt: Date.now(),
   });
+}
+
+/** A repo's forge slug, from the repo INDEX (`world.repos`) rather than a per-endpoint seed.
+ *  Several endpoints report it (`/api/issues`, `/api/prs`, `/api/actions`, `/api/repo-web`,
+ *  `/api/repo-collaborators`); deriving them all from one source means they cannot disagree
+ *  about a repo. `null` for a path the index doesn't know — including a repo created
+ *  in-session via `POST /api/projects`, which genuinely has no remote. */
+function slugFor(repoPath: string): string | null {
+  return world.repos.find((r) => r.path === repoPath)?.remoteSlug ?? null;
+}
+
+/** The forge web URL matching {@link slugFor}, or null when there is no slug. */
+function webUrlFor(repoPath: string): string | null {
+  const slug = slugFor(repoPath);
+  return slug ? `https://github.com/${slug}` : null;
 }
 
 /** Parent of an absolute path, or null at the root — so an unseeded directory listing still
@@ -299,12 +330,9 @@ export const demoState = {
     lightweight: boolean;
     attempts: IssueFetchAttempt[];
   } => {
-    // Keyed on `path` exactly like `world.issues` below (and like every other
-    // repo-scoped map here), so slug and issues can never disagree about one repo.
-    const slug = world.repos.find((r) => r.path === repoPath)?.remoteSlug ?? null;
     return {
-      slug,
-      webUrl: slug ? `https://github.com/${slug}` : null,
+      slug: slugFor(repoPath),
+      webUrl: webUrlFor(repoPath),
       issues: world.issues[repoPath] ?? [],
       viewer: DEMO_VIEWER,
       error: null,
@@ -333,6 +361,187 @@ export const demoState = {
     updateAvailable: false,
     checkedAt: Date.now(),
   }),
+
+  // ── repo-scoped lenses (#2295) ──────────────────────────────────────────
+  // Everything below was reaching the router's permissive `{}` tail. Each returns the
+  // exact shape its `api.ts` caller consumes, and an UNRECOGNIZED repoPath gets a valid
+  // empty value — never `{}` — because a repo created in-session (POST /api/projects)
+  // has no fixtures but its panels still mount.
+
+  /** GET /api/prs?repo= — the Backlog PRs tab. `slug`/`webUrl` come from the repo index,
+   *  so the tab's "view on GitHub" link can never disagree with `/api/repos`. */
+  pullRequests: (
+    repoPath: string,
+  ): { slug: string | null; webUrl: string | null; prs: PullRequest[] } => ({
+    slug: slugFor(repoPath),
+    webUrl: webUrlFor(repoPath),
+    prs: world.pullRequests[repoPath] ?? [],
+  }),
+
+  /** GET /api/actions?repo= — the Backlog Actions tab. The three capability flags gate
+   *  the tab's controls: both demo repos are GitHub, so a repo with fixtures can list
+   *  runs and re-run/cancel them. An unknown repo reports no Actions support rather than
+   *  an empty-but-capable tab, which is what the server says about a forge it can't read. */
+  workflowRuns: (
+    repoPath: string,
+  ): {
+    slug: string | null;
+    webUrl: string | null;
+    kind: ForgeKind | null;
+    runs: WorkflowRun[];
+    supportsActions: boolean;
+    canRerun: boolean;
+    canCancel: boolean;
+  } => {
+    const runs = world.workflowRuns[repoPath];
+    return {
+      slug: slugFor(repoPath),
+      webUrl: webUrlFor(repoPath),
+      kind: runs ? "github" : null,
+      runs: runs ?? [],
+      supportsActions: runs != null,
+      canRerun: runs != null,
+      canCancel: runs != null,
+    };
+  },
+
+  /** GET /api/actions/history?repo=&workflowId= — prior runs of one workflow. */
+  workflowHistory: (repoPath: string, workflowId: number): { runs: WorkflowRun[] } => ({
+    runs: world.workflowHistory[repoPath]?.[workflowId] ?? [],
+  }),
+
+  /** GET /api/actions/run-jobs?repo=&runId= — one run's per-job breakdown. */
+  runJobs: (repoPath: string, runId: number): { jobs: WorkflowJob[] } => ({
+    jobs: world.runJobs[repoPath]?.[runId] ?? [],
+  }),
+
+  /** GET /api/readiness?repo= — the Backlog Readiness tab. An unseeded repo answers
+   *  `applicable:false`, the server's own "matches no supported ecosystem" path, which the
+   *  panel renders as an N/A baseline instead of a zero score it never measured. */
+  readiness: (repoPath: string): ReadinessReport =>
+    world.readiness[repoPath] ?? {
+      applicable: false,
+      ecosystem: null,
+      score: 0,
+      checks: [],
+      hasAgentInstructions: false,
+      hasIssueTemplates: false,
+      claudeMd: "",
+      issueTemplate: "",
+    },
+
+  /** GET /api/repo-roles?repo= — Settings → Automation's reviewer/merger handoff. */
+  repoRoles: (repoPath: string): { roles: RepoRoles; me: string | null } => ({
+    roles: world.repoRoles[repoPath] ?? { reviewer: null, merger: null },
+    me: DEMO_VIEWER,
+  }),
+
+  /** GET /api/repo-collaborators?repo= — the logins the roles pickers offer.
+   *  `collaboratorsUnavailable:false` is a true statement here: the demo forge answers, and
+   *  the list really is complete — the flag exists to distinguish that from a 403 we papered
+   *  over with an empty list. */
+  repoCollaborators: (
+    repoPath: string,
+  ): {
+    logins: string[];
+    me: string | null;
+    collaboratorsUnavailable: boolean;
+    source?: "collaborators" | "assignees";
+    repoSlug: string | null;
+    isFork: boolean;
+  } => ({
+    logins: world.repoCollaborators[repoPath] ?? [],
+    me: DEMO_VIEWER,
+    collaboratorsUnavailable: false,
+    source: "collaborators",
+    repoSlug: slugFor(repoPath),
+    isFork: false,
+  }),
+
+  /** GET /api/doc-agent/runs?repo= — doc-agent history. Genuinely empty and unreachable
+   *  while `settings.docAgentEnabled` is false; shaped anyway (`runs` is assigned into a
+   *  `$state` array) so flipping that setting on can't crash the Backlog. */
+  docAgentRuns: (repoPath: string): { running: boolean; runs: DocAgentRun[] } => ({
+    running: false,
+    runs: world.docAgentRuns[repoPath] ?? [],
+  }),
+
+  /** GET /api/plugins/manage/installed — Settings → Plugins' folder list. Wrapped under
+   *  `installed`: `getInstalledPlugins()` reads `body.installed`.
+   *
+   *  DERIVED from the same `world.plugins` that answers `/api/plugins`, not seeded
+   *  separately. The manager unions the two by `id` and reports any LOADED plugin missing
+   *  from this list as "removed, restart to unload" — so a second seed that merely looked
+   *  plausible made the panel accuse the demo's own plugins of having been uninstalled. */
+  installedPlugins: (): { installed: InstalledPlugin[] } => ({
+    installed: world.plugins.map((p) => ({
+      id: p.id,
+      name: p.name,
+      version: p.version,
+      ...(p.repository ? { repository: p.repository } : {}),
+      folder: p.id, // the uninstall key — unique because plugin ids are
+      loaded: true,
+      disabled: false,
+      broken: p.health !== "ok",
+    })),
+  }),
+
+  /** GET /api/repo-web?repo= — the RepoSwitcher's forge link. Derived from the repo index
+   *  rather than seeded, so it cannot drift from `/api/repos`. */
+  repoWeb: (
+    repoPath: string,
+  ): { slug: string | null; webUrl: string | null; kind: ForgeKind | null } => {
+    const slug = slugFor(repoPath);
+    return { slug, webUrl: webUrlFor(repoPath), kind: slug ? "github" : null };
+  },
+
+  /** GET /api/drain/queue?repo= — the backlog issues behind a repo's `queued` count,
+   *  fetched when the QueueStrip popover opens.
+   *
+   *  DERIVED from the seeded issues rather than seeded separately: an issue is queued when
+   *  nothing has claimed it yet, which is the rule the real drain applies — so the popover
+   *  can never offer work the herd is visibly already doing. Claimed means EITHER an epic
+   *  child marked `claimed` OR a live session pointing at that issue; a session outside an
+   *  epic is just as real a claim. An epic PARENT is excluded too: it is an umbrella, never
+   *  drainable work. */
+  drainQueue: (repoPath: string): QueuedItem[] => {
+    const claimed = new Set<number>([
+      ...world.epics.flatMap((e) => e.children.filter((c) => c.claimed).map((c) => c.number)),
+      ...world.sessions.flatMap((s) => (s.issueNumber == null ? [] : [s.issueNumber])),
+    ]);
+    return (world.issues[repoPath] ?? [])
+      .filter((i) => !claimed.has(i.number) && !i.labels.includes("epic"))
+      .map((i) => ({ number: i.number, title: i.title, url: i.url }));
+  },
+
+  /** GET /api/issues/:number?repo= — the session card's hover issue preview.
+   *  `getIssue()` is typed `Promise<Issue | null>`, and `{}` is NEITHER, so the preview
+   *  used to render blank fields. Looked up in the SAME `world.issues` that answers
+   *  `/api/issues`, so the peek and the list can never disagree. */
+  issue: (repoPath: string, number: number): Issue | null =>
+    (world.issues[repoPath] ?? []).find((i) => i.number === number) ?? null,
+
+  // ── usage lens (#2295) ──────────────────────────────────────────────────
+  // Single datasets with the requested `range` echoed back — see the RANGE note in
+  // seed-usage.ts. The echo matters: `Usage.svelte` keys its monotonic request tokens off
+  // the range it asked for, so a response must not claim a different one.
+
+  /** GET /api/usage/breakdown?range= — the Spend + Overhead lenses. */
+  usageBreakdown: (range: UsageRange): UsageBreakdown => ({ ...world.usageBreakdown, range }),
+
+  /** GET /api/usage/timeline?range= — the per-hour heatmap. */
+  usageTimeline: (range: UsageRange): UsageTimeline => ({ ...world.usageTimeline, range }),
+
+  /** GET /api/usage/delivery?range= — the Delivery lens. */
+  deliveryMetrics: (range: UsageRange): DeliveryMetrics => ({ ...world.deliveryMetrics, range }),
+
+  /** GET /api/usage/github — REST/GraphQL/search rate-limit buckets. */
+  githubRateLimit: (): GithubRateLimit => world.githubRateLimit,
+
+  /** GET /api/prompt-budget — per-spawn assembled-directive breakdowns. Wrapped under
+   *  `records`: `getPromptBudgets()` reads `body.records ?? []`, so a bare array is
+   *  silently discarded and the lens shows its "nothing measured yet" empty state. */
+  promptBudgets: (): { records: PromptBudgetRecord[] } => ({ records: world.promptBudgets }),
 
   /** GET /api/stranded — no session in the scenario is a restart-strand (the `false` entries in
    *  `claudeAliveStates` are plain husks). Must be an ARRAY: `setClaudeAlive` does `for…of` over
@@ -649,6 +858,30 @@ export const demoState = {
     world.sessions = [...world.sessions, session];
     emit({ event: "session:new", data: session });
     return session;
+  },
+
+  /** POST /api/projects — the New Project dialog.
+   *
+   *  Needs a real handler, unlike the Shape/Attach buttons that stay on the router's
+   *  permissive tail: `NewProject.svelte` passes this response straight into
+   *  `ondone(entry, …)` and the caller reads `entry.path`, so a `{ok:true}` body puts
+   *  `undefined` there. The new repo has no branch/issue/config/lens fixtures, and every
+   *  one of those getters already falls back to a valid empty value, so it degrades to an
+   *  empty-but-working repo rather than a broken one. */
+  createProject(name: string, owner: string, createRemote: boolean): RepoEntry {
+    const path = `${world.settings.repoRoot.replace(/\/+$/, "")}/${name}`;
+    const entry: RepoEntry = {
+      name,
+      path,
+      realPath: path,
+      display: path,
+      lastUsedAt: Date.now(),
+      // Only a repo the operator asked to publish gets a remote slug; a local-only project
+      // has none, and every slug-derived link correctly reports null for it.
+      ...(createRemote ? { remoteSlug: `${owner || DEMO_VIEWER}/${name}` } : {}),
+    };
+    world.repos = [...world.repos, entry];
+    return entry;
   },
 
   /** Archive a session — it drops out of the live herd. */

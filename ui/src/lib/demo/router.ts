@@ -11,12 +11,26 @@
 // instead of one long branchy switch.
 
 import { demoState } from "./state";
-import type { AgentProvider, CreateInput, IssueRef, SandboxProfile } from "$lib/types";
+import type { AgentProvider, CreateInput, IssueRef, SandboxProfile, UsageRange } from "$lib/types";
+import { DEMO_VIEWER } from "./seed-constants";
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
     status,
     headers: { "content-type": "application/json" },
+  });
+}
+
+/** Marks a response that NO handler produced — see the fallthrough comment in `handleApi`.
+ *  `"1"` = nothing matched the route; `"error"` = a handler matched but threw. Kept distinct
+ *  so a throwing handler can never be mistaken for a matching one. `coverage.test.ts` reads
+ *  this header to prove every endpoint it claims is handled really is. */
+const FALLTHROUGH_HEADER = "x-demo-fallthrough";
+
+function fallthrough(isGet: boolean, kind: "1" | "error"): Response {
+  return new Response(JSON.stringify(isGet ? {} : { ok: true }), {
+    status: 200,
+    headers: { "content-type": "application/json", [FALLTHROUGH_HEADER]: kind },
   });
 }
 
@@ -180,12 +194,95 @@ const settingsGetRoutes: Record<string, GetHandler> = {
   "/api/access-tokens": () => json(demoState.accessTokens()),
 };
 
+// ── repo-scoped lenses (#2295) ───────────────────────────────────────────────
+// The Backlog drawer's PRs / Actions / Readiness tabs, the RepoSwitcher's two lazy
+// reads, and Settings → Automation's role pickers. Every one of these was falling
+// through to the permissive `{}` tail; `listPullRequests()`, `listWorkflowRuns()` and
+// `getReadiness()` each assign a response field straight into a `$state` array or a
+// required-field prop, so `{}` is the #1800 flush-abort again, one tab click away.
+const repoLensGetRoutes: Record<string, GetHandler> = {
+  "/api/prs": (url) => json(demoState.pullRequests(repoParam(url))),
+  "/api/actions": (url) => json(demoState.workflowRuns(repoParam(url))),
+  "/api/actions/history": (url) =>
+    json(
+      demoState.workflowHistory(repoParam(url), Number(url.searchParams.get("workflowId") ?? "0")),
+    ),
+  "/api/actions/run-jobs": (url) =>
+    json(demoState.runJobs(repoParam(url), Number(url.searchParams.get("runId") ?? "0"))),
+  "/api/readiness": (url) => json(demoState.readiness(repoParam(url))),
+  "/api/repo-web": (url) => json(demoState.repoWeb(repoParam(url))),
+  "/api/repo-roles": (url) => json(demoState.repoRoles(repoParam(url))),
+  "/api/repo-collaborators": (url) => json(demoState.repoCollaborators(repoParam(url))),
+  "/api/drain/queue": (url) => json(demoState.drainQueue(repoParam(url))),
+  "/api/doc-agent/runs": (url) => json(demoState.docAgentRuns(repoParam(url))),
+};
+
+// ── usage lens (#2295) ───────────────────────────────────────────────────────
+// `Usage.svelte`'s loaders all try/catch, but a `{}` body is `r.ok` so none of them
+// catch anything — it lands in `$state` and the render `$derived` throws inside the
+// flush. `range` is echoed back from the query (see the RANGE note in seed-usage.ts);
+// an unrecognized value falls back to the same "7d" default the lens opens on rather
+// than inventing a range the UI has no tab for.
+const USAGE_RANGES = new Set<UsageRange>(["24h", "7d", "30d", "all"]);
+
+function rangeParam(url: URL): UsageRange {
+  const raw = url.searchParams.get("range") ?? "";
+  return USAGE_RANGES.has(raw as UsageRange) ? (raw as UsageRange) : "7d";
+}
+
+const usageGetRoutes: Record<string, GetHandler> = {
+  "/api/usage/breakdown": (url) => json(demoState.usageBreakdown(rangeParam(url))),
+  "/api/usage/timeline": (url) => json(demoState.usageTimeline(rangeParam(url))),
+  "/api/usage/delivery": (url) => json(demoState.deliveryMetrics(rangeParam(url))),
+  "/api/usage/github": () => json(demoState.githubRateLimit()),
+  "/api/prompt-budget": () => json(demoState.promptBudgets()),
+};
+
+// ── ambient reads (#2295) ────────────────────────────────────────────────────
+// Reachable but with nothing real to show, plus the three where `{}` was ALREADY the
+// right answer. The latter are handled explicitly rather than left on the tail so that
+// anything the dev-only `[demo-unmatched]` warn still prints is a genuine gap, not a
+// known-benign one someone has to re-triage.
+const ambientGetRoutes: Record<string, GetHandler> = {
+  "/api/plugins/manage/installed": () => json(demoState.installedPlugins()),
+  // The New Project dialog's owner picker: the operator plus the one org they belong to.
+  "/api/github/owners": () => json({ login: DEMO_VIEWER, orgs: ["acme"] }),
+  // The update modal's pre-flight. The demo deploys nothing, so the tree is genuinely
+  // clean; `sig` is null because there is no diff to sign.
+  "/api/update/dirty": () => json({ dirty: false, dirtyFiles: [], dirtyCount: 0, sig: null }),
+  // Codex release notes: the seeded codex install is already current, so there is no
+  // newer version to describe. `complete:true` — this is the whole (empty) answer, not a
+  // truncated fetch the modal should offer to retry.
+  "/api/codex-update/notes": () => json({ current: null, latest: null, notes: [], complete: true }),
+  // The voice-whisper plugin is not installed in the demo, so the compose-bar mic keeps
+  // the browser's Web Speech engine. Mirrors `VOICE_ABSENT` in api.ts.
+  "/api/plugins/voice-whisper/status": () =>
+    json({
+      available: false,
+      engine: null,
+      model: null,
+      ffmpeg: false,
+      language: "auto",
+      preferLocal: false,
+      hint: "",
+    }),
+  // The three below are typed `Record<…>` by their `api.ts` callers, so `{}` genuinely
+  // IS the correct "none" — no session in the scenario is blocked by a block reason,
+  // carries a task amendment, or had a spawn clamped/refused.
+  "/api/blocks": () => json({}),
+  "/api/amendments": () => json({}),
+  "/api/spawn-notices": () => json({}),
+};
+
 const exactGetRoutes: Record<string, GetHandler> = {
   ...bootstrapGetRoutes,
   ...lensGetRoutes,
   ...epicsGetRoutes,
   ...newTaskGetRoutes,
   ...settingsGetRoutes,
+  ...repoLensGetRoutes,
+  ...usageGetRoutes,
+  ...ambientGetRoutes,
 };
 
 // ── session-detail tabs (Task 8 sibling audit) ─────────────────────────────
@@ -230,10 +327,24 @@ function handleSessionDetailGet(path: string, url: URL): Response | null {
   return null;
 }
 
+// ── issue peek (#2295) ───────────────────────────────────────────────────────
+/** GET /api/issues/:number?repo= — the session card's hover issue preview.
+ *
+ *  Wrapped under `issue`, NOT returned bare: `getIssue()` reads `body.issue ?? null`, so
+ *  a bare `Issue` is discarded exactly as the permissive `{}` tail was and the preview
+ *  renders blank fields either way. Must run after the exact-match table — `/api/issues`
+ *  with no number is the list endpoint. */
+function handleIssuePeekGet(path: string, url: URL): Response | null {
+  if (!/^\/api\/issues\/[^/]+$/.test(path)) return null;
+  const number = Number(seg(path, 3));
+  if (!Number.isFinite(number)) return json({ issue: null });
+  return json({ issue: demoState.issue(repoParam(url), number) });
+}
+
 function handleGet(path: string, url: URL): Response | null {
   const exact = exactGetRoutes[path];
   if (exact) return exact(url);
-  return handleSessionDetailGet(path, url);
+  return handleIssuePeekGet(path, url) ?? handleSessionDetailGet(path, url);
 }
 
 // ── session mutations ───────────────────────────────────────────────────────
@@ -408,9 +519,40 @@ function handleSettingsMutation(method: string, path: string, body: unknown): Re
   return json(demoState.patchSettings(patch[0], patch[1]));
 }
 
+// ── repo mutations (#2295) ───────────────────────────────────────────────────
+/** The two mutations that reach a surface this change made live.
+ *
+ *  `POST /api/projects` needs a real handler for the same reason `POST /api/sessions`
+ *  did: `NewProject.svelte` passes the response into `ondone(entry, …)` and the caller
+ *  reads `entry.path`, so the `{ok:true}` tail put `undefined` there. (The New Task
+ *  Shape/Attach buttons deliberately stay on the tail — they degrade honestly, and there
+ *  is no LLM round-trip to simulate. See coverage.test.ts.)
+ *
+ *  `POST /api/adopt-gitignore` is the Readiness panel's Adopt button, which only became
+ *  clickable because this change seeded that panel. `already` is the honest answer: the
+ *  demo opens no PRs, and the seeded repos' `.gitignore` needs nothing. */
+function handleRepoMutation(method: string, path: string, body: unknown): Response | null {
+  if (method === "POST" && path === "/api/projects") {
+    const name = str(body, "name");
+    if (!name) return json({ error: "newproject_failed_name_required" }, 400);
+    return json(
+      demoState.createProject(
+        name,
+        str(body, "owner"),
+        field<boolean>(body, "createRemote") === true,
+      ),
+    );
+  }
+  if (method === "POST" && path === "/api/adopt-gitignore") {
+    return json({ status: "already" });
+  }
+  return null;
+}
+
 function handleMutation(method: string, path: string, url: URL, body: unknown): Response | null {
   return (
     handleSettingsMutation(method, path, body) ??
+    handleRepoMutation(method, path, body) ??
     handleSessionMutation(method, path, url, body) ??
     handleHeldMutation(method, path) ??
     handleManualStepsMutation(method, path, body)
@@ -437,9 +579,9 @@ export async function handleApi(method: string, url: URL, body: unknown): Promis
     // next such gap announces itself in `bun run dev:demo` instead of presenting as a
     // mysteriously frozen page; silent in the built public demo.
     if (import.meta.env.DEV) console.warn("[demo-unmatched]", m, path);
-    return json(m === "GET" ? {} : { ok: true });
+    return fallthrough(m === "GET", "1");
   } catch {
     // Never throw out of the transport — a malformed request degrades to a stub.
-    return json(method.toUpperCase() === "GET" ? {} : { ok: true });
+    return fallthrough(method.toUpperCase() === "GET", "error");
   }
 }

@@ -42,7 +42,13 @@ planning phase and stops the agent implementing until the revised plan is approv
 Best-effort automation that drives a task through its routine stops to an open
 pull request. It never merges — landing a PR is the [merge train](#merge-train),
 which requires Autopilot **and** full-auto merge. Switched off, every step stays
-with you, and no automatic merge is possible at all. On Codex it applies only
+with you, and no automatic merge is possible at all. It also owns rebase recovery
+for the PRs it handed back: once a review has passed, a green PR that falls behind
+its base branch or picks up a conflict is steered back to the agent to rebase, and
+CI and the critic then run again on the rebased version. Repeated attempts are
+capped (5 by default) so a genuine conflict pauses for you instead of thrashing;
+in a full-auto session the [merge train](#merge-train) owns that same recovery
+instead. On Codex it applies only
 when Shepherd owns an isolated worktree, and stands down entirely without one —
 its resume path would otherwise target a sibling session in the shared directory.
 

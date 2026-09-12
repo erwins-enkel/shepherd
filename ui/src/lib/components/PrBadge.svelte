@@ -4,6 +4,7 @@
   import { setPrDraftState, mergePr } from "$lib/api";
   import { toasts } from "$lib/toasts.svelte";
   import { prBadgeLabel, prBadgeIsDraft, prMergeAvailable } from "./pr-badge";
+  import { prBadgeStaleMarker } from "$lib/pr-ready";
   import PrBadgeMenu from "./PrBadgeMenu.svelte";
   import PrReviewRequestPopover from "./PrReviewRequestPopover.svelte";
 
@@ -34,6 +35,25 @@
   );
   // Draft marker: only on open PRs; never green — always slate.
   const showDraft = $derived(prBadgeIsDraft(git));
+  // Merge-readiness marker (#1551): a PR whose checks all passed can still be unmergeable
+  // because it fell behind its base or conflicts. The CI dot stays honest (CI really did
+  // pass), so the reason rides its own amber marker instead. Scoped to the two blocks a
+  // rebase fixes — branch protection has its own GitRail reason line and Herd group.
+  const staleMarker = $derived(prBadgeStaleMarker(git));
+  const staleText = $derived(
+    staleMarker === "behind"
+      ? m.prbadge_behind()
+      : staleMarker === "conflict"
+        ? m.prbadge_conflict()
+        : "",
+  );
+  const staleTitle = $derived(
+    staleMarker === "behind"
+      ? m.prbadge_behind_title()
+      : staleMarker === "conflict"
+        ? m.prbadge_conflict_title()
+        : "",
+  );
   const canMerge = $derived(!!sessionId && prMergeAvailable(git));
   let btnEl = $state<HTMLButtonElement>();
   let menu = $state<{
@@ -169,7 +189,9 @@
     {/if}
     {#if showDraft}
       <span class="draft-marker" aria-label={m.prbadge_draft()}>{m.prbadge_draft()}</span>
-    {/if}{label}
+    {/if}{#if staleMarker}<span class="stale-marker" title={staleTitle} aria-label={staleTitle}
+        >{staleText}</span
+      >{/if}{label}
   {/snippet}
 
   {#if actionable}
@@ -309,13 +331,23 @@
   }
 
   /* Slate DRAFT marker — parked/not-ready, must NEVER render green */
-  .draft-marker {
+  /* Shared marker chrome; each marker only picks its hue, and the border tints itself from
+     it via currentColor. */
+  .draft-marker,
+  .stale-marker {
     font-size: var(--fs-micro);
     letter-spacing: 0.1em;
-    color: var(--color-slate);
     padding: 0 2px;
-    border: 1px solid color-mix(in srgb, var(--color-slate) 40%, transparent);
+    border: 1px solid color-mix(in srgb, currentColor 40%, transparent);
     border-radius: 2px;
     line-height: 1.2;
+  }
+  .draft-marker {
+    color: var(--color-slate);
+  }
+  /* Amber, not slate: unlike DRAFT (parked, awaiting sign-off) a stale or conflicting PR
+     needs someone to act before it can merge. */
+  .stale-marker {
+    color: var(--color-amber);
   }
 </style>

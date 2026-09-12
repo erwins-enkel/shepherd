@@ -347,6 +347,60 @@ describe("deriveStage — derived-ready predicate", () => {
     expect(s.reached).toBe("ready");
   });
 
+  it("NOT ready: behind base — GitHub still reports mergeable=true (#1551)", () => {
+    const s = deriveStage({
+      git: git({
+        ...readyBase,
+        mergeStateStatus: "behind",
+        latestReview: { state: "approved", author: "x", submittedAt: 0 },
+      }),
+      reviewing: false,
+      readyToMerge: false,
+    });
+    expect(s.index).toBeLessThan(4);
+  });
+
+  it("NOT ready: mergeStateStatus=blocked", () => {
+    const s = deriveStage({
+      git: git({
+        ...readyBase,
+        mergeStateStatus: "blocked",
+        latestReview: { state: "approved", author: "x", submittedAt: 0 },
+      }),
+      reviewing: false,
+      readyToMerge: false,
+    });
+    expect(s.index).toBeLessThan(4);
+  });
+
+  it("NOT ready: mergeStateStatus=dirty", () => {
+    const s = deriveStage({
+      git: git({
+        ...readyBase,
+        mergeStateStatus: "dirty",
+        latestReview: { state: "approved", author: "x", submittedAt: 0 },
+      }),
+      reviewing: false,
+      readyToMerge: false,
+    });
+    expect(s.index).toBeLessThan(4);
+  });
+
+  it("still ready: mergeStateStatus=clean / has_hooks / unknown (Gitea)", () => {
+    for (const mergeStateStatus of ["clean", "has_hooks", "unknown"] as const) {
+      const s = deriveStage({
+        git: git({
+          ...readyBase,
+          mergeStateStatus,
+          latestReview: { state: "approved", author: "x", submittedAt: 0 },
+        }),
+        reviewing: false,
+        readyToMerge: false,
+      });
+      expect(s.index, mergeStateStatus).toBe(4);
+    }
+  });
+
   it("NOT ready: mergeable=false", () => {
     const s = deriveStage({
       git: git({

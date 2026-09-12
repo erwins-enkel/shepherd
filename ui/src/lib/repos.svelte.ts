@@ -12,7 +12,14 @@ class ReposStore {
 
   async load() {
     try {
-      this.entries = (await listRepos()).repos;
+      // Never let a shapeless body put a non-array here (#1800). `entries` feeds the
+      // `pathIndex` $derived below, and a throw inside a $derived aborts the Svelte
+      // flush batch it lands in — so one malformed bootstrap response silently drops
+      // unrelated DOM and effects app-wide (the session detail never mounting on
+      // mobile, a terminal pane never re-fitting) with only a boundary log to show
+      // for it. Degrade to "no repos known" instead: every reader already handles it.
+      const repos = (await listRepos()).repos;
+      this.entries = Array.isArray(repos) ? repos : [];
     } catch (e) {
       this.error = e instanceof Error ? e.message : "failed to load repos";
     } finally {

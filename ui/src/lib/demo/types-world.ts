@@ -38,6 +38,8 @@ import type {
   SlashCommand,
   RepoConfig,
   PostMergeSteps,
+  RepoEntry,
+  Issue,
 } from "$lib/types";
 
 /** Mirrors `RepoConfigResponse` from `$lib/api` (`RepoConfig` + optimistic-automation
@@ -46,6 +48,14 @@ export type DemoRepoConfig = RepoConfig & {
   automationConfirmed?: boolean;
   automationRowExists?: boolean;
 };
+
+/** Mirrors `BranchList` from `$lib/api` for the same reason `DemoRepoConfig` mirrors
+ *  `RepoConfigResponse`: the seed layer stays import-clean of api.ts. */
+export interface DemoBranchList {
+  branches: string[];
+  current: string | null;
+  default: string | null;
+}
 
 /** The complete seeded demo world — one dataset per bootstrap/lens GET. */
 export interface DemoWorld {
@@ -78,6 +88,19 @@ export interface DemoWorld {
   todo: Record<string, { exists: boolean; content: string }>;
   /** GET /api/manual-steps/outstanding (Owed lens) — durable post-merge step records. */
   postMergeSteps: PostMergeSteps[];
+
+  // ── New Task flow (#1800) ───────────────────────────────────────────────
+  // Every GET the New Task dialog fires as it opens. These are NOT optional polish:
+  // `api.ts` types each response's array field as non-optional, so a `{}` fallthrough
+  // assigns `undefined` into a `$state` array and the next `$derived` over it throws
+  // INSIDE Svelte's flush — which aborts the whole batch and silently kills unrelated
+  // DOM and effects elsewhere in the app. That is the #1800 crash; see repos.svelte.ts.
+  /** GET /api/repos — the repo index behind `repos.svelte.ts` and the New Task picker. */
+  repos: RepoEntry[];
+  /** GET /api/branches?repo= — local branches + current/default, per repo path. */
+  branches: Record<string, DemoBranchList>;
+  /** GET /api/issues?repo= — open forge issues, per repo path. */
+  issues: Record<string, Issue[]>;
 
   // ── ambient status ─────────────────────────────────────────────────────
   usage: UsageLimitsResponse;

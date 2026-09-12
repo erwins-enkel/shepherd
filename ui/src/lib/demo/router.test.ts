@@ -455,3 +455,211 @@ describe("PUT /api/settings echoes the field the real server echoes", () => {
     expect(body.ok).toBeUndefined();
   });
 });
+
+// #1800: `/api/repos` had no handler, so `listRepos()` saw the permissive `{}` tail and
+// `ReposStore.load()` put `undefined` into `entries` (typed `RepoEntry[]`). The `pathIndex`
+// $derived then threw `undefined.flatMap` INSIDE Svelte's flush, aborting the whole batch —
+// which is what logged an error on every session open, left the mobile detail screen
+// unmounted, and stranded the terminal pane at 0x0 after a tab roundtrip.
+//
+// The same trap sits behind the two other GETs the New Task composer fires (`/api/branches`,
+// `/api/issues`): both assign a response array straight into a non-optional `$state` array.
+describe("New Task flow GETs never fall back to {} (#1800)", () => {
+  it("GET /api/repos returns {repos, recentWindowDays} — an ARRAY, never {}", async () => {
+    const { status, body } = await get("/api/repos");
+    expect(status).toBe(200);
+    expect(Array.isArray(body.repos)).toBe(true);
+    expect(body.repos.length).toBeGreaterThan(0);
+    expect(typeof body.recentWindowDays).toBe("number");
+  });
+
+  it("every repo entry resolves the repoPath its seeded sessions carry", async () => {
+    const { body } = await get("/api/repos");
+    // repos.nameFor() indexes on BOTH path and realPath; every seeded session's repoPath
+    // must land in that index, or steer scoping and the command bar silently see no repo.
+    const known = new Set<string>(
+      (body.repos as { path: string; realPath: string }[]).flatMap((r) => [r.path, r.realPath]),
+    );
+    for (const s of demoState.sessions()) expect(known.has(s.repoPath)).toBe(true);
+  });
+
+  it("GET /api/branches returns {branches, current, default} per repo", async () => {
+    const { status, body } = await get(`/api/branches?repo=${encodeURIComponent(REPO)}`);
+    expect(status).toBe(200);
+    expect(Array.isArray(body.branches)).toBe(true);
+    expect(body.branches).toContain("main");
+    expect(body.default).toBe("main");
+    // An unrecognized repo still gets a valid list, so pickBaseBranch() falls back to "main".
+    const unknown = (await get("/api/branches?repo=/nope")).body;
+    expect(unknown).toEqual({ branches: [], current: null, default: null });
+  });
+
+  it("GET /api/branch-status reports a clean, in-sync seeded base", async () => {
+    const { status, body } = await get(
+      `/api/branch-status?repo=${encodeURIComponent(REPO)}&branch=main`,
+    );
+    expect(status).toBe(200);
+    expect(body).toEqual({
+      behind: 0,
+      ahead: 0,
+      diverged: false,
+      hasUpstream: true,
+      localExists: true,
+    });
+    // An unseeded branch reads as neither local nor upstream — what the real server says
+    // about a branch it cannot find.
+    const missing = (await get(`/api/branch-status?repo=${encodeURIComponent(REPO)}&branch=nope`))
+      .body;
+    expect(missing.localExists).toBe(false);
+    expect(missing.hasUpstream).toBe(false);
+  });
+
+  it("GET /api/issues returns the listIssues() shape with a real issue array", async () => {
+    const { status, body } = await get(`/api/issues?repo=${encodeURIComponent(REPO)}`);
+    expect(status).toBe(200);
+    expect(Array.isArray(body.issues)).toBe(true);
+    expect(body.issues.length).toBeGreaterThan(0);
+    expect(body.slug).toBe("acme/storefront");
+    expect(body.webUrl).toBe("https://github.com/acme/storefront");
+    expect(typeof body.viewer).toBe("string");
+    // `error: null` matters: an empty-but-errored list makes the UI blame the forge.
+    expect(body.error).toBeNull();
+    expect(body.lightweight).toBe(false);
+    expect(Array.isArray(body.attempts)).toBe(true);
+    for (const i of body.issues) {
+      expect(typeof i.number).toBe("number");
+      expect(typeof i.title).toBe("string");
+      expect(Array.isArray(i.labels)).toBe(true);
+      expect(Array.isArray(i.assignees)).toBe(true);
+    }
+  });
+
+  it("issue counts match the Backlog lens' openIssues, so the demo never contradicts itself", async () => {
+    const backlog = (await get("/api/backlog")).body as {
+      projects: { path: string; openIssues: number }[];
+      totals: { openIssues: number };
+    };
+    let sum = 0;
+    for (const p of backlog.projects) {
+      const { issues } = (await get(`/api/issues?repo=${encodeURIComponent(p.path)}`)).body;
+      expect(issues.length).toBe(p.openIssues);
+      sum += issues.length;
+    }
+    expect(sum).toBe(backlog.totals.openIssues);
+  });
+
+  it("every epic child issue is listed, so picking one in New Task finds a real issue", async () => {
+    const { issues } = (await get(`/api/issues?repo=${encodeURIComponent(REPO)}`)).body;
+    const numbers = new Set((issues as { number: number }[]).map((i) => i.number));
+    const { subIssues } = (await get(`/api/epics?repo=${encodeURIComponent(REPO)}`)).body;
+    for (const n of subIssues as number[]) expect(numbers.has(n)).toBe(true);
+  });
+
+  it("an unrecognized repo yields an empty-but-successful issue list, not a failure", async () => {
+    const { body } = await get("/api/issues?repo=/nope");
+    expect(body.issues).toEqual([]);
+    expect(body.slug).toBeNull();
+    expect(body.error).toBeNull();
+  });
+});
+
+describe("POST /api/sessions (#1800) creates a real session instead of {ok:true}", () => {
+  it("returns a Session and pushes it into the live herd", async () => {
+    const before = demoState.sessions().length;
+    const r = await handleApi("POST", u("/api/sessions"), {
+      repoPath: REPO,
+      baseBranch: "main",
+      prompt: "Add a gift-wrap option to the checkout summary",
+      model: "opus",
+    });
+    expect(r.status).toBe(200);
+    const body = await r.json();
+    // The page calls selectNewSession(r.id) — a missing id selected `undefined`.
+    expect(typeof body.id).toBe("string");
+    expect(body.id.length).toBeGreaterThan(0);
+    expect(body.repoPath).toBe(REPO);
+    expect(body.prompt).toBe("Add a gift-wrap option to the checkout summary");
+    expect(body.branch).toBe("shepherd/add-a-gift");
+    expect(body.status).toBe("running");
+    expect(demoState.sessions().length).toBe(before + 1);
+    expect(demoState.sessions().find((s) => s.id === body.id)).toBeDefined();
+  });
+
+  it("emits session:new so the herd rail picks the row up over the socket", async () => {
+    const seen: string[] = [];
+    const off = bus.subscribe((ev) => {
+      if (ev.event === "session:new") seen.push(ev.data.id);
+    });
+    const r = await handleApi("POST", u("/api/sessions"), {
+      repoPath: REPO,
+      baseBranch: "main",
+      prompt: "Tidy the footer",
+      model: "opus",
+    });
+    off();
+    expect(seen).toEqual([(await r.json()).id]);
+  });
+
+  it("takes a fresh TASK designation that collides with no live or archived session", async () => {
+    const taken = new Set(
+      [...demoState.sessions(), ...demoState.doneSessions()].map((s) => s.desig),
+    );
+    const r = await handleApi("POST", u("/api/sessions"), {
+      repoPath: REPO,
+      baseBranch: "main",
+      prompt: "Tweak the header",
+      model: "opus",
+    });
+    expect(taken.has((await r.json()).desig)).toBe(false);
+  });
+
+  it("carries the operator's plan-gate choice into the planning phase", async () => {
+    const r = await handleApi("POST", u("/api/sessions"), {
+      repoPath: REPO,
+      baseBranch: "main",
+      prompt: "Rework the cart",
+      model: "opus",
+      planGateEnabled: true,
+    });
+    const body = await r.json();
+    expect(body.planGateEnabled).toBe(true);
+    expect(body.planPhase).toBe("planning");
+  });
+
+  it("the terminal arm creates a bare, non-isolated shell in the repo's main checkout", async () => {
+    const r = await handleApi("POST", u("/api/sessions"), { terminal: true, repoPath: REPO });
+    const body = await r.json();
+    expect(body.terminal).toBe(true);
+    expect(body.branch).toBeNull();
+    expect(body.isolated).toBe(false);
+    expect(body.worktreePath).toBe(REPO);
+    expect(body.prompt).toBe("");
+  });
+
+  it("rejects a body with no repoPath rather than inventing a session", async () => {
+    const before = demoState.sessions().length;
+    const r = await handleApi("POST", u("/api/sessions"), { prompt: "no repo" });
+    expect(r.status).toBe(400);
+    expect(demoState.sessions().length).toBe(before);
+  });
+
+  it("a created session's detail tabs all answer with valid empty records", async () => {
+    const id = (
+      await (
+        await handleApi("POST", u("/api/sessions"), {
+          repoPath: REPO,
+          baseBranch: "main",
+          prompt: "Check the tabs",
+          model: "opus",
+        })
+      ).json()
+    ).id;
+    expect((await get(`/api/sessions/${id}/activity`)).body).toEqual([]);
+    expect(Array.isArray((await get(`/api/sessions/${id}/diff`)).body.files)).toBe(true);
+    expect((await get(`/api/sessions/${id}/usage`)).body.total).toBe(0);
+    expect((await get(`/api/sessions/${id}/queue`)).body.steps).toEqual([]);
+    // No seeded git state — the real server 404s for a session with no PR yet. Read via
+    // handleApi, not get(): a 404 carries no body, so get()'s r.json() would throw.
+    expect((await handleApi("GET", u(`/api/sessions/${id}/git`), undefined)).status).toBe(404);
+  });
+});

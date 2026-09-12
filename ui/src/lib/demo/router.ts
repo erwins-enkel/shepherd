@@ -11,6 +11,7 @@
 // instead of one long branchy switch.
 
 import { demoState } from "./state";
+import type { AgentProvider, CreateInput, IssueRef, SandboxProfile } from "$lib/types";
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -25,6 +26,36 @@ function field<T>(body: unknown, key: string): T | undefined {
     return (body as Record<string, T>)[key];
   }
   return undefined;
+}
+
+/** Read a body field that is string-manipulated downstream (interpolated into a branch
+ *  or worktree path, or slugified into a session name). `field()` casts without checking,
+ *  so a non-string here would reach `.toLowerCase()` and throw. */
+function str(body: unknown, key: string, fallback = ""): string {
+  const v = field<unknown>(body, key);
+  return typeof v === "string" ? v : fallback;
+}
+
+/** Shape the untyped `POST /api/sessions` body into a typed `CreateInput`, picking the
+ *  union arm off the `terminal` discriminant. Every absent field falls back to the same
+ *  default the real server applies, so the demo never invents a stronger choice than the
+ *  operator made. */
+function createInputFrom(body: unknown, repoPath: string): CreateInput {
+  if (field<boolean>(body, "terminal") === true) return { terminal: true, repoPath };
+  return {
+    repoPath,
+    baseBranch: str(body, "baseBranch", "main"),
+    prompt: str(body, "prompt"),
+    agentProvider: field<AgentProvider>(body, "agentProvider"),
+    model: field<string | null>(body, "model") ?? null,
+    effort: field<string | null>(body, "effort") ?? null,
+    planGateEnabled: field<boolean | null>(body, "planGateEnabled") ?? null,
+    autopilotEnabled: field<boolean | null>(body, "autopilotEnabled") ?? null,
+    sandboxProfile: field<SandboxProfile | null>(body, "sandboxProfile") ?? null,
+    research: field<boolean>(body, "research") === true,
+    epicAuthoring: field<boolean>(body, "epicAuthoring") === true,
+    issueRef: field<IssueRef>(body, "issueRef"),
+  };
 }
 
 /** Extract the `:id` from `/api/sessions/:id/<tail>` (or `/api/held/:id/<tail>`). */
@@ -49,6 +80,10 @@ const bootstrapGetRoutes: Record<string, GetHandler> = {
   // Done lens (#Task 8): archived sessions, distinct from the live `sessions` list.
   "/api/sessions/done": () => json(demoState.doneSessions()),
   "/api/repo-config": (url) => json(demoState.repoConfig(repoParam(url))),
+  // The repo index. Fired on mount by `repos.load()`; without it `listRepos()` saw the
+  // permissive `{}` tail and `entries` became undefined, which threw inside Svelte's
+  // flush and aborted the whole batch (#1800).
+  "/api/repos": () => json(demoState.repos()),
   "/api/commands": (url) => {
     const provider = url.searchParams.get("provider");
     if (provider && provider !== "claude" && provider !== "codex")
@@ -110,10 +145,24 @@ const epicsGetRoutes: Record<string, GetHandler> = {
   },
 };
 
+// ── New Task dialog (#1800) ──────────────────────────────────────────────
+// The GETs the composer fires as it opens, once a repo is selected. Each answers the
+// exact shape its `api.ts` caller consumes: `listBranches()` and `listIssues()` both
+// assign a response array straight into a `$state` array typed non-optional, so the
+// `{}` tail would put `undefined` there and the next `$derived` over it would throw
+// inside Svelte's flush — the same crash `/api/repos` caused.
+const newTaskGetRoutes: Record<string, GetHandler> = {
+  "/api/branches": (url) => json(demoState.branches(repoParam(url))),
+  "/api/branch-status": (url) =>
+    json(demoState.branchStatus(repoParam(url), url.searchParams.get("branch") ?? "")),
+  "/api/issues": (url) => json(demoState.issues(repoParam(url))),
+};
+
 const exactGetRoutes: Record<string, GetHandler> = {
   ...bootstrapGetRoutes,
   ...lensGetRoutes,
   ...epicsGetRoutes,
+  ...newTaskGetRoutes,
 };
 
 // ── session-detail tabs (Task 8 sibling audit) ─────────────────────────────
@@ -270,6 +319,15 @@ function handleSessionMutation(
   // below — "clear-merged" isn't a session id.
   if (method === "POST" && path === "/api/sessions/clear-merged") {
     return json(demoState.clearMerged(field<string[]>(body, "ids") ?? []));
+  }
+  // POST /api/sessions — New Task create + clean-terminal create. Handled before the
+  // /:id/<tail> table (there is no id segment). Without it the `{ok:true}` tail let
+  // `createSession()` resolve to a body with no `id`, and the page then selected
+  // `undefined` instead of the new session.
+  if (method === "POST" && path === "/api/sessions") {
+    const repoPath = str(body, "repoPath");
+    if (!repoPath) return json({ error: "repoPath required" }, 400);
+    return json(demoState.createSession(createInputFrom(body, repoPath)));
   }
   // POST /api/epic/approve-next needs the URL query, so it's handled here alongside
   // the other epic-shaped mutations rather than inline in handleApi.

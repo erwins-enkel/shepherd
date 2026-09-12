@@ -41,10 +41,15 @@ import type {
   SlashCommand,
   Leftover,
   PostMergeSteps,
+  RepoEntry,
+  Issue,
+  IssueFetchAttempt,
+  CreateInput,
+  StandardCreateInput,
 } from "$lib/types";
 import { bus } from "./bus";
-import { buildSeed } from "./seed";
-import type { DemoWorld, DemoRepoConfig } from "./types-world";
+import { buildSeed, mkSession, DEMO_VIEWER } from "./seed";
+import type { DemoWorld, DemoRepoConfig, DemoBranchList } from "./types-world";
 
 // A canonical, never-mutated seed. Every `reset()` `structuredClone`s from THIS, so
 // live mutations can never leak back into the seed and a reset always restores clean.
@@ -65,6 +70,86 @@ function emit(ev: WsEvent): void {
 
 function find(id: string): Session | undefined {
   return world.sessions.find((s) => s.id === id);
+}
+
+/** The server's recent-agent window, which the New Task picker names on its
+ *  "recently worked on" group. Matches the seeded `recentAgentCount`s. */
+const RECENT_REPO_WINDOW_DAYS = 14;
+
+/** Next free `TASK-<n>` designation across live AND archived sessions, so a created
+ *  session can never collide with a Done-lens row. */
+function nextTaskNumber(): number {
+  const used = [...world.sessions, ...world.doneSessions].map((s) =>
+    Number(/^TASK-(\d+)$/.exec(s.desig)?.[1] ?? 0),
+  );
+  return Math.max(0, ...used) + 1;
+}
+
+/** A kebab session name from the prompt's first few words — the shape the real server's
+ *  namer produces, without the LLM round-trip. */
+function nameFromPrompt(prompt: string): string {
+  const slug = prompt
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .split("-")
+    .filter(Boolean)
+    .slice(0, 3)
+    .join("-");
+  return slug || "new-task";
+}
+
+/** A clean-terminal create: a bare operator shell in the repo's MAIN checkout — no
+ *  branch, no worktree, no agent, no prompt. */
+function terminalSession(num: number, repoPath: string): Session {
+  return mkSession({
+    id: `new-${num}`,
+    desig: `TASK-${num}`,
+    name: "terminal",
+    repoPath,
+    prompt: "",
+    branch: null,
+    worktreePath: repoPath,
+    isolated: false,
+    terminal: true,
+    model: null,
+    sandboxApplied: null,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  });
+}
+
+/** A normal agent session, carrying every choice the composer actually submitted —
+ *  an absent field stays null/false rather than inventing a stronger choice. */
+function agentSession(num: number, input: StandardCreateInput): Session {
+  const name = nameFromPrompt(input.prompt);
+  const id = `new-${num}`;
+  return mkSession({
+    id,
+    desig: `TASK-${num}`,
+    name,
+    repoPath: input.repoPath,
+    prompt: input.prompt,
+    baseBranch: input.baseBranch,
+    branch: `shepherd/${name}`,
+    worktreePath: `${input.repoPath}/.worktrees/${id}`,
+    agentProvider: input.agentProvider ?? "claude",
+    model: input.model,
+    effort: input.effort ?? null,
+    planGateEnabled: input.planGateEnabled ?? null,
+    // The server opens a plan-gated task in its planning phase; the gate's Go releases it.
+    planPhase: input.planGateEnabled === true ? "planning" : null,
+    autopilotEnabled: input.autopilotEnabled ?? null,
+    research: input.research === true,
+    epicAuthoring: input.epicAuthoring === true,
+    sandboxApplied: input.sandboxProfile ?? "standard",
+    issueNumber: input.issueRef?.number ?? null,
+    issueUrl: input.issueRef?.url,
+    status: "running",
+    lastState: "working",
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  });
 }
 
 export const demoState = {
@@ -158,6 +243,64 @@ export const demoState = {
   /** GET /api/manual-steps/outstanding (Owed lens) — only still-outstanding records. */
   outstandingManualSteps: (): PostMergeSteps[] =>
     world.postMergeSteps.filter((r) => r.clearedAt == null),
+
+  // ── New Task flow (#1800) ───────────────────────────────────────────────
+  /** GET /api/repos — the repo index behind `repos.svelte.ts` and the New Task picker. */
+  repos: (): { repos: RepoEntry[]; recentWindowDays: number } => ({
+    repos: world.repos,
+    recentWindowDays: RECENT_REPO_WINDOW_DAYS,
+  }),
+
+  /** GET /api/branches?repo= — a valid empty list (never `{}`) for an unrecognized
+   *  repoPath; `pickBaseBranch` then falls back to "main" exactly as it does against a
+   *  server that can't read the repo. */
+  branches: (repoPath: string): DemoBranchList =>
+    world.branches[repoPath] ?? { branches: [], current: null, default: null },
+
+  /** GET /api/branch-status?repo=&branch= — the demo's seeded bases are clean and in
+   *  sync. An unseeded branch reports as neither local nor upstream, which is what the
+   *  real server says about a branch it can't find. */
+  branchStatus: (
+    repoPath: string,
+    branch: string,
+  ): {
+    behind: number;
+    ahead: number;
+    diverged: boolean;
+    hasUpstream: boolean;
+    localExists: boolean;
+  } => {
+    const known = world.branches[repoPath]?.branches.includes(branch) ?? false;
+    return { behind: 0, ahead: 0, diverged: false, hasUpstream: known, localExists: known };
+  },
+
+  /** GET /api/issues?repo= — open issues, and a genuine zero (`error: null`, not a
+   *  failure) for an unrecognized repoPath. `slug`/`webUrl` are derived from the repo
+   *  index, so this can never disagree with `/api/repos`. */
+  issues: (
+    repoPath: string,
+  ): {
+    slug: string | null;
+    webUrl: string | null;
+    issues: Issue[];
+    viewer: string | null;
+    error: string | null;
+    lightweight: boolean;
+    attempts: IssueFetchAttempt[];
+  } => {
+    // Keyed on `path` exactly like `world.issues` below (and like every other
+    // repo-scoped map here), so slug and issues can never disagree about one repo.
+    const slug = world.repos.find((r) => r.path === repoPath)?.remoteSlug ?? null;
+    return {
+      slug,
+      webUrl: slug ? `https://github.com/${slug}` : null,
+      issues: world.issues[repoPath] ?? [],
+      viewer: DEMO_VIEWER,
+      error: null,
+      lightweight: false,
+      attempts: [],
+    };
+  },
 
   usageLimits: (): UsageLimitsResponse => world.usage,
   update: (): UpdateStatus => world.update,
@@ -453,6 +596,21 @@ export const demoState = {
     world.sessions = [...world.sessions, session];
     emit({ event: "session:new", data: session });
     emit({ event: "held:changed", data: { count: world.held.length } });
+    return session;
+  },
+
+  /** POST /api/sessions — the New Task create, and the clean-terminal create (the two
+   *  arms of `CreateInput`). Mirrors `spawnHeld`: append a fully-defaulted Session and
+   *  push it over the socket, so the herd rail and the Viewport pick it up exactly as
+   *  they would from the real server. The session is deliberately thin — no seeded git
+   *  state, diff or transcript — and every per-session GET already answers an unknown id
+   *  with a valid empty record, so each tab renders its empty state instead of erroring. */
+  createSession(input: CreateInput): Session {
+    const num = nextTaskNumber();
+    const session =
+      input.terminal === true ? terminalSession(num, input.repoPath) : agentSession(num, input);
+    world.sessions = [...world.sessions, session];
+    emit({ event: "session:new", data: session });
     return session;
   },
 

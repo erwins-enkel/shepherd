@@ -4024,5 +4024,8 @@
   "feat_structured_tooltips_body": "Cold-cache, Plan gate and Autopilot explanations now use headings and short sections to make costs, approvals and choices easier to find.",
   "feat_plan_gate_identity_title": "Plan Gate: safe automatic release for both CLIs",
   "feat_plan_gate_identity_body": "With Autopilot on, Claude and Codex can release approved plans in isolated worktrees and shared checkouts. Shepherd resumes the exact task conversation for review feedback and execution. Missing or ambiguous identity keeps the task stopped for you; older Codex tasks without launch attribution need a relaunch.",
-  "done_recap_archive_stale": "Decommissioned automatically after 7 days settled"
+  "done_recap_archive_stale": "Decommissioned automatically after 7 days settled",
+  "diagnostics_hint_tmp_entries_ok": "The temporary filesystem allocates [[inode|inodes]] on demand, so there is no usage percentage to read — Shepherd watches how many leftover entries pile up instead. Few enough to be healthy.",
+  "diagnostics_hint_tmp_entries_high": "Leftover entries are piling up in the temporary filesystem. It allocates [[inode|inodes]] on demand, so Shepherd watches the count rather than a usage percentage. Left alone this slows every scan of those directories and can still exhaust the filesystem's [[inode|inodes]]. Fix sweeps the caches Shepherd can reclaim.",
+  "diagnostics_hint_tmp_entries_critical": "The temporary filesystem is badly cluttered with leftover entries — far past the point where Shepherd starts sweeping. Directory scans get slow and the filesystem can run out of [[inode|inodes]] while disk space still looks free. Fix sweeps the caches Shepherd can reclaim."
 }

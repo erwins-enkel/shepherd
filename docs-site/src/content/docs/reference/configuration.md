@@ -71,6 +71,7 @@ Settings → Diagnose reports which case a host is in — see
 | --- | --- | --- |
 | `SHEPHERD_NODE_COMPILE_CACHE` | _(disk dir)_ | Node compile-cache dir (kept off the `/tmp` tmpfs) |
 | `SHEPHERD_TMP_INODE_PCT` | `80` | Inode-sweep threshold (% of `/tmp` inodes) — also the warning band of the **Temp filesystem inodes** Diagnose row (row bands stay ordered: >95 raises the error band too; outside `(0, 100]` the row falls back to 80, the sweep still honours it) |
+| `SHEPHERD_TMP_ENTRY_LIMIT` | `1000` | Entry-count sweep threshold, used where the filesystem allocates inodes on demand (btrfs/XFS/ZFS) and a percentage is meaningless — also the warning band of the **Temp filesystem inodes** row for that signal (error band: 10x) |
 | `SHEPHERD_TMP_STALE_HOURS` | `24` | Scratch staleness cutoff |
 | `SHEPHERD_TMP_SWEEP_DIR` | _(default tmp root)_ | Override the swept tmp root |
 

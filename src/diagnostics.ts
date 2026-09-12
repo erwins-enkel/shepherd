@@ -38,7 +38,13 @@ import {
 import { matchAgents, tabLabelMap, type IHerdrDriver } from "./herdr";
 import { formatResidueSize, verdictFor, type MiseClaudeState } from "./mise-claude";
 import { isShepherdHelperLabel } from "./tab-reaper";
-import { readTmpInodeUsePct, sweepClaudeTmp, tmpInodeBands } from "./tmp-sweep";
+import {
+  readTmpPressureSignal,
+  sweepClaudeTmp,
+  tmpEntryBands,
+  tmpInodeBands,
+  type TmpPressureSignal,
+} from "./tmp-sweep";
 import { SHELLS } from "./json-tolerant";
 import type { SessionStore } from "./store";
 import type { DiagnosticCheck, DiagnosticsSnapshot, DiagnosticState } from "./types";
@@ -934,16 +940,35 @@ export function classifyMembraneLaunch(f: MembraneLaunchFacts): DiagnosticCheck 
  *  strings, which are folder-trust copy. */
 const TMP_INODES_FIX_ACTION = "diagnostics_fix_action_tmp_inodes";
 
-/** Non-secret inode facts for the `tmp_inodes` check: use% of the temp filesystem, or `null` when
- *  it cannot be determined (no `statfs`; or a btrfs tmp reporting `files: 0`, since it allocates
- *  inodes dynamically and a percentage is meaningless there). Bands are passed in rather than read
- *  from env here so the classifier stays pure and testable. */
+/** Hint keys per pressure signal. Separate sets because the two readings describe different
+ *  things: a share of a fixed inode table vs. how much has accumulated where there is no table. */
+const TMP_INODE_HINTS = {
+  ok: "diagnostics_hint_tmp_inodes_ok",
+  high: "diagnostics_hint_tmp_inodes_high",
+  critical: "diagnostics_hint_tmp_inodes_critical",
+} as const;
+const TMP_ENTRY_HINTS = {
+  ok: "diagnostics_hint_tmp_entries_ok",
+  high: "diagnostics_hint_tmp_entries_high",
+  critical: "diagnostics_hint_tmp_entries_critical",
+} as const;
+
+/** Non-secret temp-filesystem pressure facts for the `tmp_inodes` check. The signal is whichever
+ *  reading the swept roots support — an inode percentage where the filesystem caps inodes, an
+ *  accumulated top-level entry count where it does not (btrfs/XFS/ZFS allocate them dynamically,
+ *  so a percentage is meaningless), or nothing at all. Bands are passed in rather than read from
+ *  env here so the classifier stays pure and testable. */
 export interface TmpInodeFacts {
-  usePct: number | null;
+  signal: TmpPressureSignal;
   /** Warning band — `SHEPHERD_TMP_INODE_PCT`, the SAME knob that gates the sweep. */
   warnPct: number;
   /** Error band — `TMP_INODE_ERROR_PCT`, raised to `warnPct` when the knob exceeds it. */
   errorPct: number;
+  /** Warning band for the entry-count signal — `SHEPHERD_TMP_ENTRY_LIMIT`, again the same knob
+   *  that gates the sweep on a filesystem with no inode ceiling. */
+  warnEntries: number;
+  /** Error band for the entry-count signal. */
+  errorEntries: number;
 }
 
 /** Map inode facts → check. `null` use% is `optional`/uninspectable (never degrades the health
@@ -956,31 +981,32 @@ export interface TmpInodeFacts {
  *  "always warn" here, which no fix could clear. */
 export function classifyTmpInodes(f: TmpInodeFacts): DiagnosticCheck {
   const id = "tmp_inodes";
-  if (f.usePct === null) {
+  if (f.signal.kind === "uninspectable") {
     return { id, state: "optional", hintKey: "diagnostics_hint_tmp_inodes_uninspectable" };
   }
-  if (f.usePct >= f.errorPct) {
-    return {
-      id,
-      state: "error",
-      hintKey: "diagnostics_hint_tmp_inodes_critical",
-      fixActionKey: TMP_INODES_FIX_ACTION,
-    };
+
+  // Each signal carries its own copy: "plenty of inodes free" is simply untrue of a filesystem
+  // that has no inode ceiling, where the honest statement is about what has piled up.
+  const [value, warn, error, keys] =
+    f.signal.kind === "inode-pct"
+      ? ([f.signal.usePct, f.warnPct, f.errorPct, TMP_INODE_HINTS] as const)
+      : ([f.signal.entries, f.warnEntries, f.errorEntries, TMP_ENTRY_HINTS] as const);
+
+  if (value >= error) {
+    return { id, state: "error", hintKey: keys.critical, fixActionKey: TMP_INODES_FIX_ACTION };
   }
-  if (f.usePct >= f.warnPct) {
-    return {
-      id,
-      state: "warning",
-      hintKey: "diagnostics_hint_tmp_inodes_high",
-      fixActionKey: TMP_INODES_FIX_ACTION,
-    };
+  if (value >= warn) {
+    return { id, state: "warning", hintKey: keys.high, fixActionKey: TMP_INODES_FIX_ACTION };
   }
-  return { id, state: "ok", hintKey: "diagnostics_hint_tmp_inodes_ok" };
+  return { id, state: "ok", hintKey: keys.ok };
 }
 
-/** Default `readTmpInodes`: statfs the temp filesystem and pair it with the live bands. */
+/** Default `readTmpInodes`: read the worst pressure across the roots the sweeper visits and pair
+ *  it with the live bands. Deliberately the SWEPT roots rather than a fixed `tmpdir()`: post-#1875
+ *  trusted agents write to a disk-backed root, so watching only the tmpfs reported a healthy
+ *  filesystem while the one filling up went unseen (#1862). */
 async function defaultReadTmpInodes(): Promise<TmpInodeFacts> {
-  return { usePct: await readTmpInodeUsePct(), ...tmpInodeBands() };
+  return { signal: await readTmpPressureSignal(), ...tmpInodeBands(), ...tmpEntryBands() };
 }
 
 /** Default `runTmpSweep`: the operator's forced sweep. `thresholdPct: 0` bypasses the inode gate

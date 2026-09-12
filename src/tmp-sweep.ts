@@ -1,7 +1,7 @@
 import { promises as fsp, type Dirent } from "node:fs";
 import { execFile } from "node:child_process";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import {
   parseWorktrees,
@@ -228,6 +228,9 @@ interface FsOps {
   rm: typeof fsp.rm;
   unlink: typeof fsp.unlink;
   rmdir: typeof fsp.rmdir;
+  /** Optional so the many existing partial `fsOps` test fixtures stay valid; only the
+   *  entry-count pressure signal uses it, and it falls back to the real `fsp.opendir`. */
+  opendir?: OpenDirFn;
 }
 
 interface SweepOpts {
@@ -248,38 +251,185 @@ interface SweepCtx {
   log: (msg: string) => void;
 }
 
+/** What a `statfs` read says about a root's INODE CEILING. */
+type InodeCeiling =
+  /** A real ceiling exists and is readable — `usePct` of it is in use. */
+  | { kind: "pct"; usePct: number }
+  /** `statfs` succeeded but reports NO ceiling (`files: 0`): btrfs/XFS/ZFS allocate inodes
+   *  dynamically, so a percentage is meaningless. NOT a failure — see `tmpPressure`. */
+  | { kind: "none" }
+  /** Nothing could be read: no `statfs` function, an unusable count, or an absent root. */
+  | { kind: "unreadable"; why: "statfs-unavailable" | "root-missing" };
+
 /**
- * Resolves the fail-open inode gate. Returns the numeric inode use% when readable, or a
- * string skip-reason when the guard cannot read inode pressure:
- *  - `"statfs-unavailable"` — `statfs` is not a function, or reports non-finite `files`/`ffree`
- *    or `files <= 0` (an unusable count).
- *  - `"root-missing"` — `statfs(root)` throws (root absent / unstatfs-able).
+ * Read a root's inode ceiling. Deliberately distinguishes "there is no ceiling" from "the ceiling
+ * could not be read": conflating the two is what made every gate here fail open to DO NOTHING on
+ * a disk-backed tmp root (#1862) — `statfs` reports `files: 0` on btrfs, which is an answer, not
+ * an error.
  */
-async function inodeUsePct(
+async function readInodeCeiling(
   root: string,
-  statfs: FsOps["statfs"],
-  log: (msg: string) => void,
-): Promise<number | string> {
-  // Fail-open: without a usable statfs we cannot read inode pressure, so do nothing.
-  if (typeof statfs !== "function") {
-    log("[tmp-sweep] statfs unavailable — skipping inode guard");
-    return "statfs-unavailable";
-  }
+  // Accepts `undefined` on purpose: a caller injecting an absent `statfs` is saying "this
+  // filesystem cannot be read", and that must resolve to `unreadable`, not a type error.
+  statfs: FsOps["statfs"] | undefined,
+): Promise<InodeCeiling> {
+  if (typeof statfs !== "function") return { kind: "unreadable", why: "statfs-unavailable" };
 
   let stats: Awaited<ReturnType<typeof fsp.statfs>>;
   try {
     stats = await statfs(root);
   } catch {
     // Root absent / unstatfs-able — nothing to guard.
-    return "root-missing";
+    return { kind: "unreadable", why: "root-missing" };
   }
 
   const files = Number((stats as { files?: unknown }).files);
   const ffree = Number((stats as { ffree?: unknown }).ffree);
-  if (!Number.isFinite(files) || !Number.isFinite(ffree) || files <= 0) {
-    return "statfs-unavailable";
+  if (!Number.isFinite(files) || !Number.isFinite(ffree) || files < 0) {
+    return { kind: "unreadable", why: "statfs-unavailable" };
   }
-  return (1 - ffree / files) * 100;
+  if (files === 0) return { kind: "none" };
+  return { kind: "pct", usePct: (1 - ffree / files) * 100 };
+}
+
+/**
+ * Minimal shape of `fs.promises.opendir`'s result that the entry counter needs. Typed structurally
+ * (rather than as `Dir`) so a test can inject a plain async-iterable without constructing one.
+ */
+type OpenDirFn = (path: string) => Promise<AsyncIterable<{ name: string }>>;
+
+/** Ops `tmpPressure` needs. Injectable wholesale so no test touches a real filesystem. */
+export interface PressureOps {
+  statfs: FsOps["statfs"];
+  opendir: OpenDirFn;
+}
+
+/**
+ * Count a directory's top-level entries, stopping at `cap`. Returns `null` when the directory
+ * cannot be read at all (missing/unreadable ⇒ no signal, never "0 entries", which would read as
+ * a healthy root). Breaking out of the `for await` calls the iterator's `return()`, which is how
+ * `fs.Dir` closes its handle — so the early exit does not leak an fd.
+ */
+async function countEntriesUpTo(
+  dir: string,
+  cap: number,
+  opendir: OpenDirFn,
+): Promise<number | null> {
+  if (typeof opendir !== "function") return null;
+  let handle: AsyncIterable<{ name: string }>;
+  try {
+    handle = await opendir(dir);
+  } catch {
+    return null;
+  }
+  let n = 0;
+  try {
+    for await (const _ of handle) {
+      void _;
+      if (++n >= cap) break;
+    }
+  } catch {
+    return null;
+  }
+  return n;
+}
+
+/**
+ * How far above `entryLimit` the counter keeps counting. The gate only needs to know whether the
+ * limit was reached, but the `tmp_inodes` Diagnose row needs a number it can band, so the walk
+ * runs to the error band (10× the warning band) before giving up precision.
+ */
+const ENTRY_COUNT_CAP_FACTOR = 10;
+
+/** The pressure reading for ONE root. */
+export type TmpPressureSignal =
+  /** The root's filesystem caps inodes and `usePct` of them are in use. */
+  | { kind: "inode-pct"; usePct: number }
+  /** No inode ceiling — `entries` top-level entries counted (capped; see `atCap`). */
+  | { kind: "entry-count"; entries: number; limit: number; atCap: boolean }
+  /** Nothing could be measured. Never acts. */
+  | { kind: "uninspectable"; why: string };
+
+export interface TmpPressureResult {
+  /** True when this root is under enough pressure to justify acting on it. */
+  act: boolean;
+  signal: TmpPressureSignal;
+  /** Short log-ready summary of what was measured and decided. */
+  reason: string;
+}
+
+export interface TmpPressureOpts {
+  thresholdPct?: number;
+  entryLimit?: number;
+  ops?: Partial<PressureOps>;
+}
+
+/**
+ * Is this root under enough pressure to act on? Resolves one of three signals — never throws.
+ *
+ * Evaluated PER ROOT by every consumer, because unlike an inode percentage (a property of the
+ * filesystem) an entry count is a property of the PATH: `claudeTmpRoot()` is
+ * `<agentTmpDir()>/claude-$uid` and holds only session scratch, while the tool caches and
+ * agent-created worktrees this module reclaims accumulate in the BARE `agentTmpDir()` beside it.
+ * A single reading taken off one of them says nothing about the other.
+ *
+ * `uninspectable` never acts — the pre-existing fail-open, deliberately preserved: a guard that
+ * cannot see must not delete.
+ */
+export async function tmpPressure(
+  root: string,
+  opts: TmpPressureOpts = {},
+): Promise<TmpPressureResult> {
+  const thresholdPct =
+    opts.thresholdPct ?? envNum(process.env.SHEPHERD_TMP_INODE_PCT, DEFAULT_TMP_INODE_PCT);
+  const entryLimit =
+    opts.entryLimit ?? envNum(process.env.SHEPHERD_TMP_ENTRY_LIMIT, DEFAULT_TMP_ENTRY_LIMIT);
+  // `statfs` honours an EXPLICITLY-PRESENT key even when its value is undefined: "I cannot read
+  // this filesystem" is a meaningful injection, and `??`-ing the real `statfs` in its place would
+  // silently re-arm the gate a caller deliberately disarmed. `opendir` takes the opposite rule —
+  // it is optional on `FsOps`, so an ABSENT key means "not overridden".
+  const statfs = opts.ops && "statfs" in opts.ops ? opts.ops.statfs : fsp.statfs;
+  const opendir = opts.ops?.opendir ?? fsp.opendir;
+
+  const ceiling = await readInodeCeiling(root, statfs);
+
+  if (ceiling.kind === "unreadable") {
+    return { act: false, signal: { kind: "uninspectable", why: ceiling.why }, reason: ceiling.why };
+  }
+
+  if (ceiling.kind === "pct") {
+    const { usePct } = ceiling;
+    return {
+      act: usePct >= thresholdPct,
+      signal: { kind: "inode-pct", usePct },
+      reason:
+        usePct >= thresholdPct
+          ? `${usePct.toFixed(1)}% inode use`
+          : `below-threshold ${usePct.toFixed(1)}%`,
+    };
+  }
+
+  // No inode ceiling: fall back to how much has piled up in this root.
+  // Floor of 1 so a non-positive limit (the "always act" setting) still walks one entry rather
+  // than deriving a zero/negative cap that would make the counted number meaningless.
+  const cap = Math.max(entryLimit * ENTRY_COUNT_CAP_FACTOR, 1);
+  const entries = await countEntriesUpTo(root, cap, opendir);
+  if (entries === null) {
+    return {
+      act: false,
+      signal: { kind: "uninspectable", why: "entries-unreadable" },
+      reason: "entries-unreadable",
+    };
+  }
+  const atCap = entries >= cap;
+  const act = entries >= entryLimit;
+  return {
+    act,
+    signal: { kind: "entry-count", entries, limit: entryLimit, atCap },
+    reason: act
+      ? `${entries}${atCap ? "+" : ""} entries (limit ${entryLimit})`
+      : `below-entry-limit ${entries}/${entryLimit}`,
+  };
 }
 
 /**
@@ -296,6 +446,21 @@ export const TMP_INODE_ERROR_PCT = 95;
  * literals would let one drift and silently break that correspondence.
  */
 const DEFAULT_TMP_INODE_PCT = 80;
+
+/**
+ * The documented default of `SHEPHERD_TMP_ENTRY_LIMIT` — the top-level entry count at which a root
+ * whose filesystem has NO inode ceiling (btrfs/XFS/ZFS allocate inodes dynamically) counts as
+ * pressured. Also the `tmp_inodes` row's warning band for that signal, via `tmpEntryBands`.
+ *
+ * Deliberately far more eager than the inode-% analogue, because the two failure modes are not
+ * symmetric: 80% of a tmpfs means the host is near death, whereas crossing this only enables the
+ * EXISTING age-gated sweep of ALLOWLISTED names and arms reclaimers that are independently walled
+ * by their own refusals. Measured while diagnosing #1862: a healthy bare agent tmp root sits in the
+ * tens, a normal `claude-$uid` session-scratch root at ~2,900 — which is excluded from removal by
+ * name, so sitting permanently above this line changes nothing there — and the leaking root at
+ * 119,640.
+ */
+const DEFAULT_TMP_ENTRY_LIMIT = 1000;
 
 /**
  * Ordered display bands for the `tmp_inodes` diagnostics row.
@@ -325,35 +490,87 @@ export function tmpInodeBands(): { warnPct: number; errorPct: number } {
 }
 
 /**
- * Inode use% of the temp filesystem, or `null` when it cannot be determined.
+ * Display bands for the `entry-count` signal. The warning band IS `SHEPHERD_TMP_ENTRY_LIMIT`, so —
+ * exactly as `tmpInodeBands` does for the percentage signal — the row warns at the point the
+ * sweeper starts acting. A non-positive or non-finite knob has no coherent display band (it would
+ * mean "always warn", which no fix could clear), so it falls back to the default for the ROW while
+ * the gate still honours whatever was configured.
  *
- * Deliberately statfs's `tmpdir()` rather than `claudeTmpRoot()`: the latter is
- * `<tmpdir>/claude-$uid`, which does not exist on a freshly booted host, and `inodeUsePct`'s
- * `root-missing` branch would then report "uninspectable" on exactly the hosts that still have
- * headroom worth protecting. `tmpdir()` is the filesystem actually at risk and is always present.
- *
- * NOTE this is not necessarily `/tmp` — `os.tmpdir()` honours the SERVER process's own `TMPDIR`.
- * User-facing copy driven by this value must therefore say "the temporary filesystem", never a
- * hardcoded path. `null` covers both `inodeUsePct` skip-reasons, notably a btrfs tmp reporting
- * `files: 0` (it allocates inodes dynamically, so a percentage is meaningless there).
+ * Postcondition, relied on by the classifier: `0 < warnEntries < errorEntries`.
  */
-export async function readTmpInodeUsePct(
-  statfs: FsOps["statfs"] = fsp.statfs,
-): Promise<number | null> {
-  const pct = await inodeUsePct(tmpdir(), statfs, () => {});
-  return typeof pct === "number" ? pct : null;
+export function tmpEntryBands(): { warnEntries: number; errorEntries: number } {
+  const configured = envNum(process.env.SHEPHERD_TMP_ENTRY_LIMIT, DEFAULT_TMP_ENTRY_LIMIT);
+  const warnEntries = configured > 0 ? configured : DEFAULT_TMP_ENTRY_LIMIT;
+  return { warnEntries, errorEntries: warnEntries * ENTRY_COUNT_CAP_FACTOR };
+}
+
+/**
+ * The roots a default (production) sweep visits — the bare disk `agentTmpDir()`, the claude root
+ * and its nested `claude-$uid`, and the legacy tmpfs pair. Shared by `readTmpPressureSignal` and
+ * the worktree reaper so both act on exactly the set `sweepClaudeTmp` does, rather than on a
+ * filesystem the sweeper never touches.
+ */
+function sweptRoots(): string[] {
+  return resolveSweepRoots(claudeTmpRoot(), `claude-${uid()}`, false);
+}
+
+/** How bad a signal is, normalised against its own error band, for picking the worst root.
+ *  `uninspectable` sorts below every real reading so one unreadable root cannot mask a real one. */
+function severityRatio(
+  signal: TmpPressureSignal,
+  bands: { errorPct: number; errorEntries: number },
+): number {
+  if (signal.kind === "inode-pct") return signal.usePct / bands.errorPct;
+  if (signal.kind === "entry-count") return signal.entries / bands.errorEntries;
+  return -1;
+}
+
+/**
+ * The worst pressure signal across the roots the sweeper actually visits — the value behind the
+ * `tmp_inodes` Diagnose row.
+ *
+ * Post-#1875 no single path answers this. Trusted agents write to the disk `agentTmpDir()`, while
+ * the tmpfs `tmpdir()` is still real for sandboxed spawns and tools that hardcode `/tmp`; reading
+ * only one reports a healthy filesystem while the other fills. Roots that cannot be measured are
+ * skipped rather than allowed to mask a measurable one; `uninspectable` is returned only when NO
+ * root could be read.
+ *
+ * NOTE the roots are not necessarily under `/tmp` — user-facing copy driven by this must say "the
+ * temporary filesystem", never a hardcoded path, and no absolute path crosses the check payload.
+ */
+export async function readTmpPressureSignal(opts?: {
+  roots?: string[];
+  ops?: Partial<PressureOps>;
+}): Promise<TmpPressureSignal> {
+  const roots = opts?.roots ?? sweptRoots();
+  const bands = { ...tmpInodeBands(), ...tmpEntryBands() };
+  let worst: TmpPressureSignal = { kind: "uninspectable", why: "no-root-readable" };
+  let worstRatio = -Infinity;
+  for (const root of roots) {
+    const { signal } = await tmpPressure(root, { ops: opts?.ops });
+    const ratio = severityRatio(signal, bands);
+    if (ratio > worstRatio) {
+      worstRatio = ratio;
+      worst = signal;
+    }
+  }
+  return worst;
 }
 
 /**
  * Entry names this sweep is willing to age-gate-remove: regenerable tool caches that hold NO
- * live session working state (Bun's bunx cache, fallow's audit base cache, agent-browser's
- * Chrome profiles). Per-session scratch — the dashified `-home-…` worktree dirs and their
+ * live session working state — Bun's bunx cache, fallow's audit base cache, agent-browser's
+ * Chrome profiles, the browser-profile and artifact dirs Chromium/Playwright leave behind
+ * (4,963 observed on one host while diagnosing #1862), and the per-run root a crashed
+ * `bun test` leaves behind (`test/setup-test-env.ts` removes it on a clean exit).
+ * Per-session scratch — the dashified `-home-…` worktree dirs and their
  * session-id subdirs — is deliberately EXCLUDED: a still-running session leaves a stale
  * TOP-LEVEL mtime because it only writes into subdirs, so a coarse mtime check would let this
  * best-effort sweep `rm -rf` a live agent's scratch out from under it. Those dirs are reclaimed
  * precisely by `removeWorktreeScratch` on archival, when the session is known to be finished.
  */
-const REGENERABLE_CACHE = /^(bunx-|fallow-|agent-browser-)/;
+const REGENERABLE_CACHE =
+  /^(bunx-|fallow-|agent-browser-|shepherd-test-run-|\.?org\.chromium\.Chromium\.|playwright_|playwright-artifacts-)/;
 
 /**
  * Name prefix for fallow's audit-base worktree caches: `fallow-audit-base-cache-<srcHash>-<shaHash>`.
@@ -457,17 +674,45 @@ function resolveSweepRoots(root: string, nestedName: string, explicitRoot: boole
   ];
 }
 
+/** One pressure-gated pass over the sweep roots. `forced` skips the gate entirely (and measures
+ *  nothing). Returns what was removed plus the per-root reasons, split into roots that acted and
+ *  roots that declined, so the caller can report both without re-deriving them. */
+async function sweepGatedRoots(
+  sweepRoots: string[],
+  forced: boolean,
+  thresholdPct: number,
+  ctx: SweepCtx,
+): Promise<{ removed: number; acted: string[]; gated: string[] }> {
+  let removed = 0;
+  const acted: string[] = [];
+  const gated: string[] = [];
+  for (const dir of sweepRoots) {
+    if (!forced) {
+      const { act, reason } = await tmpPressure(dir, { thresholdPct, ops: ctx.ops });
+      (act ? acted : gated).push(reason);
+      if (!act) continue;
+    }
+    removed += await sweepDir(dir, ctx);
+  }
+  return { removed, acted, gated };
+}
+
 /**
  * Threshold-gated inode guard. TOTAL by contract: it NEVER throws or rejects — any
  * unexpected error resolves to `{ swept:false, reason:"error", removed:0 }` after logging,
  * so a caller can fire-and-forget it on a timer without a guard.
  *
- * `thresholdPct <= 0` FORCES a sweep: the gate is skipped entirely (no `statfs` call), so neither
- * `inodeUsePct` failure reason can silently suppress an explicitly-requested sweep. That path
+ * `thresholdPct <= 0` FORCES a sweep: the gate is skipped entirely (no `statfs` call), so no
+ * unreadable-pressure reason can silently suppress an explicitly-requested sweep. That path
  * reports `reason: "swept forced (gate bypassed)"` — there is no measured use% to quote.
  *
- * Otherwise only sweeps once inode use ≥ `thresholdPct`; below that it removes NOTHING. When it does
- * sweep, it walks `root` and the nested `root/claude-$uid`, removing `node-compile-cache`
+ * Otherwise the gate is evaluated PER ROOT (`tmpPressure`) and only the pressured roots are swept;
+ * an unpressured root in the same pass is left untouched. Gating once on `root` alone was wrong on
+ * any host with a disk-backed `TMPDIR` (#1862): in production `root` is
+ * `<agentTmpDir()>/claude-$uid`, holding only session scratch, while the caches this sweep exists
+ * to reclaim pile up in the BARE `agentTmpDir()` beside it — so the single reading reported a quiet
+ * root and the sweep never ran. When it does sweep, it walks `root` and the nested
+ * `root/claude-$uid`, removing `node-compile-cache`
  * wholesale (pure cache) and age-gating known regenerable tool caches (see `REGENERABLE_CACHE`),
  * while LEAVING per-session/unknown scratch in place, the nested scratch dir itself (its
  * children are swept when it is the sweep root), and every root dir itself. Age-gating is
@@ -490,44 +735,36 @@ export async function sweepClaudeTmp(opts?: SweepOpts): Promise<SweepResult> {
       rm: fsp.rm,
       unlink: fsp.unlink,
       rmdir: fsp.rmdir,
+      opendir: fsp.opendir,
     };
-
-    // FORCED sweep (#1862): `thresholdPct <= 0` means "sweep unconditionally" — the operator's
-    // one-click Doctor fix passes 0 for exactly that. Without this branch the gate below still
-    // bails on BOTH `inodeUsePct` failure reasons ("statfs-unavailable" — including a btrfs tmp
-    // reporting `files: 0` — and "root-missing" on a host whose claude root doesn't exist yet),
-    // because those return before the threshold is ever compared. The fix would silently do
-    // nothing on precisely those hosts. A 0% threshold has no other coherent meaning, so this
-    // makes the existing contract explicit; every threshold >= 1 keeps today's fail-open path
-    // byte-for-byte. `statfs` is not called at all here, so no use% exists to report — the reason
-    // string says so rather than formatting a figure that was never measured.
-    let gateReason = "swept forced (gate bypassed)";
-    if (thresholdPct > 0) {
-      const usePct = await inodeUsePct(root, ops.statfs, log);
-      if (typeof usePct === "string") {
-        return { swept: false, reason: usePct, removed: 0 };
-      }
-
-      if (usePct < thresholdPct) {
-        return {
-          swept: false,
-          reason: `below-threshold ${usePct.toFixed(1)}%`,
-          removed: 0,
-        };
-      }
-      gateReason = `swept ${usePct.toFixed(1)}% inode use`;
-    }
 
     const nestedName = `claude-${uid()}`;
     const ctx: SweepCtx = { ops, now, staleMs, nestedName, log };
     const sweepRoots = resolveSweepRoots(root, nestedName, opts?.root !== undefined);
 
-    let removed = 0;
-    for (const dir of sweepRoots) removed += await sweepDir(dir, ctx);
+    // FORCED sweep (#1862): `thresholdPct <= 0` means "sweep unconditionally" — the operator's
+    // one-click Doctor fix passes 0 for exactly that. Without this branch an unreadable gate
+    // ("statfs-unavailable", or "root-missing" on a host whose claude root doesn't exist yet)
+    // would silently suppress an explicitly-requested sweep. A 0% threshold has no other coherent
+    // meaning. No pressure is measured at all here, so the reason string says so rather than
+    // formatting a figure that was never taken.
+    const forced = thresholdPct <= 0;
+    const { removed, acted, gated } = await sweepGatedRoots(sweepRoots, forced, thresholdPct, ctx);
+
+    // Every root declined ⇒ nothing was swept. Report the roots' own reasons rather than a single
+    // invented one: on a mixed host they differ (a below-threshold tmpfs beside an unreadable
+    // disk root), and collapsing them hides which reading actually held the sweep back.
+    if (!forced && gated.length === sweepRoots.length) {
+      return { swept: false, reason: [...new Set(gated)].join("; "), removed: 0 };
+    }
 
     return {
       swept: true,
-      reason: gateReason,
+      // Keep the MEASUREMENT in the line, not just a root tally: "swept 1/2 root(s)" alone would
+      // drop the one fact an operator reading the log needs — what the pressure actually was.
+      reason: forced
+        ? "swept forced (gate bypassed)"
+        : `swept ${acted.length}/${sweepRoots.length} root(s): ${[...new Set(acted)].join("; ")}`,
       removed,
     };
   } catch (err) {
@@ -582,26 +819,57 @@ interface ReapFallowCtx {
   log: (msg: string) => void;
 }
 
+/** Sidecar files fallow writes beside each audit-base cache dir. Removed WITH their dir, and —
+ *  when the dir is already gone — age-gate-removed on their own (see `reapOrphanSidecar`). */
+const FALLOW_SIDECARS = [".lock", ".last-used", ".sha"];
+
 /**
- * Handles ONE fallow-cache directory entry. Skips sidecar files (`.lock`/`.last-used` —
- * cleaned up alongside their parent) and any name not starting with `FALLOW_CACHE_PREFIX`.
- * For eligible entries: stats the path, age-gates via `removeIfStale`, and on removal
- * best-effort removes `${p}.lock` and `${p}.last-used`. Per-entry try/catch — never
- * aborts the pass, never rejects. Returns 1 if the dir was removed, 0 otherwise.
+ * Age-gate-remove a sidecar whose cache dir NO LONGER EXISTS. A sidecar with a live dir is left
+ * alone — it is removed alongside that dir. Without this an interrupted/externally-removed cache
+ * leaves its sidecars behind permanently: they never match the dir path the reaper stats (157 such
+ * orphans observed while diagnosing #1862). Fail-closed: any stat error counts as 0.
+ */
+async function reapOrphanSidecar(
+  sidecar: string,
+  dir: string,
+  ctx: ReapFallowCtx,
+): Promise<number> {
+  try {
+    await ctx.ops.stat(dir);
+    return 0; // dir still there — the dir pass owns this sidecar
+  } catch {
+    /* dir gone ⇒ orphan */
+  }
+  try {
+    return await removeIfStale(sidecar, await ctx.ops.stat(sidecar), ctx);
+  } catch (err) {
+    ctx.log(`[tmp-sweep] fallow sidecar reap failed for ${sidecar}: ${String(err)}`);
+    return 0;
+  }
+}
+
+/**
+ * Handles ONE fallow-cache entry. A sidecar file is reaped only when orphaned; any name not
+ * starting with `FALLOW_CACHE_PREFIX` is skipped. For a cache dir: stats the path, age-gates via
+ * `removeIfStale`, and on removal best-effort removes each `FALLOW_SIDECARS` file beside it.
+ * Per-entry try/catch — never aborts the pass, never rejects. Returns the number of entries
+ * removed (the dir counts as 1; its sidecars are not counted separately).
  */
 async function reapFallowEntry(root: string, ent: Dirent, ctx: ReapFallowCtx): Promise<number> {
-  // Skip sidecar files (.lock / .last-used) — cleaned up with their parent dir.
   if (!ent.name.startsWith(FALLOW_CACHE_PREFIX)) return 0;
-  if (ent.name.endsWith(".lock") || ent.name.endsWith(".last-used")) return 0;
 
   const p = join(root, ent.name);
+  const suffix = FALLOW_SIDECARS.find((s) => ent.name.endsWith(s));
+  if (suffix) return reapOrphanSidecar(p, p.slice(0, -suffix.length), ctx);
+
   try {
     const st = await ctx.ops.stat(p);
     const wasRemoved = await removeIfStale(p, st, ctx);
     if (wasRemoved) {
       // Best-effort removal of sidecars; ignore individual failures.
-      await ctx.ops.rm(`${p}.lock`, { recursive: false, force: true }).catch(() => {});
-      await ctx.ops.rm(`${p}.last-used`, { recursive: false, force: true }).catch(() => {});
+      for (const s of FALLOW_SIDECARS) {
+        await ctx.ops.rm(`${p}${s}`, { recursive: false, force: true }).catch(() => {});
+      }
       return 1;
     }
     return 0;
@@ -634,10 +902,10 @@ async function reapFallowRoot(root: string, ctx: ReapFallowCtx): Promise<number>
  *
  * Scans the deduped set of roots `[claudeTmpRoot(), join(claudeTmpRoot(), "claude-"+uid()),
  * tmpdir()]` (the third catches caches whose `TMPDIR` was the bare system `/tmp`). Only considers
- * entries whose name starts with `FALLOW_CACHE_PREFIX`; ignores `.lock`/`.last-used` sidecar
- * files (they are cleaned up alongside their parent dir). For each stale cache dir it removes the
- * dir AND `${dir}.lock` AND `${dir}.last-used`. Per-entry try/catch — never aborts the pass,
- * never rejects. Returns `{ removed }`.
+ * entries whose name starts with `FALLOW_CACHE_PREFIX`. For each stale cache dir it removes the
+ * dir and every `FALLOW_SIDECARS` file beside it; a sidecar whose dir is already gone is
+ * age-gate-removed on its own. Per-entry try/catch — never aborts the pass, never rejects.
+ * Returns `{ removed }` — entries removed, dirs and orphaned sidecars alike.
  */
 export async function reapFallowCaches(opts?: ReapFallowOpts): Promise<ReapFallowResult> {
   const log = opts?.log ?? console.warn;
@@ -701,7 +969,9 @@ export interface ReapWorktreesOpts {
   /** A RESOLVED snapshot of same-uid process cwds (from `liveProcCwds()`), taken by the
    *  caller so the synchronous `/proc` scan stays out of this async module. */
   liveCwds?: string[];
-  /** Tmp roots a candidate must live under to be eligible. Default `[claudeTmpRoot(), tmpdir()]`. */
+  /** Tmp roots a candidate must live under to be eligible. Default: the roots the sweep visits
+   *  (`sweptRoots()`) plus the bare `tmpdir()`. Must include the BARE `agentTmpDir()`, not just
+   *  `claudeTmpRoot()`: post-#1875 an agent's `git worktree add "$TMPDIR/x"` lands there (#1862). */
   tmpRoots?: string[];
   thresholdPct?: number;
   staleMs?: number;
@@ -710,7 +980,7 @@ export interface ReapWorktreesOpts {
   execGit?: ExecGit;
   realpath?: (p: string) => Promise<string>;
   statfs?: FsOps["statfs"];
-  fsOps?: Pick<FsOps, "readdir" | "stat">;
+  fsOps?: Pick<FsOps, "readdir" | "stat" | "opendir">;
   /** Injectable removal (default `git worktree remove`, no `--force` — cleanliness proven). */
   removeWorktree?: (repo: string, worktreePath: string) => Promise<void>;
 }
@@ -726,6 +996,7 @@ interface WorktreeCandidate {
   repo: string;
   path: string; // git-registered path
   real: string; // realpath-resolved (implies on-disk: realpath threw ⇒ not a candidate)
+  root: string; // the MOST SPECIFIC tmp root it lives under — whose pressure gates its removal
   locked: boolean;
   bare: boolean;
   prunable: boolean;
@@ -909,12 +1180,19 @@ async function discoverTmpWorktreeCandidates(ctx: {
       } catch {
         continue;
       }
-      if (!ctx.tmpRoots.some((r) => isUnder(real, r)) || seen.has(real)) continue;
+      // Most specific (longest) containing root wins: the roots nest
+      // (`<agentTmpDir()>/claude-$uid` inside `agentTmpDir()`), and a candidate's removal should be
+      // justified by the pressure of the directory it is actually piling up in, not its parent's.
+      const root = ctx.tmpRoots
+        .filter((r) => isUnder(real, r))
+        .sort((a, b) => b.length - a.length)[0];
+      if (root === undefined || seen.has(real)) continue;
       seen.add(real);
       candidates.push({
         repo,
         path: e.path,
         real,
+        root,
         locked: e.locked,
         bare: e.bare,
         prunable: e.prunable,
@@ -925,10 +1203,10 @@ async function discoverTmpWorktreeCandidates(ctx: {
 }
 
 /** Apply refusals to each candidate and reap those with a live justification. Returns the count
- *  removed. `canRemove` folds the git-floor + inode-pressure gate: false ⇒ discover-only. */
+ *  removed. `canRemove` folds the git-floor + PER-ROOT pressure gate: false ⇒ discover-only. */
 async function reapCandidates(
   candidates: WorktreeCandidate[],
-  canRemove: boolean,
+  canRemove: (c: WorktreeCandidate) => boolean,
   refusalCtx: Parameters<typeof worktreeRefusal>[1],
   removeWorktree: (repo: string, worktreePath: string) => Promise<void>,
   log: (msg: string) => void,
@@ -940,7 +1218,7 @@ async function reapCandidates(
       log(`[tmp-sweep] keep worktree ${c.real}: ${reason}`);
       continue;
     }
-    if (!canRemove) continue; // reapable but no live justification to act
+    if (!canRemove(c)) continue; // reapable but no live justification to act
     try {
       await removeWorktree(c.repo, c.path);
       reaped += 1;
@@ -950,6 +1228,23 @@ async function reapCandidates(
     }
   }
   return reaped;
+}
+
+/** Resolve each root's pressure once, logging the ones that decline. Keyed by the SAME resolved
+ *  root strings a candidate is attributed to, so the lookup cannot silently miss. */
+async function pressureByRoot(
+  roots: string[],
+  thresholdPct: number,
+  ops: Partial<PressureOps>,
+  log: (msg: string) => void,
+): Promise<Map<string, boolean>> {
+  const pressured = new Map<string, boolean>();
+  for (const root of roots) {
+    const { act, reason } = await tmpPressure(root, { thresholdPct, ops });
+    pressured.set(root, act);
+    if (!act) log(`[tmp-sweep] worktree reap: no pressure under ${root} (${reason})`);
+  }
+  return pressured;
 }
 
 /**
@@ -981,7 +1276,7 @@ export async function reapAbandonedWorktrees(
       ((repo: string, wt: string) => execGit(repo, ["worktree", "remove", wt]).then(() => {}));
 
     const [tmpRoots, liveWorktreePaths, liveCwds] = await Promise.all([
-      resolveAllRealpaths(opts.tmpRoots ?? [claudeTmpRoot(), tmpdir()], realpath),
+      resolveAllRealpaths(opts.tmpRoots ?? [...sweptRoots(), tmpdir()], realpath),
       resolveAllRealpaths(opts.liveWorktreePaths ?? [], realpath),
       resolveAllRealpaths(opts.liveCwds ?? [], realpath),
     ]);
@@ -991,8 +1286,15 @@ export async function reapAbandonedWorktrees(
     // discover (so `retained` reflects reality and the store skips) but never remove.
     const gitOk = await gitMeetsFloor(execGit, firstRepo);
     if (!gitOk) log("[tmp-sweep] worktree reap: git < 2.38 or unreadable — discovering only");
-    const usePct = await inodeUsePct(tmpdir(), statfs, log);
-    const pressureOk = typeof usePct === "number" && usePct >= thresholdPct;
+
+    // PER-ROOT pressure (#1862): reading it once off `tmpdir()` let a quiet tmpfs veto reclaim on
+    // a pressured disk root — and post-#1875 the disk root is where agents actually write.
+    const pressured = await pressureByRoot(
+      tmpRoots,
+      thresholdPct,
+      { statfs, opendir: opts.fsOps?.opendir },
+      log,
+    );
 
     const candidates = await discoverTmpWorktreeCandidates({
       repoPaths: opts.repoPaths,
@@ -1005,7 +1307,7 @@ export async function reapAbandonedWorktrees(
     const refusalCtx = { liveWorktreePaths, liveCwds, cutoff, execGit, readdir, stat };
     const reaped = await reapCandidates(
       candidates,
-      gitOk && pressureOk,
+      (c) => gitOk && (pressured.get(c.root) ?? false),
       refusalCtx,
       removeWorktree,
       log,
@@ -1158,15 +1460,26 @@ async function reclaimContentDir(
 }
 
 export interface ReclaimStoreOpts {
-  /** The forked store root. Default `<tmpdir>/.pnpm-store` — the only name allowed to reach
-   *  bare `tmpdir()`. A wrong mount root just yields a missing dir → safe skip. */
-  storeRoot?: string;
+  /** The forked store roots. Default: `.pnpm-store` under each of `tmpdir()` and (when enabled)
+   *  the bare `agentTmpDir()` — the only names allowed to reach those bare roots. pnpm forks its
+   *  store beside the install to stay same-filesystem, so post-#1875 a trusted agent's install
+   *  forks it on DISK, which the tmpfs-only default never reclaimed (#1862). A wrong root just
+   *  yields a missing dir → safe skip. */
+  storeRoots?: string[];
   thresholdPct?: number;
   staleMs?: number;
   now?: number;
   statfs?: FsOps["statfs"];
-  fsOps?: Pick<FsOps, "readdir" | "stat" | "unlink" | "rmdir">;
+  fsOps?: Pick<FsOps, "readdir" | "stat" | "unlink" | "rmdir" | "opendir">;
   log?: (msg: string) => void;
+}
+
+/** Default store roots: `.pnpm-store` under the tmpfs and the disk agent tmp root, deduped. */
+function defaultStoreRoots(): string[] {
+  const agentTmp = agentTmpDir();
+  return [...new Set([tmpdir(), ...(agentTmp ? [agentTmp] : [])])].map((r) =>
+    join(r, ".pnpm-store"),
+  );
 }
 
 export interface ReclaimStoreResult {
@@ -1174,8 +1487,9 @@ export interface ReclaimStoreResult {
   freedFiles: number;
   /** Bucket dirs pruned after emptying out. */
   freedDirs: number;
-  /** A whole-store skip reason (`below-threshold …`, `no-store`, `sibling-fresh …`, …), or
-   *  `reclaimed` when the per-file pass ran (freed counts carry the detail). */
+  /** The per-store-root outcomes, deduped and joined: a skip reason (`below-threshold …`,
+   *  `no-store`, `sibling-fresh …`, …) for each root that was skipped, and `reclaimed` for each
+   *  root whose per-file pass ran (the freed counts carry the detail). */
   reason: string;
 }
 
@@ -1237,40 +1551,56 @@ export async function reclaimForkedPnpmStore(opts: ReclaimStoreOpts): Promise<Re
   const log = opts.log ?? console.warn;
   const c: ReclaimCounters = { freedFiles: 0, freedDirs: 0 };
   try {
-    const storeRoot = opts.storeRoot ?? join(tmpdir(), ".pnpm-store");
+    const storeRoots = opts.storeRoots ?? defaultStoreRoots();
     const { cutoff, thresholdPct } = resolveTmpGate(opts);
-    const readdir = opts.fsOps?.readdir ?? fsp.readdir;
-    const stat = opts.fsOps?.stat ?? fsp.stat;
-    const unlink = opts.fsOps?.unlink ?? fsp.unlink;
-    const rmdir = opts.fsOps?.rmdir ?? fsp.rmdir;
-    const statfs = opts.statfs ?? fsp.statfs;
+    const ops: ContentOps = {
+      readdir: opts.fsOps?.readdir ?? fsp.readdir,
+      stat: opts.fsOps?.stat ?? fsp.stat,
+      unlink: opts.fsOps?.unlink ?? fsp.unlink,
+      rmdir: opts.fsOps?.rmdir ?? fsp.rmdir,
+    };
+    const pressureOps = { statfs: opts.statfs ?? fsp.statfs, opendir: opts.fsOps?.opendir };
 
-    const usePct = await inodeUsePct(tmpdir(), statfs, log);
-    if (typeof usePct === "string") return { ...c, reason: usePct };
-    if (usePct < thresholdPct) {
-      return { ...c, reason: `below-threshold ${usePct.toFixed(1)}%` };
+    const reasons: string[] = [];
+    for (const storeRoot of storeRoots) {
+      // Gate on the pressure of the store's OWN parent, not a fixed `tmpdir()`: a quiet tmpfs must
+      // not veto reclaiming a store that forked onto a pressured disk root, or vice versa (#1862).
+      const { act, reason } = await tmpPressure(dirname(storeRoot), {
+        thresholdPct,
+        ops: pressureOps,
+      });
+      reasons.push(act ? await reclaimOneStore(storeRoot, cutoff, ops, c, log) : reason);
     }
-
-    let rootEntries: Dirent[];
-    try {
-      rootEntries = (await readdir(storeRoot, { withFileTypes: true })) as Dirent[];
-    } catch {
-      return { ...c, reason: "no-store" };
-    }
-
-    const versionDirs = resolveStoreVersionDirs(rootEntries);
-    if (versionDirs.length === 0) return { ...c, reason: "no-version-dir" };
-
-    const sibling = await siblingBlocker(rootEntries, storeRoot, cutoff, stat);
-    if (sibling) return { ...c, reason: sibling };
-
-    const contentOps: ContentOps = { readdir, stat, unlink, rmdir };
-    await reclaimIdleVersionDirs(storeRoot, versionDirs, cutoff, contentOps, c, log);
-    return { ...c, reason: "reclaimed" };
+    return { ...c, reason: [...new Set(reasons)].join("; ") || "no-store-root" };
   } catch (err) {
     log(`[tmp-sweep] store reclaim unexpected error: ${String(err)}`);
     return { ...c, reason: "error" };
   }
+}
+
+/** Partial-reclaim ONE forked store root, accumulating into `c`. Returns its skip/act reason. */
+async function reclaimOneStore(
+  storeRoot: string,
+  cutoff: number,
+  ops: ContentOps,
+  c: ReclaimCounters,
+  log: (msg: string) => void,
+): Promise<string> {
+  let rootEntries: Dirent[];
+  try {
+    rootEntries = (await ops.readdir(storeRoot, { withFileTypes: true })) as Dirent[];
+  } catch {
+    return "no-store";
+  }
+
+  const versionDirs = resolveStoreVersionDirs(rootEntries);
+  if (versionDirs.length === 0) return "no-version-dir";
+
+  const sibling = await siblingBlocker(rootEntries, storeRoot, cutoff, ops.stat);
+  if (sibling) return sibling;
+
+  await reclaimIdleVersionDirs(storeRoot, versionDirs, cutoff, ops, c, log);
+  return "reclaimed";
 }
 
 interface PruneOpts {

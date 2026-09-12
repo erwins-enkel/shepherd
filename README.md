@@ -462,9 +462,18 @@ shepherd`).
 
 Shepherd keeps spawned agents' Node compile cache **off** the `/tmp` tmpfs (it points
 `NODE_COMPILE_CACHE` at a disk dir) and runs an inode-guard sweep on **startup + daily** that, once
-`/tmp` inode use crosses a threshold, drops the compile cache and stale regenerable tool caches
-(bunx / fallow / agent-browser) — but never a live session's scratch, which is reclaimed on archival
-instead. So a long-lived host doesn't ENOSPC on inodes (with bytes to spare).
+a temp root crosses a pressure threshold, drops the compile cache and stale regenerable tool caches
+(bunx / fallow / agent-browser / leftover browser profiles) — but never a live session's scratch,
+which is reclaimed on archival instead. So a long-lived host doesn't ENOSPC on inodes (with bytes
+to spare).
+
+Pressure is measured **per temp root**, and by two different signals. Where the filesystem caps
+inodes (tmpfs, ext4) it is the inode use percentage. Where it allocates them on demand (btrfs, XFS,
+ZFS) there is no percentage to read, so Shepherd counts how many leftover top-level entries have
+piled up in that root instead and acts at `SHEPHERD_TMP_ENTRY_LIMIT`. Per-root matters because an
+entry count is specific to a directory: since agents were pointed at a disk-backed `TMPDIR`, the
+session-scratch root and the bare agent temp root beside it fill at completely different rates, and
+a single reading taken off one says nothing about the other.
 
 The in-app guard bounds Shepherd's _own_ churn; as a host-level belt, raise `/tmp`'s `nr_inodes` in
 `/etc/fstab` on long-uptime hosts (e.g. `tmpfs /tmp tmpfs nr_inodes=4194304 0 0`) so a higher inode
@@ -472,8 +481,13 @@ ceiling protects against any tmpfs consumer.
 
 Settings → Diagnose carries a **Temp filesystem inodes** row so this is visible before it bites:
 inode exhaustion otherwise reads as "disk full" while `df -h` shows plenty free (`df -i` is what
-shows it). The row warns at `SHEPHERD_TMP_INODE_PCT` — the same threshold that gates the sweep, so
-raising the knob moves both — and errors at 95%. The row's bands are kept ordered and in range: a
+shows it). It reports the worst of the roots the sweep visits, in whichever signal that root
+supports — so it cannot report a healthy tmpfs while the disk root agents actually write to is
+filling. On the percentage signal the row warns at `SHEPHERD_TMP_INODE_PCT` — the same threshold
+that gates the sweep, so raising the knob moves both — and errors at 95%; on the entry-count signal
+it warns at `SHEPHERD_TMP_ENTRY_LIMIT` and errors at ten times that, with copy of its own (a
+filesystem with no inode table cannot meaningfully have "plenty of inodes free"). The row's
+percentage bands are kept ordered and in range: a
 knob above 95 raises the error band with it (so the row never alarms below the line you set), and a
 value outside `(0, 100]` — including the legitimate `0` "always sweep" gate setting, which as a
 display band would mean "always warn" — falls back to 80 for the row only; the sweep itself still
@@ -484,8 +498,9 @@ in the temp filesystem (not reclaimed yet).
 
 Override env vars: `SHEPHERD_NODE_COMPILE_CACHE` (compile-cache dir), `SHEPHERD_TMP_INODE_PCT`
 (sweep threshold % **and** the Diagnose row's warning band, default `80`),
-`SHEPHERD_TMP_STALE_HOURS` (scratch staleness cutoff, default `24`), `SHEPHERD_TMP_SWEEP_DIR`
-(override the swept tmp root).
+`SHEPHERD_TMP_ENTRY_LIMIT` (the same pair for the entry-count signal, used where the filesystem has
+no inode ceiling, default `1000`), `SHEPHERD_TMP_STALE_HOURS` (scratch staleness cutoff, default
+`24`), `SHEPHERD_TMP_SWEEP_DIR` (override the swept tmp root).
 
 ### Live preview
 

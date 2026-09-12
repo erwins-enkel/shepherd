@@ -74,6 +74,31 @@ export function hasActiveSpinner(text: string): boolean {
   return tailLines(text).some((l) => SPINNER_RE.test(l));
 }
 
+// The at-rest input box's queued-input hint. Claude Code 2.1.266 ships three
+// wordings — "Press up to edit queued messages", "Press up to select a queued
+// message" and "…select a queued message to edit" — so the match is anchored on
+// the stable "press up to <verb> … queued message" spine rather than one string.
+const QUEUED_INPUT_RE = /press up to \w+\s+(?:a\s+)?queued message/i;
+
+/**
+ * True when the terminal tail shows the agent's at-rest input box carrying
+ * QUEUED operator input. A session holding input it has not consumed yet cannot
+ * be waiting for more, so an `awaiting-input` fallback over such a buffer is a
+ * false "needs you" (issue #2272). Scans the same last-15-non-empty-lines window
+ * as `classifyBlocked` (the hint sits just above the footer), so the phrase
+ * appearing in older scrollback cannot forge it.
+ *
+ * Why this exists: herdr latches `agent_status=blocked` after an answered dialog
+ * — the same upstream bug `hasActiveSpinner` guards against — but the spinner is
+ * not on screen yet, so the latch falls through to the no-evidence
+ * `awaiting-input` fallback. Measured on a live install: of 1432 captured
+ * `awaiting-input` block rows NONE carried a spinner, while every full-screen
+ * capture of the false positive carried this hint.
+ */
+export function hasQueuedInput(text: string): boolean {
+  return tailLines(text).some((l) => QUEUED_INPUT_RE.test(l));
+}
+
 /** Classify a blocked agent's terminal tail into an actionable shape. Never throws. */
 export function classifyBlocked(text: string): BlockReason {
   const tail = tailLines(text);

@@ -565,6 +565,92 @@ test("static buffer quoting a spinner-like markdown bullet ultimately surfaces t
   expect(h.poller.workingBlockedSnapshot()).toEqual({});
 });
 
+/** Issue #2272: herdr latches "blocked" after an answered dialog while the pane shows
+ *  the at-rest input box carrying QUEUED operator input — no dialog, no spinner. The
+ *  real captured pane from the issue's session; the hint reads "Press up to edit queued
+ *  messages" a few lines above the footer. */
+const QUEUED_TAIL = readFileSync(
+  join(import.meta.dir, "fixtures/fullscreen/queued-messages.txt"),
+  "utf8",
+);
+
+test("suppresses the awaiting-input fallback when the pane carries queued operator input", async () => {
+  const h = spinnerHarness(QUEUED_TAIL);
+  await h.poller.tick();
+  expect(h.blocks).toHaveLength(0);
+  expect(h.working).toEqual([{ id: h.id, working: true }]);
+  expect(h.poller.workingBlockedSnapshot()).toEqual({ [h.id]: true });
+});
+
+test("frozen queued-input buffer never re-arms: no block across cadences (#2272)", async () => {
+  const h = spinnerHarness(QUEUED_TAIL);
+  await h.poller.tick();
+  // The buffer stays byte-identical — the shape that made the spinner freshness gate
+  // re-arm every cadence. Queued input is a STATE, not a liveness inference, so it must
+  // keep suppressing however long the pane sits still.
+  for (let i = 0; i < 4; i++) {
+    h.advance(3001);
+    await h.poller.tick();
+  }
+  expect(h.blocks).toHaveLength(0);
+  expect(h.events).toEqual(["working:true"]); // one flag-on for the whole episode
+});
+
+test("clears an announced block exactly once when queued input replaces the dialog", async () => {
+  const h = spinnerHarness("❯ 1. Yes\n  2. No");
+  await h.poller.tick();
+  expect(h.blocks).toHaveLength(1);
+  expect((h.blocks[0]!.block as any).shape).toBe("menu");
+
+  // operator answers; herdr keeps latching blocked while the TUI drops back to the
+  // at-rest box with the reply still queued
+  h.setText(QUEUED_TAIL);
+  h.advance(3001);
+  await h.poller.tick();
+  h.advance(3001);
+  await h.poller.tick();
+  expect(h.events).toEqual(["block:menu", "block:null", "working:true"]);
+});
+
+test("still emits a menu block when queued input is also on screen", async () => {
+  const h = spinnerHarness(`${QUEUED_TAIL}\n❯ 1. Yes\n  2. No`);
+  await h.poller.tick();
+  expect(h.blocks).toHaveLength(1);
+  expect((h.blocks[0]!.block as any).shape).toBe("menu");
+  expect(h.working).toHaveLength(0); // a genuine dialog never enters the display state
+});
+
+test("re-arms once the queued-input hint leaves the pane", async () => {
+  const h = spinnerHarness(QUEUED_TAIL);
+  await h.poller.tick();
+  expect(h.blocks).toHaveLength(0);
+
+  h.setText("I need your input on the API design.\n❯");
+  h.advance(3001);
+  await h.poller.tick();
+  expect(h.events).toEqual(["working:true", "working:false", "block:awaiting-input"]);
+  expect(h.poller.workingBlockedSnapshot()).toEqual({});
+});
+
+test("an auth prompt on screen wins over queued input", async () => {
+  // An MCP OAuth / `/login` prompt renders ABOVE the at-rest input box and classifies as
+  // awaiting-input, so it can share a pane with queued input. Suppressing it would strand
+  // the operator — maybeAuthAtRest only covers idle/done.
+  const url = "https://claude.ai/oauth/authorize?code=1&client_id=abc";
+  const h = spinnerHarness(`Login\n\n${url}\n\nPaste code here if prompted >\n${QUEUED_TAIL}`);
+  // confirmLoginUrl needs two identical reads before it trusts a PTY-reconstructed URL,
+  // so the first cadence suppresses and the second surfaces the block with the URL.
+  await h.poller.tick();
+  expect(h.blocks).toHaveLength(0);
+
+  h.advance(3001);
+  await h.poller.tick();
+  expect(h.blocks).toHaveLength(1);
+  const block = h.blocks[0]!.block as any;
+  expect(block.shape).toBe("awaiting-input");
+  expect(block.authUrl).toBe(url);
+});
+
 // route mirror of GET /api/claude-alive (see poller-liveness.test.ts)
 test("GET /api/working-blocked returns the snapshot; {} when unwired", async () => {
   const baseDeps = {

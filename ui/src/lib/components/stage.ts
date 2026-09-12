@@ -1,5 +1,6 @@
 import type { GitState, ReviewVerdict, ChecksState } from "$lib/types";
 import { verdictStale } from "$lib/verdict-freshness";
+import { prReadinessBlock } from "$lib/pr-ready";
 
 /** Pipeline stages, low→high. The agent's furthest-reached stage drives the stepper. */
 export const STAGE_ORDER = ["planning", "implementing", "pr", "review", "ready"] as const;
@@ -39,13 +40,17 @@ function isReviewOk(git: GitState | undefined, verdict: ReviewVerdict | undefine
   );
 }
 
-/** Whether all conditions for the ready stage are met. */
+/** Whether all conditions for the ready stage are met.
+ *  `prReadinessBlock` is load-bearing on top of `mergeable === true` (#1551): GitHub reports a
+ *  behind-but-conflict-free PR as `mergeable: true`, so without it the stepper filled its final
+ *  "ready" segment for a PR that cannot actually be merged. */
 function isDerivedReady(git: GitState | undefined, reviewOk: boolean): boolean {
   return (
     git?.state === "open" &&
     git.checks === "success" &&
     git.mergeable === true &&
     !git.isDraft &&
+    prReadinessBlock(git) === null &&
     reviewOk
   );
 }

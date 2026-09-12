@@ -215,4 +215,37 @@ describe("PrBadge", () => {
       ),
     );
   });
+  // ── merge-readiness marker (#1551) ──────────────────────────────────────────
+  it("marks a green PR that is behind its base, and drops the Merge action", async () => {
+    render(PrBadge, {
+      props: { git: git({ mergeStateStatus: "behind", mergeable: true }), sessionId: "s1" },
+    });
+
+    await expect.element(page.getByLabelText(m.prbadge_behind_title())).toBeVisible();
+    // The CI dot stays honest: the checks really did pass.
+    expect(document.querySelector(".dot-success")).not.toBeNull();
+
+    await page.getByRole("button", { name: m.prbadge_button_title({ label: "PR #12" }) }).click();
+    expect(document.querySelector("[role='menu']")).not.toBeNull();
+    expect(page.getByRole("menuitem", { name: m.prbadge_merge() }).elements()).toHaveLength(0);
+  });
+
+  it("marks a conflicting PR", async () => {
+    render(PrBadge, { props: { git: git({ mergeStateStatus: "dirty" }), sessionId: "s1" } });
+
+    await expect.element(page.getByLabelText(m.prbadge_conflict_title())).toBeVisible();
+  });
+
+  it("leaves branch-protection blocked and clean PRs unmarked", async () => {
+    render(PrBadge, {
+      props: { git: git({ mergeStateStatus: "blocked", mergeable: true }), sessionId: "s1" },
+    });
+    expect(document.querySelector(".stale-marker")).toBeNull();
+
+    document.body.innerHTML = "";
+    render(PrBadge, {
+      props: { git: git({ mergeStateStatus: "clean", mergeable: true }), sessionId: "s2" },
+    });
+    expect(document.querySelector(".stale-marker")).toBeNull();
+  });
 });

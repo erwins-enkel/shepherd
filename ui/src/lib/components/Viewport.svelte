@@ -23,6 +23,7 @@
     canResume,
     isStrandedLiveness,
   } from "$lib/format";
+  import { prRailHue } from "$lib/pr-ready";
   import { displayStatus } from "$lib/display-status";
   import { projectIcons } from "$lib/projectIcons.svelte";
   import { hotterGauge, gaugeColor } from "./usage-gauges";
@@ -851,25 +852,21 @@
   // The PR disclosure toggle's hue tracks merge-readiness — NOT mere PR existence
   // (that's prReady above, which still drives the decommission nudge). This toggle is a
   // single rolled-up verdict for the collapsed rail, so amber = "needs you" deliberately
-  // folds BOTH CI failure and critic changes_requested into one attention hue. That
-  // diverges from PrBadge on purpose: PrBadge has room for granular per-check dots, so it
-  // keeps red for CI failure and amber for pending/changes_requested — red stays exclusive
-  // to those dots, never the rolled-up toggle. Green = CI green & critic clear, i.e. ready
-  // to merge — where "clear" means only changes_requested blocks green; approved,
-  // commented, and no-review-yet all pass. Pending / merged / closed / none stay neutral.
+  // folds CI failure, critic changes_requested AND a stale/conflicting/protection-blocked
+  // PR into one attention hue. That diverges from PrBadge on purpose: PrBadge has room for
+  // granular per-check dots, so it keeps red for CI failure and amber for
+  // pending/changes_requested — red stays exclusive to those dots, never the rolled-up
+  // toggle. Green = CI green, critic clear AND genuinely merge-ready — where "clear" means
+  // only changes_requested blocks green; approved, commented, and no-review-yet all pass.
+  // Pending / merged / closed / none stay neutral, as does a green DRAFT (parked awaiting
+  // sign-off — never green, never amber). The rule itself lives in $lib/pr-ready so the
+  // whole matrix is unit-testable without mounting this component.
   // Known limitation: there is no critic-pending field, so prClear goes green on CI
   // success even before the critic posts (latestReview undefined) — "ready to merge" can
   // show a beat early, and stays green when the critic is disabled (no gate to wait on).
-  const prAttention = $derived(
-    git?.state === "open" &&
-      (git.checks === "failure" || git.latestReview?.state === "changes_requested") &&
-      !reviews.isReviewing(session.id),
-  );
-  const prClear = $derived(
-    git?.state === "open" &&
-      git.checks === "success" &&
-      git.latestReview?.state !== "changes_requested",
-  );
+  const railHue = $derived(prRailHue({ git, reviewing: reviews.isReviewing(session.id) }));
+  const prAttention = $derived(railHue === "attention");
+  const prClear = $derived(railHue === "clear");
   const planGate = $derived(planGates.map[session.id]);
   // The git strip holds the Review-plan action during planning; flag the collapsed
   // desktop disclosure when the gate is in the stuck state the re-kick is FOR — a

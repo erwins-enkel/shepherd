@@ -1,3 +1,8 @@
+import { afterAll } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 // Preloaded before any test module (bunfig.toml → [test] preload), which means it runs
 // BEFORE `src/config.ts` is first imported. That ordering is the whole point: `config` is a
 // single object literal that snapshots ~100 `SHEPHERD_*` env vars at import and never re-reads
@@ -40,3 +45,37 @@ for (const key of Object.keys(process.env)) {
 // that set `config.hooksIngest` / `config.hooksSignals` directly (service.test.ts, poller*.test.ts).
 process.env.SHEPHERD_HOOKS_INGEST = "0";
 process.env.SHEPHERD_HOOKS_SIGNALS = "0";
+
+// ── Per-run TMPDIR (#1862) ───────────────────────────────────────────────────
+//
+// 144 files under `test/` call `mkdtempSync(join(tmpdir(), …))` and most never clean up, so every
+// run leaked hundreds of dirs into the shared temp root — 119,640 entries / ~2.0M inodes had
+// accumulated on one host in 53 days, and nothing reclaimed them: the sweep's REGENERABLE_CACHE
+// allowlist matches none of those names. Before #1875 pointed agents at a disk-backed TMPDIR that
+// output went straight to the `/tmp` tmpfs, whose INODE table it is easily large enough to exhaust
+// (ENOSPC with bytes to spare — the failure #1862 reports).
+//
+// Fix the class, not the instances: point the whole run at one throwaway root and drop it at the
+// end. `os.tmpdir()` re-reads `process.env.TMPDIR` on every call, so all 518 existing call sites
+// relocate with no per-test change, and spawned child processes inherit it. TMP/TEMP are set too
+// for tools that read those instead.
+//
+// `mkdtempSync` deliberately runs BEFORE the reassignment, so the run root is created in the
+// INHERITED temp dir rather than inside itself.
+//
+// Cleanup runs from a preload-level `afterAll`, which Bun fires ONCE after the whole run. It is
+// deliberately NOT `process.on("exit")` / `"beforeExit"`: verified empirically, Bun's test runner
+// fires NEITHER from a preload, so an exit handler here is dead code that silently leaks every
+// run. A run KILLED mid-flight still leaves its root behind — `shepherd-test-run-` is in
+// `REGENERABLE_CACHE`, so the age-gated sweep reclaims those.
+const runTmpRoot = mkdtempSync(join(tmpdir(), "shepherd-test-run-"));
+process.env.TMPDIR = runTmpRoot;
+process.env.TMP = runTmpRoot;
+process.env.TEMP = runTmpRoot;
+afterAll(() => {
+  try {
+    rmSync(runTmpRoot, { recursive: true, force: true });
+  } catch {
+    /* best-effort: never fail a green run over cleanup */
+  }
+});

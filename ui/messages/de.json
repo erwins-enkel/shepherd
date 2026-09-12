@@ -4024,5 +4024,8 @@
   "feat_structured_tooltips_body": "Die Erklärungen zu kaltem Cache, Plan-Gate und Autopilot haben jetzt Überschriften und kurze Abschnitte. So findest du Kosten, Freigaben und Optionen schneller.",
   "feat_plan_gate_identity_title": "Plan Gate: sichere automatische Freigabe für beide CLIs",
   "feat_plan_gate_identity_body": "Mit Autopilot können Claude und Codex genehmigte Pläne in isolierten Worktrees und geteilten Checkouts freigeben. Shepherd setzt für Review-Rückmeldungen und Ausführung genau die Unterhaltung der Aufgabe fort. Bei fehlender oder mehrdeutiger Zuordnung bleibt sie für dich angehalten; ältere Codex-Aufgaben ohne Startzuordnung brauchen einen Neustart.",
-  "done_recap_archive_stale": "Nach 7 Tagen Stillstand automatisch dekommissioniert"
+  "done_recap_archive_stale": "Nach 7 Tagen Stillstand automatisch dekommissioniert",
+  "diagnostics_hint_tmp_entries_ok": "Das temporäre Dateisystem vergibt [[inode|Inodes]] dynamisch — eine Auslastung in Prozent gibt es dort nicht. Shepherd beobachtet stattdessen, wie viele Überbleibsel sich ansammeln. Aktuell unbedenklich wenige.",
+  "diagnostics_hint_tmp_entries_high": "Im temporären Dateisystem sammeln sich Überbleibsel an. Es vergibt [[inode|Inodes]] dynamisch, deshalb beobachtet Shepherd die Anzahl statt einer Auslastung in Prozent. Unbeachtet verlangsamt das jeden Verzeichnis-Scan und kann die [[inode|Inodes]] trotzdem aufbrauchen. „Beheben“ räumt die Caches auf, die Shepherd freigeben kann.",
+  "diagnostics_hint_tmp_entries_critical": "Das temporäre Dateisystem ist stark mit Überbleibseln zugesetzt — weit jenseits der Schwelle, ab der Shepherd aufräumt. Verzeichnis-Scans werden langsam, und die [[inode|Inodes]] können ausgehen, obwohl Speicherplatz frei aussieht. „Beheben“ räumt die Caches auf, die Shepherd freigeben kann."
 }

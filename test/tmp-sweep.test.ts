@@ -14,7 +14,9 @@ import {
   reapAbandonedWorktrees,
   reclaimForkedPnpmStore,
   resolveStoreVersionDirs,
-  readTmpInodeUsePct,
+  readTmpPressureSignal,
+  tmpEntryBands,
+  tmpPressure,
   tmpInodeBands,
   TMP_INODE_ERROR_PCT,
   FALLOW_CACHE_PREFIX,
@@ -329,6 +331,76 @@ describe("sweepClaudeTmp", () => {
     });
   });
 
+  // #1862 REGRESSION. The gate used to be read ONCE, off `claudeTmpRoot()`. In production that is
+  // `<agentTmpDir()>/claude-$uid` — session scratch only — while the caches this sweep reclaims
+  // pile up in the BARE `agentTmpDir()` beside it. On a filesystem with no inode ceiling the entry
+  // count is path-specific, so the single reading said "quiet" and the sweep never ran at all.
+  test("per-root gate: a root over the entry limit is swept, a quiet sibling is not", async () => {
+    setEnv("SHEPHERD_TMP_ENTRY_LIMIT", "2");
+    const root = mkTmp();
+    const nestedDir = join(root, nested);
+    mkdirSync(nestedDir);
+
+    // Stale regenerable caches in BOTH roots; only the over-limit one may be swept.
+    const loud = join(root, "bunx-1000-loud");
+    const quiet = join(nestedDir, "bunx-1000-quiet");
+    mkdirSync(loud);
+    mkdirSync(quiet);
+    const now = Date.now();
+    const old = new Date(now - 48 * 3600_000);
+    utimesSync(loud, old, old);
+    utimesSync(quiet, old, old);
+
+    const fsp = await import("node:fs/promises");
+    const res = await sweepClaudeTmp({
+      root,
+      now,
+      // files: 0 ⇒ no inode ceiling ⇒ the entry-count fallback, which is the path-specific one.
+      fsOps: {
+        statfs: fakeStatfs(0, 0),
+        readdir: fsp.readdir,
+        stat: fsp.stat,
+        rm: fsp.rm,
+        // `root` holds 2 entries (the cache + the nested dir); the nested dir holds 1.
+        opendir: fsp.opendir,
+      } as never,
+      log: () => {},
+    });
+
+    expect(res.swept).toBe(true);
+    expect(existsSync(loud)).toBe(false); // over the limit → swept
+    expect(existsSync(quiet)).toBe(true); // under it → untouched
+    expect(res.reason).toContain("1/2 root(s)");
+  });
+
+  test("every root quiet → nothing swept, and the reason names the readings", async () => {
+    setEnv("SHEPHERD_TMP_ENTRY_LIMIT", "50");
+    const root = mkTmp();
+    const stale = join(root, "bunx-1000-x");
+    mkdirSync(stale);
+    const now = Date.now();
+    const old = new Date(now - 48 * 3600_000);
+    utimesSync(stale, old, old);
+
+    const fsp = await import("node:fs/promises");
+    const res = await sweepClaudeTmp({
+      root,
+      now,
+      fsOps: {
+        statfs: fakeStatfs(0, 0),
+        readdir: fsp.readdir,
+        stat: fsp.stat,
+        rm: fsp.rm,
+        opendir: fsp.opendir,
+      } as never,
+      log: () => {},
+    });
+
+    expect(res).toMatchObject({ swept: false, removed: 0 });
+    expect(res.reason).toContain("below-entry-limit");
+    expect(existsSync(stale)).toBe(true);
+  });
+
   // Forced sweep (#1862). The Doctor row's one-click fix passes `thresholdPct: 0` to mean "sweep
   // unconditionally". Both `inodeUsePct` failure reasons return BEFORE the threshold is compared,
   // so without the bypass the fix would silently do nothing on exactly the hosts that hit them —
@@ -423,40 +495,227 @@ describe("sweepClaudeTmp", () => {
       log: () => {},
     });
     expect(swept.swept).toBe(true);
-    expect(swept.reason).toBe("swept 90.0% inode use");
+    // Per-root gating (#1862) added the root tally; the MEASUREMENT this test exists for must
+    // still be in the line, otherwise the operator log loses the only fact worth reading.
+    expect(swept.reason).toContain("90.0% inode use");
   });
 });
 
-// readTmpInodeUsePct (#1862) — the value behind the tmp_inodes Diagnose row.
-describe("readTmpInodeUsePct", () => {
-  test("statfs's tmpdir(), NOT claudeTmpRoot()", async () => {
-    // claudeTmpRoot() is <tmpdir>/claude-$uid, which does not exist on a freshly booted host — the
-    // root-missing branch would then report "uninspectable" on exactly the hosts with headroom
-    // left to protect. tmpdir() is the filesystem actually at risk and is always present.
+// ── tmpPressure (#1862) ─────────────────────────────────────────────────────────
+// The gate every consumer here reads. Its whole reason to exist is that `statfs` reporting
+// `files: 0` is an ANSWER (btrfs/XFS/ZFS allocate inodes dynamically), not a read failure — the
+// old code conflated the two and every gate fell through to "do nothing" on a disk-backed root.
+describe("tmpPressure", () => {
+  const statfsOf = (files: number, ffree: number) => (async () => ({ files, ffree })) as never;
+  /** An opendir stub yielding `n` entries, counting how many were actually consumed. */
+  const opendirOf = (n: number, consumed?: { count: number }) =>
+    (async () => ({
+      async *[Symbol.asyncIterator]() {
+        for (let i = 0; i < n; i++) {
+          if (consumed) consumed.count++;
+          yield { name: `e${i}` };
+        }
+      },
+    })) as never;
+
+  test("a real inode ceiling bands on the percentage", async () => {
+    const ops = { statfs: statfsOf(1000, 100), opendir: opendirOf(0) };
+    expect(await tmpPressure("/r", { thresholdPct: 80, ops })).toMatchObject({
+      act: true,
+      signal: { kind: "inode-pct", usePct: 90 },
+    });
+    expect(await tmpPressure("/r", { thresholdPct: 95, ops })).toMatchObject({
+      act: false,
+      signal: { kind: "inode-pct" },
+    });
+  });
+
+  test("files: 0 falls back to an entry count instead of giving up", async () => {
+    const ops = { statfs: statfsOf(0, 0), opendir: opendirOf(1500) };
+    const r = await tmpPressure("/r", { entryLimit: 1000, ops });
+    expect(r.act).toBe(true);
+    expect(r.signal).toMatchObject({ kind: "entry-count", entries: 1500, limit: 1000 });
+  });
+
+  test("below the entry limit does not act", async () => {
+    const ops = { statfs: statfsOf(0, 0), opendir: opendirOf(12) };
+    const r = await tmpPressure("/r", { entryLimit: 1000, ops });
+    expect(r.act).toBe(false);
+    expect(r.reason).toContain("below-entry-limit");
+  });
+
+  test("the entry walk stops at the cap rather than counting a 100k-entry root", async () => {
+    const consumed = { count: 0 };
+    const ops = { statfs: statfsOf(0, 0), opendir: opendirOf(1_000_000, consumed) };
+    const r = await tmpPressure("/r", { entryLimit: 10, ops });
+    expect(r.act).toBe(true);
+    expect(r.signal).toMatchObject({ kind: "entry-count", atCap: true });
+    // 10 * ENTRY_COUNT_CAP_FACTOR — bounded work, never the whole directory.
+    expect(consumed.count).toBe(100);
+  });
+
+  test("an unreadable root never acts", async () => {
+    for (const ops of [
+      { statfs: undefined as never, opendir: opendirOf(0) },
+      {
+        statfs: (async () => {
+          throw new Error("ENOENT");
+        }) as never,
+        opendir: opendirOf(0),
+      },
+      {
+        statfs: statfsOf(0, 0),
+        opendir: (async () => {
+          throw new Error("EACCES");
+        }) as never,
+      },
+    ]) {
+      const r = await tmpPressure("/r", { ops });
+      expect(r.act).toBe(false);
+      expect(r.signal.kind).toBe("uninspectable");
+    }
+  });
+});
+
+// readTmpPressureSignal (#1862) — the value behind the tmp_inodes Diagnose row.
+describe("readTmpPressureSignal", () => {
+  const opendirOf = (n: number) =>
+    (async () => ({
+      async *[Symbol.asyncIterator]() {
+        for (let i = 0; i < n; i++) yield { name: `e${i}` };
+      },
+    })) as never;
+
+  test("reports the WORST root, not the first", async () => {
+    // The whole point post-#1875: the tmpfs can be quiet while the disk root agents actually
+    // write to is filling. Reading only one of them reports a healthy filesystem.
+    const signal = await readTmpPressureSignal({
+      roots: ["/quiet", "/loud"],
+      ops: {
+        statfs: (async (p: string) =>
+          p === "/quiet" ? { files: 1000, ffree: 900 } : { files: 1000, ffree: 1 }) as never,
+        opendir: opendirOf(0),
+      },
+    });
+    expect(signal).toMatchObject({ kind: "inode-pct" });
+    expect((signal as { usePct: number }).usePct).toBeCloseTo(99.9);
+  });
+
+  // The critic's finding on #2305: ranking by a ratio normalised to each signal's ERROR band
+  // alone does not preserve STATE order across kinds, because warn sits at a different fraction
+  // of error in each (80/95 = 0.84 vs 1000/10000 = 0.10).
+  test("a warning root outranks a healthier root of the other kind", async () => {
+    // /tmp at 70% classifies `ok` but scored 0.737; the agent root at 1,500 entries classifies
+    // `warning` — 50% past the band where the sweeper acts — but scored only 0.15. The row used
+    // to report the healthy one.
+    const signal = await readTmpPressureSignal({
+      roots: ["/tmpfs", "/agent"],
+      ops: {
+        statfs: (async (p: string) =>
+          p === "/tmpfs" ? { files: 1000, ffree: 300 } : { files: 0, ffree: 0 }) as never,
+        opendir: opendirOf(1500),
+      },
+    });
+    expect(signal).toMatchObject({ kind: "entry-count", entries: 1500 });
+  });
+
+  test("within one state, the deeper reading still wins", async () => {
+    const signal = await readTmpPressureSignal({
+      roots: ["/a", "/b"],
+      ops: {
+        statfs: (async (p: string) =>
+          p === "/a" ? { files: 1000, ffree: 150 } : { files: 1000, ffree: 120 }) as never,
+        opendir: opendirOf(0),
+      },
+    });
+    // Both are `warning` (85% and 88%); the ratio breaks the tie toward the worse one.
+    expect((signal as { usePct: number }).usePct).toBeCloseTo(88);
+  });
+
+  test("an ok root of one kind still wins over an ok root of the other", async () => {
+    // Nothing is in a warning state, so the tie-break ratio decides and the row reports a real
+    // reading rather than falling through to uninspectable.
+    const signal = await readTmpPressureSignal({
+      roots: ["/tmpfs", "/agent"],
+      ops: {
+        statfs: (async (p: string) =>
+          p === "/tmpfs" ? { files: 1000, ffree: 300 } : { files: 0, ffree: 0 }) as never,
+        opendir: opendirOf(10),
+      },
+    });
+    expect(signal).toMatchObject({ kind: "inode-pct" });
+  });
+
+  // The row's Fix runs a forced sweep, which only removes ALLOWLISTED names. Session scratch
+  // matches none of them by design, so counting those roots would pin the row at `warning` on a
+  // healthy host with a button that cannot clear it.
+  test("the default roots exclude session scratch, whose contents no Fix can reclaim", async () => {
+    setEnv("SHEPHERD_AGENT_TMPDIR", "/fake/agent");
+    setEnv("SHEPHERD_TMP_SWEEP_DIR", "/fake/agent/claude-9999");
+
     const seen: string[] = [];
-    await readTmpInodeUsePct((async (p: string) => {
-      seen.push(p);
-      return { files: 1000, ffree: 100 };
-    }) as never);
-    expect(seen).toEqual([tmpdir()]);
+    await readTmpPressureSignal({
+      ops: {
+        statfs: (async (p: string) => {
+          seen.push(p);
+          return { files: 1000, ffree: 900 };
+        }) as never,
+        opendir: opendirOf(0),
+      },
+    });
+
+    expect(seen).toContain("/fake/agent");
+    expect(seen).toContain(tmpdir());
+    // The scratch roots the SWEEP visits must not be measured by the ROW.
+    expect(seen).not.toContain("/fake/agent/claude-9999");
+    expect(seen.some((p) => p.includes("claude-9999"))).toBe(false);
   });
 
-  test("reports the use percentage", async () => {
-    const pct = await readTmpInodeUsePct((async () => ({ files: 1000, ffree: 100 })) as never);
-    expect(pct).toBeCloseTo(90);
+  test("an unreadable root never masks a measurable one", async () => {
+    const signal = await readTmpPressureSignal({
+      roots: ["/gone", "/real"],
+      ops: {
+        statfs: (async (p: string) => {
+          if (p === "/gone") throw new Error("ENOENT");
+          return { files: 1000, ffree: 100 };
+        }) as never,
+        opendir: opendirOf(0),
+      },
+    });
+    expect(signal).toMatchObject({ kind: "inode-pct" });
   });
 
-  test("btrfs-style files: 0 → null, never a bogus percentage", async () => {
-    // btrfs allocates inodes dynamically and reports zero total, so a percentage is meaningless.
-    expect(await readTmpInodeUsePct((async () => ({ files: 0, ffree: 0 })) as never)).toBeNull();
+  test("all roots unreadable → uninspectable", async () => {
+    const signal = await readTmpPressureSignal({
+      roots: ["/a", "/b"],
+      ops: {
+        statfs: (async () => {
+          throw new Error("ENOENT");
+        }) as never,
+        opendir: opendirOf(0),
+      },
+    });
+    expect(signal.kind).toBe("uninspectable");
+  });
+});
+
+// tmpEntryBands (#1862) — the display bands for the entry-count signal.
+describe("tmpEntryBands", () => {
+  test("default: warns at the entry limit, errors an order of magnitude above", () => {
+    expect(tmpEntryBands()).toEqual({ warnEntries: 1000, errorEntries: 10000 });
   });
 
-  test("an unreadable filesystem → null", async () => {
-    expect(
-      await readTmpInodeUsePct((async () => {
-        throw new Error("ENOENT");
-      }) as never),
-    ).toBeNull();
+  test("a non-positive knob falls back rather than warning forever", () => {
+    const prev = process.env.SHEPHERD_TMP_ENTRY_LIMIT;
+    try {
+      process.env.SHEPHERD_TMP_ENTRY_LIMIT = "0";
+      expect(tmpEntryBands()).toEqual({ warnEntries: 1000, errorEntries: 10000 });
+      process.env.SHEPHERD_TMP_ENTRY_LIMIT = "250";
+      expect(tmpEntryBands()).toEqual({ warnEntries: 250, errorEntries: 2500 });
+    } finally {
+      if (prev === undefined) delete process.env.SHEPHERD_TMP_ENTRY_LIMIT;
+      else process.env.SHEPHERD_TMP_ENTRY_LIMIT = prev;
+    }
   });
 });
 
@@ -708,6 +967,60 @@ describe("agent tmp dir geometry (#1875)", () => {
 });
 
 describe("reapFallowCaches", () => {
+  // #1862: 157 orphaned sidecars were found on one host. The reaper only ever removed sidecars
+  // ALONGSIDE a surviving dir, so once the dir went (interrupted run, external cleanup) its
+  // sidecars became permanently unreachable — they never match the dir path the pass stats.
+  test("an orphaned sidecar (its cache dir already gone) is age-gate-removed on its own", async () => {
+    const root = mkTmp();
+    const now = Date.now();
+    const old = new Date(now - 48 * 3600_000);
+
+    const orphan = join(root, `${FALLOW_CACHE_PREFIX}deadbeef.lock`);
+    const orphanSha = join(root, `${FALLOW_CACHE_PREFIX}deadbeef.sha`);
+    writeFileSync(orphan, "");
+    writeFileSync(orphanSha, "");
+    utimesSync(orphan, old, old);
+    utimesSync(orphanSha, old, old);
+
+    // A sidecar whose dir is STILL THERE must be left to the dir pass, not reaped here.
+    const liveDir = join(root, `${FALLOW_CACHE_PREFIX}cafe`);
+    mkdirSync(liveDir); // fresh mtime → the dir itself is kept
+    const liveLock = `${liveDir}.lock`;
+    writeFileSync(liveLock, "");
+    utimesSync(liveLock, old, old);
+
+    const res = await reapFallowCaches({
+      now,
+      staleMs: 24 * 3600_000,
+      fsOps: fsp,
+      log: () => {},
+      roots: [root],
+    });
+
+    expect(existsSync(orphan)).toBe(false);
+    expect(existsSync(orphanSha)).toBe(false);
+    expect(existsSync(liveLock)).toBe(true);
+    expect(existsSync(liveDir)).toBe(true);
+    expect(res.removed).toBe(2);
+  });
+
+  test("a FRESH orphaned sidecar is kept — the age gate still applies", async () => {
+    const root = mkTmp();
+    const orphan = join(root, `${FALLOW_CACHE_PREFIX}fresh.lock`);
+    writeFileSync(orphan, "");
+
+    const res = await reapFallowCaches({
+      now: Date.now(),
+      staleMs: 24 * 3600_000,
+      fsOps: fsp,
+      log: () => {},
+      roots: [root],
+    });
+
+    expect(existsSync(orphan)).toBe(true);
+    expect(res.removed).toBe(0);
+  });
+
   test("removes a stale fallow dir and its .lock / .last-used sidecars", async () => {
     const root = mkTmp();
     setEnv("SHEPHERD_TMP_SWEEP_DIR", root);
@@ -1006,6 +1319,46 @@ describe("reapAbandonedWorktrees", () => {
     expect(removed).toEqual(["/tmp/wt-a"]);
   });
 
+  // #1862: pressure used to be read once off `tmpdir()`, so a quiet tmpfs vetoed reclaim on the
+  // disk root agents actually write to post-#1875 (and vice versa). It is now per root.
+  test("per-root pressure: only the candidate under the pressured root is reaped", async () => {
+    const { opts, removed } = reaperOpts({
+      tmpRoots: ["/quiet", "/loud"],
+      statfs: (async (p: string) =>
+        p === "/quiet" ? { files: 1000, ffree: 900 } : { files: 1000, ffree: 100 }) as never,
+      execGit: async (_c: string, args: string[]) => {
+        if (args[0] === "--version") return "git version 2.54.0";
+        if (args[0] === "worktree" && args[1] === "list")
+          return porc("/quiet/wt-a") + porc("/loud/wt-b");
+        if (args[0] === "status") return "";
+        return "";
+      },
+    });
+    const r = await reapAbandonedWorktrees(opts as never);
+    expect(removed).toEqual(["/loud/wt-b"]);
+    expect(r).toEqual({ reaped: 1, retained: 1 });
+  });
+
+  test("a candidate is gated by its MOST SPECIFIC root, not its parent", async () => {
+    // The roots nest. A worktree inside the quiet nested root must not inherit the loud parent's
+    // justification — the pressure that licenses a destructive removal has to be the directory
+    // the worktree is actually piling up in.
+    const { opts, removed } = reaperOpts({
+      tmpRoots: ["/t", "/t/nested"],
+      statfs: (async (p: string) =>
+        p === "/t/nested" ? { files: 1000, ffree: 900 } : { files: 1000, ffree: 100 }) as never,
+      execGit: async (_c: string, args: string[]) => {
+        if (args[0] === "--version") return "git version 2.54.0";
+        if (args[0] === "worktree" && args[1] === "list") return porc("/t/nested/wt-a");
+        if (args[0] === "status") return "";
+        return "";
+      },
+    });
+    const r = await reapAbandonedWorktrees(opts as never);
+    expect(removed).toEqual([]);
+    expect(r).toEqual({ reaped: 0, retained: 1 });
+  });
+
   test("dirty (git status non-empty) → kept, retained 1", async () => {
     const { opts, removed } = reaperOpts({
       execGit: async (_c: string, args: string[]) => {
@@ -1174,7 +1527,7 @@ describe("reclaimForkedPnpmStore", () => {
     const rmdirs: string[] = [];
     const unlinkErrors = new Set<string>();
     const opts = {
-      storeRoot: ROOT,
+      storeRoots: [ROOT],
       now: NOW,
       statfs: fakeStatfs(1000, 100), // 90% ≥ 80
       fsOps: {
@@ -1212,6 +1565,47 @@ describe("reclaimForkedPnpmStore", () => {
     // index/ metadata and the files/ dir itself are never touched.
     expect(unlinked).not.toContain(`${ROOT}/v10/index/meta`);
     expect(rmdirs).not.toContain(`${ROOT}/v10/files`);
+  });
+
+  // #1862: pnpm forks its store BESIDE the install to stay same-filesystem, so post-#1875 a
+  // trusted agent's install forks it on disk. Defaulting to `<tmpdir>/.pnpm-store` alone meant
+  // that store was never reclaimed by anything.
+  test("reclaims a store under every configured root, gated on that root's own pressure", async () => {
+    const { opts, R, unlinked } = storeHarness();
+    const DISK = "/disk/.pnpm-store";
+    R[DISK] = [dirent("v10", true)];
+    R[`${DISK}/v10`] = [dirent("files", true), dirent("index", true)];
+    R[`${DISK}/v10/files`] = [dirent("aa", true)];
+    R[`${DISK}/v10/files/aa`] = [dirent("blob", false)];
+    R[`${DISK}/v10/index`] = [dirent("meta", false)];
+
+    const r = await reclaimForkedPnpmStore({
+      ...opts,
+      storeRoots: [ROOT, DISK],
+    } as never);
+
+    expect(r.freedFiles).toBe(2);
+    expect(unlinked).toContain(`${DISK}/v10/files/aa/blob`);
+  });
+
+  test("a quiet root's store is skipped without vetoing a pressured root's", async () => {
+    const { opts, R, unlinked } = storeHarness();
+    const QUIET = "/quiet/.pnpm-store";
+    R[QUIET] = [dirent("v10", true)];
+    R[`${QUIET}/v10`] = [dirent("files", true)];
+    R[`${QUIET}/v10/files`] = [dirent("aa", true)];
+    R[`${QUIET}/v10/files/aa`] = [dirent("blob", false)];
+
+    const r = await reclaimForkedPnpmStore({
+      ...opts,
+      storeRoots: [ROOT, QUIET],
+      // Gate reads the store's PARENT dir, so key on that.
+      statfs: (async (p: string) =>
+        p === "/quiet" ? { files: 1000, ffree: 900 } : { files: 1000, ffree: 100 }) as never,
+    } as never);
+
+    expect(unlinked).toEqual([`${ROOT}/v10/files/9f/abc`]);
+    expect(r.reason).toContain("below-threshold");
   });
 
   test("retained worktrees no longer gate: the pass still frees the unlinked fraction", async () => {

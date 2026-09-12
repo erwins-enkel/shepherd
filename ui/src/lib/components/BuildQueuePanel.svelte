@@ -517,12 +517,13 @@
 
 <style>
   .bqp {
+    --bqp-surface: color-mix(in oklab, var(--color-muted) 6%, var(--color-panel));
     display: flex;
     flex-direction: column;
     flex: none;
     min-width: 0;
-    background: var(--color-panel);
-    border-top: 1px solid var(--color-line);
+    background: var(--bqp-surface);
+    border: 1px solid var(--color-line-bright);
     font-family: var(--font-mono);
     font-size: var(--fs-meta);
   }
@@ -534,7 +535,7 @@
      (DESIGN.md: calm by default, alarm when earned). The action's own amber outline
      and inset glow do the pointing. */
   .is-awaiting {
-    background: color-mix(in oklab, var(--color-amber) 4%, var(--color-panel));
+    background: color-mix(in oklab, var(--color-amber) 4%, var(--bqp-surface));
     border-top: 1px solid var(--color-amber);
   }
 

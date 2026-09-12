@@ -192,19 +192,28 @@ describe("EpicPanel duplicate-child guard", () => {
     // The each block's effect throws asynchronously (Svelte schedules it), surfacing as an
     // unhandled rejection rather than a synchronous throw from render() — capture it here and
     // preventDefault so it's asserted, not leaked into the run as a false failure.
+    //
+    // Wait on the event, never on a timer (#2028). A fixed sleep is a deadline, not a guarantee:
+    // under a loaded full-suite run the listener came off before the rejection was dispatched, so
+    // it escaped to vitest — every test green, process exit 1. `landed` holds the listener in
+    // place until the rejection actually arrives. vitest's per-test timeout bounds the wait, so a
+    // Svelte that stops validating keys fails this case rather than hanging the run.
     let captured: string | null = null;
+    let onLanded!: () => void;
+    const landed = new Promise<void>((resolve) => (onLanded = resolve));
     const onRejection = (ev: PromiseRejectionEvent) => {
       const msg = String((ev.reason as Error)?.message ?? ev.reason ?? "");
       if (msg.includes("each_key_duplicate")) {
         captured = msg;
         ev.preventDefault();
+        onLanded();
       }
     };
     window.addEventListener("unhandledrejection", onRejection);
     try {
       const e: Epic = { ...epic(), children: [child({ number: 709 }), child({ number: 709 })] };
       render(EpicPanel, { repoPath: "/repo", parent: 327, epic: e });
-      await new Promise((r) => setTimeout(r, 50));
+      await landed;
       expect(captured).toMatch(/each_key_duplicate/);
     } finally {
       window.removeEventListener("unhandledrejection", onRejection);

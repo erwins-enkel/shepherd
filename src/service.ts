@@ -4931,9 +4931,10 @@ export class SessionService {
   }
 
   /**
-   * Rename a session to `slug`. Always updates the display name AND relabels the herdr
-   * agent/tab, so the operator's terminal never keeps advertising a name the session no
-   * longer has. When `renameLocalBranch` is set (and the session is isolated with a
+   * Rename a session to `slug`. Always updates the display name, and relabels the herdr
+   * agent/tab whenever `slug` is free in herdr's name space (see
+   * {@link relabelRenamedAgent}), so the operator's terminal doesn't keep advertising a
+   * name the session no longer has. When `renameLocalBranch` is set (and the session is isolated with a
    * branch), also runs `git branch -m shepherd/<old> shepherd/<slug>` and re-points
    * `branch`. The caller (server) decides `renameLocalBranch`: false for a display-only
    * rename when an open PR can't be retargeted, true otherwise. Returns the updated
@@ -4953,18 +4954,52 @@ export class SessionService {
       this.deps.worktree.renameBranch(s.repoPath, s.branch, newBranch as string);
     }
     this.deps.store.update(id, { name: slug, branch: newBranch });
-    // Fire-and-forget: this method is sync; `relabel` is internally guarded (best-effort,
-    // never rejects), so a floating call is safe — a gone tab doesn't undo the rename.
     // Deliberately after the branch move: a clashing `git branch -m` throws out of here,
-    // and a rename that never happened must not relabel the tab. Wrapped because the
-    // server maps ANY throw out of this method to `409 name_taken` — a relabel hiccup is
-    // not a name clash, and reporting one after the row has already moved would be a lie.
-    try {
-      void this.deps.herdr.relabel(s.herdrAgentId, slug);
-    } catch {
-      /* best-effort: the tab label is cosmetic, the rename already landed */
-    }
+    // and a rename that never happened must not relabel the tab.
+    this.relabelRenamedAgent(s, slug);
     return this.deps.store.get(id);
+  }
+
+  /**
+   * Move a renamed session's herdr agent/tab onto `slug` — but ONLY while `slug` is free in
+   * herdr's name space.
+   *
+   * The freeness check is load-bearing for the MANUAL path specifically. Both automatic
+   * callers resolve their slug through {@link uniqueName} before it ever reaches here, so
+   * they cannot collide; `handleSessionRename` passes the operator's `slugifyManual` choice
+   * straight through. Relabelling with it unchecked would push a duplicate into exactly the
+   * space {@link takenHerdrNames} exists to keep clean: two live agents answering to one
+   * name is what turns herdr's `agent_name_taken` eviction into a hazard for the *unrelated*
+   * sibling, since `agentsHoldingName` returns every match. And if herdr instead rejects the
+   * duplicate, the agent rename is swallowed best-effort while the TAB rename still lands —
+   * leaving the agent name and its tab label diverged, with two tabs sharing a label.
+   *
+   * Compared in sanitized space because that is what herdr 0.7.5+ binds: `fix login` and
+   * `fix-login` are ONE name to it.
+   *
+   * On a clash the tab simply keeps its current (already unique) label — the session is still
+   * renamed, the terminal just doesn't follow. Warned, never silent, so the divergence is
+   * traceable. Fails CLOSED: an unreadable herdr means we cannot prove the name is free, and
+   * a stale tab label is always recoverable where an evicted sibling is not.
+   *
+   * Fire-and-forget: this method is sync; `relabel` is internally guarded (best-effort, never
+   * rejects), so a floating call is safe — a gone tab doesn't undo the rename. Fully wrapped
+   * because the server maps ANY throw out of `rename()` to `409 name_taken`, and neither a
+   * relabel hiccup nor an unreachable herdr is a name clash — reporting one after the row has
+   * already moved would be a lie.
+   */
+  private relabelRenamedAgent(s: Session, slug: string): void {
+    try {
+      if (this.takenHerdrNames().has(sanitizeHerdrAgentName(slug))) {
+        console.warn(
+          `[rename] herdr already answers to "${slug}" — keeping ${s.herdrAgentId}'s tab label`,
+        );
+        return;
+      }
+      void this.deps.herdr.relabel(s.herdrAgentId, slug);
+    } catch (e) {
+      console.warn(`[rename] relabel skipped for ${s.herdrAgentId}:`, e);
+    }
   }
 
   /**

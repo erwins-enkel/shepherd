@@ -42,15 +42,13 @@ test("does NOT fire on a critic's numbered findings list while output advances",
   expect(stuckOnPrompt(FINDINGS_PANE + "\n4. more", FINDINGS_PANE)).toBeNull();
 });
 
-// …but a run that has genuinely stopped dead on that same text IS reported. Documenting the
-// residual: the guard is motion, not content, so a critic idling on its final findings render is
-// indistinguishable from a wedged one. This is safe WITHOUT relying on the detector being skipped
-// — an unrepaired verdict never reaches `wait` at all, and for a repaired one ReviewService
-// re-decides the wedge through decideVerdictAction(spawnFinished=true), which finalizes the
-// verdict's VALUE rather than discarding it. A false positive here costs an early finalize, never
-// the critic's findings.
-test("an idle pane whose last paint happens to be a numbered list still reports stuck", () => {
-  expect(stuckOnPrompt(FINDINGS_PANE, FINDINGS_PANE)).toBe("menu");
+// …and since #2281 a frozen findings list is no longer reported either: `classifyBlocked` needs
+// dialog chrome (a caret on an option, or the key-hint footer) to call something a menu, and a
+// printed list has none. That closes the residual this test used to document — a critic idling on
+// its final findings render was indistinguishable from a wedged one and cost an early finalize.
+// A REAL prompt is unaffected: every one carries chrome (see UPSELL_PANE above).
+test("an idle pane whose last paint happens to be a numbered list is not stuck", () => {
+  expect(stuckOnPrompt(FINDINGS_PANE, FINDINGS_PANE)).toBeNull();
 });
 
 test("fires on a y/n confirm", () => {

@@ -1,0 +1,15 @@
+  $ gh pr view 276  →  MERGED  2026-07-20T19:42:46Z
+  Both parts of the issue are covered in the current source:
+  1. Backlog counter — ai-judge.ts:893 sets result.skippedByBudget = toJudge.length - (judgedCount + failures) at the budgetExhausted break, kept distinct from skippedByCap; surfaced in persist.ts:324 and the worker log (time-review-detect.ts:20,
+  aiBacklog=cap+budget).
+  2. Circuit-breaker — AI_JUDGE_MAX_FAILURES = 3 (ai-judge.ts:98) plus the time_review_ai_judge_failures ledger (migration 0071); entries park after 3 consecutive entry-specific failures on the same inputHash, self-heal on input change/success, with a
+  storm guard so a rate-limit outage can't park healthy entries. Degraded report gates on newlyParked > 0 (persist.ts:132).
+  The issue just was never closed after #276 merged.
+● User answered Claude's questions:
+  ⎿  · #274 is already shipped by merged PR #276. How do you want to proceed? → Close #274 (Recommended)
+✽ Gallivanting… (35s · ↓ 2.2k tokens)
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  …/.shepherd-worktrees/pulse-time-review-judge-skippedbycap shepherd/time-review-circuit-breaker   ⡇⠀⠀⠀⠀⠀⠀⠀⠀⠀ 6% ctx Opus 4.8 (1M context) operator@example.com · example.org                                                                     ● high · /effort
+  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents

@@ -7,6 +7,9 @@ import { config } from "../src/config";
 function sess(over: Record<string, unknown> = {}) {
   return {
     id: "s1",
+    claudeSessionId: "claude-pinned",
+    providerSessionId: "codex-pinned",
+    codexLaunchId: "launch-test",
     name: "t",
     prompt: "p",
     repoPath: "/r",
@@ -17,6 +20,8 @@ function sess(over: Record<string, unknown> = {}) {
     herdrSession: "default",
     herdrAgentId: "t1",
     planPhase: "planning",
+    spawnAccountDir: null,
+    spawnTerminalId: "t1",
     ...over,
   };
 }
@@ -38,6 +43,7 @@ function harness(opts: {
   const term = opts.session?.herdrAgentId ?? "t1";
   const store = {
     get: () => opts.session,
+    list: () => (opts.session ? [opts.session] : []),
     getPlanGate: () => opts.gate,
     setPlanPhase: (id: string, phase: string) => setPhaseCalls.push({ id, phase }),
     addSignal: () => {},
@@ -51,6 +57,7 @@ function harness(opts: {
       start: async () => ({}) as any,
       list: () => ((opts.paneLive ?? true) ? [{ terminalId: term }] : []),
       stop: async () => {},
+      paneForegroundProcs: async () => ["claude"],
       send: async (target: string, text: string) => {
         sent.push({ target, text });
       },

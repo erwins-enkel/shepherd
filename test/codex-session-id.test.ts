@@ -3,7 +3,12 @@ import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { findCodexRollout, findCodexSessionId } from "../src/codex-session-id";
+import {
+  codexLaunchMarker,
+  findCodexLaunchSessionId,
+  findCodexRollout,
+  findCodexSessionId,
+} from "../src/codex-session-id";
 
 let home: string;
 let sessionsDir: string;
@@ -150,4 +155,76 @@ test("findCodexSessionId is exactly findCodexRollout's id (no divergence)", () =
 test("findCodexRollout → null when nothing matches", () => {
   writeRollout("rollout-other.jsonl", { session_id: "o", cwd: "/nope", source: "cli" }, 1000);
   expect(findCodexRollout(CWD, 0, home)).toBeNull();
+});
+
+function launchMessage(launchId: string, role = "user"): string {
+  return JSON.stringify({
+    type: "response_item",
+    payload: {
+      type: "message",
+      role,
+      content: [{ type: "input_text", text: codexLaunchMarker(launchId) + "task" }],
+    },
+  });
+}
+
+test("Codex launch attribution separates concurrent shared-cwd tasks regardless of write order", () => {
+  writeRollout("rollout-a.jsonl", { id: "a", cwd: CWD, source: "cli" }, 3000, [
+    launchMessage("launch-a"),
+  ]);
+  writeRollout("rollout-b.jsonl", { id: "b", cwd: CWD, source: "cli" }, 1000, [
+    launchMessage("launch-b"),
+  ]);
+  writeRollout("rollout-operator.jsonl", { id: "operator", cwd: CWD, source: "cli" }, 4000);
+  writeRollout("rollout-role.jsonl", { id: "role", cwd: CWD, source: "exec" }, 5000, [
+    launchMessage("launch-a"),
+  ]);
+  expect(findCodexLaunchSessionId(CWD, "launch-a", 0, home)).toBe("a");
+  expect(findCodexLaunchSessionId(CWD, "launch-b", 0, home)).toBe("b");
+  expect(findCodexLaunchSessionId(CWD, "missing", 0, home)).toBeNull();
+});
+
+test("Codex launch attribution refuses duplicate histories and ignores later quoted markers", () => {
+  writeRollout("rollout-a.jsonl", { id: "a", cwd: CWD, source: "cli" }, 1000, [
+    launchMessage("launch"),
+  ]);
+  writeRollout("rollout-fork.jsonl", { id: "fork", cwd: CWD, source: "cli" }, 2000, [
+    launchMessage("launch"),
+  ]);
+  expect(findCodexLaunchSessionId(CWD, "launch", 0, home)).toBeNull();
+  writeRollout("rollout-later.jsonl", { id: "later", cwd: CWD, source: "cli" }, 3000, [
+    launchMessage("unrelated", "assistant"),
+    launchMessage("quoted"),
+  ]);
+  expect(findCodexLaunchSessionId(CWD, "quoted", 0, home)).toBeNull();
+});
+
+test("Codex launch attribution tolerates incomplete records and rejects wrong cwd", () => {
+  writeRollout("rollout-partial.jsonl", { id: "partial", cwd: CWD, source: "cli" }, 1000, [
+    '{"type":',
+  ]);
+  writeRollout("rollout-other.jsonl", { id: "other", cwd: "/other", source: "cli" }, 2000, [
+    launchMessage("launch"),
+  ]);
+  expect(findCodexLaunchSessionId(CWD, "launch", 0, home)).toBeNull();
+  writeRollout("rollout-partial.jsonl", { id: "partial", cwd: CWD, source: "cli" }, 3000, [
+    launchMessage("launch"),
+  ]);
+  expect(findCodexLaunchSessionId(CWD, "launch", 0, home)).toBe("partial");
+});
+
+test("Codex launch attribution distinguishes fork thread ids sharing a session root", () => {
+  writeRollout(
+    "rollout-root.jsonl",
+    { id: "root", session_id: "root", cwd: CWD, source: "cli" },
+    1000,
+    [launchMessage("launch")],
+  );
+  writeRollout(
+    "rollout-fork.jsonl",
+    { id: "fork", session_id: "root", cwd: CWD, source: "cli" },
+    2000,
+    [launchMessage("launch")],
+  );
+  expect(findCodexLaunchSessionId(CWD, "launch", 0, home)).toBeNull();
 });

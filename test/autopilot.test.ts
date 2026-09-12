@@ -849,9 +849,8 @@ test("eligible() returns null while planPhase === 'planning' (autopilot suppress
   expect(h.events.some((e) => "steer" in e)).toBe(false); // never steered
 });
 
-test("eligible() stands down a NON-isolated codex session (resume --last sibling guard)", async () => {
-  // Codex autopilot only drives isolated sessions: a non-isolated pane's resume would run
-  // `codex resume --last` against a shared cwd and could steer a sibling. Must not classify/steer.
+test("eligible() stands down a Codex session without conversation identity", async () => {
+  // Missing provenance must not classify or steer, even with Autopilot enabled.
   let classified = false;
   const h = harness({
     session: sess({ agentProvider: "codex", isolated: false, status: "done" }),
@@ -870,7 +869,13 @@ test("eligible() stands down a NON-isolated codex session (resume --last sibling
 test("eligible() drives an ISOLATED codex session normally (positive control)", async () => {
   // Same as above but isolated: the guard does not fire, so onDone classifies + steers.
   const h = harness({
-    session: sess({ agentProvider: "codex", isolated: true, status: "done" }),
+    session: sess({
+      agentProvider: "codex",
+      providerSessionId: "codex-pinned",
+      codexLaunchId: "launch-test",
+      isolated: true,
+      status: "done",
+    }),
     repoEnabled: true,
     verdict: { kind: "finished", summary: "done" },
   });
@@ -1884,3 +1889,22 @@ test("the rebase budget is SHARED across behind and conflict: a capped PR that g
   expect(h.events.some((e) => e.pause === "s1")).toBe(true);
   expect(h.events.some((e) => typeof e.steer === "string")).toBe(false);
 });
+
+for (const provider of ["claude", "codex"] as const) {
+  for (const isolated of [false, true]) {
+    test(`Autopilot drives identified ${provider} isolated=${isolated}`, async () => {
+      const h = harness({
+        session: sess({
+          agentProvider: provider,
+          isolated,
+          status: "done",
+          codexLaunchId: "launch",
+          providerSessionId: "native",
+        }),
+        verdict: { kind: "finished", summary: "done" },
+      });
+      await h.svc.onDone("s1");
+      expect(h.classifyCount()).toBeGreaterThan(0);
+    });
+  }
+}

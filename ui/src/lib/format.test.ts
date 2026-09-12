@@ -187,7 +187,13 @@ describe("autopilotBadgeShown", () => {
   it("returns false for codex + isolated (autopilot available)", () =>
     expect(
       autopilotBadgeShown(
-        session({ agentProvider: "codex", isolated: true, autopilotEnabled: true }),
+        session({
+          agentProvider: "codex",
+          providerSessionId: "codex-pinned",
+          codexLaunchId: "launch-test",
+          isolated: true,
+          autopilotEnabled: true,
+        }),
         false,
       ),
     ).toBe(false));
@@ -340,4 +346,37 @@ describe("terminal sessions are fenced out of agent-verb affordances", () => {
   const term = { terminal: true, status: "running", agentProvider: "claude" } as never;
   it("canResume refuses a terminal session", () => expect(canResume(term)).toBe(false));
   it("canRelaunch refuses a terminal session", () => expect(canRelaunch(term)).toBe(false));
+});
+
+it("Codex shared checkout with pinned conversation has no unavailable badge", () => {
+  expect(
+    autopilotBadgeShown(
+      {
+        agentProvider: "codex",
+        isolated: false,
+        providerSessionId: "pinned",
+        codexLaunchId: "launch-test",
+        autopilotEnabled: true,
+        autopilotPaused: false,
+        autopilotComplete: false,
+      } as Session,
+      false,
+    ),
+  ).toBe(false);
+});
+
+it("Codex isolated checkout without conversation identity shows unavailable", () => {
+  expect(
+    autopilotBadgeShown(
+      {
+        agentProvider: "codex",
+        isolated: true,
+        providerSessionId: "",
+        autopilotEnabled: true,
+        autopilotPaused: false,
+        autopilotComplete: false,
+      } as Session,
+      false,
+    ),
+  ).toBe(true);
 });

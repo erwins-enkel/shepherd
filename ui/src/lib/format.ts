@@ -211,7 +211,7 @@ export function hideStatusBadge(
  * this helper AND `AutopilotBadge.svelte`'s render condition, or status-badge
  * suppression silently desyncs.
  *
- * Takes the repo's autopilot default so the codex-non-isolated "unavailable" state
+ * Takes the repo's autopilot default so the missing-conversation "unavailable" state
  * can resolve the inherited-default case (autopilotEnabled === null) — see
  * codexAutopilotUnavailable.
  */
@@ -222,11 +222,8 @@ export function autopilotBadgeShown(s: Session, repoAutopilotDefault: boolean): 
 }
 
 /**
- * Codex autopilot stands down on non-isolated sessions (server-side `eligible()` gate:
- * an exited pane's `codex resume --last` could steer a sibling session in a shared cwd).
- * The badge surfaces that as an explicit "unavailable" state so an opted-in toggle is
- * never silently inert. Needs the repo default to catch the inherited-default-ON case
- * where the per-session override is null — mirrors `effectiveAutopilot` (override ?? default).
+ * Codex autopilot needs a pinned conversation, in either checkout mode. Surface a missing
+ * identity explicitly so an opted-in toggle is never silently inert.
  *
  * Excludes research tasks: a research session's autopilot directive is suppressed at spawn
  * regardless of provider/isolation (it delivers a report-PR/issue, never code-PR-steered),
@@ -234,7 +231,12 @@ export function autopilotBadgeShown(s: Session, repoAutopilotDefault: boolean): 
  */
 export function codexAutopilotUnavailable(s: Session, repoAutopilotDefault: boolean): boolean {
   const on = s.autopilotEnabled ?? repoAutopilotDefault;
-  return on && (s.agentProvider ?? "claude") === "codex" && !s.isolated && !s.research;
+  return (
+    on &&
+    (s.agentProvider ?? "claude") === "codex" &&
+    !(s.codexLaunchId && s.providerSessionId) &&
+    !s.research
+  );
 }
 
 export function statusLabel(s: SessionStatus): string {

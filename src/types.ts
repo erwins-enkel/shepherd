@@ -44,10 +44,12 @@ export interface Session {
   herdrAgentId: string; // herdr terminal_id (attach target)
   claudeSessionId: string; // pinned via `claude --session-id`; "" for pre-feature sessions
   /** Provider-native session id for non-Claude providers — the Codex rollout UUID resumed via
-   *  `codex resume <id>`. Best-effort cached (poller-seeded, refreshed on restore); "" / absent when
+   *  `codex resume <id>`. Pinned after launch attribution (also resolved on resume); "" / absent when
    *  unknown / not a Codex session. Optional like `agentProvider` so pre-existing rows + fixtures
    *  need no change. Provider-neutral field owned by #1175; #1087/#1160 consume it. */
   providerSessionId?: string;
+  /** Spawn provenance for Codex rollout attribution; renewed on agent replacement. */
+  codexLaunchId?: string;
   agentProvider?: AgentProvider;
 
   model: string | null; // selected CLI --model alias; null = provider default (no flag)

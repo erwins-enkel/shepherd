@@ -640,7 +640,7 @@ const COLS = `id, desig, name, prompt, repoPath, baseBranch, branch, worktreePat
   research, epicAuthoring, landingRepair, terminal, terminalTabId, terminalPaneId,
   createdAt, updatedAt, archivedAt, mergingSince, mergingTrainId, mergeTrainPrs, mergingPrNumber,
   haltReason, haltedAt, manualStepsJson, manualStepsAckedAt, experimentId, experimentRole,
-  spawnTerminalId, spawnAccountDir, providerSessionId, launchMetadataJson, archiveReason`;
+  spawnTerminalId, spawnAccountDir, providerSessionId, launchMetadataJson, archiveReason, codexLaunchId`;
 
 /**
  * The SELECT column list: everything {@link COLS} inserts, plus the OBSERVED runtime identity
@@ -721,6 +721,7 @@ type SessionRow = {
   spawnTerminalId: string | null;
   spawnAccountDir: string | null;
   launchMetadataJson: string | null;
+  codexLaunchId: string | null;
 };
 
 /** SQLite row shape for the reviews table. */
@@ -2689,6 +2690,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       spawnTerminalId: null, // stamped post-create by persistSpawnIdentity
       spawnAccountDir: null,
       launchMetadata: input.launchMetadata ?? null,
+      codexLaunchId: strOrEmpty(input.codexLaunchId),
     };
   }
 
@@ -2698,7 +2700,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       const seq = this.nextDesignationSeq();
       const s = this.buildSessionRow(input, seq, now);
       this.db.run(
-        `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [
           s.id,
           s.desig,
@@ -2761,6 +2763,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
           strOrEmpty(s.providerSessionId), // "" at create for both providers; Codex id captured post-spawn
           launchMetadataJson(s.launchMetadata),
           null, // archiveReason — a fresh session has not been archived
+          strOrEmpty(s.codexLaunchId),
         ],
       );
       return s;
@@ -2931,6 +2934,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         | "herdrAgentId"
         | "claudeSessionId"
         | "providerSessionId"
+        | "codexLaunchId"
         | "agentProvider"
         | "model"
         | "effort"
@@ -2947,7 +2951,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     if (!cur) return;
     const next = { ...cur, ...patch, updatedAt: Date.now() };
     this.db.run(
-      `UPDATE sessions SET name=?, status=?, lastState=?, branch=?, herdrAgentId=?, claudeSessionId=?, providerSessionId=?, agentProvider=?, model=?, effort=?, readyToMerge=?, mergingSince=?, mergingTrainId=?, mergingPrNumber=?, planGateEnabled=?, planPhase=?, updatedAt=? WHERE id=?`,
+      `UPDATE sessions SET name=?, status=?, lastState=?, branch=?, herdrAgentId=?, claudeSessionId=?, providerSessionId=?, codexLaunchId=?, agentProvider=?, model=?, effort=?, readyToMerge=?, mergingSince=?, mergingTrainId=?, mergingPrNumber=?, planGateEnabled=?, planPhase=?, updatedAt=? WHERE id=?`,
       [
         next.name,
         next.status,
@@ -2956,6 +2960,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         next.herdrAgentId,
         next.claudeSessionId,
         strOrEmpty(next.providerSessionId),
+        strOrEmpty(next.codexLaunchId),
         next.agentProvider ?? "claude",
         next.model,
         next.effort,
@@ -4839,6 +4844,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     add("resumeCostUnits", `resumeCostUnits REAL`);
     add("claudeSessionId", `claudeSessionId TEXT NOT NULL DEFAULT ''`);
     add("providerSessionId", `providerSessionId TEXT NOT NULL DEFAULT ''`);
+    add("codexLaunchId", `codexLaunchId TEXT NOT NULL DEFAULT ''`);
     add("agentProvider", `agentProvider TEXT NOT NULL DEFAULT 'claude'`);
     add("readyToMerge", `readyToMerge INTEGER NOT NULL DEFAULT 0`);
     // nullable: NULL = inherit repo default, 0/1 = explicit per-session override
@@ -6440,6 +6446,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       readyToMerge: !!r.readyToMerge,
       claudeSessionId: r.claudeSessionId ?? "",
       providerSessionId: strOrEmpty(r.providerSessionId),
+      codexLaunchId: strOrEmpty(r.codexLaunchId),
       agentProvider: r.agentProvider === "codex" ? "codex" : "claude",
       // runtimeModel/runtimeEffort need no line here: `migrateSessionColumns()` runs inside the
       // constructor's open transaction, so every read has the columns and SQLite yields null for an

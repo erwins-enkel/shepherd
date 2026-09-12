@@ -24,7 +24,7 @@
 //     flight or mid-spawn, an already-`approved` gate, a missing/empty plan, an unchanged plan hash,
 //     and a spawn already refused for this exact plan text. A redundant call is a free no-op.
 //   - AutopilotService.onDone() runs through eligible(), which stands down on archived, planning
-//     phase, autopilot disabled, non-isolated codex, pending MCP OAuth, paused, complete, an open PR
+//     phase, autopilot disabled, missing conversation identity, pending MCP OAuth, paused, complete, an open PR
 //     outside full-auto, and a classify already in flight.
 //   - push.notify() drops a send inside its own cooldown window and honors each device's category
 //     selection, on top of the `delivered` stand-down below.

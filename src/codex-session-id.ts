@@ -1,19 +1,7 @@
 /**
- * Discover the provider-native Codex session id (the rollout UUID resumed via `codex resume <id>`)
- * for an isolated Shepherd worktree, by reading rollout `session_meta` headers under
- * `$CODEX_HOME/sessions`.
- *
- * The rollout header is the ground truth for the id (the Codex `state_N.sqlite` cache lags and its
- * filename drifts across versions). Codex writes it as line 1 of every rollout jsonl:
- *   {"type":"session_meta","payload":{"session_id":"<uuid>","id":"<uuid>","cwd":"<abs>","source":"cli",…}}
- *
- * Two constraints make this reliable for an ISOLATED worktree (unique cwd):
- *  - The cwd match is a lexical `normalize()` compare against `worktreePath`, which is already
- *    canonical (Shepherd's `safeRepoDir` realpath-resolves repoPath and the worktree joins from it)
- *    and which Codex records canonically. No `realpath` is performed on the candidate cwd — this runs
- *    BEFORE the worktree is re-created at restore time, so the path may not exist on disk.
- *  - `source === "cli"` excludes headless `codex exec` ROLE spawns (recap/critic/reviewer) that can
- *    share a worktree cwd; resuming one of those instead of the interactive session would be wrong.
+ * Codex rollout readers. Task automation resolves launch provenance with
+ * findCodexLaunchSessionId; cwd-recency helpers remain for legacy transcript display only.
+ * Native resume always uses the attributed session_meta id.
  */
 import { closeSync, openSync, readSync } from "node:fs";
 import { normalize } from "node:path";
@@ -44,10 +32,7 @@ export const CODEX_ID_SKEW_MS = 5 * 60_000;
  * among rollouts modified at/after `notBeforeMs`; null if none. The scan is UNBOUNDED over that
  * mtime window (callers must not cap it) so a busy machine can't push the target rollout out of view.
  *
- * "Newest wins" is the right rule for an interactive session precisely because it is long-lived: a
- * restore/relaunch writes a NEW rollout under the SAME worktree cwd (which is why `restore()`
- * re-derives instead of trusting the persisted id), so the freshest match is the conversation the
- * pane is actually running. Callers wanting a rollout id only should use `findCodexSessionId`.
+ * This legacy display heuristic is not proof of ownership and must never select a resume target.
  */
 export function findCodexRollout(
   worktreePath: string,
@@ -66,13 +51,76 @@ export function findCodexRollout(
   return null;
 }
 
-/** {@link findCodexRollout}'s id alone — the resume/seed callers' view. */
+/** {@link findCodexRollout}'s id alone; not safe for automated session targeting. */
 export function findCodexSessionId(
   worktreePath: string,
   notBeforeMs: number,
   home = codexHome(),
 ): string | null {
   return findCodexRollout(worktreePath, notBeforeMs, home)?.id ?? null;
+}
+
+/** A fresh launch gets its own marker, including when an existing task replaces its agent.
+ * It is prepended outside operator-authored text and matched only in the initial user turn. */
+export function codexLaunchMarker(launchId: string): string {
+  return `<shepherd-session launch="${launchId}" />\n`;
+}
+
+/** Resolve by launch provenance, never by cwd recency. Multiple distinct conversations carrying
+ * the marker (e.g. a copied/forked history) are ambiguous and must stay manual. A bounded prefix
+ * read avoids loading growing transcripts; an incomplete/oversized prefix simply cannot resolve. */
+export function findCodexLaunchSessionId(
+  worktreePath: string,
+  launchId: string,
+  notBeforeMs: number,
+  home = codexHome(),
+): string | null {
+  const ids = new Set<string>();
+  for (const { path, mtimeMs } of listRolloutFiles(home)) {
+    if (mtimeMs < notBeforeMs) break;
+    const meta = readSessionMeta(path);
+    if (!meta?.id || meta.source !== "cli" || normalize(meta.cwd) !== normalize(worktreePath))
+      continue;
+    if (rolloutHasLaunchMarker(path, codexLaunchMarker(launchId))) ids.add(meta.id);
+  }
+  return ids.size === 1 ? [...ids][0]! : null;
+}
+
+/** Bound disk work independently of transcript size. */
+function readRolloutPrefix(path: string): string {
+  let fd: number | null = null;
+  try {
+    fd = openSync(path, "r");
+    const buf = Buffer.alloc(1024 * 1024);
+    const n = readSync(fd, buf, 0, buf.length, 0);
+    return buf.toString("utf8", 0, n);
+  } catch {
+    return "";
+  } finally {
+    if (fd !== null) closeSyncQuiet(fd);
+  }
+}
+
+function rolloutHasLaunchMarker(path: string, marker: string): boolean {
+  try {
+    for (const line of readRolloutPrefix(path).split("\n").slice(0, -1)) {
+      const record = JSON.parse(line);
+      if (record.type !== "response_item" || record.payload?.type !== "message") continue;
+      const message = record.payload;
+      if (message.role === "assistant") return false;
+      if (message.role !== "user" || !Array.isArray(message.content)) continue;
+      if (
+        message.content.some(
+          (part: { type?: string; text?: string }) =>
+            part.type === "input_text" && part.text?.startsWith(marker),
+        )
+      )
+        return true;
+    }
+  } catch {
+    // A malformed or incomplete record cannot establish launch provenance.
+  }
+  return false;
 }
 
 /** Parse line 1 of a rollout jsonl (the `session_meta` record). Tolerant: null on any read/parse
@@ -93,8 +141,9 @@ export function readSessionMeta(path: string): SessionMetaHeader | null {
   const p = rec.payload as { session_id?: unknown; id?: unknown; cwd?: unknown; source?: unknown };
   const cwd = typeof p.cwd === "string" ? p.cwd : null;
   if (!cwd) return null;
+  // The thread id identifies the resume target; a session root can be shared by forks.
   const id =
-    typeof p.session_id === "string" ? p.session_id : typeof p.id === "string" ? p.id : null;
+    typeof p.id === "string" ? p.id : typeof p.session_id === "string" ? p.session_id : null;
   const source = typeof p.source === "string" ? p.source : null;
   return { id, cwd, source };
 }

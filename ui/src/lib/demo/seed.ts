@@ -57,6 +57,7 @@ import type {
   PostMergeSteps,
   RepoEntry,
   Issue,
+  DirListing,
 } from "$lib/types";
 import type { DemoWorld, DemoRepoConfig, DemoBranchList } from "./types-world";
 
@@ -1769,6 +1770,39 @@ function buildTodo(): Record<string, { exists: boolean; content: string }> {
   };
 }
 
+/** GET /api/fs/dirs?path= (Settings → Workspace repo-root picker, and the onboarding gate).
+ *  Both call sites browse into `settings.repoRoot` first, so `/demo/acme` and every node above
+ *  it is seeded — the picker's "up" crumb then walks a real chain instead of dead-ending.
+ *  `display` mirrors the server's tilde abbreviation, matching `settings.repoRootDisplay`
+ *  (`~/acme`), so the panel's "this is already your root" check resolves.
+ *
+ *  Unlike the `{#each}`-shaped gaps, the permissive `{}` fallback genuinely THREW here:
+ *  DirPicker reads `listing.entries.length`, and an undefined `entries` inside Svelte's
+ *  flush aborted the batch — freezing every user `$effect` in the app (#1821). */
+function buildDirs(): Record<string, DirListing> {
+  return {
+    "/": { path: "/", display: "/", parent: null, entries: [{ name: "demo", path: "/demo" }] },
+    "/demo": {
+      path: "/demo",
+      display: "~",
+      parent: "/",
+      entries: [{ name: "acme", path: "/demo/acme" }],
+    },
+    "/demo/acme": {
+      path: "/demo/acme",
+      display: "~/acme",
+      parent: "/demo",
+      // Derived from the repo index rather than re-listed: the real `/api/fs/dirs` is
+      // enumerating the very directories `listRepos()` reports under repoRoot, so a
+      // hand-written copy here could drift out of agreement with `/api/repos`.
+      // Sorted by name — the order a real directory listing arrives in.
+      entries: buildRepos()
+        .map((r) => ({ name: r.name, path: r.path }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    },
+  };
+}
+
 /** GET /api/manual-steps/outstanding (Owed lens) — durable post-merge step records.
  *  Two rows: `deps`'s single owed (post-merge) step (mirrors its `holdStates` entry +
  *  `manualSteps` above), and `envflag`'s un-acked PRE-merge step (#1478 merged-card
@@ -1834,6 +1868,7 @@ export function buildSeed(): DemoWorld {
     repoConfig: buildRepoConfig(),
     slashCommands: buildSlashCommands(),
     todo: buildTodo(),
+    dirs: buildDirs(),
     postMergeSteps: buildPostMergeSteps(),
     repos: buildRepos(),
     branches: buildBranches(),

@@ -46,6 +46,9 @@ import type {
   IssueFetchAttempt,
   CreateInput,
   StandardCreateInput,
+  DirListing,
+  AccessToken,
+  PluginUpdatesStatus,
 } from "$lib/types";
 import { bus } from "./bus";
 import { buildSeed, mkSession, DEMO_VIEWER } from "./seed";
@@ -150,6 +153,14 @@ function agentSession(num: number, input: StandardCreateInput): Session {
     createdAt: Date.now(),
     updatedAt: Date.now(),
   });
+}
+
+/** Parent of an absolute path, or null at the root — so an unseeded directory listing still
+ *  offers a working "up" crumb in the picker. */
+function parentDir(path: string): string | null {
+  const cut = path.replace(/\/+$/, "").lastIndexOf("/");
+  if (cut < 0) return null;
+  return cut === 0 ? "/" : path.slice(0, cut);
 }
 
 export const demoState = {
@@ -301,6 +312,32 @@ export const demoState = {
       attempts: [],
     };
   },
+
+  /** GET /api/fs/dirs?path= — the Settings → Workspace repo-root picker. An unseeded path
+   *  answers an empty-but-valid listing (never `{}`: DirPicker reads `entries.length`) with a
+   *  computed `parent`, so browsing into an unseeded directory still has a working "up". */
+  dirs: (path: string): DirListing => {
+    const p = path === "" ? world.settings.repoRoot : path;
+    return world.dirs[p] ?? { path: p, display: p, parent: parentDir(p), entries: [] };
+  },
+
+  /** GET /api/access-tokens — the demo mints no machine tokens, so the empty list is a true
+   *  zero. `{ tokens: [] }`, never `{}`: SettingsAccessPanel reads `tokens.length`. */
+  accessTokens: (): { tokens: AccessToken[] } => ({ tokens: [] }),
+
+  /** GET /api/plugin-update — the demo's seeded plugins are all current, so no update is
+   *  offered. The `plugins` array must be present: Settings' `$derived` reads
+   *  `pluginUpdates?.plugins.filter(...)`, and `{}` is truthy, so a missing field threw. */
+  pluginUpdate: (): PluginUpdatesStatus => ({
+    plugins: [],
+    updateAvailable: false,
+    checkedAt: Date.now(),
+  }),
+
+  /** GET /api/stranded — no session in the scenario is a restart-strand (the `false` entries in
+   *  `claudeAliveStates` are plain husks). Must be an ARRAY: `setClaudeAlive` does `for…of` over
+   *  it, and `{}` threw there before the liveness map was ever assigned. */
+  stranded: (): string[] => [],
 
   usageLimits: (): UsageLimitsResponse => world.usage,
   update: (): UpdateStatus => world.update,

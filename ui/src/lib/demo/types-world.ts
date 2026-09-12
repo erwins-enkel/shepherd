@@ -40,6 +40,7 @@ import type {
   PostMergeSteps,
   RepoEntry,
   Issue,
+  DirListing,
 } from "$lib/types";
 
 /** Mirrors `RepoConfigResponse` from `$lib/api` (`RepoConfig` + optimistic-automation
@@ -88,6 +89,10 @@ export interface DemoWorld {
   todo: Record<string, { exists: boolean; content: string }>;
   /** GET /api/manual-steps/outstanding (Owed lens) — durable post-merge step records. */
   postMergeSteps: PostMergeSteps[];
+  /** GET /api/fs/dirs?path= (Settings → Workspace repo-root picker), keyed by the browsed
+   *  path. Only the nodes on the way to `settings.repoRoot` are seeded; anything else gets an
+   *  empty-but-valid listing from the getter. */
+  dirs: Record<string, DirListing>;
 
   // ── New Task flow (#1800) ───────────────────────────────────────────────
   // Every GET the New Task dialog fires as it opens. These are NOT optional polish:

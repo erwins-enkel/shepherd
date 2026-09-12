@@ -6,7 +6,19 @@
   import { anchorPopover } from "$lib/floating-anchor";
   import IssuePeekCard from "./IssuePeekCard.svelte";
 
-  let { session, git = undefined }: { session: Session; git?: GitState } = $props();
+  let {
+    session,
+    git = undefined,
+    interactive: allowInteractive = true,
+  }: {
+    session: Session;
+    git?: GitState;
+    /** D4 (docs/design/mobile-herd): false on a coarse pointer, where this chip's ~15px box
+     *  cannot meet the iOS HIG 44x44 floor. It then renders as the plain identifier below —
+     *  the same shape it already takes in local mode — so it never becomes a dead 15px zone
+     *  over the card's own 44px hit target. */
+    interactive?: boolean;
+  } = $props();
 
   // Read into a local so the message calls below see a non-null number.
   const number = $derived(session.issueNumber);
@@ -22,7 +34,7 @@
   // does NOT sit above the card's `.unit-hit` overlay. Raising a chip that can't act on a
   // click is what would turn it into a dead zone mid-rail — the trade #2249 refused. Here
   // the click HAS a target, which is what re-opens the door.
-  const interactive = $derived(href != null);
+  const interactive = $derived(allowInteractive && href != null);
 
   const popoverId = $props.id();
   let open = $state(false);

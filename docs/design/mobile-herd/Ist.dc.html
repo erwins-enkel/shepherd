@@ -1,0 +1,955 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <script src="./support.js"></script>
+  </head>
+  <body>
+    <x-dc>
+      <helmet>
+        <link
+          rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&display=swap"
+        />
+        <style>
+          body {
+            margin: 0;
+          }
+          a {
+            color: #2f6fb0;
+          }
+          a:hover {
+            color: #1c5590;
+          }
+          .sheet {
+            --bg: #e7ebe9;
+            --glow: #f3f6f4;
+            --panel: #f7f9f8;
+            --panel-2: #eef1ef;
+            --head: #eef2f0;
+            --inset: #f3f6f4;
+            --hover: #e4e9e6;
+            --sel: #d2dbd6;
+            --line: #d2dad6;
+            --line-bright: #b9c4bf;
+            --ink: #2b3633;
+            --ink-bright: #131a18;
+            --muted: #5a6862;
+            --faint: #93a09a;
+            --amber: #a8680a;
+            --green: #1d8a5d;
+            --red: #c2363b;
+            --blue: #2f6fb0;
+            --slate: #6b7873;
+            --wash-attention: oklch(0.965 0.016 23);
+            --fs-micro: 10px;
+            --fs-meta: 11px;
+            --fs-base: 13px;
+            --fs-lg: 16px;
+            font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+            letter-spacing: 0.02em;
+          }
+          .phone {
+            background:
+              radial-gradient(120% 100% at 50% -10%, var(--glow) 0%, var(--bg) 60%), var(--bg);
+          }
+          .name {
+            color: var(--ink-bright);
+            font-weight: 500;
+            letter-spacing: 0.04em;
+            font-size: var(--fs-base);
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+          }
+          .u-repo {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            margin-top: 3px;
+            color: var(--ink);
+            font-size: var(--fs-meta);
+            letter-spacing: 0.04em;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+          }
+          .rg {
+            color: var(--muted);
+            font-size: var(--fs-micro);
+          }
+          .u-sub {
+            color: var(--muted);
+            margin-top: 3px;
+            font-size: var(--fs-base);
+            line-height: 1.35;
+            overflow: hidden;
+          }
+          .badge {
+            font-size: var(--fs-micro);
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+            color: var(--muted);
+            white-space: nowrap;
+          }
+          .bbox {
+            font-size: var(--fs-micro);
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            padding: 1px 6px;
+            border: 1px solid var(--line);
+            border-radius: 2px;
+            white-space: nowrap;
+            color: var(--muted);
+          }
+          .elapsed {
+            color: var(--ink);
+            font-variant-numeric: tabular-nums;
+            letter-spacing: 0.08em;
+            font-size: var(--fs-meta);
+          }
+          .meta {
+            color: var(--muted);
+            font-size: var(--fs-meta);
+          }
+          .seg {
+            width: 10px;
+            height: 3px;
+            border-radius: 2px;
+            background: var(--line);
+          }
+          .seg.on {
+            background: var(--muted);
+          }
+          .dim {
+            color: var(--amber);
+            font-size: 10px;
+            letter-spacing: 0.08em;
+            font-variant-numeric: tabular-nums;
+          }
+          .dimrow {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+          }
+          .brk {
+            border-top: 1px solid var(--amber);
+            border-bottom: 1px solid var(--amber);
+            border-left: 1px solid var(--amber);
+            width: 7px;
+            flex: none;
+          }
+        </style>
+      </helmet>
+
+      <div
+        class="sheet"
+        style="
+          width: 640px;
+          height: 1000px;
+          background: #dfe3e1;
+          padding: 20px;
+          box-sizing: border-box;
+          display: flex;
+          gap: 16px;
+        "
+      >
+        <!-- ── PHONE 430x932 ─────────────────────────────────────────── -->
+        <div
+          class="phone"
+          style="
+            width: 430px;
+            height: 932px;
+            flex: none;
+            position: relative;
+            overflow: hidden;
+            border: 1px solid var(--line-bright);
+            box-sizing: border-box;
+            color: var(--ink);
+            font-size: var(--fs-base);
+          "
+        >
+          <!-- safe area 59px -->
+          <div style="height: 59px; background: var(--bg)"></div>
+
+          <!-- TopBar 64px -->
+          <div
+            style="
+              height: 64px;
+              box-sizing: border-box;
+              padding: 10px 12px;
+              display: flex;
+              align-items: center;
+              gap: 7px;
+              border-top: 1px solid var(--line);
+              border-bottom: 1px solid var(--line);
+              background: var(--bg);
+            "
+          >
+            <div
+              style="
+                font-weight: 700;
+                letter-spacing: 0.12em;
+                color: var(--ink-bright);
+                font-size: var(--fs-base);
+                flex: none;
+              "
+            >
+              SHEP<b style="color: var(--amber)">HERD</b>
+            </div>
+            <div style="width: 1px; height: 20px; background: var(--line-bright); flex: none"></div>
+            <div
+              style="
+                display: flex;
+                align-items: center;
+                font-size: var(--fs-meta);
+                font-variant-numeric: tabular-nums;
+                color: var(--ink);
+              "
+            >
+              <span style="padding: 0 5px">16</span>
+              <span style="padding: 0 5px; display: inline-flex; gap: 4px"
+                ><span style="color: var(--amber); font-size: var(--fs-micro)">&#9679;</span>0</span
+              >
+              <span style="color: var(--faint)">&#183;</span>
+              <span style="padding: 0 5px">2</span>
+              <span style="padding: 0 5px; display: inline-flex; gap: 4px"
+                ><span style="color: var(--red); font-size: var(--fs-micro)">!</span>1</span
+              >
+            </div>
+            <div style="flex: 1"></div>
+            <div style="display: flex; align-items: center; gap: 5px">
+              <span style="color: var(--ink-bright); font-size: var(--fs-micro)">&#9679;</span>
+              <span
+                style="
+                  width: 44px;
+                  height: 44px;
+                  display: inline-flex;
+                  align-items: center;
+                  justify-content: center;
+                  color: var(--ink);
+                  font-size: 20px;
+                "
+                >&#9881;</span
+              >
+            </div>
+            <span
+              style="
+                position: absolute;
+                top: 62px;
+                right: 10px;
+                width: 7px;
+                height: 7px;
+                border-radius: 50%;
+                background: var(--red);
+              "
+            ></span>
+          </div>
+
+          <!-- gap 10 -->
+          <div style="height: 10px"></div>
+
+          <!-- Repo-Rail 48px -->
+          <div
+            style="
+              height: 48px;
+              box-sizing: border-box;
+              padding: 2px 10px;
+              display: flex;
+              align-items: center;
+              gap: 4px;
+              overflow: hidden;
+              -webkit-mask-image: linear-gradient(
+                to right,
+                #000 calc(100% - 14px),
+                transparent 100%
+              );
+              mask-image: linear-gradient(to right, #000 calc(100% - 14px), transparent 100%);
+            "
+          >
+            <span
+              class="bbox"
+              style="
+                min-height: 44px;
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                padding: 0 8px;
+                flex: none;
+              "
+              >&#9635; ASYAR-CONTACTS-MACOS 2 <span style="color: var(--faint)">+4</span></span
+            >
+            <span
+              class="bbox"
+              style="
+                min-height: 44px;
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                padding: 0 8px;
+                flex: none;
+              "
+              >&#9635; ASYAR-EMOJI-EXTENSION 2</span
+            >
+            <span
+              class="bbox"
+              style="
+                min-height: 44px;
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                padding: 0 8px;
+                flex: none;
+              "
+              >&#9635; BARBOARD</span
+            >
+          </div>
+
+          <!-- gap 10 -->
+          <div style="height: 10px"></div>
+
+          <!-- Lens-Tabs 45px -->
+          <div
+            style="
+              display: flex;
+              border-top: 1px solid var(--line);
+              border-bottom: 1px solid var(--line);
+            "
+          >
+            <span
+              style="
+                flex: 1;
+                min-height: 44px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                border-right: 1px solid var(--line);
+                font-size: var(--fs-meta);
+                color: var(--muted);
+              "
+              >N&auml;chstes</span
+            >
+            <span
+              style="
+                flex: 1;
+                min-height: 44px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                border-right: 1px solid var(--line);
+                font-size: var(--fs-meta);
+                color: var(--muted);
+              "
+              >Alle</span
+            >
+            <span
+              style="
+                flex: 1;
+                min-height: 44px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                border-right: 1px solid var(--line);
+                font-size: var(--fs-meta);
+                color: var(--amber);
+                background: var(--inset);
+                box-shadow: inset 0 -2px 0 var(--amber);
+              "
+              >Bereit</span
+            >
+            <span
+              style="
+                flex: 1;
+                min-height: 44px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                border-right: 1px solid var(--line);
+                font-size: var(--fs-meta);
+                color: var(--muted);
+              "
+              >Fertig</span
+            >
+            <span
+              style="
+                flex: 1;
+                min-height: 44px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: var(--fs-meta);
+                color: var(--muted);
+              "
+              >Offen</span
+            >
+          </div>
+
+          <!-- ── LISTE ──────────────────────────────────────────────── -->
+          <div style="display: flex; flex-direction: column; gap: 2px">
+            <!-- card 1: selected -->
+            <div
+              style="
+                position: relative;
+                display: grid;
+                grid-template-columns: 16px 1fr auto;
+                column-gap: 12px;
+                row-gap: 3px;
+                padding: 11px 13px 11px 14px;
+                background: var(--sel);
+                border: 1px solid var(--line-bright);
+              "
+            >
+              <span
+                style="
+                  position: absolute;
+                  left: 0;
+                  top: 8px;
+                  bottom: 8px;
+                  width: 3px;
+                  background: var(--slate);
+                "
+              ></span>
+              <span
+                style="
+                  width: 9px;
+                  height: 9px;
+                  border-radius: 50%;
+                  box-shadow: inset 0 0 0 2px var(--slate);
+                  margin-top: 5px;
+                "
+              ></span>
+              <div style="min-width: 0">
+                <div class="name">feat/313-outlook-explicit-mailbox</div>
+                <div class="u-repo"><span class="rg">&#9635;</span>CalendarSync</div>
+                <div class="u-sub">
+                  Ja. Genau jetzt ist der richtige<br />Zeitpunkt f&uuml;r den Fork. Das&hellip;
+                </div>
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 4px; align-items: flex-end">
+                <span class="bbox">CODEX</span>
+                <span class="bbox">ENTWURF PR #314</span>
+                <span class="elapsed">52d 12h</span>
+              </div>
+              <div
+                style="
+                  grid-column: 2 / span 2;
+                  display: flex;
+                  align-items: center;
+                  gap: 10px;
+                  margin-top: 3px;
+                "
+              >
+                <span class="meta">TASK-754 &middot; GPT-5.6 Sol &middot; Hoch</span>
+                <span style="margin-left: auto; display: inline-flex; gap: 3px"
+                  ><i class="seg on"></i><i class="seg on"></i><i class="seg on"></i
+                  ><i class="seg"></i><i class="seg"></i
+                ></span>
+              </div>
+            </div>
+
+            <!-- card 2 -->
+            <div
+              style="
+                position: relative;
+                display: grid;
+                grid-template-columns: 16px 1fr auto;
+                column-gap: 12px;
+                row-gap: 3px;
+                padding: 11px 13px 11px 14px;
+                border: 1px solid transparent;
+              "
+            >
+              <span
+                style="
+                  position: absolute;
+                  left: 0;
+                  top: 8px;
+                  bottom: 8px;
+                  width: 1px;
+                  background: var(--slate);
+                "
+              ></span>
+              <span
+                style="
+                  width: 9px;
+                  height: 9px;
+                  border-radius: 50%;
+                  box-shadow: inset 0 0 0 2px var(--slate);
+                  margin-top: 5px;
+                "
+              ></span>
+              <div style="min-width: 0">
+                <div class="name">barboard-benoetigt-api-hermes</div>
+                <div class="u-repo"><span class="rg">&#9635;</span>barboard</div>
+                <div class="u-sub">
+                  barboard ben&ouml;tigt eine API die<br />durch hermes agent
+                  vollst&auml;ndig&hellip;
+                </div>
+                <div style="color: var(--muted); font-size: var(--fs-meta); margin-top: 3px">
+                  Recap hat dies f&uuml;r Ihre Aufmerk&hellip;
+                </div>
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 4px; align-items: flex-end">
+                <span class="bbox">CLAUDE</span>
+                <span class="bbox">PLANUNG</span>
+                <span class="elapsed">14d 14h</span>
+              </div>
+              <div
+                style="
+                  grid-column: 2 / span 2;
+                  display: flex;
+                  align-items: center;
+                  gap: 10px;
+                  margin-top: 3px;
+                "
+              >
+                <span class="meta">TASK-1000 &middot; Opus 5</span>
+                <span style="margin-left: auto; display: inline-flex; gap: 3px"
+                  ><i class="seg on"></i><i class="seg"></i><i class="seg"></i><i class="seg"></i
+                  ><i class="seg"></i
+                ></span>
+              </div>
+            </div>
+
+            <!-- card 3 -->
+            <div
+              style="
+                position: relative;
+                display: grid;
+                grid-template-columns: 16px 1fr auto;
+                column-gap: 12px;
+                row-gap: 3px;
+                padding: 11px 13px 11px 14px;
+                border: 1px solid transparent;
+              "
+            >
+              <span
+                style="
+                  position: absolute;
+                  left: 0;
+                  top: 8px;
+                  bottom: 8px;
+                  width: 1px;
+                  background: var(--slate);
+                "
+              ></span>
+              <span
+                style="
+                  width: 9px;
+                  height: 9px;
+                  border-radius: 50%;
+                  box-shadow: inset 0 0 0 2px var(--slate);
+                  margin-top: 5px;
+                "
+              ></span>
+              <div style="min-width: 0">
+                <div class="name">leider-sehr-haeufig-plugin</div>
+                <div class="u-repo"><span class="rg">&#9635;</span>asyar-emoji-extension</div>
+                <div class="u-sub">
+                  Es ist leider sehr h&auml;ufig so,<br />dass wenn ich &uuml;ber das Plugin&hellip;
+                </div>
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 4px; align-items: flex-end">
+                <span class="bbox">CODEX</span>
+                <span class="bbox">PLANUNG</span>
+                <span class="elapsed">10d 04h</span>
+              </div>
+              <div
+                style="
+                  grid-column: 2 / span 2;
+                  display: flex;
+                  align-items: center;
+                  gap: 10px;
+                  margin-top: 3px;
+                "
+              >
+                <span class="meta">TASK-1030 &middot; GPT-5.6 Sol &middot; Hoch</span>
+                <span style="margin-left: auto; display: inline-flex; gap: 3px"
+                  ><i class="seg on"></i><i class="seg"></i><i class="seg"></i><i class="seg"></i
+                  ><i class="seg"></i
+                ></span>
+              </div>
+            </div>
+
+            <!-- card 4: blocked -->
+            <div
+              style="
+                position: relative;
+                display: grid;
+                grid-template-columns: 16px 1fr auto;
+                column-gap: 12px;
+                row-gap: 3px;
+                padding: 11px 13px 11px 14px;
+                background: var(--wash-attention);
+                border: 1px solid transparent;
+              "
+            >
+              <span
+                style="
+                  position: absolute;
+                  left: 0;
+                  top: 8px;
+                  bottom: 8px;
+                  width: 1px;
+                  background: var(--red);
+                "
+              ></span>
+              <span
+                style="
+                  width: 16px;
+                  height: 16px;
+                  border-radius: 4px;
+                  background: color-mix(in srgb, var(--red) 88%, #000);
+                  color: #fff;
+                  font-weight: 800;
+                  font-size: var(--fs-base);
+                  display: inline-flex;
+                  align-items: center;
+                  justify-content: center;
+                  margin-top: 2px;
+                "
+                >!</span
+              >
+              <div style="min-width: 0">
+                <div class="name">werkstattbericht-redaktion</div>
+                <div class="u-repo"><span class="rg">&#9635;</span>media-bib-and-rendering</div>
+                <div class="u-sub">Auftrag von Kai:<br />Werkstattbericht-Redaktion im&hellip;</div>
+                <div style="color: var(--muted); font-size: var(--fs-meta); margin-top: 3px">
+                  Wartet auf eine Men&uuml;auswahl.
+                </div>
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 4px; align-items: flex-end">
+                <span class="bbox" style="border-color: var(--blue); color: var(--blue)"
+                  >VORSCHAU</span
+                >
+                <span class="bbox">CLAUDE</span>
+                <span class="bbox">PLANUNG</span>
+                <span class="elapsed">7h 21m</span>
+              </div>
+              <div
+                style="
+                  grid-column: 2 / span 2;
+                  display: flex;
+                  align-items: center;
+                  gap: 10px;
+                  margin-top: 3px;
+                "
+              >
+                <span class="meta">TASK-1095 &middot; Opus 5</span>
+                <span style="margin-left: auto; display: inline-flex; gap: 3px"
+                  ><i class="seg on"></i><i class="seg"></i><i class="seg"></i><i class="seg"></i
+                  ><i class="seg"></i
+                ></span>
+              </div>
+            </div>
+
+            <!-- card 5 (clipped by the bar) -->
+            <div
+              style="
+                position: relative;
+                display: grid;
+                grid-template-columns: 16px 1fr auto;
+                column-gap: 12px;
+                row-gap: 3px;
+                padding: 11px 13px 11px 14px;
+                border: 1px solid transparent;
+              "
+            >
+              <span
+                style="
+                  position: absolute;
+                  left: 0;
+                  top: 8px;
+                  bottom: 8px;
+                  width: 1px;
+                  background: var(--slate);
+                "
+              ></span>
+              <span
+                style="
+                  width: 9px;
+                  height: 9px;
+                  border-radius: 50%;
+                  background: var(--slate);
+                  margin-top: 5px;
+                "
+              ></span>
+              <div style="min-width: 0">
+                <div class="name">webseiten-sicherheitscheck</div>
+                <div class="u-sub">
+                  mach mal einen security-check<br />f&uuml;r unsere eigene webseite -&hellip;
+                </div>
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 4px; align-items: flex-end">
+                <span class="bbox">CLAUDE</span>
+                <span class="bbox">PLANUNG</span>
+                <span class="elapsed">2h 47m</span>
+              </div>
+              <div
+                style="
+                  grid-column: 2 / span 2;
+                  display: flex;
+                  align-items: center;
+                  gap: 10px;
+                  margin-top: 3px;
+                "
+              >
+                <span class="meta">TASK-1102 &middot; Fable 5.1</span>
+              </div>
+            </div>
+
+            <!-- card 6 (runs under the bar) -->
+            <div
+              style="
+                position: relative;
+                display: grid;
+                grid-template-columns: 16px 1fr auto;
+                column-gap: 12px;
+                row-gap: 3px;
+                padding: 11px 13px 11px 14px;
+                border: 1px solid transparent;
+              "
+            >
+              <span
+                style="
+                  position: absolute;
+                  left: 0;
+                  top: 8px;
+                  bottom: 8px;
+                  width: 1px;
+                  background: var(--slate);
+                "
+              ></span>
+              <span
+                style="
+                  width: 9px;
+                  height: 9px;
+                  border-radius: 50%;
+                  background: var(--slate);
+                  margin-top: 5px;
+                "
+              ></span>
+              <div style="min-width: 0">
+                <div class="name">gpt-oss-installationsanleitung-fehlt</div>
+                <div class="u-repo"><span class="rg">&#9635;</span>asyar-contacts-macos</div>
+                <div class="u-sub">
+                  Die Installationsanleitung fehlt<br />im README &ndash; bitte&hellip;
+                </div>
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 4px; align-items: flex-end">
+                <span class="bbox">CLAUDE</span>
+                <span class="bbox">PLANUNG</span>
+                <span class="elapsed">1h 02m</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- ActionBar 90px -->
+          <div
+            style="
+              position: absolute;
+              left: 0;
+              right: 0;
+              bottom: 0;
+              height: 90px;
+              box-sizing: border-box;
+              padding: 10px 10px 34px;
+              display: flex;
+              gap: 10px;
+              align-items: flex-start;
+              border-top: 1px solid var(--line);
+              background: var(--panel);
+            "
+          >
+            <span
+              style="
+                flex: 1;
+                min-height: 44px;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                border: 1px solid var(--amber);
+                color: var(--amber);
+                font-size: var(--fs-meta);
+                letter-spacing: 0.12em;
+                border-radius: 2px;
+                box-shadow: inset 0 0 18px -10px var(--amber);
+              "
+              >+ NEUE AUFGABE</span
+            >
+            <span
+              style="
+                min-height: 44px;
+                padding: 0 16px;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                border: 1px solid var(--line-bright);
+                color: var(--ink);
+                font-size: var(--fs-meta);
+                letter-spacing: 0.12em;
+                border-radius: 2px;
+              "
+              >REPOS</span
+            >
+          </div>
+        </div>
+
+        <!-- MASSGUTTER: band stack aligns pixel-for-pixel with the phone next to it -->
+        <div
+          style="width: 158px; flex: none; color: var(--ink); display: flex; flex-direction: column"
+        >
+          <div
+            style="
+              height: 59px;
+              box-sizing: border-box;
+              display: flex;
+              align-items: center;
+              gap: 6px;
+              border-top: 1px dashed var(--line-bright);
+            "
+          >
+            <b class="dim">59</b
+            ><span style="font-size: 10px; color: var(--muted); line-height: 1.4"
+              >Safe&nbsp;Area</span
+            >
+          </div>
+          <div
+            style="
+              height: 64px;
+              box-sizing: border-box;
+              display: flex;
+              align-items: center;
+              gap: 6px;
+              border-top: 1px dashed var(--line-bright);
+            "
+          >
+            <b class="dim">64</b
+            ><span style="font-size: 10px; color: var(--muted); line-height: 1.4"
+              >TopBar<br />10+44+10</span
+            >
+          </div>
+          <div
+            style="
+              height: 10px;
+              box-sizing: border-box;
+              display: flex;
+              align-items: center;
+              gap: 6px;
+              border-top: 1px dashed var(--red);
+            "
+          >
+            <b class="dim" style="color: var(--red)">10</b
+            ><span style="font-size: 10px; color: var(--red)">gap</span>
+          </div>
+          <div
+            style="
+              height: 48px;
+              box-sizing: border-box;
+              display: flex;
+              align-items: center;
+              gap: 6px;
+              border-top: 1px dashed var(--line-bright);
+            "
+          >
+            <b class="dim">48</b
+            ><span style="font-size: 10px; color: var(--muted); line-height: 1.4"
+              >Repo-Rail<br />2+44+2</span
+            >
+          </div>
+          <div
+            style="
+              height: 10px;
+              box-sizing: border-box;
+              display: flex;
+              align-items: center;
+              gap: 6px;
+              border-top: 1px dashed var(--red);
+            "
+          >
+            <b class="dim" style="color: var(--red)">10</b
+            ><span style="font-size: 10px; color: var(--red)">gap</span>
+          </div>
+          <div
+            style="
+              height: 46px;
+              box-sizing: border-box;
+              display: flex;
+              align-items: center;
+              gap: 6px;
+              border-top: 1px dashed var(--line-bright);
+            "
+          >
+            <b class="dim">46</b
+            ><span style="font-size: 10px; color: var(--muted); line-height: 1.4"
+              >Lens-Tabs<br />44+Linien</span
+            >
+          </div>
+          <div
+            style="
+              height: 605px;
+              box-sizing: border-box;
+              border-top: 2px solid var(--amber);
+              padding-top: 8px;
+              display: flex;
+              flex-direction: column;
+              gap: 10px;
+            "
+          >
+            <div style="display: flex; align-items: flex-start; gap: 6px">
+              <b class="dim" style="font-size: 13px">605</b>
+              <span style="font-size: 10px; color: var(--muted); line-height: 1.5"
+                >Liste<br /><b style="color: var(--ink-bright); font-size: 11px">5,1 Karten</b
+                ><br />je ~119px</span
+              >
+            </div>
+            <div
+              style="border: 1px solid var(--red); padding: 8px; background: var(--wash-attention)"
+            >
+              <div
+                style="
+                  font-size: 10px;
+                  letter-spacing: 0.1em;
+                  text-transform: uppercase;
+                  color: var(--red);
+                  font-weight: 700;
+                  line-height: 1.4;
+                "
+              >
+                Chrome<br />237&nbsp;px
+              </div>
+              <div style="font-size: 10px; color: var(--ink); line-height: 1.55; margin-top: 6px">
+                25,4&nbsp;% des Schirms,<br />bevor die erste Karte<br />beginnt.<br /><br />Mit
+                ActionBar:<br /><b style="font-size: 11px">35,1&nbsp;%</b>
+              </div>
+            </div>
+            <div
+              style="border: 1px solid var(--line-bright); padding: 8px; background: var(--panel)"
+            >
+              <div style="font-size: 10px; color: var(--ink); line-height: 1.55">
+                Die 2&times;10&nbsp;px Luft<br />kommen aus<br /><code style="color: var(--amber)"
+                  >.shell.mobile<br />{ gap: 10px }</code
+                ><br />&mdash; das System trennt<br />mit Haarlinien, nicht<br />mit Abst&auml;nden.
+              </div>
+            </div>
+          </div>
+          <div
+            style="
+              height: 90px;
+              box-sizing: border-box;
+              display: flex;
+              align-items: center;
+              gap: 6px;
+              border-top: 1px dashed var(--line-bright);
+            "
+          >
+            <b class="dim">90</b
+            ><span style="font-size: 10px; color: var(--muted); line-height: 1.4"
+              >ActionBar<br />56+34&nbsp;Safe</span
+            >
+          </div>
+        </div>
+      </div>
+    </x-dc>
+  </body>
+</html>

@@ -58,6 +58,7 @@
     touch = false,
     limits = null,
     onsettings,
+    ondonelens,
     onusage,
     onhalt,
     update = null,
@@ -92,6 +93,9 @@
     touch?: boolean;
     limits?: UsageLimits | null;
     onsettings?: () => void;
+    /** Phone only: opens the Done lens from the gear menu, since its segment left the
+     *  lens row (D11, docs/design/mobile-herd). */
+    ondonelens?: () => void;
     onusage?: () => void;
     onhalt?: () => void;
     update?: UpdateStatus | null;
@@ -925,6 +929,7 @@
          row lives in that sheet. -->
     <TopBarGear
       {mobile}
+      {ondonelens}
       {haltable}
       {gearPipTier}
       {armed}
@@ -1095,7 +1100,11 @@
     flex-wrap: wrap;
     gap: 7px;
     row-gap: 8px;
-    padding: 10px 12px;
+    /* 5px vertical, not 10: every control in this row already carries its own 44px touch floor,
+       so the padding was buying air, not reachability — and on the list screen it was air at the
+       top of the screen, the scarcest space there is (D10, docs/design/mobile-herd). Horizontal
+       padding is unchanged. */
+    padding: 5px 12px;
     /* full-bleed like the herd panel in flow mode: drop the side borders +
        brackets and stretch into the shell's base edge padding
        (--mobile-shell-pad, shared with .shell.mobile in +page.svelte; with a

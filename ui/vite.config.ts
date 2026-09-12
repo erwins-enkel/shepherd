@@ -95,7 +95,10 @@ export default defineConfig({
         test: {
           name: "browser",
           include: ["src/**/*.browser.test.ts"],
-          exclude: ["src/lib/components/BacklogView.browser.test.ts"],
+          exclude: [
+            "src/lib/components/BacklogView.browser.test.ts",
+            "src/lib/components/touch-targets.browser.test.ts",
+          ],
           // CI memory headroom (#1261 OOM, exit 137): on a many-core self-hosted
           // runner vitest defaults maxWorkers to nproc, so the browser project
           // spawns ~nproc concurrent chromium pages AND overlaps the full-parallel
@@ -132,7 +135,11 @@ export default defineConfig({
         extends: true,
         test: {
           name: "browser-touch",
-          include: ["src/lib/components/BacklogView.browser.test.ts"],
+          include: [
+            "src/lib/components/BacklogView.browser.test.ts",
+            // Needs the real coarse-pointer media query to resolve (docs/design/mobile-herd).
+            "src/lib/components/touch-targets.browser.test.ts",
+          ],
           // Keep native touch capabilities in a separate context: disabling CDP touch
           // emulation does not restore Chromium's desktop pointer/hover media queries.
           maxWorkers: 1,

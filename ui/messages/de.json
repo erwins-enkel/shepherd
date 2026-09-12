@@ -3986,5 +3986,11 @@
   "issuepeek_unavailable": "Dieses Issue konnte nicht geladen werden.",
   "feat_card_issue_peek_title": "Ein Issue direkt von der Session-Karte ansehen",
   "feat_card_issue_peek_body": "Der #1234-Chip nannte das Issue, für das eine Session gestartet wurde, verriet aber nichts darüber — wer eine Nummer einer Aufgabe zuordnen wollte, musste weiterhin zur Forge. Ein Zeigen auf den Chip öffnet jetzt eine kleine Vorschau: Titel, Labels, Autor und der Anfang der Beschreibung. Ein Klick öffnet das Issue in einem neuen Tab auf der Forge; auf dem Touchscreen zeigt der erste Tipp die Vorschau, der zweite öffnet sie.",
-  "coldresume_why": "Der Chip steht auf der Karte und nicht erst in der Session, weil genau das Fortsetzen die Kosten auslöst: Siehst du den Preis schon hier, kannst du stattdessen eine noch warme Session wählen, die Aufgabe an eine frische übergeben oder diese bewusst fortsetzen — im Wissen, was der erste Zug kostet."
+  "coldresume_why": "Der Chip steht auf der Karte und nicht erst in der Session, weil genau das Fortsetzen die Kosten auslöst: Siehst du den Preis schon hier, kannst du stattdessen eine noch warme Session wählen, die Aufgabe an eine frische übergeben oder diese bewusst fortsetzen — im Wissen, was der erste Zug kostet.",
+  "repos_sheet_title": "Repos",
+  "repos_sheet_all": "Alle Repos",
+  "repos_sheet_backlog": "Backlog öffnen",
+  "gearmenu_done_lens": "Fertige Sitzungen",
+  "feat_mobile_thumb_nav_title": "Telefon-Navigation liegt jetzt im Daumen",
+  "feat_mobile_thumb_nav_body": "Auf dem Telefon sitzen die Lens-Segmente jetzt unten neben „Neue Aufgabe\" und „Repos\", statt oben am Rand, wo sie beim Scrollen verschwanden. Die Repo-Leiste ist ins Repos-Sheet gezogen, der Fertig-Lens ins Zahnrad-Menü. Zusammen sind das rund 124px — etwa zwei Sitzungen mehr auf einen Blick. Die Badges auf den Karten sind auf Touch nur noch Anzeigen; ihre Aktionen liegen auf dem Sitzungs-Screen, in einer Größe, die man trifft."
 }

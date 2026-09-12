@@ -9,6 +9,7 @@
   // `tip` (Herd card only): swap the native title for the styled statusTip tooltip.
   let {
     sessionId,
+    interactive = true,
     planPhase,
     git,
     selected,
@@ -16,6 +17,11 @@
     tip = false,
   }: {
     sessionId: string;
+    // D4 (docs/design/mobile-herd): on a coarse pointer this badge is a READ-ONLY readout,
+    // not a tap target. Its ~15px box cannot meet iOS HIG 44x44, and five of them stack in one
+    // card — inflating them would push the card past 200px. The action moves to the detail
+    // screen, which the card tap already opens. Default true leaves desktop untouched.
+    interactive?: boolean;
     planPhase: Session["planPhase"];
     git?: GitState;
     selected: boolean;
@@ -63,7 +69,34 @@
 </script>
 
 {#if total > 0}
-  {#if drifted}
+  {#if !interactive}
+    <!-- D4: coarse pointer — read-only readout; the queue panel opens from the detail screen. -->
+    <span
+      class="queue-badge"
+      class:queue-badge--stale={drifted}
+      style={drifted ? undefined : `--queue-pct: ${pct}%`}
+      role="img"
+      aria-label={drifted
+        ? m.queuebadge_stale_aria({ total })
+        : m.queuebadge_aria({ resolved, total })}
+      title={tip
+        ? undefined
+        : drifted
+          ? m.queuebadge_stale_title({ total })
+          : m.queuebadge_title({ resolved, total })}
+      use:statusTip={tip
+        ? {
+            text: drifted
+              ? m.queuebadge_stale_title({ total })
+              : m.queuebadge_title({ resolved, total }),
+          }
+        : null}
+    >
+      <span class="queue-label"
+        >{drifted ? `⚠ ${total}` : m.queuebadge_label({ resolved, total })}</span
+      >
+    </span>
+  {:else if drifted}
     <button
       type="button"
       class="queue-badge queue-badge--stale"

@@ -4,6 +4,8 @@
   import LanguageSwitcher from "$lib/components/LanguageSwitcher.svelte";
   import ThemeIcon from "$lib/components/ThemeIcon.svelte";
   import { REPO, REPO_URL, sha, version, commitUrl } from "$lib/build-info";
+  import HerdSegRow from "$lib/components/herd/HerdSegRow.svelte";
+  import type { HerdFilter } from "$lib/components/herd-partition";
 
   // Two explicit theme choices; "system" stays the implicit default (followed on
   // first load + on OS changes until the operator picks one). The old third slot
@@ -22,34 +24,60 @@
     onbacklog,
     mobile = false,
     desktopOnly = false,
+    lens = false,
+    // Read and written via `bind:filter` on <HerdSegRow> below. Prettier collapses that to the
+    // shorthand, which fallow's prop analysis does not follow — hence the suppression.
+    // fallow-ignore-next-line unused-component-props
+    filter = $bindable<HerdFilter>("next"),
+    statusFilter = null,
+    onstatusfilter,
   }: {
     onnew: () => void;
     onbacklog?: () => void;
     mobile?: boolean;
     desktopOnly?: boolean;
+    /** Turns on this bar's upper rank: the herd lens segments (D10, docs/design/mobile-herd),
+     *  so every control the operator taps sits in the thumb zone. Set only by the phone list
+     *  screen; the default keeps the segments off every other mount of this bar. */
+    lens?: boolean;
+    /** Bound by the phone list screen when `lens` is on. The default is inert: with `lens` false
+     *  the segments never render, so nothing reads or writes it. */
+    filter?: HerdFilter;
+    statusFilter?: "running" | "idle" | "blocked" | null;
+    onstatusfilter?: (status: "running" | "idle" | "blocked" | null) => void;
   } = $props();
+
+  // The lens rank renders only where it belongs: the phone list screen.
+  const showLens = $derived(mobile && lens);
 </script>
 
 {#if !(desktopOnly && mobile)}
   <div class="actions" class:mobile>
-    <button
-      class="btn primary"
-      class:tip={!mobile}
-      type="button"
-      onclick={onnew}
-      data-tip={!mobile ? m.actionbar_shortcut_hint({ key: "N" }) : undefined}
-      aria-keyshortcuts={!mobile ? "n" : undefined}>{m.actionbar_new_task()}</button
-    >
-    {#if onbacklog}
+    {#if showLens}
+      <!-- Upper rank: the herd lens. Lives here rather than atop the list (D10) — it is the
+           most-tapped control on the screen and belongs within thumb reach. -->
+      <HerdSegRow bind:filter placement="bottom" {statusFilter} {onstatusfilter} />
+    {/if}
+    <div class="rank">
       <button
-        class="btn backlog"
+        class="btn primary"
         class:tip={!mobile}
         type="button"
-        onclick={onbacklog}
-        data-tip={!mobile ? m.actionbar_shortcut_hint({ key: "R" }) : undefined}
-        aria-keyshortcuts={!mobile ? "r" : undefined}>{m.actionbar_backlog()}</button
+        onclick={onnew}
+        data-tip={!mobile ? m.actionbar_shortcut_hint({ key: "N" }) : undefined}
+        aria-keyshortcuts={!mobile ? "n" : undefined}>{m.actionbar_new_task()}</button
       >
-    {/if}
+      {#if onbacklog}
+        <button
+          class="btn backlog"
+          class:tip={!mobile}
+          type="button"
+          onclick={onbacklog}
+          data-tip={!mobile ? m.actionbar_shortcut_hint({ key: "R" }) : undefined}
+          aria-keyshortcuts={!mobile ? "r" : undefined}>{m.actionbar_backlog()}</button
+        >
+      {/if}
+    </div>
     {#if !mobile}
       <div class="meta">
         <a
@@ -237,7 +265,14 @@
      came unstuck and scrolled away on long lists. The list reserves matching
      padding-bottom (see .shell.mobile.list) so no row hides behind the bar.
      Side + bottom insets clear the gesture-nav / landscape-notch safe areas. */
+  /* Two ranks on the phone (D10, docs/design/mobile-herd): the lens segments on top, the
+     actions below. --mobile-actionbar-h in app.css encodes exactly this geometry (2 x hit +
+     rowgap + top pad + borders) and the list reserves it as padding-bottom, so the two cannot
+     drift apart. */
   .actions.mobile {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--mobile-actionbar-rowgap);
     position: fixed;
     left: 0;
     right: 0;
@@ -247,6 +282,14 @@
     padding-left: max(var(--mobile-actionbar-pad), env(safe-area-inset-left));
     padding-right: max(var(--mobile-actionbar-pad), env(safe-area-inset-right));
     padding-bottom: max(var(--mobile-actionbar-pad), env(safe-area-inset-bottom));
+  }
+  .rank {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+  }
+  .actions:not(.mobile) .rank {
+    display: contents;
   }
   .actions.mobile .btn.primary {
     flex: 1;

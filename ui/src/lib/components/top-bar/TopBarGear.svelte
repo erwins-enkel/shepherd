@@ -29,6 +29,7 @@
     clickHalt,
     closeMenu,
     chooseSettings,
+    ondonelens,
     chooseUsage,
     learningsPresent,
     learnings,
@@ -65,6 +66,9 @@
     /** Closes the menu AND disarms any armed e-stop — every close path must use this. */
     closeMenu: () => void;
     chooseSettings: () => void;
+    /** Phone only: opens the Done lens, whose segment left the lens row (D11,
+     *  docs/design/mobile-herd). Absent on desktop, where the lens strip still carries it. */
+    ondonelens?: () => void;
     chooseUsage: () => void;
     learningsPresent: boolean;
     learnings: number;
@@ -178,6 +182,19 @@
           metaFaint
           onclick={chooseSettings}
         />
+        {#if ondonelens}
+          <!-- D11 (docs/design/mobile-herd): the Done lens lost its segment when the phone's lens
+               row shrank to four, which is what freed the width for REPOS and "New task" to share
+               one bottom bar. The lens itself is untouched — only its entry point is here now. -->
+          <GearRow
+            glyph="✓"
+            label={m.gearmenu_done_lens()}
+            onclick={() => {
+              closeMenu();
+              ondonelens?.();
+            }}
+          />
+        {/if}
         <GearRow glyph="↗" label={m.topbar_docs()} href={DOCS_URL} onclick={closeMenu} />
       </div>
 

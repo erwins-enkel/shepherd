@@ -228,6 +228,16 @@
       min-height: 44px;
     }
   }
+  /* D6 (docs/design/mobile-herd): the 24px WIDTH above is a real iOS HIG 44x44 miss on the narrow
+     axis. The budget objection only binds on a fold cover: at 430px the whole bar needs ~320 of
+     410px with four 44px tallies, so the floor is affordable there and only there. Below 360px the
+     documented 24px compromise stands — four 44px targets genuinely break that line, and 24px still
+     clears the WCAG 2.5.8 (AA) minimum. That exception is named in touch-targets.browser.test.ts. */
+  @media (pointer: coarse) and (min-width: 360px) {
+    .ctally {
+      min-inline-size: 44px;
+    }
+  }
   .ctally.active {
     background: var(--color-inset);
     border-color: var(--color-line-bright);

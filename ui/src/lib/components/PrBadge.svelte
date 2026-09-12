@@ -7,9 +7,17 @@
   import PrBadgeMenu from "./PrBadgeMenu.svelte";
   import PrReviewRequestPopover from "./PrReviewRequestPopover.svelte";
 
-  let { git, sessionId }: { git?: GitState; sessionId?: string } = $props();
+  // D4 (docs/design/mobile-herd): on a coarse pointer this badge is a READ-ONLY readout,
+  // not a tap target. Its ~15px box cannot meet iOS HIG 44x44, and five of them stack in one
+  // card — inflating them would push the card past 200px. The action moves to the detail
+  // screen, which the card tap already opens. Default true leaves desktop untouched.
+  let {
+    git,
+    sessionId,
+    interactive = true,
+  }: { git?: GitState; sessionId?: string; interactive?: boolean } = $props();
   const label = $derived(prBadgeLabel(git));
-  const actionable = $derived(!!sessionId && git?.state === "open" && !!git.number);
+  const actionable = $derived(interactive && !!sessionId && git?.state === "open" && !!git.number);
   const canToggleDraft = $derived(git?.kind === "github" || git?.kind === "gitea");
   const canRequestReview = $derived(git?.kind === "github");
   // CI only matters on an open PR; `none` means no checks reported.

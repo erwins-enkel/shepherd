@@ -1,0 +1,145 @@
+{
+  "pages": [
+    {
+      "id": "page-1",
+      "name": "Entwurf"
+    },
+    {
+      "id": "page-2",
+      "name": "Varianten B1–B3"
+    },
+    {
+      "id": "page-3",
+      "name": "Grundlagen"
+    }
+  ],
+  "artboards": [
+    {
+      "file": "Main.dc.html",
+      "x": 0,
+      "y": 0,
+      "w": 640,
+      "h": 1000,
+      "title": "Entwurf — Liste",
+      "page": "page-1"
+    },
+    {
+      "file": "ReposSheet.dc.html",
+      "x": 760,
+      "y": 0,
+      "w": 640,
+      "h": 1000,
+      "title": "Entwurf — REPOS-Sheet",
+      "page": "page-1"
+    },
+    {
+      "file": "B1EineLeiste.dc.html",
+      "x": 0,
+      "y": 2200,
+      "w": 640,
+      "h": 1000,
+      "title": "B1 — Eine Leiste",
+      "page": "page-2"
+    },
+    {
+      "file": "B2ZweiRaenge.dc.html",
+      "x": 760,
+      "y": 2200,
+      "w": 640,
+      "h": 1000,
+      "title": "B2 — Zwei Ränge",
+      "page": "page-2"
+    },
+    {
+      "file": "B3RepoRail.dc.html",
+      "x": 1520,
+      "y": 2200,
+      "w": 640,
+      "h": 1000,
+      "title": "B3 — Repo-Rail zurück",
+      "page": "page-2"
+    },
+    {
+      "file": "Ist.dc.html",
+      "x": 0,
+      "y": 4400,
+      "w": 640,
+      "h": 1000,
+      "title": "Ist — 430×932",
+      "page": "page-3"
+    },
+    {
+      "file": "RichtungA.dc.html",
+      "x": 760,
+      "y": 4400,
+      "w": 640,
+      "h": 1000,
+      "title": "A — Dichte-Pass",
+      "page": "page-3"
+    },
+    {
+      "file": "RichtungB.dc.html",
+      "x": 1520,
+      "y": 4400,
+      "w": 640,
+      "h": 1000,
+      "title": "B — Daumenzone",
+      "page": "page-3"
+    },
+    {
+      "file": "TouchAudit.dc.html",
+      "x": 0,
+      "y": 5560,
+      "w": 1000,
+      "h": 800,
+      "title": "Touch-Audit",
+      "page": "page-3"
+    }
+  ],
+  "annotations": [
+    {
+      "id": "e-kopf",
+      "page": "page-1",
+      "x": 0,
+      "y": -300,
+      "w": 1400,
+      "text": "ENTWURF — TopBar und Daumenzone aus B2, der „ALLE\"-Chip raus.\n\nTopBar: Wortmarke, die vier Status-Tallies (je 44×44), Verbindungspunkt, Zahnrad — sonst nichts. Daumenzone: vier Lens-Tabs oben, „+ NEUE AUFGABE\" mit voller Beschriftung und REPOS darunter.\n\n7,0 Karten statt 5,1. Die TopBar ist nur noch zu 78 % belegt (320 von 410 px) statt zu 97 % — der Konflikt, für den ich den gefalteten Tally-Knopf vorgeschlagen hatte, löst sich damit von selbst."
+    },
+    {
+      "id": "e-alle",
+      "page": "page-1",
+      "x": 0,
+      "y": -150,
+      "w": 620,
+      "text": "WICHTIG: die beiden „Alle\" waren nicht dasselbe.\nDer Chip oben hieß „ALLE\", meinte aber ALLE REPOS (Repo-Filter). Der Tab unten heißt „Alle\" und meint ALLE SESSIONS (Lens). Zwei verschiedene Filter — das verwechselbare Label war mein Fehler, nicht deiner.\n\nDeshalb ist die Funktion nicht gelöscht, sondern umgezogen: siehe Artboard rechts."
+    },
+    {
+      "id": "e-sheet",
+      "page": "page-1",
+      "x": 760,
+      "y": -150,
+      "w": 620,
+      "text": "Ein Tap auf REPOS in der Daumenzone öffnet das Sheet: Repo-Filter mit Zählern und Statuspunkten, darunter der Backlog-Einstieg. Damit heißt der Knopf endlich, was er tut — und der Repo-Filter liegt jetzt unten im Daumen statt oben am Bildschirmrand."
+    },
+    {
+      "id": "v-kopf",
+      "page": "page-2",
+      "x": 0,
+      "y": 2070,
+      "w": 1400,
+      "text": "VARIANTEN — die drei Feinschnitte von B, aus denen der Entwurf auf Seite 1 hervorgegangen ist. Gewählt wurde B2 (zwei Ränge), zusätzlich ohne den „ALLE\"-Chip in der TopBar.\n\nB3 (Repo-Rail zurück) bleibt der Gegenentwurf für den Fall, dass die Repos doch dauerhaft sichtbar sein sollen statt hinter einem Tap."
+    },
+    {
+      "id": "g-kopf",
+      "page": "page-3",
+      "x": 0,
+      "y": 4070,
+      "w": 2000,
+      "text": "GRUNDLAGEN — Ist-Zustand, die erste Gegenüberstellung A gegen B, und das richtungsunabhängige Touch-Audit, das Stufe 1 der Umsetzung begründet.\n\nDer Kernbefund bleibt: die 44px-Touch-Untergrenze wurde durch höhere Boxen erfüllt statt durch Inhalt, der die Höhe rechtfertigt — und dort, wo sie Platz gekostet hätte, gar nicht."
+    }
+  ],
+  "launch": {
+    "view": "canvas",
+    "page": "page-1"
+  }
+}

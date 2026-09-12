@@ -18,7 +18,13 @@
   // Generated codegen output (gen-herdr-types.ts, from the vendored herdr
   // protocol schema): its ~170 exports are intentionally emitted for the whole
   // protocol surface, not dead code — exclude from all fallow analyses.
-  "ignorePatterns": ["src/generated/**"],
+  //
+  // docs/design/** holds design HANDOFF material, not source: the `*.dc.html` artboards under
+  // docs/design/mobile-herd are Design-Component files whose mandatory
+  // `<script src="./support.js">` head line is replaced by an inline runtime at render time — the
+  // file is never resolved, so fallow reports one unresolved import per artboard. Reference
+  // material for humans, analysed by nothing.
+  "ignorePatterns": ["src/generated/**", "docs/design/**"],
 
   "entry": [
     "src/index.ts",
@@ -398,6 +404,22 @@
         "maxCognitive": 64,
         "maxCrap": 20000,
         "reason": "Inline hold-reason subline + one-click CTA (#1561) adds ~+3 cognitive to the already-large row template (58 -> 61). The CTA block was extracted into the holdSubline snippet, which recovered cyclomatic back under the Tier-1 40 bar; the residual +1 over the 60 cognitive bar is genuine new-affordance cost. The cold-resume chip (#2042) adds one more independent `{#if}` in the meta row (62 -> 64), cyclomatic unchanged at 39: the whole point of that feature is to warn on the surface where the operator CHOOSES a session, so the branch cannot live anywhere else. Keep capped until UnitRow is split into per-zone sub-components (#855), like the other large row templates."
+      },
+      {
+        "files": ["ui/src/lib/components/unit-row/UnitRowRight.svelte"],
+        "functions": ["<template>"],
+        "maxCyclomatic": 45,
+        "maxCognitive": 60,
+        "maxCrap": 20000,
+        "reason": "The phone-list rework (docs/design/mobile-herd) adds two branches to the badge rail: the D4 read-only twin of the preview badge, and the .u-badges wrapper the touch cap needs to reach the badges without also catching the clock. That takes cyclomatic 39 -> 41, one over the Tier-1 40 bar; cognitive stays well under (53). The template is a flat one-{#if}-per-badge dispatcher, the same shape as AppOverlays below — each branch is independent and idiomatic. Keep capped until the rail splits into passive/actionable child components (#855)."
+      },
+      {
+        "files": ["ui/src/routes/+page.svelte"],
+        "functions": ["<template>"],
+        "maxCyclomatic": 45,
+        "maxCognitive": 60,
+        "maxCrap": 20000,
+        "reason": "The phone-list rework (docs/design/mobile-herd) adds two branches to the page shell: the repo rail becomes desktop-only chrome ({#if !mobile.current}) and the REPOS sheet mounts ({#if showRepos}). That takes the template just over the Tier-1 40 bar; cognitive stays under (52). Note this partially gives back #855's 78/96 -> 32/45 win, so the sheet mount belongs in page/AppOverlays with the other overlays — tracked in #855 rather than done here, because threading repoChips/repoFilter through the dispatcher is its own change."
       },
       {
         "files": ["ui/src/lib/components/page/AppOverlays.svelte"],

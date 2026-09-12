@@ -1,0 +1,1040 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <script src="./support.js"></script>
+  </head>
+  <body>
+    <x-dc>
+      <helmet>
+        <link
+          rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&display=swap"
+        />
+        <style>
+          body {
+            margin: 0;
+          }
+          a {
+            color: #2f6fb0;
+          }
+          a:hover {
+            color: #1c5590;
+          }
+          .sheet {
+            --bg: #e7ebe9;
+            --glow: #f3f6f4;
+            --panel: #f7f9f8;
+            --panel-2: #eef1ef;
+            --head: #eef2f0;
+            --inset: #f3f6f4;
+            --hover: #e4e9e6;
+            --sel: #d2dbd6;
+            --line: #d2dad6;
+            --line-bright: #b9c4bf;
+            --ink: #2b3633;
+            --ink-bright: #131a18;
+            --muted: #5a6862;
+            --faint: #93a09a;
+            --amber: #a8680a;
+            --green: #1d8a5d;
+            --red: #c2363b;
+            --blue: #2f6fb0;
+            --slate: #6b7873;
+            --wash-attention: oklch(0.965 0.016 23);
+            --scrim: rgba(20, 28, 25, 0.42);
+            --fs-micro: 10px;
+            --fs-meta: 11px;
+            --fs-base: 13px;
+            --fs-lg: 16px;
+            font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+            letter-spacing: 0.02em;
+          }
+          .phone {
+            background:
+              radial-gradient(120% 100% at 50% -10%, var(--glow) 0%, var(--bg) 60%), var(--bg);
+          }
+          .name {
+            color: var(--ink-bright);
+            font-weight: 500;
+            letter-spacing: 0.04em;
+            font-size: var(--fs-base);
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+          }
+          .u-repo {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            margin-top: 3px;
+            color: var(--ink);
+            font-size: var(--fs-meta);
+            letter-spacing: 0.04em;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+          }
+          .rg {
+            color: var(--muted);
+            font-size: var(--fs-micro);
+          }
+          .u-sub {
+            color: var(--muted);
+            margin-top: 3px;
+            font-size: var(--fs-base);
+            line-height: 1.35;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+          }
+          .bbox {
+            font-size: var(--fs-micro);
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            padding: 1px 6px;
+            border: 1px solid var(--line);
+            border-radius: 2px;
+            white-space: nowrap;
+            color: var(--muted);
+          }
+          .more {
+            font-size: var(--fs-micro);
+            letter-spacing: 0.08em;
+            color: var(--faint);
+            white-space: nowrap;
+          }
+          .elapsed {
+            color: var(--ink);
+            font-variant-numeric: tabular-nums;
+            letter-spacing: 0.08em;
+            font-size: var(--fs-meta);
+          }
+          .meta {
+            color: var(--muted);
+            font-size: var(--fs-meta);
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+          }
+          .seg {
+            width: 10px;
+            height: 3px;
+            border-radius: 2px;
+            background: var(--line);
+          }
+          .seg.on {
+            background: var(--muted);
+          }
+          .dim {
+            color: var(--amber);
+            font-size: 10px;
+            letter-spacing: 0.08em;
+            font-variant-numeric: tabular-nums;
+          }
+          .card {
+            position: relative;
+            display: grid;
+            grid-template-columns: 16px 1fr auto;
+            column-gap: 12px;
+            row-gap: 3px;
+            padding: 9px 13px 9px 14px;
+            border: 1px solid transparent;
+          }
+          .rule {
+            position: absolute;
+            left: 0;
+            top: 7px;
+            bottom: 7px;
+            width: 1px;
+            background: var(--slate);
+          }
+          .pipring {
+            width: 9px;
+            height: 9px;
+            border-radius: 50%;
+            box-shadow: inset 0 0 0 2px var(--slate);
+            margin-top: 5px;
+          }
+          .pipdot {
+            width: 9px;
+            height: 9px;
+            border-radius: 50%;
+            background: var(--slate);
+            margin-top: 5px;
+          }
+          .right {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            align-items: flex-end;
+          }
+          .foot {
+            grid-column: 2 / span 2;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-top: 3px;
+            min-width: 0;
+          }
+          .win {
+            display: inline-flex;
+            gap: 3px;
+            margin-left: auto;
+            flex: none;
+          }
+        </style>
+      </helmet>
+
+      <div
+        class="sheet"
+        style="
+          width: 640px;
+          height: 1000px;
+          background: #dfe3e1;
+          padding: 20px;
+          box-sizing: border-box;
+          display: flex;
+          gap: 16px;
+        "
+      >
+        <div
+          class="phone"
+          style="
+            width: 430px;
+            height: 932px;
+            flex: none;
+            position: relative;
+            overflow: hidden;
+            border: 1px solid var(--line-bright);
+            box-sizing: border-box;
+            color: var(--ink);
+            font-size: var(--fs-base);
+          "
+        >
+          <div style="height: 59px; background: var(--bg)"></div>
+
+          <div
+            style="
+              height: 54px;
+              box-sizing: border-box;
+              padding: 5px 10px;
+              display: flex;
+              align-items: center;
+              gap: 6px;
+              border-top: 1px solid var(--line);
+              border-bottom: 1px solid var(--line);
+              background: var(--bg);
+            "
+          >
+            <div
+              style="
+                font-weight: 700;
+                letter-spacing: 0.12em;
+                color: var(--ink-bright);
+                font-size: var(--fs-base);
+                flex: none;
+              "
+            >
+              SHEP<b style="color: var(--amber)">HERD</b>
+            </div>
+            <div style="width: 1px; height: 20px; background: var(--line-bright); flex: none"></div>
+            <div
+              style="
+                display: flex;
+                align-items: center;
+                font-size: var(--fs-meta);
+                font-variant-numeric: tabular-nums;
+                color: var(--ink);
+                flex: none;
+              "
+            >
+              <span
+                style="
+                  min-width: 44px;
+                  min-height: 44px;
+                  display: inline-flex;
+                  align-items: center;
+                  justify-content: center;
+                  gap: 4px;
+                "
+                >16</span
+              >
+              <span
+                style="
+                  min-width: 44px;
+                  min-height: 44px;
+                  display: inline-flex;
+                  align-items: center;
+                  justify-content: center;
+                  gap: 4px;
+                "
+                ><span style="color: var(--amber); font-size: var(--fs-micro)">&#9679;</span>0</span
+              >
+              <span
+                style="
+                  min-width: 44px;
+                  min-height: 44px;
+                  display: inline-flex;
+                  align-items: center;
+                  justify-content: center;
+                  gap: 4px;
+                "
+                >2</span
+              >
+              <span
+                style="
+                  min-width: 44px;
+                  min-height: 44px;
+                  display: inline-flex;
+                  align-items: center;
+                  justify-content: center;
+                  gap: 4px;
+                  border: 1px solid var(--red);
+                  border-radius: 2px;
+                "
+                ><span style="color: var(--red); font-size: var(--fs-micro)">!</span>1</span
+              >
+            </div>
+            <div style="flex: 1"></div>
+            <span style="color: var(--ink-bright); font-size: var(--fs-micro); flex: none"
+              >&#9679;</span
+            >
+            <span
+              style="
+                min-width: 44px;
+                min-height: 44px;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                color: var(--ink);
+                font-size: 20px;
+                flex: none;
+              "
+              >&#9881;</span
+            >
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 2px">
+            <div class="card" style="background: var(--sel); border-color: var(--line-bright)">
+              <span class="rule" style="width: 3px"></span><span class="pipring"></span>
+              <div style="min-width: 0">
+                <div class="name">feat/313-outlook-explicit-mailbox</div>
+                <div class="u-repo"><span class="rg">&#9635;</span>CalendarSync</div>
+                <div class="u-sub">Ja. Genau jetzt ist der richtige Zeitpunkt&hellip;</div>
+              </div>
+              <div class="right">
+                <span class="bbox">CODEX</span><span class="bbox">PR #314</span>
+              </div>
+              <div class="foot">
+                <span class="meta">TASK-754 &middot; GPT-5.6 Sol &middot; Hoch</span
+                ><span class="elapsed" style="flex: none">52d 12h</span
+                ><span class="win"
+                  ><i class="seg on"></i><i class="seg on"></i><i class="seg on"></i
+                  ><i class="seg"></i><i class="seg"></i
+                ></span>
+              </div>
+            </div>
+
+            <div class="card">
+              <span class="rule"></span><span class="pipring"></span>
+              <div style="min-width: 0">
+                <div class="name">barboard-benoetigt-api-hermes</div>
+                <div class="u-repo"><span class="rg">&#9635;</span>barboard</div>
+                <div class="u-sub">Recap hat dies f&uuml;r Ihre Aufmerksamkeit&hellip;</div>
+              </div>
+              <div class="right">
+                <span class="bbox">CLAUDE</span><span class="bbox">PLANUNG</span>
+              </div>
+              <div class="foot">
+                <span class="meta">TASK-1000 &middot; Opus 5</span
+                ><span class="elapsed" style="flex: none">14d 14h</span
+                ><span class="win"
+                  ><i class="seg on"></i><i class="seg"></i><i class="seg"></i><i class="seg"></i
+                  ><i class="seg"></i
+                ></span>
+              </div>
+            </div>
+
+            <div class="card">
+              <span class="rule"></span><span class="pipring"></span>
+              <div style="min-width: 0">
+                <div class="name">leider-sehr-haeufig-plugin</div>
+                <div class="u-repo"><span class="rg">&#9635;</span>asyar-emoji-extension</div>
+                <div class="u-sub">Es ist leider sehr h&auml;ufig so, dass wenn&hellip;</div>
+              </div>
+              <div class="right">
+                <span class="bbox">CODEX</span><span class="bbox">PLANUNG</span>
+              </div>
+              <div class="foot">
+                <span class="meta">TASK-1030 &middot; GPT-5.6 Sol &middot; Hoch</span
+                ><span class="elapsed" style="flex: none">10d 04h</span
+                ><span class="win"
+                  ><i class="seg on"></i><i class="seg"></i><i class="seg"></i><i class="seg"></i
+                  ><i class="seg"></i
+                ></span>
+              </div>
+            </div>
+
+            <div class="card" style="background: var(--wash-attention)">
+              <span class="rule" style="background: var(--red)"></span>
+              <span
+                style="
+                  width: 16px;
+                  height: 16px;
+                  border-radius: 4px;
+                  background: color-mix(in srgb, var(--red) 88%, #000);
+                  color: #fff;
+                  font-weight: 800;
+                  font-size: var(--fs-base);
+                  display: inline-flex;
+                  align-items: center;
+                  justify-content: center;
+                  margin-top: 2px;
+                "
+                >!</span
+              >
+              <div style="min-width: 0">
+                <div class="name">werkstattbericht-redaktion</div>
+                <div class="u-repo"><span class="rg">&#9635;</span>media-bib-and-rendering</div>
+                <div class="u-sub" style="color: var(--red)">Wartet auf eine Men&uuml;auswahl.</div>
+              </div>
+              <div class="right">
+                <span class="bbox" style="border-color: var(--blue); color: var(--blue)"
+                  >VORSCHAU</span
+                ><span class="bbox">CLAUDE</span><span class="more">+1</span>
+              </div>
+              <div class="foot">
+                <span class="meta">TASK-1095 &middot; Opus 5</span
+                ><span class="elapsed" style="flex: none">7h 21m</span
+                ><span class="win"
+                  ><i class="seg on"></i><i class="seg"></i><i class="seg"></i><i class="seg"></i
+                  ><i class="seg"></i
+                ></span>
+              </div>
+            </div>
+
+            <div class="card">
+              <span class="rule"></span><span class="pipdot"></span>
+              <div style="min-width: 0">
+                <div class="name">webseiten-sicherheitscheck</div>
+                <div class="u-repo"><span class="rg">&#9635;</span>manufare-website</div>
+                <div class="u-sub">mach mal einen security-check f&uuml;r&hellip;</div>
+              </div>
+              <div class="right">
+                <span class="bbox">CLAUDE</span><span class="bbox">PLANUNG</span>
+              </div>
+              <div class="foot">
+                <span class="meta">TASK-1102 &middot; Fable 5.1</span
+                ><span class="elapsed" style="flex: none">2h 47m</span
+                ><span class="win"
+                  ><i class="seg"></i><i class="seg"></i><i class="seg"></i><i class="seg"></i
+                  ><i class="seg"></i
+                ></span>
+              </div>
+            </div>
+
+            <div class="card">
+              <span class="rule"></span><span class="pipdot"></span>
+              <div style="min-width: 0">
+                <div class="name">gpt-oss-installationsanleitung</div>
+                <div class="u-repo"><span class="rg">&#9635;</span>asyar-contacts-macos</div>
+                <div class="u-sub">Die Installationsanleitung fehlt im&hellip;</div>
+              </div>
+              <div class="right">
+                <span class="bbox">CLAUDE</span><span class="bbox">PLANUNG</span>
+              </div>
+              <div class="foot">
+                <span class="meta">TASK-1104 &middot; Opus 5</span
+                ><span class="elapsed" style="flex: none">1h 02m</span
+                ><span class="win"
+                  ><i class="seg"></i><i class="seg"></i><i class="seg"></i><i class="seg"></i
+                  ><i class="seg"></i
+                ></span>
+              </div>
+            </div>
+
+            <div class="card">
+              <span class="rule" style="background: var(--amber)"></span>
+              <span
+                style="
+                  width: 9px;
+                  height: 9px;
+                  border-radius: 50%;
+                  background: var(--amber);
+                  margin-top: 5px;
+                "
+              ></span>
+              <div style="min-width: 0">
+                <div class="name">pricing-snapshot-isolation</div>
+                <div class="u-repo"><span class="rg">&#9635;</span>epamano-hub</div>
+                <div class="u-sub">Schreibt Tests f&uuml;r die Batch-Preise&hellip;</div>
+              </div>
+              <div class="right">
+                <span class="bbox">CODEX</span><span class="bbox">L&Auml;UFT</span>
+              </div>
+              <div class="foot">
+                <span class="meta">TASK-1106 &middot; GPT-5.6 Sol</span
+                ><span class="elapsed" style="flex: none">0h 14m</span
+                ><span class="win"
+                  ><i class="seg on"></i><i class="seg on"></i><i class="seg"></i><i class="seg"></i
+                  ><i class="seg"></i
+                ></span>
+              </div>
+            </div>
+
+            <div class="card">
+              <span class="rule"></span><span class="pipdot"></span>
+              <div style="min-width: 0">
+                <div class="name">hunde-frontend-i18n-luecken</div>
+                <div class="u-repo"><span class="rg">&#9635;</span>hunde-frontend</div>
+                <div class="u-sub">Die Sprachdateien haben L&uuml;cken&hellip;</div>
+              </div>
+              <div class="right">
+                <span class="bbox">CLAUDE</span><span class="bbox">PLANUNG</span>
+              </div>
+              <div class="foot">
+                <span class="meta">TASK-1107 &middot; Opus 5</span
+                ><span class="elapsed" style="flex: none">0h 08m</span
+                ><span class="win"
+                  ><i class="seg"></i><i class="seg"></i><i class="seg"></i><i class="seg"></i
+                  ><i class="seg"></i
+                ></span>
+              </div>
+            </div>
+          </div>
+
+          <div
+            style="
+              position: absolute;
+              left: 0;
+              right: 0;
+              bottom: 0;
+              height: 138px;
+              box-sizing: border-box;
+              padding: 6px 10px 34px;
+              display: flex;
+              flex-direction: column;
+              gap: 4px;
+              border-top: 1px solid var(--line);
+              background: var(--panel);
+              z-index: 3;
+            "
+          >
+            <div
+              style="
+                display: flex;
+                border: 1px solid var(--line);
+                border-radius: 2px;
+                overflow: hidden;
+              "
+            >
+              <span
+                style="
+                  flex: 1;
+                  min-height: 44px;
+                  display: flex;
+                  align-items: center;
+                  justify-content: center;
+                  overflow: hidden;
+                  text-overflow: ellipsis;
+                  white-space: nowrap;
+                  border-right: 1px solid var(--line);
+                  font-size: var(--fs-meta);
+                  color: var(--muted);
+                "
+                >N&auml;chstes</span
+              >
+              <span
+                style="
+                  flex: 1;
+                  min-height: 44px;
+                  display: flex;
+                  align-items: center;
+                  justify-content: center;
+                  overflow: hidden;
+                  text-overflow: ellipsis;
+                  white-space: nowrap;
+                  border-right: 1px solid var(--line);
+                  font-size: var(--fs-meta);
+                  color: var(--muted);
+                "
+                >Alle</span
+              >
+              <span
+                style="
+                  flex: 1;
+                  min-height: 44px;
+                  display: flex;
+                  align-items: center;
+                  justify-content: center;
+                  overflow: hidden;
+                  text-overflow: ellipsis;
+                  white-space: nowrap;
+                  border-right: 1px solid var(--line);
+                  font-size: var(--fs-meta);
+                  color: var(--amber);
+                  background: var(--inset);
+                  box-shadow: inset 0 2px 0 var(--amber);
+                "
+                >Bereit</span
+              >
+              <span
+                style="
+                  flex: 1;
+                  min-height: 44px;
+                  display: flex;
+                  align-items: center;
+                  justify-content: center;
+                  overflow: hidden;
+                  text-overflow: ellipsis;
+                  white-space: nowrap;
+                  font-size: var(--fs-meta);
+                  color: var(--muted);
+                "
+                >Offen</span
+              >
+            </div>
+            <div style="display: flex; gap: 10px">
+              <span
+                style="
+                  flex: 1;
+                  min-height: 44px;
+                  display: inline-flex;
+                  align-items: center;
+                  justify-content: center;
+                  border: 1px solid var(--amber);
+                  color: var(--amber);
+                  font-size: var(--fs-meta);
+                  letter-spacing: 0.12em;
+                  border-radius: 2px;
+                  box-shadow: inset 0 0 18px -10px var(--amber);
+                "
+                >+ NEUE AUFGABE</span
+              >
+              <span
+                style="
+                  min-height: 44px;
+                  padding: 0 12px;
+                  flex: none;
+                  display: inline-flex;
+                  align-items: center;
+                  justify-content: center;
+                  border: 1px solid var(--amber);
+                  color: var(--amber);
+                  font-size: var(--fs-meta);
+                  letter-spacing: 0.12em;
+                  border-radius: 2px;
+                  background: var(--inset);
+                "
+                >REPOS</span
+              >
+            </div>
+          </div>
+
+          <div
+            style="
+              position: absolute;
+              inset: 0;
+              background: var(--scrim);
+              backdrop-filter: blur(3px);
+              -webkit-backdrop-filter: blur(3px);
+              z-index: 5;
+            "
+          ></div>
+          <div
+            style="
+              position: absolute;
+              left: 0;
+              right: 0;
+              bottom: 0;
+              z-index: 6;
+              background: var(--head);
+              border-top: 1px solid var(--line-bright);
+              border-radius: 12px 12px 0 0;
+              box-shadow: 0 -8px 40px rgba(0, 0, 0, 0.5);
+              padding: 12px 14px 34px;
+            "
+          >
+            <div
+              style="
+                width: 36px;
+                height: 3px;
+                border-radius: 2px;
+                background: var(--line-bright);
+                margin: 0 auto 12px;
+              "
+            ></div>
+            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px">
+              <span
+                style="
+                  font-size: var(--fs-meta);
+                  letter-spacing: 0.14em;
+                  text-transform: uppercase;
+                  color: var(--ink-bright);
+                  font-weight: 600;
+                "
+                >Repos</span
+              >
+              <span style="flex: 1"></span>
+              <span
+                style="
+                  min-width: 44px;
+                  min-height: 44px;
+                  display: inline-flex;
+                  align-items: center;
+                  justify-content: center;
+                  color: var(--muted);
+                  font-size: var(--fs-lg);
+                "
+                >&#10005;</span
+              >
+            </div>
+            <div
+              style="
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                min-height: 48px;
+                padding: 0 4px;
+              "
+            >
+              <span style="color: var(--amber); font-weight: 700">&#10003;</span
+              ><span style="color: var(--muted); font-size: var(--fs-micro)">&#9635;</span
+              ><span
+                style="
+                  flex: 1;
+                  font-size: var(--fs-base);
+                  color: var(--amber);
+                  letter-spacing: 0.04em;
+                  overflow: hidden;
+                  white-space: nowrap;
+                  text-overflow: ellipsis;
+                "
+                >Alle Repos</span
+              ><span
+                style="
+                  font-size: var(--fs-meta);
+                  color: var(--muted);
+                  font-variant-numeric: tabular-nums;
+                "
+                >16</span
+              >
+            </div>
+            <div
+              style="
+                border-top: 1px solid var(--line);
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                min-height: 48px;
+                padding: 0 4px;
+              "
+            >
+              <span style="width: 9px"></span
+              ><span style="color: var(--muted); font-size: var(--fs-micro)">&#9635;</span
+              ><span
+                style="
+                  flex: 1;
+                  font-size: var(--fs-base);
+                  color: var(--ink-bright);
+                  letter-spacing: 0.04em;
+                  overflow: hidden;
+                  white-space: nowrap;
+                  text-overflow: ellipsis;
+                "
+                >asyar-contacts-macos</span
+              ><span style="color: var(--amber); font-size: 9px">&#9679;</span
+              ><span
+                style="
+                  font-size: var(--fs-meta);
+                  color: var(--muted);
+                  font-variant-numeric: tabular-nums;
+                "
+                >2</span
+              >
+            </div>
+            <div
+              style="
+                border-top: 1px solid var(--line);
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                min-height: 48px;
+                padding: 0 4px;
+              "
+            >
+              <span style="width: 9px"></span
+              ><span style="color: var(--muted); font-size: var(--fs-micro)">&#9635;</span
+              ><span
+                style="
+                  flex: 1;
+                  font-size: var(--fs-base);
+                  color: var(--ink-bright);
+                  letter-spacing: 0.04em;
+                  overflow: hidden;
+                  white-space: nowrap;
+                  text-overflow: ellipsis;
+                "
+                >asyar-emoji-extension</span
+              ><span
+                style="
+                  font-size: var(--fs-meta);
+                  color: var(--muted);
+                  font-variant-numeric: tabular-nums;
+                "
+                >2</span
+              >
+            </div>
+            <div
+              style="
+                border-top: 1px solid var(--line);
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                min-height: 48px;
+                padding: 0 4px;
+              "
+            >
+              <span style="width: 9px"></span
+              ><span style="color: var(--muted); font-size: var(--fs-micro)">&#9635;</span
+              ><span
+                style="
+                  flex: 1;
+                  font-size: var(--fs-base);
+                  color: var(--ink-bright);
+                  letter-spacing: 0.04em;
+                  overflow: hidden;
+                  white-space: nowrap;
+                  text-overflow: ellipsis;
+                "
+                >barboard</span
+              ><span
+                style="
+                  font-size: var(--fs-meta);
+                  color: var(--muted);
+                  font-variant-numeric: tabular-nums;
+                "
+                >3</span
+              >
+            </div>
+            <div
+              style="
+                border-top: 1px solid var(--line);
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                min-height: 48px;
+                padding: 0 4px;
+              "
+            >
+              <span style="width: 9px"></span
+              ><span style="color: var(--muted); font-size: var(--fs-micro)">&#9635;</span
+              ><span
+                style="
+                  flex: 1;
+                  font-size: var(--fs-base);
+                  color: var(--ink-bright);
+                  letter-spacing: 0.04em;
+                  overflow: hidden;
+                  white-space: nowrap;
+                  text-overflow: ellipsis;
+                "
+                >media-bib-and-rendering</span
+              ><span style="color: var(--red); font-size: 9px">&#9679;</span
+              ><span
+                style="
+                  font-size: var(--fs-meta);
+                  color: var(--muted);
+                  font-variant-numeric: tabular-nums;
+                "
+                >1</span
+              >
+            </div>
+            <div
+              style="
+                border-top: 1px solid var(--line);
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                min-height: 48px;
+                padding: 0 4px;
+              "
+            >
+              <span style="width: 9px"></span
+              ><span style="color: var(--muted); font-size: var(--fs-micro)">&#9635;</span
+              ><span
+                style="
+                  flex: 1;
+                  font-size: var(--fs-base);
+                  color: var(--ink-bright);
+                  letter-spacing: 0.04em;
+                  overflow: hidden;
+                  white-space: nowrap;
+                  text-overflow: ellipsis;
+                "
+                >CalendarSync</span
+              ><span
+                style="
+                  font-size: var(--fs-meta);
+                  color: var(--muted);
+                  font-variant-numeric: tabular-nums;
+                "
+                >1</span
+              >
+            </div>
+            <div
+              style="
+                border-top: 1px solid var(--line);
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                min-height: 48px;
+                padding: 0 4px;
+              "
+            >
+              <span style="width: 9px"></span
+              ><span style="color: var(--muted); font-size: var(--fs-micro)">&#9635;</span
+              ><span
+                style="
+                  flex: 1;
+                  font-size: var(--fs-base);
+                  color: var(--ink-bright);
+                  letter-spacing: 0.04em;
+                  overflow: hidden;
+                  white-space: nowrap;
+                  text-overflow: ellipsis;
+                "
+                >manufare-website</span
+              ><span
+                style="
+                  font-size: var(--fs-meta);
+                  color: var(--muted);
+                  font-variant-numeric: tabular-nums;
+                "
+                >1</span
+              >
+            </div>
+            <div
+              style="border-top: 1px solid var(--line-bright); margin-top: 8px; padding-top: 8px"
+            >
+              <div
+                style="
+                  display: flex;
+                  align-items: center;
+                  gap: 10px;
+                  min-height: 48px;
+                  padding: 0 4px;
+                "
+              >
+                <span style="color: var(--blue); font-size: var(--fs-base)">&#9776;</span>
+                <span
+                  style="
+                    flex: 1;
+                    font-size: var(--fs-base);
+                    color: var(--blue);
+                    letter-spacing: 0.04em;
+                  "
+                  >Backlog &ouml;ffnen</span
+                >
+                <span style="font-size: var(--fs-meta); color: var(--muted)">&#8250;</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div
+          style="
+            width: 158px;
+            flex: none;
+            color: var(--ink);
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            padding-top: 59px;
+          "
+        >
+          <div style="border: 1px solid var(--green); padding: 8px; background: var(--panel)">
+            <div
+              style="
+                font-size: 10px;
+                letter-spacing: 0.1em;
+                text-transform: uppercase;
+                color: var(--green);
+                font-weight: 700;
+                line-height: 1.4;
+              "
+            >
+              Hierhin ist der<br />Repo-Filter gezogen
+            </div>
+            <div style="font-size: 10px; color: var(--ink); line-height: 1.6; margin-top: 5px">
+              Ein Tap auf <b>REPOS</b> in der<br />Daumenzone. Das Sheet<br />tr&auml;gt beides:<br /><br />&bull;
+              Repo-Filter mit Z&auml;hlern<br />&nbsp;&nbsp;und Statuspunkten<br />&bull; den
+              Backlog-Einstieg<br /><br />Damit hei&szlig;t der Knopf<br />endlich, was er tut.
+            </div>
+          </div>
+          <div style="border: 1px solid var(--line-bright); padding: 8px; background: var(--panel)">
+            <div
+              style="
+                font-size: 10px;
+                letter-spacing: 0.1em;
+                text-transform: uppercase;
+                color: var(--ink-bright);
+                font-weight: 700;
+                line-height: 1.4;
+              "
+            >
+              Nach Hausregel
+            </div>
+            <div style="font-size: 10px; color: var(--ink); line-height: 1.6; margin-top: 5px">
+              Blockierende Fl&auml;che &rarr;<br /><b>dimmen UND blurren</b><br />(<code
+                >--scrim</code
+              >
+              + 3px blur),<br />12px Radius oben, Sheet-<br />Schatten. So steht es in<br /><code
+                >.claude/rules/<br />ui-design-system.md</code
+              ><br />und in DESIGN.md.
+            </div>
+          </div>
+          <div style="border: 1px solid var(--line-bright); padding: 8px; background: var(--panel)">
+            <div
+              style="
+                font-size: 10px;
+                letter-spacing: 0.1em;
+                text-transform: uppercase;
+                color: var(--ink-bright);
+                font-weight: 700;
+                line-height: 1.4;
+              "
+            >
+              Ziele
+            </div>
+            <div style="font-size: 10px; color: var(--ink); line-height: 1.6; margin-top: 5px">
+              Jede Zeile ist <b>48&nbsp;px</b> hoch<br />&mdash; nicht 44. Hier ist<br />vertikal
+              Platz, also<br />gleich der Material-<br />Zielwert statt des<br />iOS-Minimums.
+            </div>
+          </div>
+          <div
+            style="border: 1px solid var(--line-bright); padding: 8px; background: var(--panel-2)"
+          >
+            <div
+              style="
+                font-size: 10px;
+                letter-spacing: 0.1em;
+                text-transform: uppercase;
+                color: var(--ink-bright);
+                font-weight: 700;
+                line-height: 1.4;
+              "
+            >
+              Offen gelassen
+            </div>
+            <div style="font-size: 10px; color: var(--ink); line-height: 1.6; margin-top: 5px">
+              Ob das Sheet zus&auml;tzlich<br />Mehrfachauswahl kann<br />(heute: Shift-Klick am<br />Desktop)
+              &mdash; das ist eine<br />eigene Frage, keine<br />Layout-Frage.
+            </div>
+          </div>
+        </div>
+      </div>
+    </x-dc>
+  </body>
+</html>

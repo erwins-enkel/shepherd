@@ -3986,5 +3986,11 @@
   "issuepeek_unavailable": "Couldn't load this issue.",
   "feat_card_issue_peek_title": "Preview an issue from the session card",
   "feat_card_issue_peek_body": "The #1234 chip named the issue a session was spawned for but told you nothing about it, so putting a number to a task still meant a trip to the forge. Hovering the chip now opens a small preview — title, labels, author and the start of the description — and clicking it opens the issue on the forge in a new tab. On a touchscreen the first tap shows the preview, the second opens it.",
-  "coldresume_why": "It sits on the card rather than inside the session because resuming is the moment the money is spent: seeing the price here lets you pick a session that is still warm, hand the task to a fresh one, or resume this one knowing what the first turn costs."
+  "coldresume_why": "It sits on the card rather than inside the session because resuming is the moment the money is spent: seeing the price here lets you pick a session that is still warm, hand the task to a fresh one, or resume this one knowing what the first turn costs.",
+  "repos_sheet_title": "Repos",
+  "repos_sheet_all": "All repos",
+  "repos_sheet_backlog": "Open backlog",
+  "gearmenu_done_lens": "Finished sessions",
+  "feat_mobile_thumb_nav_title": "Phone navigation moved into thumb reach",
+  "feat_mobile_thumb_nav_body": "On a phone the lens segments now sit in the bottom bar with New task and Repos, instead of at the top edge where they scrolled away. The repo rail moved into the Repos sheet, and the Done lens into the gear menu. Together that frees about 124px — roughly two more sessions visible at a glance. Card badges are readouts on touch now; their actions live on the session screen, at a size you can actually hit."
 }

@@ -4458,15 +4458,30 @@ export class SessionService {
    * Best-effort by contract: a failed `tab list` degrades the naming to the agent-name half, it
    * never fails session creation. Tab labels also cover Shepherd's helper tabs, which only makes
    * the set more conservative.
+   *
+   * `exceptTerminalId` drops that session's OWN agent record and tab from the set. A rename has a
+   * handle already — one whose tab is labelled with the name it is renaming AWAY from — so without
+   * this it collides with itself. Creation has no handle yet and passes nothing.
    */
-  private takenHerdrNames(): Set<string> {
+  private takenHerdrNames(exceptTerminalId?: string): Set<string> {
     const taken = new Set<string>();
     const add = (raw: string | undefined): void => {
       if (raw) taken.add(sanitizeHerdrAgentName(raw));
     };
-    for (const a of this.deps.herdr.list()) add(a.name);
+    const agents = this.deps.herdr.list();
+    // `exceptTerminalId` excludes ONE caller's own handle — the exclude-your-own rule
+    // `agentsHoldingName` documents: a session's tab was created with its own name as the label
+    // (and ≤0.7.4 puts that name on the agent record too), so it matches itself by construction.
+    // Resolved to an AGENT and compared by identity, because comparing the ids directly lets an
+    // absent id match an absent `exceptTerminalId` and silently empties the whole set. No handle
+    // to exclude (create) ⇒ `ownAgent` is undefined ⇒ nothing is dropped.
+    const ownAgent = exceptTerminalId
+      ? agents.find((a) => a.terminalId === exceptTerminalId)
+      : undefined;
+    const ownTabId = ownAgent?.tabId;
+    for (const a of agents) if (a !== ownAgent) add(a.name);
     try {
-      for (const t of this.deps.herdr.tabs()) add(t.label);
+      for (const t of this.deps.herdr.tabs()) if (!ownTabId || t.tabId !== ownTabId) add(t.label);
     } catch {
       /* best-effort: the agent-name half alone */
     }
@@ -4964,18 +4979,23 @@ export class SessionService {
    * Move a renamed session's herdr agent/tab onto `slug` — but ONLY while `slug` is free in
    * herdr's name space.
    *
-   * The freeness check is load-bearing for the MANUAL path specifically. Both automatic
-   * callers resolve their slug through {@link uniqueName} before it ever reaches here, so
-   * they cannot collide; `handleSessionRename` passes the operator's `slugifyManual` choice
-   * straight through. Relabelling with it unchecked would push a duplicate into exactly the
-   * space {@link takenHerdrNames} exists to keep clean: two live agents answering to one
-   * name is what turns herdr's `agent_name_taken` eviction into a hazard for the *unrelated*
-   * sibling, since `agentsHoldingName` returns every match. And if herdr instead rejects the
-   * duplicate, the agent rename is swallowed best-effort while the TAB rename still lands —
-   * leaving the agent name and its tab label diverged, with two tabs sharing a label.
+   * The freeness check matters most for the MANUAL path: both automatic callers resolve their
+   * slug through {@link uniqueName} first, while `handleSessionRename` passes the operator's
+   * `slugifyManual` choice straight through. It runs for every caller all the same, because
+   * `uniqueName`'s de-duping suffix is itself truncated away by the 32-char sanitize below —
+   * pre-resolving narrows the risk, it doesn't remove it. Relabelling unchecked would push a
+   * duplicate into exactly the space {@link takenHerdrNames} exists to keep clean: two live
+   * agents answering to one name is what turns herdr's `agent_name_taken` eviction into a
+   * hazard for the *unrelated* sibling, since `agentsHoldingName` returns every match. And if
+   * herdr instead rejects the duplicate, the agent rename is swallowed best-effort while the
+   * TAB rename still lands — leaving the agent name and its tab label diverged.
    *
    * Compared in sanitized space because that is what herdr 0.7.5+ binds: `fix login` and
-   * `fix-login` are ONE name to it.
+   * `fix-login` are ONE name to it. That space is also TRUNCATED to 32 chars while a slug may
+   * run to 60, so this session's own handle has to leave the set (`takenHerdrNames` takes the
+   * terminal id for exactly that): editing the tail of a 32+ char name yields a slug that is
+   * distinct everywhere else but identical once sanitized, and counting itself would pin the
+   * tab on the old name — the very bug this relabel exists to fix.
    *
    * On a clash the tab simply keeps its current (already unique) label — the session is still
    * renamed, the terminal just doesn't follow. Warned, never silent, so the divergence is
@@ -4990,7 +5010,7 @@ export class SessionService {
    */
   private relabelRenamedAgent(s: Session, slug: string): void {
     try {
-      if (this.takenHerdrNames().has(sanitizeHerdrAgentName(slug))) {
+      if (this.takenHerdrNames(s.herdrAgentId).has(sanitizeHerdrAgentName(slug))) {
         console.warn(
           `[rename] herdr already answers to "${slug}" — keeping ${s.herdrAgentId}'s tab label`,
         );

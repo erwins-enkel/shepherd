@@ -1,0 +1,15 @@
+     + full-bleed media, Card chrome). Implement them here? →
+     Implement here (Recommended)
+     · This is ~11 pages incl. a story-template rebuild, index
+     rebuild, 3 resource pages and über-uns. Ship as one PR or
+     promote to an epic? → Single PR (Recommended)
+· Julienning… (running stop hooks… 1/2 · 2m 31s · ↓ 8.7k tokens
+ · thinking)
+  ⎿  Tip: Share Claude Code and earn €10 in usage credits ·
+     /passes
+─────────────────────────────────────────────────────────────────
+❯
+─────────────────────────────────────────────────────────────────
+  …/.shepherd-worktrees/topmedia-website-visual-gap-audit-simi…
+  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents
+                                               ● high · /effort

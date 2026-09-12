@@ -42,7 +42,8 @@ const YES_NO_RE = /\(\s*y\s*\/\s*n\s*\)|\[\s*y\s*\/\s*n\s*\]/i;
 //
 // Selected-option caret. `*` is deliberately NOT in the caret set even though OPTION_RE accepts
 // it as an option marker: it is also the markdown bullet leader (same reasoning that keeps `+`
-// out of SPINNER_RE), and a bulleted numbered list is exactly the prose this guards against.
+// out of the spinner patterns below), and a bulleted numbered list is exactly the prose this
+// guards against.
 const CARET_OPTION_RE = /^[\s│|]*[❯>]\s*\d+[.)]/;
 // Key-hint footer, as a substring of the (·-separated, often word-wrapped) hint line. Matched on
 // the stable fragments rather than a whole wording: the live corpus carries at least a dozen
@@ -62,25 +63,54 @@ export function tailLines(text: string, n = TAIL_LINES): string[] {
     .slice(-n);
 }
 
-// Active-turn spinner line, anchored: the line must START with a spinner/tool
-// glyph (·✢✳✶✻✽*⎿), then carry an ellipsis directly followed by "(" + either an
-// elapsed-time counter or the legacy "esc to interrupt" hint, e.g.
-// "✶ Bunning… (1m 13s · ↑ 1.3k tokens)" / "⎿  Running… (4s)" /
-// "✻ Imagining… (esc to interrupt)". The glyph anchor rejects prose quoting a
-// time mid-text ("the build finished… (3m 12s)"), queued-input lines
-// ("❯ retry… (2m 30s)"), and a bare "esc to interrupt" on a non-spinner line;
-// the `…(` adjacency rejects "… +5 lines (ctrl+o to expand)" and "(1M context)"
-// (no elapsed time). `+` is excluded: zero occurrences as a spinner frame in
-// 889 production-captured tails, and a common markdown/diff line leader. `*`
-// IS a genuine production spinner frame and stays — its residual
-// markdown-bullet risk is covered by the poller's freshness gate (continued
-// suppression requires the buffer to advance between classify reads).
-const SPINNER_RE = /^\s*[·✢✳✶✻✽*⎿].*?…\s*\((?:(?:\d+h\s*)?(?:\d+m\s*)?\d+s\b|esc to interrupt)/i;
+// Active-turn spinner frames, in two anchored shapes. Both require a line that
+// STARTS with a spinner/tool glyph, which is what rejects prose quoting a time
+// mid-text ("the build finished… (3m 12s)"), queued-input lines
+// ("❯ retry… (2m 30s)"), and a bare "esc to interrupt" on a non-spinner line.
+// `+` is excluded from both: zero occurrences as a spinner frame across the
+// production-captured tails, and a common markdown/diff line leader. `*` IS a
+// genuine production spinner frame and stays — its residual markdown-bullet risk
+// is covered by the poller's freshness gate (continued suppression requires the
+// buffer to advance between classify reads).
+//
+// Both shapes were measured for #2282 against a live install's block corpus
+// (snapshot: 3911 unique tails, 27087 unique lines): each one matches exactly one
+// line the other misses, and nothing else in the corpus. Line-level by
+// construction, so #2281's shape gate does not move these numbers — but it does
+// feed them more panes, since a chrome-less numbered run it demotes to
+// `awaiting-input` now reaches the suppression path this evidence supports.
+
+// (1) Timed — glyph + ellipsis + a parenthetical carrying an elapsed-time counter
+// or the legacy "esc to interrupt" hint: "✶ Bunning… (1m 13s · ↑ 1.3k tokens)" /
+// "⎿  Running… (4s)" / "✻ Imagining… (esc to interrupt)". The counter need NOT be
+// adjacent to "…(" — it may sit behind leading text in the SAME parenthetical
+// ("· Julienning… (running stop hooks… 1/2 · 2m 31s · ↓ 8.7k tokens", #2282).
+// `[^)]` keeps the counter from being borrowed out of a LATER parenthetical, and
+// the length bound keeps it near this one's start even when the paren is truncated
+// unclosed at pane width (that frame's exact shape). Requiring a counter at all is
+// what rejects "… +5 lines (ctrl+o to expand)" and "(1M context)" — neither
+// carries an elapsed time — so relaxing the adjacency does not re-open them.
+const SPINNER_TIMED_RE =
+  /^\s*[·✢✳✶✻✽*⎿].*?…\s*\([^)\n]{0,40}?(?:(?:\d+h\s*)?(?:\d+m\s*)?\d+s\b|esc to interrupt)/i;
+
+// (2) Untimed — the frame BEFORE the counter appears: glyph + one capitalized word
+// + ellipsis at end of line ("✽ Mulling…", #2282). Deliberately the tightest shape
+// that covers it, because an ellipsis with no parenthetical is otherwise close to
+// unconstrained prose: the single capitalized alpha word is what stops a `·` bullet
+// truncated to an ellipsis at pane width from forging a spinner, and `⎿` is
+// excluded here because "⎿  Running…" is a tool-result leader RETAINED in
+// scrollback beside the tool's own output — it outlives the turn it belongs to.
+// Not gerund-gated: requiring "-ing" would assume Claude Code's spinner vocabulary
+// stays all-gerund forever, for no measured gain. Multi-word status lines
+// ("✽ Adding i18n + final review…") stay unmatched until their counter lands and
+// shape (1) takes over — an accepted miss, roughly a second wide.
+const SPINNER_UNTIMED_RE = /^\s*[·✢✳✶✻✽*]\s+[A-Z][a-z]+…\s*$/;
 
 /**
  * True when the terminal tail shows an actively-working Claude Code turn — a
- * glyph-anchored spinner line with an elapsed-time counter or the legacy
- * "esc to interrupt" hint. Scans the same last-15-non-empty-lines window as
+ * glyph-anchored spinner line, either carrying an elapsed-time counter / the
+ * legacy "esc to interrupt" hint or in the untimed frame that precedes the
+ * counter. Scans the same last-15-non-empty-lines window as
  * `classifyBlocked` (the spinner always sits just above the input box; this
  * avoids matching stale scrollback).
  *
@@ -91,7 +121,7 @@ const SPINNER_RE = /^\s*[·✢✳✶✻✽*⎿].*?…\s*\((?:(?:\d+h\s*)?(?:\d+m
  * against that upstream herdr bug.
  */
 export function hasActiveSpinner(text: string): boolean {
-  return tailLines(text).some((l) => SPINNER_RE.test(l));
+  return tailLines(text).some((l) => SPINNER_TIMED_RE.test(l) || SPINNER_UNTIMED_RE.test(l));
 }
 
 // The at-rest input box's queued-input hint. Claude Code 2.1.266 ships three

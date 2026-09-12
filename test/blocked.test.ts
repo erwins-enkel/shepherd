@@ -89,6 +89,35 @@ test("hasActiveSpinner rejects idle/blocked buffers", () => {
   expect(hasActiveSpinner("❯\n⏵⏵ bypass permissions on (shift+tab to cycle)")).toBe(false);
 });
 
+test("hasActiveSpinner detects the two real frames it used to miss (#2282)", () => {
+  // the untimed frame, before the elapsed counter appears
+  expect(hasActiveSpinner("✽ Mulling…")).toBe(true);
+  // a counter that is present but not adjacent to "…(" — leading text in the same parenthetical,
+  // truncated unclosed at pane width
+  expect(hasActiveSpinner("· Julienning… (running stop hooks… 1/2 · 2m 31s · ↓ 8.7k tokens")).toBe(
+    true,
+  );
+});
+
+test("hasActiveSpinner rejects the retained '⎿ Running…' tool-result leader (#2282)", () => {
+  // Untimed shape excludes ⎿ on purpose: this leader stays in scrollback beside the tool's own
+  // output, so it outlives the turn it belongs to and is no evidence of a live one. Its TIMED
+  // form ("⎿  Running… (4s)") does count, and is asserted above.
+  expect(hasActiveSpinner("  ⎿  Running…")).toBe(false);
+});
+
+test("hasActiveSpinner's untimed shape stays tight around the spinner-word form", () => {
+  // a `·` bullet truncated to an ellipsis at pane width must not forge a spinner
+  expect(hasActiveSpinner("· This is ~11 pages incl. a story-template rebuild, index…")).toBe(
+    false,
+  );
+  // lowercase / multi-word / trailing-text variants are prose, not a spinner frame
+  expect(hasActiveSpinner("· mulling…")).toBe(false);
+  expect(hasActiveSpinner("✽ Mulling… and then some")).toBe(false);
+  // the relaxed timed shape must not borrow a counter out of a LATER parenthetical
+  expect(hasActiveSpinner("⎿  Read… (ctrl+o to expand) and it took (3s)")).toBe(false);
+});
+
 test("hasQueuedInput detects every queued-hint wording Claude Code ships", () => {
   expect(hasQueuedInput("❯ Press up to edit queued messages")).toBe(true);
   expect(hasQueuedInput("❯ Press up to select a queued message")).toBe(true);
@@ -382,4 +411,16 @@ test("looksLikeDemotedMenu marks exactly what classifyBlocked demoted", () => {
 
   // no numbered run at all → nothing was demoted
   expect(looksLikeDemotedMenu(classifyBlocked("What should I name it?\n❯").tail)).toBe(false);
+});
+
+test("real #2282 panes: both were mid-turn and now read as working", () => {
+  for (const name of ["spinner-untimed.txt", "spinner-inline-parenthetical.txt"]) {
+    const pane = readFileSync(join(fixturesDir, name), "utf8");
+    // each pane is the no-evidence fallback the poller would otherwise announce…
+    expect(classifyBlocked(pane).shape).toBe("awaiting-input");
+    // …and carries no queued input, so #2272's branch cannot cover it
+    expect(hasQueuedInput(pane)).toBe(false);
+    // …but the agent was demonstrably working, so suppression must engage
+    expect(hasActiveSpinner(pane)).toBe(true);
+  }
 });

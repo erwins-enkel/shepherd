@@ -55,8 +55,10 @@ import type {
   SessionUsage,
   SlashCommand,
   PostMergeSteps,
+  RepoEntry,
+  Issue,
 } from "$lib/types";
-import type { DemoWorld, DemoRepoConfig } from "./types-world";
+import type { DemoWorld, DemoRepoConfig, DemoBranchList } from "./types-world";
 
 const STOREFRONT = "/demo/acme/storefront";
 const API = "/demo/acme/api";
@@ -70,8 +72,11 @@ const MIN = 60_000;
 const HOUR = 60 * MIN;
 const DAY = 24 * HOUR;
 
-/** Fill a full Session from a partial, defaulting every required field. */
-function mkSession(
+/** Fill a full Session from a partial, defaulting every required field. Exported so the
+ *  `POST /api/sessions` mutator in `state.ts` builds a created session from the SAME
+ *  defaults as a seeded one — a hand-rolled spread would silently inherit whatever the
+ *  session it copied happens to carry. */
+export function mkSession(
   partial: Partial<Session> & Pick<Session, "id" | "desig" | "name" | "repoPath">,
 ): Session {
   return {
@@ -863,6 +868,152 @@ function buildUpNext(): UpNextSnapshot {
           ),
         ],
       },
+    ],
+  };
+}
+
+/** The demo operator's own forge login — `listIssues`' `viewer`, which drives the
+ *  "mine & unassigned" issue filter and the "assigned to someone else" notice.
+ *  Exported so `state.ts` answers `/api/issues` with the same login the seeded
+ *  issues are authored by. */
+export const DEMO_VIEWER = "acme-dev";
+
+/** GET /api/repos — the repo index. `path` and `realPath` are BOTH the seeded
+ *  `repoPath`: `repos.nameFor()` resolves either form, and every seeded session's
+ *  repoPath is this same string, so a demo repo always resolves to its name. */
+function buildRepos(): RepoEntry[] {
+  return [
+    {
+      name: "storefront",
+      remoteSlug: "acme/storefront",
+      path: STOREFRONT,
+      realPath: STOREFRONT,
+      display: "~/acme/storefront",
+      lastUsedAt: NOW - 20 * SEC,
+      recentAgentCount: 5,
+    },
+    {
+      name: "api",
+      remoteSlug: "acme/api",
+      path: API,
+      realPath: API,
+      display: "~/acme/api",
+      lastUsedAt: NOW - 4 * MIN,
+      recentAgentCount: 2,
+    },
+  ];
+}
+
+/** GET /api/branches?repo= — the New Task base-branch picker. Deliberately only the
+ *  long-lived branches: a real checkout would also list every `shepherd/*` worktree
+ *  branch, but those are never a sensible BASE and would bury `main` in the dropdown. */
+function buildBranches(): Record<string, DemoBranchList> {
+  return {
+    [STOREFRONT]: {
+      branches: ["main", "release/2026-06"],
+      current: "main",
+      default: "main",
+    },
+    [API]: {
+      branches: ["main"],
+      current: "main",
+      default: "main",
+    },
+  };
+}
+
+/** GET /api/issues?repo= — open forge issues. Numbers deliberately reuse the ones the
+ *  rest of the world already references, so nothing contradicts: storefront gets the
+ *  epic parent + its five children (`buildEpics`) and the two Up Next items
+ *  (`buildUpNext`); api gets the two issues its running sessions claim plus its Up Next
+ *  item. The counts (8 + 3) are exactly `buildBacklog`'s per-repo `openIssues` and their
+ *  `totals.openIssues` of 11 — keep the three in step when editing either. */
+function buildIssues(): Record<string, Issue[]> {
+  const mk =
+    (repo: string) =>
+    (number: number, title: string, body: string, extra: Partial<Issue> = {}): Issue => ({
+      number,
+      title,
+      body,
+      url: `${gh(repo)}/issues/${number}`,
+      labels: [],
+      createdAt: NOW - 3 * DAY,
+      assignees: [],
+      author: DEMO_VIEWER,
+      ...extra,
+    });
+  const sf = mk(STOREFRONT);
+  const api = mk(API);
+  return {
+    [STOREFRONT]: [
+      sf(EPIC_PARENT, "Checkout v2", "Umbrella issue for the checkout rework.", {
+        labels: ["epic"],
+        createdAt: NOW - 9 * DAY,
+      }),
+      sf(
+        101,
+        "Coupon-code field at checkout",
+        "Add a coupon-code field to the summary and apply the discount to the total.",
+      ),
+      sf(
+        102,
+        "Shipping-cost estimator",
+        "Estimate shipping cost from the cart weight + destination and show it in the summary.",
+      ),
+      sf(
+        103,
+        "Cart-total rounding fix",
+        "Fix the rounding bug that drops a cent on 3-for-2 offers.",
+        {
+          labels: ["bug"],
+        },
+      ),
+      sf(104, "Saved payment methods", "Let returning customers pick a stored card at checkout.", {
+        blockedBy: [101],
+        assignees: ["acme-dana"],
+      }),
+      sf(
+        105,
+        "Guest checkout",
+        "Allow checkout without an account, upgrading to one on confirmation.",
+        { blockedBy: [101, 102] },
+      ),
+      sf(
+        121,
+        "Wishlist button on product cards",
+        "Let shoppers save items to a wishlist from the grid.",
+        {
+          createdAt: NOW - 26 * HOUR,
+        },
+      ),
+      sf(
+        122,
+        "Empty-cart illustration",
+        "Show a friendly empty state when the cart has no items.",
+        {
+          createdAt: NOW - 26 * HOUR,
+        },
+      ),
+    ],
+    [API]: [
+      api(
+        220,
+        "Rotating refresh-token session store",
+        "Rework the auth session store to a rotating refresh-token scheme.",
+      ),
+      api(
+        221,
+        "Migrate the database layer to Neon serverless Postgres",
+        "Move the API's database layer onto Neon serverless Postgres.",
+      ),
+      api(
+        222,
+        "Add request-id correlation header",
+        "Thread a request id through logs for tracing.",
+        {
+          createdAt: NOW - 30 * HOUR,
+        },
+      ),
     ],
   };
 }
@@ -1684,6 +1835,9 @@ export function buildSeed(): DemoWorld {
     slashCommands: buildSlashCommands(),
     todo: buildTodo(),
     postMergeSteps: buildPostMergeSteps(),
+    repos: buildRepos(),
+    branches: buildBranches(),
+    issues: buildIssues(),
     gitStates: buildGitStates(),
     activityStates: buildActivityStates(),
     claudeAliveStates: {

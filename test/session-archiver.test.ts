@@ -141,6 +141,10 @@ function harness(
     // to exercise rather than re-stating the happy path.
     livenessOf: (id) => liveness?.[id] ?? "husk",
     livenessFreshAt: () => NOW,
+    hasConversation: (s) =>
+      (s.agentProvider ?? "claude") === "claude"
+        ? !!s.claudeSessionId
+        : !!s.codexLaunchId && !!s.providerSessionId,
     retainClaim: (id) => {
       claimed.push(id);
       order.push(`claim:${id}`);
@@ -291,21 +295,54 @@ test("merge train, open plan round and in-flight reviewer each block", async () 
 
 // ── restorability ─────────────────────────────────────────────────────────────
 
-test("unrestorable sessions are never archived", async () => {
+test("a session restore() could not bring back is never archived", async () => {
   const noClaudeId = harness([session({ claudeSessionId: "" })]);
   await noClaudeId.archiver.tick();
   expect(noClaudeId.archived).toEqual([]);
 
-  const looseCodex = harness([session({ agentProvider: "codex", isolated: false })]);
-  await looseCodex.archiver.tick();
-  expect(looseCodex.archived).toEqual([]);
-
-  // An ISOLATED codex session resolves its rollout from the worktree, so it IS restorable.
-  const isolatedCodex = harness([
-    session({ agentProvider: "codex", isolated: true, worktreePath: "/gone", branch: null }),
+  // Codex restorability is a captured rollout, NOT isolation: an isolated session whose rollout id
+  // was never captured would archive here and then fail `restore()` with cannot_restore — exactly
+  // the one-way teardown this gate exists to prevent.
+  const codexNoRollout = harness([
+    session({
+      agentProvider: "codex",
+      isolated: true,
+      claudeSessionId: "",
+      worktreePath: "/gone",
+      branch: null,
+    }),
   ]);
-  await isolatedCodex.archiver.tick();
-  expect(isolatedCodex.archived).toEqual(["s1"]);
+  await codexNoRollout.archiver.tick();
+  expect(codexNoRollout.archived).toEqual([]);
+
+  const codexWithRollout = harness([
+    session({
+      agentProvider: "codex",
+      isolated: true,
+      claudeSessionId: "",
+      codexLaunchId: "launch-1",
+      providerSessionId: "rollout-1",
+      worktreePath: "/gone",
+      branch: null,
+    }),
+  ]);
+  await codexWithRollout.archiver.tick();
+  expect(codexWithRollout.archived).toEqual(["s1"]);
+});
+
+test("restorability is asked of the service, not re-derived", async () => {
+  // The predicate restore() gates on has already changed once under this file; the gate must
+  // follow it rather than keep its own copy.
+  const asked: string[] = [];
+  const h = harness([session()], {
+    hasConversation: (s) => {
+      asked.push(s.id);
+      return false;
+    },
+  });
+  await h.archiver.tick();
+  expect(asked).toEqual(["s1"]);
+  expect(h.archived).toEqual([]);
 });
 
 // ── unsynced work (real git) ──────────────────────────────────────────────────

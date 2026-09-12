@@ -88,29 +88,73 @@ export function isShepherdHelperLabel(label: string): boolean {
 
 // SHELLS is defined in json-tolerant.ts and imported above — single source of truth.
 
-/** The store reads {@link archivedSessionTabLabels} needs. */
+/** The store reads {@link sessionTabScope} needs. */
 export type ArchivedLabelStore = Pick<SessionStore, "list" | "listArchivedSessions">;
 
 /**
- * Tab labels safe to hand {@link reapOrphanTabs} as `extraLabels` (#1156): the names of ARCHIVED
- * sessions, minus every live session's name.
+ * Which session tabs {@link reapOrphanTabs} may consider, and which it must never touch.
  *
- * The subtraction is the safety property, not an optimisation. `uniqueName` keeps names unique
- * among LIVE sessions only, so an archived row can perfectly well share its name with a session
- * spawned later — and a herdr tab carries only the label, with nothing to tell the two apart. Were
- * the live name left in the set, that session's tab would enter scope, and the moment its agent
- * idled at a shell for two consecutive sweeps the reaper would close a live session's tab.
- *
- * Labels belonging to no session at all are simply never added: those are the operator's own tabs
- * and the husks of sessions already pruned from the DB, and no evidence here can distinguish them.
+ * Two ways in, because the evidence differs by session kind, and one veto that outranks both.
  */
-export function archivedSessionTabLabels(store: ArchivedLabelStore): Set<string> {
-  const live = new Set(store.list({ activeOnly: true }).map((s) => s.name));
+export interface SessionTabScope {
+  /** Tab ids of ARCHIVED sessions, known by IDENTITY: the `terminalTabId` a clean-terminal
+   *  session records at creation. Exact — no label involved. */
+  tabIds: ReadonlySet<string>;
+  /** Names of ARCHIVED sessions that record no tab id (every agent session). The label is the only
+   *  handle these leave behind: their agent is long gone from `agent list`, so nothing maps their
+   *  terminalId to a tab any more. */
+  labels: ReadonlySet<string>;
+  /** Tab ids belonging to a LIVE session. Vetoes both routes above — a tab here is out of scope
+   *  whatever its label says. */
+  liveTabIds: ReadonlySet<string>;
+}
+
+export const EMPTY_SESSION_TAB_SCOPE: SessionTabScope = {
+  tabIds: new Set(),
+  labels: new Set(),
+  liveTabIds: new Set(),
+};
+
+/**
+ * Build the scope from the store plus the tab ids herdr currently reports for live agents (#1156).
+ *
+ * **Names are not identities, which is why `liveTabIds` exists.** A tab's label and its session's
+ * `name` are separate values kept in sync only on a best-effort basis: `HerdrDriver.relabel`
+ * returns early when no agent record matches the terminal id, and a clean-terminal session HAS no
+ * agent record (its tab comes from a bare `tab create`), so renaming a terminal moves the DB name
+ * and leaves the label behind. That is enough to close a live tab through a pure name comparison:
+ * an archived terminal called `terminal` sits in retention, a new terminal takes the freed name
+ * `terminal`, the operator renames it to `logs` — and now the archived NAME matches the live tab's
+ * stale LABEL, while a terminal sitting at its prompt is by definition shell-only. Subtracting live
+ * *names* does not help there; only the live tab id does.
+ *
+ * So live sessions are excluded by identity (`terminalTabId` for terminals, the herdr agent's tab
+ * for agent sessions), and live names are subtracted as well — belt and braces for an agent session
+ * whose tab rename was swallowed best-effort.
+ *
+ * Labels belonging to no session at all are never added: those are the operator's own tabs and the
+ * husks of sessions already pruned from the DB, and no evidence here can distinguish them.
+ *
+ * @param liveAgentTabIds tab ids herdr reports for agents of LIVE sessions. Pass an empty set only
+ *   when that reading is UNAVAILABLE *and* the caller has already narrowed the scope another way —
+ *   see the caller in index.ts, which drops session tabs entirely when herdr cannot be read.
+ */
+export function sessionTabScope(
+  store: ArchivedLabelStore,
+  liveAgentTabIds: ReadonlySet<string> = new Set(),
+): SessionTabScope {
+  const liveSessions = store.list({ activeOnly: true });
+  const liveNames = new Set(liveSessions.map((s) => s.name));
+  const liveTabIds = new Set(liveAgentTabIds);
+  for (const s of liveSessions) if (s.terminalTabId) liveTabIds.add(s.terminalTabId);
+
+  const tabIds = new Set<string>();
   const labels = new Set<string>();
   for (const s of store.listArchivedSessions()) {
-    if (!live.has(s.name)) labels.add(s.name);
+    if (s.terminalTabId && !liveTabIds.has(s.terminalTabId)) tabIds.add(s.terminalTabId);
+    else if (!s.terminalTabId && !liveNames.has(s.name)) labels.add(s.name);
   }
-  return labels;
+  return { tabIds, labels, liveTabIds };
 }
 
 /** Breakdown of one reconciliation sweep. */
@@ -197,20 +241,18 @@ export interface ReapResult {
  * mistaking it for "no husks" (#1852). (A per-pane `paneForegroundProcs` throw spares its
  * tab as `sparedError`, see above.)
  *
- * **`extraLabels` widens the SCOPE and nothing else (#1156).** Archiving a session is supposed to
+ * **`sessions` widens the SCOPE and nothing else (#1156).** Archiving a session is supposed to
  * close its tab, but `herdr.stop` resolves that tab from the in-memory spawn ledger or from
  * `agent list` — both empty for a settled session after a restart — and then documents its own
  * teardown as a no-op deferring to "the orphan sweep". No sweep covered session tabs, because this
- * one scopes to helper labels by design; the field report on #1156 counted 94 such husks. The
- * caller passes the labels of tabs belonging to ARCHIVED sessions, and they join the helper set at
- * exactly one point: scope selection. Everything after it — per-tab classification, the
- * spare-on-any-live-pane and fail-closed-on-no-evidence precedence, and the two-sweep debounce —
- * treats them identically, so a session tab is closed on the same evidence a helper tab is.
+ * one scopes to helper labels by design; the field report on #1156 counted 94 such husks. Archived
+ * session tabs join the helper set at exactly one point: scope selection. Everything after it —
+ * per-tab classification, the spare-on-any-live-pane and fail-closed-on-no-evidence precedence,
+ * and the two-sweep debounce — treats them identically, so a session tab is closed on the same
+ * evidence a helper tab is.
  *
- * Building that set is the CALLER's safety obligation: a label matching a LIVE session must never
- * appear in it (names are unique among live sessions, but an archived row can share a name with a
- * newer one), and a label matching no session at all must not either — that is the operator's own
- * tab, or one whose row session housekeeping has already pruned.
+ * A tab id in `sessions.liveTabIds` is excluded before any of that, whatever its label — see
+ * {@link sessionTabScope} for why a label match alone cannot be trusted to mean "archived".
  *
  * Closed tabs are closed in arbitrary order — herdr 0.7 stable ids (#569, e.g. `w1:t1`)
  * don't retarget on close, so close order is irrelevant.
@@ -218,7 +260,7 @@ export interface ReapResult {
 export async function reapOrphanTabs(
   herdr: ReapableHerdr,
   prevShellOnly: Set<string> = new Set(),
-  extraLabels: ReadonlySet<string> = new Set(),
+  sessions: SessionTabScope = EMPTY_SESSION_TAB_SCOPE,
 ): Promise<ReapResult> {
   /** Zero-work sweep: reap nothing, preserve the debounce set so no candidate is lost
    *  mid-debounce, and flag WHICH read failed so the caller can log it. */
@@ -236,8 +278,15 @@ export async function reapOrphanTabs(
   let helperTabIds: string[];
   let sessionTabs: number;
   try {
+    // A tab belonging to a live session is out of scope before anything else is considered: it is
+    // the one class of mistake no downstream evidence can catch, since a live terminal sitting at
+    // its prompt is legitimately shell-only.
     const inScope = (await herdr.tabsAsync()).filter(
-      (t) => isShepherdHelperLabel(t.label) || extraLabels.has(t.label),
+      (t) =>
+        !sessions.liveTabIds.has(t.tabId) &&
+        (isShepherdHelperLabel(t.label) ||
+          sessions.tabIds.has(t.tabId) ||
+          sessions.labels.has(t.label)),
     );
     sessionTabs = inScope.filter((t) => !isShepherdHelperLabel(t.label)).length;
     helperTabIds = inScope.map((t) => t.tabId);

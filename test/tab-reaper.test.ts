@@ -1,12 +1,12 @@
 import { test, expect, describe } from "bun:test";
 import {
-  archivedSessionTabLabels,
   createOrphanTabSweeper,
   reapOrphanTabs,
   isShepherdHelperLabel,
   reapStaleReviewWorktrees,
   type ReapResult,
   type ReapableHerdr,
+  sessionTabScope,
   type ReapWorktreesDeps,
 } from "../src/tab-reaper";
 import { PROBE_NAME } from "../src/usage-probe";
@@ -454,12 +454,19 @@ test("live pane DE-PRIMES a prior first-sighting; the shell sibling can never co
   expect(f.closed).toEqual(["w1:t1"]);
 });
 
-// ── extraLabels: archived-session tabs (#1156) ────────────────────────────────
+// ── session tabs: archived-session husks (#1156) ──────────────────────────────
 
-test("extraLabels: an archived session's husk tab is reaped on the same two-sweep debounce", async () => {
+/** Scope carrying only archived-session LABELS — what an agent session leaves behind. */
+const labelScope = (...labels: string[]) => ({
+  tabIds: new Set<string>(),
+  labels: new Set(labels),
+  liveTabIds: new Set<string>(),
+});
+
+test("session scope: an archived session's husk tab is reaped on the same two-sweep debounce", async () => {
   const panes = [pane("w1:p1", "w1:t1", "fix-login-redirect")];
   const procMap: Record<string, string[]> = { "w1:p1": ["zsh"] };
-  const extra = new Set(["fix-login-redirect"]);
+  const extra = labelScope("fix-login-redirect");
 
   const f1 = procFake(panes, procMap);
   const r1 = await reapOrphanTabs(f1.h, new Set(), extra);
@@ -472,10 +479,10 @@ test("extraLabels: an archived session's husk tab is reaped on the same two-swee
   expect(r2.closed).toEqual(["w1:t1"]);
 });
 
-test("extraLabels: a session tab still running claude is spared like any other live tab", async () => {
+test("session scope: a tab still running claude is spared like any other live tab", async () => {
   const panes = [pane("w1:p1", "w1:t1", "fix-login-redirect")];
   const procMap: Record<string, string[]> = { "w1:p1": ["claude"] };
-  const extra = new Set(["fix-login-redirect"]);
+  const extra = labelScope("fix-login-redirect");
 
   const f1 = procFake(panes, procMap);
   const r1 = await reapOrphanTabs(f1.h, new Set(), extra);
@@ -486,14 +493,14 @@ test("extraLabels: a session tab still running claude is spared like any other l
   expect((await reapOrphanTabs(f2.h, new Set(["w1:t1"]), extra)).closed).toEqual([]);
 });
 
-test("a session tab NOT in extraLabels is out of scope entirely — husk or not", async () => {
+test("a session tab NOT in scope is untouchable — husk or not", async () => {
   // The caller omits live sessions and unattributable tabs; omission must mean untouchable, not
   // merely "spared", or a live session's tab could be closed by a stale debounce entry.
   const panes = [pane("w1:p1", "w1:t1", "still-running-session")];
   const procMap: Record<string, string[]> = { "w1:p1": ["zsh"] };
 
   const f = procFake(panes, procMap);
-  const r = await reapOrphanTabs(f.h, new Set(["w1:t1"]), new Set(["some-other-session"]));
+  const r = await reapOrphanTabs(f.h, new Set(["w1:t1"]), labelScope("some-other-session"));
   expect(r.helperTabs).toBe(0);
   expect(r.sessionTabs).toBe(0);
   expect(r.closed).toEqual([]);
@@ -501,7 +508,7 @@ test("a session tab NOT in extraLabels is out of scope entirely — husk or not"
   expect(f.panesCalls.n).toBe(0); // empty scope short-circuits the pane read
 });
 
-test("extraLabels alongside helper tabs: both populations reaped, counted separately", async () => {
+test("session tabs alongside helper tabs: both populations reaped, counted separately", async () => {
   const panes = [
     pane("w1:p1", "w1:t1", PROBE_NAME),
     pane("w1:p2", "w1:t2", "archived-session"),
@@ -512,7 +519,7 @@ test("extraLabels alongside helper tabs: both populations reaped, counted separa
     "w1:p2": ["zsh"],
     "w1:p3": ["zsh"],
   };
-  const extra = new Set(["archived-session"]);
+  const extra = labelScope("archived-session");
 
   const f1 = procFake(panes, procMap);
   const r1 = await reapOrphanTabs(f1.h, new Set(), extra);
@@ -525,9 +532,9 @@ test("extraLabels alongside helper tabs: both populations reaped, counted separa
   expect(f2.closed).not.toContain("w1:t3"); // the unattributable tab is never touched
 });
 
-// ── archivedSessionTabLabels (#1156) ──────────────────────────────────────────
+// ── sessionTabScope (#1156) ───────────────────────────────────────────────────
 
-test("archivedSessionTabLabels: archived names only, and never one a live session still holds", () => {
+test("sessionTabScope: archived names only, and never one a live session still holds", () => {
   const store = new SessionStore(":memory:");
   const mk = (name: string) =>
     store.create({
@@ -552,7 +559,78 @@ test("archivedSessionTabLabels: archived names only, and never one a live sessio
   store.archive(oldDup.id, "operator");
   mk("recycled-name"); // the live namesake, created after the archive
 
-  expect(archivedSessionTabLabels(store)).toEqual(new Set(["retired-task"]));
+  expect(sessionTabScope(store).labels).toEqual(new Set(["retired-task"]));
+});
+
+test("sessionTabScope: a renamed live terminal is protected by tab id, not by name", () => {
+  // The chain a name-only subtraction cannot survive (#1156 review): an archived terminal called
+  // `terminal` sits in retention; a new terminal takes the freed name; the operator renames it to
+  // `logs`. `HerdrDriver.relabel` returns early for a terminal (there is no agent record to
+  // rename), so the LIVE tab keeps the stale label `terminal` — which now matches the ARCHIVED
+  // session's name. A terminal sitting at its prompt is shell-only by definition, so nothing
+  // downstream would have caught it.
+  const store = new SessionStore(":memory:");
+  const mkTerminal = (name: string, tabId: string) =>
+    store.create({
+      name,
+      prompt: "",
+      repoPath: "/r",
+      baseBranch: "",
+      branch: null,
+      worktreePath: "/r",
+      isolated: false,
+      herdrSession: "default",
+      herdrAgentId: `term_${tabId}`,
+      terminal: true,
+      terminalTabId: tabId,
+      terminalPaneId: `${tabId}:p1`,
+    });
+
+  const archivedTerminal = mkTerminal("terminal", "w1:t1");
+  store.archive(archivedTerminal.id, "operator");
+  const liveTerminal = mkTerminal("terminal", "w1:t2");
+  store.update(liveTerminal.id, { name: "logs" }); // label stays "terminal"
+
+  const scope = sessionTabScope(store);
+  expect(scope.liveTabIds.has("w1:t2")).toBe(true); // the live tab, by identity
+  expect(scope.tabIds).toEqual(new Set(["w1:t1"])); // the archived one, also by identity
+  expect(scope.labels.has("terminal")).toBe(false); // never by the ambiguous name
+});
+
+test("a live session's tab id is out of scope even when its label matches an archived name", async () => {
+  const panes = [pane("w1:p2", "w1:t2", "terminal")];
+  const procMap: Record<string, string[]> = { "w1:p2": ["zsh"] }; // a terminal at its prompt
+  const scope = {
+    tabIds: new Set<string>(),
+    labels: new Set(["terminal"]), // the archived session's name collides with the live label
+    liveTabIds: new Set(["w1:t2"]),
+  };
+
+  const f1 = procFake(panes, procMap);
+  const r1 = await reapOrphanTabs(f1.h, new Set(), scope);
+  expect(r1.helperTabs).toBe(0);
+  expect(f1.panesCalls.n).toBe(0); // vetoed before any evidence is even gathered
+
+  // Even primed for the debounce, the veto holds.
+  const f2 = procFake(panes, procMap);
+  expect((await reapOrphanTabs(f2.h, new Set(["w1:t2"]), scope)).closed).toEqual([]);
+  expect(f2.closed).toEqual([]);
+});
+
+test("an archived terminal's tab is reaped by its recorded tab id, whatever its label says", async () => {
+  const panes = [pane("w1:p1", "w1:t1", "some-stale-label")];
+  const procMap: Record<string, string[]> = { "w1:p1": ["zsh"] };
+  const scope = {
+    tabIds: new Set(["w1:t1"]),
+    labels: new Set<string>(),
+    liveTabIds: new Set<string>(),
+  };
+
+  const f1 = procFake(panes, procMap);
+  const r1 = await reapOrphanTabs(f1.h, new Set(), scope);
+  expect(r1.sessionTabs).toBe(1);
+  const f2 = procFake(panes, procMap);
+  expect((await reapOrphanTabs(f2.h, r1.shellOnly, scope)).closed).toEqual(["w1:t1"]);
 });
 
 // ── createOrphanTabSweeper (#1852) ────────────────────────────────────────────

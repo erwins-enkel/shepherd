@@ -44,21 +44,6 @@ function isSettled(s: Session): boolean {
   return s.status === "idle" || s.status === "done";
 }
 
-/**
- * True when this session could be brought back by `SessionService.restore()`. Mirrors
- * `resolveCodexRestoreId`'s `cannot_restore` conditions — a Claude session resumes via its pinned
- * `claudeSessionId`, and Codex only when isolated (a non-isolated Codex session shares its cwd, so
- * no rollout can be attributed to it). Archiving anything else is one-way, so the sweep won't.
- *
- * For Codex this is a claim about the mechanism, not a guarantee about the artifact: the rollout is
- * resolved at restore time and may by then have been garbage-collected. Confirming it here means
- * scanning `$CODEX_HOME` per candidate per sweep, which is not worth it for a session that has sat
- * settled for a week.
- */
-function isRestorable(s: Session): boolean {
-  return (s.agentProvider ?? "claude") === "claude" ? !!s.claudeSessionId : s.isolated;
-}
-
 export interface SessionArchiverDeps {
   store: Pick<SessionStore, "list" | "hasInflightReviewerSpawn">;
   resolveForge: (repoPath: string) => GitForge | null;
@@ -67,13 +52,26 @@ export interface SessionArchiverDeps {
   /** `PollerService.livenessFreshAt` — epoch ms of the last sweep that produced verdicts. */
   livenessFreshAt: () => number;
   /**
-   * `DrainService.retainClaim`. MUST be called before the archive: `DrainService.onArchived`
-   * otherwise reads this teardown as an ABANDON and releases the issue's `shepherd:active` label,
-   * re-queueing it for the drain. That release is justified in its own comment only as "a manual
-   * archive is a deliberate 'drop this' signal" — which an hourly janitor is not. Retaining means
-   * the issue keeps its claim and is not re-spawned; a human merge still retires it via `Closes #N`.
+   * `DrainService.retainClaim`. MUST be called after a SUCCESSFUL archive and before
+   * `emitArchived` — see {@link SessionArchiver.archiveOne}, which owns that ordering and the
+   * reasoning for both ends of it.
+   *
+   * Why it is called at all: without it `DrainService.onArchived` reads this teardown as an
+   * ABANDON and releases the issue's `shepherd:active` label, re-queueing it for the drain. That
+   * release is justified in its own comment only as "a manual archive is a deliberate 'drop this'
+   * signal" — which an hourly janitor is not. Retaining means the issue keeps its claim and is not
+   * re-spawned; a human merge still retires it via `Closes #N`.
    */
   retainClaim: (id: string) => void;
+  /**
+   * `SessionService.hasConversation` — the SAME predicate `restore()` gates on, not a local
+   * re-derivation of it. Restorability is the difference between an archive the operator can undo
+   * and a one-way teardown, and its definition moves: it is currently "a pinned `claudeSessionId`"
+   * for Claude and "`codexLaunchId` plus a matching `providerSessionId`" for Codex, having last
+   * changed under this file's feet. Calling the real thing is the only way this gate cannot drift
+   * out of agreement with what `restore()` will actually accept.
+   */
+  hasConversation: (s: Session) => boolean;
   /** `SessionService.archive`. */
   archive: (id: string, reason: "stale") => Promise<unknown>;
   /** `prCache.drop` — the archived row must not keep serving a cached PR state. */
@@ -238,7 +236,7 @@ export class SessionArchiver {
   private async blockedBy(s: Session, livenessFresh: boolean): Promise<SkipReason | null> {
     if (!this.isSettledHusk(s, livenessFresh)) return "liveness";
     if (this.hasWorkInFlight(s)) return "inflight";
-    if (!isRestorable(s)) return "unrestorable";
+    if (!this.deps.hasConversation(s)) return "unrestorable";
     if (await this.hasUnsyncedWork(s)) return "unsynced";
     const pr = await this.prSettled(s);
     if (pr === "open") return "pr-open";

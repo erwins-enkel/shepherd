@@ -44,10 +44,11 @@ import { BranchPruner } from "./branch-pruner";
 import { SessionArchiver } from "./session-archiver";
 import { reconcile } from "./reconcile";
 import {
-  archivedSessionTabLabels,
+  EMPTY_SESSION_TAB_SCOPE,
   createOrphanTabSweeper,
   reapOrphanTabs,
   reapStaleReviewWorktrees,
+  sessionTabScope,
 } from "./tab-reaper";
 import { reapTransientByLabel } from "./transient-tab-reaper";
 import { scanClaudeAliveByWorktree } from "./process-reaper";
@@ -1051,10 +1052,33 @@ deferredStarts.push(() => {
 // persisting anything. A `panes()` failure surfaces as a warning instead of reading as
 // "nothing to do".
 const orphanTabSweeper = createOrphanTabSweeper({
-  // Archived-session tabs join the helper husks in scope (#1156). Recomputed per sweep — the set
-  // changes as sessions archive — and derived through `archivedSessionTabLabels`, which subtracts
-  // every live session's name so a live tab can never enter scope.
-  reap: (prev) => reapOrphanTabs(herdr, prev, archivedSessionTabLabels(store)),
+  // Archived-session tabs join the helper husks in scope (#1156). Recomputed per sweep (the set
+  // changes as sessions archive) from the store plus the tab ids herdr reports for LIVE agents,
+  // which is what keeps a live session's tab out of scope by identity rather than by name.
+  //
+  // A failed agent read drops session tabs from this sweep entirely rather than proceeding with an
+  // empty live set: without that reading we cannot tell a live session's tab from an archived
+  // one's, and helper husks — whose scope needs no session evidence — are still swept.
+  reap: async (prev) => {
+    let scope = EMPTY_SESSION_TAB_SCOPE;
+    try {
+      const liveTerminalIds = new Set(
+        store
+          .list({ activeOnly: true })
+          .flatMap((s) => [s.herdrAgentId, s.spawnTerminalId].filter((id): id is string => !!id)),
+      );
+      const liveAgentTabIds = new Set(
+        (await herdr.listAsync())
+          .filter((a) => liveTerminalIds.has(a.terminalId))
+          .map((a) => a.tabId)
+          .filter((id): id is string => !!id),
+      );
+      scope = sessionTabScope(store, liveAgentTabIds);
+    } catch (err) {
+      console.warn("[tabs] live-agent read failed; sweeping helper tabs only:", err);
+    }
+    return reapOrphanTabs(herdr, prev, scope);
+  },
   schedule: (fn, ms) => void setTimeout(fn, ms),
   maintenanceActive: () => maintenance.active,
   confirmDelayMs: 30_000,
@@ -2282,6 +2306,9 @@ const sessionArchiver = new SessionArchiver({
   // acts on a `husk` backed by a recent successful sweep.
   livenessOf: (id) => poller.livenessOf(id),
   livenessFreshAt: () => poller.livenessFreshAt(),
+  // The same predicate restore() gates on, so the sweep can never archive a session the operator
+  // would then be unable to bring back.
+  hasConversation: (s) => service.hasConversation(s),
   retainClaim: (id) => drain.retainClaim(id),
   archive: (id, reason) => service.archive(id, undefined, reason),
   dropPrCache: (id) => prPoller.drop(id),

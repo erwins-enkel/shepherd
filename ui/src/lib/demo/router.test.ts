@@ -663,3 +663,60 @@ describe("POST /api/sessions (#1800) creates a real session instead of {ok:true}
     expect((await handleApi("GET", u(`/api/sessions/${id}/git`), undefined)).status).toBe(404);
   });
 });
+
+// #1821: these four all reached the permissive `{}` tail with a shape their api.ts caller
+// cannot survive. The throw that follows lands inside a `$derived` during Svelte's flush and
+// ABORTS THE BATCH, so every queued user `$effect` in the app stops re-running until a reload.
+// The assertions below are on the shape CONTRACT each caller is typed against — not on
+// incidental seeded values — because that contract is what keeps the flush alive.
+describe("GETs whose {} fallback threw in the caller (#1821)", () => {
+  it("GET /api/fs/dirs returns a DirListing — DirPicker reads entries.length", async () => {
+    const { status, body } = await get("/api/fs/dirs?path=/demo/acme");
+    expect(status).toBe(200);
+    expect(Array.isArray(body.entries)).toBe(true);
+    expect(body.entries.map((e: { name: string }) => e.name)).toEqual(["api", "storefront"]);
+    // `display` matches settings.repoRootDisplay, so the panel's "already your root" check resolves.
+    expect(body.display).toBe((await get("/api/settings")).body.repoRootDisplay);
+    expect(body.parent).toBe("/demo");
+  });
+
+  it("GET /api/fs/dirs browses the chain above the repo root, and bottoms out at null", async () => {
+    expect((await get("/api/fs/dirs?path=/demo")).body.parent).toBe("/");
+    expect((await get("/api/fs/dirs?path=/")).body.parent).toBeNull();
+  });
+
+  it("GET /api/fs/dirs with no path browses the configured repo root", async () => {
+    const { body } = await get("/api/fs/dirs");
+    expect(body.path).toBe((await get("/api/settings")).body.repoRoot);
+    expect(Array.isArray(body.entries)).toBe(true);
+  });
+
+  it("GET /api/fs/dirs gives an unseeded directory a valid listing with a working up-crumb", async () => {
+    const { status, body } = await get("/api/fs/dirs?path=/demo/acme/storefront");
+    expect(status).toBe(200);
+    expect(body.entries).toEqual([]); // empty, but never {}
+    expect(body.parent).toBe("/demo/acme"); // "up" still walks back into the seeded chain
+  });
+
+  it("GET /api/access-tokens wraps an array under {tokens} — the panel reads tokens.length", async () => {
+    const { status, body } = await get("/api/access-tokens");
+    expect(status).toBe(200);
+    expect(Array.isArray(body.tokens)).toBe(true);
+  });
+
+  it("GET /api/plugin-update always carries `plugins` — {} is truthy, so `?.` would not save it", async () => {
+    const { status, body } = await get("/api/plugin-update");
+    expect(status).toBe(200);
+    expect(Array.isArray(body.plugins)).toBe(true);
+    expect(body.updateAvailable).toBe(false);
+    expect(typeof body.checkedAt).toBe("number");
+  });
+
+  it("GET /api/stranded is an ARRAY — setClaudeAlive iterates it with for…of", async () => {
+    const { status, body } = await get("/api/stranded");
+    expect(status).toBe(200);
+    expect(Array.isArray(body)).toBe(true);
+    // No session in the scenario is a restart-strand; the `false` liveness entries are plain husks.
+    expect(body).toEqual([]);
+  });
+});

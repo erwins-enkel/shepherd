@@ -611,12 +611,18 @@
     isMac = /mac|iphone|ipad|ipod/i.test(navigator.platform || navigator.userAgent);
     listRepos()
       .then(({ repos: r, recentWindowDays }) => {
-        repos = r;
+        // The second `listRepos()` consumer, guarded the same way as `ReposStore.load()`
+        // (#1800): a shapeless body would put a non-array in `repos`, and `selectedRepo`'s
+        // `$derived` would then throw inside Svelte's flush — aborting the batch and freezing
+        // every user `$effect` in the app (#1821). Bind it ONCE, because the three reads below
+        // need the same normalised value; guarding only the assignment still throws on `.length`.
+        const list = Array.isArray(r) ? r : [];
+        repos = list;
         recentRepoWindowDays = recentWindowDays;
         // Prefer the most-recently-used NON-hidden repo; if every repo is hidden,
         // fall back to the full list so repoPath is never left empty.
-        if (!repoPath && r.length > 0)
-          repoPath = defaultRepoPath(r.filter((repo) => !repo.hidden)) || r[0]!.path;
+        if (!repoPath && list.length > 0)
+          repoPath = defaultRepoPath(list.filter((repo) => !repo.hidden)) || list[0]!.path;
       })
       .catch(() => {});
     // Focus the prompt so the user can type immediately when the dialog opens.

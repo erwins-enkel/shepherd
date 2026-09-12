@@ -101,10 +101,20 @@ const bootstrapGetRoutes: Record<string, GetHandler> = {
   "/api/update/log": () => json({ phase: "idle", exitCode: null, log: "" }),
   "/api/herdr-update": () => json(demoState.herdrUpdate()),
   "/api/codex-update": () => json(demoState.codexUpdate()),
+  // Fetched at mount alongside the other update GETs, and again by Settings → Plugins.
+  // The `{}` tail landed in `store.pluginUpdates`, where Settings' `$derived` reads
+  // `pluginUpdates?.plugins.filter(...)` — `{}` is truthy, so the optional chain did not
+  // save it and the throw aborted Svelte's flush (#1821).
+  "/api/plugin-update": () => json(demoState.pluginUpdate()),
   "/api/star-prompt": () => json(demoState.starPrompt()),
   "/api/git": () => json(demoState.gitStates()),
   "/api/activity": () => json(demoState.activityStates()),
   "/api/claude-alive": () => json(demoState.claudeAliveStates()),
+  // Paired with /api/claude-alive: the client folds the boolean snapshot, then upgrades these
+  // ids to `stranded`. `setClaudeAlive` does `for…of` over the value, so the permissive `{}`
+  // tail threw there — BEFORE the folded liveness map was assigned, silently dropping the
+  // whole claude-alive bootstrap (#1821).
+  "/api/stranded": () => json(demoState.stranded()),
   "/api/working-blocked": () => json(demoState.workingBlockedStates()),
   "/api/holds": () => json(demoState.holdStates()),
   "/api/subagents": () => json(demoState.subagentStates()),
@@ -158,11 +168,24 @@ const newTaskGetRoutes: Record<string, GetHandler> = {
   "/api/issues": (url) => json(demoState.issues(repoParam(url))),
 };
 
+// ── settings dialog (#1821) ──────────────────────────────────────────────────
+// The GETs only the Settings panels fire, on mount. Both were reaching the permissive `{}`
+// tail with a shape their caller cannot survive: DirPicker reads `listing.entries.length`
+// and SettingsAccessPanel reads `tokens.length`. A throw from either lands inside Svelte's
+// flush and ABORTS THE BATCH, which stops every queued user `$effect` in the app — the whole
+// UI goes stale until a reload, with no visible error. Same failure as `/api/repos` (#1800)
+// and `PUT /api/settings` (#2240): the fix is always a correctly-shaped response.
+const settingsGetRoutes: Record<string, GetHandler> = {
+  "/api/fs/dirs": (url) => json(demoState.dirs(url.searchParams.get("path") ?? "")),
+  "/api/access-tokens": () => json(demoState.accessTokens()),
+};
+
 const exactGetRoutes: Record<string, GetHandler> = {
   ...bootstrapGetRoutes,
   ...lensGetRoutes,
   ...epicsGetRoutes,
   ...newTaskGetRoutes,
+  ...settingsGetRoutes,
 };
 
 // ── session-detail tabs (Task 8 sibling audit) ─────────────────────────────
@@ -405,6 +428,15 @@ export async function handleApi(method: string, url: URL, body: unknown): Promis
     // Permissive fallback for off-screen endpoints: unmatched read → benign empty
     // object; unmatched mutation → a generic success. Keeps the demo UI from
     // erroring on endpoints no showcased screen touches.
+    //
+    // It is shape-BLIND, though, so it is only benign for a caller whose type tolerates
+    // `{}` (a `Record<string, …>` map). Hand it to a caller expecting an array or a
+    // required field and the `undefined` that lands downstream throws inside a `$derived`
+    // during Svelte's flush, which aborts the batch and freezes every user `$effect` in the
+    // app — a stale UI with no visible error (#1821, #1800, #2240). Dev-only warn so the
+    // next such gap announces itself in `bun run dev:demo` instead of presenting as a
+    // mysteriously frozen page; silent in the built public demo.
+    if (import.meta.env.DEV) console.warn("[demo-unmatched]", m, path);
     return json(m === "GET" ? {} : { ok: true });
   } catch {
     // Never throw out of the transport — a malformed request degrades to a stub.

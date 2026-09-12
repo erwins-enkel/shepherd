@@ -13,3 +13,10 @@ export function effectiveAutopilot(
 ): boolean {
   return s.autopilotEnabled ?? repoDefault;
 }
+
+/** Both providers need an exact conversation before unattended steering/resume. */
+export function hasTaskConversation(s: Session): boolean {
+  return !!((s.agentProvider ?? "claude") === "codex"
+    ? s.codexLaunchId && s.providerSessionId
+    : s.claudeSessionId);
+}

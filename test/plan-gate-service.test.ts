@@ -288,6 +288,8 @@ test("answered Codex planning question resumes through a readable plan into auto
       herdrSession: "default",
       herdrAgentId: "term-exited",
       agentProvider: "codex",
+      providerSessionId: "codex-pinned",
+      codexLaunchId: "launch-test",
       planGateEnabled: true,
       planPhase: "planning",
     });
@@ -594,7 +596,7 @@ test("approve → stores approved gate, reaps worktree+terminal, reviewing off; 
     readVerdict: () => ({ decision: "approve", summary: "ok", body: "B", findings: [] }),
     release: (id: string) => released.push(id),
     onReviewing: (id: string, r: boolean) => reviewingEvents.push([id, r]),
-    store: { get: () => ({ id: "s1", auto: true }) },
+    store: { get: () => ({ claudeSessionId: "claude-pinned", id: "s1", auto: true }) },
   });
   await h.svc.consider(planningSession() as any);
   await h.svc.tick();
@@ -610,7 +612,7 @@ test("approve on an interactive session does NOT auto-release", async () => {
   const h = harness({
     readVerdict: () => ({ decision: "approve", summary: "ok", body: "B", findings: [] }),
     release: (id: string) => released.push(id),
-    store: { get: () => ({ id: "s1", auto: false }) },
+    store: { get: () => ({ claudeSessionId: "claude-pinned", id: "s1", auto: false }) },
   });
   await h.svc.consider(planningSession() as any);
   await h.svc.tick();
@@ -623,7 +625,13 @@ test("approve → autopilot override ON (non-drain) auto-releases", async () => 
     readVerdict: () => ({ decision: "approve", summary: "ok", body: "B", findings: [] }),
     release: (id: string) => released.push(id),
     store: {
-      get: () => ({ id: "s1", auto: false, autopilotEnabled: true, repoPath: "/r" }),
+      get: () => ({
+        claudeSessionId: "claude-pinned",
+        id: "s1",
+        auto: false,
+        autopilotEnabled: true,
+        repoPath: "/r",
+      }),
       getRepoConfig: () => ({ planGateEnabled: true, autopilotEnabled: false }),
     },
   });
@@ -637,7 +645,13 @@ test("approve → autopilot override OFF does NOT auto-release", async () => {
     readVerdict: () => ({ decision: "approve", summary: "ok", body: "B", findings: [] }),
     release: (id: string) => released.push(id),
     store: {
-      get: () => ({ id: "s1", auto: false, autopilotEnabled: false, repoPath: "/r" }),
+      get: () => ({
+        claudeSessionId: "claude-pinned",
+        id: "s1",
+        auto: false,
+        autopilotEnabled: false,
+        repoPath: "/r",
+      }),
       getRepoConfig: () => ({ planGateEnabled: true, autopilotEnabled: true }),
     },
   });
@@ -651,7 +665,13 @@ test("approve → autopilot inherited from repo default ON auto-releases", async
     readVerdict: () => ({ decision: "approve", summary: "ok", body: "B", findings: [] }),
     release: (id: string) => released.push(id),
     store: {
-      get: () => ({ id: "s1", auto: false, autopilotEnabled: null, repoPath: "/r" }),
+      get: () => ({
+        claudeSessionId: "claude-pinned",
+        id: "s1",
+        auto: false,
+        autopilotEnabled: null,
+        repoPath: "/r",
+      }),
       getRepoConfig: () => ({ planGateEnabled: true, autopilotEnabled: true }),
     },
   });
@@ -659,16 +679,15 @@ test("approve → autopilot inherited from repo default ON auto-releases", async
   await h.svc.tick();
   expect(released).toEqual(["s1"]);
 });
-// TASK-413: enabling plan-gate for Codex makes this auto-release path reachable for Codex. Codex
-// autopilot stands down on a NON-isolated session (resume --last would target a sibling in a shared
-// cwd), so such a session is not hands-free — it must wait for the operator's Go, NOT auto-release.
-test("approve → codex NON-isolated autopilot does NOT auto-release (stands down like spawn/autopilot)", async () => {
+// Missing Codex identity stays manual, regardless of checkout isolation.
+test("approve → codex NON-isolated autopilot without identity does NOT auto-release", async () => {
   const released: string[] = [];
   const h = harness({
     readVerdict: () => ({ decision: "approve", summary: "ok", body: "B", findings: [] }),
     release: (id: string) => released.push(id),
     store: {
       get: () => ({
+        claudeSessionId: "claude-pinned",
         id: "s1",
         auto: false,
         autopilotEnabled: true,
@@ -683,17 +702,20 @@ test("approve → codex NON-isolated autopilot does NOT auto-release (stands dow
   await h.svc.tick();
   expect(released).toEqual([]);
 });
-test("approve → codex ISOLATED autopilot auto-releases (guard is isolation-specific)", async () => {
+test("approve → codex ISOLATED autopilot with identity auto-releases", async () => {
   const released: string[] = [];
   const h = harness({
     readVerdict: () => ({ decision: "approve", summary: "ok", body: "B", findings: [] }),
     release: (id: string) => released.push(id),
     store: {
       get: () => ({
+        claudeSessionId: "claude-pinned",
         id: "s1",
         auto: false,
         autopilotEnabled: true,
         agentProvider: "codex",
+        providerSessionId: "codex-pinned",
+        codexLaunchId: "launch-test",
         isolated: true,
         repoPath: "/r",
       }),
@@ -3488,3 +3510,37 @@ test("#2224: a FIRST-review verdict on a latched executing session never re-gate
   expect(h.store.gate.decision).toBe("changes_requested");
   expect(h.store.gate.approvedAt).toBeNull();
 });
+
+for (const provider of ["claude", "codex"] as const) {
+  for (const isolated of [false, true]) {
+    for (const enabled of [false, true]) {
+      for (const identified of [false, true]) {
+        test(`approve → ${provider} isolated=${isolated} autopilot=${enabled} identity=${identified}`, async () => {
+          const released: string[] = [];
+          const h = harness({
+            readVerdict: () => ({ decision: "approve", summary: "ok", body: "B", findings: [] }),
+            release: (id: string) => released.push(id),
+            store: {
+              get: () => ({
+                id: "s1",
+                repoPath: "/r",
+                agentProvider: provider,
+                isolated,
+                auto: false,
+                autopilotEnabled: enabled,
+                claudeSessionId: identified ? "claude-pinned" : "",
+                providerSessionId: identified ? "codex-pinned" : "",
+                codexLaunchId: "launch",
+              }),
+              getRepoConfig: () => ({ planGateEnabled: true, autopilotEnabled: !enabled }),
+            },
+          });
+          await h.svc.consider(planningSession() as any);
+          await h.svc.tick();
+          expect(h.store.gate.approved).toBe(true);
+          expect(released).toEqual(enabled && identified ? ["s1"] : []);
+        });
+      }
+    }
+  }
+}

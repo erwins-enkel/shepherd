@@ -266,7 +266,7 @@ export class StatusPoller {
   onAutoRevived?: (revived: number, failed: number) => void;
 
   /** Fire-and-forget best-effort seed of a running Codex session's provider-native id (wired to
-   *  service.captureCodexSessionId in index.ts). No-op for non-Codex / non-isolated / already-seeded
+   *  service.captureCodexSessionId in index.ts). No-op for non-Codex / legacy unmarked / already-seeded
    *  sessions. Returns `true` when it was an applicable attempt that still missed (used to back off the
    *  per-session rescan cadence below). Left undefined in tests that don't exercise it. */
   captureCodexSessionId?: (s: Session) => boolean;

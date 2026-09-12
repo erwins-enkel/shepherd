@@ -1576,22 +1576,15 @@ const planGate = new PlanGateService({
   // Raw steer, delivered THROUGH resumeThenSteer (paneAlive/resume/deferSteer below): findings now
   // revive an exited planner before landing rather than holding the round on a dead pane. This is
   // what makes a Codex planner (which exits after its turn) actually receive the findings and revise.
-  reply: (id, text) => service.reply(id, text),
+  reply: (id, text) => service.resumeAndReply(id, text),
   // Whether the planning session is still a live agent (mirrors autopilot.paneAlive).
   paneAlive: (id) => {
     const s = store.get(id);
     return !!s && matchAgent(s, herdr.list(), liveTabLabels) !== null;
   },
-  // Resume an exited planning pane so the findings land — EXCEPT a NON-isolated Codex session:
-  // `codex resume --last` is cwd-scoped and would resume/steer a SIBLING codex session (the exact
-  // constraint autopilot enforces at eligibility). Returning null there makes resumeThenSteer report
-  // the steer undelivered, so applyChangesRequested escalates to the operator instead of corrupting
-  // a sibling. Claude / isolated Codex resume normally.
-  resume: (id) => {
-    const s = store.get(id);
-    if (s && (s.agentProvider ?? "claude") === "codex" && !s.isolated) return null;
-    return service.resume(id);
-  },
+  // SessionService resolves the exact conversation or refuses without steering.
+  resume: (id) => service.resume(id),
+  hasConversation: (s) => service.hasConversation(s),
   // Defer + re-drive a herdr-restored account pane first (Locus A) so the steer lands on the healed
   // pane, not the wrong-account husk; resumeThenSteer resumes it rather than dropping the round.
   deferSteer: (id) => service.shouldDeferSteer(id),
@@ -1997,6 +1990,7 @@ function readVisibleBuffer(id: string): string | null {
 // (drive to a PR). Genuine questions pause the session loudly (distinct state + push).
 const autopilot = new AutopilotService({
   store,
+  hasConversation: (s) => service.hasConversation(s),
   classify: (tail, taskPrompt, label, taskSessionId) => {
     const env = roleEnv(config.autopilotCli, config.autopilotModel, config.autopilotEffort);
     return classifyStop(
@@ -2016,7 +2010,7 @@ const autopilot = new AutopilotService({
       label,
     );
   },
-  steer: (id, text) => service.reply(id, text),
+  steer: (id, text) => service.resumeAndReply(id, text),
   resume: (id) => service.resume(id),
   paneAlive: (id) => {
     const s = store.get(id);

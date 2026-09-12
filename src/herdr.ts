@@ -239,12 +239,13 @@ function agentNameMatchesSession(
  * every session matches by id. Omitting it degrades to `agent.name`, which 0.7.5 never sends.
  */
 export function matchAgent(
-  s: { herdrAgentId: string; worktreePath: string; name: string },
+  s: { herdrAgentId: string; worktreePath: string; name: string; isolated?: boolean },
   agents: HerdrAgent[],
   labels?: TabLabelSource,
 ): HerdrAgent | null {
   const byId = agents.find((a) => a.terminalId === s.herdrAgentId);
   if (byId) return byId;
+  if (s.isolated === false) return null; // shared cwd is never task identity
   const byCwd = agents.filter((a) => a.cwd === s.worktreePath);
   if (byCwd.length === 1) return byCwd[0]!;
   if (byCwd.length > 1) {
@@ -346,11 +347,12 @@ export function isAutoRevivable(s: {
  * `matchAgent` regardless of name (so a renamed isolated session still re-pairs).
  */
 function pickByCwd(
-  s: { herdrAgentId: string; worktreePath: string; name: string },
+  s: { herdrAgentId: string; worktreePath: string; name: string; isolated?: boolean },
   candidates: HerdrAgent[],
   contended: boolean,
   labels: TabLabelSource,
 ): HerdrAgent | null {
+  if (s.isolated === false) return null;
   if (!contended) return matchAgent(s, candidates, labels);
   const byName = candidates.filter(
     (c) => c.cwd === s.worktreePath && agentNameMatchesSession(c, s.name, labels),
@@ -373,7 +375,13 @@ function pickByCwd(
  * may pass a thunk that reads `tab list` without paying for it on an uncontended tick.
  */
 export function matchAgents(
-  sessions: { id: string; herdrAgentId: string; worktreePath: string; name: string }[],
+  sessions: {
+    id: string;
+    herdrAgentId: string;
+    worktreePath: string;
+    name: string;
+    isolated?: boolean;
+  }[],
   agents: HerdrAgent[],
   labels?: TabLabelSource,
 ): Map<string, HerdrAgent | null> {

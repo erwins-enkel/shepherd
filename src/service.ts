@@ -37,7 +37,7 @@ import {
   agentSkillsAvailable,
   agentSkillsMembranePaths,
 } from "./agent-skills";
-import { CODEX_ID_SKEW_MS, findCodexSessionId } from "./codex-session-id";
+import { CODEX_ID_SKEW_MS, codexLaunchMarker, findCodexLaunchSessionId } from "./codex-session-id";
 import type {
   AgentProvider,
   CreateSessionInput,
@@ -2221,6 +2221,7 @@ export class SessionService {
    * resumes are never serialized against each other.
    */
   private readonly resumeInFlight = new Map<string, Promise<Session | null>>();
+  private readonly planReleaseInFlight = new Map<string, Promise<boolean>>();
 
   /**
    * Bounded-attempt bookkeeping for `reDriveAccount` (herdr-restart account-loss fix, task 4a).
@@ -2979,10 +2980,8 @@ export class SessionService {
    * prompt, since Codex has no such flag).
    *
    * `autopilotActive` and `trimmed` are passed IN by the caller, never derived here, because they
-   * legitimately diverge per provider (issue: TASK-413):
-   *  - autopilotActive — both providers resolve the per-session toggle over the repo default; Codex
-   *    additionally applies its isolation gate (`isolated && effectiveAutopilot(...)`), since Codex
-   *    autopilot stands down on non-isolated sessions.
+   * depend on launch settings:
+   *  - autopilotActive — both providers resolve the per-session toggle over the repo default.
    *  - trimmed — the context-trim notice is Claude-specific (skill-catalog / slash-command / plugin
    *    trimming); Codex has no such trim, so its caller passes `false`.
    *
@@ -3152,27 +3151,23 @@ export class SessionService {
 
   private buildCodexSpawnArgv(args: {
     input: StandardCreateInput;
+    launchId: string;
     sessionId: string;
     promptArg: string;
     planGateOn: boolean | undefined;
     isolated: boolean;
     baseUrl: string;
   }): string[] {
-    const { input, sessionId, promptArg, planGateOn, isolated, baseUrl } = args;
+    const { input, sessionId, launchId, promptArg, planGateOn, isolated, baseUrl } = args;
     const repoConfig = this.deps.store.getRepoConfig(input.repoPath);
     const argv = ["codex", "--no-alt-screen", "--dangerously-bypass-approvals-and-sandbox"];
     const model = clampCodexModelForAuth(input.model, "codex", this.codexAuthMode());
     if (model) argv.push("--model", model);
     this.pushEffortFlag(argv, input.effort, "codex");
-    // Codex divergence (preserved from the prior call-site gating): the autopilot directive stands
-    // down on a non-isolated session, and the per-session toggle counts. Research/plan-gate precedence
-    // is handled inside composeSystemPrompt, so it need not be repeated here.
-    const autopilotActive =
-      isolated &&
-      effectiveAutopilot(
-        { autopilotEnabled: input.autopilotEnabled ?? null },
-        repoConfig.autopilotEnabled,
-      );
+    const autopilotActive = effectiveAutopilot(
+      { autopilotEnabled: input.autopilotEnabled ?? null },
+      repoConfig.autopilotEnabled,
+    );
     // Codex has no --append-system-prompt, so the directive block Claude gets via composeSystemPrompt
     // rides inline on the prompt instead, wrapped so the agent can separate it from the task. The
     // manual-steps-notice #1257 is the one block composeSystemPrompt gates per-provider: it stays
@@ -3188,24 +3183,22 @@ export class SessionService {
       trimmed: false,
       agentProvider: "codex",
     });
-    argv.push(`${promptArg}\n\n<shepherd-directives>\n${directives}\n</shepherd-directives>`);
+    argv.push(
+      `${codexLaunchMarker(launchId)}${promptArg}\n\n<shepherd-directives>\n${directives}\n</shepherd-directives>`,
+    );
     return argv;
   }
 
   private buildCodexResumeArgv(
     model: string | null,
     effort: string | null,
-    sessionId: string | null = null,
+    sessionId: string,
   ): string[] {
-    // Resume a SPECIFIC Codex session by its rollout UUID when we know it — `restore` derives it
-    // fresh from the rollout header. Otherwise fall back to `codex resume --last`, which is cwd-scoped
-    // and interactive-only, so it correctly targets the current conversation for an isolated worktree;
-    // the live resume paths (autopilot/automerge/manual) take this fallback. `[SESSION_ID]` is a
-    // positional arg and must precede the flags.
+    // Never select by cwd: even an isolated worktree can contain an operator-started session.
     const argv = [
       "codex",
       "resume",
-      sessionId ?? "--last",
+      sessionId,
       "--no-alt-screen",
       "--dangerously-bypass-approvals-and-sandbox",
     ];
@@ -3254,31 +3247,34 @@ export class SessionService {
     codexSessionId: string | null = null,
   ): string[] {
     return provider === "codex"
-      ? this.buildCodexResumeArgv(s.model, s.effort, codexSessionId)
+      ? this.buildCodexResumeArgv(s.model, s.effort, codexSessionId!)
       : this.buildClaudeResumeArgv(s, trim);
   }
 
-  /**
-   * Poller-invoked, fire-and-forget: seed `providerSessionId` for a running ISOLATED Codex session
-   * that lacks one, by discovering its rollout id (cwd + `source=cli` match). Populate-once (skips
-   * when already set) and never writes an empty string — a `null` derive is a no-op, so a transient
-   * miss can't clobber a good id. `restore` does NOT trust this cached value (it re-derives), so this
-   * is purely the best-effort provider-neutral seed for #1087/#1160. Never throws.
-   *
-   * Returns `true` only when this was an APPLICABLE attempt that still missed (isolated Codex, unseeded,
-   * no matching rollout yet) — the signal the poller uses to back off its per-session rescan cadence so
-   * a never-matching running session doesn't scan the whole `$CODEX_HOME/sessions` tree every tick.
-   * Returns `false` for a non-applicable session (not Codex / non-isolated / already seeded) or a hit.
-   */
+  /** Resolve a launch marker once and persist the native id. Never guess from cwd/mtime. */
   captureCodexSessionId(s: Session): boolean {
-    if ((s.agentProvider ?? "claude") !== "codex" || !s.isolated || s.providerSessionId)
-      return false;
-    const id = findCodexSessionId(s.worktreePath, s.createdAt - CODEX_ID_SKEW_MS);
-    if (id) {
-      this.deps.store.setProviderSessionId(s.id, id);
-      return false;
-    }
-    return true;
+    const current = this.deps.store.get(s.id);
+    if (!current || current.codexLaunchId !== s.codexLaunchId) return false;
+    if ((s.agentProvider ?? "claude") !== "codex" || current.providerSessionId) return false;
+    if (!s.codexLaunchId) return false; // legacy sessions without provenance remain manual
+    const id = findCodexLaunchSessionId(
+      s.worktreePath,
+      s.codexLaunchId,
+      s.createdAt - CODEX_ID_SKEW_MS,
+    );
+    if (!id) return true;
+    this.deps.store.setProviderSessionId(s.id, id);
+    return false;
+  }
+
+  /** Also called after planner exit: the poller may not have captured the rollout yet. */
+  hasConversation(s: Session): boolean {
+    if ((s.agentProvider ?? "claude") === "claude") return !!s.claudeSessionId;
+    // Old cached ids came from cwd recency, not provenance; never promote them to safe targets.
+    if (!s.codexLaunchId) return false;
+    this.captureCodexSessionId(s);
+    const current = this.deps.store.get(s.id);
+    return current?.codexLaunchId === s.codexLaunchId && !!current.providerSessionId;
   }
 
   private resumeTarget(id: string): { session: Session; provider: AgentProvider } | null {
@@ -3286,9 +3282,9 @@ export class SessionService {
     if (!session || session.status === "archived") return null;
 
     const provider = session.agentProvider ?? "claude";
-    if (provider === "claude" && !session.claudeSessionId) return null;
+    if (!this.hasConversation(session)) return null;
 
-    return { session, provider };
+    return { session: this.deps.store.get(id)!, provider };
   }
 
   private liveAgentFor(id: string): HerdrAgent | null {
@@ -3523,6 +3519,7 @@ export class SessionService {
     claudeSessionId: string,
     opts: { planGateOn?: boolean } = {},
   ): Promise<{
+    launchIdentity: { claudeSessionId: string; codexLaunchId: string };
     agentProvider: AgentProvider;
     resolvedInput: StandardCreateInput;
     spawnInput: StandardCreateInput;
@@ -3559,13 +3556,14 @@ export class SessionService {
         ? "trusted"
         : this.researchSafeProfileOverride(spawnInput, repoConfig, sessionId);
     const baseUrl = this.resolveSpawnBaseUrl(profileOverride, spawnInput.repoPath);
-    // buildCodexSpawnArgv computes its own autopilot gate internally (isolated && effectiveAutopilot)
+    // buildCodexSpawnArgv resolves effectiveAutopilot internally
     // and delivers the full directive block via composeDirectives — no caller-side gating needed.
     const argv =
       agentProvider === "codex"
         ? this.buildCodexSpawnArgv({
             input: spawnInput,
             sessionId,
+            launchId: claudeSessionId,
             promptArg,
             planGateOn,
             isolated: wt.isolated,
@@ -3582,6 +3580,10 @@ export class SessionService {
             baseUrl,
           );
     return {
+      launchIdentity:
+        agentProvider === "claude"
+          ? { claudeSessionId, codexLaunchId: "" }
+          : { claudeSessionId: "", codexLaunchId: claudeSessionId },
       agentProvider,
       resolvedInput,
       spawnInput,
@@ -3756,6 +3758,7 @@ export class SessionService {
         attachments,
       } = await phases.phase("prompt", () => this.composePromptArg(input, wt.worktreePath));
       const {
+        launchIdentity,
         agentProvider,
         resolvedInput,
         spawnInput,
@@ -3812,7 +3815,7 @@ export class SessionService {
         sandboxDegraded: outcome.degraded,
         egressApplied: outcome.egressApplied,
         egressDegraded: outcome.egressDegraded,
-        claudeSessionId: agentProvider === "claude" ? claudeSessionId : "",
+        ...launchIdentity,
         agentProvider,
         model: resolvedInput.model,
         effort: spawnInput.effort ?? null,
@@ -4132,7 +4135,7 @@ export class SessionService {
     const agentProvider = opts.agentProvider ?? s.agentProvider ?? "claude";
     const sourceProvider = s.agentProvider ?? "claude";
     const model = modelForProviderOrDefault(opts.model, agentProvider);
-    const claudeSessionId = agentProvider === "claude" ? randomUUID() : "";
+    const claudeSessionId = randomUUID();
     const carriedUploads = this.listWorktreeUploads(s.worktreePath);
     const promptUploads = carriedUploads.slice(0, MAX_IMAGES);
     if (carriedUploads.length > promptUploads.length)
@@ -4193,9 +4196,9 @@ export class SessionService {
     try {
       this.deps.store.update(s.id, {
         herdrAgentId: outcome.terminalId,
-        claudeSessionId: agentProvider === "claude" ? claudeSessionId : "",
+        ...launch.launchIdentity,
         // Relaunch spawns a fresh agent → a fresh rollout; clear any stale captured Codex id so the
-        // poller re-captures the new session's id (restore derives fresh regardless).
+        // poller resolves the new launch marker, never an earlier conversation for this task.
         providerSessionId: "",
         agentProvider,
         model: launch.resolvedInput.model,
@@ -4671,7 +4674,7 @@ export class SessionService {
 
     const outcome = await this.prepareResumeSpawn(
       session,
-      this.buildResumeArgv(session, provider, trim),
+      this.buildResumeArgv(session, provider, trim, session.providerSessionId),
     );
     if (!outcome.ok) {
       // Resume's "can't resume" contract: callers (autopilot/automerge) `if(!await resume)` skip,
@@ -4819,31 +4822,10 @@ export class SessionService {
    * a generic 409). Throws `RestoreError` for precondition violations, and propagates
    * `WorktreeRestoreError` from the worktree layer so the route can map specific codes to 409.
    */
-  /**
-   * Resolve the id to resume an archived session by, enforcing per-provider restorability.
-   * Claude: requires its pinned `claudeSessionId` (returns null — it resumes via `--resume`).
-   * Codex: isolated only; derives the id FRESH from the rollout header (source of truth — always the
-   * actual last conversation for this worktree, robust to Codex-resume append-vs-fork, honest when the
-   * rollout was GC'd), persists it write-through, and returns it. The scan never touches the
-   * (at restore time absent) worktree — it string-matches cwds under `$CODEX_HOME` — so a miss throws
-   * BEFORE any worktree side effect (no rollback). Throws `RestoreError("cannot_restore")` otherwise.
-   */
+  /** Archived sessions use the same pinned identity as live resume; no cwd fallback. */
   private resolveCodexRestoreId(s: Session, provider: AgentProvider): string | null {
-    if (provider === "claude") {
-      if (!s.claudeSessionId) throw new RestoreError("cannot_restore");
-      return null;
-    }
-    if (provider === "codex" && s.isolated) {
-      const id = findCodexSessionId(s.worktreePath, s.createdAt - CODEX_ID_SKEW_MS);
-      if (!id) throw new RestoreError("cannot_restore");
-      this.deps.store.setProviderSessionId(s.id, id); // write-through refresh
-      return id;
-    }
-    // codex non-isolated, or any other provider. Non-isolated Codex shares the repo cwd with
-    // siblings/relaunches/operator runs, so no rollout can be reliably attributed to THIS row —
-    // restoring the wrong conversation is worse than refusing (#1175). Blocked pending Codex
-    // spawn-time id pinning; tracked in #1476.
-    throw new RestoreError("cannot_restore");
+    if (!this.hasConversation(s)) throw new RestoreError("cannot_restore");
+    return provider === "codex" ? this.deps.store.get(s.id)!.providerSessionId! : null;
   }
 
   async restore(id: string): Promise<Session | null> {
@@ -4980,6 +4962,26 @@ export class SessionService {
     return this.replyToLive(id, text, this.liveTerminalIds());
   }
 
+  /** Deliver an internal task steer, reviving an exited planner by exact identity first.
+   * A listed shell is not a live agent; never paste implementation instructions into it. */
+  async resumeAndReply(id: string, text: string): Promise<boolean> {
+    const s = this.deps.store.get(id);
+    if (!s || !this.hasConversation(s)) return false;
+    const target = await this.operatorReplyTarget(id, true);
+    if (!target) return false;
+    const current = this.deps.store.get(id);
+    if (
+      !current ||
+      current.herdrAgentId !== s.herdrAgentId ||
+      current.codexLaunchId !== s.codexLaunchId
+    )
+      return false;
+    if (!target.agent || target.forceResume || this.shouldDeferSteer(id)) {
+      if (!(await this.resume(id, { force: target.forceResume }))) return false;
+    } else if (!this.adoptLiveResumeAgent(s, target.agent)) return false;
+    return this.reply(id, text);
+  }
+
   private async operatorReplyTarget(
     id: string,
     resumableCodex: boolean,
@@ -5019,11 +5021,12 @@ export class SessionService {
    *
    * The notice rides the PTY only — the recorded `reply` signal stores just the raw operator text
    * so the learnings distiller never mines Shepherd's own notice. The session is marked only on
-   * SUCCESSFUL delivery, so a failed reply doesn't burn the one-shot. A dead isolated Codex pane is
+   * SUCCESSFUL delivery, so a failed reply doesn't burn the one-shot. An identified Codex pane is
    * resumed before delivery because Codex exits after each turn; this includes a shell-only pane that
    * herdr still lists, which must be force-resumed instead of receiving the answer as shell input.
-   * An uninspectable listed pane is rejected rather than risking shell input. Dead Claude and
-   * non-isolated Codex panes remain rejected. The injection itself lives in steerWithEpicNotice,
+   * An uninspectable listed pane is rejected rather than risking shell input. Dead Claude panes
+   * remain rejected; Codex resume requires a pinned conversation in either checkout mode.
+   * The injection itself lives in steerWithEpicNotice,
    * shared with broadcast() so both operator free-text channels behave identically.
    *
    * `signalPayload` (default = `text`) lets a caller whose `text` is a Shepherd-composed wrapper
@@ -5036,7 +5039,7 @@ export class SessionService {
     const s = this.deps.store.get(id);
     if (!s) return false;
     this.assertNotTerminal(s, "reply");
-    const resumableCodex = (s.agentProvider ?? "claude") === "codex" && s.isolated;
+    const resumableCodex = (s.agentProvider ?? "claude") === "codex" && this.hasConversation(s);
     const target = await this.operatorReplyTarget(id, resumableCodex);
     if (!target) return false;
     const paneAlive = !!target.agent && !target.forceResume;
@@ -5529,19 +5532,42 @@ export class SessionService {
    * only transitions when the session is in the planning phase AND its plan gate is approved
    * (the reviewer signed off). Flips planPhase → "executing", steers the agent to implement the
    * approved plan, and emits session:plangate so clients update. Returns false (no-op) when the
-   * session is unknown, not planning, or not yet approved. Used by the /go route (interactive)
+   * session cannot receive the instruction or its approval no longer holds. Used by the /go route (interactive)
    * and by PlanGateService for an auto session's auto-release on approval.
    */
   async releasePlanGate(id: string): Promise<boolean> {
+    const pending = this.planReleaseInFlight.get(id);
+    if (pending) return pending;
+    const release = this.releasePlanGateInner(id).finally(() =>
+      this.planReleaseInFlight.delete(id),
+    );
+    this.planReleaseInFlight.set(id, release);
+    return release;
+  }
+
+  private async releasePlanGateInner(id: string): Promise<boolean> {
     const s = this.deps.store.get(id);
     if (!s || s.planPhase !== "planning") return false;
-    if (!this.deps.store.getPlanGate(id)?.approved) return false;
-    this.#enterExecution(id);
+    const gate = this.deps.store.getPlanGate(id);
+    if (!gate?.approved) return false;
+    if (!this.hasConversation(s)) return false;
     const { draftMode } = this.deps.store.getRepoConfig(s.repoPath);
-    // Awaited, not fire-and-forget: the release is only honest once the "implement the plan" steer
-    // has actually reached the pane. The boolean stays "did we release", not "did the steer land"
-    // — a dead pane still transitions the phase, exactly as before #1567.
-    await this.reply(id, planGoSteer(draftMode));
+    const delivered = await this.resumeAndReply(id, planGoSteer(draftMode));
+    if (!delivered) return false;
+    // A re-review, archive or agent replacement during delivery must keep its newer state.
+    const current = this.deps.store.get(id);
+    const currentGate = this.deps.store.getPlanGate(id);
+    if (
+      !current ||
+      current.status === "archived" ||
+      current.planPhase !== "planning" ||
+      current.codexLaunchId !== s.codexLaunchId ||
+      current.claudeSessionId !== s.claudeSessionId ||
+      !currentGate?.approved ||
+      currentGate.planHash !== gate.planHash
+    )
+      return false;
+    this.#enterExecution(id);
     return true;
   }
 

@@ -1,3 +1,4 @@
+import { codexLaunchMarker } from "../src/codex-session-id";
 import { test, expect, spyOn } from "bun:test";
 import {
   mkdtempSync,
@@ -355,7 +356,8 @@ test("createSession: codex provider starts interactive codex; spawn argv carries
   ]);
   // Codex has no --append-system-prompt, so the directive block rides inline on the prompt.
   const prompt = codexPrompt(argv);
-  expect(prompt.startsWith("flatten it\n\n<shepherd-directives>\n")).toBe(true);
+  expect(prompt).toStartWith(codexLaunchMarker(s.codexLaunchId!));
+  expect(prompt).toContain("flatten it\n\n<shepherd-directives>\n");
   expect(prompt).toContain("</shepherd-directives>");
   // The always-on directives that Codex previously never received now reach it.
   expect(prompt).toContain("<engineering-posture>");
@@ -448,7 +450,7 @@ test("createSession: codex drops a carried Claude model and uses provider defaul
   ]);
   expect(calls.start.argv).not.toContain("--model");
   const prompt = codexPrompt(calls.start.argv);
-  expect(prompt.startsWith("flatten it")).toBe(true);
+  expect(prompt).toContain("\nflatten it");
   // Attended (autopilot off) → the #1257 manual-steps notice stays off for Codex.
   expect(prompt).not.toContain("<manual-steps-notice>");
   expect(s.agentProvider).toBe("codex");
@@ -605,7 +607,7 @@ test("createSession: codex + isolated + autopilotEnabled=true → directive inje
   expect(store.get(s.id)?.autopilotEnabled).toBe(true);
 });
 
-test("createSession: codex + NON-isolated + autopilotEnabled=true → NO directive, persisted true", async () => {
+test("createSession: codex + NON-isolated + autopilotEnabled=true → directive injected, persisted true", async () => {
   const { store, service, calls } = codexHarness(false);
   const s = await service.create({
     repoPath: "/repo",
@@ -616,10 +618,9 @@ test("createSession: codex + NON-isolated + autopilotEnabled=true → NO directi
     images: [],
     autopilotEnabled: true,
   });
-  // Persistence honors the override; the directive is gated on isolation (eligibility/badge
-  // surface the non-isolated stand-down).
-  expect(hasDirective(calls.start.argv)).toBe(false);
-  expect(hasManualNotice(calls.start.argv)).toBe(false);
+  // Both checkout modes carry the same opt-in; runtime steering requires conversation identity.
+  expect(hasDirective(calls.start.argv)).toBe(true);
+  expect(hasManualNotice(calls.start.argv)).toBe(true);
   expect(store.get(s.id)?.autopilotEnabled).toBe(true);
 });
 
@@ -642,7 +643,7 @@ test("createSession: codex + isolated + inherited-default ON (null override) →
   expect(store.get(s.id)?.autopilotEnabled).toBe(null);
 });
 
-test("createSession: codex + NON-isolated + inherited-default ON (null override) → NO directive, persisted null", async () => {
+test("createSession: codex + NON-isolated + inherited-default ON (null override) → directive injected, persisted null", async () => {
   const { store, service, calls } = codexHarness(false);
   setRepoAutopilot(store, true);
   const s = await service.create({
@@ -653,8 +654,8 @@ test("createSession: codex + NON-isolated + inherited-default ON (null override)
     agentProvider: "codex",
     images: [],
   });
-  expect(hasDirective(calls.start.argv)).toBe(false);
-  expect(hasManualNotice(calls.start.argv)).toBe(false);
+  expect(hasDirective(calls.start.argv)).toBe(true);
+  expect(hasManualNotice(calls.start.argv)).toBe(true);
   expect(store.get(s.id)?.autopilotEnabled).toBe(null);
 });
 
@@ -2642,6 +2643,8 @@ function resumable(store: SessionStore, over: Partial<Parameters<SessionStore["c
     herdrSession: "default",
     herdrAgentId: "term_old",
     claudeSessionId: "abc-123",
+    providerSessionId: "codex-pinned",
+    codexLaunchId: "launch-test",
     ...over,
   });
   store.update(s.id, { status: "done", lastState: "done" });
@@ -2957,7 +2960,7 @@ test("resume re-appends ONLY the operator-language block when operatorLanguage=d
   }
 });
 
-test("resume uses codex resume --last for codex sessions", async () => {
+test("resume uses the exact pinned conversation for codex sessions", async () => {
   const store = new SessionStore(":memory:");
   const calls: any = {};
   const svc = new SessionService({
@@ -2993,7 +2996,7 @@ test("resume uses codex resume --last for codex sessions", async () => {
   expect(calls.start.argv).toEqual([
     "codex",
     "resume",
-    "--last",
+    "codex-pinned",
     "--no-alt-screen",
     "--dangerously-bypass-approvals-and-sandbox",
     "--model",
@@ -3105,7 +3108,7 @@ test.each(["xhigh", "max", "ultra"])("resume re-emits Codex %s unchanged", async
   expect(calls.argv).toEqual([
     "codex",
     "resume",
-    "--last",
+    "codex-pinned",
     "--no-alt-screen",
     "--dangerously-bypass-approvals-and-sandbox",
     "--model",
@@ -3214,7 +3217,17 @@ function mkCodexHome(rollouts: Array<{ name: string; payload: Record<string, unk
   for (const r of rollouts) {
     writeFileSync(
       join(sessions, r.name),
-      JSON.stringify({ type: "session_meta", payload: r.payload }) + "\n",
+      JSON.stringify({ type: "session_meta", payload: r.payload }) +
+        "\n" +
+        JSON.stringify({
+          type: "response_item",
+          payload: {
+            type: "message",
+            role: "user",
+            content: [{ type: "input_text", text: codexLaunchMarker("launch-test") + "task" }],
+          },
+        }) +
+        "\n",
     );
   }
   return home;
@@ -3363,7 +3376,11 @@ test("restore: isolated codex resumes by fresh-derived id and persists providerS
       const store = new SessionStore(":memory:");
       const calls: any = {};
       const svc = makeRestoreSvc(store, calls);
-      const s = archivedWithSession(store, { agentProvider: "codex", claudeSessionId: "" });
+      const s = archivedWithSession(store, {
+        agentProvider: "codex",
+        claudeSessionId: "",
+        codexLaunchId: "launch-test",
+      });
 
       const out = await svc.restore(s.id);
       expect(out?.status).toBe("running");
@@ -3450,6 +3467,7 @@ test("captureCodexSessionId: seeds a running isolated codex session from its rol
         herdrSession: "default",
         herdrAgentId: "term_cap",
         agentProvider: "codex",
+        codexLaunchId: "launch-test",
       });
       svc.captureCodexSessionId(s);
       expect(store.get(s.id)?.providerSessionId).toBe("cap-uuid");
@@ -3551,12 +3569,11 @@ test("captureCodexSessionId: no-op for non-isolated or non-codex sessions", asyn
   );
 });
 
-test("resume (live path) uses codex resume --last, ignoring any stored providerSessionId", async () => {
+test("resume (live path) uses the stored exact Codex conversation", async () => {
   const store = new SessionStore(":memory:");
   const calls: any = {};
   const svc = makeRestoreSvc(store, calls);
-  // A running (non-archived) codex session with a stale cached id and no live agent → resume
-  // respawns via --last (the live path never trusts providerSessionId).
+  // A stopped session resumes its pinned conversation, independent of cwd activity.
   const s = store.create({
     name: "x",
     prompt: "x",
@@ -3568,12 +3585,13 @@ test("resume (live path) uses codex resume --last, ignoring any stored providerS
     herdrSession: "default",
     herdrAgentId: "term_old",
     agentProvider: "codex",
-    providerSessionId: "should-be-ignored",
+    providerSessionId: "pinned-conversation",
+    codexLaunchId: "launch-test",
   });
   const out = await svc.resume(s.id);
   expect(out).not.toBeNull();
-  expect(calls.start).toContain("--last");
-  expect(calls.start).not.toContain("should-be-ignored");
+  expect(calls.start).not.toContain("--last");
+  expect(calls.start).toContain("pinned-conversation");
 });
 
 test("restore: cannot_restore for claude with empty claudeSessionId", async () => {
@@ -8245,6 +8263,7 @@ test("agent coordinates: resume re-stamps them for both providers", async () => 
       model: null,
       images: [],
     });
+    if (agentProvider === "codex") store.setProviderSessionId(s.id, "codex-pinned");
     record.env = undefined; // only the RESUME spawn may satisfy the assertion below
     const resumed = await service.resume(s.id, { force: true });
     expect(resumed).not.toBeNull();

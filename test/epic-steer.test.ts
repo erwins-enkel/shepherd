@@ -93,6 +93,9 @@ function makeSvc(
     herdrSession: "default",
     herdrAgentId: session.herdrAgentId ?? "t1",
     agentProvider: session.agentProvider,
+    providerSessionId: session.isolated === false ? "" : "codex-pinned",
+    codexLaunchId: "launch-test",
+    claudeSessionId: "claude-pinned",
   });
   const pasted = () => sent.join("");
   return { svc, store, sent, sentTo, started, pasted, liveIds, sendFails, id: s.id };
@@ -146,7 +149,7 @@ describe("operatorReply", () => {
 
     expect(await svc.operatorReply(id, EPIC_MSG)).toBe(true);
     expect(started).toHaveLength(1);
-    expect(started[0]!.argv.slice(0, 3)).toEqual(["codex", "resume", "--last"]);
+    expect(started[0]!.argv.slice(0, 3)).toEqual(["codex", "resume", "codex-pinned"]);
     expect(store.get(id)?.herdrAgentId).toBe("t2");
     expect(sentTo).toEqual(["t2", "t2"]);
     expect(pasted()).toContain(EPIC_MSG);
@@ -163,7 +166,7 @@ describe("operatorReply", () => {
 
     expect(await svc.operatorReply(id, PLAIN_MSG)).toBe(true);
     expect(started).toHaveLength(1);
-    expect(started[0]!.argv.slice(0, 3)).toEqual(["codex", "resume", "--last"]);
+    expect(started[0]!.argv.slice(0, 3)).toEqual(["codex", "resume", "codex-pinned"]);
     expect(store.get(id)?.herdrAgentId).toBe("t2");
     expect(sentTo).toEqual(["t2", "t2"]);
   });

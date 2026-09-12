@@ -19,10 +19,8 @@
 // INVARIANTS:
 //   • No step after the repo divider is ever "auto". Nothing past the PR is unconditionally
 //     hands-off — see the two predicates above.
-//   • No step of a Codex task is ever "auto". Autopilot stands down entirely on a
-//     non-isolated Codex session (autopilot.ts eligible(), and the codexNonIsolated guard in
-//     plan-gate.ts applyApproved()), and worktree.ts create() only decides isolation at spawn
-//     time — so every autopilot-driven promise is a condition there, never a claim.
+//   • Codex's conversation identity is captured after spawn, so its automatic steps remain
+//     conditional until the native conversation has been attributed.
 
 import type { AgentProvider } from "./types";
 
@@ -71,8 +69,8 @@ export type GuardTimeline = {
  *  guard-timeline.test.ts, which pins the same inputs; there is no cross-package gate. */
 const EPIC_INTEGRATION_BRANCH = /^epic\/\d+(-[a-z0-9-]+)?$/;
 
-/** True when autopilot is on AND actually applies. For Codex it only applies with an isolated
- *  worktree, which is not known until spawn — so a Codex task never gets an unconditional
+/** True when autopilot is on AND actually applies. Codex identity is captured after
+ *  spawn — so a Codex task never gets an unconditional
  *  autopilot promise, in the header or in a step. */
 function autopilotIsCertain(input: GuardTimelineInput): boolean {
   return input.autopilot && input.provider !== "codex";
@@ -84,7 +82,7 @@ function headerKey(input: GuardTimelineInput): string {
 }
 
 /** An autopilot-driven step: the operator's when autopilot is off, Shepherd's when it is on and
- *  certain, and conditional on the worktree isolation when the task runs on Codex. */
+ *  certain, and conditional on conversation attribution when the task runs on Codex. */
 function autopilotStep(
   input: GuardTimelineInput,
   id: string,

@@ -38,7 +38,7 @@ import {
   reviewerUsage,
   type CodexRolloutResolver,
 } from "./codex-activity";
-import { effectiveAutopilot } from "./effective-autopilot";
+import { effectiveAutopilot, hasTaskConversation } from "./effective-autopilot";
 import { resolveAuxPatch, assembleAuxSpawn, type MembraneSeams } from "./spawn-membrane";
 import { spawnBudget } from "./spawn-budget";
 import {
@@ -527,6 +527,8 @@ export interface RawPlanVerdict {
 }
 
 export interface PlanGateServiceDeps extends MembraneSeams {
+  /** Resolve launch provenance before automatic approval release. */
+  hasConversation?: (s: Session) => boolean;
   store: Pick<
     SessionStore,
     | "getPlanGate"
@@ -562,9 +564,8 @@ export interface PlanGateServiceDeps extends MembraneSeams {
    *  planner EXITS after its turn, so findings must resume it before steering; Claude idles live. */
   paneAlive: (sessionId: string) => boolean;
   /** Resume an exited planning session so findings can land (SessionService.resume; async — the
-   *  awaited result decides, truthy = resumed). The wiring refuses a NON-isolated Codex session
-   *  (returns falsy): `codex resume --last` is cwd-scoped and would resume a sibling, so such a
-   *  planner escalates to the operator instead of being auto-resumed. */
+   *  awaited result decides, truthy = resumed). Missing conversation identity refuses resume
+   *  and escalates to the operator. */
   resume: (sessionId: string) => unknown;
   /** Defer + re-drive first while a herdr-restored account pane needs it (SessionService.shouldDeferSteer). */
   deferSteer?: (sessionId: string) => boolean;
@@ -1509,26 +1510,18 @@ export class PlanGateService {
     }
   }
 
-  /** Persist an approved gate. A session meant to run hands-free — drain-spawned (auto) OR
-   *  autopilot-enabled — clears straight into execution; a purely interactive (autopilot-off)
-   *  session waits for the operator's explicit Go (so we do NOT release it here).
-   *
-   *  Codex divergence (TASK-413): Codex autopilot stands down on a NON-isolated session — its
-   *  resume path (`codex resume --last`) would target a sibling codex session in a shared cwd (see
-   *  autopilot.ts eligible() + buildCodexSpawnArgv's isolated-gated autopilot). Such a session is
-   *  therefore NOT actually hands-free, so it must wait for the operator's explicit Go rather than
-   *  auto-releasing here. Guard only the autopilot arm: drain (`s.auto`) can't reach a codex session
-   *  (full-auto is codex-disabled), so it needs no guard and must still release unattended. */
+  /** Approval releases only an autonomous session with an attributable conversation. */
   private async applyApproved(f: PlanInFlight, gate: PlanGate): Promise<void> {
     this.deps.store.putPlanGate(gate);
     this.deps.onChange(f.sessionId, gate);
     const s = this.deps.store.get(f.sessionId);
     if (!s) return;
-    const codexNonIsolated = (s.agentProvider ?? "claude") === "codex" && !s.isolated;
-    const autopilotReleases =
-      !codexNonIsolated &&
-      effectiveAutopilot(s, this.deps.store.getRepoConfig(s.repoPath).autopilotEnabled);
-    if (s.auto || autopilotReleases) await this.deps.release(f.sessionId);
+    const enabled = effectiveAutopilot(
+      s,
+      this.deps.store.getRepoConfig(s.repoPath).autopilotEnabled,
+    );
+    if ((s.auto || enabled) && (this.deps.hasConversation ?? hasTaskConversation)(s))
+      await this.deps.release(f.sessionId);
   }
 
   /** Deliver the reviewer's findings to the planning agent, RESUMING an exited pane first so the

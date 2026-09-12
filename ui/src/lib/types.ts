@@ -1095,6 +1095,8 @@ export interface Session {
   herdrSession: string;
   herdrAgentId: string;
   claudeSessionId: string;
+  providerSessionId?: string;
+  codexLaunchId?: string;
   agentProvider?: AgentProvider;
   model: string | null;
   // Optional on the client mirror: the server always sends it, but the only consumer

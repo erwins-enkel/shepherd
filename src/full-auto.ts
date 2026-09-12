@@ -27,10 +27,8 @@ export function isFullAuto(
   // never carried by the merge train — exclude them regardless of repo auto-merge config.
   // Identity, not base-branch shape: a child based on anything else is still a child (#2067).
   if (isEpicChild(s)) return false;
-  // Codex can only be carried by full-auto when Shepherd owns an isolated worktree. Rebase/CI
-  // recovery may resume the pane, and Codex resume is currently `codex resume --last`; in a shared
-  // cwd that can target a sibling Codex session. This mirrors autopilot.ts's isolated-session guard
-  // while still letting isolated Codex autopilot use the same post-PR recovery path as Claude.
+  // Merge-train eligibility remains isolated-only for Codex. Shared-checkout Plan Gate and
+  // Autopilot support does not opt these sessions into the separate merge-train workflow.
   if ((s.agentProvider ?? "claude") === "codex" && s.isolated !== true) return false;
   const autopilot = effectiveAutopilot(s, cfg.autopilotEnabled);
   const merge = cfg.draftMode ? false : (s.autoMergeEnabled ?? cfg.autoMergeEnabled);

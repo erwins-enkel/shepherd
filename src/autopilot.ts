@@ -3,7 +3,7 @@ import type { Session, AutopilotVerdict, ReviewVerdict } from "./types";
 import { looksLikeDemotedMenu, type BlockReason } from "./blocked";
 import type { GitState } from "./forge/types";
 import type { SessionStateChange } from "./session-snapshot";
-import { effectiveAutopilot } from "./effective-autopilot";
+import { effectiveAutopilot, hasTaskConversation } from "./effective-autopilot";
 import { signedOff } from "./signoff";
 import { checksCleared } from "./checks-gate";
 import { isConflicting, isDefiniteConflict } from "./pr-conflict";
@@ -151,6 +151,8 @@ export const EMPTY_COMPLETION_MESSAGE =
 const STEERABLE_SHAPES = new Set(["awaiting-input", "yes-no"]);
 
 export interface AutopilotDeps {
+  /** Resolve launch provenance before unattended action (including exited planners). */
+  hasConversation?: (s: Session) => boolean;
   store: Pick<
     SessionStore,
     "get" | "list" | "getRepoConfig" | "setAutopilotState" | "setAutoMergeState"
@@ -275,17 +277,7 @@ export class AutopilotService {
     if (!s || s.status === "archived") return null;
     if (s.planPhase === "planning") return null; // plan gate owns a planning session; autopilot stands down until it's released into execution
     if (!this.enabled(s)) return null;
-    // Codex autopilot only on isolated sessions: an exited pane triggers resume() →
-    // `codex resume --last`, which in a shared-cwd (non-isolated) session would resume and
-    // steer a SIBLING codex session (corruption). An isolated worktree holds exactly one
-    // codex session per cwd, so --last targets correctly. Manual + automerge resume are
-    // unaffected — only the autopilot-driven path is constrained here.
-    if ((s.agentProvider ?? "claude") === "codex" && !s.isolated) {
-      console.warn(
-        `[autopilot] codex ${s.id}: standing down — autopilot requires an isolated session`,
-      );
-      return null;
-    }
+    if (!(this.deps.hasConversation ?? hasTaskConversation)(s)) return null;
     if (this.authPending.has(id)) return null; // human-only MCP OAuth pending — never steer/complete
     if (s.autopilotPaused) return null; // already handed back; waits for operator
     if (s.autopilotComplete) return null; // terminal: task delivered (non-PR), nothing to drive

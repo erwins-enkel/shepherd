@@ -28,7 +28,9 @@ import { STOREFRONT, API, NOW, MIN, HOUR, DEMO_VIEWER, gh } from "./seed-constan
  *  run-jobs fixtures below can key off the same id the listed run carries. */
 const CI_WORKFLOW_ID = 9001;
 const DEPLOY_WORKFLOW_ID = 9002;
+const CODEQL_WORKFLOW_ID = 9003;
 const API_CI_WORKFLOW_ID = 9101;
+const API_LINT_WORKFLOW_ID = 9102;
 
 const greenJobs = (): WorkflowJob[] => [
   { name: "lint", state: "success" },
@@ -105,31 +107,22 @@ export function buildPullRequests(): Record<string, PullRequest[]> {
         ],
       },
     ],
-    [API]: [
-      {
-        number: 318,
-        title: "TASK-41: retry Neon cold starts on connection reset",
-        url: `${gh(API)}/pull/318`,
-        author: DEMO_VIEWER,
-        kind: "regular",
-        createdAt: NOW - 50 * MIN,
-        isDraft: false,
-        mergeable: true,
-        mergeStateStatus: "unstable",
-        checks: "failure",
-        jobs: [
-          { name: "lint", state: "success" },
-          { name: "check", state: "success" },
-          { name: "test", state: "failure" },
-        ],
-      },
-    ],
+    // `api` genuinely has no open PR: neither of its sessions (authstore, neon) has one —
+    // both are `state: "none"` in `buildGitStates()` — and `buildBacklog()` reports
+    // openPRs 0 for it. An invented PR here contradicted the session cards beside it.
+    [API]: [],
   };
 }
 
 /** GET /api/actions?repo= — latest run per workflow on the default branch, plus the
  *  three capability flags the tab's controls are gated on. Both demo repos are GitHub,
- *  so all three are true; a Gitea repo would report them false. */
+ *  so all three are true; a Gitea repo would report them false.
+ *
+ *  The COUNT and the ROLLUP here must match `buildBacklog()`'s `workflows` / `ciStatus`
+ *  for the same repo — the Actions tab label is drawn from those, the panel's contents
+ *  from this — so storefront has 3 workflows and `api` 2, all currently green. Past
+ *  failures live in the history fixture below, which is what "older runs" means; a red
+ *  LATEST run here would contradict the tab's own green marker. */
 export function buildWorkflowRuns(): Record<string, WorkflowRun[]> {
   return {
     [STOREFRONT]: [
@@ -150,8 +143,18 @@ export function buildWorkflowRuns(): Record<string, WorkflowRun[]> {
         runUrl: `${gh(STOREFRONT)}/actions/runs/77118`,
         headSha: "b8c1d02",
         createdAt: NOW - 38 * MIN,
-        state: "pending",
-        jobs: [{ name: "deploy", state: "pending" }],
+        state: "success",
+        jobs: [{ name: "deploy", state: "success" }],
+      },
+      {
+        runId: 77116,
+        workflowId: CODEQL_WORKFLOW_ID,
+        workflowName: "CodeQL",
+        runUrl: `${gh(STOREFRONT)}/actions/runs/77116`,
+        headSha: "b8c1d02",
+        createdAt: NOW - 36 * MIN,
+        state: "success",
+        jobs: [{ name: "analyze", state: "success" }],
       },
     ],
     [API]: [
@@ -162,12 +165,18 @@ export function buildWorkflowRuns(): Record<string, WorkflowRun[]> {
         runUrl: `${gh(API)}/actions/runs/41009`,
         headSha: "d3e4f51",
         createdAt: NOW - 50 * MIN,
-        state: "failure",
-        jobs: [
-          { name: "lint", state: "success" },
-          { name: "check", state: "success" },
-          { name: "test", state: "failure" },
-        ],
+        state: "success",
+        jobs: greenJobs(),
+      },
+      {
+        runId: 41007,
+        workflowId: API_LINT_WORKFLOW_ID,
+        workflowName: "Lint",
+        runUrl: `${gh(API)}/actions/runs/41007`,
+        headSha: "d3e4f51",
+        createdAt: NOW - 48 * MIN,
+        state: "success",
+        jobs: [{ name: "eslint", state: "success" }],
       },
     ],
   };
@@ -203,7 +212,19 @@ export function buildWorkflowHistory(): Record<string, Record<number, WorkflowRu
           runUrl: `${gh(STOREFRONT)}/actions/runs/77118`,
           headSha: "b8c1d02",
           createdAt: NOW - 38 * MIN,
-          state: "pending",
+          state: "success",
+          jobs: [],
+        },
+      ],
+      [CODEQL_WORKFLOW_ID]: [
+        {
+          runId: 77116,
+          workflowId: CODEQL_WORKFLOW_ID,
+          workflowName: "CodeQL",
+          runUrl: `${gh(STOREFRONT)}/actions/runs/77116`,
+          headSha: "b8c1d02",
+          createdAt: NOW - 36 * MIN,
+          state: "success",
           jobs: [],
         },
       ],
@@ -217,7 +238,19 @@ export function buildWorkflowHistory(): Record<string, Record<number, WorkflowRu
           runUrl: `${gh(API)}/actions/runs/41009`,
           headSha: "d3e4f51",
           createdAt: NOW - 50 * MIN,
-          state: "failure",
+          state: "success",
+          jobs: [],
+        },
+      ],
+      [API_LINT_WORKFLOW_ID]: [
+        {
+          runId: 41007,
+          workflowId: API_LINT_WORKFLOW_ID,
+          workflowName: "Lint",
+          runUrl: `${gh(API)}/actions/runs/41007`,
+          headSha: "d3e4f51",
+          createdAt: NOW - 48 * MIN,
+          state: "success",
           jobs: [],
         },
       ],
@@ -232,7 +265,8 @@ export function buildRunJobs(): Record<string, Record<number, WorkflowJob[]>> {
   return {
     [STOREFRONT]: {
       77120: greenJobs(),
-      77118: [{ name: "deploy", state: "pending" }],
+      77118: [{ name: "deploy", state: "success" }],
+      77116: [{ name: "analyze", state: "success" }],
       77095: greenJobs(),
       77061: [
         { name: "lint", state: "success" },
@@ -242,11 +276,8 @@ export function buildRunJobs(): Record<string, Record<number, WorkflowJob[]>> {
       77044: greenJobs(),
     },
     [API]: {
-      41009: [
-        { name: "lint", state: "success" },
-        { name: "check", state: "success" },
-        { name: "test", state: "failure" },
-      ],
+      41009: greenJobs(),
+      41007: [{ name: "eslint", state: "success" }],
     },
   };
 }

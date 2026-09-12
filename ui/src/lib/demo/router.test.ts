@@ -979,16 +979,29 @@ describe("usage lens GETs never fall back to {} (#2295)", () => {
     expect(body.backoff.blocked).toBe(false);
   });
 
-  it("GET /api/prompt-budget wraps its array under `records`, carrying both delivery modes", async () => {
+  it("GET /api/prompt-budget wraps its array under `records`, one attended + one auto", async () => {
     const { status, body } = await get("/api/prompt-budget");
     expect(status).toBe(200);
     // `getPromptBudgets()` reads `body.records ?? []`, so a bare array is silently
     // dropped and the lens falls back to its "nothing measured yet" empty state.
     expect(Array.isArray(body.records)).toBe(true);
     expect(body.records.every((r: { blocks: unknown[] }) => Array.isArray(r.blocks))).toBe(true);
-    const modes = new Set(body.records.map((r: { delivery: string }) => r.delivery));
-    expect(modes).toContain("append-system-prompt");
-    expect(modes).toContain("inline-prompt");
+    // Both `auto` states are shown. `delivery` is NOT varied: it follows from the provider,
+    // and every seeded session is claude — a second mode would invent a provider the herd
+    // does not have.
+    const autos = new Set(body.records.map((r: { auto: boolean }) => r.auto));
+    expect(autos).toEqual(new Set([true, false]));
+    for (const r of body.records) expect(r.delivery).toBe("append-system-prompt");
+  });
+
+  it("each prompt-budget total is the sum of its own blocks", async () => {
+    const { body } = await get("/api/prompt-budget");
+    for (const r of body.records) {
+      const chars = r.blocks.reduce((n: number, b: { chars: number }) => n + b.chars, 0);
+      // The lens renders each block's share OF this total; a stated total that drifted
+      // from its blocks would render shares that never reach 100%.
+      expect(r.totalChars).toBe(chars);
+    }
   });
 });
 
@@ -1115,5 +1128,181 @@ describe("repo mutations (#2295)", () => {
       undefined,
     );
     expect((await r.json()).status).toBe("already");
+  });
+});
+
+// #2295 review round 2: the fixtures added for the repo lenses and the Usage lens are
+// VIEWS of the herd, and every one of them renders next to the thing it is a view of.
+// The tests below are the joins themselves — each one failed on the first draft, where
+// the fixture restated a fact instead of deriving it (a "2 queued" button expanding to
+// four rows, a "PRs · 2" tab over four PRs, TASK-40 and TASK-43 that exist nowhere, and
+// TASK-42/TASK-44 swapped between two sessions).
+describe("lens fixtures agree with the herd they describe (#2295)", () => {
+  const repo = encodeURIComponent(REPO);
+
+  it("the drain queue is exactly as long as the queued count on the button", async () => {
+    const drain = (await get("/api/drain")).body as Array<{ repoPath: string; queued: number }>;
+    expect(drain.length).toBeGreaterThan(0);
+    for (const d of drain) {
+      const queue = (await get(`/api/drain/queue?repo=${encodeURIComponent(d.repoPath)}`)).body;
+      // DrainStatus.queued IS the count of these rows — RepoChipTelemetry renders the
+      // count on the button and this list inside it.
+      expect(queue.length).toBe(d.queued);
+    }
+  });
+
+  it("the drain queue never offers an issue the demo renders as blocked", async () => {
+    const queued = (await get(`/api/drain/queue?repo=${repo}`)).body.map(
+      (i: { number: number }) => i.number,
+    );
+    const issues = (await get(`/api/issues?repo=${repo}`)).body.issues as Array<{
+      number: number;
+      blockedBy?: number[];
+    }>;
+    const blocked = issues.filter((i) => (i.blockedBy ?? []).length > 0).map((i) => i.number);
+    expect(blocked.length).toBeGreaterThan(0); // the seed really does have blocked issues
+    for (const n of blocked) expect(queued).not.toContain(n);
+  });
+
+  it("the backlog's PR counts are the PR fixture's own counts", async () => {
+    const projects = (await get("/api/backlog")).body.projects as Array<{
+      path: string;
+      openPRs: number;
+      prKinds: { release: number; dependabot: number; regular: number };
+    }>;
+    for (const project of projects) {
+      const prs = (await get(`/api/prs?repo=${encodeURIComponent(project.path)}`)).body
+        .prs as Array<{ kind: string }>;
+      // `openPRs` counts EVERY open PR, bots included (forge/github.ts) — it is what
+      // prsTabLabel() renders as "PRs · N" over exactly these rows.
+      expect(project.openPRs).toBe(prs.length);
+      const kinds = (k: string) => prs.filter((pr) => pr.kind === k).length;
+      expect(project.prKinds).toEqual({
+        release: kinds("release"),
+        dependabot: kinds("dependabot"),
+        regular: prs.length - kinds("release") - kinds("dependabot"),
+      });
+    }
+  });
+
+  it("the bot PRs actually light the ProjectRow badges they were seeded for", async () => {
+    const storefront = (await get("/api/backlog")).body.projects.find(
+      (p: { path: string }) => p.path === REPO,
+    );
+    // ProjectRow only renders each badge when its count is > 0; zeroes here mean the two
+    // bot PRs in the fixture are invisible and their stated purpose is unachieved.
+    expect(storefront.prKinds.dependabot).toBeGreaterThan(0);
+    expect(storefront.prKinds.release).toBeGreaterThan(0);
+  });
+
+  it("every seeded PR belongs to a session that has it open, or to a bot", async () => {
+    const gitStates = (await get("/api/git")).body as Record<
+      string,
+      { state: string; number?: number }
+    >;
+    const open = new Set(
+      Object.values(gitStates)
+        .filter((g) => g.state === "open")
+        .map((g) => g.number),
+    );
+    for (const path of [REPO, "/demo/acme/api"]) {
+      const prs = (await get(`/api/prs?repo=${encodeURIComponent(path)}`)).body.prs as Array<{
+        number: number;
+        kind: string;
+      }>;
+      for (const pr of prs) {
+        // A regular PR with no owning session is invented — it contradicts the session
+        // cards beside it, which is what PR 318 ("TASK-41" on the wrong repo) did.
+        if (pr.kind === "regular") expect(open).toContain(pr.number);
+      }
+    }
+  });
+
+  it("the Actions fixture matches the workflow count and CI rollup the tab label uses", async () => {
+    const projects = (await get("/api/backlog")).body.projects as Array<{
+      path: string;
+      workflows: number;
+      ciStatus: string;
+    }>;
+    for (const project of projects) {
+      const runs = (await get(`/api/actions?repo=${encodeURIComponent(project.path)}`)).body
+        .runs as Array<{ state: string }>;
+      // One run per workflow, so the tab's "Actions · N" cannot exceed the panel's rows.
+      expect(runs.length).toBe(project.workflows);
+      const rollup = runs.some((r) => r.state === "failure")
+        ? "failure"
+        : runs.some((r) => r.state === "pending")
+          ? "pending"
+          : "success";
+      // A red LATEST run would contradict the tab's own green marker. Past failures
+      // belong in the history fixture, which is what "older runs" means.
+      expect(rollup).toBe(project.ciStatus);
+    }
+  });
+
+  it("every usage row's identity comes from the session it names", async () => {
+    const herd = [
+      ...(await get("/api/sessions")).body,
+      ...(await get("/api/sessions/done")).body,
+    ] as Array<{
+      id: string;
+      desig: string;
+      name: string;
+      model: string | null;
+      repoPath: string;
+      issueNumber: number | null;
+    }>;
+    const byId = new Map(herd.map((s) => [s.id, s]));
+    const basename = (p: string) => p.split("/").pop();
+
+    // Spend / Overhead task rows.
+    for (const repoRow of (await get("/api/usage/breakdown?range=7d")).body.repos) {
+      expect(repoRow.repoName).toBe(basename(repoRow.repoPath));
+      for (const t of repoRow.tasks) {
+        const s = byId.get(t.sessionId);
+        expect(s, `usage names unknown session ${t.sessionId}`).toBeDefined();
+        expect(t.desig).toBe(s!.desig);
+        expect(t.name).toBe(s!.name);
+        expect(t.model).toBe(s!.model);
+        expect(repoRow.repoPath).toBe(s!.repoPath);
+      }
+    }
+
+    // Delivery task rows.
+    const gitStates = (await get("/api/git")).body as Record<string, { number?: number }>;
+    for (const t of (await get("/api/usage/delivery?range=7d")).body.tasks) {
+      const s = byId.get(t.sessionId);
+      expect(s, `delivery names unknown session ${t.sessionId}`).toBeDefined();
+      expect(t.desig).toBe(s!.desig);
+      expect(t.repo).toBe(basename(s!.repoPath));
+      expect(t.issueNumber).toBe(s!.issueNumber);
+      expect(t.prNumber).toBe(gitStates[t.sessionId]?.number ?? null);
+    }
+
+    // Prompt-budget rows.
+    for (const r of (await get("/api/prompt-budget")).body.records) {
+      const s = byId.get(r.sessionId);
+      expect(s, `prompt budget names unknown session ${r.sessionId}`).toBeDefined();
+      expect(r.desig).toBe(s!.desig);
+      expect(r.repoPath).toBe(s!.repoPath);
+    }
+  });
+
+  it("the breakdown's totals are the sum of its own rows", async () => {
+    const { body } = await get("/api/usage/breakdown?range=7d");
+    const sum = (key: "authoringUnits" | "satelliteUnits") =>
+      body.repos.reduce((n: number, r: Record<string, number>) => n + r[key], 0);
+    expect(body.authoringUnits).toBe(sum("authoringUnits"));
+    expect(body.satelliteUnits).toBe(sum("satelliteUnits"));
+    expect(body.totalUnits).toBe(body.authoringUnits + body.satelliteUnits);
+    // The Spend lens draws each repo's bar as a share of the total, so a repo row whose
+    // own tasks do not add up to it would render a bar disagreeing with its list.
+    for (const repoRow of body.repos) {
+      const tasks = repoRow.tasks.reduce(
+        (n: number, t: { authoringUnits: number }) => n + t.authoringUnits,
+        0,
+      );
+      expect(repoRow.authoringUnits).toBe(tasks);
+    }
   });
 });

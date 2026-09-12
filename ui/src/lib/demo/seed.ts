@@ -62,6 +62,7 @@ import type {
   RepoEntry,
   Issue,
   DirListing,
+  PullRequest,
 } from "$lib/types";
 import type { DemoWorld, DemoRepoConfig, DemoBranchList } from "./types-world";
 import {
@@ -1032,10 +1033,33 @@ function buildIssues(): Record<string, Issue[]> {
   };
 }
 
-function buildBacklog(): BacklogPayload {
+/** Open-PR counts for one repo, from the PR fixture — the SAME arithmetic the real
+ *  server does in `forge/github.ts`: `openPRs` is every open PR (bots included) and
+ *  `regular` is whatever is left after the bot kinds.
+ *
+ *  Derived, not stated, because these render in two places that must agree with the PR
+ *  list itself: `prsTabLabel()` draws the tab's "PRs · N" from `openPRs`, and ProjectRow
+ *  draws the repo row's code-PR count and the Dependabot/release badges from `prKinds`.
+ *  Hand-written counts drifted the moment the fixture grew the two bot PRs — the tab
+ *  said 2 over four rows, and the badges the bot PRs exist to light up stayed dark. */
+function prCounts(prs: PullRequest[]): {
+  openPRs: number;
+  prKinds: { release: number; dependabot: number; regular: number };
+} {
+  const release = prs.filter((pr) => pr.kind === "release").length;
+  const dependabot = prs.filter((pr) => pr.kind === "dependabot").length;
+  return {
+    openPRs: prs.length,
+    prKinds: { release, dependabot, regular: Math.max(0, prs.length - release - dependabot) },
+  };
+}
+
+function buildBacklog(pullRequests: Record<string, PullRequest[]>): BacklogPayload {
+  const storefront = prCounts(pullRequests[STOREFRONT] ?? []);
+  const api = prCounts(pullRequests[API] ?? []);
   return {
     pinnedPath: STOREFRONT,
-    totals: { openIssues: 11, openPRs: 2 },
+    totals: { openIssues: 11, openPRs: storefront.openPRs + api.openPRs },
     projects: [
       {
         path: STOREFRONT,
@@ -1045,8 +1069,7 @@ function buildBacklog(): BacklogPayload {
         lastUsedAt: NOW - 20 * SEC,
         recentAgentCount: 5,
         openIssues: 8,
-        openPRs: 2,
-        prKinds: { release: 0, dependabot: 0, regular: 2 },
+        ...storefront,
         workflows: 3,
         ciStatus: "success",
         hidden: false,
@@ -1059,8 +1082,7 @@ function buildBacklog(): BacklogPayload {
         lastUsedAt: NOW - 4 * MIN,
         recentAgentCount: 2,
         openIssues: 3,
-        openPRs: 0,
-        prKinds: { release: 0, dependabot: 0, regular: 0 },
+        ...api,
         workflows: 2,
         ciStatus: "success",
         hidden: false,
@@ -1871,9 +1893,17 @@ function buildPostMergeSteps(): PostMergeSteps[] {
 
 /** Build a fresh, internally-consistent demo world. Pure — no shared references. */
 export function buildSeed(): DemoWorld {
+  // Hoisted because the fixtures below are VIEWS of them: the usage builders join on
+  // `sessionId` for every desig/name/model/provider/issue they render, and `buildBacklog`
+  // counts the PR fixture. Passing the one source beats restating its facts (#2295).
+  const sessions = buildSessions();
+  const doneSessions = buildDoneSessions();
+  const gitStates = buildGitStates();
+  const pullRequests = buildPullRequests();
+  const allSessions = [...sessions, ...doneSessions];
   return {
-    sessions: buildSessions(),
-    doneSessions: buildDoneSessions(),
+    sessions,
+    doneSessions,
     activityEntries: buildActivityEntries(),
     diffs: buildDiffs(),
     scratchpad: buildScratchpad(),
@@ -1886,7 +1916,7 @@ export function buildSeed(): DemoWorld {
     repos: buildRepos(),
     branches: buildBranches(),
     issues: buildIssues(),
-    gitStates: buildGitStates(),
+    gitStates,
     activityStates: buildActivityStates(),
     claudeAliveStates: {
       coupon: true,
@@ -1922,7 +1952,7 @@ export function buildSeed(): DemoWorld {
     settings: buildSettings(),
     plugins: buildPlugins(),
     diagnostics: buildDiagnostics(),
-    backlog: buildBacklog(),
+    backlog: buildBacklog(pullRequests),
     buildQueues: buildBuildQueues(),
     held: buildHeld(),
     recaps: buildRecaps(),
@@ -1935,7 +1965,7 @@ export function buildSeed(): DemoWorld {
 
     // Per-repo lens + usage fixtures (#2295). Built in their own modules — this file's
     // narrative is the herd; those are the forge and analytics views over it.
-    pullRequests: buildPullRequests(),
+    pullRequests,
     workflowRuns: buildWorkflowRuns(),
     workflowHistory: buildWorkflowHistory(),
     runJobs: buildRunJobs(),
@@ -1944,10 +1974,10 @@ export function buildSeed(): DemoWorld {
     repoCollaborators: buildRepoCollaborators(),
     docAgentRuns: buildDocAgentRuns(),
 
-    usageBreakdown: buildUsageBreakdown(),
+    usageBreakdown: buildUsageBreakdown(sessions),
     usageTimeline: buildUsageTimeline(),
-    deliveryMetrics: buildDeliveryMetrics(),
+    deliveryMetrics: buildDeliveryMetrics(allSessions, gitStates),
     githubRateLimit: buildGithubRateLimit(),
-    promptBudgets: buildPromptBudgets(),
+    promptBudgets: buildPromptBudgets(sessions),
   };
 }

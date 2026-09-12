@@ -10,6 +10,14 @@
 // which aborts the batch and freezes every queued effect in the app. Shape is not
 // polish here; it is the bug.
 //
+// IDENTITY IS NEVER RE-DECLARED HERE. Every builder takes the seeded sessions and joins
+// on `sessionId` for desig, name, model, provider, repo and issue number; the fixtures
+// below carry ONLY the numbers — units, tokens, rounds, durations. A usage row is a
+// view OF a session, and the Spend/Overhead/Prompt lenses render that identity next to
+// the herd card it belongs to, so a second hand-written copy of it is not a shortcut,
+// it is a future contradiction. (It already was one: an earlier draft invented TASK-40
+// and TASK-43, and swapped TASK-42/TASK-44 between two sessions.)
+//
 // RANGE: `UsageRange` is `24h | 7d | 30d | all`, but these are single datasets and the
 // getters in `state.ts` echo the requested range back into the response's `range`
 // field. Seeding four variants would quadruple the fixture to demonstrate arithmetic
@@ -17,34 +25,53 @@
 // oversight.
 
 import type {
+  Session,
+  GitState,
   UsageBreakdown,
   UsageTaskBreakdown,
   UsageTimeline,
   UsageTimelineHour,
   DeliveryMetrics,
   DeliveryStats,
+  DeliveryTaskRow,
   GithubRateLimit,
   PromptBudgetRecord,
 } from "$lib/types";
 import { STOREFRONT, API, NOW, HOUR, DAY } from "./seed-constants";
 
-/** One task row of a repo's breakdown. `tokens` is the raw authoring detail behind
- *  `authoringUnits`; the cacheRead-heavy split is what real Claude Code usage looks like
- *  (see the token-usage analysis in #496 — cacheRead dominates), so a demo with an
- *  even split would misrepresent where the spend actually goes. */
+/** The seeded session behind a usage row.
+ *
+ *  Throws rather than skipping: a usage row naming a session the herd does not have is a
+ *  seed bug, and silently dropping it is how the fixture drifted out of agreement in the
+ *  first place. `buildSeed()` runs under every demo test, so this fails in CI, loudly. */
+function session(sessions: Session[], sessionId: string): Session {
+  const found = sessions.find((s) => s.id === sessionId);
+  if (!found) throw new Error(`demo seed: usage fixture references unknown session "${sessionId}"`);
+  return found;
+}
+
+/** Display basename of a repo path — the `repo` field the delivery rows and breakdown
+ *  headers render. Derived, so it cannot disagree with the session's own `repoPath`. */
+const repoName = (repoPath: string): string => repoPath.split("/").pop() ?? repoPath;
+
+/** One task row of a repo's breakdown: identity from the session, numbers from here.
+ *
+ *  `tokens` is the raw authoring detail behind `authoringUnits`; the cacheRead-heavy
+ *  split is what real Claude Code usage looks like (see the token-usage analysis in
+ *  #496 — cacheRead dominates), so an even split would misrepresent where spend goes. */
 function task(
+  sessions: Session[],
   sessionId: string,
-  desig: string,
-  name: string,
-  model: string,
   authoringUnits: number,
   satelliteUnits: number,
 ): UsageTaskBreakdown {
+  const s = session(sessions, sessionId);
+  const model = s.model ?? "opus";
   const total = authoringUnits * 1000;
   return {
-    sessionId,
-    desig,
-    name,
+    sessionId: s.id,
+    desig: s.desig,
+    name: s.name,
     model,
     authoringUnits,
     satelliteUnits,
@@ -64,15 +91,41 @@ function task(
  *  `dollars` is null throughout: the demo operator is on subscription auth, and the
  *  lens renders absolute USD only under api-key auth. A seeded number here would
  *  advertise a spend figure the demo's own settings say cannot exist. */
-export function buildUsageBreakdown(): UsageBreakdown {
+export function buildUsageBreakdown(sessions: Session[]): UsageBreakdown {
+  const storefrontTasks = [
+    task(sessions, "coupon", 980, 120),
+    task(sessions, "rounding", 610, 190),
+    task(sessions, "ogimg", 540, 150),
+    task(sessions, "deps", 470, 130),
+    task(sessions, "envflag", 380, 100),
+  ];
+  const apiTasks = [task(sessions, "authstore", 530, 140), task(sessions, "neon", 400, 80)];
+  const sum = (rows: UsageTaskBreakdown[], key: "authoringUnits" | "satelliteUnits") =>
+    rows.reduce((n, r) => n + r[key], 0);
+
+  // Repo and global totals are SUMMED from the task rows rather than stated separately —
+  // the Spend lens renders a repo's share against the total, so a hand-written total that
+  // drifted from its own rows would render a bar that disagrees with the list under it.
+  const authoringUnits = sum(storefrontTasks, "authoringUnits") + sum(apiTasks, "authoringUnits");
+  const satelliteUnits = sum(storefrontTasks, "satelliteUnits") + sum(apiTasks, "satelliteUnits");
+  const modelUnits = (rows: UsageTaskBreakdown[]) =>
+    rows.reduce<Record<string, number>>((acc, r) => {
+      acc[r.model] = (acc[r.model] ?? 0) + r.authoringUnits;
+      return acc;
+    }, {});
+  const byModel = { ...modelUnits(storefrontTasks) };
+  for (const [model, units] of Object.entries(modelUnits(apiTasks))) {
+    byModel[model] = (byModel[model] ?? 0) + units;
+  }
+
   return {
     range: "7d",
     generatedAt: NOW,
-    totalUnits: 4820,
-    authoringUnits: 3910,
-    satelliteUnits: 910,
-    cacheReadUnits: 3480,
-    generationUnits: 1340,
+    totalUnits: authoringUnits + satelliteUnits,
+    authoringUnits,
+    satelliteUnits,
+    cacheReadUnits: Math.round(authoringUnits * 0.83),
+    generationUnits: Math.round(authoringUnits * 0.17),
     satelliteByKind: [
       { kind: "review", units: 470, count: 14 },
       { kind: "plan_gate", units: 240, count: 9 },
@@ -82,48 +135,31 @@ export function buildUsageBreakdown(): UsageBreakdown {
     ],
     dollars: null,
     models: {
+      // Every seeded session runs on Claude (see `mkSession`'s default), so the codex
+      // side is a true zero rather than an invented second provider.
       claude: {
-        totalTokens: 41_250_000,
-        byModel: { opus: 28_400_000, sonnet: 12_850_000 },
-        byRole: {
-          coding: { opus: 26_100_000, sonnet: 6_200_000 },
-          review: { opus: 2_300_000, sonnet: 3_400_000 },
-          plan_gate: { sonnet: 2_050_000 },
-          recap: { sonnet: 900_000 },
-          classifier: { sonnet: 300_000 },
-        },
+        totalTokens: authoringUnits * 1000,
+        byModel,
+        byRole: { coding: byModel, review: { sonnet: 470 }, plan_gate: { sonnet: 240 } },
       },
-      codex: {
-        totalTokens: 3_900_000,
-        byModel: { "gpt-5.2-codex": 3_900_000 },
-        byRole: { coding: { "gpt-5.2-codex": 3_900_000 } },
-      },
+      codex: { totalTokens: 0, byModel: {}, byRole: {} },
     },
     repos: [
       {
         repoPath: STOREFRONT,
-        repoName: "storefront",
-        authoringUnits: 2980,
-        satelliteUnits: 690,
+        repoName: repoName(STOREFRONT),
+        authoringUnits: sum(storefrontTasks, "authoringUnits"),
+        satelliteUnits: sum(storefrontTasks, "satelliteUnits"),
         dollars: null,
-        tasks: [
-          task("coupon", "TASK-40", "coupon-code-field", "opus", 980, 120),
-          task("rounding", "TASK-38", "cart-total-rounding", "opus", 610, 190),
-          task("ogimg", "TASK-39", "dynamic-og-images", "opus", 540, 150),
-          task("deps", "TASK-37", "bump-dependencies", "sonnet", 470, 130),
-          task("envflag", "TASK-50", "feature-x-env-flag", "opus", 380, 100),
-        ],
+        tasks: storefrontTasks,
       },
       {
         repoPath: API,
-        repoName: "api",
-        authoringUnits: 930,
-        satelliteUnits: 220,
+        repoName: repoName(API),
+        authoringUnits: sum(apiTasks, "authoringUnits"),
+        satelliteUnits: sum(apiTasks, "satelliteUnits"),
         dollars: null,
-        tasks: [
-          task("authstore", "TASK-42", "auth-store-rewrite", "opus", 530, 140),
-          task("neon", "TASK-43", "neon-cold-start-retry", "opus", 400, 80),
-        ],
+        tasks: apiTasks,
       },
     ],
   };
@@ -145,12 +181,11 @@ export function buildUsageTimeline(): UsageTimeline {
     if (units === 0) continue;
     hours.push({ hourStart: NOW - (perHour.length - 1 - i) * HOUR, units });
   }
-  const totalUnits = hours.reduce((sum, h) => sum + h.units, 0);
   return {
     range: "24h",
     generatedAt: NOW,
     hours,
-    totalUnits,
+    totalUnits: hours.reduce((sum, h) => sum + h.units, 0),
     peakHourUnits: Math.max(...hours.map((h) => h.units)),
   };
 }
@@ -210,10 +245,41 @@ function apiStats(): DeliveryStats {
   };
 }
 
+/** One merged-task row: identity and PR number from the herd, cycle numbers from here.
+ *  `prNumber` is whatever `gitStates` records for the session — null for an archived
+ *  session the demo keeps no git state for, which is exactly what the real server reports
+ *  once a session's PR record is gone. */
+function deliveryTask(
+  sessions: Session[],
+  gitStates: Record<string, GitState>,
+  sessionId: string,
+  numbers: {
+    reviewRounds: number;
+    planRounds: number;
+    firstPass: boolean | null;
+    timeToFirstReviewMs: number | null;
+    leadTimeMs: number | null;
+    mergedAt: number;
+  },
+): DeliveryTaskRow {
+  const s = session(sessions, sessionId);
+  return {
+    sessionId: s.id,
+    desig: s.desig,
+    repo: repoName(s.repoPath),
+    issueNumber: s.issueNumber ?? null,
+    prNumber: gitStates[s.id]?.number ?? null,
+    ...numbers,
+  };
+}
+
 /** GET /api/usage/delivery?range= — the Delivery lens. Totals are the two repo rows
  *  summed where summing is meaningful (counts) and re-derived where it is not
  *  (rates/medians are over the pooled sample, not an average of averages). */
-export function buildDeliveryMetrics(): DeliveryMetrics {
+export function buildDeliveryMetrics(
+  sessions: Session[],
+  gitStates: Record<string, GitState>,
+): DeliveryMetrics {
   const sf = storefrontStats();
   const api = apiStats();
   return {
@@ -222,12 +288,12 @@ export function buildDeliveryMetrics(): DeliveryMetrics {
     since: NOW - 7 * DAY,
     measuringSince: NOW - 23 * DAY,
     totals: {
-      mergedTasks: 19,
+      mergedTasks: sf.mergedTasks + api.mergedTasks,
       firstPassRate: sample(0.58, 19),
-      unreviewed: 1,
+      unreviewed: sf.unreviewed + api.unreviewed,
       reworkCyclesMedian: sample(1, 18),
       reworkCyclesMean: sample(1.5, 18),
-      criticErrors: 1,
+      criticErrors: sf.criticErrors + api.criticErrors,
       planRoundsMedian: sample(1, 11),
       planReworkRate: sample(0.27, 11),
       planDriftRate: sample(0.12, 8),
@@ -237,8 +303,8 @@ export function buildDeliveryMetrics(): DeliveryMetrics {
       firstPushGreenRate: sample(0.71, 14),
     },
     repos: [
-      { ...sf, repoPath: STOREFRONT, repo: "storefront" },
-      { ...api, repoPath: API, repo: "api" },
+      { ...sf, repoPath: STOREFRONT, repo: repoName(STOREFRONT) },
+      { ...api, repoPath: API, repo: repoName(API) },
     ],
     incidents: [
       { kind: "review_rework", occurrences: 9, sessions: 6 },
@@ -255,106 +321,99 @@ export function buildDeliveryMetrics(): DeliveryMetrics {
       { dayKey: "2026-06-29", mergedTasks: 5, firstPassRate: 0.6, leadTimeMedianMs: 2.9 * HOUR },
       { dayKey: "2026-06-30", mergedTasks: 4, firstPassRate: 0.5, leadTimeMedianMs: 3.4 * HOUR },
     ],
-    // Newest-merged first, and keyed to sessions the herd actually shows as merged
-    // (`deps` PR 505, `envflag` PR 520) so a visitor can follow a row back to its card.
+    // Newest-merged first, and every row is a session the herd actually shows as merged
+    // or archived — so a visitor can follow any row back to the card it came from.
     tasks: [
-      {
-        sessionId: "deps",
-        desig: "TASK-37",
-        repo: "storefront",
-        issueNumber: 137,
-        prNumber: 505,
+      deliveryTask(sessions, gitStates, "deps", {
         reviewRounds: 1,
         planRounds: 0,
         firstPass: true,
         timeToFirstReviewMs: 9 * 60_000,
         leadTimeMs: 2.4 * HOUR,
         mergedAt: NOW - 4 * HOUR,
-      },
-      {
-        sessionId: "envflag",
-        desig: "TASK-50",
-        repo: "storefront",
-        issueNumber: 150,
-        prNumber: 520,
+      }),
+      deliveryTask(sessions, gitStates, "envflag", {
         reviewRounds: 2,
         planRounds: 1,
         firstPass: false,
         timeToFirstReviewMs: 14 * 60_000,
         leadTimeMs: 6.1 * HOUR,
         mergedAt: NOW - 7 * HOUR,
-      },
-      {
-        sessionId: "cart-store",
-        desig: "TASK-31",
-        repo: "storefront",
-        issueNumber: 81,
-        prNumber: 390,
+      }),
+      deliveryTask(sessions, gitStates, "navpills", {
         reviewRounds: 1,
         planRounds: 1,
         firstPass: true,
         timeToFirstReviewMs: 8 * 60_000,
         leadTimeMs: 3.9 * HOUR,
-        mergedAt: NOW - 2 * DAY - 2 * HOUR,
-      },
-      {
-        sessionId: "ratelimit",
-        desig: "TASK-28",
-        repo: "api",
-        issueNumber: 201,
-        prNumber: 310,
+        mergedAt: NOW - 5 * HOUR,
+      }),
+      deliveryTask(sessions, gitStates, "ratelimit", {
         reviewRounds: 3,
         planRounds: 1,
         firstPass: false,
         timeToFirstReviewMs: 22 * 60_000,
         leadTimeMs: 7.8 * HOUR,
-        mergedAt: NOW - 5 * DAY,
-      },
+        mergedAt: NOW - 20 * HOUR,
+      }),
     ],
   };
 }
 
 /** GET /api/prompt-budget — the Prompt tab's per-spawn assembled-directive breakdown.
- *  One attended Claude spawn and one unattended (drain) Codex spawn, so the tab shows
- *  both `delivery` modes: Claude takes the payload on `--append-system-prompt`, Codex
- *  inline on the prompt (it has no such flag). */
-export function buildPromptBudgets(): PromptBudgetRecord[] {
+ *
+ *  One attended spawn and one unattended (drain) spawn, so the tab shows both `auto`
+ *  states. Both are `append-system-prompt`: that is a function of the provider (Claude
+ *  takes the payload on the flag; Codex has none and must inline it), and every seeded
+ *  session runs on Claude — so a second `delivery` mode here would be inventing a
+ *  provider the herd does not have. */
+export function buildPromptBudgets(sessions: Session[]): PromptBudgetRecord[] {
+  const record = (
+    sessionId: string,
+    blocks: PromptBudgetRecord["blocks"],
+    createdAt: number,
+  ): PromptBudgetRecord => {
+    const s = session(sessions, sessionId);
+    // `Session.agentProvider` is optional; the server's own default is claude, and
+    // `mkSession` seeds it explicitly — so this fallback never fires for a seeded row.
+    const agentProvider = s.agentProvider ?? "claude";
+    const totalChars = blocks.reduce((n, b) => n + b.chars, 0);
+    return {
+      sessionId: s.id,
+      desig: s.desig,
+      repoPath: s.repoPath,
+      agentProvider,
+      auto: s.auto === true,
+      delivery: agentProvider === "codex" ? "inline-prompt" : "append-system-prompt",
+      // Summed from the blocks, not stated: the lens renders each block's share OF this
+      // total, so a hand-written total would render shares that do not reach 100%.
+      totalChars,
+      totalBytes: blocks.reduce((n, b) => n + b.bytes, 0),
+      totalTokens: blocks.reduce((n, b) => n + b.tokens, 0),
+      blocks,
+      createdAt,
+    };
+  };
   return [
-    {
-      sessionId: "coupon",
-      desig: "TASK-40",
-      repoPath: STOREFRONT,
-      agentProvider: "claude",
-      auto: false,
-      delivery: "append-system-prompt",
-      totalChars: 18_420,
-      totalBytes: 18_650,
-      totalTokens: 4720,
-      blocks: [
+    record(
+      "coupon",
+      [
         { name: "house-rules", chars: 6100, bytes: 6180, tokens: 1560 },
         { name: "learnings", chars: 4830, bytes: 4900, tokens: 1240 },
         { name: "task", chars: 3910, bytes: 3960, tokens: 1000 },
         { name: "repo-context", chars: 2400, bytes: 2430, tokens: 610 },
         { name: "conventions", chars: 1180, bytes: 1180, tokens: 310 },
       ],
-      createdAt: NOW - 55 * 60_000,
-    },
-    {
-      sessionId: "checkout-child",
-      desig: "TASK-44",
-      repoPath: STOREFRONT,
-      agentProvider: "codex",
-      auto: true,
-      delivery: "inline-prompt",
-      totalChars: 12_060,
-      totalBytes: 12_180,
-      totalTokens: 3090,
-      blocks: [
+      NOW - 55 * 60_000,
+    ),
+    record(
+      "checkout-child",
+      [
         { name: "house-rules", chars: 6100, bytes: 6180, tokens: 1560 },
         { name: "task", chars: 3560, bytes: 3600, tokens: 910 },
         { name: "repo-context", chars: 2400, bytes: 2400, tokens: 620 },
       ],
-      createdAt: NOW - 21 * 60_000,
-    },
+      NOW - 21 * 60_000,
+    ),
   ];
 }

@@ -498,19 +498,29 @@ export const demoState = {
   /** GET /api/drain/queue?repo= — the backlog issues behind a repo's `queued` count,
    *  fetched when the QueueStrip popover opens.
    *
-   *  DERIVED from the seeded issues rather than seeded separately: an issue is queued when
-   *  nothing has claimed it yet, which is the rule the real drain applies — so the popover
-   *  can never offer work the herd is visibly already doing. Claimed means EITHER an epic
-   *  child marked `claimed` OR a live session pointing at that issue; a session outside an
-   *  epic is just as real a claim. An epic PARENT is excluded too: it is an umbrella, never
-   *  drainable work. */
+   *  DERIVED from the seeded issues rather than seeded separately, applying the same three
+   *  rules the real drain does, so the popover can never offer work the demo elsewhere says
+   *  is unavailable:
+   *    - CLAIMED — an epic child marked `claimed`, or a live session pointing at the issue.
+   *      A session outside an epic is just as real a claim.
+   *    - BLOCKED — a non-empty `blockedBy`. The epic panel renders #104 and #105 as BLOCKED
+   *      on their open dependencies; offering them as startable contradicted that.
+   *    - EPIC PARENT — an umbrella, never drainable work itself.
+   *
+   *  The result must equal the repo's seeded `DrainStatus.queued`, which is BY DEFINITION
+   *  the count of exactly these rows — RepoChipTelemetry renders that count on the button
+   *  and this list inside it, so a mismatch shows "2 queued" expanding to four rows.
+   *  `router.test.ts` asserts the two agree for every seeded repo. */
   drainQueue: (repoPath: string): QueuedItem[] => {
     const claimed = new Set<number>([
       ...world.epics.flatMap((e) => e.children.filter((c) => c.claimed).map((c) => c.number)),
       ...world.sessions.flatMap((s) => (s.issueNumber == null ? [] : [s.issueNumber])),
     ]);
     return (world.issues[repoPath] ?? [])
-      .filter((i) => !claimed.has(i.number) && !i.labels.includes("epic"))
+      .filter(
+        (i) =>
+          !claimed.has(i.number) && (i.blockedBy ?? []).length === 0 && !i.labels.includes("epic"),
+      )
       .map((i) => ({ number: i.number, title: i.title, url: i.url }));
   },
 

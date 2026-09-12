@@ -125,9 +125,12 @@ export interface DiagnosticsDeps {
    *  Service mapping are detected. Reject ⇒ treated as "not serving". */
   runServeStatus?: () => Promise<string>;
   /** True when `tailscale serve` refused a preview registration for lack of
-   *  operator/root rights (`TailscaleServeService.permissionDenied`). Default
+   *  operator/root rights. Asked fresh on every run and may answer asynchronously: the
+   *  wired implementation (`TailscaleServeService.revalidatePermission`) re-verifies its
+   *  latched verdict against tailscaled, so a denial the operator has since fixed clears
+   *  on a re-check instead of persisting until someone opens a preview. Default
    *  `() => false` so an unwired service keeps today's behavior. */
-  previewServeDenied?: () => boolean;
+  previewServeDenied?: () => boolean | Promise<boolean>;
   /** Run a verbatim remediation command (a shell pipeline like `curl … | bash`).
    *  Resolves on exit 0; rejects on non-zero exit or timeout. Default spawns a
    *  detached process group and SIGKILLs the whole group on timeout. Injected in tests. */
@@ -435,7 +438,7 @@ function resolveClaudeTrustDeps(deps: DiagnosticsDeps): {
  *  rather than inline in the constructor for the same reason `resolveClaudeTrustDeps` exists —
  *  the ctor sits at the repo's complexity ceiling, and one more inline `??` trips the health
  *  gate. */
-function resolvePreviewServeDenied(deps: DiagnosticsDeps): () => boolean {
+function resolvePreviewServeDenied(deps: DiagnosticsDeps): () => boolean | Promise<boolean> {
   return deps.previewServeDenied ?? (() => false);
 }
 
@@ -1103,7 +1106,7 @@ export class DiagnosticsService {
   private ghProbeRetryDelayMs: number;
   private resolveHost: () => Promise<string | null>;
   private runServeStatus: () => Promise<string>;
-  private previewServeDenied: () => boolean;
+  private previewServeDenied: () => boolean | Promise<boolean>;
   private runRemediation: (cmd: string) => Promise<void>;
   private anyForgeRepo: () => boolean;
   private anyLightweightRepo: () => boolean;
@@ -1462,7 +1465,7 @@ export class DiagnosticsService {
     // working HUD mapping (written earlier with root, or by another user), so `findServedPort`
     // succeeds and the row would report `ok` while every preview registration is refused.
     // That green-over-broken reading is the blind spot this check exists to close.
-    if (this.previewServeDenied()) {
+    if (await this.previewServeDenied()) {
       return {
         id: "tailscale",
         state: "warning",

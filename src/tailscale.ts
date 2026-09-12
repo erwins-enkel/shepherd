@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { userInfo } from "node:os";
 import { promisify } from "node:util";
 import { execFileSync, timedAsync } from "./instrument";
 
@@ -88,6 +89,22 @@ const defaultRunSync: TailscaleRunnerSync = (args) => {
   execFileSync("tailscale", args, { timeout: SYNC_TIMEOUT_MS, stdio: "ignore" });
 };
 
+/** The OS identity a serve-config write would be attributed to. */
+export type ServeIdentity = { uid: number; username: string };
+
+/** Real identity of this process. `getuid` is absent on Windows (-1 ⇒ "not root", which
+ *  falls through to the operator comparison); `userInfo` throws when the uid has no passwd
+ *  entry, which we report as an empty name so it can never match an OperatorUser. */
+const defaultIdentity = (): ServeIdentity => {
+  let username = "";
+  try {
+    username = userInfo().username;
+  } catch {
+    /* no passwd entry — leave the name empty */
+  }
+  return { uid: process.getuid?.() ?? -1, username };
+};
+
 export interface TailscaleServeOpts {
   base: number;
   count: number;
@@ -100,6 +117,9 @@ export interface TailscaleServeOpts {
   run?: TailscaleRunner;
   /** Sync shutdown path; default defaultRunSync */
   runSync?: TailscaleRunnerSync;
+  /** OS identity this process runs as, read by {@link TailscaleServeService.revalidatePermission}
+   *  to compare against tailscaled's `--operator`. Injectable for tests; default defaultIdentity. */
+  identity?: () => ServeIdentity;
 }
 
 /**
@@ -114,17 +134,20 @@ export class TailscaleServeService {
   /** Latched by ANY async mutation refused for lack of operator/root rights — `register`,
    *  `unregister` and `reconcileStartup` alike, since all three write serve config (only the
    *  sync `stopAll` skips it: the process is exiting and nothing reads this afterwards).
-   *  Cleared only by a subsequent SUCCESSFUL `register` — not by a successful
-   *  unregister or reconcile, neither of which clears it. That asymmetry is deliberate and
-   *  matches the hint the operator is given ("run `tailscale set --operator=…`, then reopen
-   *  the preview"): reopening a preview is a register, so the row goes green exactly when
-   *  the fix is proven on the path that was broken. Surfaced via {@link permissionDenied}. */
+   *  Cleared on exactly two paths: a subsequent SUCCESSFUL `register` (the fix proven on the
+   *  path that was broken), and {@link revalidatePermission} (the host re-examined on demand).
+   *  A successful unregister or reconcile clears nothing — neither proves we may write.
+   *  Surfaced via {@link permissionDenied}. */
   private denied = false;
 
   constructor(private opts: TailscaleServeOpts) {}
 
   private get run() {
     return this.opts.run ?? defaultRun;
+  }
+
+  private get identity() {
+    return this.opts.identity ?? defaultIdentity;
   }
 
   private enqueue(op: () => Promise<void>): Promise<void> {
@@ -237,8 +260,12 @@ export class TailscaleServeService {
 
   /**
    * True when a serve mutation was refused for lack of operator/root rights (see
-   * {@link isServeConfigDenied}) and no later `register` has since succeeded — i.e. the
+   * {@link isServeConfigDenied}) and nothing has since cleared that verdict — i.e. the
    * host needs `tailscale set --operator=<user>` before any preview can be published.
+   *
+   * Pure read of the latch. Callers that want the verdict re-examined against the daemon
+   * first — Diagnostics, whose re-check must reflect a fix the operator just applied —
+   * should await {@link revalidatePermission} instead.
    *
    * Reports OBSERVED failures only: a boot that has neither reconciled nor registered
    * anything yet reads `false`, and so does a disabled service. `reconcileStartup`
@@ -246,6 +273,57 @@ export class TailscaleServeService {
    * the first preview opens.
    */
   permissionDenied(): boolean {
+    return this.denied;
+  }
+
+  /**
+   * Re-verify a latched denial against the daemon: clear it when the host has since granted
+   * us serve-config rights, and return the (possibly updated) verdict.
+   *
+   * WHY this exists: {@link permissionDenied} is cleared only by a successful `register`, so
+   * after the operator runs the documented `sudo tailscale set --operator=$USER` the latch
+   * stays true until someone opens a preview. Diagnostics re-checks read the latch, so the
+   * `tailscale` row could not go green from the settings panel however often the checks were
+   * re-run — the applied fix looked like it had not worked.
+   *
+   * READ-ONLY: `tailscale debug prefs` is a LocalAPI GET, permitted for any local user — which
+   * is exactly why it still answers on a denied host — and nothing here writes serve config.
+   * tailscaled gates serve-config writes on `PermitWrite`, granted to root or the configured
+   * `OperatorUser`; those are the two conditions checked here.
+   *
+   * Fail-safe in both directions: an unreadable or unexpected prefs answer KEEPS the latch, so
+   * an observed denial is never downgraded to green on a guess; and clearing it is not a
+   * standing verdict — the next refused mutation latches it again.
+   */
+  async revalidatePermission(): Promise<boolean> {
+    if (!this.denied) return false;
+    const { uid, username } = this.identity();
+    // root is granted PermitWrite unconditionally, so its rights never depend on --operator
+    // and there is nothing for the prefs read to add.
+    if (uid === 0) {
+      this.denied = false;
+      return false;
+    }
+    try {
+      const { stdout } = await this.run(["debug", "prefs"]);
+      const parsed: unknown = JSON.parse(stdout);
+      const operator =
+        parsed !== null && typeof parsed === "object" && "OperatorUser" in parsed
+          ? parsed.OperatorUser
+          : null;
+      // An empty OperatorUser means "root only"; an empty username means we could not read
+      // our own — neither may be allowed to match the other into a false clearance.
+      if (
+        typeof operator === "string" &&
+        operator !== "" &&
+        username !== "" &&
+        operator === username
+      ) {
+        this.denied = false;
+      }
+    } catch {
+      /* prefs unreadable — keep the observed denial rather than guess */
+    }
     return this.denied;
   }
 }

@@ -723,6 +723,25 @@ describe("DiagnosticsService probes", () => {
     expect(c.state).toBe("ok");
     expect(c.hintKey).toBe("diagnostics_hint_tailscale_ok");
   });
+  // The dep is asked fresh on every run and may answer asynchronously (the wired
+  // implementation re-verifies a latched denial against tailscaled). Without this, a
+  // re-check after `tailscale set --operator=$USER` kept reporting the stale verdict and
+  // the row could never go green from the settings panel.
+  it("tailscale: an async dep that clears the denial lets the row go green on a re-check", async () => {
+    let denied = true;
+    const svc = new DiagnosticsService({
+      ...healthyDeps(),
+      previewServeDenied: async () => denied,
+    });
+    const first = byId((await svc.check(0)).checks, "tailscale");
+    expect(first.state).toBe("warning");
+    expect(first.hintKey).toBe("diagnostics_hint_tailscale_serve_denied");
+
+    denied = false;
+    const second = byId((await svc.check(0)).checks, "tailscale");
+    expect(second.state).toBe("ok");
+    expect(second.hintKey).toBe("diagnostics_hint_tailscale_ok");
+  });
   it("tailscale: never forwards raw serve-status text", async () => {
     const secret = "SECRET-SERVE-LINE-127.0.0.1";
     const svc = new DiagnosticsService({

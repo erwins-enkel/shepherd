@@ -45,7 +45,8 @@
   import { formatUnits } from "$lib/components/usage/format";
   import { isColdResume } from "$lib/cold-resume";
   import { sessionEnvironment } from "$lib/session-env";
-  import { statusTip } from "$lib/actions/statusTip.svelte";
+  import { coldResumeExplanation } from "$lib/tooltips/explanations";
+  import { statusTip } from "$lib/tooltips/statusTip.svelte";
   import { onDestroy } from "svelte";
   import UnitRowRight from "./unit-row/UnitRowRight.svelte";
   import { rowHold } from "$lib/hold-row";
@@ -620,22 +621,21 @@
   // selection lives on the sibling `.unit-hit` button, which the click can no longer reach
   // (statusTip's stopPropagation is belt-and-braces; nothing between here and `.unit` listens).
   // The chip stays a NON-FOCUSABLE <span>, like every statusTip trigger in the repo, so the
-  // action's Esc and focus-to-open paths never fire on it: the keyboard reads `aria-description`
-  // instead, and a tab stop per cold card would be a lot of noise in a long Herd. A GlossaryTerm
+  // keyboard reads `aria-description`, while Escape dismisses a mouse-opened panel globally.
+  // A tab stop per cold card would be a lot of noise in a long Herd. A GlossaryTerm
   // is wrong for a different reason — its click presentation pushes content down and would
   // reflow the card.
   //
-  // Two sentences, deliberately: what is true of THIS session (with its numbers), then why
-  // Shepherd puts the number on the card at all. `wide` keeps that from stacking into a column.
+  // Shared structured explanation: cost first, then the choices before resuming.
   const coldResume = $derived(isColdResume(session, nowMs));
   const coldResumeChip = $derived(
     m.coldresume_chip({ units: formatUnits(session.resumeCostUnits ?? 0) }),
   );
   const coldResumeTip = $derived(
-    `${m.coldresume_title({
+    coldResumeExplanation({
       context: formatTokens(session.contextTokens ?? 0),
       units: formatUnits(session.resumeCostUnits ?? 0),
-    })} ${m.coldresume_why()}`,
+    }),
   );
 
   // Relaunch is offered only for an in-flight task (see canRelaunch) AND only when the

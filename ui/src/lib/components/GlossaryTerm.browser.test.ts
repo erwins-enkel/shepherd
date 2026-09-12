@@ -231,3 +231,29 @@ describe("GlossaryTerm — hide-info-tips preference", () => {
     await expect.element(page.getByRole("button", { name: "epic" })).toBeInTheDocument();
   });
 });
+
+describe("GlossaryTerm — structured explanations", () => {
+  it.each(["plan-gate", "autopilot"])(
+    "%s shares headings between hover and activation",
+    async (id) => {
+      render(GlossaryTerm, { id, label: id });
+      const button = page.getByRole("button", { name: id });
+      button.element().dispatchEvent(new PointerEvent("pointerenter", { pointerType: "mouse" }));
+      await expect.poll(() => document.querySelector(".gloss-tooltip:popover-open")).not.toBeNull();
+      const floating = document.querySelector(".gloss-tooltip")!;
+      const title = floating.querySelector(".tooltip-title")!.textContent;
+      const labels = [...floating.querySelectorAll(".tooltip-label")].map((el) => el.textContent);
+      expect(labels.length).toBeGreaterThanOrEqual(3);
+      floating.dispatchEvent(new Event("scroll"));
+      expect(floating.matches(":popover-open")).toBe(true);
+      await button.click();
+      const inline = document.querySelector(".gloss-inline")!;
+      expect(inline.querySelector(".tooltip-title")!.textContent).toBe(title);
+      expect([...inline.querySelectorAll(".tooltip-label")].map((el) => el.textContent)).toEqual(
+        labels,
+      );
+      await userEvent.keyboard("{Escape}");
+      await expect.poll(() => document.querySelector(".gloss-inline")).toBeNull();
+    },
+  );
+});

@@ -665,7 +665,7 @@ a.issue-list-title:hover {
 }
 
 /* ── Status-chip tooltip / dialog ────────────────────────────────────────────
-   Surfaces for the session-card status chips (see $lib/actions/statusTip). The
+   Surfaces for the session-card status chips (see $lib/tooltips/statusTip). The
    `statusTip` action appends its popover to <body>, so these must be global (not
    component-scoped). Modeled on InfoTip's `.info-tooltip`: native top-layer
    popover, position:fixed + inset:auto + margin:0 so Floating UI drives left/top.
@@ -712,6 +712,11 @@ a.issue-list-title:hover {
   max-height: min(60vh, 460px);
   overflow-y: auto;
   overscroll-behavior: contain;
+}
+
+.status-tip-explanation[popover] {
+  width: min(380px, 90vw);
+  padding: 12px 14px;
 }
 
 /* Actionable dialog (critic Open PR): a click-pinned column of explanation + link. */

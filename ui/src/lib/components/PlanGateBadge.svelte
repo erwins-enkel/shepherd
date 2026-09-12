@@ -9,7 +9,7 @@
   import { replySession, reviewPlan, isPlanReviewError } from "$lib/api";
   import { toasts } from "$lib/toasts.svelte";
   import { clock } from "$lib/now.svelte";
-  import { statusTip } from "$lib/actions/statusTip.svelte";
+  import { statusTip } from "$lib/tooltips/statusTip.svelte";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
 
   // allowView (default true): whether to surface the read-only "view"/PLAN chip during

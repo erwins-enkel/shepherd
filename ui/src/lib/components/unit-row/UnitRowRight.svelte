@@ -13,7 +13,7 @@
   import PlanGateBadge from "../PlanGateBadge.svelte";
   import AutopilotBadge from "../AutopilotBadge.svelte";
   import { repoConfig } from "$lib/reviews.svelte";
-  import { statusTip } from "$lib/actions/statusTip.svelte";
+  import { statusTip } from "$lib/tooltips/statusTip.svelte";
   import { checksCleared } from "$lib/checks-cleared";
 
   let {

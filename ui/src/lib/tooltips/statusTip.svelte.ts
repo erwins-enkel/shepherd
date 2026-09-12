@@ -1,9 +1,12 @@
+import { mount, unmount } from "svelte";
+import TooltipBody from "./TooltipBody.svelte";
+import { tooltipText, type TooltipContent } from "./content";
 import type { Action } from "svelte/action";
 import { anchorPopover } from "$lib/floating-anchor";
 
 export interface StatusTipParams {
-  /** The explanation text shown in the tooltip and exposed to AT via aria-describedby. */
-  text: string;
+  /** Short label, or structured explanation with title + sections (see CLAUDE.md). */
+  text: TooltipContent;
   /** Set false for actionable controls whose delegated click handler must run. */
   stopClickPropagation?: boolean;
   /** Suppress the entrance animation (motion-free surfaces like the New Task modal). */
@@ -25,7 +28,7 @@ let uid = 0;
  *
  * Raises the trigger above the full-card `.unit-hit` overlay (inline
  * `position:relative; z-index:1`) so hover/tap reach the chip instead of the
- * overlay, and reveals a styled, **text-only** `role="tooltip"` popover:
+ * overlay, and reveals a styled, **non-interactive** `role="tooltip"` popover:
  *  - hover (fine pointer) opens a transient tooltip; a genuine pointer click
  *    **pins** it so it survives `pointerleave` (a real affordance, not a fleeting
  *    hover) — dismissed by outside-click / Esc / scroll.
@@ -45,7 +48,8 @@ export const statusTip: Action<HTMLElement, StatusTipParams | null | undefined> 
   params,
 ) => {
   let pop: HTMLDivElement | null = null;
-  let text = "";
+  const bodyProps = $state<{ content: TooltipContent }>({ content: "" });
+  let body: ReturnType<typeof mount> | null = null;
   let stopClickPropagation = true;
   let still = false;
   let wide = false;
@@ -56,7 +60,12 @@ export const statusTip: Action<HTMLElement, StatusTipParams | null | undefined> 
   let closeTimer: ReturnType<typeof setTimeout> | null = null;
 
   function panelClass() {
-    return ["status-tip", still && "status-tip-still", wide && "status-tip-wide"]
+    return [
+      "status-tip",
+      still && "status-tip-still",
+      typeof bodyProps.content !== "string" && "status-tip-explanation",
+      (wide || typeof bodyProps.content !== "string") && "status-tip-wide",
+    ]
       .filter(Boolean)
       .join(" ");
   }
@@ -65,7 +74,6 @@ export const statusTip: Action<HTMLElement, StatusTipParams | null | undefined> 
   // text never pollutes the DOM / text queries; AT reads `aria-description` instead.
   function ensurePopover() {
     if (pop) {
-      pop.textContent = text;
       pop.className = panelClass();
       return;
     }
@@ -74,7 +82,7 @@ export const statusTip: Action<HTMLElement, StatusTipParams | null | undefined> 
     pop.className = panelClass();
     pop.setAttribute("role", "tooltip");
     pop.setAttribute("popover", "manual");
-    pop.textContent = text;
+    body = mount(TooltipBody, { target: pop, props: bodyProps });
     // The panel is a body-appended sibling floating 6px off its trigger, so pointing at
     // it means leaving the trigger. Treat trigger + panel as one hover region: entering
     // the panel cancels the pending close, leaving it schedules one. Without this a
@@ -133,6 +141,7 @@ export const statusTip: Action<HTMLElement, StatusTipParams | null | undefined> 
     open = true;
     stopAnchor = anchorPopover(node, pop, 6);
     document.addEventListener("pointerdown", onDocPointerDown, true);
+    document.addEventListener("keydown", onKeydown);
     window.addEventListener("scroll", onScrollOrResize, { capture: true, passive: true });
     window.addEventListener("resize", onScrollOrResize, { passive: true });
   }
@@ -145,6 +154,7 @@ export const statusTip: Action<HTMLElement, StatusTipParams | null | undefined> 
     stopAnchor?.(); // stops autoUpdate + hidePopover()
     stopAnchor = null;
     document.removeEventListener("pointerdown", onDocPointerDown, true);
+    document.removeEventListener("keydown", onKeydown);
     window.removeEventListener("scroll", onScrollOrResize, true);
     window.removeEventListener("resize", onScrollOrResize);
   }
@@ -174,16 +184,15 @@ export const statusTip: Action<HTMLElement, StatusTipParams | null | undefined> 
   }
 
   function enable(next: StatusTipParams) {
-    text = next.text;
+    bodyProps.content = next.text;
     stopClickPropagation = next.stopClickPropagation ?? true;
     still = next.still ?? false;
     wide = next.wide ?? false;
     if (pop) {
-      pop.textContent = text;
       pop.className = panelClass();
     }
     // Expose the explanation to assistive tech directly (no referenced element).
-    node.setAttribute("aria-description", text);
+    node.setAttribute("aria-description", tooltipText(next.text));
     // Raise above the `.unit-hit` overlay. Only set position when the element is
     // otherwise static, so we never clobber a component's own positioning.
     if (!node.style.position) node.style.position = "relative";
@@ -212,6 +221,10 @@ export const statusTip: Action<HTMLElement, StatusTipParams | null | undefined> 
       node.removeEventListener("blur", onBlur);
       node.removeEventListener("click", onClick);
       node.removeEventListener("keydown", onKeydown);
+    }
+    if (body) {
+      void unmount(body);
+      body = null;
     }
     if (pop) {
       pop.remove();

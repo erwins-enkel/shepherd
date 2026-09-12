@@ -2,7 +2,7 @@
   import type { SessionStatus } from "$lib/types";
   import { STATUS_COLOR, statusLabel } from "$lib/format";
   import { m } from "$lib/paraglide/messages";
-  import { statusTip } from "$lib/actions/statusTip.svelte";
+  import { statusTip } from "$lib/tooltips/statusTip.svelte";
   let {
     status,
     ready = false,

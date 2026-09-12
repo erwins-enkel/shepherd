@@ -5,7 +5,7 @@
   import { getCommands } from "$lib/api";
   import type { Issue, SlashCommand, Steer } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
-  import { statusTip } from "$lib/actions/statusTip.svelte";
+  import { statusTip } from "$lib/tooltips/statusTip.svelte";
   import {
     commandInsertable,
     commandInvocation,

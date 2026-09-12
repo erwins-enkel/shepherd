@@ -19,6 +19,8 @@
   import { INFO_TIPS_FORCE } from "$lib/info-tips.svelte";
   import IssueFilterPopover from "$lib/components/IssueFilterPopover.svelte";
   import IssueLabelChips from "$lib/components/IssueLabelChips.svelte";
+  import { statusTip } from "$lib/tooltips/statusTip.svelte";
+  import { coldResumeExplanation } from "$lib/tooltips/explanations";
   import GlossaryText from "$lib/components/GlossaryText.svelte";
   import { labelChipStyle } from "$lib/label-color";
   // Graphical plugin-UI widgets (issue #1189). Unlike the static meter demo, these
@@ -387,6 +389,20 @@ input, select, textarea {
     }
   }
 }`;
+
+  const tooltipMarkup = `import { statusTip } from "$lib/tooltips/statusTip.svelte";
+import type { TooltipExplanation } from "$lib/tooltips/content";
+
+const explanation: TooltipExplanation = {
+  title: m.my_tooltip_title(),
+  summary: m.my_tooltip_summary(),
+  sections: [{ label: m.my_tooltip_label(), text: m.my_tooltip_detail() }],
+};
+// Structure automatically selects the readable width; content is escaped text.
+<button use:statusTip={{ text: explanation }}>…</button>
+// Glossary registry entries can supply explanation: () => TooltipExplanation.
+// For existing disclosure/popover shells:
+<TooltipBody content={explanation} />`;
 
   const glossMarkup = `<!-- In a message value, wrap a term with [[id|Label]]: -->
 <!-- "Shepherd groups sessions under an [[epic|epic]]." -->
@@ -1112,6 +1128,21 @@ input, select, textarea {
       </p>
     </div>
     <pre><code>{glossMarkup}</code></pre>
+    <h3>Explanatory tooltips</h3>
+    <p class="note">
+      A title, a short summary, then labelled sections. Keep one idea per section; foreground costs,
+      consequences and choices. Plain strings are for short labels. Use the shared tooltip module,
+      including inside glossary disclosures.
+    </p>
+    <div class="demo-row">
+      <button
+        class="gbtn"
+        use:statusTip={{ text: coldResumeExplanation({ context: "147k", units: "1.2" }) }}
+        >⚠ Cold cache · ~1.2 units</button
+      >
+      <GlossaryText text="[[plan-gate|Plan gate]] · [[autopilot|Autopilot]]" />
+    </div>
+    <pre><code>{tooltipMarkup}</code></pre>
   </section>
 
   <section class="panel">

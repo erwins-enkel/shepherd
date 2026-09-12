@@ -1598,7 +1598,7 @@ describe("UnitRow cold-resume chip", () => {
     await vi.waitFor(() => expect(chip.hasAttribute("aria-description")).toBe(true));
     const explanation = chip.getAttribute("aria-description") ?? "";
     expect(explanation).toContain("180k");
-    expect(explanation).toContain(m.coldresume_why());
+    expect(explanation).toContain(m.tooltip_cold_choice_body());
     expect(chip.hasAttribute("title")).toBe(false);
   });
 
@@ -1613,9 +1613,11 @@ describe("UnitRow cold-resume chip", () => {
     chip.dispatchEvent(new PointerEvent("pointerenter", { pointerType: "mouse", bubbles: true }));
     await vi.waitFor(() => {
       const tip = document.querySelector(".status-tip:popover-open");
-      expect(tip?.textContent).toContain(m.coldresume_why());
-      // `wide` is not decoration: at the default 260px the two-sentence body stacks into an
-      // unreadable column, which is exactly the state this chip was in before.
+      expect(tip?.textContent).toContain(m.tooltip_cold_choice_body());
+      // Structured content keeps the cost and the choices independently scannable.
+      expect(tip?.querySelector(".tooltip-title")?.textContent).toBe(m.tooltip_cold_title());
+      expect(tip?.querySelectorAll(".tooltip-section")).toHaveLength(2);
+      expect(tip?.querySelector(".tooltip-label")?.textContent).toContain("1.6");
       expect(tip?.classList.contains("status-tip-wide")).toBe(true);
     });
 

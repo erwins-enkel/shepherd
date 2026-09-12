@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
   import GlossaryText from "$lib/components/GlossaryText.svelte";
-  import { statusTip } from "$lib/actions/statusTip.svelte";
+  import { statusTip } from "$lib/tooltips/statusTip.svelte";
   import { m } from "$lib/paraglide/messages";
 
   // Instrument-style switch row (26×14 track, 10×10 knob) for the Guards group.

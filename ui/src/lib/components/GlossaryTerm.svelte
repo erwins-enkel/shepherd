@@ -1,4 +1,5 @@
 <script lang="ts">
+  import TooltipBody from "$lib/tooltips/TooltipBody.svelte";
   import { getContext } from "svelte";
   import { anchorPopover } from "$lib/floating-anchor";
   import { m } from "$lib/paraglide/messages";
@@ -28,6 +29,8 @@
   const bodyText = $derived(
     term ? (m as unknown as Record<string, () => string>)[term.bodyKey]() : "",
   );
+
+  const explanation = $derived(term?.explanation?.());
 
   let open = $state(false);
   // Presentation is chosen per interaction at open time: mouse-hover → "floating"
@@ -75,7 +78,8 @@
         close();
       }
     }
-    function onScrollOrResize() {
+    function onScrollOrResize(e: Event) {
+      if (e.type === "scroll" && popEl?.contains(e.target as Node)) return;
       close();
     }
 
@@ -200,7 +204,7 @@
        .gt-body is a <span> (display:block), never a <p>: the inline branch lives inside
        a heading <p>, where a nested <p> start tag would auto-close the heading. -->
   {#snippet defBody()}
-    <span class="gt-body">{bodyText}</span>
+    <span class="gt-body"><TooltipBody content={explanation ?? bodyText} /></span>
     {#if term?.kind === "external" && wikiHref}
       <!-- eslint-disable svelte/no-navigation-without-resolve -- external Wikipedia URL -->
       <a class="gt-wiki" href={wikiHref} target="_blank" rel="noopener noreferrer"
@@ -220,6 +224,7 @@
       id={tooltipId}
       bind:this={popEl}
       class="gloss-tooltip"
+      class:gloss-explanation={!!explanation}
       role={term.kind === "external" ? "dialog" : "tooltip"}
       aria-label={term.kind === "external" ? label : undefined}
       popover="manual"
@@ -236,6 +241,7 @@
       id={tooltipId}
       bind:this={inlineEl}
       class="gloss-inline"
+      class:gloss-explanation={!!explanation}
       role={term.kind === "external" ? "dialog" : "note"}
       aria-label={term.kind === "external" ? label : undefined}
     >
@@ -306,25 +312,22 @@
 
   .gt-body {
     display: block;
-    margin: 0;
-    /* Matches sibling InfoTip: an explanation is secondary text, not body copy —
-       and the smaller rung fits the whole definition in fewer lines. */
-    font-size: var(--fs-meta);
-    font-weight: 400;
-    line-height: 1.5;
-    /* Read as prose even when the marker sits on a section heading, whose
-       uppercase / letter-spacing would otherwise be inherited into the definition
-       (DOM inheritance reaches the popover's top-layer body too).
-       `white-space` belongs in that reset for the same reason, and skipping it bit:
-       markers inside a nowrap host (the new-task Guards toggles' `.label`) inherited
-       nowrap, so the definition ran on one line far past the fixed-width popover —
-       which the UA's `[popover] { overflow: auto }` turned into a horizontal
-       scrollbar, i.e. one clipped line above a full-width bar. `overflow-wrap`
-       keeps that bar away for a token too long to fit the column at all. */
     white-space: normal;
-    overflow-wrap: break-word;
-    text-transform: none;
-    letter-spacing: normal;
+    font-size: var(--fs-meta);
+    line-height: 1.55;
+  }
+
+  [popover].gloss-explanation {
+    width: min(380px, 90vw);
+    max-height: min(70vh, 540px);
+    padding: 12px 14px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .gloss-inline.gloss-explanation {
+    width: min(380px, 100%);
+    padding: 12px 14px;
   }
 
   .gt-wiki {
@@ -339,7 +342,7 @@
 
   /* Touch disclosure: in-flow block beneath the term (pushes content down rather than
      floating over it). Mirrors the floating tooltip's surface; the prose typography
-     resets live on .gt-body so both presentations read as body text even when the
+     resets live in TooltipBody so both presentations read as body text even when the
      marker sits on a section heading. */
   .gloss-inline {
     display: flex;

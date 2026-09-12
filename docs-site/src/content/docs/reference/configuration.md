@@ -157,13 +157,19 @@ Two independent stages, each an env override on a code default:
   sub-agent roster fan-out. Observe-only: it never mutates session status. **Default on** as of the
   post-soak flip; set `SHEPHERD_HOOKS_INGEST=0` to disable (the kill switch).
 - **Signals** (`SHEPHERD_HOOKS_SIGNALS`) — feed matched hook events into the poller's signal
-  pipeline. Still **opt-in**; meaningful only when ingest is also on (with ingest off, no events
-  arrive to feed, and Shepherd warns and treats signals as off).
+  pipeline. **Default on** as of the post-soak flip; meaningful only when ingest is also on (with
+  ingest off, no events arrive to feed, and Shepherd warns and treats signals as off).
+
+  The signals kill switch is deliberately **partial**: on herdr **0.7.5 and newer**, agents are
+  spawned through external registration, so herdr never advances `agent_status` itself and the
+  `Notification` hook is the *only* source of awaiting-input edges. Signals are therefore forced on
+  there regardless of the flag, and `SHEPHERD_HOOKS_SIGNALS=0` takes effect only on herdr **0.7.4
+  and older** — where herdr's own detection plus the transcript probe still cover the gap.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `SHEPHERD_HOOKS_INGEST` | `1` (on) | Inject observe-only lifecycle hooks into spawned agents (ingest route, ring buffer/logging, sub-agent roster fan-out). No status consumption; additive + fail-open. Set `0` to disable entirely (kill switch) |
-| `SHEPHERD_HOOKS_SIGNALS` | `0` (off) | Set `1` to forward matched hook events into the poller's signal pipeline. Meaningful only when `SHEPHERD_HOOKS_INGEST` is also on |
+| `SHEPHERD_HOOKS_SIGNALS` | `1` (on) | Forward matched hook events into the poller's signal pipeline. Meaningful only when `SHEPHERD_HOOKS_INGEST` is also on. Set `0` to disable — but see the caveat above: that only bites on herdr ≤ 0.7.4 |
 
 ## Tool guard (PreToolUse deny)
 

@@ -156,9 +156,14 @@ export interface LivenessWiring {
  *  herdr can't advance `agent_status` for us. On the 0.7.5 external-registration path it never does
  *  (sandboxed agents it can't observe; trusted agents defer to the client-pinned state), AND claude's
  *  real session id is unknown there (#1889) so the transcript-based activity probe can't run either.
- *  The hooks are then the ONLY source of working/idle/blocked edges Shepherd pushes back. ≤0.7.4
- *  keeps herdr's own detection + the transcript probe, so this stays behind the opt-in `hooksSignals`
- *  flag there (no behaviour change). */
+ *  The hooks are then the ONLY source of working/idle/blocked edges Shepherd pushes back, so the
+ *  `hooksSignals` kill switch cannot turn them off there. ≤0.7.4 keeps herdr's own detection + the
+ *  transcript probe, so the flag still governs on those versions — it just defaults ON now (#740).
+ *
+ *  THE single gate for every push-signal consumer in this file. Read it rather than
+ *  `config.hooksSignals` directly: the raw flag misses the ≥0.7.5 override, which used to leave the
+ *  feature half-on (events ingested, but the #713 stop-window measurement and the probe's
+ *  redundant-emit suppression silently inert). */
 function hookSignalsActive(): boolean {
   return config.hooksSignals || herdrUsesExternalRegistrationSpawn();
 }
@@ -378,7 +383,7 @@ export class StatusPoller {
    *  herdr-blocked, `clearBlock`, reap, prune). */
   private lastSuppressVisible = new Map<string, string>();
 
-  /** Phase-1/2 push-hook state (issue #704), all gated by `config.hooksSignals`.
+  /** Phase-1/2 push-hook state (issue #704), all gated by `hookSignalsActive()`.
    *  Fed via HookIngest.onSignal → ingestActivity / ingestNotification / ingestSessionStart;
    *  the poller stays the single owner of per-session signal dedup + the working-while-blocked
    *  state machine, so push events funnel through `emitActivity`/`maybeClassify`
@@ -402,7 +407,7 @@ export class StatusPoller {
    *  `pendingStopAt` holds a Stop seen before its done-flip (stop-wins side); `pendingDoneAt`
    *  holds a done-flip seen before its Stop (herdr-wins side). Whichever arrives first parks
    *  here; the other side pairs it (emitting the signed window) or it expires unpaired. Both
-   *  are reaped on gone/prune and inert when `config.hooksSignals` is off. */
+   *  are reaped on gone/prune and inert when `hookSignalsActive()` is false. */
   private pendingStopAt = new Map<string, number>();
   private pendingDoneAt = new Map<string, number>();
 
@@ -722,7 +727,7 @@ export class StatusPoller {
       this.pruneInactive(activeIds);
       // Observe-only Stop↔herdr-done window (issue #713): expire markers that never paired
       // within the horizon (no-stop emit / silent stale-Stop drop). Gated; no behaviour change.
-      if (config.hooksSignals) this.expireStaleStopWindows();
+      if (hookSignalsActive()) this.expireStaleStopWindows();
       // Refresh the probe snapshot cell (darwin; no-op on Linux/fakes) before the
       // sweeps read it. Driven here — not from a sweep — because the liveness sweep
       // has no wiring of its own and the preview sweep short-circuits when no
@@ -1087,7 +1092,7 @@ export class StatusPoller {
    * a usage-limit halt. Extracted to keep reconcileAgent under the complexity gate.
    */
   private handleDoneEdge(s: Session): void {
-    if (config.hooksSignals) this.measureStopWindow(s.id, this.now());
+    if (hookSignalsActive()) this.measureStopWindow(s.id, this.now());
     this.detectUsageHalt(s);
   }
 
@@ -1315,7 +1320,7 @@ export class StatusPoller {
    * REAL tool summary (vs. the interim heartbeat's `summary:null`), so it beats the
    * interim emit on the freshness guard below.
    *
-   * No-op when `config.hooksSignals` is off (the sink is never wired in that case, so
+   * No-op when `hookSignalsActive()` is false (the sink is never wired in that case, so
    * this is belt-and-suspenders for direct callers/tests). Records `lastHookActivityAt`
    * so `maybeProbe` knows the push path is fresh.
    */
@@ -1363,7 +1368,7 @@ export class StatusPoller {
    * and an awaiting-input edge we haven't confirmed simply stays on the existing
    * `herdr-blocked → classifyBlocked` fallback (no regression).
    *
-   * No-op when `config.hooksSignals` is off.
+   * No-op when `hookSignalsActive()` is false.
    */
   ingestNotification(id: string, type: string): void {
     if (!hookSignalsActive()) return;
@@ -1378,7 +1383,7 @@ export class StatusPoller {
    * reusing the sweep's own map + flip-dedup so push + poll never double-emit. Boot
    * liveness is monotonic (true until exit), so this cannot oscillate with the sweep,
    * which will agree (the process is alive — the hook fired from inside it). No-op when
-   * `config.hooksSignals` is off.
+   * `hookSignalsActive()` is false.
    * (Stop/SessionEnd consumption is deferred to #713 — observe-only this phase.)
    */
   ingestSessionStart(id: string): void {
@@ -1401,10 +1406,10 @@ export class StatusPoller {
    * is silently overwritten — Stop is a per-turn edge, only the latest matters).
    *
    * Pure measurement: never touches status, routing, or any block/activity state — polling
-   * stays authoritative. No-op when `config.hooksSignals` is off.
+   * stays authoritative. No-op when `hookSignalsActive()` is false.
    */
   ingestStopMeasure(id: string, stopAt: number): void {
-    if (!config.hooksSignals) return;
+    if (!hookSignalsActive()) return;
     const d = this.pendingDoneAt.get(id);
     if (d !== undefined && stopAt - d <= STOP_WINDOW_MAX_MS) {
       // herdr-wins: the done-flip preceded this Stop (window ≤ 0).
@@ -1443,7 +1448,7 @@ export class StatusPoller {
    * Per-tick expiry sweep for the observe-only Stop↔done markers (issue #713). A pending
    * done that aged past the horizon never paired with a Stop → emit `null` (no-stop) and
    * drop it. A pending Stop that aged out is dropped SILENTLY — a Stop with no done-flip is
-   * not a done-flip and emits nothing. Inert when `config.hooksSignals` is off (callers gate).
+   * not a done-flip and emits nothing. Inert when `hookSignalsActive()` is false (callers gate).
    */
   private expireStaleStopWindows(): void {
     const now = this.now();
@@ -1558,11 +1563,11 @@ export class StatusPoller {
    * enough that the transcript/interim probe should defer its redundant activity emit?
    * Fresh = a push landed within `2 × probeCheckMs` (two probe cadences — long enough
    * to bridge the gap between two pushes, short enough that a gone-quiet push hands the
-   * active path back to the probe). Always false when `hooksSignals` is off (the map
+   * active path back to the probe). Always false when `hookSignalsActive()` is false (the map
    * stays empty), so the probe emits exactly as today — the fallback.
    */
   private hookActivityFresh(id: string, now: number): boolean {
-    if (!config.hooksSignals) return false;
+    if (!hookSignalsActive()) return false;
     const at = this.lastHookActivityAt.get(id);
     return at !== undefined && now - at < 2 * this.probeCheckMs;
   }

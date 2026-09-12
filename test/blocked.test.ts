@@ -5,6 +5,7 @@ import {
   classifyBlocked,
   hasActiveSpinner,
   hasQueuedInput,
+  looksLikeDemotedMenu,
   quotaBlockReason,
 } from "../src/blocked";
 import type { Session, PlanGate } from "../src/types";
@@ -326,4 +327,59 @@ test("bare-token-run false-positive guard: '1.tsx'/'2.tsx' does not classify as 
 test("fullscreen-spinner.txt hasActiveSpinner returns true", () => {
   const text = readFileSync(join(fixturesDir, "fullscreen-spinner.txt"), "utf8");
   expect(hasActiveSpinner(text)).toBe(true);
+});
+
+// ── #2281: a menu needs dialog chrome, not just a numbered run ────────────────
+
+test("prose numbered run with no dialog chrome is not a menu (real captured pane)", () => {
+  const pane = readFileSync(join(fixturesDir, "prose-menu.txt"), "utf8");
+  const r = classifyBlocked(pane);
+  expect(r.shape).toBe("awaiting-input");
+  expect(r.options).toEqual([]);
+  // …and the pane is a working agent, so the poller suppresses it rather than raising a card
+  expect(hasActiveSpinner(pane)).toBe(true);
+});
+
+test("the at-rest input box's own caret does not qualify a numbered run", () => {
+  // "❯" sits on its own prompt line in every at-rest pane; only a caret ON an option counts.
+  const tail = ["1. First finding", "2. Second finding", "❯"].join("\n");
+  expect(classifyBlocked(tail).shape).toBe("awaiting-input");
+});
+
+test("either chrome half alone admits a menu", () => {
+  const caretOnly = ["Do you want to proceed?", "❯ 1. Yes", "  2. No"].join("\n");
+  expect(classifyBlocked(caretOnly).shape).toBe("menu");
+
+  // AskUserQuestion frames can scroll their caret out of the tail window but keep the footer
+  const footerOnly = [
+    "Which ruleset should I apply?",
+    " 1. strict",
+    " 2. recommended",
+    "Enter to select · ↑/↓ to navigate · Esc to cancel",
+  ].join("\n");
+  const r = classifyBlocked(footerOnly);
+  expect(r.shape).toBe("menu");
+  expect(r.options.map((o) => o.send)).toEqual(["1", "2"]);
+});
+
+test("chrome alone does not forge a menu without a numbered run", () => {
+  expect(classifyBlocked("Paste the code here\nEsc to cancel").shape).toBe("awaiting-input");
+});
+
+test("a mid-paint dialog upgrades to a menu on the next read", () => {
+  const painting = [" 1. Yes", " 2. No"].join("\n");
+  expect(classifyBlocked(painting).shape).toBe("awaiting-input");
+  expect(classifyBlocked(`${painting}\nEnter to confirm · Esc to cancel`).shape).toBe("menu");
+});
+
+test("looksLikeDemotedMenu marks exactly what classifyBlocked demoted", () => {
+  const demoted = classifyBlocked(readFileSync(join(fixturesDir, "prose-menu.txt"), "utf8"));
+  expect(looksLikeDemotedMenu(demoted.tail)).toBe(true);
+
+  const real = classifyBlocked(readFileSync(join(fixturesDir, "classic-menu.txt"), "utf8"));
+  expect(real.shape).toBe("menu");
+  expect(looksLikeDemotedMenu(real.tail)).toBe(false);
+
+  // no numbered run at all → nothing was demoted
+  expect(looksLikeDemotedMenu(classifyBlocked("What should I name it?\n❯").tail)).toBe(false);
 });

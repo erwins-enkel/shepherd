@@ -620,6 +620,28 @@ test("still emits a menu block when queued input is also on screen", async () =>
   expect(h.working).toHaveLength(0); // a genuine dialog never enters the display state
 });
 
+/** Issue #2281: the real captured pane of a session that was WORKING — a recap written as a
+ *  numbered list, the at-rest footer, and a live spinner. Before the chrome gate this shaped as
+ *  a `menu` whose clickable options typed `1`/`2` into a mid-turn PTY. */
+const PROSE_MENU_TAIL = readFileSync(
+  join(import.meta.dir, "fixtures/fullscreen/prose-menu.txt"),
+  "utf8",
+);
+
+test("a prose-forged menu on a working pane suppresses instead of raising a card (#2281)", async () => {
+  const h = spinnerHarness(PROSE_MENU_TAIL);
+  await h.poller.tick();
+  expect(h.blocks).toHaveLength(0);
+  expect(h.working).toEqual([{ id: h.id, working: true }]);
+
+  // the spinner keeps ticking, so the buffer advances and suppression holds
+  h.setText(PROSE_MENU_TAIL.replace("(35s ·", "(41s ·"));
+  h.advance(3001);
+  await h.poller.tick();
+  expect(h.blocks).toHaveLength(0);
+  expect(h.events).toEqual(["working:true"]);
+});
+
 test("re-arms once the queued-input hint leaves the pane", async () => {
   const h = spinnerHarness(QUEUED_TAIL);
   await h.poller.tick();

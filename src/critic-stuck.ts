@@ -13,9 +13,16 @@ import { classifyBlocked, type BlockShape } from "./blocked";
  *   2. the pane buffer is BYTE-IDENTICAL to the previous read.
  *
  * (2) is what makes this safe to act on. Critics routinely PRINT numbered lists — findings are
- * written as "1. … 2. …" — and `classifyBlocked` cannot tell a rendered menu from prose that looks
- * like one. The discriminator is motion, not shape: a working agent's buffer advances between
- * reads, a wedged one's cannot. Same freshness idea the poller applies to spinner suppression.
+ * written as "1. … 2. …" — so motion, not shape, is the discriminator: a working agent's buffer
+ * advances between reads, a wedged one's cannot. Same freshness idea the poller applies to
+ * spinner suppression.
+ *
+ * Since #2281 shape carries weight too: `classifyBlocked` reports `menu` only for a numbered run
+ * that also renders dialog chrome (a caret on an option, or the key-hint footer), which a printed
+ * findings list never has. Real prompts — the captured upsell pane in this module's tests
+ * included — all carry it, so every wedge this exists for is still caught; what it no longer
+ * reports is a critic frozen on its own findings render, previously an accepted false positive
+ * costing an early finalize.
  *
  * `awaiting-input` / `stall` / `quota` shapes are deliberately NOT treated as stuck: they are
  * either legitimately mid-turn or already have their own dedicated handling, and killing a run on

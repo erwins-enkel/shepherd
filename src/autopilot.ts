@@ -1,6 +1,6 @@
 import type { SessionStore } from "./store";
 import type { Session, AutopilotVerdict, ReviewVerdict } from "./types";
-import type { BlockReason } from "./blocked";
+import { looksLikeDemotedMenu, type BlockReason } from "./blocked";
 import type { GitState } from "./forge/types";
 import type { SessionStateChange } from "./session-snapshot";
 import { effectiveAutopilot } from "./effective-autopilot";
@@ -454,7 +454,15 @@ export class AutopilotService {
 
   /** session:block handler. Only steerable shapes are eligible; menu/stall surface as-is.
    *  The auth set/clear runs BEFORE the shape guard so a null block from the poller's clearBlock
-   *  actually reaches `authPending.delete` (a null would otherwise early-return). */
+   *  actually reaches `authPending.delete` (a null would otherwise early-return).
+   *
+   *  A DEMOTED menu is surfaced too (#2281): `classifyBlocked` shapes a numbered run without
+   *  dialog chrome as `awaiting-input`, which is steerable — and steering types text + Enter into
+   *  the pane. If that buffer is a real dialog caught mid-paint, the Enter answers its highlighted
+   *  option; `consider()` cannot catch it either, since it never re-reads the shape after its
+   *  (multi-second) classify spawn. So these stand down and wait for a human, exactly as the
+   *  `menu` shape they came from does. Only this edge is guarded — `onDone` classifies a tail
+   *  regardless of shape and is unchanged. */
   async onBlock(id: string, block: BlockReason | null): Promise<void> {
     if (block?.authUrl) {
       this.authPending.add(id); // human-only MCP OAuth prompt — stand down, never steer it
@@ -462,6 +470,9 @@ export class AutopilotService {
     }
     this.authPending.delete(id); // null / non-auth block ⇒ no OAuth pending
     if (!block || !STEERABLE_SHAPES.has(block.shape)) return;
+    // Only the demoted shape: a genuine `yes-no` carries its own evidence, and its tail may hold
+    // an unrelated numbered list.
+    if (block.shape === "awaiting-input" && looksLikeDemotedMenu(block.tail)) return;
     await this.consider(id, block.tail, `${AUTOPILOT_LABEL}${id}`);
   }
 

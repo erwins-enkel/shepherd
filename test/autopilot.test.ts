@@ -391,6 +391,38 @@ test("menu shape never classifies or steers (always surfaces as-is)", async () =
   expect(h.state().autopilotStepCount).toBe(0);
 });
 
+test("a demoted menu never classifies or steers (#2281)", async () => {
+  // classifyBlocked shapes a chrome-less numbered run as awaiting-input, which IS steerable —
+  // but steering types text + Enter, and a real dialog caught mid-paint would take that Enter as
+  // an answer to its highlighted option. Stands down and surfaces, like the menu it came from.
+  const h = harness({ session: sess(), verdict: { kind: "gate", summary: "x" } });
+  await h.svc.onBlock(
+    "s1",
+    block(["Both parts are covered:", "1. Backlog counter — …", "2. Circuit-breaker — …"]),
+  );
+  expect(h.classified).toHaveLength(0);
+  expect(h.events.length).toBe(0);
+  expect(h.state().autopilotStepCount).toBe(0);
+});
+
+test("an awaiting-input tail with no numbered run still steers (#2281 guard is narrow)", async () => {
+  const h = harness({ session: sess(), verdict: { kind: "gate", summary: "asking to start" } });
+  await h.svc.onBlock("s1", block(["Shall I start?", "❯"]));
+  expect(h.classified).toHaveLength(1);
+  expect(h.events).toContainEqual({ steer: PROCEED_STEER });
+});
+
+test("a yes-no prompt is still steered when its tail holds a numbered list (#2281)", async () => {
+  const h = harness({ session: sess(), verdict: { kind: "gate", summary: "asking to start" } });
+  await h.svc.onBlock("s1", {
+    shape: "yes-no",
+    options: [],
+    tail: ["1. rebase onto main", "2. re-run CI", "Continue? (y/n)"],
+  });
+  expect(h.classified).toHaveLength(1);
+  expect(h.events).toContainEqual({ steer: PROCEED_STEER });
+});
+
 test("disabled (repo off, no override) → no-op", async () => {
   const h = harness({
     session: sess({ autopilotEnabled: null }),

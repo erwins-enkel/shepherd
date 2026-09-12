@@ -219,7 +219,13 @@ inodes on demand and report a total of zero. There the sweep and the row both fa
 to counting how many leftover top-level entries have accumulated in each temp root, warning at
 `SHEPHERD_TMP_ENTRY_LIMIT` and erroring at ten times it. Both signals are evaluated **per root**,
 and the row reports the worst — a quiet `/tmp` can sit beside a disk-backed agent temp root that is
-filling steadily, and one reading would hide the other.
+filling steadily, and one reading would hide the other. "Worst" is ranked by the state each root
+would report, not by a raw ratio, because the two signals reach their warning band at different
+fractions of their error band.
+
+The row measures only the roots a sweep can **reclaim**. Session-scratch roots are excluded: their
+contents belong to live sessions, are reclaimed at archival instead, and cannot be removed by the
+row's Fix — so counting them would pin the row at a warning that no action clears.
 This matters because inode exhaustion is easy to misdiagnose — writes start failing with
 "no space" errors while `df -h` still shows the volume mostly empty. `df -i` is what shows
 the real cause.

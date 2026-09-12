@@ -481,9 +481,12 @@ ceiling protects against any tmpfs consumer.
 
 Settings → Diagnose carries a **Temp filesystem inodes** row so this is visible before it bites:
 inode exhaustion otherwise reads as "disk full" while `df -h` shows plenty free (`df -i` is what
-shows it). It reports the worst of the roots the sweep visits, in whichever signal that root
-supports — so it cannot report a healthy tmpfs while the disk root agents actually write to is
-filling. On the percentage signal the row warns at `SHEPHERD_TMP_INODE_PCT` — the same threshold
+shows it). It reports the worst root in whichever signal that root supports — ranked by the state
+each would classify to, so a healthy tmpfs can never mask a disk root that is already past the band
+where the sweeper acts. It measures the roots a sweep can actually **reclaim** (the bare agent temp
+root and the tmpfs), deliberately not the session-scratch roots: those hold live sessions' scratch,
+which is reclaimed at archival and which the row's Fix cannot touch, so counting them would raise an
+alarm no action could clear. On the percentage signal the row warns at `SHEPHERD_TMP_INODE_PCT` — the same threshold
 that gates the sweep, so raising the knob moves both — and errors at 95%; on the entry-count signal
 it warns at `SHEPHERD_TMP_ENTRY_LIMIT` and errors at ten times that, with copy of its own (a
 filesystem with no inode table cannot meaningfully have "plenty of inodes free"). The row's

@@ -456,9 +456,10 @@ const DEFAULT_TMP_INODE_PCT = 80;
  * symmetric: 80% of a tmpfs means the host is near death, whereas crossing this only enables the
  * EXISTING age-gated sweep of ALLOWLISTED names and arms reclaimers that are independently walled
  * by their own refusals. Measured while diagnosing #1862: a healthy bare agent tmp root sits in the
- * tens, a normal `claude-$uid` session-scratch root at ~2,900 — which is excluded from removal by
- * name, so sitting permanently above this line changes nothing there — and the leaking root at
- * 119,640.
+ * tens, a normal `claude-$uid` session-scratch root at ~2,900, and the leaking root at 119,640. The
+ * scratch root sitting permanently above this line is inert: its contents match nothing the sweep
+ * will remove, and `diagnosedRoots()` keeps it out of the Diagnose row so it cannot raise an alarm
+ * no Fix could clear.
  */
 const DEFAULT_TMP_ENTRY_LIMIT = 1000;
 
@@ -514,15 +515,71 @@ function sweptRoots(): string[] {
   return resolveSweepRoots(claudeTmpRoot(), `claude-${uid()}`, false);
 }
 
-/** How bad a signal is, normalised against its own error band, for picking the worst root.
- *  `uninspectable` sorts below every real reading so one unreadable root cannot mask a real one. */
-function severityRatio(
+/**
+ * The roots the `tmp_inodes` Diagnose row measures. Deliberately NOT `sweptRoots()`.
+ *
+ * A swept root also includes the SESSION-SCRATCH roots — `claudeTmpRoot()` and its nested
+ * `claude-$uid`, plus the legacy pair. Their contents are the dashified per-worktree dirs, which
+ * match nothing in `REGENERABLE_CACHE` by design (a live long-running session leaves a stale
+ * top-level mtime, so a coarse age check would delete a running agent's scratch) and are reclaimed
+ * only by `removeWorktreeScratch` at archival. Counting them would put the row permanently at
+ * `warning` on a healthy host — 2,902 such dirs were measured on one while diagnosing #1862 — with
+ * a Fix button whose forced sweep cannot remove a single one of them. An alarm no action can clear
+ * is exactly the trap `tmpInodeBands` already documents for the percentage knob.
+ *
+ * So the row watches the two roots whose pressure a sweep CAN act on:
+ *  - the bare disk `agentTmpDir()` — where the regenerable tool caches accumulate; and
+ *  - `tmpdir()` — the tmpfs, still real for sandboxed spawns and tools that hardcode `/tmp`.
+ *
+ * Nothing is lost by dropping the nested roots: each sits on the same filesystem as a root that
+ * remains, so the inode percentage is identical, and `tmpdir()` is always present (unlike
+ * `<tmpdir>/claude-$uid` on a freshly booted host — the #1876 rationale, restored).
+ *
+ * Session-scratch accumulation is a real signal, but it needs a different remedy and different
+ * copy than this row offers; it is tracked separately in #2304.
+ */
+function diagnosedRoots(): string[] {
+  const agentTmp = agentTmpDir();
+  return [...new Set([...(agentTmp ? [agentTmp] : []), tmpdir()])];
+}
+
+/** Bands for both signals, as `classifyTmpInodes` applies them. */
+interface PressureBands {
+  warnPct: number;
+  errorPct: number;
+  warnEntries: number;
+  errorEntries: number;
+}
+
+/**
+ * How bad a signal is, for picking the worst root. Ordered by the STATE it will classify to
+ * FIRST, and only then by how deep into that state it sits.
+ *
+ * Ranking on a normalised ratio alone is wrong ACROSS KINDS, because warn sits at a different
+ * fraction of error in each: 80/95 = 0.84 for the percentage, 1000/10000 = 0.10 for the entry
+ * count. A quiet `/tmp` at 70% (`ok`, ratio 0.74) would then outrank an agent tmp root at 1,500
+ * entries (`warning`, ratio 0.15) and the row would report the healthy one — the exact masking
+ * this function exists to prevent. `ratio` is kept only to break ties WITHIN a state, where both
+ * candidates classify the same and it is a meaningful "how far in".
+ *
+ * `uninspectable` sorts below every real reading, so one unreadable root cannot mask a real one.
+ */
+function severityOf(
   signal: TmpPressureSignal,
-  bands: { errorPct: number; errorEntries: number },
-): number {
-  if (signal.kind === "inode-pct") return signal.usePct / bands.errorPct;
-  if (signal.kind === "entry-count") return signal.entries / bands.errorEntries;
-  return -1;
+  bands: PressureBands,
+): { rank: number; ratio: number } {
+  const [value, warn, error] =
+    signal.kind === "inode-pct"
+      ? [signal.usePct, bands.warnPct, bands.errorPct]
+      : signal.kind === "entry-count"
+        ? [signal.entries, bands.warnEntries, bands.errorEntries]
+        : [null, 0, 0];
+
+  if (value === null) return { rank: -1, ratio: 0 };
+  // Thresholds are `>=`, matching `classifyTmpInodes` exactly: a rank that disagreed with the
+  // classifier would reintroduce the same masking by a different route.
+  const rank = value >= error ? 2 : value >= warn ? 1 : 0;
+  return { rank, ratio: value / error };
 }
 
 /**
@@ -542,14 +599,16 @@ export async function readTmpPressureSignal(opts?: {
   roots?: string[];
   ops?: Partial<PressureOps>;
 }): Promise<TmpPressureSignal> {
-  const roots = opts?.roots ?? sweptRoots();
+  const roots = opts?.roots ?? diagnosedRoots();
   const bands = { ...tmpInodeBands(), ...tmpEntryBands() };
   let worst: TmpPressureSignal = { kind: "uninspectable", why: "no-root-readable" };
+  let worstRank = -Infinity;
   let worstRatio = -Infinity;
   for (const root of roots) {
     const { signal } = await tmpPressure(root, { ops: opts?.ops });
-    const ratio = severityRatio(signal, bands);
-    if (ratio > worstRatio) {
+    const { rank, ratio } = severityOf(signal, bands);
+    if (rank > worstRank || (rank === worstRank && ratio > worstRatio)) {
+      worstRank = rank;
       worstRatio = ratio;
       worst = signal;
     }

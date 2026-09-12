@@ -601,6 +601,76 @@ describe("readTmpPressureSignal", () => {
     expect((signal as { usePct: number }).usePct).toBeCloseTo(99.9);
   });
 
+  // The critic's finding on #2305: ranking by a ratio normalised to each signal's ERROR band
+  // alone does not preserve STATE order across kinds, because warn sits at a different fraction
+  // of error in each (80/95 = 0.84 vs 1000/10000 = 0.10).
+  test("a warning root outranks a healthier root of the other kind", async () => {
+    // /tmp at 70% classifies `ok` but scored 0.737; the agent root at 1,500 entries classifies
+    // `warning` — 50% past the band where the sweeper acts — but scored only 0.15. The row used
+    // to report the healthy one.
+    const signal = await readTmpPressureSignal({
+      roots: ["/tmpfs", "/agent"],
+      ops: {
+        statfs: (async (p: string) =>
+          p === "/tmpfs" ? { files: 1000, ffree: 300 } : { files: 0, ffree: 0 }) as never,
+        opendir: opendirOf(1500),
+      },
+    });
+    expect(signal).toMatchObject({ kind: "entry-count", entries: 1500 });
+  });
+
+  test("within one state, the deeper reading still wins", async () => {
+    const signal = await readTmpPressureSignal({
+      roots: ["/a", "/b"],
+      ops: {
+        statfs: (async (p: string) =>
+          p === "/a" ? { files: 1000, ffree: 150 } : { files: 1000, ffree: 120 }) as never,
+        opendir: opendirOf(0),
+      },
+    });
+    // Both are `warning` (85% and 88%); the ratio breaks the tie toward the worse one.
+    expect((signal as { usePct: number }).usePct).toBeCloseTo(88);
+  });
+
+  test("an ok root of one kind still wins over an ok root of the other", async () => {
+    // Nothing is in a warning state, so the tie-break ratio decides and the row reports a real
+    // reading rather than falling through to uninspectable.
+    const signal = await readTmpPressureSignal({
+      roots: ["/tmpfs", "/agent"],
+      ops: {
+        statfs: (async (p: string) =>
+          p === "/tmpfs" ? { files: 1000, ffree: 300 } : { files: 0, ffree: 0 }) as never,
+        opendir: opendirOf(10),
+      },
+    });
+    expect(signal).toMatchObject({ kind: "inode-pct" });
+  });
+
+  // The row's Fix runs a forced sweep, which only removes ALLOWLISTED names. Session scratch
+  // matches none of them by design, so counting those roots would pin the row at `warning` on a
+  // healthy host with a button that cannot clear it.
+  test("the default roots exclude session scratch, whose contents no Fix can reclaim", async () => {
+    setEnv("SHEPHERD_AGENT_TMPDIR", "/fake/agent");
+    setEnv("SHEPHERD_TMP_SWEEP_DIR", "/fake/agent/claude-9999");
+
+    const seen: string[] = [];
+    await readTmpPressureSignal({
+      ops: {
+        statfs: (async (p: string) => {
+          seen.push(p);
+          return { files: 1000, ffree: 900 };
+        }) as never,
+        opendir: opendirOf(0),
+      },
+    });
+
+    expect(seen).toContain("/fake/agent");
+    expect(seen).toContain(tmpdir());
+    // The scratch roots the SWEEP visits must not be measured by the ROW.
+    expect(seen).not.toContain("/fake/agent/claude-9999");
+    expect(seen.some((p) => p.includes("claude-9999"))).toBe(false);
+  });
+
   test("an unreadable root never masks a measurable one", async () => {
     const signal = await readTmpPressureSignal({
       roots: ["/gone", "/real"],

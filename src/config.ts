@@ -788,6 +788,13 @@ export const config = {
   // on, with this flag as the kill switch. UI-configurable + persisted; set
   // SHEPHERD_SESSION_HOUSEKEEPING=0 to seed it off on a fresh DB.
   sessionHousekeepingEnabled: process.env.SHEPHERD_SESSION_HOUSEKEEPING !== "0",
+  // Auto-archive of SETTLED sessions (#1156): an hourly sweep archives a session that stopped
+  // working SESSION_AUTO_ARCHIVE_DAYS ago and has nothing left in flight — no live claude in its
+  // worktree, no open PR, no unsynced work. Unlike the housekeeping sweep above (which only prunes
+  // already-archived history) this one tears a live row down, so every gate fails closed; see
+  // src/session-archiver.ts. Default on, with this flag as the kill switch. UI-less: override it
+  // with SHEPHERD_SESSION_AUTO_ARCHIVE=0 or a `sessionAutoArchiveEnabled` row in the settings table.
+  sessionAutoArchiveEnabled: process.env.SHEPHERD_SESSION_AUTO_ARCHIVE !== "0",
   // Auto-revive stranded default-account sessions after a herdr daemon restart (#1630). Opt-in,
   // default OFF: only the default-account complement is auto-revived (account panes already recover
   // via reDriveAccount). UI-configurable + persisted; set SHEPHERD_AUTO_REVIVE=1 to seed it on.
@@ -1042,6 +1049,13 @@ if (effortBelowHigh(config.criticEffort)) {
 export const SESSION_RETENTION_DAYS = 30;
 export const SESSION_RETENTION_MS = SESSION_RETENTION_DAYS * 24 * 60 * 60 * 1000;
 export const SESSION_RETENTION_KEEP = 250;
+
+// Auto-archive grace (#1156): how long a session must have been settled — stopped working, per
+// `sessions.settledAt` — before the sweep may archive it. Deliberately generous: it is past any
+// realistic review window, while the field report's backlog was 19 days deep, so it still clears
+// the real cases. The kill switch is config.sessionAutoArchiveEnabled.
+const SESSION_AUTO_ARCHIVE_DAYS = 7; // module-local; only the _MS form is consumed
+export const SESSION_AUTO_ARCHIVE_MS = SESSION_AUTO_ARCHIVE_DAYS * 24 * 60 * 60 * 1000;
 
 // "Done" lens window: sessions archived within this window are surfaced in the
 // in-app Done lens (read-only recap review). Independent of SESSION_RETENTION_*.

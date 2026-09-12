@@ -3,7 +3,7 @@ export type SessionStatus = "running" | "idle" | "blocked" | "done" | "archived"
  *  `husk` = the agent process is gone but not a daemon-restart strand (e.g. a normal Codex
  *  between-turns exit); `stranded` = a herdr-restored husk needing revival. */
 export type LivenessState = "alive" | "husk" | "stranded";
-export type SessionArchiveReason = "operator" | "merged" | "drain" | "relaunch";
+export type SessionArchiveReason = "operator" | "merged" | "drain" | "relaunch" | "stale";
 export const AGENT_PROVIDERS = ["claude", "codex"] as const;
 export type AgentProvider = (typeof AGENT_PROVIDERS)[number];
 
@@ -1124,6 +1124,11 @@ export interface Session {
    *  marker flips on the client's own clock tick instead of waiting for the next poll. */
   coldResumeAt?: number | null;
   resumeCostUnits?: number | null;
+  /** Epoch ms the session last stopped working (entered `idle`/`done` from a working status),
+   *  carried across settled→settled transitions and cleared when it resumes. The clock the
+   *  server's auto-archive sweep ages against; mirrored here like the other server-observed
+   *  fields above so the two session shapes stay identical over the wire. */
+  settledAt?: number | null;
   status: SessionStatus;
   /** Operator-set "parked / done" flag, orthogonal to status. Default false. */
   readyToMerge: boolean;

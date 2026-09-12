@@ -140,6 +140,7 @@ SQLite `settings` table), and the env var below seeds a fresh DB.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
+| `SHEPHERD_SESSION_AUTO_ARCHIVE` | `1` (on) | Set `0` to disable the hourly auto-archive of **settled** sessions. When on, a session that stopped working 7 days ago is archived — but only with positive evidence that it is finished: no claude process left in its worktree, no open PR, no uncommitted or unpushed work, and nothing in flight (merge train, plan-gate round, reviewer spawn). Every gate fails closed, so anything unreadable spares the session. It archives at most 5 per sweep (each one generates a recap) and keeps the task's issue claim, so the drain never re-queues what it swept ([#1156](https://github.com/erwins-enkel/shepherd/issues/1156)) |
 | `SHEPHERD_AUTO_REVIVE` | `0` (off) | Set `1` to seed autonomous auto-revive on for a fresh DB. When on, only the **default-account** complement of stranded sessions is auto-revived (account panes keep recovering via `reDriveAccount`); each revive is bounded so a persistently-refused session gives up rather than re-firing every sweep. Operators can still trigger a manual **revive all** from the HUD regardless of this flag ([#1630](https://github.com/erwins-enkel/shepherd/issues/1630)) |
 
 ## Push-based hook ingestion
@@ -392,4 +393,6 @@ changes whether the membrane is applied. See [Operating Shepherd](/operating/).
 
 A few runtime toggles live in the SQLite `settings` table
 (`~/.shepherd/shepherd.db`) rather than env — e.g. `branchPruneEnabled` (hourly
-cleanup of merged local `shepherd/*` branches, on by default).
+cleanup of merged local `shepherd/*` branches, on by default) and
+`sessionAutoArchiveEnabled` (the persisted override for
+`SHEPHERD_SESSION_AUTO_ARCHIVE` above; a stored `"0"`/`"1"` wins over the env seed).

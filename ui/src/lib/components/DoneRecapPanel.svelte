@@ -107,6 +107,7 @@
     if (reason === "merged") return m.done_recap_archive_merged();
     if (reason === "drain") return m.done_recap_archive_drain();
     if (reason === "relaunch") return m.done_recap_archive_relaunch();
+    if (reason === "stale") return m.done_recap_archive_stale();
     return m.done_recap_archive_unknown();
   }
 

@@ -4021,5 +4021,7 @@
   "feat_structured_tooltips_title": "Tooltips auf einen Blick",
   "feat_structured_tooltips_body": "Die Erklärungen zu kaltem Cache, Plan-Gate und Autopilot haben jetzt Überschriften und kurze Abschnitte. So findest du Kosten, Freigaben und Optionen schneller.",
   "feat_plan_gate_identity_title": "Plan Gate: sichere automatische Freigabe für beide CLIs",
-  "feat_plan_gate_identity_body": "Mit Autopilot können Claude und Codex genehmigte Pläne in isolierten Worktrees und geteilten Checkouts freigeben. Shepherd setzt für Review-Rückmeldungen und Ausführung genau die Unterhaltung der Aufgabe fort. Bei fehlender oder mehrdeutiger Zuordnung bleibt sie für dich angehalten; ältere Codex-Aufgaben ohne Startzuordnung brauchen einen Neustart."
+  "feat_plan_gate_identity_body": "Mit Autopilot können Claude und Codex genehmigte Pläne in isolierten Worktrees und geteilten Checkouts freigeben. Shepherd setzt für Review-Rückmeldungen und Ausführung genau die Unterhaltung der Aufgabe fort. Bei fehlender oder mehrdeutiger Zuordnung bleibt sie für dich angehalten; ältere Codex-Aufgaben ohne Startzuordnung brauchen einen Neustart.",
+  "feat_mobile_compose_repo_title": "Repo mit dem Daumen wechseln",
+  "feat_mobile_compose_repo_body": "Auf dem Smartphone öffnet ein Repo-Chip neben Weiter die Repo-Auswahl während des Schreibens. Suche oder wähle ein zuletzt verwendetes Repo und schreibe direkt weiter. Kopfzeile und Chip zeigen beide die aktuelle Auswahl."
 }

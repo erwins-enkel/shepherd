@@ -4737,3 +4737,142 @@ test.skipIf(!onLinux1944)(
     expect(prompt).toContain("Run the security pass on every auth change."); // the policy did not
   },
 );
+
+// ── #1790: terminal-PR cleanup ────────────────────────────────────────────────
+// A merged/closed PR must retire the PR Critic for that session: cancel a run that is
+// starting or in flight, drop an obsolete REVIEW ERR, and stop a retained findings
+// verdict from reading as live operator-blocking rework.
+
+const MERGED: GitState = {
+  kind: "github",
+  state: "merged",
+  number: 7,
+  checks: "success",
+  headSha: "abc",
+  deployConfigured: false,
+};
+const CLOSED: GitState = { ...MERGED, state: "closed" };
+
+for (const [label, terminal] of [
+  ["merged", MERGED],
+  ["closed", CLOSED],
+] as const) {
+  test(`consider(${label}) cancels a non-finalizing in-flight critic`, async () => {
+    const events: { id: string; reviewing: boolean }[] = [];
+    const {
+      deps: d,
+      stopped,
+      removed,
+      completedSpawns,
+    } = makeDeps({
+      onReviewing: (id: string, reviewing: boolean) => events.push({ id, reviewing }),
+    });
+    const svc = new ReviewService(d as any);
+    await svc.consider(session(), OPEN_GREEN);
+    expect(svc.reviewingIds()).toEqual(["s1"]);
+
+    await svc.consider(session(), terminal);
+
+    expect(svc.reviewingIds()).toEqual([]); // no critic left in flight
+    expect(events.at(-1)).toEqual({ id: "s1", reviewing: false }); // badge cleared immediately
+    expect(stopped).toContain("rt"); // its terminal was reaped
+    expect(removed).toContain("/review-wt"); // its disposable worktree was removed
+    expect(completedSpawns).toHaveLength(1); // token cost still attributed
+  });
+
+  test(`consider(${label}) drops an obsolete error verdict and emits null`, async () => {
+    const changes: (ReviewVerdict | null)[] = [];
+    const { deps: d, reviews } = makeDeps({
+      onChange: (_id: string, v: ReviewVerdict | null) => changes.push(v),
+    });
+    reviews["s1"] = priorReview({ decision: "error", findings: [], errorRound: 2 });
+    const svc = new ReviewService(d as any);
+
+    await svc.consider(session(), terminal);
+
+    expect(reviews["s1"]).toBeUndefined();
+    expect(changes).toEqual([null]);
+  });
+}
+
+test("consider(merged) clears the starting claim so a suspended begin() never spawns", async () => {
+  // Same seam as the forget() race: park begin() inside getIssue, observe the merge while it
+  // is suspended, then let the fetch resolve. begin() must re-check `starting` and abort.
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  const {
+    deps: d,
+    started,
+    removed,
+  } = makeDeps({
+    resolveForge: () =>
+      ({
+        prStatus: async () => OPEN_GREEN,
+        getIssue: async () => {
+          await gate;
+          return { body: "ISSUE_BODY_XYZ" };
+        },
+      }) as any,
+  });
+  const svc = new ReviewService(d as any);
+  const p = svc.consider(session({ issueNumber: 99 }), OPEN_GREEN); // suspends mid getIssue
+  await Promise.resolve(); // let begin() advance into the parked await
+  await svc.consider(session({ issueNumber: 99 }), MERGED); // PR merges mid-spawn
+  release();
+  await p;
+
+  expect(started).toHaveLength(0); // no critic emerged from the suspended startup
+  expect(removed).toEqual(["/review-wt"]); // the probe worktree was reaped
+  expect(svc.reviewingIds()).toEqual([]);
+});
+
+test("consider(merged) leaves an already-finalizing run to its owner (no double reap)", async () => {
+  const { deps: d, stopped, removed } = makeDeps({});
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  // Simulate tick() having claimed the run: it owns the teardown and the verdict.
+  (svc as any).inflight.get("s1")!.finalizing = true;
+
+  await svc.consider(session(), MERGED);
+
+  expect(svc.reviewingIds()).toEqual(["s1"]); // still owned by the finalizer
+  expect(stopped).toEqual([]);
+  expect(removed).toEqual([]);
+});
+
+test("consider(merged) dismisses a retained changes_requested verdict, preserving its history", async () => {
+  const changes: (ReviewVerdict | null)[] = [];
+  const { deps: d, reviews } = makeDeps({
+    onChange: (_id: string, v: ReviewVerdict | null) => changes.push(v),
+  });
+  reviews["s1"] = priorReview({ addressRound: 3, streakReviews: 2 });
+  const svc = new ReviewService(d as any);
+
+  await svc.consider(session(), MERGED);
+
+  const after = reviews["s1"]!;
+  expect(after.dismissed).toBe(true); // no longer live rework → no Tier-1 critic-rework hold
+  expect(after.decision).toBe("changes_requested"); // history preserved
+  expect(after.findings).toEqual(["fix the race in worker.ts"]);
+  expect(after.addressRound).toBe(3);
+  expect(after.streakReviews).toBe(2);
+  expect(changes).toHaveLength(1);
+
+  await svc.consider(session(), MERGED); // idempotent: a second observation is silent
+  expect(changes).toHaveLength(1);
+});
+
+test("consider(merged) leaves a commented verdict untouched", async () => {
+  const changes: (ReviewVerdict | null)[] = [];
+  const { deps: d, reviews } = makeDeps({
+    onChange: (_id: string, v: ReviewVerdict | null) => changes.push(v),
+  });
+  reviews["s1"] = priorReview({ decision: "commented", findings: [] });
+  const svc = new ReviewService(d as any);
+
+  await svc.consider(session(), MERGED);
+
+  expect(reviews["s1"]?.decision).toBe("commented");
+  expect(reviews["s1"]?.dismissed).toBeUndefined();
+  expect(changes).toEqual([]);
+});

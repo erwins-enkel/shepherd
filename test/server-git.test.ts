@@ -659,6 +659,51 @@ test("GET git trusts a merged PR when session is merge-train-flagged, cold cache
   expect(body.number).toBe(344);
 });
 
+test("GET git trusts a cold-cache merged PR opened after the session (signal c)", async () => {
+  // #1790 parity: the on-demand route must reach the same verdict as the background poller
+  // for a PR the poller never observed as open, whose final head the stale worktree can't see.
+  const f = fakeForge({
+    prStatus: async () => ({
+      state: "merged",
+      number: 5,
+      headSha: "remote-final-head",
+      checks: "success",
+      createdAt: 2_000,
+      deployConfigured: true,
+    }),
+  });
+  const deps = Object.assign(makeDeps(f, { ...SESSION, createdAt: 1_000 }), {
+    ownsPr: () => false,
+  });
+  const app = makeApp(deps);
+  const res = await app.fetch(new Request("http://localhost/api/sessions/s1/git"));
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.state).toBe("merged");
+  expect(body.number).toBe(5);
+});
+
+test("GET git still drops a terminal PR opened BEFORE the session (reused branch name)", async () => {
+  const f = fakeForge({
+    prStatus: async () => ({
+      state: "merged",
+      number: 344,
+      headSha: "deadbee",
+      checks: "success",
+      createdAt: 999,
+      deployConfigured: true,
+    }),
+  });
+  const deps = Object.assign(makeDeps(f, { ...SESSION, createdAt: 1_000 }), {
+    ownsPr: () => false,
+  });
+  const app = makeApp(deps);
+  const res = await app.fetch(new Request("http://localhost/api/sessions/s1/git"));
+  const body = await res.json();
+  expect(body.state).toBe("none");
+  expect(body.number).toBeUndefined();
+});
+
 test("GET /api/activity returns the activity snapshot", async () => {
   const snap = { s1: { lastActivityTs: 123, summary: "edited poller.ts" } };
   const deps = Object.assign(makeDeps(fakeForge()), { activity: { snapshot: () => snap } });

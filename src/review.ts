@@ -324,7 +324,10 @@ export interface ReviewServiceDeps extends MembraneSeams {
   >;
   worktree: Pick<WorktreeMgr, "createDetached" | "remove" | "gitCommonDir">;
   resolveForge: (repoPath: string) => GitForge | null;
-  onChange: (id: string, verdict: ReviewVerdict) => void;
+  /** Broadcast a session's review state. `null` means the verdict row was DELETED (#1790: an
+   *  error verdict that a merged/closed PR made moot) — the client store treats a null review as
+   *  a removal, and every server-side `session:review` consumer re-reads the store from the id. */
+  onChange: (id: string, verdict: ReviewVerdict | null) => void;
   /** #1944: broadcast a spawn-notice change. Separate from `onChange`, which carries a verdict — a
    *  clamp or refusal must never synthesize one (it would wipe in-flight findings). */
   onSpawnNotice?: (id: string) => void;
@@ -414,6 +417,13 @@ export interface ReviewServiceDeps extends MembraneSeams {
   houseRulesBudgetChars?: () => number;
 }
 
+/** A PR no critic can act on any more: it merged, or it was closed unmerged. Either way the
+ *  code under review either landed or never will, so there is no review left to run and no
+ *  merge left to gate (#1790). */
+export function isTerminalPr(git: GitState): boolean {
+  return git.state === "merged" || git.state === "closed";
+}
+
 export class ReviewService {
   private inflight = new Map<string, InFlight>();
   // Session ids whose critic is mid-spawn but not yet in `inflight`. begin() awaits a
@@ -492,6 +502,13 @@ export class ReviewService {
     opts?: { force?: boolean },
   ): Promise<ReviewOutcome> {
     const force = opts?.force === true;
+    // #1790: a TERMINAL PR retires the critic instead of considering one. Routed BEFORE the
+    // open/green gate below so every consider() caller — the `session:git` subscription, the boot
+    // reconcile, forceReview — reaches the cleanup by this one path.
+    if (isTerminalPr(git)) {
+      await this.settleTerminalPr(session);
+      return "skipped";
+    }
     if (
       git.state !== "open" ||
       !checksCleared(git.checks, git.noCi ?? false) ||
@@ -554,6 +571,78 @@ export class ReviewService {
     // this return, so the non-force churn-skip "error" is irrelevant there; it's authoritative
     // only for the manual/force path.
     return this.inflight.has(session.id) ? "started" : "error";
+  }
+
+  /**
+   * Retire the PR critic for a session whose PR reached a TERMINAL state (merged or closed).
+   *
+   * `consider()` used to just return "skipped" off the open/green gate, which left three things
+   * behind: a critic mid-async-startup that still spawned after the merge, a running critic that
+   * kept burning tokens on code that had already landed (the reported `REVIEWING 8/8`), and a
+   * persisted verdict that only made sense while the PR was open (the reported sticky
+   * `REVIEW ERR 5/5`). Nothing else cleared them before `forget()` at archive, so a finished task
+   * could not read as complete.
+   *
+   * Idempotent — the boot reconcile and the live `session:git` edge both land here, and a second
+   * observation emits nothing.
+   */
+  async settleTerminalPr(session: Session): Promise<void> {
+    // 1. Clear a mid-spawn claim. A begin() suspended in one of its gh fetches re-checks
+    //    `starting` on resume and aborts at that tombstone — the same mechanism forget() uses —
+    //    so a merge observed mid-startup can't still be followed by a fresh critic.
+    this.starting.delete(session.id);
+
+    // 2. Cancel a live run, but NEVER steal one tick() already owns (`finalizing`): that single
+    //    owner completes its own teardown, and finalizeErrorVerdict() already suppresses the
+    //    now-moot error verdict it would otherwise persist. The claim + drop below are
+    //    SYNCHRONOUS, before any await, so an overlapping tick() cannot pass its own `finalizing`
+    //    guard and double-reap the same run.
+    const f = this.inflight.get(session.id);
+    if (f && !f.finalizing) {
+      f.finalizing = true;
+      this.dropInflight(session.id, f);
+      this.deps.onReviewing?.(session.id, false);
+      // Best-effort cost attribution — mirrors finalize(). It also closes the reviewer_spawns row;
+      // if the transcript is unreadable the row stays open and the boot sweep closes it with NULL
+      // totals, exactly as it does for a finalize that raced the same way.
+      await captureUsage(
+        (wt, id) => this.readUsage(wt, id, f.reviewerProvider, f.reviewerModel),
+        this.deps.store.completeReviewerSpawn.bind(this.deps.store),
+        f.worktreePath,
+        f.criticSessionId,
+        this.now(),
+        f.sessionId,
+      );
+      await reapRun(this.deps.herdr, this.deps.worktree, f.terminalId, f.worktreePath);
+    }
+
+    this.retireTerminalVerdict(session.id);
+  }
+
+  /** Verdict hygiene for a terminal PR.
+   *  - `error`: MOOT — there is no merge left to gate and no head left to re-review — so the row
+   *    is DELETED and `onChange` carries `null` (the client store reads a null review as a
+   *    removal). Without this a REVIEW ERR persisted while the PR was still open sticks until
+   *    archive; finalizeErrorVerdict() only covers a verdict written after the PR went terminal.
+   *  - `changes_requested`: real history, so it is KEPT — but marked `dismissed`, because
+   *    `criticReworkActive` (attention-core) has no PR-state gate and `verdictStale` only demotes
+   *    a verdict while the PR is OPEN. Left alone it would pin a merged session at Tier 1 forever.
+   *    `dismissed` is the established lever for exactly this (it also stops attachReviewPush
+   *    re-notifying); the decision, body, findings and round counters survive untouched.
+   *  - clean / `commented`: nothing to retire.
+   *  Both mutating branches are guarded, so re-entry is silent. */
+  private retireTerminalVerdict(sessionId: string): void {
+    const prior = this.deps.store.getReview(sessionId);
+    if (!prior) return;
+    if (prior.decision === "error") {
+      this.deps.store.dropReview(sessionId);
+      this.deps.onChange(sessionId, null);
+      return;
+    }
+    if (prior.decision !== "changes_requested" || prior.dismissed) return;
+    const dismissed = { ...prior, dismissed: true };
+    this.deps.store.putReview(dismissed);
+    this.deps.onChange(sessionId, dismissed);
   }
 
   /** Is the head we are about to review already superseded on the forge? One `prStatus` round-trip,

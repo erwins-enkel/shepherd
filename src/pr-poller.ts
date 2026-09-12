@@ -60,7 +60,20 @@ export function guardStaleTerminal(
  *                 still holds for the cold-cache rebase/force-push case (same PR number, head moved).
  *                 A different-number terminal (reused branch name) falls through to the prev-cache check
  *                 rather than being blanket-trusted; or
- *   - `prev` already cached THIS PR (same number, non-"none" state) — a PR we already owned.
+ *   - `prev` already cached THIS PR (same number, non-"none" state) — a PR we already owned. Since
+ *                 #1929 that cache is PERSISTED (`session_git_cache`) and rehydrated at construction,
+ *                 so this identity survives a restart; or
+ *   - (#1790) the PR was opened no earlier than the session itself. This is the fallback for the one
+ *                 case the two proofs above can't cover: a PR the poller never observed as `open`
+ *                 (created and merged between sweeps, or a cache row that never landed), whose remote
+ *                 head a reviewer/rebase push has since moved out of the session's stale worktree —
+ *                 `ownsPr` then says false and a genuine merge would be downgraded to "none" forever.
+ *                 It is deliberately LAST and deliberately weakest: a cached identity, when there is
+ *                 one, is authoritative in BOTH directions (a different number rejects outright rather
+ *                 than falling through to here), and a payload without `createdAt` (an older cache
+ *                 entry, a forge that doesn't supply it) gets no proof at all. The reused-branch-name
+ *                 collision this whole function guards against is a PR created BEFORE the session, so
+ *                 it still fails here and still runs the ownership check.
  *  When this returns false, `raw` may be a reused-branch-name collision and must run through
  *  `guardStaleTerminal`. */
 export function trustsTerminal(
@@ -68,10 +81,15 @@ export function trustsTerminal(
   raw: GitState,
   marked: boolean,
   markedNumber: number | null,
+  /** `session.createdAt` (epoch ms), for the temporal fallback. Omitted ⇒ that proof is skipped. */
+  sessionCreatedAt: number | null = null,
 ): boolean {
   if (raw.state !== "merged" && raw.state !== "closed") return false; // guardStaleTerminal is a no-op off-terminal anyway
   if (marked && markedNumber != null && raw.number === markedNumber) return true;
-  return !!prev && prev.number != null && prev.number === raw.number && prev.state !== "none";
+  // A cached identity settles it either way — never fall through to the weaker temporal proof
+  // when we already know which PR this session owns.
+  if (prev && prev.number != null && prev.state !== "none") return prev.number === raw.number;
+  return sessionCreatedAt != null && raw.createdAt != null && raw.createdAt >= sessionCreatedAt;
 }
 
 /** Order-independent equality for two optional string lists. `runningChecks` is
@@ -415,7 +433,9 @@ export class PrPoller implements PrCache {
     const marked = s.mergingSince != null;
     const markedNumber = s.mergingPrNumber ?? null;
     const guard = (raw: GitState): GitState =>
-      trustsTerminal(prev, raw, marked, markedNumber) ? raw : this.rejectStaleTerminal(s, raw);
+      trustsTerminal(prev, raw, marked, markedNumber, s.createdAt)
+        ? raw
+        : this.rejectStaleTerminal(s, raw);
 
     const raw = batch
       ? await this.statusFromBatch(s, forge, batch, prev, marked, recheckNone, guard)

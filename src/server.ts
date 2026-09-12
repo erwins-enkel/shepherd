@@ -4420,9 +4420,9 @@ async function dispatchForgeAction(
 
 // Compute the session's live, trust-guarded PR GitState — the same trust logic the
 // background poller uses (trustsTerminal): keep a genuinely-merged/closed PR when the
-// session is merge-train-flagged or the cache already owned this PR, else drop a
-// reused-branch-name collision to "none". Shared by the GET /git route and the
-// POST /review-pr route so both observe the identical value.
+// session is merge-train-flagged, the cache already owned this PR, or the PR was opened
+// no earlier than the session; else drop a reused-branch-name collision to "none". Shared
+// by the GET /git route and the POST /review-pr route so both observe the identical value.
 async function resolveGitState(
   forge: GitForge,
   session: Session,
@@ -4436,7 +4436,7 @@ async function resolveGitState(
   // merged/closed PR when merge-train-flagged or already-owned, else drop a reused
   // branch-name collision to "none".
   const guard = (raw: GitState): GitState =>
-    trustsTerminal(prev, raw, marked, markedNumber)
+    trustsTerminal(prev, raw, marked, markedNumber, session.createdAt)
       ? raw
       : guardStaleTerminal(raw, (headSha) => deps.ownsPr?.(session, headSha) ?? null);
 

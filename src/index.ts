@@ -92,7 +92,7 @@ import {
 } from "./push";
 import { ReadyNotifier } from "./ready-notify";
 import { Presence } from "./presence";
-import { ReviewService } from "./review";
+import { ReviewService, isTerminalPr } from "./review";
 import { StandalonePrCriticService } from "./standalone-critic";
 import { createIssueLogger } from "./issue-log";
 import { PlanGateService, shouldConsiderOnSettle, shouldCheckPlanDrift } from "./plan-gate";
@@ -1748,6 +1748,25 @@ const reKickReapedReview = (id: string) => {
     prPoller.pollSession(id);
   }
 };
+
+// #1790: the critic-retirement path hangs off consider(), which is driven by `session:git` — and
+// the poller emits that only when the state CHANGES. A PR that reached merged/closed while the
+// server was down (or before this retirement existed) is already in the poller's PERSISTED cache
+// at boot, so it will never emit again and its stranded REVIEW ERR / running critic would sit
+// there until archive. Walk the hydrated cache once so those settle at startup. In-memory only —
+// no `gh` calls — and per-session guarded so one bad row can't abort the reconcile chain.
+const settleTerminalPrs = async () => {
+  for (const s of store.list({ activeOnly: true })) {
+    const git = prPoller.get(s.id);
+    if (!git || !isTerminalPr(git)) continue;
+    try {
+      await reviewService.settleTerminalPr(s);
+    } catch (err) {
+      console.warn(`[review] terminal-PR settle failed for ${s.id}:`, err);
+    }
+  }
+};
+
 deferredStarts.push(() => {
   void planGate
     .adoptOrphans()
@@ -1756,6 +1775,9 @@ deferredStarts.push(() => {
     .then((ids) => {
       for (const id of ids) reKickReapedReview(id);
     })
+    // After the orphan reap (so a row it just closed isn't settled twice) and before the disk
+    // sweep (so anything this cancels is gone from `inflight` when protectedPaths is computed).
+    .then(() => settleTerminalPrs())
     .then(() => sweepStaleReviewWorktrees())
     // Last: fill token totals for completed Codex reviewer rows whose rollout hadn't resolved at
     // finalize (they book NULL = unknown). Runs after the reaps so rows just closed by them are

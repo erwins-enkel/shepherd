@@ -1168,7 +1168,155 @@ test("trustsTerminal: prev open #7, raw merged #8 (mismatched number), unmarked 
   ).toBe(false);
 });
 
+test("trustsTerminal: signal (c) no prev, terminal created at/after the session → true", () => {
+  expect(
+    trustsTerminal(
+      undefined,
+      {
+        kind: "github",
+        state: "merged",
+        number: 7,
+        checks: "success",
+        createdAt: 2_000,
+        deployConfigured: false,
+      },
+      false,
+      null,
+      2_000,
+    ),
+  ).toBe(true);
+});
+
+test("trustsTerminal: signal (c) no prev, terminal created BEFORE the session → false", () => {
+  expect(
+    trustsTerminal(
+      undefined,
+      {
+        kind: "github",
+        state: "merged",
+        number: 7,
+        checks: "success",
+        createdAt: 1_999,
+        deployConfigured: false,
+      },
+      false,
+      null,
+      2_000,
+    ),
+  ).toBe(false);
+});
+
+test("trustsTerminal: signal (c) needs a forge createdAt — absent → false (fail-closed)", () => {
+  expect(
+    trustsTerminal(
+      undefined,
+      { kind: "github", state: "merged", number: 7, checks: "success", deployConfigured: false },
+      false,
+      null,
+      2_000,
+    ),
+  ).toBe(false);
+});
+
+test("trustsTerminal: a cached identity outranks the temporal proof (mismatched number → false)", () => {
+  expect(
+    trustsTerminal(
+      { kind: "github", state: "open", number: 7, checks: "pending", deployConfigured: false },
+      {
+        kind: "github",
+        state: "merged",
+        number: 8,
+        checks: "success",
+        createdAt: 9_000,
+        deployConfigured: false,
+      },
+      false,
+      null,
+      2_000,
+    ),
+  ).toBe(false);
+});
+
+test("trustsTerminal: prev with no identity (state none) still reaches the temporal proof", () => {
+  expect(
+    trustsTerminal(
+      { kind: "github", state: "none", checks: "none", deployConfigured: false },
+      {
+        kind: "github",
+        state: "merged",
+        number: 7,
+        checks: "success",
+        createdAt: 9_000,
+        deployConfigured: false,
+      },
+      false,
+      null,
+      2_000,
+    ),
+  ).toBe(true);
+});
+
 // ── refresh integration tests ─────────────────────────────────────────────────
+test("refresh signal (c): cold cache + ownsPr=false, PR opened after the session → merged", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSession);
+  const emitted: { state: string; number?: number }[] = [];
+  const poller = new PrPoller(
+    store,
+    () =>
+      forgeReturning(() => ({
+        state: "merged",
+        number: 7,
+        checks: "success",
+        headSha: "remote-final-head",
+        // The session was just created, so a PR opened "now" is at/after it.
+        createdAt: store.get(s.id)!.createdAt,
+        deployConfigured: false,
+      })),
+    (_id, git) => emitted.push({ state: git.state, number: git.number }),
+    120_000,
+    1000,
+    () => null,
+    15_000,
+    () => false, // ownsPr always false — the stale worktree can't reach the final head
+  );
+
+  await poller.tick();
+  expect(emitted).toHaveLength(1);
+  expect(emitted[0]!.state).toBe("merged"); // NOT "none"
+  expect(poller.snapshot()[s.id]?.state).toBe("merged");
+  expect(store.listSessionGitCache()[s.id]).toMatchObject({ state: "merged", number: 7 });
+});
+
+test("refresh signal (c): a terminal PR created BEFORE the session is still rejected to none", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSession);
+  const emitted: { state: string; number?: number }[] = [];
+  const poller = new PrPoller(
+    store,
+    () =>
+      forgeReturning(() => ({
+        state: "merged",
+        number: 7,
+        checks: "success",
+        headSha: "old-head",
+        // A prior PR that merely reused this branch name.
+        createdAt: store.get(s.id)!.createdAt - 1,
+        deployConfigured: false,
+      })),
+    (_id, git) => emitted.push({ state: git.state, number: git.number }),
+    120_000,
+    1000,
+    () => null,
+    15_000,
+    () => false,
+  );
+
+  await poller.tick();
+  expect(emitted).toHaveLength(1);
+  expect(emitted[0]!.state).toBe("none");
+  expect(poller.snapshot()[s.id]?.state).toBe("none");
+});
 
 test("refresh signal (b): prior-owned PR transitions to merged, bypasses guard when ownsPr=false", async () => {
   const store = new SessionStore(":memory:");

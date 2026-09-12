@@ -54,7 +54,7 @@ test("renameBranch throws when the target name already exists", () => {
 });
 
 // ── SessionService.rename ──────────────────────────────────────────────────
-function makeService(store: SessionStore, wtLog: string[]) {
+function makeService(store: SessionStore, wtLog: string[], relabels: string[] = []) {
   return new SessionService({
     store,
     namer: () => "x",
@@ -63,6 +63,11 @@ function makeService(store: SessionStore, wtLog: string[]) {
       start: async () => ({}) as never,
       stop: async () => {},
       send: () => {},
+      // Records synchronously (before its first await), so a caller that fires this
+      // off without awaiting still leaves a deterministic trace for assertions.
+      relabel: async (terminalId: string, label: string) => {
+        relabels.push(`${terminalId}->${label}`);
+      },
     } as never,
     worktree: {
       create: () => ({}) as never,
@@ -119,6 +124,42 @@ test("service.rename returns null for an unknown id", () => {
   expect(svc.rename("nope", "x", { renameLocalBranch: true })).toBeNull();
 });
 
+// The herdr tab carries the session's name in the operator's terminal. Every rename path
+// must move it, or the tab keeps advertising a name the session no longer has.
+test("service.rename relabels the herdr agent/tab with the new slug", () => {
+  const store = new SessionStore(":memory:");
+  const relabels: string[] = [];
+  const svc = makeService(store, [], relabels);
+  const s = seed(store);
+
+  svc.rename(s.id, "new-name", { renameLocalBranch: true });
+
+  expect(relabels).toEqual(["a1->new-name"]);
+});
+
+// #1927's display-only rename is exactly the case that must still relabel: the branch is
+// pinned by an open PR, so the tab label is the ONLY thing left that can follow the name.
+test("service.rename relabels even when the branch is pinned (display-only)", () => {
+  const store = new SessionStore(":memory:");
+  const relabels: string[] = [];
+  const svc = makeService(store, [], relabels);
+  const s = seed(store);
+
+  svc.rename(s.id, "new-name", { renameLocalBranch: false });
+
+  expect(relabels).toEqual(["a1->new-name"]);
+});
+
+test("service.rename does not relabel for an unknown id", () => {
+  const store = new SessionStore(":memory:");
+  const relabels: string[] = [];
+  const svc = makeService(store, [], relabels);
+
+  expect(svc.rename("nope", "x", { renameLocalBranch: true })).toBeNull();
+
+  expect(relabels).toEqual([]);
+});
+
 // ── POST /api/sessions/:id/rename ──────────────────────────────────────────
 function fakeForge(over: Partial<GitForge> = {}): GitForge {
   const base: GitForge = {
@@ -143,6 +184,7 @@ type RenameDeps = AppDeps & {
   emitted: { event: string; data: unknown }[];
   cacheWrites: string[];
   _wtLog: string[];
+  _relabels: string[];
   _prStatusCalls: string[];
   _sessionId: string;
 };
@@ -156,6 +198,7 @@ function makeDeps(opts: {
   const store = new SessionStore(":memory:");
   const s = seed(store);
   const wtLog: string[] = [];
+  const relabels: string[] = [];
   const service = new SessionService({
     store,
     namer: () => "x",
@@ -164,6 +207,9 @@ function makeDeps(opts: {
       start: async () => ({}) as never,
       stop: async () => {},
       send: () => {},
+      relabel: async (terminalId: string, label: string) => {
+        relabels.push(`${terminalId}->${label}`);
+      },
     } as never,
     worktree: {
       create: () => ({}) as never,
@@ -205,7 +251,14 @@ function makeDeps(opts: {
       resolveForge: () => forge,
       prCache,
     } as AppDeps,
-    { emitted, cacheWrites, _wtLog: wtLog, _prStatusCalls: prStatusCalls, _sessionId: s.id },
+    {
+      emitted,
+      cacheWrites,
+      _wtLog: wtLog,
+      _relabels: relabels,
+      _prStatusCalls: prStatusCalls,
+      _sessionId: s.id,
+    },
   );
 }
 
@@ -325,6 +378,39 @@ test("cache miss + forge lookup throws → assume open, branch kept", async () =
   expect(res.status).toBe(200);
   expect((await res.json()).branchRenamed).toBe(false);
   expect(deps._wtLog).toEqual([]);
+});
+
+// The operator-facing path from the bug report: rename from the UI must move the tab label
+// too, whether or not the branch is allowed to follow.
+test("POST rename relabels the herdr tab (branch moved)", async () => {
+  const deps = makeDeps({ forge: null });
+  const app = makeApp(deps);
+  const res = await app.fetch(
+    post(`/api/sessions/${deps._sessionId}/rename`, { name: "Fresh Name" }),
+  );
+  expect(res.status).toBe(200);
+  expect(deps._relabels).toEqual(["a1->fresh-name"]); // the slug, not the raw input
+});
+
+test("POST rename relabels the herdr tab (open PR pins the branch)", async () => {
+  const deps = makeDeps({ forge: fakeForge({ kind: "github" }), cached: "open" });
+  const app = makeApp(deps);
+  const res = await app.fetch(post(`/api/sessions/${deps._sessionId}/rename`, { name: "renamed" }));
+  expect(res.status).toBe(200);
+  expect((await res.json()).branchRenamed).toBe(false);
+  expect(deps._wtLog).toEqual([]); // branch still pinned
+  expect(deps._relabels).toEqual(["a1->renamed"]); // …but the tab follows the name
+});
+
+test("a no-op rename (same slug) does not touch the herdr tab", async () => {
+  const deps = makeDeps({ forge: null });
+  const app = makeApp(deps);
+  const res = await app.fetch(
+    post(`/api/sessions/${deps._sessionId}/rename`, { name: "old name" }),
+  );
+  expect(res.status).toBe(200);
+  expect((await res.json()).branchRenamed).toBe(false);
+  expect(deps._relabels).toEqual([]);
 });
 
 test("cached none confirmed by the forge → local branch renamed", async () => {

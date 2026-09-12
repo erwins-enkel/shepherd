@@ -4542,7 +4542,7 @@ export class SessionService {
   /**
    * Ask the LLM namer to comprehend the prompt, then — if it yields a *different*,
    * collision-resolved slug — rename the session (display name always; local branch
-   * only while nothing has been committed yet) and relabel the herdr agent/tab.
+   * only while nothing has been committed yet); `rename` relabels the herdr agent/tab.
    * Emits session:renamed so every client patches the row live.
    */
   private async refineNameInBackground(session: Session, herd?: string): Promise<void> {
@@ -4580,7 +4580,6 @@ export class SessionService {
       updated = this.rename(session.id, slug, { renameLocalBranch: false });
     }
     if (!updated) return;
-    await this.deps.herdr.relabel(session.herdrAgentId, slug);
     this.deps.events?.emit("session:renamed", {
       id: updated.id,
       name: updated.name,
@@ -4892,15 +4891,6 @@ export class SessionService {
     return this.finishResumeSpawn(s, outcome);
   }
 
-  /**
-   * Rename a session to `slug`. Always updates the display name. When
-   * `renameLocalBranch` is set (and the session is isolated with a branch), also
-   * runs `git branch -m shepherd/<old> shepherd/<slug>` and re-points `branch`.
-   * The caller (server) decides `renameLocalBranch`: false for a display-only rename
-   * when an open PR can't be retargeted, true otherwise. Returns the updated session,
-   * or null for an unknown id. The git rename may throw on a name clash — the caller
-   * pre-checks and surfaces that as a conflict.
-   */
   /** Whether a local branch already exists — the server's pre-flight check before a rename. */
   branchExists(repoPath: string, branch: string): boolean {
     return this.deps.worktree.branchExists(repoPath, branch);
@@ -4940,6 +4930,20 @@ export class SessionService {
     return live;
   }
 
+  /**
+   * Rename a session to `slug`. Always updates the display name AND relabels the herdr
+   * agent/tab, so the operator's terminal never keeps advertising a name the session no
+   * longer has. When `renameLocalBranch` is set (and the session is isolated with a
+   * branch), also runs `git branch -m shepherd/<old> shepherd/<slug>` and re-points
+   * `branch`. The caller (server) decides `renameLocalBranch`: false for a display-only
+   * rename when an open PR can't be retargeted, true otherwise. Returns the updated
+   * session, or null for an unknown id. The git rename may throw on a name clash — the
+   * caller pre-checks and surfaces that as a conflict.
+   *
+   * The relabel lives here rather than in each caller because it is the one step every
+   * rename path owes the operator: a display-only rename (#1927) pins the branch, which
+   * leaves the tab label as the ONLY thing left that can follow the new name.
+   */
   rename(id: string, slug: string, opts: { renameLocalBranch: boolean }): Session | null {
     const s = this.deps.store.get(id);
     if (!s) return null;
@@ -4949,6 +4953,17 @@ export class SessionService {
       this.deps.worktree.renameBranch(s.repoPath, s.branch, newBranch as string);
     }
     this.deps.store.update(id, { name: slug, branch: newBranch });
+    // Fire-and-forget: this method is sync; `relabel` is internally guarded (best-effort,
+    // never rejects), so a floating call is safe — a gone tab doesn't undo the rename.
+    // Deliberately after the branch move: a clashing `git branch -m` throws out of here,
+    // and a rename that never happened must not relabel the tab. Wrapped because the
+    // server maps ANY throw out of this method to `409 name_taken` — a relabel hiccup is
+    // not a name clash, and reporting one after the row has already moved would be a lie.
+    try {
+      void this.deps.herdr.relabel(s.herdrAgentId, slug);
+    } catch {
+      /* best-effort: the tab label is cosmetic, the rename already landed */
+    }
     return this.deps.store.get(id);
   }
 

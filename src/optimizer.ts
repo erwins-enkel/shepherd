@@ -1,7 +1,6 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { readRoleResultText, CODEX_LAST_MESSAGE_FILE } from "./codex-last-message";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
 import type { SessionStore } from "./store";
 import type { HerdrDriver } from "./herdr";
 import { HerdrUnavailableError } from "./herdr";
@@ -16,6 +15,7 @@ import {
   LEARNING_FACT_SHAPE,
   LEARNING_RULE_MAX_CHARS,
 } from "./learning-shape";
+import { cleanupHelperDir, makeHelperTmpDir } from "./transient-helper-lifecycle";
 
 const INPUT_FILE = "input.json";
 const OUTPUT_FILE = "optimized.json";
@@ -414,12 +414,6 @@ function defaultReadOutput(dir: string): RawOptimized | null {
 
 /** Default scratch dir: a throwaway temp dir (the optimizer needs no git, only Read/Write). */
 export const defaultOptimizerScratch = {
-  create: () => ({ dir: mkdtempSync(join(tmpdir(), "shepherd-optimize-")) }),
-  remove: (dir: string) => {
-    try {
-      rmSync(dir, { recursive: true, force: true });
-    } catch {
-      /* best-effort */
-    }
-  },
+  create: () => ({ dir: makeHelperTmpDir("shepherd-optimize-") }),
+  remove: cleanupHelperDir,
 };

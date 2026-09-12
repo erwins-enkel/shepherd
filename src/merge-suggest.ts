@@ -1,8 +1,7 @@
 import { createHash } from "node:crypto";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { readRoleResultText, CODEX_LAST_MESSAGE_FILE } from "./codex-last-message";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
 import type { SessionStore } from "./store";
 import type { HerdrDriver } from "./herdr";
 import { HerdrUnavailableError } from "./herdr";
@@ -13,6 +12,7 @@ import { buildTransientAgentArgv } from "./transient-agent-argv";
 import { CODEX_ROLE_OUTPUT_SCHEMAS } from "./codex-role-output-schema";
 import { reapTransientByLabel } from "./transient-tab-reaper";
 import type { RoleEnvironment } from "./default-model";
+import { cleanupHelperDir, makeHelperTmpDir } from "./transient-helper-lifecycle";
 
 const RULES_FILE = "rules.json";
 const OUTPUT_FILE = ".shepherd-merge.json";
@@ -554,12 +554,6 @@ function defaultReadOutput(dir: string): RawOutput | null {
 
 /** Throwaway temp dir (the pass needs no git, only Read/Write). */
 export const defaultMergeScratch = {
-  create: () => ({ dir: mkdtempSync(join(tmpdir(), "shepherd-merge-")) }),
-  remove: (dir: string) => {
-    try {
-      rmSync(dir, { recursive: true, force: true });
-    } catch {
-      /* best-effort */
-    }
-  },
+  create: () => ({ dir: makeHelperTmpDir("shepherd-merge-") }),
+  remove: cleanupHelperDir,
 };

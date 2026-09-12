@@ -26,6 +26,10 @@ import {
   sessionScratchpadDirCandidates,
   existingScratchpadDir,
   scratchpadHasFiles,
+  sessionScratchRootCandidates,
+  removeHelperScratch,
+  sweepOrphanedScratch,
+  helperTmpRootCandidates,
 } from "../src/tmp-sweep";
 
 /** Minimal `Dirent` fake — the reclaimers only read `.name` + `.isDirectory()`. */
@@ -1707,5 +1711,319 @@ describe("reclaimForkedPnpmStore", () => {
     expect(unlinked).toEqual([`${ROOT}/v10/files/9f/abc`]); // abc freed, def kept
     expect(r.freedDirs).toBe(0);
     expect(rmdirs).toEqual([]); // def remains → bucket not pruned
+  });
+});
+
+// ── #2304: single-base (own-session) scratch + the orphan reconcile ─────────────
+describe("sessionScratchRootCandidates (#2304)", () => {
+  test("disk + legacy twin, in order", () => {
+    setEnv("SHEPHERD_TMP_SWEEP_DIR", "/disk/root");
+    setEnv("TMPDIR", "/legacy/base");
+    expect(sessionScratchRootCandidates("/home/u/Work/proj")).toEqual([
+      "/disk/root/-home-u-Work-proj",
+      `/legacy/base/claude-${process.getuid?.() ?? 1000}/-home-u-Work-proj`,
+    ]);
+  });
+
+  test("no override collapses to one candidate", () => {
+    setEnv("SHEPHERD_TMP_SWEEP_DIR", legacyClaudeTmpRoot());
+    expect(sessionScratchRootCandidates("/home/u/Work/proj").length).toBe(1);
+  });
+
+  test("is a DIFFERENT base from the doubled sub-agent one", () => {
+    setEnv("SHEPHERD_TMP_SWEEP_DIR", "/disk/root");
+    const wt = "/home/u/Work/proj";
+    expect(sessionScratchRootCandidates(wt)[0]).not.toBe(worktreeScratchDir(wt));
+  });
+});
+
+describe("removeWorktreeScratch: single-base gate (#2304)", () => {
+  const collect = async (wt: string): Promise<string[]> => {
+    const calls: string[] = [];
+    await removeWorktreeScratch(wt, {
+      rm: (async (p: string) => {
+        calls.push(String(p));
+      }) as never,
+    });
+    return calls;
+  };
+
+  test("a real worktree path also clears the single base (both roots)", async () => {
+    setEnv("SHEPHERD_TMP_SWEEP_DIR", "/disk/root");
+    setEnv("TMPDIR", "/legacy/base");
+    const wt = "/home/u/Work/.shepherd-worktrees/proj-slug";
+    const calls = await collect(wt);
+    expect(calls).toEqual([
+      ...worktreeScratchDirCandidates(wt),
+      ...sessionScratchRootCandidates(wt),
+    ]);
+    expect(calls.length).toBe(4);
+  });
+
+  test("a MAIN CHECKOUT path clears only the doubled base — never the operator's own scratch", async () => {
+    setEnv("SHEPHERD_TMP_SWEEP_DIR", "/disk/root");
+    setEnv("TMPDIR", "/legacy/base");
+    const main = "/home/u/Work/proj";
+    const calls = await collect(main);
+    expect(calls).toEqual(worktreeScratchDirCandidates(main));
+    // The single base under a main checkout is where the OPERATOR's interactive claude
+    // sessions write; it must not be touched.
+    expect(calls).not.toContain("/disk/root/-home-u-Work-proj");
+  });
+
+  test("an explicit opts.dir still targets exactly that dir", async () => {
+    const calls = await (async () => {
+      const out: string[] = [];
+      await removeWorktreeScratch("/home/u/Work/.shepherd-worktrees/x", {
+        dir: "/only/this",
+        rm: (async (p: string) => {
+          out.push(String(p));
+        }) as never,
+      });
+      return out;
+    })();
+    expect(calls).toEqual(["/only/this"]);
+  });
+});
+
+describe("removeHelperScratch (#2304)", () => {
+  test("clears the dashified cwd under both roots", async () => {
+    setEnv("SHEPHERD_TMP_SWEEP_DIR", "/disk/root");
+    setEnv("TMPDIR", "/legacy/base");
+    const calls: string[] = [];
+    await removeHelperScratch("/tmp/shepherd-namer-Ab3xZ9", {
+      rm: (async (p: string) => {
+        calls.push(String(p));
+      }) as never,
+    });
+    expect(calls).toEqual([
+      "/disk/root/-tmp-shepherd-namer-Ab3xZ9",
+      `/legacy/base/claude-${process.getuid?.() ?? 1000}/-tmp-shepherd-namer-Ab3xZ9`,
+    ]);
+  });
+
+  test("swallows a throwing rm (resolves)", async () => {
+    await expect(
+      removeHelperScratch("/tmp/shepherd-namer-Ab3xZ9", {
+        rm: async () => {
+          throw new Error("EACCES");
+        },
+      }),
+    ).resolves.toBeUndefined();
+  });
+});
+
+describe("sweepOrphanedScratch (#2304)", () => {
+  const WT_ROOT = "/home/u/Work/.shepherd-worktrees";
+  const HELPER_ROOT = "/tmp";
+  const HOUR = 3600_000;
+  const NOW = 10_000_000_000;
+
+  /** Build a fake fs over one scratch root: `names` are its top-level dirs. */
+  const makeOps = (
+    names: string[],
+    opts?: { liveChildren?: string[]; rootThrows?: boolean; mtimeMs?: number },
+  ) => {
+    const removed: string[] = [];
+    const ops = {
+      readdir: (async (p: string, o?: { withFileTypes?: boolean }) => {
+        if (p === WT_ROOT) {
+          if (opts?.rootThrows) throw new Error("EACCES");
+          return opts?.liveChildren ?? [];
+        }
+        if (p === "/scratch") {
+          if (o?.withFileTypes) return names.map((n) => dirent(n, true));
+          return names;
+        }
+        throw new Error("ENOENT");
+      }) as never,
+      stat: (async () => ({ mtimeMs: opts?.mtimeMs ?? NOW - 48 * HOUR })) as never,
+      rm: (async (p: string) => {
+        removed.push(String(p));
+      }) as never,
+    };
+    return { ops, removed };
+  };
+
+  const run = (
+    names: string[],
+    over?: Partial<Parameters<typeof sweepOrphanedScratch>[0]>,
+    fsOpts?: Parameters<typeof makeOps>[1],
+  ) => {
+    const { ops, removed } = makeOps(names, fsOpts);
+    return sweepOrphanedScratch({
+      roots: ["/scratch"],
+      worktreesRoots: [WT_ROOT],
+      helperTmpRoots: [HELPER_ROOT],
+      liveWorktreePaths: [],
+      liveCwds: [],
+      now: NOW,
+      staleMs: 24 * HOUR,
+      fsOps: ops,
+      log: () => {},
+      ...over,
+    }).then((r) => ({ r, removed }));
+  };
+
+  test("removes an orphaned worktree scratch dir", async () => {
+    const { r, removed } = await run(["-home-u-Work--shepherd-worktrees-gone-slug"]);
+    expect(r.worktrees).toBe(1);
+    expect(removed).toEqual(["/scratch/-home-u-Work--shepherd-worktrees-gone-slug"]);
+  });
+
+  test("KEEPS a live worktree's scratch dir", async () => {
+    const { r, removed } = await run(["-home-u-Work--shepherd-worktrees-alive"], undefined, {
+      liveChildren: ["alive"],
+    });
+    expect(r.worktrees).toBe(0);
+    expect(removed).toEqual([]);
+  });
+
+  test("KEEPS a live worktree known only via liveWorktreePaths", async () => {
+    const { r } = await run(["-home-u-Work--shepherd-worktrees-alive"], {
+      liveWorktreePaths: [`${WT_ROOT}/alive`],
+    });
+    expect(r.worktrees).toBe(0);
+  });
+
+  test("fail-closed: an unreadable worktrees root disqualifies ALL of its entries", async () => {
+    const { r, removed } = await run(["-home-u-Work--shepherd-worktrees-gone-slug"], undefined, {
+      rootThrows: true,
+    });
+    expect(r.worktrees).toBe(0);
+    expect(removed).toEqual([]);
+  });
+
+  test("KEEPS unrecognised entries (operator scratch, tool caches, nested root)", async () => {
+    const { r, removed } = await run([
+      "-home-u",
+      "-home-u-Work",
+      "bundled-skills",
+      "fallow-base-path",
+      `claude-${process.getuid?.() ?? 1000}`,
+    ]);
+    expect(r.worktrees).toBe(0);
+    expect(r.helpers).toBe(0);
+    expect(removed).toEqual([]);
+  });
+
+  test("removes a stale orphaned helper scratch dir", async () => {
+    const { r, removed } = await run(["-tmp-shepherd-namer-Ab3xZ9"]);
+    expect(r.helpers).toBe(1);
+    expect(removed).toEqual(["/scratch/-tmp-shepherd-namer-Ab3xZ9"]);
+  });
+
+  test("removes a RETIRED helper prefix no live code still produces", async () => {
+    const { r } = await run(["-tmp-shepherd-rundown-QQ11zz", "-tmp-shepherd-skills-aB9x0Z"]);
+    expect(r.helpers).toBe(2);
+  });
+
+  test("KEEPS a helper dir whose cwd is a live process cwd", async () => {
+    const { r, removed } = await run(["-tmp-shepherd-namer-Ab3xZ9"], {
+      liveCwds: ["/tmp/shepherd-namer-Ab3xZ9"],
+    });
+    expect(r.helpers).toBe(0);
+    expect(removed).toEqual([]);
+  });
+
+  test("KEEPS a fresh (non-stale) helper dir", async () => {
+    const { r, removed } = await run(["-tmp-shepherd-namer-Ab3xZ9"], undefined, {
+      mtimeMs: NOW - 60_000,
+    });
+    expect(r.helpers).toBe(0);
+    expect(removed).toEqual([]);
+  });
+
+  test("liveCwds === null SKIPS the helper half entirely", async () => {
+    const { r, removed } = await run(["-tmp-shepherd-namer-Ab3xZ9"], { liveCwds: null });
+    expect(r.helpers).toBe(0);
+    expect(r.helpersSkipped).toBe(true);
+    expect(removed).toEqual([]);
+  });
+
+  test("a worktree slug that merely LOOKS mktemp-shaped is not treated as a helper dir", async () => {
+    // Lives under the worktrees root, not directly under a helper tmp root — and that root
+    // reports it as live, so it must survive.
+    const { r, removed } = await run(
+      ["-home-u-Work--shepherd-worktrees-shepherd-fix-abc123"],
+      {
+        liveCwds: [],
+      },
+      { liveChildren: ["shepherd-fix-abc123"] },
+    );
+    expect(r.worktrees).toBe(0);
+    expect(r.helpers).toBe(0);
+    expect(removed).toEqual([]);
+  });
+
+  test("never rejects on an unexpected error", async () => {
+    await expect(
+      sweepOrphanedScratch({
+        roots: ["/scratch"],
+        worktreesRoots: [WT_ROOT],
+        helperTmpRoots: [HELPER_ROOT],
+        liveWorktreePaths: [],
+        liveCwds: [],
+        fsOps: {
+          readdir: (async () => {
+            throw new Error("boom");
+          }) as never,
+          stat: (async () => {
+            throw new Error("boom");
+          }) as never,
+          rm: (async () => {
+            throw new Error("boom");
+          }) as never,
+        },
+        log: () => {},
+      }),
+    ).resolves.toEqual({ worktrees: 0, helpers: 0, helpersSkipped: false });
+  });
+});
+
+describe("helperTmpRootCandidates (#2304)", () => {
+  test("covers the live tmpdir, the agent tmp dir and the platform /tmp default", () => {
+    setEnv("TMPDIR", "/custom/tmp");
+    setEnv("SHEPHERD_AGENT_TMPDIR", "/disk/agent");
+    expect(helperTmpRootCandidates()).toEqual(["/custom/tmp", "/disk/agent", "/tmp"]);
+  });
+
+  test("dedupes when TMPDIR already is /tmp", () => {
+    setEnv("TMPDIR", "/tmp");
+    setEnv("SHEPHERD_AGENT_TMPDIR", "");
+    expect(helperTmpRootCandidates()).toEqual(["/tmp"]);
+  });
+
+  test("a helper dir written under a NON-current TMPDIR is still reclaimable", async () => {
+    // The dev-host regression: the server has run under different TMPDIRs, so scratch named from
+    // `/tmp` must stay reclaimable even while TMPDIR points at the disk root (and vice versa).
+    setEnv("TMPDIR", "/disk/agent");
+    setEnv("SHEPHERD_AGENT_TMPDIR", "/disk/agent");
+    const removed: string[] = [];
+    const r = await sweepOrphanedScratch({
+      roots: ["/scratch"],
+      worktreesRoots: [],
+      liveWorktreePaths: [],
+      liveCwds: [],
+      now: 10_000_000_000,
+      staleMs: 3600_000,
+      fsOps: {
+        readdir: (async (p: string, o?: { withFileTypes?: boolean }) => {
+          if (p !== "/scratch") throw new Error("ENOENT");
+          const names = ["-tmp-shepherd-recap-Ab3xZ9", "-disk-agent-shepherd-namer-Zz9Yy8"];
+          return o?.withFileTypes ? names.map((n) => dirent(n, true)) : names;
+        }) as never,
+        stat: (async () => ({ mtimeMs: 0 })) as never,
+        rm: (async (p: string) => {
+          removed.push(String(p));
+        }) as never,
+      },
+      log: () => {},
+    });
+    expect(r.helpers).toBe(2);
+    expect(removed.sort()).toEqual([
+      "/scratch/-disk-agent-shepherd-namer-Zz9Yy8",
+      "/scratch/-tmp-shepherd-recap-Ab3xZ9",
+    ]);
   });
 });

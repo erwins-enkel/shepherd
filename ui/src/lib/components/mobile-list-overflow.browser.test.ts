@@ -248,31 +248,38 @@ describe("mobile list row never overflows its container", () => {
 // and 138px of bottom navigation below (--mobile-actionbar-h + its safe-area inset, whose
 // arithmetic Toasts.browser.test.ts holds), leaving ~681px of list.
 //
-// The card diet — one prompt line, 9px padding, a two-badge cap, and a micro-rung clock so the
-// badge rail stops out-measuring the content beside it — brings the row from ~119px to ~99.5px.
-// With the 2px inter-card margin that is a ~101.5px pitch, so ~6.7 cards fit where ~5.1 did.
+// The card diet is one prompt line, 9px padding and a micro-rung clock: ~26px off EVERY row,
+// whatever its badge load. There is deliberately NO count cap on the badge stack (see
+// UnitRowRight) — it bought ~6px and no ordering made it safe — so a badge-heavy row is taller
+// than a quiet one. That is honest: the rail is showing more. Both ends are asserted here so the
+// density claim is a measured range rather than an average nobody can check.
 //
-// NOT seven: the design sheet's "7,0" was computed from an estimated 97px card and forgot the
-// inter-card margin entirely. The measured number is the real one; squeezing the last 4px out of
-// a touch list's padding to reach a round figure would buy the figure and spend the ergonomics.
+// NOT the "7,0" from the design sheet: that was computed from an estimated 97px card and forgot
+// the 2px inter-card margin entirely. Squeezing the remainder out of a touch list's padding would
+// buy the round figure and spend the ergonomics.
 //
-// The budget is set from the REGRESSIONS it has to catch, not from the current measurement: a
-// second prompt line is +17.5px and an uncapped badge rail is +6px, so anything from ~106px up is
-// a real loss. 104 sits under that and clear of platform text-rendering variance — the same row
-// measures 99.5px locally and 100.05px on CI, and a bar pinned to the local figure fails on the
-// 0.05px difference while proving nothing.
+// Budgets are derived from the REGRESSION each must catch, not from the current measurement — a
+// bar pinned to the local figure fails on CI's 0.05px text-rendering difference while proving
+// nothing. Losing the one-line prompt is +17.5px, which both budgets catch.
 describe("mobile list row height keeps the density budget", () => {
-  const BUDGET = 104;
+  // A quiet row: agent chip + plan gate. ~99.5px -> ~6.7 cards per screen.
+  const QUIET_BUDGET = 104;
+  // A badge-heavy row: agent + issue + plan gate and the rest of the rail. ~120px -> ~5.6.
+  const LOADED_BUDGET = 124;
   for (const locale of LOCALES) {
-    it(`fully loaded row stays within ${BUDGET}px [${locale}]`, async () => {
+    it(`quiet row stays within ${QUIET_BUDGET}px [${locale}]`, async () => {
       overwriteGetLocale(() => locale);
-      const id = `density-${locale}`;
       const host = unitsFlow(430);
       host.classList.add("units", "flow");
       render(UnitRow, {
         target: host,
         props: {
-          session: session({ id, status: "idle", planPhase: "planning" }),
+          session: session({
+            id: `density-quiet-${locale}`,
+            status: "idle",
+            planPhase: "planning",
+            issueNumber: null,
+          }),
           selected: false,
           nowMs: Date.now(),
           onselect: () => {},
@@ -282,8 +289,33 @@ describe("mobile list row height keeps the density budget", () => {
       const unit = host.querySelector<HTMLElement>(".unit")!;
       expect(
         unit.getBoundingClientRect().height,
-        `[${locale}] card height — ~681px of list / (this + 2px margin) = cards per screen`,
-      ).toBeLessThanOrEqual(BUDGET);
+        `[${locale}] quiet card — ~681px of list / (this + 2px margin) = cards per screen`,
+      ).toBeLessThanOrEqual(QUIET_BUDGET);
+    });
+
+    it(`badge-heavy row stays within ${LOADED_BUDGET}px [${locale}]`, async () => {
+      overwriteGetLocale(() => locale);
+      const host = unitsFlow(430);
+      host.classList.add("units", "flow");
+      render(UnitRow, {
+        target: host,
+        props: {
+          session: session({
+            id: `density-loaded-${locale}`,
+            status: "idle",
+            planPhase: "planning",
+          }),
+          selected: false,
+          nowMs: Date.now(),
+          onselect: () => {},
+        },
+      });
+      await new Promise((r) => requestAnimationFrame(() => r(null)));
+      const unit = host.querySelector<HTMLElement>(".unit")!;
+      expect(
+        unit.getBoundingClientRect().height,
+        `[${locale}] badge-heavy card — the rail, not the content, sets this height`,
+      ).toBeLessThanOrEqual(LOADED_BUDGET);
     });
   }
 });

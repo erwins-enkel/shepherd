@@ -1,5 +1,6 @@
 <script lang="ts">
   import { m } from "$lib/paraglide/messages";
+  import { dialog } from "$lib/a11yDialog";
   import { basename } from "./learnings-drawer";
   import type { RepoChip } from "$lib/components/queue-strip";
 
@@ -14,6 +15,7 @@
     chips,
     repoFilter,
     onrepofilter,
+    onclearfilter,
     onbacklog,
     onclose,
   }: {
@@ -21,6 +23,11 @@
     /** Currently filtered repo paths; empty = every repo shown. */
     repoFilter: Set<string>;
     onrepofilter: (repoPath: string, additive: boolean) => void;
+    /** Clears the filter outright. NOT expressible by replaying `onrepofilter(p, false)` per
+     *  entry: that path runs through `nextRepoFilter`, which only returns the empty set for a
+     *  ONE-element selection and otherwise collapses to `{p}` — so a Shift-selected pair would
+     *  end up with one repo still filtered. The page owns the set, so it clears it directly. */
+    onclearfilter: () => void;
     /** Absent when there is no backlog to open (no sessions yet) — the row is then omitted. */
     onbacklog?: () => void;
     onclose: () => void;
@@ -29,44 +36,28 @@
   const total = $derived(chips.reduce((n, c) => n + c.count, 0));
   const showingAll = $derived(repoFilter.size === 0);
 
-  let sheetEl = $state<HTMLElement>();
-
   function pick(repoPath: string) {
     onrepofilter(repoPath, false);
     onclose();
   }
 
   function clearFilter() {
-    // Re-selecting an already-active lone filter is how RepoSwitcher clears it; with nothing
-    // filtered there is nothing to clear, so this is a no-op close.
-    for (const p of repoFilter) onrepofilter(p, false);
+    onclearfilter();
     onclose();
   }
-
-  function onKeydown(e: KeyboardEvent) {
-    if (e.key === "Escape") {
-      e.stopPropagation();
-      onclose();
-    }
-  }
-
-  $effect(() => {
-    sheetEl?.focus();
-  });
 </script>
-
-<svelte:window onkeydown={onKeydown} />
 
 <!-- eslint-disable-next-line svelte/no-static-element-interactions -- the scrim's only job is
      outside-click dismissal; Escape above covers the keyboard path. -->
 <div class="scrim rs-sheet-scrim" onclick={onclose} aria-hidden="true"></div>
+<!-- `use:dialog` is the house modal contract (a11yDialog.ts): Tab-trap, Escape, and focus
+     restore to whatever opened the sheet — which is what makes `aria-modal` honest here. -->
 <div
-  bind:this={sheetEl}
   class="rs-sheet"
   role="dialog"
   aria-modal="true"
   aria-label={m.repos_sheet_title()}
-  tabindex="-1"
+  use:dialog={{ onclose }}
 >
   <div class="rs-sheet-grip" aria-hidden="true"></div>
   <div class="rs-sheet-head">

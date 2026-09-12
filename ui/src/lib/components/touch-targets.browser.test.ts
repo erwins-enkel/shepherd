@@ -16,9 +16,13 @@ import type { BuildQueue, GitState, PlanGate, ReviewVerdict, Session } from "$li
 // (AA) floor of 24x24. D4/D5/D6 resolved them by relocation, not by inflation: each action
 // still exists, at a conformant size, on the detail screen the card tap already opens.
 //
-// The sweep below is deliberately generic — it measures whatever renders rather than a
-// hand-maintained list of selectors, so a newly added control cannot slip past it. Every
-// exception must be named HERE, with its justification, which is what makes the exception
+// The sweep below is generic WITHIN each fixture — it measures whatever renders rather than a
+// hand-maintained list of selectors, so a control added to one of these surfaces cannot slip past
+// it. The reach is the fixture list, not the whole app: every surface this screen is built from is
+// rendered here (the card, the header tallies, the bottom navigation bar with its lens segments,
+// and the REPOS sheet). A new SURFACE still needs a new fixture.
+//
+// Every exception must be named HERE, with its justification, which is what makes the exception
 // list itself the audit trail.
 
 vi.mock("$lib/api", async (importOriginal) => {
@@ -36,6 +40,8 @@ vi.mock("$lib/api", async (importOriginal) => {
 
 const { default: UnitRow } = await import("./UnitRow.svelte");
 const { default: TopBarTallies } = await import("./top-bar/TopBarTallies.svelte");
+const { default: ActionBar } = await import("./ActionBar.svelte");
+const { default: ReposSheet } = await import("./ReposSheet.svelte");
 const { reviews, planGates, repoConfig } = await import("$lib/reviews.svelte");
 const { buildQueues } = await import("$lib/buildQueues.svelte");
 const { projectIcons } = await import("$lib/projectIcons.svelte");
@@ -115,8 +121,16 @@ function allowed(t: Target): string | null {
   return EXCEPTIONS.find((e) => e.match(t))?.why ?? null;
 }
 
-function assertAllTargetsConform(host: HTMLElement, ctx: string) {
-  const undersized = pointerTargets(host)
+/** `minTargets` is not decoration: a fixture that renders nothing passes an "everything is big
+ *  enough" assertion trivially, and silence would look identical to success. Each caller states
+ *  the floor it expects so an empty or broken fixture fails loudly instead. */
+function assertAllTargetsConform(host: HTMLElement, ctx: string, minTargets: number) {
+  const targets = pointerTargets(host);
+  expect(
+    targets.length,
+    `${ctx}: fixture rendered no pointer targets at all`,
+  ).toBeGreaterThanOrEqual(minTargets);
+  const undersized = targets
     .filter((t) => t.w < HIG - SLACK || t.h < HIG - SLACK)
     .filter((t) => allowed(t) === null);
   expect(
@@ -285,7 +299,8 @@ describe("mobile list: every tap target clears the iOS HIG 44x44 floor", () => {
           },
         });
         await frame();
-        assertAllTargetsConform(host, `loaded row @ ${width}px [${locale}]`);
+        // card hit-target + the hold CTA at minimum; badges are readouts here by D4.
+        assertAllTargetsConform(host, `loaded row @ ${width}px [${locale}]`, 1);
       });
     }
   }
@@ -412,5 +427,65 @@ describe("D6: the header status tallies are 44x44 on a phone", () => {
       );
     }
     await page.viewport(1280, 720);
+  });
+});
+
+describe("the surfaces this screen is built from also clear the floor", () => {
+  // The bottom navigation bar: four lens segments (HerdSegRow renders inside it) plus
+  // "New task" and REPOS. Every one of those is a primary control on the phone.
+  for (const locale of ["en", "de"] as const) {
+    it(`bottom navigation bar [${locale}]`, async () => {
+      overwriteGetLocale(() => locale);
+      const host = document.createElement("div");
+      host.style.width = "430px";
+      document.body.appendChild(host);
+      render(ActionBar, {
+        target: host,
+        props: {
+          mobile: true,
+          lens: true,
+          filter: "ready" as const,
+          statusFilter: null,
+          onstatusfilter: () => {},
+          onnew: () => {},
+          onbacklog: () => {},
+        },
+      });
+      await frame();
+      // four lens segments + New task + REPOS
+      assertAllTargetsConform(host, `ActionBar [${locale}]`, 6);
+    });
+  }
+
+  // The REPOS sheet. Its rows take Material's 48px rather than the 44px floor: the list screen
+  // has to ration vertical space, a sheet does not.
+  it("REPOS sheet rows and its close control", async () => {
+    const host = document.createElement("div");
+    host.style.width = "430px";
+    document.body.appendChild(host);
+    render(ReposSheet, {
+      target: host,
+      props: {
+        chips: [
+          { repoPath: "/repo/alpha", count: 2, drain: null, insights: 0, curate: 0 },
+          { repoPath: "/repo/beta", count: 1, drain: null, insights: 0, curate: 0 },
+        ],
+        repoFilter: new Set<string>(),
+        onrepofilter: () => {},
+        onclearfilter: () => {},
+        onbacklog: () => {},
+        onclose: () => {},
+      },
+    });
+    await frame();
+    // The sheet portals to the body, not into `host` — sweep the document instead.
+    // close + "all repos" + one row per chip
+    assertAllTargetsConform(document.body, "ReposSheet", 4);
+    for (const row of document.querySelectorAll<HTMLElement>(".rs-sheet-row")) {
+      expect(
+        row.getBoundingClientRect().height,
+        "sheet rows take the 48px Material value",
+      ).toBeGreaterThanOrEqual(48 - SLACK);
+    }
   });
 });

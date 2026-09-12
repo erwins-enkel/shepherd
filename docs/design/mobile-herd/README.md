@@ -56,8 +56,10 @@ generisch misst, was rendert, statt einer gepflegten Selektorliste zu folgen.
 
 ### Stufe 1 — Touch-Konformität (richtungsunabhängig)
 
-- **D4** — Auf coarse pointer sind `PrBadge`, `PlanGateBadge`, `CriticBadge`, `BuildQueueBadge`
-  und `.preview-badge` **reine Anzeigen** (neue Prop `interactive`, Default `true`). Fünf
+- **D4** — Auf coarse pointer sind `PrBadge`, `PlanGateBadge`, `CriticBadge`, `BuildQueueBadge`,
+  `IssueBadge` und `.preview-badge` **reine Anzeigen** (neue Prop `interactive`, Default `true`).
+  `IssueBadge` kam per #2278 dazu, nachdem es dort zu einem echten `<a href>`-Issue-Peek wurde —
+  ein ~15-px-Ziel, das sonst über dem 44-px-Trefferfeld der Karte gelegen hätte. Fünf
   44-px-Ziele im Kartenstapel hätten die Karte über 200 px getrieben. Jede Aktion bleibt
   erreichbar: der Karten-Tap öffnet den Detail-Screen, wo `GitRail`, `PlanGateBadge`,
   `BuildQueuePanel` und der Preview-Tab dieselben Bedienelemente in konformer Größe tragen.
@@ -90,11 +92,14 @@ generisch misst, was rendert, statt einer gepflegten Selektorliste zu folgen.
 - TopBar-Padding auf dem Telefon 10 px → 5 px vertikal. Jedes Bedienelement der Zeile trägt seinen
   44-px-Boden selbst; das Padding kaufte Luft, keine Erreichbarkeit.
 - Karten-Diät: Prompt einzeilig in `.units.flow`, 9 px statt 11 px Padding, Uhr auf der
-  Micro-Stufe, Badge-Stapel auf zwei gedeckelt. Gedeckelt wird per `:nth-last-child`, nicht
-  `:nth-child`: der Stapel ist von unspezifisch nach spezifisch sortiert (Agent, Research,
-  Terminal, Issue, dann PR, Critic, Queue, Plan-Gate, Status), die ersten zwei zu behalten hätte
-  also genau die Badges behalten, die am wenigsten sagen. Die Überlaufmarke „…" ist absolut
-  positioniert — eine dritte Flexzeile hätte die gewonnene Höhe sofort zurückgegeben.
+  Micro-Stufe. Zusammen ~26 px von **jeder** Zeile, unabhängig von der Badge-Last.
+- **Kein Mengen-Deckel auf dem Badge-Stapel** — bewusst, nach Review (#2273). Der Deckel brachte
+  ~6 px, und keine Sortierung macht ihn sicher: die DOM-Reihenfolge ist keine Aufmerksamkeits-
+  Rangfolge (Autopilot und die Sandbox-Chips stehen **nach** Critic-Verdikt und Plan-Gate). „Die
+  ersten zwei behalten" verwirft also den Zustand, „die letzten zwei behalten" verwirft Critic und
+  Plan-Gate zugunsten eines Sandbox-Chips — auf genau der Oberfläche, deren Aufgabe es ist zu
+  zeigen, was einen Menschen braucht. Eine badge-reiche Karte ist jetzt höher als eine ruhige; das
+  ist ehrlich, die Spalte zeigt mehr.
 
 ## Entschiedene Abweichungen von der Entwurfsvorlage
 
@@ -137,3 +142,23 @@ Die Kartenhöhe hält `mobile-list-overflow.browser.test.ts`; die Geometrie der 
   legen und ihre Klicks verschlucken.
 - **`--mobile-actionbar-h` ist die einzige Quelle der Leistengeometrie.** Die Liste reserviert sie
   als `padding-bottom`, `Toasts` setzt seinen Abstand daraus. Wer die Leiste ändert, ändert dort.
+
+## Was das Review geändert hat (#2273)
+
+Drei Blocker, alle am Code bestätigt und behoben:
+
+1. **`ReposSheet.clearFilter()` löschte einen Mehrfach-Filter nicht.** Es spielte
+   `onrepofilter(p, false)` pro Eintrag nach; dieser Pfad läuft durch `nextRepoFilter`, das nur bei
+   **einelementiger** Auswahl die leere Menge liefert und sonst auf `{p}` kollabiert — und
+   `replaceRepoFilter` mutiert dabei genau die Menge, über die iteriert wird. Bei `{A, B}` blieb
+   `A` gefiltert. Das Sheet bekommt jetzt `onclearfilter`, die Seite leert die Menge direkt.
+   Der Einzel-Repo-Fall funktionierte, was den Fehler bis zum Review verdeckt hat.
+2. **Der Badge-Deckel** — siehe oben, ersatzlos entfernt.
+3. **Das Sheet war kein registriertes Overlay.** `showRepos` fehlte in `anyOverlayOpen()`, und die
+   Klassen treffen weder `.overlay` noch `.drawer` — globale Kürzel blieben unter einer
+   `aria-modal`-Fläche scharf. Jetzt registriert, plus `use:dialog` aus `a11yDialog.ts`
+   (Fokusfalle, Escape, Fokus-Rückgabe) statt der handgeschriebenen Escape-Behandlung.
+
+Dazu: der Sweep rendert jetzt **alle** Oberflächen dieses Screens (Karte, Tallies, untere Leiste
+samt Lens-Segmenten, REPOS-Sheet) statt nur zwei, und jede Fixture nennt eine Mindestzahl an
+Zielen — eine Fixture, die nichts rendert, bestünde sonst stillschweigend.

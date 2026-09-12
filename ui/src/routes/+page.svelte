@@ -1598,6 +1598,7 @@
       showSettings ||
       showUsage ||
       showBacklog ||
+      showRepos ||
       showBroadcast ||
       showRetry ||
       !!amendTarget ||
@@ -3482,6 +3483,7 @@
     chips={repoChips}
     {repoFilter}
     onrepofilter={applyRepoFilter}
+    onclearfilter={() => replaceRepoFilter([])}
     onbacklog={store.sessions.length > 0 ? () => (showBacklog = true) : undefined}
     onclose={() => (showRepos = false)}
   />

@@ -481,42 +481,17 @@
     font-weight: 600;
   }
 
-  /* Cap the stack at two badges on the phone list. Uncapped it is the TALLEST thing in the card:
-     three badges plus the clock measure ~76px against the name+repo+prompt column's ~59.5px, so
-     the rail — not the content — was setting every row's height. Two badges (40px) + gap + the
-     micro-rung clock come to ~57px, just under the content, which hands the height back.
+  /* NO count cap on the badge stack — deliberately, after review (#2273).
+     A two-badge cap bought ~6px per card, and no ordering makes it safe: the stack's document
+     order is not an attention ranking (autopilot and the sandbox chips sit AFTER the critic
+     verdict and the plan gate), so "keep the first two" drops the state and "keep the last two"
+     drops the critic verdict and plan gate in favour of a sandbox chip — on the one surface whose
+     whole job is showing what needs a human now. The cap would also have hidden the issue peek
+     that #2278 had just made interactive.
 
-     `nth-last-child`, NOT `nth-child`: the stack is ordered least- to most-specific (agent,
-     research, terminal, issue, then PR, critic, queue, plan gate, status), so keeping the FIRST
-     two would keep the identity badges and drop exactly the ones worth a glance. Keeping the LAST
-     two keeps the state.
-
-     The overflow mark is absolutely positioned so it costs no row — a third flex line would give
-     back the height the cap just won. It sits in the gutter left of the stack, where the card has
-     horizontal room a 288px sidebar does not.
-
-     Scoped to `.units.flow` (the phone list), NOT to `(pointer: coarse)`: this is a layout
-     decision about one screen, and a touch laptop driving the desktop sidebar has the room. */
-  :global(.units.flow) .u-badges {
-    position: relative;
-  }
-  /* The whole selector goes inside :global(): the badges are rendered by CHILD components, so
-     they carry their own scope classes — a Svelte-scoped `> :nth-last-child(...)` would be
-     rewritten to this component's class and match nothing. */
-  :global(.units.flow .u-badges > :nth-last-child(n + 3)) {
-    display: none;
-  }
-  :global(.units.flow .u-badges:has(> :nth-last-child(3)))::before {
-    content: "…";
-    position: absolute;
-    left: -11px;
-    top: 0;
-    font-size: var(--fs-micro);
-    line-height: 1.4;
-    color: var(--color-faint);
-    pointer-events: none;
-  }
-
+     The height the cap was protecting is recovered by the two changes below instead, which cost
+     nothing but padding: the clock drops a rung and the stack gap tightens. A card with many
+     badges is taller than one with few, which is honest — the rail is showing more. */
   /* Phone list: the clock drops to the micro rung — the type scale's documented floor for "the
      tightest metadata", and it is a readout, never a tap target. Together with the tighter stack
      gap it brings the rail to ~59px, just under the ~59.5px content column beside it, so the

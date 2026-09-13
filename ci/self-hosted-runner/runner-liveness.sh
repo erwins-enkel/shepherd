@@ -25,7 +25,7 @@
 # (mid-restart), not failed. A single-shot check would fire a false "runner down"
 # alert in that window, and a flappy watchdog trains the operator to ignore it —
 # defeating its purpose. So a first down-read is NOT alerted: we sleep one short
-# interval and RE-CHECK. We alert (stderr + best-effort notify-send + exit 1)
+# interval and RE-CHECK. We alert (stderr + best-effort desktop toast + exit 1)
 # ONLY if it's still down on the second read. This rides out the per-job restart
 # gap (RestartSec=5s + container spawn + token mint) while still catching a
 # genuinely-down runner within one 5-min timer tick. Relatedly, the local check
@@ -64,19 +64,56 @@ CANARY_IMAGE="${CANARY_IMAGE:-${IMAGE:-alpine}}"
 # giving up and alerting. Restart + daemon init + slirp spawn is a few seconds.
 SLIRP_RECOVER_TIMEOUT="${SLIRP_RECOVER_TIMEOUT:-30}"
 
+# Uptime Kuma push monitor for THIS fleet (…/api/push/<token>), or empty to not
+# report. WHY push and not a check Kuma runs itself: the verdict below is a
+# composite of GitHub's `online` runner count AND local unit state, and Kuma can
+# see neither. Pushing it also makes a DEAD WATCHDOG visible — if this timer (or
+# the host) stops, the heartbeats stop and Kuma alerts on the silence, which no
+# check of ours ever caught. Unset on dev machines: the push is then a no-op.
+KUMA_PUSH_URL="${KUMA_PUSH_URL:-}"
+
 # GH_REPO (owner/name) comes from the same EnvironmentFile the runner units load
 # (~/.config/shepherd-ci-runner/.env). gh resolves auth from the host login or the
 # optional pat.env GH_TOKEN — same credential path as mint-token.sh.
 : "${GH_REPO:?GH_REPO must be set (owner/name) — provided by the unit EnvironmentFile}"
 
+# NOTIFY=0 silences the best-effort desktop toasts below; the journal stays the
+# source of truth either way. WHY a knob and not a removal: on a workstation the
+# toast is the fastest signal, but on a mostly-unattended host (where the desktop is
+# only occasionally used for unrelated work) a recurring outage just spams a screen
+# nobody is watching and trains the operator to dismiss toasts. Deployed hosts set
+# NOTIFY=0 in ~/.config/<repo>-ci-runner/.env; the default stays on.
+NOTIFY="${NOTIFY:-1}"
+
+# notify: best-effort desktop toast, honouring NOTIFY. notify-send may be absent
+# (headless host) or have no bus to talk to; never let that turn a real failure into
+# a different error or, worse, mask it — so swallow its exit entirely.
+notify() {
+  [ "${NOTIFY}" = "1" ] || return 0
+  notify-send "$@" 2>/dev/null || true
+}
+
+# kuma_push <up|down> <message>: report this run's verdict to Uptime Kuma, which
+# alerts through its own channels (email + Home Assistant push). Best-effort in
+# exactly the sense notify() is — a Kuma outage, an expired token or a tailnet
+# hiccup must never change this script's verdict or exit code, so curl's status is
+# swallowed. --get with --data-urlencode because the message is free text
+# (statuses carry repo names, counts and parentheses).
+kuma_push() {
+  [ -n "${KUMA_PUSH_URL}" ] || return 0
+  curl -fsS --max-time 10 --get \
+    --data-urlencode "status=$1" \
+    --data-urlencode "msg=$2" \
+    "${KUMA_PUSH_URL}" >/dev/null 2>&1 || true
+}
+
 fail() {
   # Message lands on stderr -> the systemd journal for this oneshot unit.
   echo "runner-liveness: $1" >&2
-  # Best-effort desktop alert. notify-send may be absent (headless host) or have
-  # no bus to talk to; never let that turn a real failure into a different error
-  # or, worse, mask it — so swallow its exit entirely. The journal is the source
-  # of truth; the toast is a courtesy.
-  notify-send -u critical "Shepherd CI runner DOWN" "$1" 2>/dev/null || true
+  kuma_push down "$1"
+  # Best-effort desktop alert; the journal is the source of truth, the toast a
+  # courtesy (and silenced entirely by NOTIFY=0).
+  notify -u critical "Shepherd CI runner DOWN" "$1"
   exit 1
 }
 
@@ -194,6 +231,7 @@ remediate() {
 # and re-check. Alert only if STILL down on the second read.
 if status="$(probe)"; then
   echo "runner-liveness: ${status}"
+  kuma_push up "${status}"
   exit 0
 fi
 
@@ -202,6 +240,7 @@ sleep "${RECHECK_DELAY}"
 
 if status="$(probe)"; then
   echo "runner-liveness: recovered on re-check — was a transient per-job restart window, not an outage"
+  kuma_push up "recovered on re-check — ${status}"
   exit 0
 fi
 
@@ -216,8 +255,9 @@ if [ "${REMEDIATE}" = "1" ]; then
     sleep "${RECHECK_DELAY}"
     if status="$(probe)"; then
       echo "runner-liveness: SELF-HEALED — ${status}"
-      notify-send -u normal "Shepherd CI runner self-healed" \
-        "Auto-recovered after an outage; see journal for details." 2>/dev/null || true
+      kuma_push up "SELF-HEALED — ${status}"
+      notify -u normal "Shepherd CI runner self-healed" \
+        "Auto-recovered after an outage; see journal for details."
       exit 0
     fi
     echo "runner-liveness: remediation ran but runner still down on re-check" >&2

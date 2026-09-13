@@ -1819,10 +1819,25 @@ describe("sweepOrphanedScratch (#2304)", () => {
   const HOUR = 3600_000;
   const NOW = 10_000_000_000;
 
-  /** Build a fake fs over one scratch root: `names` are its top-level dirs. */
+  /** An ENOENT the reconcile's `.git` probe recognises as "not a worktree". */
+  const enoent = () => Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+
+  /**
+   * Build a fake fs over one scratch root and one helper tmp root: `names` are the scratch root's
+   * top-level dirs, `helperNames` (dirs unless listed in `helperFiles`) the helper root's.
+   */
   const makeOps = (
     names: string[],
-    opts?: { liveChildren?: string[]; rootThrows?: boolean; mtimeMs?: number },
+    opts?: {
+      liveChildren?: string[];
+      rootThrows?: boolean;
+      mtimeMs?: number;
+      helperNames?: string[];
+      helperFiles?: string[];
+      helperRootThrows?: boolean;
+      /** Entry names the `.git` probe finds (i.e. that are git worktrees). */
+      gitDirs?: string[];
+    },
   ) => {
     const removed: string[] = [];
     const ops = {
@@ -1835,9 +1850,22 @@ describe("sweepOrphanedScratch (#2304)", () => {
           if (o?.withFileTypes) return names.map((n) => dirent(n, true));
           return names;
         }
+        if (p === HELPER_ROOT) {
+          if (opts?.helperRootThrows) throw new Error("EACCES");
+          const helpers = opts?.helperNames ?? [];
+          if (o?.withFileTypes)
+            return helpers.map((n) => dirent(n, !(opts?.helperFiles ?? []).includes(n)));
+          return helpers;
+        }
         throw new Error("ENOENT");
       }) as never,
-      stat: (async () => ({ mtimeMs: opts?.mtimeMs ?? NOW - 48 * HOUR })) as never,
+      stat: (async (p: string) => {
+        if (String(p).endsWith("/.git")) {
+          const owner = String(p).slice(0, -"/.git".length);
+          if (!(opts?.gitDirs ?? []).some((n) => owner === `${HELPER_ROOT}/${n}`)) throw enoent();
+        }
+        return { mtimeMs: opts?.mtimeMs ?? NOW - 48 * HOUR };
+      }) as never,
       rm: (async (p: string) => {
         removed.push(String(p));
       }) as never,
@@ -1977,7 +2005,91 @@ describe("sweepOrphanedScratch (#2304)", () => {
         },
         log: () => {},
       }),
-    ).resolves.toEqual({ worktrees: 0, helpers: 0, helpersSkipped: false });
+    ).resolves.toEqual({ worktrees: 0, helpers: 0, helperCwds: 0, helpersSkipped: false });
+  });
+
+  // ── rule 3: the helper's own mktemp cwd, directly under a helper tmp root (#2310) ──
+
+  test("removes a stale orphaned helper mktemp cwd under the helper tmp root", async () => {
+    const { r, removed } = await run([], undefined, { helperNames: ["shepherd-namer-Ab3xZ9"] });
+    expect(r.helperCwds).toBe(1);
+    expect(removed).toEqual([`${HELPER_ROOT}/shepherd-namer-Ab3xZ9`]);
+  });
+
+  test("removes a dashed-middle sibling mkdtemp dir (the real-world majority)", async () => {
+    const { r, removed } = await run([], undefined, {
+      helperNames: ["shepherd-update-test-0hynsL", "shepherd-egress-probe-QQ11zz"],
+    });
+    expect(r.helperCwds).toBe(2);
+    expect(removed.length).toBe(2);
+  });
+
+  test("KEEPS a helper cwd whose BASENAME is a live process cwd, under any resolved parent", async () => {
+    // The live cwd is reported under a symlink-RESOLVED parent that differs from the tmp root we
+    // scanned — matching on the full path would miss it and delete a live helper's cwd.
+    const { r, removed } = await run(
+      [],
+      { liveCwds: ["/private/tmp/shepherd-namer-Ab3xZ9"] },
+      { helperNames: ["shepherd-namer-Ab3xZ9"] },
+    );
+    expect(r.helperCwds).toBe(0);
+    expect(removed).toEqual([]);
+  });
+
+  test("KEEPS a fresh (non-stale) helper cwd", async () => {
+    const { r, removed } = await run([], undefined, {
+      helperNames: ["shepherd-namer-Ab3xZ9"],
+      mtimeMs: NOW - 60_000,
+    });
+    expect(r.helperCwds).toBe(0);
+    expect(removed).toEqual([]);
+  });
+
+  test("KEEPS a shape-matching entry that is a git worktree", async () => {
+    // A shepherd worktree slug legitimately has the mktemp shape (`…-helper-mktemp`), and an agent
+    // can `git worktree add "$TMPDIR/…"` — removing one would destroy uncommitted work.
+    const { r, removed } = await run([], undefined, {
+      helperNames: ["shepherd-orphaned-transient-helper-mktemp"],
+      gitDirs: ["shepherd-orphaned-transient-helper-mktemp"],
+    });
+    expect(r.helperCwds).toBe(0);
+    expect(removed).toEqual([]);
+  });
+
+  test("KEEPS foreign tmp entries, non-shepherd names and non-directories", async () => {
+    const { r, removed } = await run([], undefined, {
+      helperNames: [
+        `claude-${process.getuid?.() ?? 1000}`,
+        "aufl-16XPu9",
+        "attach-probe-Uss0CF",
+        "shepherd-namer-Ab3xZ9",
+      ],
+      helperFiles: ["shepherd-namer-Ab3xZ9"], // a FILE of that name is not a cwd
+    });
+    expect(r.helperCwds).toBe(0);
+    expect(removed).toEqual([]);
+  });
+
+  test("liveCwds === null SKIPS the helper-cwd rule too", async () => {
+    const { r, removed } = await run(
+      [],
+      { liveCwds: null },
+      {
+        helperNames: ["shepherd-namer-Ab3xZ9"],
+      },
+    );
+    expect(r.helperCwds).toBe(0);
+    expect(r.helpersSkipped).toBe(true);
+    expect(removed).toEqual([]);
+  });
+
+  test("an unreadable helper tmp root is skipped without aborting the pass", async () => {
+    const { r, removed } = await run(["-tmp-shepherd-namer-Ab3xZ9"], undefined, {
+      helperRootThrows: true,
+    });
+    expect(r.helperCwds).toBe(0);
+    expect(r.helpers).toBe(1); // the claude-side half still ran
+    expect(removed).toEqual(["/scratch/-tmp-shepherd-namer-Ab3xZ9"]);
   });
 });
 

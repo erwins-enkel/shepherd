@@ -986,8 +986,9 @@ const fireTmpSweep = (phase: "boot" | "daily") => {
       });
       console.warn(
         `[tmp-sweep] ${phase}: scratch reconcile removed ${scratch.worktrees} worktree ` +
-          `scratch dir(s), ${scratch.helpers} helper scratch dir(s)` +
-          `${scratch.helpersSkipped ? " (helper half skipped: live cwds unknown)" : ""}`,
+          `scratch dir(s), ${scratch.helpers} helper scratch dir(s), ` +
+          `${scratch.helperCwds} helper cwd(s)` +
+          `${scratch.helpersSkipped ? " (helper halves skipped: live cwds unknown)" : ""}`,
       );
     })
     .catch((err) => console.warn(`[tmp-sweep] ${phase} worktree/store reclaim failed:`, err));

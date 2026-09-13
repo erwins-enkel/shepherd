@@ -1,7 +1,7 @@
 import { promises as fsp, type Dirent } from "node:fs";
 import { execFile } from "node:child_process";
 import { homedir, tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { promisify } from "node:util";
 import {
   parseWorktrees,
@@ -1809,9 +1809,11 @@ export async function pruneRepoWorktrees(
 // the nested `claude-$uid`) is left strictly alone.
 
 /**
- * A transient helper's mktemp BASENAME, i.e. what remains of an entry name once its tmp-root
- * prefix is stripped: a `shepherd-` prefix, the helper's own word(s), and the six random chars
- * `mkdtemp` appends. Matched whole (anchored both ends) so a longer path tail cannot slip through.
+ * A transient helper's mktemp BASENAME: a `shepherd-` prefix, the helper's own word(s), and the six
+ * random chars `mkdtemp` appends. Matched whole (anchored both ends) so a longer path tail cannot
+ * slip through. Serves BOTH helper rules — against what remains of a dashified entry name once its
+ * tmp-root prefix is stripped (the claude-side mirror), and against a REAL entry name directly
+ * under a helper tmp root (the mktemp cwd itself, #2310).
  */
 const HELPER_MKTEMP_BASENAME = /^shepherd-[a-z-]+-[A-Za-z0-9]{6}$/;
 
@@ -1853,9 +1855,11 @@ export interface SweepOrphanedScratchOpts {
 export interface SweepOrphanedScratchResult {
   /** Orphaned per-session worktree scratch roots removed. */
   worktrees: number;
-  /** Orphaned transient-helper scratch dirs removed. */
+  /** Orphaned transient-helper claude-side scratch dirs removed (the dashified mirrors). */
   helpers: number;
-  /** True when the helper half was skipped because live cwds were unknown. */
+  /** Orphaned transient-helper mktemp cwds removed from under the helper tmp roots (#2310). */
+  helperCwds: number;
+  /** True when BOTH helper rules were skipped because live cwds were unknown. */
   helpersSkipped: boolean;
 }
 
@@ -1952,11 +1956,13 @@ export async function sweepOrphanedScratch(
   const result: SweepOrphanedScratchResult = {
     worktrees: 0,
     helpers: 0,
+    helperCwds: 0,
     helpersSkipped: opts.liveCwds === null,
   };
   try {
     const ctx = await resolveReconcileCtx(opts, log);
     for (const root of ctx.roots) await reconcileRoot(root, ctx, result);
+    for (const root of ctx.helperTmpRoots) await reconcileHelperTmpRoot(root, ctx, result);
   } catch (err) {
     log(`[tmp-sweep] scratch reconcile: unexpected error: ${String(err)}`);
   }
@@ -1971,8 +1977,13 @@ interface ReconcileCtx {
   roots: string[];
   log: (msg: string) => void;
   indexes: WorktreesRootIndex[];
+  /** The helper tmp roots themselves — scanned for the mktemp cwds sitting directly under them. */
+  helperTmpRoots: string[];
+  /** Those same roots dashified — the prefix a cwd's claude-side mirror carries. */
   helperPrefixes: string[];
   liveHelperCwds: Set<string> | null;
+  /** Basenames of live process cwds, or `null` when unknown — see `reconcileHelperTmpRoot`. */
+  liveHelperBasenames: Set<string> | null;
 }
 
 async function resolveReconcileCtx(
@@ -1980,6 +1991,8 @@ async function resolveReconcileCtx(
   log: (msg: string) => void,
 ): Promise<ReconcileCtx> {
   const ops = opts.fsOps ?? { readdir: fsp.readdir, stat: fsp.stat, rm: fsp.rm };
+  const helperTmpRoots = [...new Set(opts.helperTmpRoots ?? helperTmpRootCandidates())];
+  const liveCwds = opts.liveCwds?.filter(Boolean) ?? null;
   return {
     ops,
     log,
@@ -1992,11 +2005,10 @@ async function resolveReconcileCtx(
       ops.readdir,
       log,
     ),
-    helperPrefixes: [...new Set(opts.helperTmpRoots ?? helperTmpRootCandidates())].map(
-      (r) => `${dashify(r)}-`,
-    ),
-    liveHelperCwds:
-      opts.liveCwds === null ? null : new Set(opts.liveCwds.filter(Boolean).map(dashify)),
+    helperTmpRoots,
+    helperPrefixes: helperTmpRoots.map((r) => `${dashify(r)}-`),
+    liveHelperCwds: liveCwds === null ? null : new Set(liveCwds.map(dashify)),
+    liveHelperBasenames: liveCwds === null ? null : new Set(liveCwds.map((c) => basename(c))),
   };
 }
 
@@ -2016,6 +2028,73 @@ async function reconcileRoot(
     if (!ent.isDirectory()) continue;
     const kind = classifyScratchEntry(ent.name, ctx);
     if (kind !== null) await removeClassified(join(root, ent.name), kind, ctx, result);
+  }
+}
+
+/**
+ * True when `p` looks like a git worktree (or repo): it holds a `.git`. Rule 3's matcher is
+ * deliberately shape-based, and a shepherd worktree SLUG legitimately has that shape — the branch
+ * `shepherd-orphaned-transient-helper-mktemp` ends in a six-lowercase-letter word — while agents do
+ * `git worktree add "$TMPDIR/…"` (#1862), landing one directly under a helper tmp root. Removing
+ * that would destroy uncommitted work and orphan the worktree record whose removal belongs to
+ * `reapAbandonedWorktrees` and its wall of refusals. So: only a clean `ENOENT` proves "not a
+ * worktree"; every other stat outcome keeps.
+ *
+ * The refusal is by `.git`, not by worktree-vs-repo, so a standalone `git init` fixture under a tmp
+ * root is kept too — deliberately: distinguishing them buys back only leaked test scratch (whose
+ * real fix is cleaning it up at the source) and costs the one refusal that protects real work.
+ */
+async function looksLikeGitWorktree(p: string, stat: FsOps["stat"]): Promise<boolean> {
+  try {
+    await stat(join(p, ".git"));
+    return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException)?.code !== "ENOENT";
+  }
+}
+
+/**
+ * Rule 3 (#2310): reclaim a transient helper's own `mkdtemp` cwd, which sits DIRECTLY under a
+ * helper tmp root rather than under a claude tmp root — a different root and a different (real,
+ * not dashified) name than the mirror rule 2 reclaims, so neither rule above covers it.
+ * `cleanupHelperDir` removes the cwd in a `finally`, so a survivor is a run whose teardown never
+ * completed (crash, restart, kill), plus every other `shepherd-`-prefixed `mkdtemp` under the same
+ * roots — the middle word stays generic so retired prefixes and sibling mkdtemp sites are reclaimed
+ * too instead of leaking forever.
+ *
+ * Liveness is matched on the BASENAME, not the full path: `liveCwds` are kernel-resolved
+ * `/proc/<pid>/cwd` readlinks while the candidate path is built from an UNRESOLVED `tmpdir()`, so a
+ * symlinked tmp root would make a live helper look dead — the destructive direction. A mktemp
+ * basename is unique across roots (six chars of a 62-char alphabet), and a collision resolves to
+ * *keep*. Every branch defaults to keeping; a condemned entry still passes the `.git` refusal and
+ * the shared mtime staleness gate before it is removed.
+ */
+async function reconcileHelperTmpRoot(
+  root: string,
+  ctx: ReconcileCtx,
+  result: SweepOrphanedScratchResult,
+): Promise<void> {
+  const live = ctx.liveHelperBasenames;
+  if (live === null) return; // FAIL-CLOSED: live cwds unknown ⇒ this rule is skipped entirely
+  let entries: Dirent[];
+  try {
+    entries = (await ctx.ops.readdir(root, { withFileTypes: true })) as Dirent[];
+  } catch {
+    return; // missing/unreadable root — nothing to reconcile
+  }
+  for (const ent of entries) {
+    if (!ent.isDirectory()) continue;
+    if (!HELPER_MKTEMP_BASENAME.test(ent.name)) continue;
+    if (live.has(ent.name)) continue;
+    const p = join(root, ent.name);
+    try {
+      if (await looksLikeGitWorktree(p, ctx.ops.stat)) continue;
+      result.helperCwds += await removeIfStale(p, await ctx.ops.stat(p), ctx);
+    } catch (err) {
+      // Fail-closed per entry, as everywhere in this reconcile: surface and skip, never abort the
+      // pass and never miscount as success.
+      ctx.log(`[tmp-sweep] scratch reconcile: failed to remove ${p}: ${String(err)}`);
+    }
   }
 }
 

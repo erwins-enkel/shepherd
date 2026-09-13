@@ -208,7 +208,7 @@
   // Suppressing the model can leave nothing to print (an unknown effort renders no segment of its
   // own — the ordinary Claude case), so the leading separator hangs off the text rather than the
   // template: `TASK-01 ·` with nothing after it is the one regression this gate can produce. The
-  // hover tip still names the model either way, so nothing becomes unknowable.
+  // effort's hover tip still names the model when its inline label is hidden.
   const environmentText = $derived(
     (showModel ? environment.segments : environment.effort ? [environment.effort] : []).join(" · "),
   );
@@ -995,9 +995,12 @@
     {/if}
 
     <span class="meta">
-      <span class="meta-text" use:statusTip={{ text: environment.tooltip }}
-        ><TaskIdButton {session} />{environmentSuffix}</span
-      >
+      <span class="meta-text">
+        <TaskIdButton {session} /><span
+          class="meta-environment"
+          use:statusTip={{ text: environment.tooltip }}>{environmentSuffix}</span
+        >
+      </span>
       {#if coldResume}
         <span class="chip-cold-resume" use:statusTip={{ text: coldResumeTip, wide: true }}
           ><span aria-hidden="true">⚠</span> {coldResumeChip}</span

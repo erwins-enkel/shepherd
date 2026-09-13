@@ -150,7 +150,7 @@ describe("card ↔ status bar parity", () => {
     const cardText = cardEnvironment();
     // The card carries its explanation in a statusTip popover, not a native title — open it and
     // read the rendered text, so this asserts the card's own string and not the bar's.
-    const meta = document.querySelector(".meta-text") as HTMLElement;
+    const meta = document.querySelector(".meta-environment") as HTMLElement;
     meta.dispatchEvent(new PointerEvent("pointerenter", { bubbles: true }));
     await new Promise((r) => setTimeout(r, 400));
     const cardTip = (document.querySelector(".status-tip") as HTMLElement).textContent;

@@ -29,9 +29,10 @@ it needs, and writes an implementation plan that a second agent adversarially
 reviews, revising until the plan holds up or a round limit is reached. **Who
 releases the approved plan into execution depends on Autopilot** — with Autopilot
 off you give the explicit Go; with it on (or for a drain-spawned session) Shepherd
-releases it itself. On Codex that automatic release additionally requires an
-isolated worktree: a session sharing its working directory waits for your Go even
-with Autopilot on. Either way, a gated agent asks you its questions first:
+releases it itself. Both coding CLIs follow the same rule here, in either
+checkout mode: the automatic release needs a clearly identified task
+conversation, and a session Shepherd cannot attribute one to waits for your Go
+even with Autopilot on. Either way, a gated agent asks you its questions first:
 Autopilot stands down for the whole planning phase. If the plan file changes after
 it was approved, Shepherd marks it as edited and offers a re-review — during
 execution too; a re-review that requests changes returns the session to the
@@ -48,9 +49,11 @@ its base branch or picks up a conflict is steered back to the agent to rebase, a
 CI and the critic then run again on the rebased version. Repeated attempts are
 capped (5 by default) so a genuine conflict pauses for you instead of thrashing;
 in a full-auto session the [merge train](#merge-train) owns that same recovery
-instead. On Codex it applies only
-when Shepherd owns an isolated worktree, and stands down entirely without one —
-its resume path would otherwise target a sibling session in the shared directory.
+instead. Claude and Codex follow the same rule, in either checkout mode:
+unattended progress needs a clearly identified task conversation, and Autopilot
+stands down for a session Shepherd cannot attribute one to. The
+[merge train](#merge-train) is the exception — it still carries a Codex session
+only when Shepherd owns an isolated worktree.
 
 ### Task amendment
 

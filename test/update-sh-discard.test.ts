@@ -57,7 +57,10 @@ function makeDiscardDir(wtContent: string): {
   all: string;
   wt: string;
 } {
-  const dir = mkdtempSync(join(tmpdir(), "shepherd-discard-"));
+  // NOT "shepherd-discard-": that is `updateDiscardApply()`'s prefix in src/server.ts, and sharing
+  // it made this test's output indistinguishable from the product path's. #2313 was filed reading
+  // 252 of these as escaped product dirs; every one was this helper's.
+  const dir = mkdtempSync(join(tmpdir(), "shepherd-discard-test-"));
   const all = join(dir, "all");
   const wt = join(dir, "wt");
   writeFileSync(all, "a.ts\0");

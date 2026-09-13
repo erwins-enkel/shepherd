@@ -146,6 +146,12 @@ describe("sweepClaudeTmp", () => {
 
     const staleCache = join(root, "bunx-1000-typescript"); // known regenerable cache, stale → removed
     mkdirSync(staleCache);
+    // The root a KILLED `bun test` run leaves behind (test/setup-test-env.ts drops it in an
+    // `afterAll`, which a kill skips). This sweep is the only thing that ever reclaims those, and
+    // only because `shepherd-test-run-` is in REGENERABLE_CACHE — so pin that prefix here: edit it
+    // out of the regex and a killed run's root becomes permanent litter, silently (#2313).
+    const staleTestRun = join(root, "shepherd-test-run-Ab3xQz");
+    mkdirSync(staleTestRun);
     const freshCache = join(root, "fallow-audit-base-cache-abc"); // known cache, fresh → kept
     mkdirSync(freshCache);
     // A still-active session's scratch: NOT a cache name, stale top-level mtime → must be KEPT
@@ -156,6 +162,7 @@ describe("sweepClaudeTmp", () => {
     const now = Date.now();
     const old = new Date(now - 48 * 3600_000); // 48h ago
     utimesSync(staleCache, old, old);
+    utimesSync(staleTestRun, old, old);
     utimesSync(sessionScratch, old, old);
 
     // Fake statfs forces over-threshold deterministically (real tmpfs use varies).
@@ -176,10 +183,11 @@ describe("sweepClaudeTmp", () => {
     expect(res.reason).toContain("inode use");
     expect(existsSync(ncc)).toBe(false); // wholesale
     expect(existsSync(staleCache)).toBe(false); // known cache, stale → removed
+    expect(existsSync(staleTestRun)).toBe(false); // killed test run's root, stale → removed
     expect(existsSync(freshCache)).toBe(true); // known cache, fresh → kept
     expect(existsSync(sessionScratch)).toBe(true); // non-cache scratch → kept despite being stale
     expect(existsSync(root)).toBe(true); // root itself never removed
-    expect(res.removed).toBe(2); // ncc + staleCache only
+    expect(res.removed).toBe(3); // ncc + staleCache + staleTestRun only
   });
 
   test("over threshold: a stale NON-cache (session) scratch dir is left in place", async () => {

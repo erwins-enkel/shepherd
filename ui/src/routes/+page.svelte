@@ -2795,6 +2795,7 @@
           showSettings = true;
         }}
         ondonelens={mobile.current ? () => (herdFilter = "done") : undefined}
+        onowedlens={mobile.current ? () => (herdFilter = "owed") : undefined}
         onusage={() => (showUsage = true)}
         onhalt={haltHerd}
         update={store.update}

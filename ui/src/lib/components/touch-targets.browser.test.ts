@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
-import { page } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 import "../../app.css";
 import { overwriteGetLocale } from "$lib/paraglide/runtime";
 import type { BuildQueue, GitState, PlanGate, ReviewVerdict, Session } from "$lib/types";
@@ -266,13 +266,17 @@ beforeEach(() => {
   repoConfig.settled = {};
 });
 
-afterEach(() => {
+afterEach(async () => {
   overwriteGetLocale(() => "en");
   reviews.map = {};
   planGates.map = {};
   buildQueues.map = {};
   projectIcons.map = {};
   document.querySelectorAll("body > div").forEach((n) => n.remove());
+  // Several fixtures below drive page.viewport to measure a narrow phone. Restoring it HERE
+  // rather than at the end of each test means a failing assertion can't leak its viewport into
+  // the next one and turn one failure into a cascade.
+  await page.viewport(1280, 720);
 });
 
 // ── the sweep ───────────────────────────────────────────────────────────────────
@@ -431,31 +435,84 @@ describe("D6: the header status tallies are 44x44 on a phone", () => {
 });
 
 describe("the surfaces this screen is built from also clear the floor", () => {
-  // The bottom navigation bar: four lens segments (HerdSegRow renders inside it) plus
-  // "New task" and REPOS. Every one of those is a primary control on the phone.
-  for (const locale of ["en", "de"] as const) {
-    it(`bottom navigation bar [${locale}]`, async () => {
-      overwriteGetLocale(() => locale);
-      const host = document.createElement("div");
-      host.style.width = "430px";
-      document.body.appendChild(host);
-      render(ActionBar, {
-        target: host,
-        props: {
-          mobile: true,
-          lens: true,
-          filter: "ready" as const,
-          statusFilter: null,
-          onstatusfilter: () => {},
-          onnew: () => {},
-          onbacklog: () => {},
-        },
-      });
-      await frame();
-      // four lens segments + New task + REPOS
-      assertAllTargetsConform(host, `ActionBar [${locale}]`, 6);
+  // The bar is position:fixed, so it spans the VIEWPORT and ignores the host's width — driving
+  // page.viewport is the only way these fixtures measure the width they claim to.
+  async function renderActionBar(width: number): Promise<HTMLElement> {
+    await page.viewport(width, 800);
+    const host = document.createElement("div");
+    host.style.width = `${width}px`;
+    document.body.appendChild(host);
+    render(ActionBar, {
+      target: host,
+      props: {
+        mobile: true,
+        lens: true,
+        filter: "ready" as const,
+        statusFilter: null,
+        onstatusfilter: () => {},
+        onnew: () => {},
+        onbacklog: () => {},
+      },
     });
+    await frame();
+    return host;
   }
+
+  // The bottom navigation bar: three lens segments (HerdSegRow renders inside it) plus
+  // "New task" and REPOS, all sharing ONE rank. Every one of those is a primary control on the
+  // phone. Measured at both ends of the phone range: 430px is the reference device, and 320px is
+  // where the five slots are tightest — the actions shed padding there (ActionBar's 360px media
+  // query) precisely so the DE labels keep their width, and this is what proves the hit areas
+  // survive that squeeze rather than the labels quietly winning.
+  for (const locale of ["en", "de"] as const) {
+    for (const width of [430, 320] as const) {
+      it(`bottom navigation bar [${locale}] at ${width}px`, async () => {
+        overwriteGetLocale(() => locale);
+        const host = await renderActionBar(width);
+        // three lens segments + REPOS + New task
+        assertAllTargetsConform(host, `ActionBar [${locale}] @${width}px`, 5);
+      });
+    }
+  }
+
+  // Focus visibility, on the same five controls. This is a CASCADE trap, not an oversight the
+  // eye catches: `.actions.mobile .btn` sets `box-shadow: none` at 0,3,0, which outranks the
+  // base `.btn:focus-visible` ring at 0,2,0 — and that base rule also sets `outline: none`. So a
+  // phone-flattened action keeps its ring ONLY while the mobile block restores it, and the bar
+  // is reachable by any keyboard user who narrows the window (`mobile` is a media query, not a
+  // device check). WCAG 2.4.7.
+  it("every control in the bottom bar shows a focus indicator", async () => {
+    const host = await renderActionBar(430);
+    const controls = [...host.querySelectorAll<HTMLElement>(".btn, .seg-btn")];
+    expect(controls.length, "three lens segments + REPOS + New task").toBe(5);
+    // Chromium only matches :focus-visible on a programmatically focused BUTTON once the page
+    // has seen keyboard interaction — establish that modality first (house pattern, TopBar).
+    controls[0].focus();
+    await userEvent.keyboard("{Tab}");
+    for (const c of controls) {
+      c.focus();
+      await frame();
+      const cs = getComputedStyle(c);
+      expect(
+        cs.boxShadow !== "none" || cs.outlineStyle !== "none",
+        `"${c.textContent?.trim()}" renders no focus indicator (box-shadow ${cs.boxShadow}, outline-style ${cs.outlineStyle})`,
+      ).toBe(true);
+    }
+  });
+
+  // The bar is the screen's bottom edge, not a slab lying on it: a top hairline and nothing
+  // else. A four-sided box here is what made it read as nested, so the absence of the other
+  // three borders is asserted rather than left to review.
+  it("bottom navigation bar carries a top border only", async () => {
+    const host = await renderActionBar(430);
+    const bar = host.querySelector<HTMLElement>(".actions");
+    expect(bar, ".actions rendered").not.toBeNull();
+    const cs = getComputedStyle(bar!);
+    expect(parseFloat(cs.borderTopWidth)).toBeGreaterThan(0);
+    for (const side of ["borderRightWidth", "borderBottomWidth", "borderLeftWidth"] as const) {
+      expect(parseFloat(cs[side]), `${side} on the mobile action bar`).toBe(0);
+    }
+  });
 
   // The REPOS sheet. Its rows take Material's 48px rather than the 44px floor: the list screen
   // has to ration vertical space, a sheet does not.

@@ -43,11 +43,11 @@ describe("Toasts mobile inset above the action bar (#810)", () => {
     toasts.info("decommissioned", { sticky: true });
     render(Toasts, { aboveActionBar: true });
     await tick();
-    // --mobile-actionbar-h is TWO ranks since D10 (docs/design/mobile-herd): the lens segments
-    // above the actions, both --mobile-actionbar-hit tall, separated by --mobile-actionbar-rowgap.
-    // 2·44 + 4 + 10 + 2·1 = 104px, + max(--mobile-actionbar-pad 10px, 0) = 114px.
+    // --mobile-actionbar-h is ONE rank: the lens segments, REPOS and "New task" side by side,
+    // --mobile-actionbar-hit tall, under a single top border (the bar has no side or bottom one).
+    // 44 + 10 + 1 = 55px, + max(--mobile-actionbar-pad 10px, 0) = 65px.
     const inset = toastsBottomPx();
-    expect(inset).toBeCloseTo(114, 0); // within ~0.5px
+    expect(inset).toBeCloseTo(65, 0); // within ~0.5px
     expect(inset).toBeGreaterThan(0); // strictly above the flush (false) case
   });
 

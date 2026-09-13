@@ -123,6 +123,31 @@ mit Begründung stehen** — dadurch ist die Ausnahmeliste selbst der Prüfpfad.
 Die Kartenhöhe hält `mobile-list-overflow.browser.test.ts`; die Geometrie der unteren Leiste hält
 `Toasts.browser.test.ts` (Toast-Abstand = `--mobile-actionbar-h` + Safe Area).
 
+## Nachtrag: die Leiste ist jetzt EIN Rang
+
+Die Entwurfsvorlage oben hat B2 („Zwei Ränge") gewählt und B1 („Eine Leiste") verworfen. Diese
+Entscheidung ist zurückgenommen — gebaut ist jetzt B1: **ein** 44-px-Rang mit
+`Nächstes · Alle · Bereit · REPOS · + Neu`.
+
+- **Der Lens „Offen" verliert sein Segment** und zieht wie „Fertig" ins Zahnrad-Menü (D11 gilt
+  jetzt für beide). Er kann das ohne „Wo bin ich?"-Verlust, weil dieser Lens
+  `PostMergeStepsPanel` rendert — der Screen benennt sich selbst, anders als eine ungelabelte
+  gefilterte Liste, und jeder Segment-Tap führt zurück.
+- **Nichts in der Leiste ist mehr gerahmt.** „+ Neu" ist amberfarbener Text mit gezeichnetem
+  Plus, REPOS ist Ink, Trennung durch Haarlinien. Der Ruhe-Glow der Primäraktion ist ab jetzt
+  Desktop-only.
+- **Die Leiste trägt nur noch eine Oberkante.** Der vierseitige Rahmen war ein Abweichen von
+  `Main.dc.html` (dort: `border-top` allein) und war der Grund, warum die Leiste wie eine
+  aufgelegte Platte statt wie die Bildschirmkante wirkte.
+
+Geometrie auf dem Referenzgerät: `--mobile-actionbar-h` 104 → **55 px**, Leiste inkl.
+Home-Indikator 138 → **89 px**, Liste 681 → **730 px**, also ~6,7 → **~7,2 Karten**. Rund 49 px,
+etwa eine halbe Karte — der 34-px-Bodeninset wird in beiden Varianten bezahlt.
+
+Die Artboards dieser Runde sind nicht nachgezogen; sie bleiben das Protokoll ihrer Runde. Die
+neue Vorlage (gewählter Entwurf, verworfene Zwei-Rang-Variante, Leisten-Detail) liegt unter
+<https://claude.ai/code/artifact/1c1c1aec-db13-4771-82e0-b8cbeb5fee81>.
+
 ## Offen
 
 - Die Entwurfsvorlage zeigt Richtung **B3** (Repo-Rail bleibt sichtbar, Tallies zu einem Knopf

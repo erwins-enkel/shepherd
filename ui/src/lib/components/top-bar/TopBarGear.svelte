@@ -30,6 +30,7 @@
     closeMenu,
     chooseSettings,
     ondonelens,
+    onowedlens,
     chooseUsage,
     learningsPresent,
     learnings,
@@ -69,6 +70,9 @@
     /** Phone only: opens the Done lens, whose segment left the lens row (D11,
      *  docs/design/mobile-herd). Absent on desktop, where the lens strip still carries it. */
     ondonelens?: () => void;
+    /** Phone only: opens the Owed lens, whose segment left the lens row when it shrank to
+     *  three. Absent on desktop, where the lens strip still carries it. */
+    onowedlens?: () => void;
     chooseUsage: () => void;
     learningsPresent: boolean;
     learnings: number;
@@ -192,6 +196,20 @@
             onclick={() => {
               closeMenu();
               ondonelens?.();
+            }}
+          />
+        {/if}
+        {#if onowedlens}
+          <!-- Owed followed Done here when the lens row shrank to three and the bar collapsed to
+               a single rank. Glyph matches lensGlyph.owed (herd/lens-glyphs.ts), as the Done row
+               above matches lensGlyph.done. No count on this row: the owed store is loaded eagerly
+               on DESKTOP only (#1257, +page.svelte), so a phone count would read 0 until opened. -->
+          <GearRow
+            glyph="☑"
+            label={m.gearmenu_owed_lens()}
+            onclick={() => {
+              closeMenu();
+              onowedlens?.();
             }}
           />
         {/if}

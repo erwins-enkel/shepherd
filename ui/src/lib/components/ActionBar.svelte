@@ -51,31 +51,65 @@
   const showLens = $derived(mobile && lens);
 </script>
 
+<!-- The two actions are snippets so the phone and the desktop can order them differently
+     WITHOUT a visual order that contradicts the DOM: the phone puts "New task" last, in the
+     thumb corner, and the desktop leads with it. A CSS `order` would have split focus order
+     from reading order on one of the two. -->
+{#snippet newTaskBtn()}
+  <button
+    class="btn primary"
+    class:tip={!mobile}
+    type="button"
+    onclick={onnew}
+    aria-label={mobile ? m.actionbar_new_task() : undefined}
+    data-tip={!mobile ? m.actionbar_shortcut_hint({ key: "N" }) : undefined}
+    aria-keyshortcuts={!mobile ? "n" : undefined}
+  >
+    {#if mobile}
+      <!-- Drawn plus: the phone label is the bare verb, so the glyph carries the "+" the
+           desktop label spells out. Decorative — the full label rides on aria-label above. -->
+      <svg
+        width="13"
+        height="13"
+        viewBox="0 0 16 16"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.6"
+        stroke-linecap="square"
+        aria-hidden="true"><path d="M8 3v10M3 8h10" /></svg
+      >{m.actionbar_new_task_short()}
+    {:else}
+      {m.actionbar_new_task()}
+    {/if}
+  </button>
+{/snippet}
+
+{#snippet backlogBtn()}
+  <button
+    class="btn backlog"
+    class:tip={!mobile}
+    type="button"
+    onclick={onbacklog}
+    data-tip={!mobile ? m.actionbar_shortcut_hint({ key: "R" }) : undefined}
+    aria-keyshortcuts={!mobile ? "r" : undefined}>{m.actionbar_backlog()}</button
+  >
+{/snippet}
+
 {#if !(desktopOnly && mobile)}
   <div class="actions" class:mobile>
-    {#if showLens}
-      <!-- Upper rank: the herd lens. Lives here rather than atop the list (D10) — it is the
-           most-tapped control on the screen and belongs within thumb reach. -->
-      <HerdSegRow bind:filter placement="bottom" {statusFilter} {onstatusfilter} />
-    {/if}
     <div class="rank">
-      <button
-        class="btn primary"
-        class:tip={!mobile}
-        type="button"
-        onclick={onnew}
-        data-tip={!mobile ? m.actionbar_shortcut_hint({ key: "N" }) : undefined}
-        aria-keyshortcuts={!mobile ? "n" : undefined}>{m.actionbar_new_task()}</button
-      >
-      {#if onbacklog}
-        <button
-          class="btn backlog"
-          class:tip={!mobile}
-          type="button"
-          onclick={onbacklog}
-          data-tip={!mobile ? m.actionbar_shortcut_hint({ key: "R" }) : undefined}
-          aria-keyshortcuts={!mobile ? "r" : undefined}>{m.actionbar_backlog()}</button
-        >
+      {#if showLens}
+        <!-- The herd lens. Lives here rather than atop the list (D10) — it is the most-tapped
+             control on the screen and belongs within thumb reach — and shares this single rank
+             with REPOS and "New task". -->
+        <HerdSegRow bind:filter placement="bottom" {statusFilter} {onstatusfilter} />
+      {/if}
+      {#if mobile}
+        {#if onbacklog}{@render backlogBtn()}{/if}
+        {@render newTaskBtn()}
+      {:else}
+        {@render newTaskBtn()}
+        {#if onbacklog}{@render backlogBtn()}{/if}
       {/if}
     </div>
     {#if !mobile}
@@ -265,20 +299,25 @@
      came unstuck and scrolled away on long lists. The list reserves matching
      padding-bottom (see .shell.mobile.list) so no row hides behind the bar.
      Side + bottom insets clear the gesture-nav / landscape-notch safe areas. */
-  /* Two ranks on the phone (D10, docs/design/mobile-herd): the lens segments on top, the
-     actions below. --mobile-actionbar-h in app.css encodes exactly this geometry (2 x hit +
-     rowgap + top pad + borders) and the list reserves it as padding-bottom, so the two cannot
-     drift apart. */
+  /* ONE rank on the phone: the lens segments, REPOS and "New task" side by side.
+     --mobile-actionbar-h in app.css encodes exactly this geometry (hit + top pad + the single
+     top border) and the list reserves it as padding-bottom, so the two cannot drift apart.
+
+     A TOP HAIRLINE ONLY — no side or bottom border. The bar IS the bottom edge of the screen;
+     a box around it read as a slab lying over the screen, and its bottom border cut the panel
+     off above the home-indicator zone instead of letting the ground run into it. */
   .actions.mobile {
-    flex-direction: column;
+    flex-direction: row;
     align-items: stretch;
-    gap: var(--mobile-actionbar-rowgap);
+    gap: 0;
     position: fixed;
     left: 0;
     right: 0;
     bottom: 0;
     z-index: 5;
-    padding: var(--mobile-actionbar-pad);
+    border: 0;
+    border-top: var(--actionbar-border) solid var(--color-line);
+    padding: var(--mobile-actionbar-pad) 0 0;
     padding-left: max(var(--mobile-actionbar-pad), env(safe-area-inset-left));
     padding-right: max(var(--mobile-actionbar-pad), env(safe-area-inset-right));
     padding-bottom: max(var(--mobile-actionbar-pad), env(safe-area-inset-bottom));
@@ -291,17 +330,54 @@
   .actions:not(.mobile) .rank {
     display: contents;
   }
-  .actions.mobile .btn.primary {
+  /* The phone rank: hairlines separate its slots, nothing inside it is boxed. The lens group
+     takes the free width (see HerdSegRow), the two actions stay at their intrinsic size. */
+  .actions.mobile .rank {
     flex: 1;
-    text-align: center;
-    padding: 12px;
+    min-width: 0;
+    gap: 0;
+    align-items: stretch;
+  }
+  .actions.mobile .btn {
+    border: 0;
+    border-left: 1px solid var(--color-line);
+    border-radius: 0;
+    background: none;
+    box-shadow: none;
     min-height: var(--mobile-actionbar-hit);
-    font-size: var(--fs-base);
+    font-size: var(--fs-meta);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+  }
+  .actions.mobile .btn.primary {
+    color: var(--color-amber);
+    padding: 0 15px;
   }
   .actions.mobile .btn.backlog {
-    padding: 12px 16px;
-    min-height: var(--mobile-actionbar-hit);
-    font-size: var(--fs-base);
+    color: var(--color-ink);
+    padding: 0 13px;
+  }
+  /* The primary's resting glow is desktop-only; on the phone every slot is flat. */
+  .actions.mobile .btn.primary:focus-visible {
+    box-shadow: inset 0 0 0 1px var(--color-amber);
+  }
+  /* Below a 360px viewport the three lens labels get tight: at 320px the row has ~190px to split
+     three ways once the actions take their width, and DE "Nächstes" — the longest label — needs
+     ~59px of it. MEASURED, not estimated: at the shipped desktop padding each lens fell to 59.2px
+     and truncated by a pixel. Buying ~15px back from the actions leaves ~64px per lens, and the
+     two actions still measure ~53px wide — well clear of the 44px floor the touch sweep holds. */
+  @media (max-width: 360px) {
+    .actions.mobile .btn {
+      gap: 6px;
+    }
+    .actions.mobile .btn.primary {
+      padding: 0 6px;
+    }
+    .actions.mobile .btn.backlog {
+      padding: 0 6px;
+    }
   }
 
   /* Desktop-only hover tooltip surfacing the keyboard shortcut. Mirrors the

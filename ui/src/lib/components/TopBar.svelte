@@ -59,6 +59,7 @@
     limits = null,
     onsettings,
     ondonelens,
+    onowedlens,
     onusage,
     onhalt,
     update = null,
@@ -96,6 +97,9 @@
     /** Phone only: opens the Done lens from the gear menu, since its segment left the
      *  lens row (D11, docs/design/mobile-herd). */
     ondonelens?: () => void;
+    /** Phone only: opens the Owed lens from the gear menu, since its segment left the
+     *  lens row when the bar collapsed to a single rank. */
+    onowedlens?: () => void;
     onusage?: () => void;
     onhalt?: () => void;
     update?: UpdateStatus | null;
@@ -930,6 +934,7 @@
     <TopBarGear
       {mobile}
       {ondonelens}
+      {onowedlens}
       {haltable}
       {gearPipTier}
       {armed}

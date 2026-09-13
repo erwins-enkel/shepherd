@@ -245,8 +245,9 @@ describe("mobile list row never overflows its container", () => {
 
 // The list screen's whole point is how many sessions fit (D10, docs/design/mobile-herd). On the
 // 430x932 reference phone the budget is: 113px of chrome above (59px safe area + a 54px TopBar)
-// and 138px of bottom navigation below (--mobile-actionbar-h + its safe-area inset, whose
-// arithmetic Toasts.browser.test.ts holds), leaving ~681px of list.
+// and 89px of bottom navigation below (--mobile-actionbar-h + its safe-area inset, whose
+// arithmetic Toasts.browser.test.ts holds), leaving ~730px of list. The bar carried two ranks
+// until it collapsed to one; that is where the extra ~49px came from.
 //
 // The card diet is one prompt line, 9px padding and a micro-rung clock: ~26px off EVERY row,
 // whatever its badge load. There is deliberately NO count cap on the badge stack (see
@@ -254,15 +255,15 @@ describe("mobile list row never overflows its container", () => {
 // than a quiet one. That is honest: the rail is showing more. Both ends are asserted here so the
 // density claim is a measured range rather than an average nobody can check.
 //
-// NOT the "7,0" from the design sheet: that was computed from an estimated 97px card and forgot
-// the 2px inter-card margin entirely. Squeezing the remainder out of a touch list's padding would
-// buy the round figure and spend the ergonomics.
+// The design sheet's "7,0" was computed from an estimated 97px card and forgot the 2px
+// inter-card margin entirely. Measured against a 99.5px card and a ~101.5px grid the one-rank bar
+// lands at ~7.2. Squeezing more out of a touch list's padding would spend the ergonomics.
 //
 // Budgets are derived from the REGRESSION each must catch, not from the current measurement — a
 // bar pinned to the local figure fails on CI's 0.05px text-rendering difference while proving
 // nothing. Losing the one-line prompt is +17.5px, which both budgets catch.
 describe("mobile list row height keeps the density budget", () => {
-  // A quiet row: agent chip + plan gate. ~99.5px -> ~6.7 cards per screen.
+  // A quiet row: agent chip + plan gate. ~99.5px -> ~7.2 cards per screen.
   const QUIET_BUDGET = 104;
   // A badge-heavy row: agent + issue + plan gate and the rest of the rail. ~120px -> ~5.6.
   const LOADED_BUDGET = 124;
@@ -289,7 +290,7 @@ describe("mobile list row height keeps the density budget", () => {
       const unit = host.querySelector<HTMLElement>(".unit")!;
       expect(
         unit.getBoundingClientRect().height,
-        `[${locale}] quiet card — ~681px of list / (this + 2px margin) = cards per screen`,
+        `[${locale}] quiet card — ~730px of list / (this + 2px margin) = cards per screen`,
       ).toBeLessThanOrEqual(QUIET_BUDGET);
     });
 

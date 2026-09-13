@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
-import { page } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 import "../../app.css";
 import { overwriteGetLocale } from "$lib/paraglide/runtime";
 import type { BuildQueue, GitState, PlanGate, ReviewVerdict, Session } from "$lib/types";
@@ -474,6 +474,31 @@ describe("the surfaces this screen is built from also clear the floor", () => {
       });
     }
   }
+
+  // Focus visibility, on the same five controls. This is a CASCADE trap, not an oversight the
+  // eye catches: `.actions.mobile .btn` sets `box-shadow: none` at 0,3,0, which outranks the
+  // base `.btn:focus-visible` ring at 0,2,0 — and that base rule also sets `outline: none`. So a
+  // phone-flattened action keeps its ring ONLY while the mobile block restores it, and the bar
+  // is reachable by any keyboard user who narrows the window (`mobile` is a media query, not a
+  // device check). WCAG 2.4.7.
+  it("every control in the bottom bar shows a focus indicator", async () => {
+    const host = await renderActionBar(430);
+    const controls = [...host.querySelectorAll<HTMLElement>(".btn, .seg-btn")];
+    expect(controls.length, "three lens segments + REPOS + New task").toBe(5);
+    // Chromium only matches :focus-visible on a programmatically focused BUTTON once the page
+    // has seen keyboard interaction — establish that modality first (house pattern, TopBar).
+    controls[0].focus();
+    await userEvent.keyboard("{Tab}");
+    for (const c of controls) {
+      c.focus();
+      await frame();
+      const cs = getComputedStyle(c);
+      expect(
+        cs.boxShadow !== "none" || cs.outlineStyle !== "none",
+        `"${c.textContent?.trim()}" renders no focus indicator (box-shadow ${cs.boxShadow}, outline-style ${cs.outlineStyle})`,
+      ).toBe(true);
+    }
+  });
 
   // The bar is the screen's bottom edge, not a slab lying on it: a top hairline and nothing
   // else. A four-sided box here is what made it read as nested, so the absence of the other

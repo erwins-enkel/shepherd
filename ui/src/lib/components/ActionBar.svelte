@@ -359,8 +359,12 @@
     color: var(--color-ink);
     padding: 0 13px;
   }
-  /* The primary's resting glow is desktop-only; on the phone every slot is flat. */
-  .actions.mobile .btn.primary:focus-visible {
+  /* The primary's resting glow is desktop-only; on the phone every slot is flat. That `box-shadow:
+     none` above outranks .btn:focus-visible (0,3,0 vs 0,2,0), which also kills the outline — so
+     the focus ring has to be restored HERE, for BOTH actions. Narrowing this to .primary left
+     REPOS with no visible focus at all (WCAG 2.4.7), on a bar any keyboard user reaches by
+     narrowing the window. */
+  .actions.mobile .btn:focus-visible {
     box-shadow: inset 0 0 0 1px var(--color-amber);
   }
   /* Below a 360px viewport the three lens labels get tight: at 320px the row has ~190px to split

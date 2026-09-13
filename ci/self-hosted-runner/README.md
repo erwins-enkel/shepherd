@@ -255,7 +255,8 @@ rootless-socket checks are precisely what keep it off this box.
 `CI_RUNNER` is set, the workflows no longer fall back to GitHub-hosted runners — GitHub
 just waits indefinitely for a matching self-hosted runner that isn't there. A pending
 check is invisible (no red X), so nothing pages you on its own. The **watchdog timer**
-is the thing that alerts you (journal + desktop toast).
+is the thing that alerts you (journal + desktop toast; set `NOTIFY=0` in the
+deployed `.env` to keep the journal alert but drop the toast on an unattended host).
 
 **Immediate fix — restore CI instantly:**
 

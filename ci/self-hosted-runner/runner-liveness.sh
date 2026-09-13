@@ -25,7 +25,7 @@
 # (mid-restart), not failed. A single-shot check would fire a false "runner down"
 # alert in that window, and a flappy watchdog trains the operator to ignore it —
 # defeating its purpose. So a first down-read is NOT alerted: we sleep one short
-# interval and RE-CHECK. We alert (stderr + best-effort notify-send + exit 1)
+# interval and RE-CHECK. We alert (stderr + best-effort desktop toast + exit 1)
 # ONLY if it's still down on the second read. This rides out the per-job restart
 # gap (RestartSec=5s + container spawn + token mint) while still catching a
 # genuinely-down runner within one 5-min timer tick. Relatedly, the local check
@@ -69,14 +69,28 @@ SLIRP_RECOVER_TIMEOUT="${SLIRP_RECOVER_TIMEOUT:-30}"
 # optional pat.env GH_TOKEN — same credential path as mint-token.sh.
 : "${GH_REPO:?GH_REPO must be set (owner/name) — provided by the unit EnvironmentFile}"
 
+# NOTIFY=0 silences the best-effort desktop toasts below; the journal stays the
+# source of truth either way. WHY a knob and not a removal: on a workstation the
+# toast is the fastest signal, but on a mostly-unattended host (where the desktop is
+# only occasionally used for unrelated work) a recurring outage just spams a screen
+# nobody is watching and trains the operator to dismiss toasts. Deployed hosts set
+# NOTIFY=0 in ~/.config/<repo>-ci-runner/.env; the default stays on.
+NOTIFY="${NOTIFY:-1}"
+
+# notify: best-effort desktop toast, honouring NOTIFY. notify-send may be absent
+# (headless host) or have no bus to talk to; never let that turn a real failure into
+# a different error or, worse, mask it — so swallow its exit entirely.
+notify() {
+  [ "${NOTIFY}" = "1" ] || return 0
+  notify-send "$@" 2>/dev/null || true
+}
+
 fail() {
   # Message lands on stderr -> the systemd journal for this oneshot unit.
   echo "runner-liveness: $1" >&2
-  # Best-effort desktop alert. notify-send may be absent (headless host) or have
-  # no bus to talk to; never let that turn a real failure into a different error
-  # or, worse, mask it — so swallow its exit entirely. The journal is the source
-  # of truth; the toast is a courtesy.
-  notify-send -u critical "Shepherd CI runner DOWN" "$1" 2>/dev/null || true
+  # Best-effort desktop alert; the journal is the source of truth, the toast a
+  # courtesy (and silenced entirely by NOTIFY=0).
+  notify -u critical "Shepherd CI runner DOWN" "$1"
   exit 1
 }
 
@@ -216,8 +230,8 @@ if [ "${REMEDIATE}" = "1" ]; then
     sleep "${RECHECK_DELAY}"
     if status="$(probe)"; then
       echo "runner-liveness: SELF-HEALED — ${status}"
-      notify-send -u normal "Shepherd CI runner self-healed" \
-        "Auto-recovered after an outage; see journal for details." 2>/dev/null || true
+      notify -u normal "Shepherd CI runner self-healed" \
+        "Auto-recovered after an outage; see journal for details."
       exit 0
     fi
     echo "runner-liveness: remediation ran but runner still down on re-check" >&2

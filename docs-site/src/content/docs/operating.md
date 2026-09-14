@@ -230,12 +230,15 @@ pin the row at a warning that no action clears.
 A live session's own scratch is still reclaimed, just not by the row: at teardown, and — for
 whatever a teardown never got to (a crash, a restart, a removal path that predates the fix) — by a
 reconcile that runs inside the same **boot + daily** sweep. It removes orphaned per-session scratch
-and the scratch left behind by transient helper agents, and it is fail-closed throughout: an entry
-is removed only on positive proof that it is dead, every live worktree and every live helper `cwd`
-is kept, an unreadable repo disqualifies its own entries, and anything unrecognised — including
-your own interactive `claude` sessions' scratch — is left strictly alone. Where live process data
-is unknown the helper half is skipped entirely, the same stance as the worktree reap. Each run logs
-what it removed (`[tmp-sweep] <phase>: scratch reconcile removed …`).
+and the scratch left behind by transient helper agents — both halves of the latter: the copy under
+the agent's own temp root, and the helper's `mkdtemp` working directory sitting directly under the
+helper temp root. It is fail-closed throughout: an entry is removed only on positive proof that it
+is dead, every live worktree and every live helper `cwd` is kept, a directory that holds a `.git` is
+refused outright (that is a worktree, and reaping those belongs to the worktree half), an unreadable
+repo disqualifies its own entries, and anything unrecognised — including your own interactive
+`claude` sessions' scratch — is left strictly alone. Where live process data is unknown both helper
+rules are skipped entirely, the same stance as the worktree reap. Each run logs what it removed
+(`[tmp-sweep] <phase>: scratch reconcile removed …`).
 This matters because inode exhaustion is easy to misdiagnose — writes start failing with
 "no space" errors while `df -h` still shows the volume mostly empty. `df -i` is what shows
 the real cause.

@@ -544,9 +544,11 @@
   // phone merged header: the repo + session that used to live in the top bar
   const repoName = $derived(session.repoPath.split("/").filter(Boolean).at(-1) ?? "");
   const repoIcon = $derived(projectIcons.iconFor(session.repoPath));
-  // phone: a configured project emoji identifies the repo on its own (mirrors the
-  // herd cards), so the name is dropped to free header width — tapping the emoji
-  // toggles it back for context. Reset when the viewport switches repos.
+  // phone: the repo glyph identifies the repo on its own (mirrors the herd cards), so
+  // the name is dropped to free header width — tapping the glyph toggles it back for
+  // context. Collapsed for EVERY repo, not just the ones with a configured emoji: an
+  // always-on name is un-shrinkable enough to starve the session name to nothing and
+  // overrun the plan-gate chip. Reset when the viewport switches repos.
   let ctxRepoShown = $state(false);
   $effect(() => {
     // eslint-disable-next-line @typescript-eslint/no-unused-expressions -- reactive dep
@@ -2583,29 +2585,31 @@
     {#if mobile}
       <!-- phone: the merged header carries repo · session (the top bar is hidden
            here), and the session name doubles as the profile/token meta trigger -->
-      {#if repoIcon}
-        <!-- emoji stands in for the repo name (herd-card convention) to free
-             header width; tapping it toggles the name back in. Lives outside the
-             .desig-wrap so focusing it doesn't also pop the meta tooltip. -->
-        <span
-          class="ctx-glyph emoji actionable"
-          role="button"
-          tabindex="0"
-          aria-expanded={ctxRepoShown}
-          aria-label={m.viewport_ctx_repo_toggle_aria({ repo: repoName })}
-          onclick={(e) => {
+      <!-- the repo glyph — the configured project emoji, else the generic ▣ — stands in
+           for the repo name (herd-card convention) to free header width; tapping it
+           toggles the name back in. Lives outside the .desig-wrap so focusing it doesn't
+           also pop the meta tooltip, and so this button isn't nested inside
+           .ctx-trigger's role="button" (which would also make insideTitle() class a tap
+           on it as a tap on the title, folding the header). -->
+      <span
+        class="ctx-glyph actionable"
+        class:emoji={!!repoIcon}
+        role="button"
+        tabindex="0"
+        aria-expanded={ctxRepoShown}
+        aria-label={m.viewport_ctx_repo_toggle_aria({ repo: repoName })}
+        onclick={(e) => {
+          e.stopPropagation();
+          ctxRepoShown = !ctxRepoShown;
+        }}
+        onkeydown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
             e.stopPropagation();
             ctxRepoShown = !ctxRepoShown;
-          }}
-          onkeydown={(e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              e.preventDefault();
-              e.stopPropagation();
-              ctxRepoShown = !ctxRepoShown;
-            }
-          }}>{repoIcon}</span
-        >
-      {/if}
+          }
+        }}>{repoIcon || "▣"}</span
+      >
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <!-- the wrap is a non-interactive container; the pointer/focus handlers only
            track hover/focus state to reveal the popover. The interactive trigger
@@ -2635,10 +2639,7 @@
             oncontextmenu={onTriggerContextMenu}
             use:longPress={{ onTrigger: openMeta }}
           >
-            {#if !repoIcon}
-              <span class="ctx-glyph" aria-hidden="true">▣</span>
-            {/if}
-            {#if !repoIcon || ctxRepoShown}
+            {#if ctxRepoShown}
               <span class="ctx-repo">{repoName}</span>
               <span class="ctx-sep">·</span>
             {/if}
@@ -3648,17 +3649,17 @@
   .ctx-glyph.emoji {
     font-size: var(--fs-lg);
   }
-  /* tappable emoji standing in for the repo name — toggles it back in.
+  /* tappable glyph standing in for the repo name — toggles it back in.
      Phone-first control: pad the hit area toward the 44px touch-target
      minimum; matching negative margins keep the visual layout unchanged.
      Horizontal stays at ±8px — the header gap is only 7px, so anything wider
      would overlay the back button / title trigger and steal their taps. */
-  .ctx-glyph.emoji.actionable {
+  .ctx-glyph.actionable {
     cursor: pointer;
     padding: 12px 8px;
     margin: -12px -8px;
   }
-  .ctx-glyph.emoji.actionable:focus-visible {
+  .ctx-glyph.actionable:focus-visible {
     outline: none;
     box-shadow: inset 0 0 0 1px var(--color-amber);
   }
@@ -4044,6 +4045,16 @@
     min-width: 0;
     /* drop the fixed vw cap on phone — flex + ellipsis size it to the free space */
     max-width: none;
+  }
+  /* the revealed repo name must ellipsize INSIDE the identity slot. Its default
+     flex-shrink:0 + max-width:38vw is a hard floor .ctx-trigger can't clip (no
+     overflow:hidden there, by design — a clip would hard-cut a glyph instead of
+     ellipsizing), so on a phone, where the trailing cluster (plan-gate chip +
+     the three 44px action controls + back) is fixed-width, the name painted over
+     the chip once the slot fell below 38vw. */
+  .vp-head.phone .ctx-repo {
+    flex: 0 1 auto;
+    min-width: 0;
   }
   /* the ctx block is now the sole grower pinning the actions right; the standalone
      spacer would otherwise split the free space and starve the title's width */

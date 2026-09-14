@@ -73,6 +73,8 @@ const { reviews, planGates, repoConfig } = await import("$lib/reviews.svelte");
 const { recaps } = await import("$lib/recaps.svelte");
 // Dynamic import for same reason: epic-draft.svelte imports $lib/api via getEpicDraft.
 const { epicDrafts } = await import("$lib/epic-draft.svelte");
+// Dynamic import for same reason: projectIcons.svelte imports $lib/api via getProjectIcons.
+const { projectIcons } = await import("$lib/projectIcons.svelte");
 const { buildQueueCollapse } = await import("$lib/build-queue-collapse.svelte");
 import { toasts } from "$lib/toasts.svelte";
 import { m } from "$lib/paraglide/messages";
@@ -1696,6 +1698,120 @@ describe("Viewport phone back glyph", () => {
     expect(glyph, "phone back glyph is the list glyph").toBe("☰");
     expect(glyph, "phone back glyph must not be the left chevron").not.toBe("‹");
   });
+});
+
+// ── phone identity row: the repo name must never paint over the plan-gate chip ──
+// Reported as "PLAN EDITED runs into the task title on mobile". The header's trailing
+// cluster is fixed-width (the chip, the three 44px action controls, the back glyph), so
+// the identity slot is whatever is left — and `.ctx-repo`'s flex-shrink:0 + max-width:38vw
+// made it a floor the slot could fall below, at which point the repo name rendered OUTSIDE
+// its box, across the chip, while `.ctx-name` was squeezed to 0px. Geometry is the only
+// honest assertion here: the overlap is invisible to any DOM/text query. Widths are
+// asserted as RELATIONSHIPS (no overlap, a readable floor), never as measured constants,
+// which would drift with the browser-test font stack.
+describe("Viewport phone identity row vs the plan-gate chip", () => {
+  const REPO = "/home/p/Work/omarchy-plugin-uptime-monitor";
+  // A long name so `.ctx-name` always wants more room than the slot has — the state in
+  // which a starved slot shows up.
+  const NAME = "plan edited badge runs into the task title";
+  const NAME_FLOOR_PX = 48;
+
+  function clearGates() {
+    planGates.map = {};
+    planGates.reviewing = {};
+    planGates.activity = {};
+  }
+  beforeEach(clearGates);
+  afterEach(async () => {
+    clearGates();
+    projectIcons.apply({});
+    await page.viewport(1280, 900);
+  });
+
+  // planPhase "executing" + an approved gate whose live plan hash has moved on = the
+  // "edited" chip (the widest plan-gate chip, so the tightest identity slot).
+  function editedGate(sessionId: string): PlanGate {
+    return planGate({
+      sessionId,
+      decision: "approved",
+      summary: "approved",
+      findings: [],
+      approved: true,
+      planHash: "APPROVED",
+      livePlanHash: "EDITED-SINCE",
+    });
+  }
+
+  async function mountPhone(id: string, width: number) {
+    await page.viewport(width, 844);
+    planGates.map = { [id]: editedGate(id) };
+    const { container } = await render(Viewport, {
+      session: session({ id, name: NAME, repoPath: REPO, planPhase: "executing" }),
+      mobile: true,
+      onback: vi.fn(),
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+    const chip = container.querySelector<HTMLElement>(".pg-badge.pg-edited");
+    expect(chip, "the edited plan-gate chip should render on phone").not.toBeNull();
+    return { container, chip: chip! };
+  }
+
+  for (const width of [390, 445]) {
+    it(`keeps the identity row clear of the chip at ${width}px`, async () => {
+      const { container, chip } = await mountPhone(`ident-${width}`, width);
+      const chipLeft = chip.getBoundingClientRect().left;
+
+      // Collapsed (default): the repo name is behind the glyph toggle entirely, so the
+      // session name owns the slot.
+      expect(container.querySelector(".ctx-repo"), "repo name is collapsed by default").toBeNull();
+      const name = container.querySelector<HTMLElement>(".ctx-name")!;
+      expect(name.getBoundingClientRect().right).toBeLessThanOrEqual(chipLeft);
+      expect(
+        name.getBoundingClientRect().width,
+        "session name must stay readable, not be starved to nothing",
+      ).toBeGreaterThanOrEqual(NAME_FLOOR_PX);
+
+      // Revealed: the repo name comes back and must ellipsize INSIDE the slot.
+      const toggle = container.querySelector<HTMLElement>(".ctx-glyph.actionable")!;
+      toggle.click();
+      await tick();
+      const repo = container.querySelector<HTMLElement>(".ctx-repo");
+      expect(repo, "tapping the glyph reveals the repo name").not.toBeNull();
+      expect(
+        Math.max(repo!.getBoundingClientRect().right, name.getBoundingClientRect().right),
+      ).toBeLessThanOrEqual(chipLeft);
+    });
+  }
+
+  // The toggle is the ONLY way back to the repo name now, so it has to be a real control
+  // for both glyph forms — the generic ▣ used to be `aria-hidden` decoration.
+  // "" is the third case on purpose: the server deletes a cleared icon, but loadIcons()
+  // keeps ANY string it finds in the settings blob, so a legacy/corrupt entry can still
+  // hand the client an empty string — which must fall back to ▣, not render a blank,
+  // invisible toggle.
+  for (const [label, icon] of [
+    ["generic ▣", null],
+    ["cleared emoji", ""],
+    ["project emoji", "🐑"],
+  ] as [string, string | null][]) {
+    it(`exposes the repo toggle as a button (${label})`, async () => {
+      if (icon !== null) projectIcons.apply({ [REPO]: icon });
+      const { container } = await mountPhone(`toggle-${label.replace(/\W+/g, "-")}`, 390);
+      const toggle = container.querySelector<HTMLElement>(".ctx-glyph.actionable")!;
+      expect(toggle, "repo glyph is an actionable toggle").not.toBeNull();
+      expect(toggle.textContent?.trim()).toBe(icon || "▣");
+      expect(toggle.getAttribute("role")).toBe("button");
+      expect(toggle.getAttribute("aria-hidden")).toBeNull();
+      expect(toggle.getAttribute("aria-label")).toBe(
+        m.viewport_ctx_repo_toggle_aria({ repo: "omarchy-plugin-uptime-monitor" }),
+      );
+      expect(toggle.getAttribute("aria-expanded")).toBe("false");
+      toggle.click();
+      await tick();
+      expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    });
+  }
 });
 
 // ── epic-draft review dialog: COMPOSITION, not the component in isolation ────

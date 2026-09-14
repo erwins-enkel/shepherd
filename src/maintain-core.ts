@@ -46,18 +46,35 @@ export const FIRST_PASS_RANGE = "30d" as const;
 const FIRST_PASS_WINDOW_DAYS = 30;
 
 /**
- * `incident_spike` evaluates every SignalKind EXCEPT these. Both are high-volume BY DESIGN rather
- * than fault streams, so including them puts the band permanently in breach on a healthy install:
+ * `incident_spike` evaluates every SignalKind EXCEPT these. All three are high-volume BY DESIGN
+ * rather than fault streams, so including them puts the band permanently in breach on a healthy
+ * install:
  *
  * - `reply` is the learnings flywheel's operator-correction stream.
  * - `block` is an agent asking the operator a question (#2242). Every payload in the breach that
  *   filed that issue was a healthy planning dialog — which ruleset to use, how far a fix should go.
  *   Deduping the repaint noise alone does NOT rescue this band: measured on a live install, one
  *   row per episode still left 52–78 occurrences across 32 sessions against a 25/5 tier-2
- *   threshold, so the band would simply re-file. Genuine faults stay covered by `stall`, `critic`
- *   and `injection_detected`.
+ *   threshold, so the band would simply re-file.
+ * - `critic` is a `changes_requested` verdict on an open PR (#2319) — the auto-address loop's
+ *   designed normal outcome, which the loop then exists to iterate on. Measured weekly on a live
+ *   install: 20, 66, 24, 57, 7, 19, 7, 30, 27 occurrences, so the 27 that filed #2319 sat BELOW
+ *   the series mean; the band was reading its own steady state. Like `block`, per-session dedup
+ *   does not rescue it (the same weeks collapse to 9, 36, 13, 33, 4, 13, 5, 13, 17 — two of them
+ *   still clear 25/5 on their own). It rises with throughput because `incidentTier` counts
+ *   occurrences with no denominator; the DENOMINATED view of this identical event is
+ *   `first_pass_collapse`, which scores the `changes_requested` spawn outcome as a rate. One event
+ *   scored by two bands, one of them without a denominator, is what made this a false alarm.
+ *
+ * Genuine faults stay covered: `stall` (the auto-address streak and re-review ceilings) and
+ * `injection_detected` remain in this band, `critic_error_rate` scores review runs that produced
+ * no verdict at all, and `first_pass_collapse` carries the rework rate.
  */
-const INCIDENT_KINDS_EXCLUDED: ReadonlySet<SignalKind> = new Set<SignalKind>(["reply", "block"]);
+const INCIDENT_KINDS_EXCLUDED: ReadonlySet<SignalKind> = new Set<SignalKind>([
+  "reply",
+  "block",
+  "critic",
+]);
 
 /** How long a band is suppressed after a run COMPLETES, whatever its outcome or tier. */
 export const DEFAULT_COOLDOWN_MS = 14 * 24 * 60 * 60 * 1000;

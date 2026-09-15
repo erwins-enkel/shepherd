@@ -277,10 +277,25 @@ nothing until its mechanical-failure count is zero** — which is why the report
 Each of those flags also carries its own evidence, on a `↳` line under the fixture and in the
 `mechanicalSamples` field of `--json` (#2326). A trial that obtained no usable verdict records what
 it produced instead — the unparseable bytes, the prose it replied with, or the JSON whose keys are
-not the contract's — escaped so a raw newline or an unescaped quote is visible, bounded so a run
-cannot paste a whole plan into a CI log, and de-duplicated across a fixture's trials. Without it a
-red gate could only be diagnosed by paying for another run and hoping the sampling failure
-reproduced.
+not the contract's — bounded so a run cannot paste a whole plan into a CI log, and de-duplicated
+across a fixture's trials. Without it a red gate could only be diagnosed by paying for another run
+and hoping the sampling failure reproduced.
+
+Control characters print as **markers**, `<LF>` and `<CR>` and `<TAB>`, never as backslash escapes.
+A raw newline inside a JSON string is itself a defect and a correctly escaped `\n` is unremarkable,
+so rendering both as `\n` made the two identical on the page — three paid runs captured samples full
+of `\n` and not one of them was attributable.
+
+A `parse-fail` line adds two things the count alone never gave (#2326):
+
+- **the parser's own message**, in brackets — `Unterminated string` is a different defect from
+  `Expected '}'`, and knowing which halves the search before anyone reads a byte;
+- **the offset of the first raw control character inside a string literal**, with the sample
+  windowed around it instead of taken from the head. The head of a malformed verdict is well-formed
+  by construction — that is how the model reached the defect — so quoting it shows boilerplate. Bun
+  runs on JavaScriptCore, whose `SyntaxError` carries no position, so the offset is the harness's
+  own; when there is no raw control character to place, the line falls back to the head sample and
+  the parser's message still discriminates.
 
 That evidence is also what tells the two kinds of failure apart. The contingency below — revise the
 fixture, or demote it to non-gating baseline — answers a fixture whose LABEL is in question. A

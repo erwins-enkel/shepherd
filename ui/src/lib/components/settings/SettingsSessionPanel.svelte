@@ -426,12 +426,15 @@
   {/snippet}
 </SettingRow>
 
+<!-- No onrowclick (#2331): the sweep is a silent daily background job, so a stray click on
+     this row's text would either delete archived sessions (and their cascaded review rows)
+     for good or quietly stop pruning, with nothing anywhere to show it happened. The
+     toggle is the only hit target. -->
 <SettingRow
   title={m.settings_housekeeping_title()}
   description={m.settings_housekeeping_hint({ days: retentionDays, count: retentionKeep })}
   {query}
   inlineOnMobile
-  onrowclick={toggleHousekeeping}
 >
   {#snippet control()}
     <SettingToggle
@@ -460,12 +463,14 @@
   {/snippet}
 </SettingRow>
 
+<!-- No onrowclick (#2331): consent is the one setting whose flip leaves no trace — telemetry
+     is fire-and-forget, so an accidental opt-out from a click on the title or the
+     description text is both cheap and silent. The toggle is the only hit target. -->
 <SettingRow
   title={m.settings_telemetry_title()}
   description={m.settings_telemetry_hint()}
   {query}
   inlineOnMobile={telemetryAvailable}
-  onrowclick={telemetryAvailable ? toggleTelemetry : undefined}
 >
   {#snippet control()}
     {#if telemetryAvailable}
@@ -483,20 +488,10 @@
     <!-- Send health, shown only under granted consent: with the toggle off there is
          nothing to report, and a stale "last sent" next to an off switch would mislead.
          Telemetry failures are swallowed by design, so this line is the only place a
-         silently dropping pipeline becomes visible.
-
-         The row is one big hit target (onrowclick), and this line is the one thing in it
-         an operator reads closely and copies — the failing HTTP status. A click or a
-         drag-select landing here would otherwise toggle consent OFF and remove the very
-         line being read, so the line keeps its clicks to itself. -->
+         silently dropping pipeline becomes visible. It is also the one thing in the row an
+         operator reads closely and copies — the failing HTTP status. -->
     {#if telemetryAvailable && telemetryOn && telemetryHealth}
-      <p
-        class="telemetry-health"
-        class:failing={telemetryFailing}
-        data-testid="telemetry-health"
-        role="presentation"
-        onclick={(e) => e.stopPropagation()}
-      >
+      <p class="telemetry-health" class:failing={telemetryFailing} data-testid="telemetry-health">
         {telemetryHealthLine}
       </p>
     {/if}

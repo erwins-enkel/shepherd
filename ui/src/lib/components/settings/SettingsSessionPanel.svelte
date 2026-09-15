@@ -483,9 +483,20 @@
     <!-- Send health, shown only under granted consent: with the toggle off there is
          nothing to report, and a stale "last sent" next to an off switch would mislead.
          Telemetry failures are swallowed by design, so this line is the only place a
-         silently dropping pipeline becomes visible. -->
+         silently dropping pipeline becomes visible.
+
+         The row is one big hit target (onrowclick), and this line is the one thing in it
+         an operator reads closely and copies — the failing HTTP status. A click or a
+         drag-select landing here would otherwise toggle consent OFF and remove the very
+         line being read, so the line keeps its clicks to itself. -->
     {#if telemetryAvailable && telemetryOn && telemetryHealth}
-      <p class="telemetry-health" class:failing={telemetryFailing} data-testid="telemetry-health">
+      <p
+        class="telemetry-health"
+        class:failing={telemetryFailing}
+        data-testid="telemetry-health"
+        role="presentation"
+        onclick={(e) => e.stopPropagation()}
+      >
         {telemetryHealthLine}
       </p>
     {/if}

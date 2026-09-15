@@ -263,3 +263,37 @@ test("normalizeTelemetryHealth degrades a hand-edited row instead of throwing", 
   const long = normalizeTelemetryHealth({ lastError: "x".repeat(500) })!.lastError!;
   expect(long.length).toBeLessThanOrEqual(120);
 });
+
+test("a throwing persist never escapes flush, and never reads as a send failure", async () => {
+  // Production persist is a synchronous SQLite write (store.setSetting) that can throw
+  // SQLITE_BUSY. Both setHealth call sites sit inside flush's try/catch, so an unguarded
+  // throw would be misrecorded as a send failure and then rethrow out of flush itself —
+  // which callers invoke as a bare `void this.flush()`.
+  const post = createDefaultPost((async () => res(200)) as unknown as typeof fetch);
+  const { s } = svc({
+    postEvent: post,
+    now: tickingNow(),
+    schedule: noAutoFlush,
+    persist: () => {
+      throw new Error("SQLITE_BUSY: database is locked");
+    },
+  });
+  s.event("app_launched");
+  await s.flush(); // must not reject
+  const h = s.health();
+  expect(h.lastSentAt).not.toBeNull(); // the send did succeed
+  expect(h.lastError).toBeNull(); // and must not be blamed for the persist failure
+});
+
+test("a throwing restore is the caller's problem, not a silent wrong state", () => {
+  // Guard the contract in the other direction: restore is documented as must-not-throw,
+  // so index.ts owns the try/catch. This pins that the service does not quietly swallow
+  // a broken restore into a wrong-looking "healthy" state.
+  expect(() =>
+    svc({
+      restore: () => {
+        throw new Error("corrupt row");
+      },
+    }),
+  ).toThrow("corrupt row");
+});

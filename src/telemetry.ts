@@ -172,7 +172,18 @@ export class TelemetryService {
     } else if (!nowFailing && wasFailing) {
       console.log("[telemetry] sending again");
     }
-    this.persist?.(next);
+    // Persistence is best-effort and must never escape: in production this is a synchronous
+    // SQLite write that can throw SQLITE_BUSY. Both setHealth call sites sit inside flush's
+    // try/catch, so an unguarded throw here would be recorded and logged as a *send* failure
+    // after a successful send — and the catch-path setHealth would throw again, escaping
+    // flush() itself, which callers invoke as a bare `void this.flush()`. Losing the durable
+    // copy only costs the health line its memory across a restart; in-process health is
+    // already correct, and the next attempt re-persists.
+    try {
+      this.persist?.(next);
+    } catch {
+      // ignored on purpose — see above
+    }
   }
 
   private ready(): boolean {

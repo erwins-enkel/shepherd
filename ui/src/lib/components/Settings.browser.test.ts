@@ -11,6 +11,7 @@ import {
   putDefaultCodexModel,
   putDefaultModel,
   fixDiagnostic,
+  putTelemetryConsent,
   putRoleEffort,
   putDefaultEffort,
 } from "$lib/api";
@@ -41,6 +42,7 @@ vi.mock("$lib/api", async (importOriginal) => {
     putDefaultAgentProvider: vi.fn(async (provider) => ({ defaultAgentProvider: provider })),
     putDefaultModel: vi.fn(async (model) => ({ defaultModel: model })),
     putDefaultCodexModel: vi.fn(async (model) => ({ defaultCodexModel: model })),
+    putTelemetryConsent: vi.fn(async (consent) => ({ telemetryConsent: consent })),
   };
 });
 
@@ -68,6 +70,7 @@ const mockPutKey = vi.mocked(putAnthropicApiKey);
 const mockPutCodexModel = vi.mocked(putDefaultCodexModel);
 const mockPutModel = vi.mocked(putDefaultModel);
 const mockFix = vi.mocked(fixDiagnostic);
+const mockPutTelemetry = vi.mocked(putTelemetryConsent);
 
 function settings(over: Partial<SettingsPayload> = {}): SettingsPayload {
   return {
@@ -1071,6 +1074,30 @@ describe("telemetry send health", () => {
 
     await expect.element(page.getByTestId("telemetry-health")).toBeInTheDocument();
     expect(healthText()).toBe(m.settings_telemetry_health_never());
+  });
+
+  it("a click on the health line does not toggle consent off", async () => {
+    // The row is one big hit target; this line is the one thing in it an operator reads
+    // closely and copies (the failing status), so a click here must not flip consent —
+    // which would also remove the line being read.
+    mockGetSettings.mockResolvedValue(
+      settings({
+        telemetryConsent: "granted",
+        telemetryAvailable: true,
+        telemetryHealth: {
+          lastSentAt: null,
+          lastErrorAt: Date.now() - 120_000,
+          lastError: "HTTP 400",
+        },
+      }),
+    );
+    await mountSession();
+
+    const line = document.querySelector<HTMLElement>('[data-testid="telemetry-health"]');
+    expect(line).not.toBeNull();
+    line!.click();
+    expect(mockPutTelemetry).not.toHaveBeenCalled();
+    expect(healthText()).toContain("HTTP 400"); // still there to read
   });
 
   it("renders no health line when consent is denied", async () => {

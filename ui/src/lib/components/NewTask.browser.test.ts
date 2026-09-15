@@ -1347,17 +1347,19 @@ describe("NewTask research mode (segmented control)", () => {
     expect(onsubmit.mock.calls[0]![0]).toMatchObject({ autopilotEnabled: false, research: true });
   });
 
-  it("disables plan-gate and Autopilot while Research is on, re-enables back on Code", async () => {
+  it("removes plan-gate and Autopilot while Research is on, brings them back on Code", async () => {
     render(NewTask, { props: base() });
     await expect.poll(() => researchSeg()).toBeTruthy();
 
-    // Research on → both rows lock (visible exclusivity, not silent re-checkable)
+    // Research on → both rows give way to the no-guards sentence (nothing greyed out to
+    // wonder about)
     researchSeg().click();
     await expect.poll(() => segActive(m.newtask_mode_research())).toBe(true);
-    await expect.poll(() => planGateBox()?.disabled).toBe(true);
-    await expect.poll(() => autopilotBox()?.disabled).toBe(true);
+    await expect.poll(() => planGateBox()).toBeUndefined();
+    await expect.poll(() => autopilotBox()).toBeUndefined();
+    await expect.element(page.getByText(m.newtask_guards_none_research())).toBeInTheDocument();
 
-    // back to Code → both rows unlock (values stay pinned off — checkbox parity)
+    // back to Code → both rows return, enabled (values stay pinned off — checkbox parity)
     codeSeg().click();
     await expect.poll(() => segActive(m.newtask_mode_code())).toBe(true);
     await expect.poll(() => planGateBox()?.disabled).toBe(false);
@@ -5164,5 +5166,75 @@ describe("NewTask spawn progress", () => {
     expect(panel.textContent).toContain("0:11");
     expect(panel.querySelector(".spawn-cancel")).toBeTruthy();
     expect(panel.querySelector(".spawn-why")).toBeNull();
+  });
+});
+
+describe("NewTask plain mode", () => {
+  const plainSeg = () => segButton(m.newtask_mode_plain());
+  const guardSwitches = () =>
+    Array.from(document.querySelectorAll<HTMLButtonElement>('button[role="switch"]')).filter(
+      (el) => el.closest(".guards") != null,
+    );
+
+  it("submits plain:true with the other kinds false", async () => {
+    const onsubmit = vi.fn();
+    render(NewTask, { props: { onsubmit, initialRepoPath: "/repo/mode-plain" } });
+    await expect.poll(() => plainSeg()).toBeTruthy();
+    plainSeg().click();
+    await expect.poll(() => segActive(m.newtask_mode_plain())).toBe(true);
+    typePrompt("just run");
+    await expect
+      .poll(() => document.querySelector<HTMLButtonElement>("button.run")?.disabled)
+      .toBe(false);
+    pressCmdEnter();
+    await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
+    expect(onsubmit.mock.calls[0]![0]).toMatchObject({
+      plain: true,
+      research: false,
+      epicAuthoring: false,
+    });
+    expect(onsubmit.mock.calls[0]![0].launchUiState).toMatchObject({ plainChecked: true });
+  });
+
+  it("replaces the guard switches with a per-mode sentence in every non-code mode", async () => {
+    render(NewTask, { props: { onsubmit: vi.fn(), initialRepoPath: "/repo/mode-plain-guards" } });
+    await expect.poll(() => plainSeg()).toBeTruthy();
+    expect(guardSwitches().length).toBe(2);
+
+    plainSeg().click();
+    await expect.poll(() => guardSwitches().length).toBe(0);
+    await expect.element(page.getByText(m.newtask_guards_none_plain())).toBeInTheDocument();
+
+    segButton(m.newtask_mode_research()).click();
+    await expect.element(page.getByText(m.newtask_guards_none_research())).toBeInTheDocument();
+    expect(guardSwitches().length).toBe(0);
+
+    segButton(m.newtask_mode_epic()).click();
+    await expect.element(page.getByText(m.newtask_guards_none_epic())).toBeInTheDocument();
+
+    segButton(m.newtask_mode_code()).click();
+    await expect.poll(() => guardSwitches().length).toBe(2);
+  });
+
+  it("a /design prompt pre-selects plain until the operator picks a mode", async () => {
+    render(NewTask, { props: { onsubmit: vi.fn(), initialRepoPath: "/repo/mode-plain-design" } });
+    await expect.poll(() => plainSeg()).toBeTruthy();
+
+    typePrompt("/design a landing page");
+    await expect.poll(() => segActive(m.newtask_mode_plain())).toBe(true);
+    // Dropping the command drops the pre-selection too — nothing sticks silently.
+    typePrompt("fix the footer");
+    await expect.poll(() => segActive(m.newtask_mode_code())).toBe(true);
+    // A word that merely starts with "design" is not the command.
+    typePrompt("/designer notes");
+    expect(segActive(m.newtask_mode_code())).toBe(true);
+
+    // An explicit choice pins: back to /design, then Code by hand — Code stays.
+    typePrompt("/design again");
+    await expect.poll(() => segActive(m.newtask_mode_plain())).toBe(true);
+    segButton(m.newtask_mode_code()).click();
+    await expect.poll(() => segActive(m.newtask_mode_code())).toBe(true);
+    typePrompt("/design once more");
+    expect(segActive(m.newtask_mode_code())).toBe(true);
   });
 });

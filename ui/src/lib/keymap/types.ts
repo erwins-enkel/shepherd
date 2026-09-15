@@ -45,6 +45,10 @@ export interface Chord {
  *  NewTask.svelte builds this object; the registry only declares. That split is
  *  what keeps the registry a plain data module — unit-testable with a stub ctx,
  *  no component mounting, no Svelte runtime. */
+/** The composer's mode segment: Code, or one of the non-code modes (research, epic authoring,
+ *  plain — the agent without guards). */
+export type ComposeMode = "code" | "research" | "epic" | "plain";
+
 export interface NewTaskKeymapCtx {
   /** Resolved once per dialog, never per keycap — it decides both which
    *  physical modifier arms the reveal and how every label is spelled. */
@@ -91,7 +95,7 @@ export interface NewTaskKeymapCtx {
   openIssueFilter(): void;
   toggleSourcesTab(): void;
   focusIssueList(): void;
-  setMode(mode: "code" | "research" | "epic"): void;
+  setMode(mode: ComposeMode): void;
   focusEngine(): void;
   focusModel(): void;
   togglePlanGate(): void;

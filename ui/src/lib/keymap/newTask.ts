@@ -258,6 +258,15 @@ export const NEW_TASK_KEYMAP: KeymapEntry[] = [
     run: (c) => c.setMode("epic"),
   },
   {
+    id: "mode-plain",
+    zone: "options",
+    chords: [{ code: "Digit4", alt: true }],
+    label: () => m.keymap_mode_plain(),
+    anchor: "mode segment · Plain",
+    enabled: always,
+    run: (c) => c.setMode("plain"),
+  },
+  {
     id: "engine",
     zone: "options",
     chords: [{ code: "KeyE", mod: true }],

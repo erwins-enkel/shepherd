@@ -137,6 +137,7 @@
     composeSandbox,
     composeResearch,
     composeEpicAuthoring,
+    composePlain,
     usageLimits = null,
     holdLikely,
     onnewclose,
@@ -272,6 +273,7 @@
     composeSandbox: SandboxProfile | null;
     composeResearch: boolean;
     composeEpicAuthoring: boolean;
+    composePlain: boolean;
     usageLimits?: UsageLimits | null;
     holdLikely: boolean;
     onnewclose: () => void;
@@ -570,6 +572,7 @@
       initialSandboxProfile={composeSandbox}
       initialResearch={composeResearch}
       initialEpicAuthoring={composeEpicAuthoring}
+      initialPlain={composePlain}
       {usageLimits}
       defaultAgentProvider={newTaskDefaultAgentProvider}
       defaultModel={settings?.defaultModel}

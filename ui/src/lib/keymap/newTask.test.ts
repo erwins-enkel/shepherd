@@ -117,6 +117,7 @@ describe("matchKeymap", () => {
     ).toBeNull();
     expect(matchKeymap(ev({ code: "KeyR", altKey: true }), true)?.id).toBe("repo");
     expect(matchKeymap(ev({ code: "Digit2", altKey: true }), true)?.id).toBe("mode-research");
+    expect(matchKeymap(ev({ code: "Digit4", altKey: true }), true)?.id).toBe("mode-plain");
     expect(matchKeymap(ev({ code: "Minus", key: "?", shiftKey: true }), true)?.id).toBe("sheet");
   });
 
@@ -144,11 +145,13 @@ describe("run", () => {
     keymapEntry("submit").run?.(ctx);
     keymapEntry("plan-gate").run?.(ctx);
     keymapEntry("mode-epic").run?.(ctx);
+    keymapEntry("mode-plain").run?.(ctx);
     keymapEntry("repo-prev").run?.(ctx);
     keymapEntry("issue-token").run?.(ctx);
     expect(ctx.submit).toHaveBeenCalledOnce();
     expect(ctx.togglePlanGate).toHaveBeenCalledOnce();
     expect(ctx.setMode).toHaveBeenCalledWith("epic");
+    expect(ctx.setMode).toHaveBeenCalledWith("plain");
     expect(ctx.cycleRepo).toHaveBeenCalledWith(-1);
     expect(ctx.insertToken).toHaveBeenCalledWith("#");
   });

@@ -141,7 +141,7 @@ export function nthId(order: string[], n: number): string | null {
  *  by the page-level shortcut handler (lowercase `e.key`-style), or null if the
  *  code is not part of the Alt+key session-switch combo set.
  *
- *  The combo set: `j`/`k` (+ `arrowdown`/`arrowup`) cycle prev/next, `1`–`9` select
+ *  The combo set: `j`/`k` (+ `arrowdown`/`arrowup` outside the terminal) cycle prev/next, `1`–`9` select
  *  the Nth row, and the session-switch aliases `tab` (Alt+Tab / Alt+Shift+Tab) +
  *  `]`/`[` (Alt+] / Alt+[). This map is
  *  direction-AGNOSTIC: it returns `"tab"` for both Alt+Tab and Alt+Shift+Tab
@@ -160,8 +160,10 @@ export function nthId(order: string[], n: number): string | null {
  *  the Windows OS alt-code input method for typing special characters into the
  *  terminal, and `e.code` reports Numpad1–9 regardless of NumLock — mapping
  *  them would both shadow alt-code entry and ghost-match when the key isn't a
- *  digit at all. */
-export function altComboKey(code: string): string | null {
+ *  digit at all. Alt+arrows belong to the focused terminal: Codex uses Alt+Up
+ *  to answer queued questions. Both callers pass the event's terminal origin. */
+export function altComboKey(code: string, fromTerminal = false): string | null {
+  if (fromTerminal && (code === "ArrowDown" || code === "ArrowUp")) return null;
   if (code === "KeyJ") return "j";
   if (code === "KeyK") return "k";
   if (code === "ArrowDown") return "arrowdown";

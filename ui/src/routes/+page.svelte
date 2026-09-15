@@ -1612,7 +1612,7 @@
     );
   }
 
-  // The Alt tier of onShortcut: Alt+J/K/arrows/1-9 are the work-everywhere
+  // The Alt tier of onShortcut: Alt+J/K/1-9 are the work-everywhere
   // session switchers — they deliberately SKIP the typing guard so they fire
   // even while xterm holds focus (Viewport's attachCustomKeyEventHandler
   // suppresses the same combos — via the shared altComboKey map — from reaching
@@ -1621,13 +1621,13 @@
   // bail, untouched.
   function handleAltCombo(e: KeyboardEvent): boolean {
     if (!e.altKey || e.ctrlKey || e.metaKey) return false;
+    const fromTerminal = e.target instanceof HTMLElement && e.target.closest(".xterm") !== null;
     // physical e.code, not e.key: macOS Option+J types "∆" (see altComboKey)
-    const mapped = altComboKey(e.code);
+    const mapped = altComboKey(e.code, fromTerminal);
     if (mapped === null) return false;
     // focus follows origin: Alt from inside the terminal keeps the operator
     // in terminal flow (focus the new session's terminal); Alt from anywhere
     // else leaves focus out so plain-key navigation still chains after.
-    const fromTerminal = e.target instanceof HTMLElement && e.target.closest(".xterm") !== null;
     // Session-cycle aliases, resolved to the shared next/prev (j/k) handlers:
     //   Alt+] / Alt+Tab        → next (j)
     //   Alt+[ / Alt+Shift+Tab  → prev (k)

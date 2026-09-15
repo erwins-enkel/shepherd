@@ -1852,7 +1852,7 @@
         c.send("\n");
         return false;
       }
-      // Alt+J/K/G/arrows/1-9 + Alt+Tab/Alt+Shift+Tab + Alt+]/Alt+[: session-switch
+      // Alt+J/K/1-9 + Alt+Tab/Alt+Shift+Tab + Alt+]/Alt+[: session-switch
       // combos must work *while the terminal owns the keyboard* — that's the whole
       // point of the modifier. Suppress them from the PTY here (altComboKey is the
       // same code→key map the window shortcut handler acts on, so the two sides
@@ -1870,7 +1870,7 @@
         e.altKey &&
         !e.ctrlKey &&
         !e.metaKey &&
-        altComboKey(e.code) !== null
+        altComboKey(e.code, true) !== null
       ) {
         e.preventDefault();
         return false;

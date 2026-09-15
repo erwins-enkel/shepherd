@@ -118,8 +118,9 @@ export interface Session {
   landingRepair: boolean;
   /** True for a PLAIN session: the agent runs as the bare CLI would — worktree, branch and tab are
    *  set up and the session is observed, but no plan gate, autopilot, build queue or PR directive
-   *  rides it. The fourth non-code mode (see `isNonCodeMode`). */
-  plain: boolean;
+   *  rides it. The fourth non-code mode (see `isNonCodeMode`). Optional like `terminal` so the
+   *  many hand-built `Session` fixtures need not spell it out — absent and false are equivalent. */
+  plain?: boolean;
   /** True for a clean-terminal session: a bare operator shell in the repo's MAIN checkout
    *  (pane-direct — no herdr agent, no worktree, no prompt). Fenced out of every agent-input
    *  and agent-lifecycle flow; its pane target lives in terminalTabId/terminalPaneId.

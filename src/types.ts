@@ -116,6 +116,10 @@ export interface Session {
   /** True for an epic-landing-PR repair session: pushes directly to the epic integration branch and
    *  never opens a PR. */
   landingRepair: boolean;
+  /** True for a PLAIN session: the agent runs as the bare CLI would — worktree, branch and tab are
+   *  set up and the session is observed, but no plan gate, autopilot, build queue or PR directive
+   *  rides it. The fourth non-code mode (see `isNonCodeMode`). */
+  plain: boolean;
   /** True for a clean-terminal session: a bare operator shell in the repo's MAIN checkout
    *  (pane-direct — no herdr agent, no worktree, no prompt). Fenced out of every agent-input
    *  and agent-lifecycle flow; its pane target lives in terminalTabId/terminalPaneId.
@@ -258,6 +262,8 @@ export interface LaunchUiState {
   autopilotChecked: boolean;
   /** "Create EPIC from research" toggle state at submit time; absent on legacy rows. */
   epicAuthoringChecked?: boolean;
+  /** Plain-mode segment state at submit time; absent on legacy rows. */
+  plainChecked?: boolean;
 }
 
 export interface LaunchAttachmentMetadata {
@@ -345,6 +351,8 @@ export interface StandardCreateInput {
   epicAuthoring?: boolean;
   /** Epic-landing-PR repair task kind; absent → false. */
   landingRepair?: boolean;
+  /** Plain task kind; absent → false. Forces the plan gate and autopilot OFF for this session. */
+  plain?: boolean;
   /** PR numbers selected for this TRAIN session; absent → null. */
   mergeTrainPrs?: number[];
   /** #2225: standing operator task amendments CARRIED from a session this spawn continues
@@ -391,6 +399,8 @@ export interface RelaunchOverrides {
   epicAuthoring?: boolean;
   /** Epic-landing-PR repair task kind override; absent → keep original. */
   landingRepair?: boolean;
+  /** Plain task kind override; absent → keep original. */
+  plain?: boolean;
   /** #2225: carry the original's standing operator task amendments onto the replacement. Defaults
    *  to TRUE — a relaunch continues the SAME task, so the operator's amendments still apply.
    *  `startVariant` sets it false: a variant is a comparison arm and must run the ORIGINAL task, or

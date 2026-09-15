@@ -55,6 +55,7 @@ const ALLOWED_KEYS = new Set([
   "sandboxProfile",
   "research",
   "epicAuthoring",
+  "plain",
   "mergeTrainPrs",
   "force", // transport-only: bypass hold gate; not forwarded to CreateSessionInput
 ]);
@@ -636,6 +637,7 @@ function validateOptions(obj: Record<string, unknown>): Field<{
   sandboxProfile: SandboxProfile | null | undefined;
   research: boolean;
   epicAuthoring: boolean;
+  plain: boolean;
   mergeTrainPrs: number[] | undefined;
 }> {
   const planGateEnabled = validatePlanGateEnabled(obj.planGateEnabled);
@@ -653,6 +655,9 @@ function validateOptions(obj: Record<string, unknown>): Field<{
   const epicAuthoring = validateEpicAuthoring(obj.epicAuthoring);
   if (!epicAuthoring.ok) return epicAuthoring;
 
+  const plain = validatePlain(obj.plain);
+  if (!plain.ok) return plain;
+
   const mergeTrainPrs = validateMergeTrainPrs(obj.mergeTrainPrs);
   if (!mergeTrainPrs.ok) return mergeTrainPrs;
 
@@ -662,6 +667,7 @@ function validateOptions(obj: Record<string, unknown>): Field<{
     sandboxProfile: sandboxProfile.value,
     research: research.value,
     epicAuthoring: epicAuthoring.value,
+    plain: plain.value,
     mergeTrainPrs: mergeTrainPrs.value,
   });
 }
@@ -694,6 +700,13 @@ function validateEpicAuthoring(value: unknown): Field<boolean> {
   return err("epicAuthoring must be a boolean or absent");
 }
 
+/** plain — optional plain boolean; absent/undefined → false; null or non-boolean rejected. */
+function validatePlain(value: unknown): Field<boolean> {
+  if (value === undefined) return field(false);
+  if (typeof value === "boolean") return field(value);
+  return err("plain must be a boolean or absent");
+}
+
 function validateLaunchUiState(value: unknown): Field<LaunchUiState | undefined> {
   if (value === undefined) return field(undefined);
   if (value === null || typeof value !== "object" || Array.isArray(value))
@@ -701,9 +714,13 @@ function validateLaunchUiState(value: unknown): Field<LaunchUiState | undefined>
   const obj = value as Record<string, unknown>;
   for (const key of Object.keys(obj)) {
     if (
-      !["researchChecked", "planGateChecked", "autopilotChecked", "epicAuthoringChecked"].includes(
-        key,
-      )
+      ![
+        "researchChecked",
+        "planGateChecked",
+        "autopilotChecked",
+        "epicAuthoringChecked",
+        "plainChecked",
+      ].includes(key)
     )
       return err(`launchUiState unknown key: ${key}`);
   }
@@ -716,6 +733,8 @@ function validateLaunchUiState(value: unknown): Field<LaunchUiState | undefined>
   // epicAuthoringChecked is optional (absent on legacy/most rows); validate only when present.
   if (obj.epicAuthoringChecked !== undefined && typeof obj.epicAuthoringChecked !== "boolean")
     return err("launchUiState.epicAuthoringChecked must be a boolean");
+  if (obj.plainChecked !== undefined && typeof obj.plainChecked !== "boolean")
+    return err("launchUiState.plainChecked must be a boolean");
   return field({
     researchChecked: obj.researchChecked,
     planGateChecked: obj.planGateChecked,
@@ -723,6 +742,7 @@ function validateLaunchUiState(value: unknown): Field<LaunchUiState | undefined>
     ...(obj.epicAuthoringChecked !== undefined
       ? { epicAuthoringChecked: obj.epicAuthoringChecked }
       : {}),
+    ...(obj.plainChecked !== undefined ? { plainChecked: obj.plainChecked } : {}),
   });
 }
 
@@ -751,6 +771,7 @@ const RELAUNCH_ALLOWED_KEYS = new Set([
   "autopilotEnabled",
   "research",
   "epicAuthoring",
+  "plain",
   "images",
   "attachmentNames",
   "launchUiState",
@@ -796,6 +817,7 @@ export function validateRelaunchOverrides(body: unknown, repoRoot: string): Rela
     { key: "autopilotEnabled", apply: () => validateAutopilotEnabled(obj.autopilotEnabled) },
     { key: "research", apply: () => validateResearch(obj.research) },
     { key: "epicAuthoring", apply: () => validateEpicAuthoring(obj.epicAuthoring) },
+    { key: "plain", apply: () => validatePlain(obj.plain) },
     { key: "repoPath", apply: () => validateRepoPath(obj.repoPath, root) },
     { key: "images", apply: () => validateImages(obj.images, root) },
     {

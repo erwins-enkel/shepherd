@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render } from "vitest-browser-svelte";
-import { page } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 import "../../app.css";
 import UnitRow from "./UnitRow.svelte";
 import { projectIcons } from "$lib/projectIcons.svelte";
@@ -147,6 +147,43 @@ function loadPreviewMode(repoPath: string, mode: "ask" | "inline" | "tab" = "ask
 }
 
 describe("UnitRow runtime environment", () => {
+  it.each([
+    { showModel: true, runtimeEffort: "high" },
+    { showModel: false, runtimeEffort: "high" },
+    { showModel: false, runtimeEffort: null },
+  ])(
+    "keeps the model tooltip off the task ID and its action menu (%j)",
+    async ({ showModel, runtimeEffort }) => {
+      const onselect = vi.fn();
+      render(UnitRow, {
+        session: session({
+          id: "task-id-hover",
+          runtimeModel: "gpt-6-astra",
+          runtimeEffort,
+        }),
+        selected: false,
+        nowMs: Date.now(),
+        showModel,
+        onselect,
+      });
+
+      const taskId = page.getByRole("button", {
+        name: m.taskid_button_title({ desig: "TASK-01" }),
+      });
+      await taskId.hover();
+      expect(document.querySelector(".status-tip:popover-open")).toBeNull();
+      await taskId.click();
+      await expect.element(page.getByRole("menuitem", { name: m.taskid_copy() })).toBeVisible();
+      expect(document.querySelector(".status-tip:popover-open")).toBeNull();
+      expect(onselect).not.toHaveBeenCalled();
+      await userEvent.keyboard("{Escape}");
+      await expect.element(taskId).toHaveFocus();
+      await userEvent.keyboard("{Enter}");
+      await expect.element(page.getByRole("menuitem", { name: m.taskid_copy() })).toBeVisible();
+      expect(document.querySelector(".status-tip:popover-open")).toBeNull();
+    },
+  );
+
   it("shows the concrete Codex runtime model and effort", () => {
     render(UnitRow, {
       session: session({ id: "codex-runtime", agentProvider: "codex" }),
@@ -1518,18 +1555,22 @@ describe("UnitRow selection cues", () => {
     await expect.poll(() => getComputedStyle(unit(calm, "calm-row")).outlineStyle).toBe("none");
   });
 
-  // The meta line's environment tooltip anchors on a span that also CONTAINS the task-id button, and
-  // the shared statusTip popover takes pointer events on purpose. Pinning this because the same
-  // shape did bite in the badge row above the card, where the popover opens downward over its
-  // neighbours; here it opens upward, clear of the button. A layout change that flips that would
-  // silently make the task id unclickable.
+  // The environment tooltip must remain reachable on its own text without obstructing the
+  // adjacent task-id button, including after a click pins the explanation open.
   it("the task-id button stays clickable while the meta environment tooltip is open", async () => {
     render(UnitRow, { session: session({ id: "meta-tip" }), onselect: () => {} } as never);
-    const meta = document.querySelector(".meta-text") as HTMLElement;
-    meta.dispatchEvent(new PointerEvent("pointerenter", { bubbles: true }));
-    await new Promise((r) => setTimeout(r, 400));
-    expect(document.querySelector(".status-tip")).not.toBeNull(); // else this asserts nothing
+    const environment = page.getByText(`· ${m.newtask_model_default()}`, { exact: true });
+    await environment.hover();
+    await expect.element(page.getByRole("tooltip")).toBeVisible();
+    await page.getByRole("tooltip").hover();
+    await expect.element(page.getByRole("tooltip")).toBeVisible();
+    await userEvent.keyboard("{Escape}");
+    expect(document.querySelector(".status-tip:popover-open")).toBeNull();
+    await environment.click();
+    await expect.element(page.getByRole("tooltip")).toBeVisible();
     await page.getByRole("button", { name: "TASK-01" }).click({ timeout: 3000 });
+    await expect.element(page.getByRole("menuitem", { name: m.taskid_copy() })).toBeVisible();
+    expect(document.querySelector(".status-tip:popover-open")).toBeNull();
   });
 });
 

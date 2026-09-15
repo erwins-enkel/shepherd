@@ -14,7 +14,7 @@ import {
   sessionCapabilities,
   type AgentCapabilities,
 } from "./agent-control";
-import type { WorktreeMgr } from "./worktree";
+import { worktreePathFor, type WorktreeMgr } from "./worktree";
 import type { HerdrAgent, HerdrDriver } from "./herdr";
 import {
   createSerializer,
@@ -4542,11 +4542,27 @@ export class SessionService {
    */
   private uniqueName(base: string, herd?: string, repoPath?: string): string {
     const liveNames = this.takenHerdrNames();
-    // A candidate is taken if a live agent owns the name OR (when repoPath is given) the
-    // matching branch already exists. Both are cheap; branchExists is a bounded `git rev-parse`.
-    const isTaken = (candidate: string): boolean =>
-      liveNames.has(sanitizeHerdrAgentName(candidate)) ||
-      (!!repoPath && this.deps.worktree.branchExists(repoPath, `shepherd/${candidate}`));
+    // Worktree paths of every session that has not been archived. Load-bearing ON TOP of the
+    // existsSync below, not a duplicate of it: a session whose directory has been destroyed (or
+    // never restored) still OWNS its path, and handing that path to a new session is how two rows
+    // come to share one checkout in the first place.
+    const takenPaths = repoPath
+      ? new Set(this.deps.store.list({ activeOnly: true }).map((s) => s.worktreePath))
+      : null;
+    // A candidate is taken if a live agent owns the name OR (when repoPath is given) the matching
+    // branch, worktree DIRECTORY or an active session's worktree path already claims it. The
+    // directory check is what the branch check alone cannot cover: the background namer moves a
+    // session's branch onto the comprehended name while its directory keeps the heuristic slug, so
+    // the branch goes free while the checkout is still live — and the next identical prompt would
+    // otherwise be handed a path someone is working in. All bounded: one `git rev-parse` and one
+    // `stat` per candidate.
+    const isTaken = (candidate: string): boolean => {
+      if (liveNames.has(sanitizeHerdrAgentName(candidate))) return true;
+      if (!repoPath) return false;
+      if (this.deps.worktree.branchExists(repoPath, `shepherd/${candidate}`)) return true;
+      const path = worktreePathFor(repoPath, candidate);
+      return existsSync(path) || !!takenPaths?.has(path);
+    };
 
     if (!isTaken(base)) return base;
 

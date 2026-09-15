@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { execFileSync } from "./instrument";
-import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, realpathSync, rmSync } from "node:fs";
 import { dirname, join, basename, resolve } from "node:path";
 import { promisify } from "node:util";
 import { timedAsync } from "./instrument";
@@ -62,6 +62,24 @@ export class WorktreeMissingBaseError extends Error {
   }
 }
 
+/** The target path is already a REGISTERED worktree of this repo — i.e. another session lives
+ *  there. Raised instead of reclaiming the path: the reclaim is an `rm -rf`, and doing that to a
+ *  live session's checkout destroys uncommitted work (a planning session's `.shepherd-plan.md`
+ *  above all). Name selection makes this unreachable on the normal path; this is the backstop for
+ *  a race between choosing the name and adding the worktree. */
+export class WorktreeOccupiedError extends Error {
+  constructor(public readonly worktreePath: string) {
+    super(`worktree path ${worktreePath} is already checked out by another session`);
+    this.name = "WorktreeOccupiedError";
+  }
+}
+
+/** The worktree path `create()` derives for `name`. Exported so name selection can test a
+ *  candidate against the directory without re-deriving (and drifting from) the shape. */
+export function worktreePathFor(repoPath: string, name: string): string {
+  return join(dirname(repoPath), ".shepherd-worktrees", `${basename(repoPath)}-${name}`);
+}
+
 export class WorktreeMgr {
   /** Injectable so tests can assert the teardown orphan sweep fires without real /proc. */
   constructor(private reaper: ProcessReaper = new ProcessReaper()) {}
@@ -87,8 +105,8 @@ export class WorktreeMgr {
     }
     ensureShepherdExclude(repoPath);
     const branch = `shepherd/${name}`;
-    const parent = join(dirname(repoPath), ".shepherd-worktrees");
-    const worktreePath = join(parent, `${basename(repoPath)}-${name}`);
+    const worktreePath = worktreePathFor(repoPath, name);
+    const parent = dirname(worktreePath);
 
     try {
       mkdirSync(parent, { recursive: true });
@@ -138,6 +156,17 @@ export class WorktreeMgr {
       throw new Error(`worktree isolation failed for ${branch} at ${worktreePath}: ${stderr}`, {
         cause: err,
       });
+    }
+
+    // Occupied path: another session is checked out here. The cleanup below is an `rm -rf`, so
+    // reclaiming would delete that session's working tree — including work it has not committed,
+    // which for a planning-phase session is everything. Refuse, loudly. Historically this branch
+    // fired ONLY on `already exists`, and every one of those was a live checkout.
+    if (this.isRegisteredWorktree(repoPath, worktreePath)) {
+      console.error(
+        `[worktree] create: path already checked out, refusing to reclaim — worktreePath=${worktreePath} branch=${branch} stderr=${stderr}`,
+      );
+      throw new WorktreeOccupiedError(worktreePath);
     }
 
     // Transient-looking failure: cleanup + retry
@@ -197,7 +226,48 @@ export class WorktreeMgr {
     }
   }
 
+  /** Whether `worktreePath` is a live checkout of `repoPath` — registered in `git worktree list`
+   *  AND still present on disk. Both halves matter: a registration whose directory is gone is a
+   *  stale record that the caller's `worktree prune` should clear, not an occupant to protect.
+   *  Compared through realpath so a symlinked repo parent doesn't read as a different path.
+   *  Fails CLOSED — an unreadable `git worktree list` answers "occupied", because the cost of
+   *  guessing wrong is deleting a live session's uncommitted work. */
+  private isRegisteredWorktree(repoPath: string, worktreePath: string): boolean {
+    if (!existsSync(worktreePath)) return false;
+    const real = (p: string): string => {
+      try {
+        return realpathSync(p);
+      } catch {
+        return p;
+      }
+    };
+    let out: string;
+    try {
+      out = execFileSync("git", ["worktree", "list", "--porcelain"], {
+        cwd: repoPath,
+        stdio: "pipe",
+        encoding: "utf8",
+      });
+    } catch (err) {
+      console.warn(`[worktree] worktree list failed for ${repoPath}; assuming occupied:`, err);
+      return true;
+    }
+    const target = real(worktreePath);
+    return out
+      .split("\n")
+      .filter((l) => l.startsWith("worktree "))
+      .some((l) => real(l.slice("worktree ".length).trim()) === target);
+  }
+
   private cleanupPartial(repoPath: string, worktreePath: string): void {
+    // Second line of defence for the same hazard recoverFromAddFailure guards: this also runs
+    // from retryWorktreeAdd's catch, where a registered checkout must survive just as much.
+    if (this.isRegisteredWorktree(repoPath, worktreePath)) {
+      console.error(
+        `[worktree] cleanup: ${worktreePath} is a registered worktree — refusing to remove it`,
+      );
+      return;
+    }
     try {
       if (existsSync(worktreePath)) rmSync(worktreePath, { recursive: true, force: true });
     } catch {

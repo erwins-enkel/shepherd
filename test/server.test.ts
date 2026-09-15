@@ -17,7 +17,7 @@ import { SessionStore } from "../src/store";
 import { SessionService } from "../src/service";
 import { EventHub } from "../src/events";
 import { makeApp, serve, PTY_GONE_CODE, claimLinkedIssue, type AppDeps } from "../src/server";
-import { WorktreeMgr } from "../src/worktree";
+import { WorktreeMgr, WorktreeOccupiedError } from "../src/worktree";
 import type { GitForge } from "../src/forge/types";
 import { config, USAGE_HISTORY_RETENTION_MS } from "../src/config";
 import { ACTIVE_LABEL } from "../src/drain-core";
@@ -773,6 +773,23 @@ test("POST /api/sessions translates a protocol conflict without logging sensitiv
   } finally {
     warn.mockRestore();
   }
+});
+
+test("POST /api/sessions answers 409 when the worktree path is already checked out (#2370)", async () => {
+  const deps = makeDeps();
+  deps.service = {
+    create: async () => {
+      throw new WorktreeOccupiedError("/wt/repo-flatten");
+    },
+  } as any;
+  const res = await postSessions(makeApp(deps), {
+    repoPath: validRepo,
+    baseBranch: "main",
+    prompt: "go",
+  });
+  // A conflict the operator clears by retrying (which re-runs name selection), not a 502.
+  expect(res.status).toBe(409);
+  expect((await res.json()).error).toContain("/wt/repo-flatten");
 });
 
 test("POST /api/sessions surfaces a herdr failure with its real message (not a bare status)", async () => {

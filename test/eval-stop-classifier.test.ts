@@ -90,14 +90,16 @@ test("Write tool called with unparseable content → toolUsed=true but parseOk=f
   expect(toolUsed).toBe(true);
   expect(parseOk).toBe(false);
   expect(raw).toBeNull();
-  expect(outcomeFor(F, resp)).toEqual({
+  const outcome = outcomeFor(F, resp);
+  expect(outcome).toMatchObject({
     toolUsed: true,
     parseOk: false,
     label: "unknown",
     correct: false,
     unrecognised: false,
-    mechanicalSample: "parse-fail wrote: not json at all",
   });
+  // The parser's message rides along; its wording is engine-specific, so only presence is asserted.
+  expect(outcome.mechanicalSample).toEndWith("wrote: not json at all");
 });
 
 test("a genuine unknown verdict is distinct from a mechanical failure", () => {

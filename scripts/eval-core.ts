@@ -315,26 +315,88 @@ export interface EvalSpec<F extends EvalFixtureBase> {
 // Pure helpers (no network)
 // ---------------------------------------------------------------------------
 
+/** Why a candidate would not parse, and the exact text that says so. */
+export interface ParseFailure {
+  /** The engine's `SyntaxError` message, verbatim. Wording is engine-specific — JavaScriptCore says
+   *  `JSON Parse error: Unterminated string` where V8 names a position — so it is evidence to print,
+   *  never something to branch on. */
+  message: string;
+  /** The text the message describes, and what {@link rawControlOffset} indexes into. Not always the
+   *  whole content: a fenced or prose-wrapped verdict fails on the extracted object. */
+  text: string;
+}
+
+type ParseAttempt = { value: unknown } | { failure: ParseFailure };
+
+/** The text {@link tolerantParse} actually feeds the parser: fence stripped, trimmed. */
+function parseCandidate(raw: string): string {
+  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  return (fenced?.[1] ?? raw).trim();
+}
+
+function attemptParse(text: string): ParseAttempt {
+  try {
+    return { value: JSON.parse(text) };
+  } catch (err) {
+    return { failure: { message: err instanceof Error ? err.message : String(err), text } };
+  }
+}
+
+/** Both passes {@link tolerantParse} makes, in order: the candidate, then the first {...} object
+ *  inside it. The SECOND failure is the one worth reporting when it happens — it is the attempt that
+ *  got closest to a verdict, so its message describes the object rather than the prose around it. */
+function attemptTolerant(raw: string): ParseAttempt {
+  const candidate = parseCandidate(raw);
+  const first = attemptParse(candidate);
+  if (!("failure" in first)) return first;
+  const start = candidate.indexOf("{");
+  const end = candidate.lastIndexOf("}");
+  if (start !== -1 && end > start) return attemptParse(candidate.slice(start, end + 1));
+  return first;
+}
+
 /** Tolerant JSON parse: strips an optional ```json fence and, failing that, extracts the first
  *  {...} object. Returns null on any parse failure (never repairs — a mechanical failure must stay
  *  visible, not be coerced into a spurious verdict). */
 export function tolerantParse(raw: string): unknown {
-  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const candidate = (fenced?.[1] ?? raw).trim();
-  const tryParse = (s: string): unknown => {
-    try {
-      return JSON.parse(s);
-    } catch {
-      return undefined;
+  const attempt = attemptTolerant(raw);
+  return "failure" in attempt ? null : attempt.value;
+}
+
+/** Why {@link tolerantParse} returned null, or undefined when it did not. The parser's own message
+ *  is free evidence that {@link tolerantParse} used to swallow in a bare `catch`, and it separates
+ *  the failure classes on its own: an unterminated string is a different defect from a missing
+ *  brace, and knowing which halves the search before anyone reads a byte. */
+export function parseFailure(raw: string): ParseFailure | undefined {
+  const attempt = attemptTolerant(raw);
+  return "failure" in attempt ? attempt.failure : undefined;
+}
+
+/**
+ * Offset of the first RAW control character inside a string literal, or undefined if there is none.
+ *
+ * This is the defect the parser's message implicates but cannot place: JSON forbids U+0000-U+001F
+ * unescaped in a string, so a model that writes a real newline where it owed `\n` produces
+ * `Unterminated string` and no clue where. The scan tracks only string and escape state, which is
+ * all that question needs — it is not a JSON validator and deliberately reports nothing about
+ * structure. A control character BETWEEN tokens is legal whitespace and is not a defect.
+ */
+export function rawControlOffset(text: string): number | undefined {
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]!;
+    if (!inString) {
+      if (c === '"') inString = true;
+      continue;
     }
-  };
-  let parsed = tryParse(candidate);
-  if (parsed === undefined) {
-    const start = candidate.indexOf("{");
-    const end = candidate.lastIndexOf("}");
-    if (start !== -1 && end > start) parsed = tryParse(candidate.slice(start, end + 1));
+    if (escaped) escaped = false;
+    else if (c === "\\") escaped = true;
+    else if (c === '"') inString = false;
+    // U+007f-U+009f are legal unescaped in a JSON string; only the C0 range is the defect.
+    else if (c.charCodeAt(0) < 0x20) return i;
   }
-  return parsed === undefined ? null : parsed;
+  return undefined;
 }
 
 /** Every `tool_use` block in a response, in order. */
@@ -401,19 +463,33 @@ export function parseVerdict(content: string | null): Record<string, unknown> | 
  *  always turned out to be), far short of pasting a whole plan into a CI log. */
 export const SAMPLE_MAX = 300;
 
-const ESCAPES: Record<string, string> = { "\n": "\\n", "\r": "\\r", "\t": "\\t" };
+const ESCAPES: Record<string, string> = { "\n": "<LF>", "\r": "<CR>", "\t": "<TAB>" };
 
 // eslint-disable-next-line no-control-regex -- escaping control characters requires matching them
 const CONTROL_CHARS = /[\u0000-\u001f\u007f-\u009f]/g;
 
 /**
- * One line of evidence, bounded and safe to print.
+ * Control characters as VISIBLE MARKERS, so a sample stays one log line and says which character it
+ * actually held.
  *
- * Control characters are ESCAPED to visible literals rather than collapsed away, and that is the
- * whole point: a raw newline inside a JSON string is itself the defect, so `\s+`-collapsing it
- * (what `sanitizeDetail` does for `gh` output, where the whitespace means nothing) would delete the
- * thing the reader came for. Escaping also keeps a sample to ONE log line and neutralises ESC, so
- * no separate ANSI rule is needed.
+ * `<LF>`, not `\n`, and that distinction is the whole point. A raw newline inside a JSON string is
+ * itself a defect; a correctly escaped `\n` is two ordinary characters and unremarkable. Rendering
+ * the first as `\n` made the two identical on the page — three paid runs captured samples full of
+ * `\n` and not one of them was attributable. Markers leave backslashes alone, so the valid case
+ * keeps its familiar spelling and only the defect looks strange.
+ *
+ * Collapsing whitespace (what `sanitizeDetail` does for `gh` output, where it means nothing) would
+ * delete the evidence outright. Marking ESC also neutralises ANSI, so no separate rule is needed.
+ */
+function escapeControls(raw: string): string {
+  return raw.replace(
+    CONTROL_CHARS,
+    (c) => ESCAPES[c] ?? `<0x${c.charCodeAt(0).toString(16).padStart(2, "0")}>`,
+  );
+}
+
+/**
+ * One line of evidence from the START of some text, bounded and safe to print.
  *
  * Truncation announces how much more there was, counted in escaped characters — the escaped text is
  * what is capped — so a 12KB plan is distinguishable from a 310-character verdict.
@@ -423,13 +499,28 @@ const CONTROL_CHARS = /[\u0000-\u001f\u007f-\u009f]/g;
  * never enters a prompt or a response.
  */
 export function sampleText(raw: string): string {
-  const escaped = raw.replace(
-    CONTROL_CHARS,
-    (c) => ESCAPES[c] ?? `\\x${c.charCodeAt(0).toString(16).padStart(2, "0")}`,
-  );
+  const escaped = escapeControls(raw);
   return escaped.length <= SAMPLE_MAX
     ? escaped
     : `${escaped.slice(0, SAMPLE_MAX)}… (+${escaped.length - SAMPLE_MAX} more)`;
+}
+
+/**
+ * One line of evidence CENTRED on `at`, for text whose head explains nothing.
+ *
+ * The head of a malformed verdict is well-formed by construction — that is how the model reached the
+ * defect — so {@link sampleText}'s first-N-characters window shows boilerplate and truncates away
+ * the break. Each side is escaped and trimmed independently (escaping is per character, so the split
+ * is safe) and `…` marks a side that was trimmed.
+ */
+export function sampleAround(raw: string, at: number): string {
+  const half = Math.floor(SAMPLE_MAX / 2);
+  const before = escapeControls(raw.slice(0, at));
+  const after = escapeControls(raw.slice(at));
+  return (
+    (before.length <= half ? before : `…${before.slice(before.length - half)}`) +
+    (after.length <= half ? after : `${after.slice(0, half)}…`)
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -614,6 +705,28 @@ export async function runTrial<F extends EvalFixtureBase>(
 }
 
 /**
+ * A `parse-fail` trial's evidence line: WHY the parser refused, WHERE the defect is when it can be
+ * placed, and the text around it.
+ *
+ * The head of unparseable content is well-formed by construction, so quoting it names nothing — the
+ * first probe run to capture samples proved that, printing 300 well-formed characters of a 3.4k
+ * verdict three times over. The window therefore follows the defect, and the parser's own message
+ * rides along because it separates the failure classes for free.
+ *
+ * `parseFailure` returns undefined for content that parses but is not a JSON OBJECT — a bare array
+ * or number reaches this path as a verdict the scorers cannot read, not as a syntax error.
+ */
+function parseFailSample(content: string): string {
+  const failure = parseFailure(content);
+  const why = failure?.message ?? "parsed, but not a JSON object";
+  const text = failure?.text ?? content;
+  const at = rawControlOffset(text);
+  return at === undefined
+    ? `parse-fail [${why}] wrote: ${sampleText(text)}`
+    : `parse-fail [${why}] raw control char at ${at} of ${text.length}: ${sampleAround(text, at)}`;
+}
+
+/**
  * What a trial produced INSTEAD of a usable verdict — `undefined` when it produced one.
  *
  * All THREE mechanical-failure classes the report prints get the same treatment, because each one
@@ -645,7 +758,7 @@ export function mechanicalSample(
     );
   }
   // `toolUsed` implies a string `content`; the fallback is for the type, not for a reachable state.
-  if (parsed === null) return `parse-fail wrote: ${sampleText(capture.content ?? "")}`;
+  if (parsed === null) return parseFailSample(capture.content ?? "");
   if (unrecognised) return `unrecognised wrote: ${sampleText(capture.content ?? "")}`;
   return undefined;
 }

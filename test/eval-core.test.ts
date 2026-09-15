@@ -21,10 +21,12 @@ import {
   outcomeFrom,
   parseArgs,
   parseVerdict,
+  rawControlOffset,
   runEval,
   runTrial,
   SAMPLE_MAX,
   SAMPLES_PER_FIXTURE,
+  sampleAround,
   sampleText,
   selectFixtures,
   smokeDecide,
@@ -166,15 +168,16 @@ test("stopping at the first Write would capture prose — the regression this gu
   ]);
   const capture = await runTrial(send, spec, FIXTURE, "p", "m", 1);
   expect(capture.content).toBe("# Review\n\nProse, not JSON.");
-  expect(outcomeFrom(spec, FIXTURE, capture)).toEqual({
+  const outcome = outcomeFrom(spec, FIXTURE, capture);
+  expect(outcome).toMatchObject({
     toolUsed: true,
     parseOk: false,
     label: "no-verdict",
     correct: false,
     unrecognised: false,
-    // And the content that explains it survives, with its newlines visible.
-    mechanicalSample: "parse-fail wrote: # Review\\n\\nProse, not JSON.",
   });
+  // And the content that explains it survives, with its newlines visible.
+  expect(outcome.mechanicalSample).toEndWith("wrote: # Review<LF><LF>Prose, not JSON.");
 });
 
 test("inspection tool calls are answered from the fixture environment across turns", async () => {
@@ -223,14 +226,14 @@ test("unparseable verdict content is parse-fail, distinct from a no-tool miss", 
     FIXTURE,
     captureFrom(write("verdict.json", "not json"), "verdict.json"),
   );
-  expect(parseFail).toEqual({
+  expect(parseFail).toMatchObject({
     toolUsed: true,
     parseOk: false,
     label: "no-verdict",
     correct: false,
     unrecognised: false,
-    mechanicalSample: "parse-fail wrote: not json",
   });
+  expect(parseFail.mechanicalSample).toEndWith("wrote: not json");
   const noTool = outcomeFrom(spec, FIXTURE, captureFrom({ content: [] }, "verdict.json"));
   expect(noTool).toEqual({
     toolUsed: false,
@@ -261,14 +264,26 @@ function wroteVerdict(content: string, spec = testSpec()): TrialOutcome {
   return outcomeFrom(spec, FIXTURE, captureFrom(write("verdict.json", content), "verdict.json"));
 }
 
-test("sampleText escapes control characters rather than collapsing them", () => {
+test("sampleText marks control characters rather than collapsing them", () => {
   // A raw newline inside a JSON string IS the defect, so the sample has to show it. Collapsing
   // whitespace (what sanitizeDetail does for gh output) would delete the evidence.
-  expect(sampleText('{"a": "one\ntwo"}')).toBe('{"a": "one\\ntwo"}');
-  expect(sampleText("a\tb\r\n")).toBe("a\\tb\\r\\n");
-  // ESC and other C0 characters become visible literals, so a sample can never move a CI cursor.
-  expect(sampleText("\x1b[31mred\x00")).toBe("\\x1b[31mred\\x00");
+  expect(sampleText('{"a": "one\ntwo"}')).toBe('{"a": "one<LF>two"}');
+  expect(sampleText("a\tb\r\n")).toBe("a<TAB>b<CR><LF>");
+  // ESC and other C0 characters become visible markers, so a sample can never move a CI cursor.
+  expect(sampleText("\x1b[31mred\x00")).toBe("<0x1b>[31mred<0x00>");
   expect(sampleText("plain")).toBe("plain");
+});
+
+test("a marked control character is distinguishable from an already-escaped one", () => {
+  // THE point of markers. Backslash-escaping rendered a raw newline (invalid JSON, the defect) and
+  // a correct two-character `\n` escape (valid, unremarkable) identically, so three paid runs
+  // captured samples full of `\n` and not one of them was attributable.
+  const rawNewline = sampleText('{"a": "one\ntwo"}');
+  const escapedNewline = sampleText(String.raw`{"a": "one\ntwo"}`);
+  expect(rawNewline).not.toBe(escapedNewline);
+  expect(rawNewline).toContain("<LF>");
+  // The VALID case keeps its familiar spelling — only the defect looks strange.
+  expect(escapedNewline).toBe(String.raw`{"a": "one\ntwo"}`);
 });
 
 test("sampleText caps a sample and says how much it stood in for", () => {
@@ -286,8 +301,65 @@ test("an unescaped quote in the verdict is parse-fail AND is visible in the samp
   const broken = '{"decision": "request-changes", "summary": "der Plan „repariert" das nicht"}';
   const outcome = wroteVerdict(broken);
   expect(outcome.parseOk).toBe(false);
-  expect(outcome.mechanicalSample).toBe(`parse-fail wrote: ${broken}`);
+  // No raw control character to place, so the sample falls back to the head — which for THIS defect
+  // is where the evidence is. The parser's message rides along either way.
+  expect(outcome.mechanicalSample).toStartWith("parse-fail [");
+  expect(outcome.mechanicalSample).toEndWith(`wrote: ${broken}`);
   expect(outcome.mechanicalSample).toContain('„repariert" das nicht');
+});
+
+test("a parse-fail sample carries the parser's own message", () => {
+  // Free evidence tolerantParse used to swallow in a bare catch, and it separates the failure
+  // classes before anyone reads a byte. Asserted as PRESENT, never by its prose: the wording is
+  // engine-specific (JavaScriptCore says "JSON Parse error: …") and moves with a Bun upgrade.
+  const sample = wroteVerdict("{").mechanicalSample ?? "";
+  expect(sample).toMatch(/^parse-fail \[.+\]/);
+  expect(sample.slice("parse-fail [".length, sample.indexOf("]"))).not.toBe("");
+});
+
+test("content that parses but is not a JSON object says so instead of claiming a syntax error", () => {
+  // A bare array reaches parse-fail as a verdict the scorers cannot read, not as a syntax error, so
+  // there is no parser message to quote and inventing one would be a lie.
+  expect(wroteVerdict("[1,2]").mechanicalSample).toBe(
+    "parse-fail [parsed, but not a JSON object] wrote: [1,2]",
+  );
+});
+
+test("rawControlOffset places the defect the parser's message cannot", () => {
+  // JSON forbids U+0000-U+001F unescaped in a string. JavaScriptCore reports "Unterminated string"
+  // and no position, so the offset has to come from here.
+  expect(rawControlOffset('{"a":"one\ntwo"}')).toBe(9);
+  // A CORRECT escape is two ordinary characters — not a defect.
+  expect(rawControlOffset(String.raw`{"a":"one\ntwo"}`)).toBeUndefined();
+  // Between tokens a newline is legal whitespace, so a pretty-printed verdict is not flagged.
+  expect(rawControlOffset('{\n  "a": 1\n}')).toBeUndefined();
+  // An escaped backslash ends the escape: the newline after it really is inside the string.
+  expect(rawControlOffset('{"a":"back\\\\\nslash"}')).toBe(12);
+  expect(rawControlOffset('{"a":1}')).toBeUndefined();
+});
+
+test("a located parse-fail windows on the defect instead of the well-formed head", () => {
+  // The failure this whole path exists for: a 3.4k verdict whose first 300 characters are perfect
+  // JSON and whose break is 1800 characters further in. Quoting the head named nothing, three runs
+  // running.
+  const filler = "the plan rests on assumptions that do not hold. ".repeat(40);
+  const broken = `{"decision": "request-changes", "body": "${filler}\nand a REAL newline"}`;
+  const sample = wroteVerdict(broken).mechanicalSample ?? "";
+  expect(sample).toContain(`raw control char at ${broken.indexOf("\n")} of ${broken.length}`);
+  expect(sample).toContain("<LF>and a REAL newline");
+  // The head is what it must NOT be quoting.
+  expect(sample).not.toContain('{"decision"');
+  // Still one line, still bounded: the two `…` trim markers are the only allowance.
+  expect(sample.split("\n")).toHaveLength(1);
+  expect(sample.slice(sample.indexOf(": ") + 2).length).toBeLessThanOrEqual(SAMPLE_MAX + 2);
+});
+
+test("sampleAround keeps both sides when the text is short enough to show whole", () => {
+  expect(sampleAround("{}", 1)).toBe("{}");
+  const long = "y".repeat(SAMPLE_MAX * 2);
+  const windowed = sampleAround(long, SAMPLE_MAX);
+  expect(windowed).toStartWith("…");
+  expect(windowed).toEndWith("…");
 });
 
 test("a pooled no-tool trial keeps its stop reason and the prose it returned instead", () => {
@@ -336,7 +408,8 @@ test("mechanicalSamples de-duplicates and caps what one fixture can contribute",
   // Repeats collapse: the trial COUNT is already in the `parse-fail:N` flag, so a fixture that
   // failed the same way nine times is one line, not nine.
   const same = aggregate(FIXTURE, [wroteVerdict("nope"), wroteVerdict("nope")], ["no-verdict"]);
-  expect(mechanicalSamples(same)).toEqual(["parse-fail wrote: nope"]);
+  expect(mechanicalSamples(same)).toHaveLength(1);
+  expect(mechanicalSamples(same)[0]).toEndWith("wrote: nope");
   // Distinct shapes are capped, so a wholly broken fixture cannot flood the log.
   const many = aggregate(
     FIXTURE,
@@ -344,7 +417,7 @@ test("mechanicalSamples de-duplicates and caps what one fixture can contribute",
     ["no-verdict"],
   );
   expect(mechanicalSamples(many)).toHaveLength(SAMPLES_PER_FIXTURE);
-  expect(mechanicalSamples(many)[0]).toBe("parse-fail wrote: a");
+  expect(mechanicalSamples(many)[0]).toEndWith("wrote: a");
 });
 
 test("formatReport shows the evidence for a flagged fixture and nothing for a clean one", () => {
@@ -352,7 +425,8 @@ test("formatReport shows the evidence for a flagged fixture and nothing for a cl
   const broken = aggregate(FIXTURE, [wroteVerdict("not json")], spec.labels);
   const out = formatReport(spec, [broken], decide([broken], spec.floor), run);
   expect(out).toContain("⚠ parse-fail:1");
-  expect(out).toContain("↳ parse-fail wrote: not json");
+  expect(out).toContain("↳ parse-fail [");
+  expect(out).toContain("wrote: not json");
 
   // A fixture that produced verdicts is one line, exactly as before — the report only grows where
   // something actually failed mechanically.
@@ -367,7 +441,9 @@ test("jsonReport carries the samples per fixture, so a CI run holds its own diag
   const results = [broken, clean];
   const report = jsonReport(spec, results, decide(results, spec.floor), run);
   const rows = report.results as { id: string; mechanicalSamples: string[] }[];
-  expect(rows[0]).toMatchObject({ id: "t1", mechanicalSamples: ["parse-fail wrote: not json"] });
+  expect(rows[0]!.id).toBe("t1");
+  expect(rows[0]!.mechanicalSamples).toHaveLength(1);
+  expect(rows[0]!.mechanicalSamples[0]).toEndWith("wrote: not json");
   expect(rows[1]).toMatchObject({ id: "t2", mechanicalSamples: [] });
 });
 

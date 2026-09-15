@@ -3,6 +3,8 @@ import {
   TelemetryService,
   resolveAptabaseHost,
   normalizeLocale,
+  createDefaultPost,
+  normalizeTelemetryHealth,
   type PostEventFn,
 } from "../src/telemetry";
 
@@ -131,4 +133,133 @@ test("swallows postEvent failure (never throws)", async () => {
   s.event("app_launched");
   await s.flush(); // must not reject
   expect(true).toBe(true);
+});
+
+// ── send health ────────────────────────────────────────────────────────────
+// Telemetry errors are never surfaced to callers, so the recorded outcome is the only
+// evidence that the pipeline works. These pin that evidence down.
+
+/** Minimal Response stand-in for createDefaultPost — only `ok`/`status` are read. */
+function res(status: number): Response {
+  return { ok: status >= 200 && status < 300, status } as Response;
+}
+
+/** Suppress the auto-flush so these tests own exactly when (and how often) a send happens. */
+const noAutoFlush = () => {};
+
+/** Clock that advances 1000ms per read, so sent/error ordering is unambiguous. */
+function tickingNow(): () => number {
+  let t = 0;
+  return () => (t += 1000);
+}
+
+test("createDefaultPost posts to the events path and resolves on 2xx", async () => {
+  const seen: { url: string; init: RequestInit }[] = [];
+  const post = createDefaultPost((async (url: string, init: RequestInit) => {
+    seen.push({ url, init });
+    return res(200);
+  }) as unknown as typeof fetch);
+  await post("https://eu.aptabase.com", "A-EU-1", [{ eventName: "app_launched" }]);
+  expect(seen.length).toBe(1);
+  expect(seen[0]!.url).toBe("https://eu.aptabase.com/api/v0/events");
+  expect((seen[0]!.init.headers as Record<string, string>)["App-Key"]).toBe("A-EU-1");
+});
+
+test("createDefaultPost rejects on non-2xx (fetch alone resolves for a rejected batch)", async () => {
+  const post = createDefaultPost((async () => res(400)) as unknown as typeof fetch);
+  await expect(post("https://eu.aptabase.com", "A-EU-1", [])).rejects.toThrow("HTTP 400");
+});
+
+test("a rejected batch records the status and leaves lastSentAt untouched", async () => {
+  const post = createDefaultPost((async () => res(400)) as unknown as typeof fetch);
+  const { s } = svc({ postEvent: post, now: tickingNow(), schedule: noAutoFlush });
+  s.event("app_launched");
+  await s.flush();
+  const h = s.health();
+  expect(h.lastError).toBe("HTTP 400");
+  expect(h.lastErrorAt).not.toBeNull();
+  expect(h.lastSentAt).toBeNull();
+});
+
+test("an accepted batch advances lastSentAt", async () => {
+  const post = createDefaultPost((async () => res(200)) as unknown as typeof fetch);
+  const { s } = svc({ postEvent: post, now: tickingNow(), schedule: noAutoFlush });
+  s.event("app_launched");
+  await s.flush();
+  const h = s.health();
+  expect(h.lastSentAt).not.toBeNull();
+  expect(h.lastError).toBeNull();
+});
+
+test("health() returns a copy, not the live state", async () => {
+  const { s } = svc({ now: tickingNow(), schedule: noAutoFlush });
+  s.event("app_launched");
+  await s.flush();
+  const h = s.health();
+  h.lastSentAt = 999_999;
+  expect(s.health().lastSentAt).not.toBe(999_999);
+});
+
+test("restore seeds health; persist receives it after each attempt", async () => {
+  const seeded = { lastSentAt: 42, lastErrorAt: null, lastError: null };
+  const written: unknown[] = [];
+  const { s } = svc({
+    restore: () => seeded,
+    persist: (h) => written.push(h),
+    now: tickingNow(),
+    schedule: noAutoFlush,
+  });
+  expect(s.health().lastSentAt).toBe(42);
+  s.event("app_launched");
+  await s.flush();
+  expect(written.length).toBe(1);
+  expect((written[0] as { lastSentAt: number }).lastSentAt).toBeGreaterThan(42);
+});
+
+test("logs once per failure streak and once on recovery", async () => {
+  const warns: string[] = [];
+  const logs: string[] = [];
+  const realWarn = console.warn;
+  const realLog = console.log;
+  console.warn = (m: string) => void warns.push(String(m));
+  console.log = (m: string) => void logs.push(String(m));
+  try {
+    let status = 500;
+    const post = createDefaultPost((async () => res(status)) as unknown as typeof fetch);
+    const { s } = svc({ postEvent: post, now: tickingNow(), schedule: noAutoFlush });
+    for (let i = 0; i < 3; i++) {
+      s.event("app_launched");
+      await s.flush();
+    }
+    expect(warns.length).toBe(1); // a persistent outage must not log per event
+    expect(warns[0]).toContain("HTTP 500");
+    status = 200;
+    s.event("app_launched");
+    await s.flush();
+    expect(logs.filter((l) => l.includes("sending again")).length).toBe(1);
+  } finally {
+    console.warn = realWarn;
+    console.log = realLog;
+  }
+});
+
+test("normalizeTelemetryHealth degrades a hand-edited row instead of throwing", () => {
+  expect(
+    normalizeTelemetryHealth({ lastSentAt: 5, lastErrorAt: 6, lastError: "HTTP 400" }),
+  ).toEqual({ lastSentAt: 5, lastErrorAt: 6, lastError: "HTTP 400" });
+  // wrong types degrade field-wise
+  expect(normalizeTelemetryHealth({ lastSentAt: "nope", lastError: 7 })).toEqual({
+    lastSentAt: null,
+    lastErrorAt: null,
+    lastError: null,
+  });
+  // NaN/Infinity are not usable timestamps
+  expect(normalizeTelemetryHealth({ lastSentAt: NaN })!.lastSentAt).toBeNull();
+  // non-objects have no salvageable shape
+  expect(normalizeTelemetryHealth(null)).toBeNull();
+  expect(normalizeTelemetryHealth("granted")).toBeNull();
+  expect(normalizeTelemetryHealth([1, 2])).toBeNull();
+  // an over-long reason is capped before it reaches the settings row
+  const long = normalizeTelemetryHealth({ lastError: "x".repeat(500) })!.lastError!;
+  expect(long.length).toBeLessThanOrEqual(120);
 });

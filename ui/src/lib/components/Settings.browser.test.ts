@@ -126,6 +126,7 @@ function settings(over: Partial<SettingsPayload> = {}): SettingsPayload {
     reducedPushMode: false,
     telemetryConsent: "unset",
     telemetryAvailable: true,
+    telemetryHealth: null,
     docAgentEnabled: false,
     docAgentAct: true,
     ...over,
@@ -1006,5 +1007,82 @@ describe("Settings device — issue number on session cards", () => {
     await expect
       .element(page.getByRole("switch", { name: m.settings_card_issue_ref_off() }))
       .toHaveAttribute("aria-checked", "false");
+  });
+});
+
+describe("telemetry send health", () => {
+  const healthText = () =>
+    document.querySelector('[data-testid="telemetry-health"]')?.textContent?.trim();
+
+  async function mountSession() {
+    await page.viewport(1280, 900);
+    render(Settings, { initialTab: "session", onclose: noop, onsaved: noop });
+    await expect
+      .element(page.getByRole("tabpanel", { name: m.settings_tab_session() }))
+      .toBeInTheDocument();
+  }
+
+  it("reports a failing pipeline under granted consent", async () => {
+    mockGetSettings.mockResolvedValue(
+      settings({
+        telemetryConsent: "granted",
+        telemetryAvailable: true,
+        telemetryHealth: {
+          lastSentAt: null,
+          lastErrorAt: Date.now() - 120_000,
+          lastError: "HTTP 400",
+        },
+      }),
+    );
+    await mountSession();
+
+    await expect.element(page.getByTestId("telemetry-health")).toBeInTheDocument();
+    expect(healthText()).toContain("HTTP 400");
+  });
+
+  it("reports the last successful send when the newest attempt succeeded", async () => {
+    mockGetSettings.mockResolvedValue(
+      settings({
+        telemetryConsent: "granted",
+        telemetryAvailable: true,
+        // an older failure must not outrank a newer success
+        telemetryHealth: {
+          lastSentAt: Date.now() - 120_000,
+          lastErrorAt: Date.now() - 600_000,
+          lastError: "HTTP 500",
+        },
+      }),
+    );
+    await mountSession();
+
+    await expect.element(page.getByTestId("telemetry-health")).toBeInTheDocument();
+    expect(healthText()).not.toContain("HTTP 500");
+  });
+
+  it("says nothing has been sent when health is empty", async () => {
+    mockGetSettings.mockResolvedValue(
+      settings({
+        telemetryConsent: "granted",
+        telemetryAvailable: true,
+        telemetryHealth: { lastSentAt: null, lastErrorAt: null, lastError: null },
+      }),
+    );
+    await mountSession();
+
+    await expect.element(page.getByTestId("telemetry-health")).toBeInTheDocument();
+    expect(healthText()).toBe(m.settings_telemetry_health_never());
+  });
+
+  it("renders no health line when consent is denied", async () => {
+    mockGetSettings.mockResolvedValue(
+      settings({
+        telemetryConsent: "denied",
+        telemetryAvailable: true,
+        telemetryHealth: { lastSentAt: Date.now() - 120_000, lastErrorAt: null, lastError: null },
+      }),
+    );
+    await mountSession();
+
+    expect(document.querySelector('[data-testid="telemetry-health"]')).toBeNull();
   });
 });

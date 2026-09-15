@@ -1227,6 +1227,7 @@ function buildSettings(): Settings {
     reducedPushMode: false,
     telemetryConsent: "unset",
     telemetryAvailable: true,
+    telemetryHealth: null,
     docAgentEnabled: false,
     docAgentAct: false,
   };

@@ -21,6 +21,7 @@
   import { modelGuidanceAlias, modelOptionLabel } from "$lib/model-guidance";
   import ModelGuidance from "$lib/components/ModelGuidance.svelte";
   import RestartShepherdDialog from "$lib/components/RestartShepherdDialog.svelte";
+  import { relativeAge } from "$lib/format";
   import SettingRow from "./SettingRow.svelte";
   import SettingToggle from "./SettingToggle.svelte";
   import "./settings-controls.css";
@@ -51,6 +52,29 @@
   let telemetryOn = $state(false);
   let telemetryAvailable = $state(false);
   let telemetryBusy = $state(false);
+  let telemetryHealth = $state<Settings["telemetryHealth"]>(null);
+  // Newest attempt wins: an error after the last success means the pipeline is dropping events.
+  const telemetryFailing = $derived(
+    !!telemetryHealth?.lastErrorAt &&
+      (telemetryHealth.lastSentAt === null ||
+        telemetryHealth.lastErrorAt > telemetryHealth.lastSentAt),
+  );
+  // Ages are resolved when the payload is seeded, not on a ticking clock — this line is a
+  // health check the operator reads on open, not a live counter.
+  const telemetryHealthLine = $derived.by(() => {
+    const h = telemetryHealth;
+    if (!h) return "";
+    const now = Date.now();
+    if (telemetryFailing && h.lastErrorAt !== null) {
+      return m.settings_telemetry_health_failed({
+        age: relativeAge(h.lastErrorAt, now),
+        reason: h.lastError ?? "",
+      });
+    }
+    if (h.lastSentAt !== null)
+      return m.settings_telemetry_health_sent({ age: relativeAge(h.lastSentAt, now) });
+    return m.settings_telemetry_health_never();
+  });
   let housekeeping = $state(true); // daily prune of old archived sessions (kill switch)
   let hkBusy = $state(false);
   let autoRevive = $state(false); // auto-revive stranded sessions after a herdr restart
@@ -123,6 +147,7 @@
       tuiDisableMouse = s.tuiDisableMouse;
       telemetryOn = s.telemetryConsent === "granted";
       telemetryAvailable = s.telemetryAvailable;
+      telemetryHealth = s.telemetryHealth;
     });
   });
 
@@ -454,6 +479,17 @@
       <span class="unavailable">{m.settings_telemetry_unavailable()}</span>
     {/if}
   {/snippet}
+  {#snippet below()}
+    <!-- Send health, shown only under granted consent: with the toggle off there is
+         nothing to report, and a stale "last sent" next to an off switch would mislead.
+         Telemetry failures are swallowed by design, so this line is the only place a
+         silently dropping pipeline becomes visible. -->
+    {#if telemetryAvailable && telemetryOn && telemetryHealth}
+      <p class="telemetry-health" class:failing={telemetryFailing} data-testid="telemetry-health">
+        {telemetryHealthLine}
+      </p>
+    {/if}
+  {/snippet}
 </SettingRow>
 
 <SettingRow
@@ -699,6 +735,15 @@
 {/if}
 
 <style>
+  .telemetry-health {
+    margin: 6px 0 0;
+    font-size: var(--fs-meta);
+    color: var(--color-muted);
+  }
+  .telemetry-health.failing {
+    color: var(--color-amber);
+  }
+
   .unavailable {
     color: var(--color-faint);
     font-size: var(--fs-meta);

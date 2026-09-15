@@ -237,6 +237,12 @@ export interface Settings {
   telemetryConsent: "unset" | "granted" | "denied";
   /** True when telemetry can run (App-Key configured AND DO_NOT_TRACK unset) — gates the prompt + toggle. */
   telemetryAvailable: boolean;
+  /** Last send outcomes, so a silently failing pipeline is visible. Null when no service is wired. */
+  telemetryHealth: {
+    lastSentAt: number | null;
+    lastErrorAt: number | null;
+    lastError: string | null;
+  } | null;
   /** Whether the PR-gated doc agent feature is enabled. */
   docAgentEnabled: boolean;
   /** Whether the doc agent runs in observe-only mode (no PR opened). */

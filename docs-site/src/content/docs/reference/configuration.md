@@ -359,7 +359,19 @@ Off until you opt in. Shepherd can emit **anonymous, privacy-first** usage
 telemetry (OS, version, arch, locale, engine, and which features are used — never
 code, file paths, repo names, or personal data) to an [Aptabase](https://aptabase.com)
 endpoint, to help prioritise the roadmap. It is server-side and best-effort: a
-failed send is dropped silently and never surfaces to the operator.
+rejected batch is dropped and the failure never propagates to the code that
+emitted the event.
+
+The drop is recorded, though, so a stalled pipeline is not invisible. Every flush
+stores its outcome — the time of the last accepted batch, and the time and short
+reason (e.g. `HTTP 400` for a rejected payload, `HTTP 401` for a bad App-Key,
+`HTTP 429` for quota) of the last failure — in the SQLite `settings` table, so it
+survives a restart. Shepherd logs `[telemetry] send failed: … — events are being
+dropped` when sending starts failing and `[telemetry] sending again` when it
+recovers, logging only on those transitions rather than once per event. With
+consent granted, the Settings panel shows the same state as a line under the
+telemetry toggle: the last successful send, or the failure that is dropping
+events.
 
 Nothing is sent unless **all** of these hold: consent is `granted`, `DO_NOT_TRACK`
 is unset, and an App-Key is configured (so the ingestion host resolves). Consent

@@ -11,7 +11,7 @@ import {
   TerminalSessionError,
   TerminalUnsupportedError,
 } from "./service";
-import { WorktreeMissingBaseError, WorktreeRestoreError } from "./worktree";
+import { WorktreeMissingBaseError, WorktreeOccupiedError, WorktreeRestoreError } from "./worktree";
 import {
   SpawnCanceled,
   SpawnPhaseTracker,
@@ -2282,6 +2282,10 @@ function createErrorResponse(e: unknown): Response {
   if (e instanceof SpawnCanceled) return json({ error: e.message, code: "spawn_canceled" }, 409);
   if (e instanceof SandboxAutoRefused) return json({ error: e.holdReason }, 403);
   if (e instanceof WorktreeMissingBaseError) return json({ error: e.message }, 422);
+  // Another session is checked out at the path this name resolves to. Name selection normally
+  // steps around that, so this is a conflict the operator resolves by retrying (which re-runs
+  // selection), not a server fault — hence 409 rather than the 502 below.
+  if (e instanceof WorktreeOccupiedError) return json({ error: e.message }, 409);
   const msg = e instanceof Error ? e.message : "create failed";
   const taken = /agent_name_taken/.test(msg);
   return json({ error: taken ? "task name already in use, retry" : msg }, taken ? 409 : 502);

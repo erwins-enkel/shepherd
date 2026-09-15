@@ -9054,3 +9054,140 @@ test("a retracted amendment reaches neither the replacement's prompt nor its row
   expect(store.listTaskAmendments(fresh.id)).toEqual([]);
   expect(spawnPrompt(calls)).not.toContain("withdrawn");
 });
+
+// ── name selection must never hand out an occupied worktree path (#2370) ──────
+//
+// The background namer moves a session's BRANCH onto the comprehended name while its worktree
+// DIRECTORY keeps the heuristic slug. That frees the branch while the checkout is still live, so
+// branchExists alone stops seeing the collision — and the next identical prompt used to be handed
+// the same path, whose `git worktree add` failure was then "recovered" by rm -rf'ing the live tree.
+
+/** A service whose worktree.create records the name it was given, over a real temp repo dir. */
+function nameSelectionHarness(store: SessionStore, repoPath: string) {
+  const calls: any = {};
+  const service = new SessionService({
+    store,
+    namer: async () => "flatten",
+    worktree: {
+      ensureBaseRef: async () => {},
+      branchExists: () => false, // the refined-away branch: free, as in the real incident
+      create: (_repo: string, _base: string, name: string) => {
+        calls.name = name;
+        return { worktreePath: `/wt/${name}`, branch: `shepherd/${name}`, isolated: true };
+      },
+      remove: () => {},
+    } as any,
+    herdr: {
+      start: async () => ({
+        terminalId: "term_z",
+        cwd: repoPath,
+        agent: "claude",
+        agentStatus: "working",
+        paneId: "p",
+        tabId: "t",
+        workspaceId: "w",
+      }),
+      list: () => [],
+    } as any,
+  });
+  return { service, calls };
+}
+
+test("uniqueName: an existing worktree directory makes a candidate taken", async () => {
+  const tmp = mkdtempSync(join(tmpdir(), "shepherd-name-"));
+  try {
+    const repoPath = join(tmp, "repo");
+    mkdirSync(repoPath, { recursive: true });
+    // Occupy the path the base name resolves to, with a file that must survive.
+    const occupied = join(tmp, ".shepherd-worktrees", "repo-flatten");
+    mkdirSync(occupied, { recursive: true });
+    writeFileSync(join(occupied, ".shepherd-plan.md"), "a live session's plan");
+
+    const store = new SessionStore(":memory:");
+    const { service, calls } = nameSelectionHarness(store, repoPath);
+    await service.create({
+      repoPath,
+      baseBranch: "main",
+      prompt: "flatten it",
+      model: null,
+      images: [],
+    });
+
+    expect(calls.name).not.toBe("flatten");
+    expect(existsSync(join(tmp, ".shepherd-worktrees", `repo-${calls.name}`))).toBe(false);
+    expect(existsSync(join(occupied, ".shepherd-plan.md"))).toBe(true);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("uniqueName: an active session's worktree path is taken even once the directory is gone", async () => {
+  const tmp = mkdtempSync(join(tmpdir(), "shepherd-name-"));
+  try {
+    const repoPath = join(tmp, "repo");
+    mkdirSync(repoPath, { recursive: true });
+    const stranded = join(tmp, ".shepherd-worktrees", "repo-flatten");
+    expect(existsSync(stranded)).toBe(false); // the TASK-2369 shape: row alive, tree destroyed
+
+    const store = new SessionStore(":memory:");
+    store.create({
+      name: "flatten",
+      prompt: "flatten it",
+      repoPath,
+      baseBranch: "main",
+      branch: "shepherd/flatten",
+      worktreePath: stranded,
+      isolated: true,
+      herdrSession: "default",
+      herdrAgentId: "term_a",
+    });
+
+    const { service, calls } = nameSelectionHarness(store, repoPath);
+    await service.create({
+      repoPath,
+      baseBranch: "main",
+      prompt: "flatten it",
+      model: null,
+      images: [],
+    });
+
+    expect(calls.name).not.toBe("flatten");
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("uniqueName: an archived session no longer holds its worktree path", async () => {
+  const tmp = mkdtempSync(join(tmpdir(), "shepherd-name-"));
+  try {
+    const repoPath = join(tmp, "repo");
+    mkdirSync(repoPath, { recursive: true });
+    const store = new SessionStore(":memory:");
+    const gone = store.create({
+      name: "flatten",
+      prompt: "flatten it",
+      repoPath,
+      baseBranch: "main",
+      branch: "shepherd/flatten",
+      worktreePath: join(tmp, ".shepherd-worktrees", "repo-flatten"),
+      isolated: true,
+      herdrSession: "default",
+      herdrAgentId: "term_a",
+    });
+    store.update(gone.id, { status: "archived" });
+
+    const { service, calls } = nameSelectionHarness(store, repoPath);
+    await service.create({
+      repoPath,
+      baseBranch: "main",
+      prompt: "flatten it",
+      model: null,
+      images: [],
+    });
+
+    // Its worktree was removed at archive, so the name is free again — no needless suffix.
+    expect(calls.name).toBe("flatten");
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+});

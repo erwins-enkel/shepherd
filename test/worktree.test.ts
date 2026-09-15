@@ -1,9 +1,15 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, rmSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname, basename } from "node:path";
 import { execFileSync } from "node:child_process";
-import { WorktreeMgr, WorktreeMissingBaseError, WorktreeRestoreError } from "../src/worktree";
+import {
+  WorktreeMgr,
+  WorktreeMissingBaseError,
+  WorktreeOccupiedError,
+  WorktreeRestoreError,
+  worktreePathFor,
+} from "../src/worktree";
 import { ProcessReaper } from "../src/process-reaper";
 
 let repo: string;
@@ -453,6 +459,39 @@ test("create: cleanupPartial removes leftover dir → retry succeeds", () => {
   expect(r.branch).toBe("shepherd/recover");
   expect(existsSync(r.worktreePath)).toBe(true);
   wt.remove(r.worktreePath);
+});
+
+test("create: an occupied path is refused, never reclaimed (#2370)", () => {
+  const wt = new WorktreeMgr();
+  const live = wt.create(repo, "main", "occupied");
+  // Uncommitted work — what a planning-phase session has and what the old reclaim destroyed.
+  writeFileSync(join(live.worktreePath, ".shepherd-plan.md"), "the plan");
+
+  // The heuristic branch name is free again (the background namer moved it), so a second session
+  // can be handed the same name — exactly the real incident.
+  execFileSync("git", ["branch", "-m", "shepherd/occupied", "shepherd/refined"], { cwd: repo });
+
+  expect(() => wt.create(repo, "main", "occupied")).toThrow(WorktreeOccupiedError);
+
+  expect(existsSync(live.worktreePath)).toBe(true);
+  expect(readFileSync(join(live.worktreePath, ".shepherd-plan.md"), "utf8")).toBe("the plan");
+  expect(
+    execFileSync("git", ["worktree", "list", "--porcelain"], { cwd: repo }).toString(),
+  ).toContain(live.worktreePath);
+  wt.remove(live.worktreePath);
+});
+
+test("create: a stale worktree REGISTRATION whose directory is gone is not treated as occupied", () => {
+  const wt = new WorktreeMgr();
+  const worktreePath = worktreePathFor(repo, "stale");
+  wt.create(repo, "main", "stale");
+  // Drop the directory behind git's back, leaving a prunable registration + the branch.
+  rmSync(worktreePath, { recursive: true, force: true });
+
+  const again = wt.create(repo, "main", "stale");
+  expect(again.worktreePath).toBe(worktreePath);
+  expect(existsSync(worktreePath)).toBe(true);
+  wt.remove(worktreePath);
 });
 
 // ── end Task A tests ──────────────────────────────────────────────────────────

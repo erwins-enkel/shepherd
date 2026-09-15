@@ -607,6 +607,7 @@ type NewSession = Omit<
   | "research"
   | "epicAuthoring"
   | "landingRepair"
+  | "plain"
   | "haltReason"
   | "haltedAt"
   | "manualSteps"
@@ -635,6 +636,7 @@ type NewSession = Omit<
   research?: boolean;
   epicAuthoring?: boolean;
   landingRepair?: boolean;
+  plain?: boolean;
   mergeTrainPrs?: number[];
   launchMetadata?: SessionLaunchMetadata | null;
 };
@@ -654,7 +656,8 @@ const COLS = `id, desig, name, prompt, repoPath, baseBranch, branch, worktreePat
   research, epicAuthoring, landingRepair, terminal, terminalTabId, terminalPaneId,
   createdAt, updatedAt, archivedAt, mergingSince, mergingTrainId, mergeTrainPrs, mergingPrNumber,
   haltReason, haltedAt, manualStepsJson, manualStepsAckedAt, experimentId, experimentRole,
-  spawnTerminalId, spawnAccountDir, providerSessionId, launchMetadataJson, archiveReason, codexLaunchId`;
+  spawnTerminalId, spawnAccountDir, providerSessionId, launchMetadataJson, archiveReason, codexLaunchId,
+  plain`;
 
 /**
  * The SELECT column list: everything {@link COLS} inserts, plus the OBSERVED runtime identity
@@ -715,6 +718,7 @@ type SessionRow = {
   research: number;
   epicAuthoring: number;
   landingRepair: number;
+  plain: number;
   terminal: number;
   terminalTabId: string | null;
   terminalPaneId: string | null;
@@ -2683,6 +2687,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       // field-count-driven buildSessionRow (keeps it under its complexity cap).
       epicAuthoring: Boolean(input.epicAuthoring),
       landingRepair: Boolean(input.landingRepair),
+      plain: Boolean(input.plain),
       terminal: Boolean(input.terminal),
       terminalTabId: strOrNull(input.terminalTabId),
       terminalPaneId: strOrNull(input.terminalPaneId),
@@ -2715,7 +2720,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       const seq = this.nextDesignationSeq();
       const s = this.buildSessionRow(input, seq, now);
       this.db.run(
-        `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [
           s.id,
           s.desig,
@@ -2779,6 +2784,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
           launchMetadataJson(s.launchMetadata),
           null, // archiveReason — a fresh session has not been archived
           strOrEmpty(s.codexLaunchId),
+          Number(s.plain), // Number() not `? 1 : 0` — same rationale as the other kind flags
         ],
       );
       return s;
@@ -4946,6 +4952,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     add("epicAuthoring", `epicAuthoring INTEGER NOT NULL DEFAULT 0`);
     // epic-landing-PR repair task kind: default 0 (false) for pre-existing rows.
     add("landingRepair", `landingRepair INTEGER NOT NULL DEFAULT 0`);
+    // plain task kind (agent without guards): default 0 (false) for pre-existing rows.
+    add("plain", `plain INTEGER NOT NULL DEFAULT 0`);
     // clean-terminal task kind (bare shell in the main checkout): default 0 for pre-existing rows.
     add("terminal", `terminal INTEGER NOT NULL DEFAULT 0`);
     // clean-terminal pane target (pane-direct, no agent): tab to close on decommission + the
@@ -6555,6 +6563,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       research: !!r.research,
       epicAuthoring: !!r.epicAuthoring,
       landingRepair: !!r.landingRepair,
+      plain: !!r.plain,
       terminal: !!r.terminal,
       terminalTabId: strOrNull(r.terminalTabId),
       terminalPaneId: strOrNull(r.terminalPaneId),

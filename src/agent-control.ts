@@ -238,10 +238,10 @@ export interface AgentCapabilities {
 }
 
 /**
- * The NON-CODE session modes — research, epic-authoring, landing-repair. Each caps at a
- * non-new-PR deliverable, so the PR-oriented blocks (single-PR invariant, manual steps, epic-intent
- * notice, `<build-queue>`) are suppressed for all three, and `shouldPreApproveBuildQueue` excludes
- * research.
+ * The NON-CODE session modes — research, epic-authoring, landing-repair, plain. The first three
+ * cap at a non-new-PR deliverable; plain runs the agent as the bare CLI would. Either way the
+ * PR-oriented blocks (single-PR invariant, manual steps, epic-intent notice, `<build-queue>`) are
+ * suppressed for all four, and `shouldPreApproveBuildQueue` excludes research.
  *
  * ONE definition, used by BOTH the prompt path (`composeSystemPromptBlocks`) and the tool catalog,
  * because they must agree: a research session in a `buildQueueEnabled` repo that saw `queue_write`
@@ -255,8 +255,9 @@ export function isNonCodeMode(modes: {
   research?: unknown;
   epicAuthoring?: unknown;
   landingRepair?: unknown;
+  plain?: unknown;
 }): boolean {
-  return Boolean(modes.research || modes.epicAuthoring || modes.landingRepair);
+  return Boolean(modes.research || modes.epicAuthoring || modes.landingRepair || modes.plain);
 }
 
 /** The tools those capabilities warrant, in a stable order. */

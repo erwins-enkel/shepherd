@@ -9,6 +9,7 @@
   import InstrumentToggle from "./InstrumentToggle.svelte";
   import GuardTimeline from "./GuardTimeline.svelte";
   import type { GuardRepoConfig } from "$lib/guard-timeline";
+  import type { ComposeMode } from "$lib/keymap/types";
   import {
     AGENT_PROVIDERS,
     type AgentProvider,
@@ -35,6 +36,8 @@
     planGate,
     autopilot,
     modeLocked,
+    sandboxLocked,
+    mode,
     planGateLoading,
     autopilotLoading,
     planGateDefault,
@@ -68,8 +71,12 @@
     sandboxProfile: "default" | SandboxProfile;
     planGate: boolean;
     autopilot: boolean;
-    /** Research/epic mode: guards + autonomous sandbox render locked. */
+    /** Any non-code mode: the guard toggles give way to a sentence naming why there are none. */
     modeLocked: boolean;
+    /** Research/epic mode: the autonomous sandbox is locked (they need open web egress). */
+    sandboxLocked: boolean;
+    /** Which mode is selected — picks the no-guards sentence while `modeLocked`. */
+    mode: ComposeMode;
     planGateLoading: boolean;
     autopilotLoading: boolean;
     planGateDefault: boolean;
@@ -225,7 +232,7 @@
             <option value="default">{m.newtask_sandbox_default()}</option>
             <option value="trusted">{m.sandbox_profile_trusted()}</option>
             <option value="standard">{m.sandbox_profile_standard()}</option>
-            <option value="autonomous" disabled={modeLocked}
+            <option value="autonomous" disabled={sandboxLocked}
               >{m.sandbox_profile_autonomous()}</option
             >
           </select>
@@ -265,41 +272,42 @@
 
 <div class="group">
   <span class="group-label">{m.newtask_group_guards()}</span>
+  <!-- Guards are a Code-mode concern. Every non-code mode replaces the toggles (and the
+       timeline they drive) with one sentence saying why there are none — a greyed-out
+       switch would only raise the question the sentence answers. -->
   {#if modeLocked}
-    <span class="sr-only" id="nt-mode-locked-note"
-      >{research ? m.newtask_research_locked_aria() : m.newtask_epic_authoring_locked_aria()}</span
-    >
-  {/if}
-  <div class="guards">
-    <div use:coachTarget={"plan-gate"}>
-      <InstrumentToggle
-        checked={planGate}
-        labelMarkup={m.newtask_guard_plan_gate()}
-        disabled={modeLocked}
-        loading={planGateLoading}
-        defaultTip={defaultTip(planGateDefault)}
-        keycap={planGateKeycap}
-        shortcut={planGateShortcut}
-        onchange={onPlanGateChange}
-      />
+    <p class="field-note">
+      {mode === "plain"
+        ? m.newtask_guards_none_plain()
+        : mode === "research"
+          ? m.newtask_guards_none_research()
+          : m.newtask_guards_none_epic()}
+    </p>
+  {:else}
+    <div class="guards">
+      <div use:coachTarget={"plan-gate"}>
+        <InstrumentToggle
+          checked={planGate}
+          labelMarkup={m.newtask_guard_plan_gate()}
+          loading={planGateLoading}
+          defaultTip={defaultTip(planGateDefault)}
+          keycap={planGateKeycap}
+          shortcut={planGateShortcut}
+          onchange={onPlanGateChange}
+        />
+      </div>
+      <div use:coachTarget={"task-autopilot"}>
+        <InstrumentToggle
+          checked={autopilot}
+          labelMarkup={m.newtask_guard_autopilot()}
+          loading={autopilotLoading}
+          defaultTip={defaultTip(autopilotDefault)}
+          keycap={autopilotKeycap}
+          shortcut={autopilotShortcut}
+          onchange={onAutopilotChange}
+        />
+      </div>
     </div>
-    <div use:coachTarget={"task-autopilot"}>
-      <InstrumentToggle
-        checked={autopilot}
-        labelMarkup={m.newtask_guard_autopilot()}
-        disabled={modeLocked}
-        loading={autopilotLoading}
-        defaultTip={defaultTip(autopilotDefault)}
-        keycap={autopilotKeycap}
-        shortcut={autopilotShortcut}
-        onchange={onAutopilotChange}
-      />
-    </div>
-  </div>
-  <!-- Research and epic-authoring force both guards off and lock them; those modes run
-       their own directives, so a guard timeline would describe a path this task never
-       takes. The locked note above already explains why the switches are inert. -->
-  {#if !modeLocked}
     <div use:coachTarget={"guard-timeline"}>
       <GuardTimeline
         {planGate}
@@ -477,17 +485,6 @@
     display: flex;
     flex-direction: column;
     gap: 10px;
-  }
-  .sr-only {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    margin: -1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-    border: 0;
   }
   /* Short-and-touch OR'd in so phone landscape keeps 44px select targets — mirrors
      NewTask's `mobile` gate (this renders in the engine sheet in that layout). */

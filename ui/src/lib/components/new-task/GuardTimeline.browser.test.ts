@@ -178,6 +178,8 @@ describe("RunSettingsGroups — guard timeline placement", () => {
       planGate: true,
       autopilot: false,
       modeLocked: false,
+      sandboxLocked: false,
+      mode: "code",
       planGateLoading: false,
       autopilotLoading: false,
       planGateDefault: false,
@@ -203,11 +205,14 @@ describe("RunSettingsGroups — guard timeline placement", () => {
     await expect.poll(() => document.querySelector(".gtl-head")).toBeTruthy();
   });
 
-  // Research and epic authoring run their own directives; the guard switches are forced off
-  // and locked, so a timeline would describe a path the task never takes.
-  it("hides the timeline in a locked mode", async () => {
-    mountGroups({ modeLocked: true, research: true, planGate: false });
-    await expect.poll(() => document.querySelector('button[role="switch"]')).toBeTruthy();
+  // A non-code mode has no guards: the switches and the timeline give way to one sentence
+  // saying why, so nothing describes a path the task never takes.
+  it("replaces the switches and the timeline with the no-guards sentence in a locked mode", async () => {
+    mountGroups({ modeLocked: true, sandboxLocked: true, mode: "research", research: true });
+    await expect
+      .poll(() => document.body.textContent?.includes(m.newtask_guards_none_research()))
+      .toBe(true);
+    expect(document.querySelector('button[role="switch"]')).toBeNull();
     expect(document.querySelector(".gtl-head")).toBeNull();
   });
 });

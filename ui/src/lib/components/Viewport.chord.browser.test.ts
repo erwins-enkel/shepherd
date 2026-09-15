@@ -110,3 +110,28 @@ describe("Viewport PTY suppression of the settings chord", () => {
     expect(ptySend).not.toHaveBeenCalled();
   });
 });
+
+describe("Viewport Alt+arrow input", () => {
+  it.each([
+    { code: "ArrowUp", keyCode: 38, sequence: "\x1b[1;3A" },
+    { code: "ArrowDown", keyCode: 40, sequence: "\x1b[1;3B" },
+  ])("forwards Alt+$code to the agent", async ({ code, keyCode, sequence }) => {
+    await render(Viewport, { session: session({ id: "alt-arrow" }) });
+    const ta = await terminalTextarea();
+    ta.focus();
+    ptySend.mockClear();
+
+    ta.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: code,
+        code,
+        keyCode,
+        altKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+
+    expect(ptySend.mock.calls).toEqual([[sequence]]);
+  });
+});

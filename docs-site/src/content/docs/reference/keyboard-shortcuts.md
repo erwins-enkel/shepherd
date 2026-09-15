@@ -30,15 +30,18 @@ These fire when the dashboard body has focus — not while typing in a field.
 
 ## Switch sessions while the terminal is focused
 
-The Alt combos work even while the terminal owns the keyboard, so you can move around the herd without leaving the active session. On macOS the modifier is ⌥ Option, and matching is on the physical key (Option changes the character that would be typed).
+Except for `Alt+↑` / `Alt+↓`, the Alt combos work even while the terminal owns the keyboard, so you can move around the herd without leaving the active session. On macOS the modifier is ⌥ Option, and matching is on the physical key (Option changes the character that would be typed).
 
 | Keys | Action |
 | --- | --- |
-| `Alt+J` / `Alt+↓` | Next session |
-| `Alt+K` / `Alt+↑` | Previous session |
+| `Alt+J` | Next session |
+| `Alt+K` | Previous session |
+| `Alt+↓` / `Alt+↑` | Next / previous session (outside the terminal only) |
 | `Alt+]` / `Alt+Tab` | Next session |
 | `Alt+[` / `Alt+Shift+Tab` | Previous session |
 | `Alt+1`–`Alt+9` | Select the Nth session |
+
+Inside the terminal, `Alt+↑` and `Alt+↓` go to the agent. For example, Codex uses `Alt+↑` to answer a queued question. Use `Alt+J` / `Alt+K` to switch sessions from the terminal.
 
 The `Alt+Tab` / `Alt+Shift+Tab` variants work on macOS; on Windows and Linux the OS window switcher captures `Alt+Tab` before the app sees it, so use `Alt+]` / `Alt+[` there.
 

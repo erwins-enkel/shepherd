@@ -480,6 +480,25 @@ test("altComboKey maps arrow codes", () => {
   expect(altComboKey("ArrowUp")).toBe("arrowup");
 });
 
+test("altComboKey leaves Alt+arrows to the focused terminal", () => {
+  expect(altComboKey("ArrowDown", true)).toBeNull();
+  expect(altComboKey("ArrowUp", true)).toBeNull();
+});
+
+test("altComboKey keeps the other session switchers available from the terminal", () => {
+  for (const [code, key] of [
+    ["KeyJ", "j"],
+    ["KeyK", "k"],
+    ["Tab", "tab"],
+    ["BracketLeft", "["],
+    ["BracketRight", "]"],
+    ["Digit1", "1"],
+    ["Digit9", "9"],
+  ]) {
+    expect(altComboKey(code, true)).toBe(key);
+  }
+});
+
 test("altComboKey maps Digit1–Digit9 to '1'–'9'", () => {
   for (let n = 1; n <= 9; n++) {
     expect(altComboKey(`Digit${n}`)).toBe(String(n));

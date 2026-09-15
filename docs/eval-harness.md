@@ -274,6 +274,20 @@ with 13 of 33 trials producing no verdict, to 90.9% with none. **A number from t
 nothing until its mechanical-failure count is zero** — which is why the report prints `no-tool`,
 `parse-fail` and `unrecognised` next to every distribution.
 
+Each of those flags also carries its own evidence, on a `↳` line under the fixture and in the
+`mechanicalSamples` field of `--json` (#2326). A trial that obtained no usable verdict records what
+it produced instead — the unparseable bytes, the prose it replied with, or the JSON whose keys are
+not the contract's — escaped so a raw newline or an unescaped quote is visible, bounded so a run
+cannot paste a whole plan into a CI log, and de-duplicated across a fixture's trials. Without it a
+red gate could only be diagnosed by paying for another run and hoping the sampling failure
+reproduced.
+
+That evidence is also what tells the two kinds of failure apart. The contingency below — revise the
+fixture, or demote it to non-gating baseline — answers a fixture whose LABEL is in question. A
+`parse-fail` or an `unrecognised` verdict is a failure of the verdict CONTRACT, so demoting the
+fixture would record a mechanical regression as a known accuracy gap; read the sample and fix the
+prompt or the parser instead.
+
 ### stop-classifier — confirmed on the shared harness
 
 The classifier ran twice on 2026-09-02 (`--gating-only`), confirming the refactor preserved its

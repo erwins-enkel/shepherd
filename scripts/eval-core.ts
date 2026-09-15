@@ -246,6 +246,9 @@ export interface TrialOutcome {
   correct: boolean;
   /** The verdict parsed but carried no recognisable decision — see {@link Score.unrecognised}. */
   unrecognised: boolean;
+  /** What this trial produced INSTEAD of a usable verdict, bounded and escaped — see
+   *  {@link mechanicalSample}. Absent on a trial that produced one. */
+  mechanicalSample?: string;
 }
 
 /** A scorer's reading of one verdict: the display label plus whether the fixture's predicates hold.
@@ -391,6 +394,42 @@ export function parseVerdict(content: string | null): Record<string, unknown> | 
   const parsed = tolerantParse(content);
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return null;
   return parsed as Record<string, unknown>;
+}
+
+/** Cap on one captured sample, in characters — the same bound {@link diagnose} puts on prose. Wide
+ *  enough to show an unescaped quote, a raw newline or a trailing comma (what these failures have
+ *  always turned out to be), far short of pasting a whole plan into a CI log. */
+export const SAMPLE_MAX = 300;
+
+const ESCAPES: Record<string, string> = { "\n": "\\n", "\r": "\\r", "\t": "\\t" };
+
+// eslint-disable-next-line no-control-regex -- escaping control characters requires matching them
+const CONTROL_CHARS = /[\u0000-\u001f\u007f-\u009f]/g;
+
+/**
+ * One line of evidence, bounded and safe to print.
+ *
+ * Control characters are ESCAPED to visible literals rather than collapsed away, and that is the
+ * whole point: a raw newline inside a JSON string is itself the defect, so `\s+`-collapsing it
+ * (what `sanitizeDetail` does for `gh` output, where the whitespace means nothing) would delete the
+ * thing the reader came for. Escaping also keeps a sample to ONE log line and neutralises ESC, so
+ * no separate ANSI rule is needed.
+ *
+ * Truncation announces how much more there was, counted in escaped characters — the escaped text is
+ * what is capped — so a 12KB plan is distinguishable from a 310-character verdict.
+ *
+ * Nothing else is redacted, deliberately: eval prompts are committed synthetic fixtures, the
+ * harness never reads the operator's repository, and the only secret in the process — the API key —
+ * never enters a prompt or a response.
+ */
+export function sampleText(raw: string): string {
+  const escaped = raw.replace(
+    CONTROL_CHARS,
+    (c) => ESCAPES[c] ?? `\\x${c.charCodeAt(0).toString(16).padStart(2, "0")}`,
+  );
+  return escaped.length <= SAMPLE_MAX
+    ? escaped
+    : `${escaped.slice(0, SAMPLE_MAX)}… (+${escaped.length - SAMPLE_MAX} more)`;
 }
 
 // ---------------------------------------------------------------------------
@@ -574,6 +613,43 @@ export async function runTrial<F extends EvalFixtureBase>(
   return { toolUsed: false, content: null, turns: spec.maxTurns, stopReason: "turn-budget" };
 }
 
+/**
+ * What a trial produced INSTEAD of a usable verdict — `undefined` when it produced one.
+ *
+ * All THREE mechanical-failure classes the report prints get the same treatment, because each one
+ * used to drop the evidence that explains it:
+ *   - `parse-fail` threw away the bytes that would show the unescaped quote (#2326), so a red gate
+ *     could only be diagnosed by paying for another run and hoping it reproduced;
+ *   - a POOLED `no-tool` trial threw away the prose and the stop reason — `runEval` prints those
+ *     only for the PREFLIGHT trial, so the diagnosability `TrialCapture` was built for covered
+ *     exactly one trial per run;
+ *   - an `unrecognised` verdict threw away the JSON whose keys ARE the diagnosis.
+ *
+ * Losing it also mis-shapes the contingency rule: with no artefact to inspect, `docs/eval-harness.md`
+ * offers only "revise the fixture, or demote it", and a verdict-CONTRACT failure gets recorded as a
+ * known accuracy gap in a fixture whose label was never in question.
+ *
+ * The prefix names the same flag the report prints, so a sample and its `⚠` flag read together.
+ */
+export function mechanicalSample(
+  capture: TrialCapture,
+  parsed: Record<string, unknown> | null,
+  unrecognised: boolean,
+): string | undefined {
+  if (!capture.toolUsed) {
+    // `=== ""`, not a falsy check: prose of "0" is something the model said, not nothing.
+    const said = sampleText(capture.text ?? "");
+    return (
+      `no-tool stop=${capture.stopReason ?? "?"} turns=${capture.turns} ` +
+      `said: ${said === "" ? "(nothing)" : said}`
+    );
+  }
+  // `toolUsed` implies a string `content`; the fallback is for the type, not for a reachable state.
+  if (parsed === null) return `parse-fail wrote: ${sampleText(capture.content ?? "")}`;
+  if (unrecognised) return `unrecognised wrote: ${sampleText(capture.content ?? "")}`;
+  return undefined;
+}
+
 /** Turn one trial's capture into a scored outcome. */
 export function outcomeFrom<F extends EvalFixtureBase>(
   spec: EvalSpec<F>,
@@ -582,13 +658,16 @@ export function outcomeFrom<F extends EvalFixtureBase>(
 ): TrialOutcome {
   const raw = capture.toolUsed ? parseVerdict(capture.content) : null;
   const { label, correct, unrecognised } = spec.score(fixture, raw);
+  // A verdict that never arrived is not "unrecognised" — noTool/parseFail already name that.
+  const noDecision = raw !== null && unrecognised === true;
+  const sample = mechanicalSample(capture, raw, noDecision);
   return {
     toolUsed: capture.toolUsed,
     parseOk: raw !== null,
     label,
     correct,
-    // A verdict that never arrived is not "unrecognised" — noTool/parseFail already name that.
-    unrecognised: raw !== null && unrecognised === true,
+    unrecognised: noDecision,
+    ...(sample === undefined ? {} : { mechanicalSample: sample }),
   };
 }
 
@@ -651,6 +730,22 @@ export function aggregate<F extends EvalFixtureBase>(
     correct,
     majorityCorrect: correct > trials / 2,
   };
+}
+
+/** Cap on the DISTINCT samples surfaced per fixture. Identical malformations collapse to one line
+ *  and the trial count is already in the `parse-fail:N` flag, so three distinct shapes is enough to
+ *  see whether a fixture failed one way or several. */
+export const SAMPLES_PER_FIXTURE = 3;
+
+/** One fixture's evidence lines: each trial's {@link mechanicalSample}, de-duplicated and capped.
+ *  Derived rather than aggregated — `FixtureResult` already carries the outcomes. PURE. */
+export function mechanicalSamples<F extends EvalFixtureBase>(result: FixtureResult<F>): string[] {
+  const seen = new Set<string>();
+  for (const o of result.outcomes) {
+    if (o.mechanicalSample !== undefined) seen.add(o.mechanicalSample);
+    if (seen.size >= SAMPLES_PER_FIXTURE) break;
+  }
+  return [...seen];
 }
 
 export interface Decision {
@@ -767,6 +862,10 @@ export function formatReport<F extends EvalFixtureBase>(
           `maj=${(r.majorityLabel ?? "—").padEnd(18)} ${r.correct}/${r.trials}  {${distStr(r.counts)}}` +
           (flags ? `  ⚠ ${flags}` : ""),
       );
+      // The evidence behind the ⚠ flag, so a mechanical failure is diagnosable from THIS run's log
+      // rather than from a second paid one. Only ever emitted for a fixture that carries a flag —
+      // a clean fixture's entry is one line, exactly as before.
+      for (const sample of mechanicalSamples(r)) lines.push(`         ↳ ${sample}`);
     }
     lines.push("");
   }
@@ -817,6 +916,8 @@ export function jsonReport<F extends EvalFixtureBase>(
       noTool: r.noTool,
       parseFail: r.parseFail,
       unrecognised: r.unrecognised,
+      // Carried per fixture so a CI run holds its own diagnosis — the point of #2326.
+      mechanicalSamples: mechanicalSamples(r),
       majorityLabel: r.majorityLabel,
       correct: r.correct,
       majorityCorrect: r.majorityCorrect,

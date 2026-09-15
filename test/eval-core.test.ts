@@ -15,12 +15,17 @@ import {
   minCacheableTokens,
   prefixIsCacheable,
   isVerdictWrite,
+  jsonReport,
   majority,
+  mechanicalSamples,
   outcomeFrom,
   parseArgs,
   parseVerdict,
   runEval,
   runTrial,
+  SAMPLE_MAX,
+  SAMPLES_PER_FIXTURE,
+  sampleText,
   selectFixtures,
   smokeDecide,
   spendUsd,
@@ -29,6 +34,7 @@ import {
   type EvalFixtureBase,
   type EvalSpec,
   type Send,
+  type TrialCapture,
   type TrialOutcome,
 } from "../scripts/eval-core";
 import { readFileSync } from "node:fs";
@@ -166,6 +172,8 @@ test("stopping at the first Write would capture prose — the regression this gu
     label: "no-verdict",
     correct: false,
     unrecognised: false,
+    // And the content that explains it survives, with its newlines visible.
+    mechanicalSample: "parse-fail wrote: # Review\\n\\nProse, not JSON.",
   });
 });
 
@@ -221,6 +229,7 @@ test("unparseable verdict content is parse-fail, distinct from a no-tool miss", 
     label: "no-verdict",
     correct: false,
     unrecognised: false,
+    mechanicalSample: "parse-fail wrote: not json",
   });
   const noTool = outcomeFrom(spec, FIXTURE, captureFrom({ content: [] }, "verdict.json"));
   expect(noTool).toEqual({
@@ -229,7 +238,137 @@ test("unparseable verdict content is parse-fail, distinct from a no-tool miss", 
     label: "no-verdict",
     correct: false,
     unrecognised: false,
+    mechanicalSample: "no-tool stop=? turns=1 said: (nothing)",
   });
+});
+
+// ---------------------------------------------------------------------------
+// Mechanical-failure evidence (#2326)
+// ---------------------------------------------------------------------------
+
+/** A spec whose scorer rejects a verdict carrying no `label` — the `unrecognised` shape. */
+function pickySpec(): EvalSpec<TestFixture> {
+  return testSpec({
+    score: (fixture, raw) =>
+      raw !== null && typeof raw.label === "string"
+        ? { label: raw.label, correct: raw.label === fixture.expected }
+        : { label: "no-verdict", correct: false, unrecognised: true },
+  });
+}
+
+/** The outcome of one trial that wrote `content` to the verdict file. */
+function wroteVerdict(content: string, spec = testSpec()): TrialOutcome {
+  return outcomeFrom(spec, FIXTURE, captureFrom(write("verdict.json", content), "verdict.json"));
+}
+
+test("sampleText escapes control characters rather than collapsing them", () => {
+  // A raw newline inside a JSON string IS the defect, so the sample has to show it. Collapsing
+  // whitespace (what sanitizeDetail does for gh output) would delete the evidence.
+  expect(sampleText('{"a": "one\ntwo"}')).toBe('{"a": "one\\ntwo"}');
+  expect(sampleText("a\tb\r\n")).toBe("a\\tb\\r\\n");
+  // ESC and other C0 characters become visible literals, so a sample can never move a CI cursor.
+  expect(sampleText("\x1b[31mred\x00")).toBe("\\x1b[31mred\\x00");
+  expect(sampleText("plain")).toBe("plain");
+});
+
+test("sampleText caps a sample and says how much it stood in for", () => {
+  const out = sampleText("x".repeat(SAMPLE_MAX + 42));
+  expect(out.startsWith("x".repeat(SAMPLE_MAX))).toBe(true);
+  expect(out).toEndWith("… (+42 more)");
+  // Exactly at the cap is NOT truncated — an off-by-one here would label a whole verdict partial.
+  expect(sampleText("x".repeat(SAMPLE_MAX))).toBe("x".repeat(SAMPLE_MAX));
+});
+
+test("an unescaped quote in the verdict is parse-fail AND is visible in the sample", () => {
+  // The recorded real cause: the critic hand-writes the verdict and forgets to escape `"` inside
+  // German „…" prose. Before #2326 this produced `parse-fail:2` and nothing else — the run that
+  // detected it could not explain it, and diagnosing it meant paying for another one.
+  const broken = '{"decision": "request-changes", "summary": "der Plan „repariert" das nicht"}';
+  const outcome = wroteVerdict(broken);
+  expect(outcome.parseOk).toBe(false);
+  expect(outcome.mechanicalSample).toBe(`parse-fail wrote: ${broken}`);
+  expect(outcome.mechanicalSample).toContain('„repariert" das nicht');
+});
+
+test("a pooled no-tool trial keeps its stop reason and the prose it returned instead", () => {
+  // runEval prints stopReason/text for the PREFLIGHT trial only, so every other no-tool trial in a
+  // run used to be exactly as undiagnosable as a parse-fail one.
+  const prose = captureFrom(
+    { content: [{ type: "text", text: "I think it's fine." }], stop_reason: "end_turn" },
+    "verdict.json",
+  );
+  expect(outcomeFrom(testSpec(), FIXTURE, prose).mechanicalSample).toBe(
+    "no-tool stop=end_turn turns=1 said: I think it's fine.",
+  );
+  // Budget exhaustion is a no-tool miss too, and names itself as one.
+  const starved: TrialCapture = {
+    toolUsed: false,
+    content: null,
+    turns: 5,
+    stopReason: "turn-budget",
+  };
+  expect(outcomeFrom(testSpec(), FIXTURE, starved).mechanicalSample).toBe(
+    "no-tool stop=turn-budget turns=5 said: (nothing)",
+  );
+  // "(nothing)" means the model said nothing — a falsy check here would claim that of a reply of
+  // "0", which is something it said.
+  const zero: TrialCapture = { toolUsed: false, content: null, turns: 1, text: "0" };
+  expect(outcomeFrom(testSpec(), FIXTURE, zero).mechanicalSample).toEndWith("said: 0");
+});
+
+test("an unrecognised verdict keeps the JSON whose keys are the diagnosis", () => {
+  // `{"foo":1}` parses, so neither noTool nor parseFail names it — and the object it wrote instead
+  // of the contract's is the whole diagnosis.
+  const outcome = wroteVerdict('{"foo":1}', pickySpec());
+  expect(outcome).toMatchObject({ toolUsed: true, parseOk: true, unrecognised: true });
+  expect(outcome.mechanicalSample).toBe('unrecognised wrote: {"foo":1}');
+});
+
+test("a trial that produced a usable verdict carries no sample", () => {
+  const outcome = wroteVerdict('{"label":"ok"}', pickySpec());
+  expect(outcome.correct).toBe(true);
+  expect(outcome.mechanicalSample).toBeUndefined();
+  // Not merely undefined — the key is absent, so a clean outcome is the same shape it always was.
+  expect(Object.keys(outcome)).not.toContain("mechanicalSample");
+});
+
+test("mechanicalSamples de-duplicates and caps what one fixture can contribute", () => {
+  // Repeats collapse: the trial COUNT is already in the `parse-fail:N` flag, so a fixture that
+  // failed the same way nine times is one line, not nine.
+  const same = aggregate(FIXTURE, [wroteVerdict("nope"), wroteVerdict("nope")], ["no-verdict"]);
+  expect(mechanicalSamples(same)).toEqual(["parse-fail wrote: nope"]);
+  // Distinct shapes are capped, so a wholly broken fixture cannot flood the log.
+  const many = aggregate(
+    FIXTURE,
+    ["a", "b", "c", "d", "e"].map((c) => wroteVerdict(c)),
+    ["no-verdict"],
+  );
+  expect(mechanicalSamples(many)).toHaveLength(SAMPLES_PER_FIXTURE);
+  expect(mechanicalSamples(many)[0]).toBe("parse-fail wrote: a");
+});
+
+test("formatReport shows the evidence for a flagged fixture and nothing for a clean one", () => {
+  const spec = testSpec({ fixtures: [FIXTURE] });
+  const broken = aggregate(FIXTURE, [wroteVerdict("not json")], spec.labels);
+  const out = formatReport(spec, [broken], decide([broken], spec.floor), run);
+  expect(out).toContain("⚠ parse-fail:1");
+  expect(out).toContain("↳ parse-fail wrote: not json");
+
+  // A fixture that produced verdicts is one line, exactly as before — the report only grows where
+  // something actually failed mechanically.
+  const clean = aggregate(FIXTURE, [wroteVerdict('{"label":"ok"}')], spec.labels);
+  expect(formatReport(spec, [clean], decide([clean], spec.floor), run)).not.toContain("↳");
+});
+
+test("jsonReport carries the samples per fixture, so a CI run holds its own diagnosis", () => {
+  const spec = testSpec({ fixtures: [FIXTURE] });
+  const broken = aggregate(FIXTURE, [wroteVerdict("not json")], spec.labels);
+  const clean = aggregate({ ...FIXTURE, id: "t2" }, [wroteVerdict('{"label":"ok"}')], spec.labels);
+  const results = [broken, clean];
+  const report = jsonReport(spec, results, decide(results, spec.floor), run);
+  const rows = report.results as { id: string; mechanicalSamples: string[] }[];
+  expect(rows[0]).toMatchObject({ id: "t1", mechanicalSamples: ["parse-fail wrote: not json"] });
+  expect(rows[1]).toMatchObject({ id: "t2", mechanicalSamples: [] });
 });
 
 test("isVerdictWrite matches on the trailing path segment, and only for Write", () => {

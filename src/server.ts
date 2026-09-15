@@ -304,8 +304,9 @@ export interface AppDeps {
   /** Anonymous product telemetry (Aptabase). `event()` itself no-ops unless consent is
    *  granted (config.telemetryConsent === "granted") and DO_NOT_TRACK isn't set. Optional
    *  so the many test `makeDeps()` builders need no change; wired to the real
-   *  TelemetryService in index.ts. */
-  telemetry?: import("./telemetry").TelemetryService;
+   *  TelemetryService in index.ts. Narrowed to what the routes actually use so a test stub
+   *  only has to provide those two. */
+  telemetry?: Pick<import("./telemetry").TelemetryService, "event" | "health">;
   /** Memo slots (#1092) for the learnings + repo-config deep modules. Optional so the
    *  many test `makeDeps()` builders need no change; routes never read these directly —
    *  they go through the total `learnings(deps)` / `repoConfig(deps)` accessors below,
@@ -5463,12 +5464,7 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       // doc-agent soak flags (read-only; env-driven; no PUT patch).
       docAgentEnabled: config.docAgentEnabled,
       docAgentAct: config.docAgentAct,
-      telemetryConsent: config.telemetryConsent,
-      // The UI shows the consent prompt / toggle only when telemetry can actually
-      // run: an App-Key is configured (host resolvable) AND DO_NOT_TRACK is unset.
-      telemetryAvailable:
-        !config.doNotTrack &&
-        resolveAptabaseHost(config.aptabaseAppKey, config.aptabaseHostOverride) !== null,
+      ...telemetrySettings(deps.telemetry),
     });
   }
   if (req.method === "PUT") {
@@ -5745,6 +5741,25 @@ function putOperatorLanguage(value: unknown, deps: Ctx["deps"]): Response {
   config.operatorLanguage = v; // live: next spawn picks it up
   deps.store.setSetting("operatorLanguage", v); // persist across restarts
   return json({ operatorLanguage: config.operatorLanguage });
+}
+
+/**
+ * The three operator-facing telemetry fields of GET /api/settings, kept together and out of
+ * handleSettings (which sits at the cognitive-complexity bar).
+ *   - consent: the persisted answer to the first-run prompt.
+ *   - available: whether telemetry *can* run — App-Key configured (host resolvable) and
+ *     DO_NOT_TRACK unset. Gates the prompt and the toggle.
+ *   - health: whether it actually *is* delivering. Null only when no TelemetryService is
+ *     wired (tests); the UI renders it under a granted consent so a silent stall shows up.
+ */
+function telemetrySettings(telemetry: AppDeps["telemetry"]) {
+  return {
+    telemetryConsent: config.telemetryConsent,
+    telemetryAvailable:
+      !config.doNotTrack &&
+      resolveAptabaseHost(config.aptabaseAppKey, config.aptabaseHostOverride) !== null,
+    telemetryHealth: telemetry?.health() ?? null,
+  };
 }
 
 // Consent is the only persisted telemetry state. Granting for the first time emits

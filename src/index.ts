@@ -82,7 +82,7 @@ import { DiagnosticsService, defaultReadHerdrFleet, nextDiagnosticsDelay } from 
 import { homedir } from "node:os";
 import { safeRealpath } from "./sandbox";
 import { readMembraneLaunchFacts } from "./membrane-launch";
-import { TelemetryService } from "./telemetry";
+import { TelemetryService, normalizeTelemetryHealth } from "./telemetry";
 import { normalizeTelemetryConsent } from "./telemetry-consent";
 import { wirePrOpenedTelemetry } from "./pr-opened-telemetry";
 import { wireCodexPrFlag } from "./codex-pr-flag";
@@ -767,10 +767,24 @@ function mergeSuggestEnv(): RoleEnvironment {
 
 // Anonymous product telemetry (Aptabase). No-op unless the operator has explicitly
 // granted consent (config.telemetryConsent === "granted") and DO_NOT_TRACK isn't set.
+// Send health is persisted (not just in-memory) so it survives the deploy restarts that
+// punctuate normal operation: an in-memory-only record would read "never sent" after every
+// `bun run update`, which is the exact ambiguity that hid a month of silence.
+const TELEMETRY_HEALTH_KEY = "telemetryHealth";
 const telemetry = new TelemetryService({
   appKey: config.aptabaseAppKey,
   hostOverride: config.aptabaseHostOverride,
   enabled: () => config.telemetryConsent === "granted" && !config.doNotTrack,
+  restore: () => {
+    const raw = store.getSetting(TELEMETRY_HEALTH_KEY);
+    if (!raw) return null;
+    try {
+      return normalizeTelemetryHealth(JSON.parse(raw));
+    } catch {
+      return null; // hand-edited or truncated row must never block boot
+    }
+  },
+  persist: (h) => store.setSetting(TELEMETRY_HEALTH_KEY, JSON.stringify(h)),
 });
 
 const service = new SessionService({

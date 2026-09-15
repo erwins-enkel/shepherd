@@ -24,7 +24,10 @@ afterEach(() => {
 function harness(): { app: ReturnType<typeof makeApp>; store: SessionStore; events: string[] } {
   const store = new SessionStore(":memory:");
   const events: string[] = [];
-  const telemetry = { event: (n: string) => events.push(n) } as unknown as TelemetryService;
+  const telemetry = {
+    event: (n: string) => events.push(n),
+    health: () => ({ lastSentAt: 1000, lastErrorAt: null, lastError: null }),
+  } as unknown as TelemetryService;
   const deps: AppDeps = {
     store,
     events: new EventHub(),
@@ -44,7 +47,7 @@ const put = (app: ReturnType<typeof makeApp>, body: unknown) =>
     }),
   );
 
-test("GET /api/settings includes telemetryConsent and telemetryAvailable", async () => {
+test("GET /api/settings includes telemetryConsent, telemetryAvailable and telemetryHealth", async () => {
   config.telemetryConsent = "granted";
   const { app } = harness();
   const res = await app.fetch(new Request("http://x/api/settings"));
@@ -52,6 +55,19 @@ test("GET /api/settings includes telemetryConsent and telemetryAvailable", async
   const body = await res.json();
   expect(body.telemetryConsent).toBe("granted");
   expect(typeof body.telemetryAvailable).toBe("boolean");
+  expect(body.telemetryHealth).toEqual({ lastSentAt: 1000, lastErrorAt: null, lastError: null });
+});
+
+test("GET /api/settings reports a null telemetryHealth when no TelemetryService is wired", async () => {
+  const store = new SessionStore(":memory:");
+  const app = makeApp({
+    store,
+    events: new EventHub(),
+    service: {} as any,
+    usageLimits: { limits: () => ({}) } as any,
+  } as AppDeps);
+  const body = await (await app.fetch(new Request("http://x/api/settings"))).json();
+  expect(body.telemetryHealth).toBeNull();
 });
 
 test("PUT /api/settings rejects invalid/'unset' telemetryConsent values with 400", async () => {

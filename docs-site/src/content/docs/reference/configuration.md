@@ -130,14 +130,26 @@ Opt-in, default-off. Configurable from the Settings panel (persisted in the SQLi
 | --- | --- | --- |
 | `SHEPHERD_UPNEXT_SKIP_CLI_PICKER` | `0` (off) | Set `1` to make Up Next quick-start launch with the operator's default coding CLI instead of opening the "Choose coding CLI" picker, even when more than one CLI is ready. Default off preserves the picker behavior. |
 
-## Session revival (herdr daemon-restart recovery)
+## Session lifecycle (auto-archive + herdr daemon-restart revival)
 
-When the **herdr daemon** restarts, it re-creates each pane as a bare shell while the
-agent process behind it is gone — a "stranded" husk whose conversation is no longer live.
-Shepherd detects these and surfaces them (a daemon-restart toast plus a herd banner with a
-**revive all** action, which force-resumes every stranded session). It can also revive them
-autonomously. Opt-in, default-off; configurable from the Settings panel (persisted in the
-SQLite `settings` table), and the env var below seeds a fresh DB.
+Two independent sweeps, with opposite defaults.
+
+**Auto-archive** is the hourly janitor that tears down **settled** sessions — a session
+whose work stopped and that has nothing left in flight still holds a DB row, a worktree and
+a herdr tab. It is **on by default** and has no Settings-panel toggle: override it with
+`SHEPHERD_SESSION_AUTO_ARCHIVE=0` or a `sessionAutoArchiveEnabled` row in the `settings`
+table (the stored value wins). Unlike the DB-housekeeping sweep, which only prunes
+already-archived history, this one tears a **live** row down — so every gate fails closed and
+anything unreadable spares the session.
+
+**Revival** covers the opposite case. When the **herdr daemon** restarts, it re-creates each
+pane as a bare shell while the agent process behind it is gone — a "stranded" husk whose
+conversation is no longer live. Shepherd detects these and surfaces them (a daemon-restart
+toast plus a herd banner with a **revive all** action, which force-resumes every stranded
+session). It can also revive them autonomously: that part is opt-in, default-off,
+configurable from the Settings panel (persisted in the SQLite `settings` table), and the
+`SHEPHERD_AUTO_REVIVE` env var below seeds a fresh DB. The two sweeps never contend over the
+same session — a `stranded` session is the revival population and is never auto-archived.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |

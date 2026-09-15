@@ -1853,11 +1853,16 @@
             onclick={() => (activeSheet = "engine")}
           >
             <span class="ctx-dim"
-              >{agentProvider === "codex" ? m.agent_provider_codex() : m.agent_provider_claude()} ·
-            </span>
-            <span class="es-gate" class:on={planGate}
-              >{planGate ? m.newtask_gate_on() : m.newtask_gate_off()}</span
+              >{agentProvider === "codex"
+                ? m.agent_provider_codex()
+                : m.agent_provider_claude()}{modeLocked ? "" : " · "}</span
             >
+            <!-- No gate readout in a mode that has no guards — see RunSettingsGroups. -->
+            {#if !modeLocked}
+              <span class="es-gate" class:on={planGate}
+                >{planGate ? m.newtask_gate_on() : m.newtask_gate_off()}</span
+              >
+            {/if}
             <span class="chev" aria-hidden="true">▾</span>
           </button>
         </span>
@@ -2284,10 +2289,12 @@
               <span class="es-label">{m.newtask_group_engine()}</span>
               <span class="es-value">
                 {agentProvider === "codex" ? m.agent_provider_codex() : m.agent_provider_claude()}
-                · {modelSummary} ·
-                <span class="es-gate" class:on={planGate}
-                  >{planGate ? m.newtask_gate_on() : m.newtask_gate_off()}</span
-                >
+                · {modelSummary}{#if !modeLocked}
+                  ·
+                  <span class="es-gate" class:on={planGate}
+                    >{planGate ? m.newtask_gate_on() : m.newtask_gate_off()}</span
+                  >
+                {/if}
               </span>
               <span class="chev" aria-hidden="true">▾</span>
             </button>
@@ -2593,7 +2600,6 @@
         title={m.newtask_engine_sheet_title()}
         onclose={() => (activeSheet = null)}
       >
-        {@render modeLockedNote()}
         {@render settingsGroups()}
       </MobileEngineSheet>
     {:else if mobile && activeSheet === "context"}
@@ -2818,14 +2824,6 @@
 
 {#snippet rowCap()}
   <Keycap id="list-nav" ctx={keymapCtx} flash={hold.flash === "list-nav"} />
-{/snippet}
-
-{#snippet modeLockedNote()}
-  {#if modeLocked}
-    <span class="sr-only"
-      >{research ? m.newtask_research_locked_aria() : m.newtask_epic_authoring_locked_aria()}</span
-    >
-  {/if}
 {/snippet}
 
 <style>
@@ -3571,18 +3569,6 @@
     cursor: pointer;
     font: inherit;
     line-height: 1;
-  }
-
-  .sr-only {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    margin: -1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-    border: 0;
   }
 
   /* ── mobile: full-height sheet, fixed header/footer, single middle scroller ──

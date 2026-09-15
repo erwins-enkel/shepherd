@@ -203,11 +203,13 @@ describe("RunSettingsGroups — guard timeline placement", () => {
     await expect.poll(() => document.querySelector(".gtl-head")).toBeTruthy();
   });
 
-  // Research and epic authoring run their own directives; the guard switches are forced off
-  // and locked, so a timeline would describe a path the task never takes.
-  it("hides the timeline in a locked mode", async () => {
+  // Research and epic authoring run their own directives; the guards are forced off and
+  // no timeline step is ever taken, so the whole block goes rather than reading inert.
+  it("hides the whole guards block in a locked mode", async () => {
     mountGroups({ modeLocked: true, research: true, planGate: false });
-    await expect.poll(() => document.querySelector('button[role="switch"]')).toBeTruthy();
+    // The engine group still mounts — otherwise an unmounted component would pass this.
+    await expect.poll(() => document.querySelector("#nt-sandbox")).toBeTruthy();
+    expect(document.querySelector('button[role="switch"]')).toBeNull();
     expect(document.querySelector(".gtl-head")).toBeNull();
   });
 });

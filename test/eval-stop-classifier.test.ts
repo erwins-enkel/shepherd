@@ -79,6 +79,8 @@ test("no tool call → toolUsed=false, parseOk=false (a no-tool miss, not an abs
     label: "unknown",
     correct: false,
     unrecognised: false,
+    // …and it carries what the model said instead, so the miss is diagnosable from the log.
+    mechanicalSample: "no-tool stop=? turns=1 said: I think this is a gate.",
   });
 });
 
@@ -94,6 +96,7 @@ test("Write tool called with unparseable content → toolUsed=true but parseOk=f
     label: "unknown",
     correct: false,
     unrecognised: false,
+    mechanicalSample: "parse-fail wrote: not json at all",
   });
 });
 

@@ -1116,16 +1116,16 @@ test("an observational eval says so in its report, so green is never read as a p
 
 test("every eval gates — none is left observational with a guessed floor", () => {
   // `observational` is a temporary state for an eval whose floor nobody has measured. All three
-  // floors are now pinned from clean runs (2026-09-09); an eval added later starts observational
-  // and flips in the same commit that pins its floor.
+  // floors are now pinned from clean runs (2026-09-09; plan-gate + critic re-measured 2026-09-16 for
+  // #2329); an eval added later starts observational and flips in the same commit that pins it.
   const stillUnmeasured = [CLASSIFIER_SPEC, PLAN_GATE_SPEC, CRITIC_SPEC]
     .filter((spec) => spec.observational === true)
     .map((spec) => spec.name);
   expect(stillUnmeasured).toEqual([]);
   // A pinned floor is a deliberate literal, never the 0.75 placeholder the unmeasured evals carried.
-  for (const spec of [CLASSIFIER_SPEC, PLAN_GATE_SPEC, CRITIC_SPEC]) {
-    expect(`${spec.name} floor=${spec.floor}`).toBe(`${spec.name} floor=0.8`);
-  }
+  expect([CLASSIFIER_SPEC, PLAN_GATE_SPEC, CRITIC_SPEC].map((s) => `${s.name}=${s.floor}`)).toEqual(
+    [`${CLASSIFIER_SPEC.name}=0.8`, `${PLAN_GATE_SPEC.name}=0.8`, `${CRITIC_SPEC.name}=0.85`],
+  );
 });
 
 test("AGENT_SYSTEM_PROMPT carries no guidance about HOW to review", () => {

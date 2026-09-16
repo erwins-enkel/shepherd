@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { flushSync } from "svelte";
+import { flushSync, mount, unmount } from "svelte";
 import "../../app.css";
 import { statusTip } from "./statusTip.svelte";
 import type { TooltipExplanation } from "./content";
+import StatusTipHarness from "./StatusTipHarness.test.svelte";
 
 let cleanup: (() => void) | undefined;
 afterEach(() => cleanup?.());
@@ -39,5 +40,32 @@ describe("structured statusTip", () => {
     action?.update?.(null);
     expect(document.querySelector(".status-tip")).toBeNull();
     expect(node.hasAttribute("aria-description")).toBe(false);
+  });
+});
+
+describe("statusTip via use:", () => {
+  // Regression: once the panel existed, update() (run inside Svelte's tracked action effect)
+  // wrote bodyProps.content and read it back → effect_update_depth_exceeded froze the page.
+  it("updates a shown structured tip without looping", () => {
+    const target = document.createElement("div");
+    document.body.append(target);
+    const harness = mount(StatusTipHarness, { target }) as unknown as {
+      setUnits(next: string): void;
+    };
+    cleanup = () => {
+      void unmount(harness);
+      target.remove();
+    };
+    flushSync();
+    const trigger = target.querySelector<HTMLElement>("[data-testid=tip-trigger]")!;
+    trigger.dispatchEvent(new PointerEvent("pointerenter", { pointerType: "mouse" }));
+    const panel = document.querySelector<HTMLElement>(".status-tip")!;
+    expect(panel.textContent).toContain("1.2 units");
+    expect(() => {
+      harness.setUnits("2.4");
+      flushSync();
+    }).not.toThrow();
+    expect(panel.textContent).toContain("2.4 units");
+    expect(trigger.getAttribute("aria-description")).toContain("Next turn: 2.4 units");
   });
 });

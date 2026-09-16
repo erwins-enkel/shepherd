@@ -1,4 +1,4 @@
-import { mount, unmount } from "svelte";
+import { mount, unmount, untrack } from "svelte";
 import TooltipBody from "./TooltipBody.svelte";
 import { tooltipText, type TooltipContent } from "./content";
 import type { Action } from "svelte/action";
@@ -277,9 +277,14 @@ export const statusTip: Action<HTMLElement, StatusTipParams | null | undefined> 
   if (params?.text) enable(params);
 
   return {
+    // Svelte runs update() inside a tracked render effect. enable() writes bodyProps and
+    // panelClass() reads it back, so a tracked call re-invalidates its own effect — with
+    // structured text (a fresh proxy per write) that loops to effect_update_depth_exceeded.
     update(next: StatusTipParams | null | undefined) {
-      if (next?.text) enable(next);
-      else teardown();
+      untrack(() => {
+        if (next?.text) enable(next);
+        else teardown();
+      });
     },
     destroy() {
       teardown();

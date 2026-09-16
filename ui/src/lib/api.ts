@@ -459,14 +459,18 @@ const VOICE_ABSENT: VoiceStatus = {
 
 let voiceStatusPromise: Promise<VoiceStatus> | null = null;
 
-/** Detection status of the voice-whisper plugin, memoized once per page load. A 404 (plugin
- *  not installed) or any error resolves to an "unavailable" status and is cached — so the
- *  compose-bar mic keeps the browser's Web Speech engine (or stays hidden) exactly as today,
- *  with just this one cached probe as the difference. */
+/** Detection status of the voice-whisper plugin, memoized once per page load. The status
+ *  route is probed only when `/api/plugins` lists the plugin, so an instance without it logs
+ *  no 404. Absent, a non-ok status or any error resolves to an "unavailable" status and is
+ *  cached — the compose-bar mic then keeps the browser's Web Speech engine (or stays hidden). */
 export function getVoiceStatus(): Promise<VoiceStatus> {
   if (!voiceStatusPromise) {
-    voiceStatusPromise = fetch("/api/plugins/voice-whisper/status")
-      .then((r) => (r.ok ? (r.json() as Promise<VoiceStatus>) : VOICE_ABSENT))
+    voiceStatusPromise = getPlugins()
+      .then(async (plugins) => {
+        if (!plugins.some((p) => p.id === "voice-whisper")) return VOICE_ABSENT;
+        const r = await fetch("/api/plugins/voice-whisper/status");
+        return r.ok ? ((await r.json()) as VoiceStatus) : VOICE_ABSENT;
+      })
       .catch(() => VOICE_ABSENT);
   }
   return voiceStatusPromise;

@@ -242,6 +242,12 @@ the scheduled leg runs, so each floor is pinned at the depth it will be measured
 | `plan-gate` | **97.0% (32/33)**                                        | none                | `0.80`       |
 | `critic`    | **96.7% (29/30)** after demoting one fixture (raw 30/33) | none                | `0.80`       |
 
+> **Measured with #2329 present.** Until that fix, `tolerantParse` pulled any fenced block out of a
+> verdict — including one quoted inside its markdown `body` — and scored a valid verdict
+> `parse-fail`. These runs recorded no such failure, so they got lucky on fences rather than being
+> wrong, but a verdict that quoted code could not have scored correct: treat both figures as a floor,
+> not a clean measurement. A re-measure at the same depth is still owed on #2329.
+
 ### plan-gate — first clean baseline
 
 Every one of the 11 gating fixtures majority-correct, no `no-tool` or `parse-fail` anywhere.

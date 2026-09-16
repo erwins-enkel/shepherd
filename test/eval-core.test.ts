@@ -20,6 +20,7 @@ import {
   mechanicalSamples,
   outcomeFrom,
   parseArgs,
+  parseFailure,
   parseVerdict,
   rawControlOffset,
   runEval,
@@ -466,6 +467,44 @@ test("parseVerdict rejects non-objects so a bare array never scores as a verdict
   expect(parseVerdict("[1,2]")).toBeNull();
   expect(parseVerdict("7")).toBeNull();
   expect(parseVerdict(null)).toBeNull();
+});
+
+test("a valid verdict whose body quotes a fenced code block parses (#2329)", () => {
+  // The exact shape rc-false-assumption produced live: the reviewer quotes the file to prove a
+  // symbol is absent. The old unanchored fence-stripper extracted the TypeScript, discarded the
+  // valid raw JSON, and scored the trial parse-fail.
+  const verdict = JSON.stringify({
+    decision: "request-changes",
+    body: "The file actually holds:\n\n```ts\nexport interface TrainCandidate {\n  number: number;\n}\n```\n\nSo isBehindBase does not exist.",
+  });
+  expect(parseVerdict(verdict)?.decision).toBe("request-changes");
+  expect(parseFailure(verdict)).toBeUndefined();
+  const outcome = wroteVerdict(verdict);
+  expect(outcome.parseOk).toBe(true);
+  expect(outcome.mechanicalSample).toBeUndefined();
+});
+
+test("a verdict wrapped whole in a fence still parses", () => {
+  // The case the stripper exists for.
+  expect(parseVerdict('```json\n{"decision":"approve"}\n```')).toEqual({ decision: "approve" });
+  expect(parseVerdict('```\n{"decision":"approve"}\n```')).toEqual({ decision: "approve" });
+  expect(parseVerdict('  \n```JSON\r\n{"decision":"approve"}\r\n```\n\n')).toEqual({
+    decision: "approve",
+  });
+  // A wrapper whose body itself carries a fence: the strip must span to the FINAL fence.
+  const inner = JSON.stringify({ body: "see:\n```ts\nconst x = 1;\n```\ndone" });
+  expect(parseVerdict("```json\n" + inner + "\n```")).toEqual(JSON.parse(inner));
+});
+
+test("prose followed by a fenced verdict is still recovered by the brace salvage", () => {
+  expect(parseVerdict('Here is the verdict:\n```json\n{"decision":"approve"}\n```\n')).toEqual({
+    decision: "approve",
+  });
+});
+
+test("a broken fence-wrapped verdict is diagnosed on the object inside the fence", () => {
+  const failure = parseFailure('```json\n{"decision": "approve",}\n```');
+  expect(failure?.text).toBe('{"decision": "approve",}');
 });
 
 // ---------------------------------------------------------------------------

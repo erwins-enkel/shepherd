@@ -9,6 +9,12 @@
   // `below` snippet renders full-width under the pair (model meta line,
   // API-key block). `onrowclick` makes the whole row one hit target (toggle
   // rows) — clicks on the inner control itself are left to the control.
+  //
+  // A toggle row opts OUT of `onrowclick` when its flip is both invisible
+  // afterwards and costly to undo — consent, and anything that silently deletes.
+  // The widened hit target turns a stray click on the title or description text
+  // into a change nothing in the app ever reports back (#2331). Rows whose effect
+  // shows up the next time they matter keep it.
   let {
     title,
     description = "",

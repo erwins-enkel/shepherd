@@ -328,10 +328,14 @@ export interface ParseFailure {
 
 type ParseAttempt = { value: unknown } | { failure: ParseFailure };
 
-/** The text {@link tolerantParse} actually feeds the parser: fence stripped, trimmed. */
-function parseCandidate(raw: string): string {
-  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  return (fenced?.[1] ?? raw).trim();
+/** The texts {@link tolerantParse} feeds the parser, in order: the trimmed content, then — only when
+ *  a fence wraps the WHOLE content — what that fence holds. Raw goes first and the fence must be
+ *  anchored because a verdict's markdown `body` routinely quotes code in a fence; extracting that
+ *  block used to replace a perfectly valid verdict with TypeScript (#2329). */
+function parseCandidates(raw: string): [string, ...string[]] {
+  const trimmed = raw.trim();
+  const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  return fenced ? [trimmed, fenced[1]!] : [trimmed];
 }
 
 function attemptParse(text: string): ParseAttempt {
@@ -342,22 +346,27 @@ function attemptParse(text: string): ParseAttempt {
   }
 }
 
-/** Both passes {@link tolerantParse} makes, in order: the candidate, then the first {...} object
- *  inside it. The SECOND failure is the one worth reporting when it happens — it is the attempt that
- *  got closest to a verdict, so its message describes the object rather than the prose around it. */
+/** Every pass {@link tolerantParse} makes, in order: each candidate, then the first {...} object
+ *  inside the LAST (innermost) one. The salvage failure is the one worth reporting when it happens —
+ *  it is the attempt that got closest to a verdict, so its message describes the object rather than
+ *  the prose around it. */
 function attemptTolerant(raw: string): ParseAttempt {
-  const candidate = parseCandidate(raw);
-  const first = attemptParse(candidate);
-  if (!("failure" in first)) return first;
+  const candidates = parseCandidates(raw);
+  let last: ParseAttempt | undefined;
+  for (const text of candidates) {
+    last = attemptParse(text);
+    if (!("failure" in last)) return last;
+  }
+  const candidate = candidates[candidates.length - 1]!;
   const start = candidate.indexOf("{");
   const end = candidate.lastIndexOf("}");
   if (start !== -1 && end > start) return attemptParse(candidate.slice(start, end + 1));
-  return first;
+  return last!;
 }
 
-/** Tolerant JSON parse: strips an optional ```json fence and, failing that, extracts the first
- *  {...} object. Returns null on any parse failure (never repairs — a mechanical failure must stay
- *  visible, not be coerced into a spurious verdict). */
+/** Tolerant JSON parse: the content as-is, then the inside of a fence that wraps all of it, then the
+ *  first {...} object. Returns null on any parse failure (never repairs — a mechanical failure must
+ *  stay visible, not be coerced into a spurious verdict). */
 export function tolerantParse(raw: string): unknown {
   const attempt = attemptTolerant(raw);
   return "failure" in attempt ? null : attempt.value;

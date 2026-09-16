@@ -38,9 +38,10 @@ const DEFAULT_TEMPERATURE = 1.0;
  * computed at runtime. Adjustment rule: `FLOOR = round_down(observed − 0.15)` to the nearest 0.05,
  * changed only by a deliberate, commit-noted edit.
  *
- * Pinned from the first clean baseline (claude-sonnet-5, T=3, temperature 1.0, 2026-09-09):
- * gating accuracy 32/33 = 0.970, every gating fixture majority-correct, no mechanical failures →
- * `round_down(0.970 - 0.15)` to the nearest 0.05 = 0.80. See docs/eval-harness.md.
+ * Re-confirmed by the #2329 re-measure (claude-sonnet-5, T=3, temperature 1.0, 2026-09-16), the
+ * first capture free of the fence-stripper bug: gating accuracy 32/33 = 0.970, every gating fixture
+ * majority-correct → `round_down(0.970 - 0.15)` to the nearest 0.05 = 0.80, unchanged from the
+ * 2026-09-09 capture. See docs/eval-harness.md.
  */
 const GATING_ACCURACY_FLOOR = 0.8;
 

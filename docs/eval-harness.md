@@ -234,21 +234,40 @@ visible instead of masked by the backstop.
 
 ## Baselines
 
-Captured 2026-09-09, `claude-sonnet-5`, temperature `1.0`, `--gating-only --trials 3` — the depth
+Captured 2026-09-16, `claude-sonnet-5`, temperature `1.0`, `--gating-only --trials 3` — the depth
 the scheduled leg runs, so each floor is pinned at the depth it will be measured at.
 
-| Eval        | Gating accuracy                                          | Mechanical failures | Pinned floor |
-| ----------- | -------------------------------------------------------- | ------------------- | ------------ |
-| `plan-gate` | **97.0% (32/33)**                                        | none                | `0.80`       |
-| `critic`    | **96.7% (29/30)** after demoting one fixture (raw 30/33) | none                | `0.80`       |
+| Eval        | Gating accuracy    | Mechanical failures | Pinned floor |
+| ----------- | ------------------ | ------------------- | ------------ |
+| `plan-gate` | **97.0% (32/33)**  | 1 `parse-fail`      | `0.80`       |
+| `critic`    | **100.0% (30/30)** | none                | `0.85`       |
 
-### plan-gate — first clean baseline
+This replaces the 2026-09-09 capture (plan-gate 32/33, critic 29/30), which ran with **#2329**
+present: `tolerantParse` pulled any fenced block out of a verdict — including one quoted inside its
+markdown `body` — and scored a valid verdict `parse-fail`. Those runs happened to record none, but
+a verdict that quoted code could not have scored correct, so they were a floor, not a measurement.
+
+### plan-gate — 2026-09-16 re-measure
+
+All 11 gating fixtures majority-correct; `rc-false-assumption`, the fixture #2329 was found on,
+scored 3/3 (and 5/5 in a targeted run). The one miss is `rc-does-not-satisfy-task` at 2/3, and it
+is **mechanical, not a wrong verdict**: `parse-fail [JSON Parse error: Unterminated string]` with no
+raw control character to place and no fence in play — the model's own JSON broke. The captured
+sample is the head of a 2.3k verdict, so the break itself was not in view. Floor: `round_down(0.970 − 0.15)` to the nearest 0.05 = **0.80**, unchanged.
+Cost $2.04.
+
+### critic — 2026-09-16 re-measure
+
+Every one of the 10 gating fixtures 3/3, no mechanical failures. Floor:
+`round_down(1.000 − 0.15)` to the nearest 0.05 = **0.85**, raised from 0.80. Cost $4.94.
+
+### plan-gate — first clean baseline (2026-09-09)
 
 Every one of the 11 gating fixtures majority-correct, no `no-tool` or `parse-fail` anywhere.
 `approve-proposes-new-symbols` at 2/3 is the only one below 3/3. Floor:
 `round_down(0.970 − 0.15)` to the nearest 0.05 = **0.80**. Cost $2.25.
 
-### critic — first clean baseline
+### critic — first clean baseline (2026-09-09)
 
 Ten of 11 gating fixtures majority-correct with no mechanical failures; all six planted-defect
 fixtures scored 3/3.

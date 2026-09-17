@@ -68,7 +68,7 @@
     sandboxProfile: "default" | SandboxProfile;
     planGate: boolean;
     autopilot: boolean;
-    /** Research/epic mode: guards + autonomous sandbox render locked. */
+    /** Research/epic mode: the guards block is omitted, autonomous sandbox locked. */
     modeLocked: boolean;
     planGateLoading: boolean;
     autopilotLoading: boolean;
@@ -235,6 +235,10 @@
     </div>
     {#if research}
       <p class="field-note">{m.newtask_research_sandbox_note()}</p>
+    {:else if modeLocked}
+      <!-- Epic authoring locks the autonomous profile too, without a visible note of
+           its own — the disabled <option> alone doesn't say why. -->
+      <span class="sr-only">{m.newtask_epic_authoring_locked_aria()}</span>
     {/if}
 
     {#if agentProvider === "codex"}
@@ -261,45 +265,38 @@
   </div>
 </div>
 
-<div class="rule"></div>
+<!-- Research and epic authoring run their own directives: both force the guards off and
+     no path they describe is ever taken, so the whole block is absent rather than shown
+     inert. A locked switch reading OFF claims a choice exists; this mode has none. -->
+{#if !modeLocked}
+  <div class="rule"></div>
 
-<div class="group">
-  <span class="group-label">{m.newtask_group_guards()}</span>
-  {#if modeLocked}
-    <span class="sr-only" id="nt-mode-locked-note"
-      >{research ? m.newtask_research_locked_aria() : m.newtask_epic_authoring_locked_aria()}</span
-    >
-  {/if}
-  <div class="guards">
-    <div use:coachTarget={"plan-gate"}>
-      <InstrumentToggle
-        checked={planGate}
-        labelMarkup={m.newtask_guard_plan_gate()}
-        disabled={modeLocked}
-        loading={planGateLoading}
-        defaultTip={defaultTip(planGateDefault)}
-        keycap={planGateKeycap}
-        shortcut={planGateShortcut}
-        onchange={onPlanGateChange}
-      />
+  <div class="group">
+    <span class="group-label">{m.newtask_group_guards()}</span>
+    <div class="guards">
+      <div use:coachTarget={"plan-gate"}>
+        <InstrumentToggle
+          checked={planGate}
+          labelMarkup={m.newtask_guard_plan_gate()}
+          loading={planGateLoading}
+          defaultTip={defaultTip(planGateDefault)}
+          keycap={planGateKeycap}
+          shortcut={planGateShortcut}
+          onchange={onPlanGateChange}
+        />
+      </div>
+      <div use:coachTarget={"task-autopilot"}>
+        <InstrumentToggle
+          checked={autopilot}
+          labelMarkup={m.newtask_guard_autopilot()}
+          loading={autopilotLoading}
+          defaultTip={defaultTip(autopilotDefault)}
+          keycap={autopilotKeycap}
+          shortcut={autopilotShortcut}
+          onchange={onAutopilotChange}
+        />
+      </div>
     </div>
-    <div use:coachTarget={"task-autopilot"}>
-      <InstrumentToggle
-        checked={autopilot}
-        labelMarkup={m.newtask_guard_autopilot()}
-        disabled={modeLocked}
-        loading={autopilotLoading}
-        defaultTip={defaultTip(autopilotDefault)}
-        keycap={autopilotKeycap}
-        shortcut={autopilotShortcut}
-        onchange={onAutopilotChange}
-      />
-    </div>
-  </div>
-  <!-- Research and epic-authoring force both guards off and lock them; those modes run
-       their own directives, so a guard timeline would describe a path this task never
-       takes. The locked note above already explains why the switches are inert. -->
-  {#if !modeLocked}
     <div use:coachTarget={"guard-timeline"}>
       <GuardTimeline
         {planGate}
@@ -310,8 +307,8 @@
         repo={guardRepo}
       />
     </div>
-  {/if}
-</div>
+  </div>
+{/if}
 
 <style>
   .group {

@@ -5,8 +5,8 @@
 // Shepherd's legacy spawn command — an `env …` shim (always) wrapped, when a bwrap backend is
 // present, in `bwrap … -- env … claude …`. Shepherd now spawns on 0.7.5 through the CLI
 // external-registration path (`tab create` → `pane run` → `report-agent`, #1890), so 0.7.5 is fully
-// supported through 0.9.0 (protocol 22): the driven CLI, records and lifecycle were verified
-// against 0.8.2 (see docs/herdr-compat/0.9.0.md). This module owns the version ceilings; callers warn
+// supported through 0.9.1 (protocol 22): the driven CLI, records and lifecycle were verified
+// against 0.9.1 (see docs/herdr-compat/0.9.1.md). This module owns the version ceilings; callers warn
 // (preflight/diagnostics), fail spawns loudly (the driver), and block the in-app herdr-update for a
 // herdr newer than Shepherd can drive.
 import { compareSemver } from "./semver";
@@ -15,12 +15,12 @@ import { compareSemver } from "./semver";
  *  in-app updater block, and the diagnostics ceiling display. Equal to
  *  {@link HERDR_LAST_SPAWNABLE_VERSION} since #1893; a herdr newer than this is
  *  warned/blocked/refused across the capability layer AND the driver. */
-export const HERDR_LAST_SUPPORTED_VERSION = "0.9.0";
+export const HERDR_LAST_SUPPORTED_VERSION = "0.9.1";
 
-/** The newest herdr version the CLI driver can SPAWN on. 0.9.0 (protocol 22) still spawns via
+/** The newest herdr version the CLI driver can SPAWN on. 0.9.1 (protocol 22) still spawns via
  *  the external-registration path introduced for 0.7.5 (`tab create` → `pane run` → `report-agent`,
- *  #1890). Schema, CLI and isolated lifecycle/terminal probes: docs/herdr-compat/0.9.0.md. */
-export const HERDR_LAST_SPAWNABLE_VERSION = "0.9.0";
+ *  #1890). Schema, CLI and isolated lifecycle/terminal probes: docs/herdr-compat/0.9.1.md. */
+export const HERDR_LAST_SPAWNABLE_VERSION = "0.9.1";
 
 /** First herdr version that requires the external-registration spawn path instead of `agent start`
  *  (protocol 17 reshaped `agent start` so the wrapped `env …`/`bwrap …` argv can no longer be

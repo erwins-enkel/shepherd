@@ -3,7 +3,7 @@ title: "CLI reference"
 description: "Operator-facing herdr CLI commands, generated from live --help."
 ---
 
-Shepherd drives the [`herdr`](https://herdr.dev) interactive-pane manager for you, so most herdr commands are internal plumbing you never run by hand. This reference covers the **operator-facing** commands — the ones you might run directly when managing a Shepherd host. Each page below is the command's own `--help` output (command-level, not every leaf flag), pinned to herdr **0.9.0**.
+Shepherd drives the [`herdr`](https://herdr.dev) interactive-pane manager for you, so most herdr commands are internal plumbing you never run by hand. This reference covers the **operator-facing** commands — the ones you might run directly when managing a Shepherd host. Each page below is the command's own `--help` output (command-level, not every leaf flag), pinned to herdr **0.9.1**.
 
 _Generated from live `herdr --help` — do not edit by hand; run `bun run gen:cli` to regenerate._
 
@@ -12,6 +12,7 @@ herdr — terminal workspace manager for AI coding agents
 
 Usage: herdr [options]
        herdr --session <name> [options]
+       herdr --machine <label-or-id> <command>
        herdr --remote <ssh-target> [--session <name>]
        herdr session attach <name>
        herdr completion zsh
@@ -59,6 +60,7 @@ Advanced commands:
 
 Options:
   --session <name>    Use or create a named persistent session
+  --machine <label-or-id>  Run an API command on a saved SSH machine
   --remote <target>   Attach through SSH to a remote Herdr server
   --remote-keybindings <local|server>
                       Keybindings for --remote app attach (default: local)

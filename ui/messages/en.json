@@ -3814,6 +3814,8 @@
   "feat_learnings_evidence_repo_body": "New rule proposals citing evidence known to belong to another repo are rejected in full. Incidents appear in signal statistics. Unknown or expired signal IDs are not treated as provenance conflicts; existing rules remain unchanged.",
   "feat_herdr_090_title": "herdr 0.9.0 is supported",
   "feat_herdr_090_body": "You can now update herdr to 0.9.0 from Shepherd. Agent startup, terminal controls and cleanup were checked against isolated 0.8.2 and 0.9.0 servers. The existing sandbox status advisory still applies.",
+  "feat_herdr_091_title": "herdr 0.9.1 is supported",
+  "feat_herdr_091_body": "You can now update herdr to 0.9.1 from Shepherd. Agent startup, terminal controls and cleanup were checked against isolated 0.9.0 and 0.9.1 servers. The existing sandbox status advisory still applies.",
   "buildqueue_approve_plan": "Approve & plan",
   "buildqueue_approve_plan_hint": "Approve the queue to continue planning. Implementation waits for plan approval.",
   "buildqueue_start": "Start now",

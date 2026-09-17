@@ -1205,6 +1205,11 @@ export type SuccessResponseResponseResult =
       [k: string]: unknown;
     }
   | {
+      regions: SuccessResponsePaneLinkRegion[];
+      type: "pane_link_resolved";
+      [k: string]: unknown;
+    }
+  | {
       handled: boolean;
       type: "pane_link_activated";
       url?: string | null;
@@ -2763,6 +2768,18 @@ export interface SuccessResponsePaneFocusDirectionResult {
   [k: string]: unknown;
 }
 /**
+ * Inclusive display-cell columns on a pane's current viewport.
+ *
+ * This interface was referenced by `HerdrProtocol`'s JSON-Schema
+ * via the `definition` "SuccessResponsePaneLinkRegion".
+ */
+export interface SuccessResponsePaneLinkRegion {
+  end_col: number;
+  row: number;
+  start_col: number;
+  [k: string]: unknown;
+}
+/**
  * This interface was referenced by `HerdrProtocol`'s JSON-Schema
  * via the `definition` "SuccessResponsePaneMoveResult".
  */
@@ -3322,6 +3339,7 @@ export interface HerdrParams {
   "pane.focus": RequestPaneTarget;
   "pane.input.set": RequestPaneInputSetParams;
   "pane.link.activate": RequestPaneLinkActivateParams;
+  "pane.link.resolve": RequestPaneLinkActivateParams;
   "pane.rename": RequestPaneRenameParams;
   "pane.send_text": RequestPaneSendTextParams;
   "pane.send_keys": RequestPaneSendKeysParams;

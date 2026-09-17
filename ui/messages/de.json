@@ -3810,6 +3810,8 @@
   "feat_learnings_evidence_repo_body": "Neue Regelvorschläge mit nachweislich fremder Repo-Evidenz werden vollständig abgewiesen. Die Vorfälle erscheinen in der Signalstatistik. Unbekannte oder abgelaufene Signal-IDs gelten nicht als Herkunftskonflikt; bestehende Regeln bleiben unverändert.",
   "feat_herdr_090_title": "herdr 0.9.0 wird unterstützt",
   "feat_herdr_090_body": "Du kannst herdr jetzt in Shepherd auf 0.9.0 aktualisieren. Agentstart, Terminalsteuerung und Aufräumen wurden gegen isolierte Server mit 0.8.2 und 0.9.0 geprüft. Der bestehende Hinweis zum Sandbox-Status gilt weiterhin.",
+  "feat_herdr_091_title": "herdr 0.9.1 wird unterstützt",
+  "feat_herdr_091_body": "Du kannst herdr jetzt in Shepherd auf 0.9.1 aktualisieren. Agentstart, Terminalsteuerung und Aufräumen wurden gegen isolierte Server mit 0.9.0 und 0.9.1 geprüft. Der bestehende Hinweis zum Sandbox-Status gilt weiterhin.",
   "buildqueue_approve_plan": "Freigeben & planen",
   "buildqueue_approve_plan_hint": "Gib die Queue frei, um die Planung fortzusetzen. Die Umsetzung wartet auf die Planfreigabe.",
   "buildqueue_start": "Jetzt starten",

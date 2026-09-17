@@ -121,6 +121,7 @@ function baseProps(): Props {
     composeSandbox: null,
     composeResearch: false,
     composeEpicAuthoring: false,
+    composePlain: false,
     holdLikely: false,
     onnewclose: vi.fn(),
     onnewclone: vi.fn(),

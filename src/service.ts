@@ -1797,6 +1797,9 @@ export interface ComposeSystemPromptOptions {
   /** Epic-landing-PR repair task kind; absent/false → off. Suppresses the same blocks as
    *  `research`/`epicAuthoring` — its deliverable is a push to the existing landing PR, no new PR. */
   landingRepair?: boolean;
+  /** Plain task kind; absent/false → off. Suppresses the same blocks as the other non-code modes
+   *  and adds no directive of its own — the agent runs as the bare CLI would. */
+  plain?: boolean;
   planGate?: "interactive" | "auto";
   buildQueue?: string | null;
   previewHint?: boolean;
@@ -3061,6 +3064,7 @@ export class SessionService {
       research: input.research,
       epicAuthoring,
       landingRepair: input.landingRepair,
+      plain: input.plain,
       planGate,
       buildQueue,
       previewHint: isolated,
@@ -3450,10 +3454,10 @@ export class SessionService {
    * A landing-repair task is likewise exempt: it drives an existing red landing PR's CI green and
    * runs its own repair directive (nonCodeMode already suppresses the plan-gate directive in the
    * prompt, so the gate machinery must match — and it is drain-spawned/unattended, with no operator
-   * to plan with).
+   * to plan with). A plain task is exempt by definition: it is the agent without guards.
    */
   private resolvePlanGateOn(input: StandardCreateInput, repoConfig: RepoConfig): boolean {
-    if (input.research || input.epicAuthoring || input.landingRepair) return false;
+    if (isNonCodeMode(input)) return false;
     return input.planGateEnabled ?? repoConfig.planGateEnabled;
   }
 
@@ -3561,8 +3565,12 @@ export class SessionService {
       );
     }
     const spawnModel = clampCodexModelForAuth(model, agentProvider, this.codexAuthMode());
-    const spawnInput =
+    const modelInput =
       spawnModel === model ? resolvedInput : { ...resolvedInput, model: spawnModel };
+    // A plain session never runs on autopilot — that is the mode's contract, regardless of the
+    // per-task override or the repo default. Forced here, on the ONE input every downstream
+    // consumer (argv, build-queue pre-approval, the persisted row) reads.
+    const spawnInput = modelInput.plain ? { ...modelInput, autopilotEnabled: false } : modelInput;
     if (model !== null && spawnModel === null)
       console.warn(
         `[spawn] codex model "${model}" unsupported by ChatGPT-account auth — using account default`,
@@ -3855,6 +3863,7 @@ export class SessionService {
         research: spawnInput.research ?? false,
         epicAuthoring: spawnInput.epicAuthoring ?? false,
         landingRepair: spawnInput.landingRepair ?? false,
+        plain: spawnInput.plain ?? false,
         mergeTrainPrs: spawnInput.mergeTrainPrs,
         launchMetadata: this.buildLaunchMetadata({
           input,
@@ -4125,6 +4134,8 @@ export class SessionService {
       epicAuthoring: pickOverride(overrides?.epicAuthoring, original.epicAuthoring),
       // Carry the landing-repair flag so a relaunch keeps its push-not-PR repair directive.
       landingRepair: pickOverride(overrides?.landingRepair, original.landingRepair),
+      // Carry the plain flag so a relaunch stays guard-free.
+      plain: pickOverride(overrides?.plain, original.plain),
       epicParent: carriedEpicParent(original, overrides),
       // #2225: argv-only (composePromptArg folds it in) — never persisted as `sessions.prompt`.
       carriedAmendments,

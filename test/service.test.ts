@@ -9191,3 +9191,36 @@ test("uniqueName: an archived session no longer holds its worktree path", async 
     rmSync(tmp, { recursive: true, force: true });
   }
 });
+
+// ─── Plain mode: worktree + tab, no guards ────────────────────────────────────
+
+test("createSession: plain suppresses plan gate, autopilot and build queue even when all are on", async () => {
+  const { store, service, calls } = codexHarness(true);
+  setRepoAutopilot(store, true);
+  store.setRepoConfig("/repo", {
+    ...store.getRepoConfig("/repo"),
+    planGateEnabled: true,
+    buildQueueEnabled: true,
+  });
+  const s = await service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "/design a landing page",
+    model: null,
+    agentProvider: "codex",
+    images: [],
+    plain: true,
+    planGateEnabled: true,
+    autopilotEnabled: true,
+  });
+  const row = store.get(s.id)!;
+  expect(row.plain).toBe(true);
+  expect(row.planPhase).toBe(null);
+  expect(row.autopilotEnabled).toBe(false);
+  const prompt = codexPrompt(calls.start.argv);
+  expect(prompt).not.toContain("<plan-gate-directive>");
+  expect(prompt).not.toContain("<autopilot-directive>");
+  expect(prompt).not.toContain("<build-queue>");
+  expect(prompt).not.toContain("<single-pr-invariant>");
+  expect(calls.start.argv).not.toContain("--mcp-config");
+});

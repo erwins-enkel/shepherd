@@ -1,3 +1,4 @@
+import type { ComposeMode } from "$lib/keymap/types";
 // Pure logic for the New Task "shape this" round (issue #2158) — kept out of the .svelte file so
 // it's unit-testable without a DOM. The round itself (the transient agent, the brief composition)
 // runs on the server; these helpers only decide when the control is offered and how a failure reads.
@@ -10,7 +11,7 @@ export interface ShapeAvailability {
   repoResolved: boolean;
   /** The New Task mode. Shaping produces a code-task brief: research has no brief, and epic mode
    *  already has its own (richer) shaping flow. */
-  mode: "code" | "research" | "epic";
+  mode: ComposeMode;
   running: boolean;
 }
 

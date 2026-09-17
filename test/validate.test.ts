@@ -1460,3 +1460,56 @@ test("validateCreate accepts Codex ultra without changing the requested tier", (
   expect(r.ok).toBe(true);
   if (r.ok && r.value.terminal !== true) expect(r.value.effort).toBe("ultra");
 });
+
+// ── plain: agent without guards ───────────────────────────────────────────────
+
+test("plain: true accepted + passed through; absent → false", () => {
+  const r = validateCreate(
+    { repoPath: validRepo, baseBranch: "main", prompt: "go", plain: true },
+    root,
+  );
+  expect(r.ok).toBe(true);
+  if (r.ok && r.value.terminal !== true) expect(r.value.plain).toBe(true);
+  const absent = validateCreate({ repoPath: validRepo, baseBranch: "main", prompt: "go" }, root);
+  expect(absent.ok).toBe(true);
+  if (absent.ok && absent.value.terminal !== true) expect(absent.value.plain).toBe(false);
+});
+
+test("plain: non-boolean rejected", () => {
+  const r = validateCreate(
+    { repoPath: validRepo, baseBranch: "main", prompt: "go", plain: "yes" },
+    root,
+  );
+  expect(r.ok).toBe(false);
+  if (!r.ok) expect(r.error).toMatch(/plain/);
+});
+
+test("validateRelaunchOverrides: plain is accepted and forwarded, absent is not written", () => {
+  const r = validateRelaunchOverrides({ plain: true }, homedir());
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.value.plain).toBe(true);
+  const none = validateRelaunchOverrides({}, homedir());
+  expect(none.ok).toBe(true);
+  if (none.ok) expect("plain" in none.value).toBe(false);
+  const bad = validateRelaunchOverrides({ plain: 1 }, homedir());
+  expect(bad.ok).toBe(false);
+});
+
+test("launchUiState accepts an optional plainChecked flag", () => {
+  const r = validateCreate(
+    {
+      repoPath: validRepo,
+      baseBranch: "main",
+      prompt: "go",
+      launchUiState: {
+        researchChecked: false,
+        planGateChecked: false,
+        autopilotChecked: false,
+        plainChecked: true,
+      },
+    },
+    root,
+  );
+  expect(r.ok).toBe(true);
+  if (r.ok && r.value.terminal !== true) expect(r.value.launchUiState?.plainChecked).toBe(true);
+});

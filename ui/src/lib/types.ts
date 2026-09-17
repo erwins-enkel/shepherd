@@ -1175,6 +1175,9 @@ export interface Session {
   terminalPaneId?: string | null;
   /** Epic-authoring task kind: attended guided shaping → an EPIC draft; writes no GitHub issues. */
   epicAuthoring: boolean;
+  /** Plain task kind: the agent without guards — no plan gate, autopilot or build queue. Optional
+   *  like the server mirror — absent and false are equivalent. */
+  plain?: boolean;
   /** True when the network-egress allowlist was applied (autonomous sessions only). */
   egressApplied: boolean;
   /** True when the egress backend was unavailable — outbound is unrestricted despite autonomous profile. */
@@ -2318,6 +2321,7 @@ export interface LaunchUiState {
   planGateChecked: boolean;
   autopilotChecked: boolean;
   epicAuthoringChecked?: boolean;
+  plainChecked?: boolean;
 }
 
 export interface LaunchAttachmentMetadata {
@@ -2383,6 +2387,7 @@ export interface StandardCreateInput {
   sandboxProfile?: SandboxProfile | null; // per-spawn sandbox override; absent → inherit repo default
   research?: boolean; // research task kind; absent → false
   epicAuthoring?: boolean; // epic-authoring task kind; absent → false (guided EPIC-draft shaping)
+  plain?: boolean; // plain task kind; absent → false (agent without guards)
   mergeTrainPrs?: number[]; // merge-train participant PR numbers; server marks them "merging" on create
 }
 

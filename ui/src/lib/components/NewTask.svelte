@@ -62,7 +62,7 @@
   import { createHoldReveal } from "$lib/keymap/hold.svelte";
   import { scrimIn, scrimOut } from "$lib/keymap/motion";
   import { keymapEntry, matchKeymap } from "$lib/keymap/newTask";
-  import type { NewTaskKeymapCtx } from "$lib/keymap/types";
+  import type { ComposeMode, NewTaskKeymapCtx } from "$lib/keymap/types";
   import { dialog } from "$lib/a11yDialog";
   import { repoConfig } from "$lib/reviews.svelte";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
@@ -126,6 +126,7 @@
     initialSandboxProfile,
     initialResearch = false,
     initialEpicAuthoring = false,
+    initialPlain = false,
     usageLimits = null,
     holdLikely = false,
     fableAvailable = true,
@@ -184,6 +185,7 @@
     initialSandboxProfile?: SandboxProfile | null;
     initialResearch?: boolean;
     initialEpicAuthoring?: boolean;
+    initialPlain?: boolean;
     usageLimits?: UsageLimits | null;
     holdLikely?: boolean;
     fableAvailable?: boolean;
@@ -200,6 +202,11 @@
   // intentional one-time seed; NewTask remounts per open
   // svelte-ignore state_referenced_locally
   let prompt = $state(initialPrompt ?? (initialIssue ? issueTemplate(initialIssue) : ""));
+  /** True when the prompt opens with the `/design` command itself — not a word that merely
+   *  starts with "design" (`/designer …`). */
+  function isDesignPrompt(text: string): boolean {
+    return /^\/design(?:\s|$)/.test(text.trimStart());
+  }
   // The attached issue: its body is sent separately, NOT dumped into the prompt.
   // svelte-ignore state_referenced_locally
   let issueRef = $state<Issue | null>(initialIssue ?? null);
@@ -274,6 +281,9 @@
   // Epic-authoring task kind (issue #1507): guided shaping → EPIC draft.
   // svelte-ignore state_referenced_locally
   let epicAuthoring = $state(initialEpicAuthoring);
+  // Plain task kind: the agent without guards — worktree, branch and tab only.
+  // svelte-ignore state_referenced_locally
+  let plain = $state(initialPlain);
   // Per-spawn sandbox override; "default" → omit (inherit the repo's configured profile).
   // svelte-ignore state_referenced_locally
   let sandboxProfile = $state<"default" | SandboxProfile>(initialSandboxProfile ?? "default");
@@ -780,27 +790,53 @@
     };
   });
 
-  // Research and epic-authoring are non-code modes: both disable the plan-gate/autopilot
-  // toggles and the autonomous sandbox.
-  const modeLocked = $derived(research || epicAuthoring);
-  const mode = $derived<"code" | "research" | "epic">(
-    research ? "research" : epicAuthoring ? "epic" : "code",
+  // Guards are a Code-mode concern: every non-code mode (research, epic authoring, plain)
+  // replaces the plan-gate/autopilot toggles with a sentence saying why there are none.
+  const modeLocked = $derived(research || epicAuthoring || plain);
+  // Research and epic authoring need open web egress, so they also lock the autonomous
+  // sandbox; a plain task has no such need.
+  const sandboxLocked = $derived(research || epicAuthoring);
+  const mode = $derived<ComposeMode>(
+    research ? "research" : epicAuthoring ? "epic" : plain ? "plain" : "code",
   );
+  // True once the operator picked a mode by hand — the `/design` pre-selection below then
+  // never overrides their choice.
+  let modeTouched = $state(false);
   /** Mode segmented control: exact checkbox-parity semantics — selecting a non-code mode
    *  forces the guards off and PINS them touched (so a later repo switch doesn't re-seed);
    *  returning to Code deliberately does NOT restore them (parity with unchecking). */
-  function setMode(next: "code" | "research" | "epic") {
+  function setMode(next: ComposeMode) {
+    modeTouched = true;
     if (next === mode) return;
     research = next === "research";
     epicAuthoring = next === "epic";
+    plain = next === "plain";
     if (next !== "code") {
       planGate = false;
       planGateTouched = true;
       autopilot = false;
       autopilotTouched = true;
-      if (sandboxProfile === "autonomous") sandboxProfile = "default";
+      if (sandboxLocked && sandboxProfile === "autonomous") sandboxProfile = "default";
     }
   }
+
+  // `/design` (Claude's design-canvas skill) never yields planned code, so a prompt that
+  // opens with it pre-selects Plain. The pre-selection follows the prompt (drop the command
+  // and Code comes back — nothing sticks silently) and yields to any explicit mode choice.
+  // Only the plain FLAG moves here, never the guard toggles: a pre-selection that pinned
+  // them off would leave a prompt edited away from /design with silently disabled guards.
+  let designPreselected = $state(false);
+  $effect(() => {
+    if (modeTouched) return;
+    const wantsPlain = isDesignPrompt(prompt);
+    if (wantsPlain && mode === "code") {
+      plain = true;
+      designPreselected = true;
+    } else if (!wantsPlain && designPreselected) {
+      plain = false;
+      designPreselected = false;
+    }
+  });
 
   /** Effective model SETTING for a provider: repo override (when valid for it) → global. */
   function modelSettingFor(provider: AgentProvider): string {
@@ -1583,12 +1619,14 @@
         planGateChecked: planGate,
         autopilotChecked: autopilot,
         epicAuthoringChecked: epicAuthoring,
+        plainChecked: plain,
       },
       planGateEnabled: planGateFlag(planGateTouched, planGate),
       autopilotEnabled: automationFlag(autopilotTouched, autopilot),
       sandboxProfile: sandboxProfile === "default" ? undefined : sandboxProfile,
       research,
       epicAuthoring,
+      plain,
       force: force || undefined,
     };
   }
@@ -2593,7 +2631,6 @@
         title={m.newtask_engine_sheet_title()}
         onclose={() => (activeSheet = null)}
       >
-        {@render modeLockedNote()}
         {@render settingsGroups()}
       </MobileEngineSheet>
     {:else if mobile && activeSheet === "context"}
@@ -2698,6 +2735,8 @@
     {planGate}
     {autopilot}
     {modeLocked}
+    {sandboxLocked}
+    {mode}
     {planGateLoading}
     {autopilotLoading}
     {planGateDefault}
@@ -2785,6 +2824,21 @@
           flash={hold.flash === "mode-epic"}
         />{/if}</button
     >
+    <button
+      type="button"
+      class="seg-btn"
+      class:seg-active={mode === "plain"}
+      aria-pressed={mode === "plain"}
+      title={m.newtask_plain_hint()}
+      aria-keyshortcuts={shortcutAttr("mode-plain")}
+      onclick={() => setMode("plain")}
+      >{m.newtask_mode_plain()}{#if held}<Keycap
+          id="mode-plain"
+          ctx={keymapCtx}
+          tight
+          flash={hold.flash === "mode-plain"}
+        />{/if}</button
+    >
   </div>
 {/snippet}
 
@@ -2818,14 +2872,6 @@
 
 {#snippet rowCap()}
   <Keycap id="list-nav" ctx={keymapCtx} flash={hold.flash === "list-nav"} />
-{/snippet}
-
-{#snippet modeLockedNote()}
-  {#if modeLocked}
-    <span class="sr-only"
-      >{research ? m.newtask_research_locked_aria() : m.newtask_epic_authoring_locked_aria()}</span
-    >
-  {/if}
 {/snippet}
 
 <style>
@@ -3571,18 +3617,6 @@
     cursor: pointer;
     font: inherit;
     line-height: 1;
-  }
-
-  .sr-only {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    margin: -1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-    border: 0;
   }
 
   /* ── mobile: full-height sheet, fixed header/footer, single middle scroller ──

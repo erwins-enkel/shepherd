@@ -24,6 +24,7 @@ function harness(
     epicAuthoring?: boolean;
     research?: boolean;
     landingRepair?: boolean;
+    plain?: boolean;
   } = {},
 ): {
   deps: AgentControlDeps;
@@ -51,6 +52,7 @@ function harness(
     epicAuthoring: opts.epicAuthoring,
     research: opts.research,
     landingRepair: opts.landingRepair,
+    plain: opts.plain,
   });
   return {
     deps: { store, events: { emit: (event, data) => emitted.push({ event, data }) } },
@@ -359,4 +361,13 @@ test("agentMcpConfigArg points at the session's own endpoint over the resolved i
 
 test("agentMcpConfigArg carries no credential — the ingress listener is the auth boundary", () => {
   expect(agentMcpConfigArg("sess-1", "http://10.0.2.2:7331")).not.toMatch(/authorization|bearer/i);
+});
+
+// ─── Plain mode: an agent without guards ──────────────────────────────────────
+
+test("isNonCodeMode counts a plain session as non-code, so it gets no queue tools", () => {
+  expect(isNonCodeMode({ plain: true })).toBe(true);
+  expect(isNonCodeMode({ plain: false })).toBe(false);
+  const { deps, sessionId } = harness({ buildQueue: true, plain: true });
+  expect(agentTools(deps, sessionId)).toEqual([]);
 });

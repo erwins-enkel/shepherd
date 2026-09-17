@@ -2729,3 +2729,13 @@ test("hasInflightReviewerSpawn ignores a row spawned before the window", () => {
   expect(s.hasInflightReviewerSpawn(a.id, now - 6 * 60 * 60 * 1000)).toBe(false);
   expect(s.hasInflightReviewerSpawn(a.id, 0)).toBe(true); // still unfinished, just not recent
 });
+
+test("session: plain defaults false, round-trips via create + get", () => {
+  const s = mk();
+  const a = s.create(base);
+  expect(a.plain).toBe(false);
+  expect(s.get(a.id)?.plain).toBe(false);
+  const b = s.create({ ...base, herdrAgentId: "t2", plain: true });
+  expect(b.plain).toBe(true);
+  expect(s.get(b.id)?.plain).toBe(true);
+});

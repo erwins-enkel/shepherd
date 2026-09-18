@@ -5,7 +5,7 @@
 [varlock](https://varlock.dev) is two products sharing a CLI: a **schema/validation layer** for `.env` files, and a **secrets layer** (local encryption, provider plugins, a credential proxy for AI agents). Shepherd's needs are close to inverted from varlock's centre of gravity:
 
 - The **secrets** half solves a problem Shepherd does not have. Shepherd holds ~7 env-resident secrets, most of which **generate themselves** when unset, and spawned agents already sit behind a `--clearenv` bwrap membrane that is _stronger_ than what varlock offers (§4).
-- The **schema** half solves a problem Shepherd has badly: **172 environment variables, 88 of them undocumented, parsed by five mutually incompatible boolean idioms, with doc-sync maintained by an LLM rather than a check** (§2).
+- The **schema** half solves a problem Shepherd has badly: **172 environment variables, 86 of them undocumented, parsed by five mutually incompatible boolean idioms, with doc-sync maintained by an LLM rather than a check** (§2).
 
 The recommended move is to take the schema half as a **documentation and drift-gate tool only** — author `.env.schema`, wire `varlock audit` into the existing pre-push gate, and never import varlock into the server. No runtime dependency, no startup cost, no behaviour change (§5).
 
@@ -37,14 +37,14 @@ That last rule is what makes a zero-risk adoption possible for Shepherd (§5.1).
 
 Measured against `origin/main` (d40b733). "Product code" = `src`, `ui`, `scripts`, `ci`, `deploy`, `site`, `docs-site`, excluding `test/`.
 
-| Metric                                                                       | Count                                                             |
-| ---------------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| Distinct env vars read in product code                                       | **172**                                                           |
-| Read sites in product code                                                   | **263** (of which **217** in `src/` alone; ~490 counting `test/`) |
-| Distinct vars read in `src/config.ts`                                        | 116 (109 of them `SHEPHERD_*`)                                    |
-| Documented in `docs-site/…/reference/configuration.md`                       | 70                                                                |
-| **Read in code but appearing nowhere** in `docs/`, `docs-site/`, `README.md` | **88**                                                            |
-| Env-resident secrets                                                         | **~7**                                                            |
+| Metric                                                                                                | Count                                                             |
+| ----------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| Distinct env vars read in product code                                                                | **172**                                                           |
+| Read sites in product code                                                                            | **263** (of which **217** in `src/` alone; ~490 counting `test/`) |
+| Distinct vars read in `src/config.ts`                                                                 | 116 (109 of them `SHEPHERD_*`)                                    |
+| Documented in `docs-site/…/reference/configuration.md`                                                | 70                                                                |
+| **Read in code but appearing nowhere** in `docs-site/`, `docs/` (excl. `docs/research/`), `README.md` | **86**                                                            |
+| Env-resident secrets                                                                                  | **~7**                                                            |
 
 Four findings fall out.
 
@@ -80,14 +80,18 @@ The second is the dangerous one: an opt-out flag set to `false` stays **enabled*
 
 ### 2.3 Numeric parsing fails open, sometimes to `NaN`
 
-**14 of the 16** `SHEPHERD_LEARNINGS_*` vars use bare `Number(process.env.X ?? default)` with **no finite check** — a typo yields `NaN`, silently. Same pattern for `SHEPHERD_PORT`, `SHEPHERD_AGENT_INGRESS_PORT`, `SHEPHERD_PUSH_COOLDOWN_MS`, `SHEPHERD_AUTOMERGE_REBASE_CAP`, and the `SHEPHERD_PREVIEW_PORT_*` family.
+**14 of the 16** `SHEPHERD_LEARNINGS_*` vars use bare `Number(process.env.X ?? default)` with **no finite check** — a typo yields `NaN`, silently. Same pattern for `SHEPHERD_PORT` (`src/config.ts:480`), `SHEPHERD_PUSH_COOLDOWN_MS` (`:645`) and `SHEPHERD_AUTOMERGE_REBASE_CAP` (`:963`).
+
+The port families are **not** in that set — they are the one part of the config surface that already fails loudly. `validatePreviewPortRange` throws on a non-finite `SHEPHERD_PREVIEW_PORT_BASE`/`_COUNT` (`src/config.ts:345–349`) and `validateAgentIngressPort` throws on a non-integer or out-of-range `SHEPHERD_AGENT_INGRESS_PORT` (`:401–406`), both on the boot path (`src/index.ts:540`, `:548`).
 
 The two exceptions are worth naming, because one of them is the pattern the rest should follow:
 
 - `SHEPHERD_LEARNINGS_AUTO_TRIAL` (`src/learnings-lifecycle.ts:16`) is a boolean kill-switch (`!== "0"`), so it belongs to §2.2's problem, not this one.
 - `SHEPHERD_LEARNINGS_PRUNE_DAYS` (`src/learnings-lifecycle.ts:33–36`) **is** validated, via `resolveProposedRetentionDays` (`:229–238`): it requires `Number.isFinite(parsed) && parsed > 0`, emits a `console.warn` naming the bad value, and falls back. Neither unchecked nor silent.
 
-That exception matters for scoping: Shepherd already has an in-repo precedent for exactly the "validate, warn visibly, fall back" behaviour a schema would generalise — `@type=number` would extend it to the other 14 rather than introduce a foreign idea.
+Both exceptions are about **runtime validation only** — neither is documented (see §2.4).
+
+That second exception matters for scoping: Shepherd already has an in-repo precedent for exactly the "validate, warn visibly, fall back" behaviour a schema would generalise — `@type=number` would extend it to the other 14 rather than introduce a foreign idea. The port validators are the stricter precedent (throw, don't warn), which is why §6's open question about blocking-vs-warning is a real choice and not an obvious one.
 
 There are also **two different `envNum` helpers with incompatible signatures** — `src/house-rules.ts:34` takes a var _name_, `src/tmp-sweep.ts:42` takes a _value_.
 
@@ -97,7 +101,7 @@ The only startup hard-fails today are the port-range validators (`validatePrevie
 
 `configuration.md` is 423 lines of genuinely good, richly-cited prose covering 70 vars. It is kept current by `src/doc-agent.ts` — a nightly PR-gated documentation agent explicitly instructed to ground itself in _"`src/config.ts` — environment variables (names, defaults, behavior)"_ (`src/doc-agent.ts:1726`).
 
-There is **no mechanical check**. `scripts/check-generated-docs.sh` gates only the herdr CLI reference; `check:glossary`, `check:feature-catalog`, `check:model-mirror` cover other artifacts. Nothing asserts config.ts ↔ configuration.md parity. The result is 88 undocumented vars, including every role triple (`SHEPHERD_CRITIC_*`, `SHEPHERD_PLANNER_*`, `SHEPHERD_AUTOPILOT_*`, …), 14 of the 16 `SHEPHERD_LEARNINGS_*` (the same two exceptions as §2.3 — `AUTO_TRIAL` and `PRUNE_DAYS` — are the documented ones), `SHEPHERD_AUTH_MODE`, and `SHEPHERD_DEFAULT_MODEL`.
+There is **no mechanical check**. `scripts/check-generated-docs.sh` gates only the herdr CLI reference; `check:glossary`, `check:feature-catalog`, `check:model-mirror` cover other artifacts. Nothing asserts config.ts ↔ configuration.md parity. The result is 86 undocumented vars, including every role triple (`SHEPHERD_CRITIC_*`, `SHEPHERD_PLANNER_*`, `SHEPHERD_AUTOPILOT_*`, …), **all 16** `SHEPHERD_LEARNINGS_*` (the prefix `SHEPHERD_LEARNINGS_` appears nowhere in `docs-site/` or `README.md`, and nowhere in `docs/` outside this report — §2.3's two exceptions are validated at runtime, not documented), `SHEPHERD_AUTH_MODE`, and `SHEPHERD_DEFAULT_MODEL`.
 
 This is exactly `varlock audit`'s job: it exits `1` on drift in either direction — **missing in schema** (used in code, undeclared) and **unused in schema** (declared, no longer referenced).
 
@@ -105,7 +109,7 @@ This is exactly `varlock audit`'s job: it exits `1` on drift in either direction
 
 | varlock feature                          | Fit          | Why                                                                                                |
 | ---------------------------------------- | ------------ | -------------------------------------------------------------------------------------------------- |
-| `.env.schema` as single source of truth  | **Strong**   | 172 vars, 88 undocumented, no enforcement                                                          |
+| `.env.schema` as single source of truth  | **Strong**   | 172 vars, 86 undocumented, no enforcement                                                          |
 | `varlock audit` drift gate               | **Strong**   | Fixes §2.4; scans `.ts`/`.svelte`/`.astro` natively; slots beside the fallow pre-push gate         |
 | `@type` validation / coercion            | **Strong**   | Fixes §2.2 and §2.3                                                                                |
 | `varlock scan` (leak scan)               | Moderate     | Cheap — husky `pre-commit`/`pre-push` already exist; repo is public                                |
@@ -235,7 +239,7 @@ env = false
 | 3     | Local encryption, provider plugins, SvelteKit/Vite integration               | **Skip** — no surface in Shepherd                                                           |
 | 4     | Credential proxy for spawned agents                                          | **Skip** — weaker than the existing bwrap membrane, preview-grade, and Linux-hostile (§4.2) |
 
-The honest summary: varlock is a good tool whose most-advertised feature Shepherd should decline, and whose least-glamorous feature — a schema file and a drift check — fixes a real, measurable, 88-variable documentation debt for roughly the cost of writing the documentation that is already owed.
+The honest summary: varlock is a good tool whose most-advertised feature Shepherd should decline, and whose least-glamorous feature — a schema file and a drift check — fixes a real, measurable, 86-variable documentation debt for roughly the cost of writing the documentation that is already owed.
 
 Worth noting what Phase 1 does _not_ fix, so it isn't oversold: the import-time snapshot, the two rival `envNum` helpers, and the duplicated default expressions are all still there afterwards. The schema makes them _visible and enforced_; it doesn't refactor them.
 

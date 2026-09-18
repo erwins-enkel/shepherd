@@ -30,6 +30,8 @@ interface EventDecl {
 const NON_EVENT_KEYS: ReadonlySet<string> = new Set(["description", "envelope"]);
 export interface ResponseDecl {
   content?: { "application/json": { schema: unknown } };
+  /** Response headers the client may rely on; `required: true` ones are asserted present. */
+  headers?: Record<string, { required?: boolean }>;
 }
 export interface Operation {
   operationId: string;
@@ -117,6 +119,13 @@ export async function validateResponse(
     declared = rawDeclared;
   }
   coveredOperations.add(`${method.toUpperCase()} ${template} ${status}`);
+  // A header the contract marks `required` is part of the promise (the native client's whole login
+  // flow hangs off Set-Cookie), so a missing one fails the same way a bad body does.
+  for (const [name, decl] of Object.entries(declared.headers ?? {})) {
+    if (decl?.required === true && res.headers.get(name) === null) {
+      throw new Error(`${method} ${template} ${status}: missing required header ${name}`);
+    }
+  }
   const schema = declared.content?.["application/json"]?.schema;
   if (schema === undefined) return null;
   let body: unknown;

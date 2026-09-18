@@ -538,6 +538,11 @@ paths:
       responses:
         "200":
           description: Logged in; Set-Cookie carries the session.
+          headers:
+            Set-Cookie:
+              required: true
+              description: "shepherd_session cookie (login: signed session; logout: cleared with Max-Age=0)."
+              schema: { type: string }
           content:
             application/json:
               schema:
@@ -556,6 +561,11 @@ paths:
       responses:
         "200":
           description: Session cookie cleared.
+          headers:
+            Set-Cookie:
+              required: true
+              description: "shepherd_session cookie (login: signed session; logout: cleared with Max-Age=0)."
+              schema: { type: string }
           content:
             application/json:
               schema:

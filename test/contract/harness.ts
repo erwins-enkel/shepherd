@@ -25,10 +25,10 @@ interface EventDecl {
 }
 /** The one non-event key inside `x-shepherd-events` (it documents the socket, not a frame). */
 const EVENTS_DESCRIPTION_KEY = "description";
-interface ResponseDecl {
+export interface ResponseDecl {
   content?: { "application/json": { schema: unknown } };
 }
-interface Operation {
+export interface Operation {
   operationId: string;
   security?: unknown[];
   responses: Record<string, ResponseDecl | { $ref: string }>;
@@ -166,7 +166,16 @@ export function startContractServer(): ContractServer {
   };
 }
 
-const HTTP_METHODS = ["get", "put", "post", "delete", "patch", "head", "options", "trace"] as const;
+export const HTTP_METHODS = [
+  "get",
+  "put",
+  "post",
+  "delete",
+  "patch",
+  "head",
+  "options",
+  "trace",
+] as const;
 
 /** Every "METHOD /template status" combination the contract declares. */
 export function declaredOperations(): string[] {

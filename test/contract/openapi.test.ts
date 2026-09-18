@@ -14,6 +14,7 @@ import {
   coverage,
   declaredEvents,
   declaredOperations,
+  HTTP_METHODS,
   loadContract,
   login,
   mintToken,
@@ -24,6 +25,8 @@ import {
   validateResponse,
   withAuth,
   type ContractServer,
+  type Operation,
+  type ResponseDecl,
 } from "./harness";
 
 let s: ContractServer;
@@ -467,6 +470,36 @@ describe("realtime /pty protocol constants", () => {
       "utf8",
     );
     expect(demuxSrc).toContain('startsWith("\\x00resize:")');
+  });
+});
+
+describe("contract structure", () => {
+  test("every operation has an operationId and JSON responses reference component schemas", () => {
+    const c = loadContract();
+    for (const [template, methods] of Object.entries(c.paths)) {
+      for (const [method, rawOp] of Object.entries(methods)) {
+        if (!HTTP_METHODS.includes(method as never)) continue;
+        const op = rawOp as Operation;
+        expect(op.operationId, `${method} ${template}`).toBeTruthy();
+        for (const [status, r] of Object.entries(op.responses)) {
+          const schema = (r as ResponseDecl).content?.["application/json"]?.schema as
+            { $ref?: string } | undefined;
+          if (schema) {
+            expect(schema.$ref, `${method} ${template} ${status}`).toMatch(
+              /^#\/components\/schemas\//,
+            );
+          }
+        }
+      }
+    }
+  });
+
+  test("every component schema is referenced at least once", () => {
+    const c = loadContract();
+    const text = JSON.stringify(c);
+    for (const name of Object.keys(c.components.schemas)) {
+      expect(text.includes(`#/components/schemas/${name}"`), `unused schema ${name}`).toBe(true);
+    }
   });
 });
 

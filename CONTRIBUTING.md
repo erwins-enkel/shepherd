@@ -76,7 +76,7 @@ and failed pushes. Independent work runs in parallel (bounded by your core count
 lane teeing to its own `.test-logs/` file, with a per-lane wall-clock **timeout backstop**
 so a hung child can never wedge the push. The checks (per lane) are:
 
-- **gates:** branch-hygiene · feature-catalog · generated-docs · glossary · announcement-versions · model-mirror · fallow-pin · herdr-types
+- **gates:** branch-hygiene · feature-catalog · generated-docs · glossary · announcement-versions · model-mirror · fallow-pin · herdr-types · env-schema
 - **prettier:** `prettier --check` over the push **delta** (see note)
 - **eslint:** root + extension eslint over the push **delta** (see note)
 - **tsc:** `bun run typecheck` (root `tsc --noEmit`)

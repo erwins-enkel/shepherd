@@ -29,7 +29,7 @@ Shepherd is configured through **three stacked tiers**, and only the first is en
 | ---------------- | ----------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
 | 1. Process env   | `Environment=` in `deploy/shepherd.service:22-31` + `EnvironmentFile=-%h/.shepherd/env` (`:33`) | Seeds tier 3 on a fresh DB; authoritative for infra knobs (port, host, paths) |
 | 2. Code defaults | `src/config.ts` — one eager `export const config = {…}` (`src/config.ts:557`)                   | The `??` right-hand side of ~182 reads                                        |
-| 3. DB settings   | `settings` key/value table (`src/store.ts:1357`), **77 `getSetting` call sites**                | UI-configurable; wins at runtime for most behavioural knobs                   |
+| 3. DB settings   | `settings` key/value table (`src/store.ts:1357`), **67 `getSetting` call sites**                | UI-configurable; wins at runtime for most behavioural knobs                   |
 
 Two consequences shape everything below.
 
@@ -47,8 +47,14 @@ claims more than that is overclaiming, and this report is scoped accordingly.
 ### 1.1 The drift, measured
 
 ```
-$ grep -rhoE "SHEPHERD_[A-Z_]+" src scripts deploy | sort -u | wc -l      → 182
-$ grep -ohE  "SHEPHERD_[A-Z_]+" docs-site/.../configuration.md | sort -u  → 67
+# LC_ALL=C matters: sort's locale collation ignores underscores while comm compares
+# byte-wise, and the mismatch silently produces bogus diffs on these key names.
+$ export LC_ALL=C
+$ grep -rhoE "SHEPHERD_[A-Z0-9_]+" src scripts deploy | sort -u > code
+$ grep -ohE  "SHEPHERD_[A-Z0-9_]+" docs-site/.../configuration.md | sort -u > docs
+$ wc -l code docs            → 182 code, 67 docs
+$ comm -13 docs code | wc -l → 115   (in code, undocumented)
+$ comm -23 docs code | wc -l →   0   (documented, not in code)
 ```
 
 115 keys are referenced in code and absent from
@@ -56,9 +62,10 @@ $ grep -ohE  "SHEPHERD_[A-Z_]+" docs-site/.../configuration.md | sort -u  → 67
 that were never config (`SHEPHERD_EXCLUDE_START`, `SHEPHERD_KEY_OK_`, `SHEPHERD_UPDATE_EXIT__`), but
 the bulk are real, load-bearing knobs: every role CLI/model/effort triple (`SHEPHERD_CRITIC_*`,
 `SHEPHERD_PLANNER_*`, `SHEPHERD_NAMER_*`, `SHEPHERD_RECAP_*`, `SHEPHERD_OPTIMIZER_*`,
-`SHEPHERD_MERGE_SUGGEST_*`, `SHEPHERD_DISTILLER_*`, `SHEPHERD_DOC_AGENT_*`), the entire
-learnings-lifecycle tuning surface (22 keys), all three VAPID keys, `SHEPHERD_AUTH_MODE`,
-`SHEPHERD_DEFAULT_MODEL`, `SHEPHERD_FABLE_AVAILABLE`.
+`SHEPHERD_MERGE_SUGGEST_*`, `SHEPHERD_DISTILLER_*`, `SHEPHERD_AUTOPILOT_*`), the entire
+learnings-lifecycle tuning surface (21 keys), all three VAPID keys, `SHEPHERD_AUTH_MODE`,
+`SHEPHERD_DEFAULT_MODEL`, `SHEPHERD_FABLE_AVAILABLE`. (`SHEPHERD_DOC_AGENT_*` is **not** in this
+set — that family is fully documented at `configuration.md:261-266`.)
 
 ### 1.2 Parsing is ad hoc and inconsistent
 
@@ -71,16 +78,27 @@ learnings-lifecycle tuning surface (22 keys), all three VAPID keys, `SHEPHERD_AU
 | `parseKillSwitch(…)` (`src/config.ts:449`) | 3     | same as `!== "0"`, named |
 | `Number(process.env.X ?? default)`         | 19    | of which ~13 unguarded   |
 
-Only `parseHour` (`src/config.ts:456`), `clampCap` and two `|| 0` sites validate. The rest propagate
-`NaN`:
+Inline, only `parseHour` (`src/config.ts:456`), `clampCap` and two `|| 0` sites validate. **Shepherd
+also already has two hand-written boot validators** that hard-fail with a named, fixable message:
+`validatePreviewPortRange` (`src/config.ts:339`) and `validateAgentIngressPort`
+(`src/config.ts:391`), both invoked unconditionally at module scope in `src/index.ts:540-554`. The
+comment at `src/config.ts:385-386` states the idiom explicitly — "Fail-fast (throw), consistent with
+`validatePreviewPortRange` — never a silent fallback". That prior art matters, and §4 Stage 3 weighs
+it.
 
-- `SHEPHERD_PORT=seven` → `mainPort = NaN` (`src/config.ts:480`), never checked, reaches
-  `serve(appDeps, config.port)` (`src/index.ts:3281`). Verified under Bun 1.4.2:
-  `RangeError [ERR_OUT_OF_RANGE]: The value of "options.port" is out of range … Received NaN` —
-  a crash-loop under `Restart=on-failure`, with an error that never names `SHEPHERD_PORT`.
+Everything outside those validators propagates `NaN`:
+
 - `SHEPHERD_PUSH_COOLDOWN_MS=2m` → `NaN` (`src/config.ts:645`); every comparison against it is
-  `false`, so the cooldown silently vanishes. Same shape for `SHEPHERD_PREVIEW_PORT_BASE`,
-  `SHEPHERD_PREVIEW_PORT_COUNT`, `SHEPHERD_AUTOPILOT_STEP_CAP`, `SHEPHERD_AUTOMERGE_REBASE_CAP`.
+  `false`, so the cooldown silently vanishes. Same shape for `SHEPHERD_AUTOPILOT_STEP_CAP`
+  (`src/config.ts:850`) and `SHEPHERD_AUTOMERGE_REBASE_CAP` (`src/config.ts:963`).
+  `SHEPHERD_PREVIEW_PORT_BASE` / `_COUNT` are **not** in this set — `validatePreviewPortRange`
+  rejects a non-finite value of either by name (`src/config.ts:345-349`).
+- `SHEPHERD_PORT=seven` → `mainPort = NaN` (`src/config.ts:480`), which is never validated directly.
+  It does not reach `serve()`: `agentIngressPort` defaults to `mainPort + 1` (`src/config.ts:569`),
+  so it is `NaN` too, and `validateAgentIngressPort` throws first — but the message it prints names
+  **`SHEPHERD_AGENT_INGRESS_PORT`**, the derived key, not `SHEPHERD_PORT`, the one the operator
+  actually mistyped. Fail-fast, misattributed. A `@type=port` on `SHEPHERD_PORT` would name the real
+  culprit.
 
 ### 1.3 Secrets in env, and who inherits them
 
@@ -386,14 +404,21 @@ behaviour change, fully revertible — and it permanently closes the 115-key doc
 instead of `NaN`, at a measured **~0.4–0.6 s added startup** and a new hard dependency on a
 resolvable `node` ≥ 22.3.0 at boot (§2.3). Requires `env = false` in `bunfig.toml`. Migrate
 `src/config.ts` **one key at a time**, transcribing each kill switch's current default (§3.2), and
-keep `process.env` as the read path so the 60 test write-sites keep working. A cheaper way to get
-most of this benefit is a hand-written boot validator over the same schema — worth comparing before
-committing.
+keep `process.env` as the read path so the 60 test write-sites keep working.
+
+The cheaper alternative is **not hypothetical: the repo already does this twice.**
+`validatePreviewPortRange` (`src/config.ts:339`) and `validateAgentIngressPort`
+(`src/config.ts:391`) are hand-written, throw a named and fixable message, run unconditionally at
+boot (`src/index.ts:540-554`), and cost nothing at startup. Extending that established idiom to the
+remaining ~13 unguarded `Number()` reads and the 22 booleans gets most of Stage 3's benefit with no
+dependency, no `node` requirement at boot, and no 0.4–0.6 s penalty. Stage 3 should be taken only if
+the 182-key **typed** surface — coercion plus generated types — is judged worth that price over
+extending the validators Shepherd already has.
 
 **Do not adopt**: `varlock run` in `shepherd.service` (and if it is ever used for a script, never
 without `--inject vars`), secret-provider plugins, local encryption, the credential proxy, framework
 integrations. And do not describe `.env.schema` as Shepherd's configuration source of truth — it is
-the source of truth for the env _seed_ layer; the `settings` table (77 `getSetting` sites) stays
+the source of truth for the env _seed_ layer; the `settings` table (67 `getSetting` sites) stays
 authoritative at runtime.
 
 ### Alternatives considered
@@ -412,25 +437,27 @@ actually closes this repo's gap.
 
 ## 5. Evidence index
 
-| Claim                                       | Source                                                                    |
-| ------------------------------------------- | ------------------------------------------------------------------------- |
-| 182 keys referenced / 67 documented         | `grep` over `src scripts deploy` vs `docs-site/.../configuration.md`      |
-| 119 env reads in one file                   | `src/config.ts`                                                           |
-| 3 config tiers                              | `deploy/shepherd.service:22-33`, `src/config.ts:557`, `src/store.ts:1357` |
-| membrane clears env; `trusted` does not     | `src/sandbox.ts:303-315,624-631,664`                                      |
-| 11 `{...process.env}` spread sites          | `src/pty-bridge.ts:36` et al.                                             |
-| varlock 1.19.0, MIT, zero runtime deps      | `bun add varlock`; registry.npmjs.org/varlock                             |
-| Bun ≥ 1.3.3 gate + rationale                | `node_modules/varlock/dist/check-bun-version-*.mjs`                       |
-| Bun `.env` autoload defeats the decorator   | A/B with and without `bunfig.toml` `env = false`                          |
-| schema syntax, decorators, CLI surface      | `node_modules/varlock/skills/varlock/SKILL.md`; `varlock --help`          |
-| audit: 141 missing, exit 1                  | `varlock audit --path ./.env.schema <shepherd>/src`                       |
-| import ranks below schema                   | `varlock explain SHEPHERD_PORT`                                           |
-| blob carries plaintext secrets              | planted sentinel, clean ambient env, `--inject all`                       |
-| `--inject vars` recommended for agent procs | <https://varlock.dev/reference/cli/load-and-run/#run>                     |
-| redaction ~0.3 µs/line                      | 200 000-line benchmark, 47 ms → 104 ms                                    |
-| auto-load ~0.4–0.6 s boot cost              | 182-key schema, `/usr/bin/time` × 3                                       |
-| CLI shebang is `#!/usr/bin/env node`        | `node_modules/varlock/bin/cli.js:1`; cf. `src/node-bin.ts:20-41`          |
-| `NaN` port → `ERR_OUT_OF_RANGE`             | `Bun.serve({port: Number("seven")})` under Bun 1.4.2                      |
-| maturity, funding, telemetry, policy        | api.github.com/repos/dmno-dev/varlock; registry.npmjs.org; varlock.dev    |
+| Claim                                       | Source                                                                                        |
+| ------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| 182 keys referenced / 67 documented         | `grep` over `src scripts deploy` vs `docs-site/.../configuration.md`                          |
+| 119 env reads in one file                   | `src/config.ts`                                                                               |
+| 3 config tiers                              | `deploy/shepherd.service:22-33`, `src/config.ts:557`, `src/store.ts:1357`                     |
+| 67 `getSetting` call sites                  | 68 occurrences of `getSetting(` in `src/**/*.ts`, minus the definition at `src/store.ts:1825` |
+| two existing boot validators                | `src/config.ts:339,391`, called at `src/index.ts:540-554`                                     |
+| membrane clears env; `trusted` does not     | `src/sandbox.ts:303-315,624-631,664`                                                          |
+| 11 `{...process.env}` spread sites          | `src/pty-bridge.ts:36` et al.                                                                 |
+| varlock 1.19.0, MIT, zero runtime deps      | `bun add varlock`; registry.npmjs.org/varlock                                                 |
+| Bun ≥ 1.3.3 gate + rationale                | `node_modules/varlock/dist/check-bun-version-*.mjs`                                           |
+| Bun `.env` autoload defeats the decorator   | A/B with and without `bunfig.toml` `env = false`                                              |
+| schema syntax, decorators, CLI surface      | `node_modules/varlock/skills/varlock/SKILL.md`; `varlock --help`                              |
+| audit: 141 missing, exit 1                  | `varlock audit --path ./.env.schema <shepherd>/src`                                           |
+| import ranks below schema                   | `varlock explain SHEPHERD_PORT`                                                               |
+| blob carries plaintext secrets              | planted sentinel, clean ambient env, `--inject all`                                           |
+| `--inject vars` recommended for agent procs | <https://varlock.dev/reference/cli/load-and-run/#run>                                         |
+| redaction ~0.3 µs/line                      | 200 000-line benchmark, 47 ms → 104 ms                                                        |
+| auto-load ~0.4–0.6 s boot cost              | 182-key schema, `/usr/bin/time` × 3                                                           |
+| CLI shebang is `#!/usr/bin/env node`        | `node_modules/varlock/bin/cli.js:1`; cf. `src/node-bin.ts:20-41`                              |
+| `SHEPHERD_PORT=seven` misattributed at boot | `src/config.ts:480,569` → `validateAgentIngressPort` (`src/config.ts:400-405`)                |
+| maturity, funding, telemetry, policy        | api.github.com/repos/dmno-dev/varlock; registry.npmjs.org; varlock.dev                        |
 
 Upstream: <https://varlock.dev> · <https://github.com/dmno-dev/varlock>

@@ -267,29 +267,85 @@ export function bearer(token: string): Record<string, string> {
 }
 
 /** Opens /events with a bearer token, runs `drive`, resolves with every frame received until
- *  `settleMs` of silence after drive() returns. The socket is always closed, so a failing
- *  assertion downstream can't leave a dangling subscription behind. */
+ *  `settleMs` of silence after the LAST received frame (re-armed on every message), bounded by
+ *  `deadlineMs` overall. The socket is always closed exactly once, so a failing assertion
+ *  downstream can't leave a dangling subscription behind. An error or a premature close (before
+ *  collection has settled) rejects instead of returning partial frames, and the whole thing times
+ *  out instead of hanging forever if the server never talks. */
 export async function collectEvents(
   s: ContractServer,
   token: string,
   drive: () => Promise<void>,
   settleMs = 150,
+  deadlineMs = 5000,
 ): Promise<{ event: string; data: unknown }[]> {
   const frames: { event: string; data: unknown }[] = [];
   // Bun's WebSocket constructor takes `{ headers }` as its second argument; the DOM lib typing
   // this repo compiles against does not know about it.
   const ws = new WebSocket(`${s.wsUrl}/events`, { headers: bearer(token) } as never);
-  await new Promise<void>((resolve, reject) => {
-    ws.onopen = () => resolve();
-    ws.onerror = (e) => reject(new Error(`events ws error: ${String(e)}`));
-  });
-  try {
-    ws.onmessage = (m) => frames.push(JSON.parse(String(m.data)));
-    ws.send(JSON.stringify({ type: "presence", active: true }));
-    await drive();
-    await new Promise((r) => setTimeout(r, settleMs));
-  } finally {
+  let closed = false;
+  const closeOnce = (): void => {
+    if (closed) return;
+    closed = true;
     ws.close();
+  };
+  try {
+    let settled = false;
+    let driveDone = false;
+    await new Promise<void>((resolve, reject) => {
+      const deadline = setTimeout(() => {
+        reject(
+          new Error(
+            `events collection timed out after ${deadlineMs}ms (received ${frames.length} frames)`,
+          ),
+        );
+      }, deadlineMs);
+      let settleTimer: ReturnType<typeof setTimeout> | null = null;
+      // Only meaningful once `drive()` has resolved: (re-)starts the silence window, so the
+      // settle clock always measures time since the LAST frame, not since drive() returned.
+      const armSettle = (): void => {
+        if (!driveDone) return;
+        if (settleTimer) clearTimeout(settleTimer);
+        settleTimer = setTimeout(() => {
+          settled = true;
+          clearTimeout(deadline);
+          resolve();
+        }, settleMs);
+      };
+      const finish = (): void => {
+        clearTimeout(deadline);
+        if (settleTimer) clearTimeout(settleTimer);
+      };
+      // Install every handler BEFORE the open handshake resolves, so a frame that arrives in the
+      // gap between `open` and a later `onmessage` assignment is never silently dropped.
+      ws.onmessage = (m) => {
+        frames.push(JSON.parse(String(m.data)));
+        armSettle();
+      };
+      ws.onerror = (e) => {
+        finish();
+        reject(new Error(`events ws error: ${String(e)}`));
+      };
+      ws.onclose = (e) => {
+        if (settled) return; // expected: our own close() after settling
+        finish();
+        reject(new Error(`events ws closed early: code=${e.code} reason=${e.reason}`));
+      };
+      ws.onopen = () => {
+        ws.send(JSON.stringify({ type: "presence", active: true }));
+        void drive()
+          .then(() => {
+            driveDone = true;
+            armSettle();
+          })
+          .catch((err: unknown) => {
+            finish();
+            reject(err instanceof Error ? err : new Error(String(err)));
+          });
+      };
+    });
+  } finally {
+    closeOnce();
   }
   return frames;
 }

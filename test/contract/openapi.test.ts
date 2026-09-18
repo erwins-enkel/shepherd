@@ -1,4 +1,4 @@
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { config } from "../../src/config";
@@ -378,6 +378,29 @@ describe("realtime /events", () => {
       };
     });
     expect(closed).toBe(true);
+
+    // The WebSocket attempt above proves the handshake never opens, but that also passes on any
+    // handshake failure (a bad host, a dropped connection, …), not specifically on the auth gate.
+    // Probe the same upgrade path over plain `fetch` so we can assert the exact HTTP status:
+    // checkAuth runs before `server.upgrade`, so a missing bearer token must yield 401, and a
+    // valid one must not.
+    const upgradeHeaders = {
+      connection: "Upgrade",
+      upgrade: "websocket",
+      "sec-websocket-version": "13",
+      "sec-websocket-key": "dGhlIHNhbXBsZSBub25jZQ==",
+    };
+    const anon = await fetch(`${s.baseUrl}/events`, { headers: upgradeHeaders });
+    expect(anon.status).toBe(401);
+
+    const authed = await fetch(`${s.baseUrl}/events`, {
+      headers: { ...upgradeHeaders, ...bearer(token) },
+    });
+    // Bun's fetch cannot complete a WebSocket upgrade itself (it reports the attempt as a 101, or
+    // as a network-level failure once the server switches protocols mid-response), but either way
+    // it must NOT be the 401 the anonymous probe got — that's the auth gate specifically, not just
+    // "some handshake failure".
+    expect(authed.status).not.toBe(401);
   });
 
   test("real session:new and session:archived frames match the contract", async () => {
@@ -433,6 +456,17 @@ describe("realtime /pty protocol constants", () => {
     expect(pty.closeCodes.gone).toBe(PTY_GONE_CODE);
     expect(pty.resizePrefix).toBe(RESIZE_PREFIX);
     expect(pty.path).toBe("/pty/{id}");
+
+    // RESIZE_PREFIX (imported above) is a mirror re-exported for exactly this assertion — the
+    // real wire parser is src/pty-demux.mjs, a plain .mjs script outside the TS build that holds
+    // its own literal. Read its source and pin that literal too, so the demux can't drift from
+    // the contract (and from RESIZE_PREFIX) unnoticed. The file spells the NUL byte as the JS
+    // escape `\x00`, not as a literal control character or a JSON \u0000 escape, so assert that exact form.
+    const demuxSrc = readFileSync(
+      join(import.meta.dir, "..", "..", "src", "pty-demux.mjs"),
+      "utf8",
+    );
+    expect(demuxSrc).toContain('startsWith("\\x00resize:")');
   });
 });
 

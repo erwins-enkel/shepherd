@@ -10,7 +10,7 @@
 /** A resize control frame (`\x00resize:<cols>:<rows>\n`, see ui/src/lib/pty.ts)
  *  travels the same PTY WebSocket as keystrokes and storms on mobile keyboard /
  *  URL-bar toggles. It is NOT operator typing, so it must not stamp the seam. */
-const RESIZE_PREFIX = "\x00resize:";
+export const RESIZE_PREFIX = "\x00resize:";
 
 /**
  * Frames this WS carries that nobody typed. The browser forwards everything xterm

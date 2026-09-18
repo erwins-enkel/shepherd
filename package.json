@@ -7,6 +7,9 @@
   "license": "BUSL-1.1",
   "scripts": {
     "test": "bun test ./test",
+    "test:contract": "bun test ./test/contract",
+    "gen:contract-swift": "bun run scripts/gen-contract-swift.ts",
+    "check:contract-swift": "bun run gen:contract-swift && git diff --exit-code -- contracts/openapi.swift.yaml",
     "delivery-report": "bun run scripts/delivery-report.ts",
     "lint": "eslint --cache --cache-strategy content --cache-location .cache/eslint --no-error-on-unmatched-pattern src test examples ui/src ci/onboarding-harness deploy 'scripts/**/*.ts'",
     "typecheck": "tsc --noEmit",
@@ -55,7 +58,8 @@
     "prettier-plugin-tailwindcss": "^0.8.1",
     "svelte": "^5.57.0",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.70.0"
+    "typescript-eslint": "^8.70.0",
+    "yaml": "^2.9.0"
   },
   "dependencies": {
     "jsonrepair": "^3.15",

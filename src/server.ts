@@ -12,6 +12,7 @@ import {
   TerminalUnsupportedError,
 } from "./service";
 import { WorktreeMissingBaseError, WorktreeOccupiedError, WorktreeRestoreError } from "./worktree";
+import { SHEPHERD_VERSION } from "./version";
 import {
   SpawnCanceled,
   SpawnPhaseTracker,
@@ -7163,7 +7164,9 @@ function handleHealth({ req, parts }: Ctx): Response | null {
   ) {
     return null;
   }
-  return req.method === "HEAD" ? new Response(null, { status: 200 }) : json({ ok: true });
+  return req.method === "HEAD"
+    ? new Response(null, { status: 200 })
+    : json({ ok: true, version: SHEPHERD_VERSION });
 }
 
 /** Authenticated (unlike handleHealth) — reports the herdr socket terminal transport's flag
@@ -8420,7 +8423,7 @@ type WsData =
 // The client parks (shows a take-over prompt) instead of reconnecting — without
 // it, two devices on the same session ping-pong herdr's --takeover forever.
 // Keep in sync with PTY_SUPERSEDED_CODE in ui/src/lib/pty.ts.
-const PTY_SUPERSEDED_CODE = 4000;
+export const PTY_SUPERSEDED_CODE = 4000;
 
 // A pty WS closed with this code means "this session has ended" — its herdr
 // agent is gone (the user quit claude / ctrl-c'd). The client stops reconnecting

@@ -1,0 +1,875 @@
+openapi: 3.1.0
+info:
+  title: Shepherd native client contract
+  version: 1.0.0
+  description: The subset of the Shepherd HTTP/WS surface used by the native macOS/iOS client. Validated against the real server by test/contract/openapi.test.ts.
+servers:
+  - url: http://localhost:7330
+security:
+  - bearerAuth: []
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Minted access token (shp_...) or SHEPHERD_TOKEN.
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: shepherd_session
+      description: Signed operator session cookie issued by POST /api/login.
+  schemas:
+    Health:
+      type: object
+      additionalProperties: true
+      required: [ok, version]
+      properties:
+        ok:
+          type: boolean
+          const: true
+        version:
+          type: string
+          description: Root package.json version of the running server.
+        minClient:
+          type: string
+          description: Lowest native client version this server supports (semver); absent means no constraint.
+    Error:
+      type: object
+      additionalProperties: true
+      required: [error]
+      properties:
+        error:
+          type: string
+        code:
+          type: string
+    Ok:
+      type: object
+      additionalProperties: true
+      required: [ok]
+      properties:
+        ok:
+          type: boolean
+          const: true
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required: [password]
+      properties:
+        password:
+          type: string
+    TokenScope:
+      type: string
+      enum: [read, submit, full]
+    AccessTokenMintRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 64
+        expiresInDays:
+          type: [integer, "null"]
+          enum: [30, 90, 365, null]
+        scope:
+          $ref: "#/components/schemas/TokenScope"
+    AccessTokenSummary:
+      type: object
+      additionalProperties: true
+      required: [id, name, hint, createdAt, lastUsedAt, expiresAt, scope]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        hint: { type: string }
+        createdAt: { type: integer }
+        lastUsedAt: { type: [integer, "null"] }
+        expiresAt: { type: [integer, "null"] }
+        scope:
+          $ref: "#/components/schemas/TokenScope"
+    AccessTokenMinted:
+      type: object
+      additionalProperties: true
+      required: [token, entry]
+      properties:
+        token:
+          type: string
+          pattern: "^shp_"
+        entry:
+          $ref: "#/components/schemas/AccessTokenSummary"
+    AccessTokenList:
+      type: object
+      additionalProperties: true
+      required: [tokens]
+      properties:
+        tokens:
+          type: array
+          items:
+            $ref: "#/components/schemas/AccessTokenSummary"
+    AgentProvider:
+      type: string
+      enum: [claude, codex]
+    Settings:
+      type: object
+      additionalProperties: true
+      description: GET /api/settings returns many more fields; the native client relies only on these.
+      required:
+        [
+          repoRoot,
+          repoRootDisplay,
+          firstRunPending,
+          defaultModel,
+          defaultEffort,
+          defaultAgentProvider,
+          authMode,
+          operatorLanguage,
+        ]
+      properties:
+        repoRoot: { type: string }
+        repoRootDisplay: { type: string }
+        firstRunPending: { type: boolean }
+        defaultModel: { type: string }
+        defaultCodexModel: { type: [string, "null"] }
+        defaultEffort: { type: string }
+        defaultAgentProvider:
+          $ref: "#/components/schemas/AgentProvider"
+        authMode:
+          type: string
+          enum: [subscription, api-key]
+        operatorLanguage:
+          type: string
+          enum: [en, de]
+        envTokenActive: { type: boolean }
+        hasApiKey: { type: boolean }
+    RepoRootRequest:
+      type: object
+      additionalProperties: false
+      required: [repoRoot]
+      properties:
+        repoRoot: { type: string }
+    RepoRootResponse:
+      type: object
+      additionalProperties: true
+      required: [repoRoot, repoRootDisplay]
+      properties:
+        repoRoot: { type: string }
+        repoRootDisplay: { type: string }
+    SessionStatus:
+      type: string
+      enum: [running, idle, blocked, done, archived]
+      x-shepherd-open-enum: true
+    HerdrState:
+      type: string
+      enum: [idle, working, blocked, done, unknown]
+      x-shepherd-open-enum: true
+    SessionArchiveReason:
+      type: string
+      enum: [operator, merged, drain, relaunch, stale]
+      x-shepherd-open-enum: true
+    ExperimentRole:
+      type: string
+      enum: [variant, comparison]
+      x-shepherd-open-enum: true
+    SandboxProfile:
+      type: string
+      enum: [trusted, standard, autonomous]
+    Effort:
+      type: string
+      enum: [low, medium, high, xhigh, max, ultra]
+    Session:
+      type: object
+      additionalProperties: true
+      required:
+        - id
+        - desig
+        - name
+        - prompt
+        - repoPath
+        - baseBranch
+        - branch
+        - worktreePath
+        - isolated
+        - herdrSession
+        - herdrAgentId
+        - claudeSessionId
+        - model
+        - effort
+        - readyToMerge
+        - mergingSince
+        - autopilotEnabled
+        - autopilotPaused
+        - autopilotComplete
+        - planGateEnabled
+        - planPhase
+        - autoMergeEnabled
+        - auto
+        - issueNumber
+        - sandboxApplied
+        - status
+        - lastState
+        - createdAt
+        - updatedAt
+        - archivedAt
+        - haltReason
+        - haltedAt
+        - manualSteps
+      properties:
+        id: { type: string }
+        desig: { type: string, description: "Short designation like TASK-07." }
+        name: { type: string }
+        prompt: { type: string }
+        repoPath: { type: string }
+        baseBranch: { type: string }
+        branch: { type: [string, "null"] }
+        worktreePath: { type: string }
+        isolated: { type: boolean }
+        herdrSession: { type: string }
+        herdrAgentId: { type: string }
+        claudeSessionId: { type: string }
+        providerSessionId: { type: string }
+        agentProvider:
+          $ref: "#/components/schemas/AgentProvider"
+        model: { type: [string, "null"] }
+        effort: { type: [string, "null"] }
+        runtimeModel: { type: [string, "null"] }
+        runtimeEffort: { type: [string, "null"] }
+        contextTokens: { type: [integer, "null"] }
+        readyToMerge: { type: boolean }
+        mergingSince: { type: [integer, "null"] }
+        mergingTrainId: { type: [string, "null"] }
+        mergingPrNumber: { type: [integer, "null"] }
+        autopilotEnabled: { type: [boolean, "null"] }
+        autopilotStepCount: { type: integer }
+        autopilotPaused: { type: boolean }
+        autopilotComplete: { type: boolean }
+        autopilotQuestion: { type: [string, "null"] }
+        planGateEnabled: { type: [boolean, "null"] }
+        planPhase:
+          type: [string, "null"]
+          enum: [planning, executing, null]
+          x-shepherd-open-enum: true
+        research: { type: boolean }
+        epicAuthoring: { type: boolean }
+        landingRepair: { type: boolean }
+        plain: { type: boolean }
+        terminal: { type: boolean }
+        autoMergeEnabled: { type: [boolean, "null"] }
+        auto: { type: boolean }
+        issueNumber: { type: [integer, "null"] }
+        epicParent: { type: [integer, "null"] }
+        sandboxApplied:
+          oneOf:
+            - $ref: "#/components/schemas/SandboxProfile"
+            - type: "null"
+        sandboxDegraded: { type: boolean }
+        status:
+          $ref: "#/components/schemas/SessionStatus"
+        lastState:
+          $ref: "#/components/schemas/HerdrState"
+        createdAt: { type: integer }
+        updatedAt: { type: integer }
+        settledAt: { type: [integer, "null"] }
+        archivedAt: { type: [integer, "null"] }
+        archiveReason:
+          oneOf:
+            - $ref: "#/components/schemas/SessionArchiveReason"
+            - type: "null"
+        haltReason:
+          type: [string, "null"]
+          enum: [usage_limit, completed, operator, error, null]
+          x-shepherd-open-enum: true
+        haltedAt: { type: [integer, "null"] }
+        manualSteps:
+          type: array
+          items: { type: object, additionalProperties: true }
+        experimentId: { type: [string, "null"] }
+        experimentRole:
+          oneOf:
+            - $ref: "#/components/schemas/ExperimentRole"
+            - type: "null"
+        hasScratchpadFiles: { type: boolean }
+    SessionList:
+      type: array
+      items:
+        $ref: "#/components/schemas/Session"
+    CreateSessionRequest:
+      type: object
+      additionalProperties: false
+      required: [repoPath, baseBranch, prompt]
+      properties:
+        repoPath: { type: string }
+        baseBranch: { type: string }
+        prompt: { type: string, minLength: 1, maxLength: 8000 }
+        agentProvider:
+          $ref: "#/components/schemas/AgentProvider"
+        model: { type: [string, "null"] }
+        effort:
+          oneOf:
+            - $ref: "#/components/schemas/Effort"
+            - type: "null"
+        images:
+          type: array
+          items: { type: string }
+        planGateEnabled: { type: [boolean, "null"] }
+        autopilotEnabled: { type: [boolean, "null"] }
+        sandboxProfile:
+          oneOf:
+            - $ref: "#/components/schemas/SandboxProfile"
+            - type: "null"
+        plain: { type: boolean }
+        force:
+          type: boolean
+          description: Bypass the usage-hold gate and spawn immediately.
+    HeldTask:
+      type: object
+      additionalProperties: true
+      description: The usage hold tripped — the task was queued instead of spawned.
+      required: [held, id, count]
+      properties:
+        held: { type: boolean, const: true }
+        id: { type: string }
+        count: { type: integer }
+    Repo:
+      type: object
+      additionalProperties: true
+      required: [name, path, display, realPath, isFork, hidden]
+      properties:
+        name: { type: string }
+        path: { type: string }
+        display: { type: string }
+        realPath: { type: string }
+        lastUsedAt: { type: integer }
+        recentAgentCount: { type: integer }
+        isFork: { type: boolean }
+        remoteSlug: { type: string }
+        hidden: { type: boolean }
+    RepoList:
+      type: object
+      additionalProperties: true
+      required: [repos, recentWindowDays]
+      properties:
+        repos:
+          type: array
+          items:
+            $ref: "#/components/schemas/Repo"
+        recentWindowDays: { type: integer }
+    BlockReason:
+      type: object
+      additionalProperties: true
+      required: [shape, options, tail]
+      properties:
+        shape:
+          type: string
+          enum: [menu, yes-no, awaiting-input, stall, quota]
+          x-shepherd-open-enum: true
+        options:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+            required: [label, send]
+            properties:
+              label: { type: string }
+              send: { type: string }
+        tail:
+          type: array
+          items: { type: string }
+        quotaKind:
+          type: string
+          enum: [rework, review, error, plan]
+          x-shepherd-open-enum: true
+        authUrl: { type: string }
+    AutoMergeStatus:
+      type: object
+      additionalProperties: true
+      required: [repoPath, enabled, state, detail, sessionId]
+      properties:
+        repoPath: { type: string }
+        enabled: { type: boolean }
+        state: { type: [string, "null"] }
+        detail: { type: [string, "null"] }
+        sessionId: { type: [string, "null"] }
+    LimitWindow:
+      type: object
+      additionalProperties: true
+      required: [pct, resetAt]
+      properties:
+        pct: { type: number }
+        resetAt: { type: integer }
+    ModelWeekWindow:
+      type: object
+      additionalProperties: true
+      required: [model, pct, resetAt, scrapedAt, stale]
+      properties:
+        model: { type: string }
+        pct: { type: number }
+        resetAt: { type: [integer, "null"] }
+        scrapedAt: { type: integer }
+        stale: { type: boolean }
+    CreditWindow:
+      type: object
+      additionalProperties: true
+      required: [pct, spent, cap, currency, resetAt, scrapedAt, stale]
+      properties:
+        pct: { type: number }
+        spent: { type: number }
+        cap: { type: number }
+        currency: { type: string }
+        resetAt: { type: [integer, "null"] }
+        scrapedAt: { type: integer }
+        stale: { type: boolean }
+    UsageLimits:
+      type: object
+      additionalProperties: true
+      required: [session5h, week, perModelWeek, credits, stale, calibratedAt, subscriptionOnly]
+      properties:
+        session5h:
+          oneOf:
+            - $ref: "#/components/schemas/LimitWindow"
+            - type: "null"
+        week:
+          oneOf:
+            - $ref: "#/components/schemas/LimitWindow"
+            - type: "null"
+        perModelWeek:
+          type: array
+          items:
+            $ref: "#/components/schemas/ModelWeekWindow"
+        credits:
+          oneOf:
+            - $ref: "#/components/schemas/CreditWindow"
+            - type: "null"
+        stale: { type: boolean }
+        calibratedAt: { type: [integer, "null"] }
+        subscriptionOnly: { type: boolean }
+    EventName:
+      type: string
+      enum:
+        - "session:new"
+        - "session:status"
+        - "session:renamed"
+        - "session:archived"
+        - "session:block"
+        - "session:ready"
+        - "automerge:status"
+        - "usage:limits"
+      x-shepherd-open-enum: true
+    EventEnvelope:
+      type: object
+      additionalProperties: true
+      description: Every /events frame. `data` is the payload schema x-shepherd-events names for `event`.
+      required: [event, data]
+      properties:
+        event:
+          $ref: "#/components/schemas/EventName"
+        data:
+          type: object
+          additionalProperties: true
+    SessionStatusEvent:
+      type: object
+      additionalProperties: true
+      required: [id, status]
+      properties:
+        id: { type: string }
+        status:
+          $ref: "#/components/schemas/SessionStatus"
+        hasScratchpadFiles: { type: boolean }
+    SessionRenamedEvent:
+      type: object
+      additionalProperties: true
+      required: [id, name, branch]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        branch: { type: [string, "null"] }
+    SessionArchivedEvent:
+      type: object
+      additionalProperties: true
+      required: [id]
+      properties:
+        id: { type: string }
+    SessionBlockEvent:
+      type: object
+      additionalProperties: true
+      required: [id, block]
+      properties:
+        id: { type: string }
+        block:
+          oneOf:
+            - $ref: "#/components/schemas/BlockReason"
+            - type: "null"
+    SessionReadyEvent:
+      type: object
+      additionalProperties: true
+      required: [id, ready]
+      properties:
+        id: { type: string }
+        ready: { type: boolean }
+  responses:
+    Unauthorized:
+      description: Missing or invalid credential.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+paths:
+  /api/health:
+    get:
+      operationId: getHealth
+      security: []
+      responses:
+        "200":
+          description: Server is up.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+  /api/login:
+    post:
+      operationId: login
+      security: []
+      description: Password login. Sets the shepherd_session cookie. The native client uses it once to mint an access token, then discards the cookie.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Logged in; Set-Cookie carries the session.
+          headers:
+            Set-Cookie:
+              required: true
+              description: "shepherd_session cookie (login: signed session; logout: cleared with Max-Age=0)."
+              schema: { type: string }
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Ok"
+        "401":
+          description: Wrong password.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/logout:
+    post:
+      operationId: logout
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Session cookie cleared.
+          headers:
+            Set-Cookie:
+              required: true
+              description: "shepherd_session cookie (login: signed session; logout: cleared with Max-Age=0)."
+              schema: { type: string }
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Ok"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/access-tokens:
+    get:
+      operationId: listAccessTokens
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: All tokens (no plaintext).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccessTokenList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Caller is not an operator session (a bearer token cannot manage tokens).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    post:
+      operationId: mintAccessToken
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AccessTokenMintRequest"
+      responses:
+        "201":
+          description: Token minted; plaintext shown exactly once.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccessTokenMinted"
+        "400":
+          description: Invalid body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Caller is not an operator session.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/access-tokens/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    delete:
+      operationId: revokeAccessToken
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Revoked.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Ok"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Caller is not an operator session (a bearer token cannot manage tokens).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Unknown token id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/settings:
+    get:
+      operationId: getSettings
+      responses:
+        "200":
+          description: Operator settings incl. first-run state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Settings"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    put:
+      operationId: putRepoRoot
+      description: Only the repoRoot form is part of this contract; it also resolves the first-run picker.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RepoRootRequest"
+      responses:
+        "200":
+          description: Repo root stored; first run resolved if it was pending.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RepoRootResponse"
+        "400":
+          description: Not an existing directory under the root ceiling.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/sessions:
+    get:
+      operationId: listSessions
+      description: Active (non-archived) sessions, oldest first. No pagination.
+      responses:
+        "200":
+          description: Sessions.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      operationId: createSession
+      description: Creates and spawns a session, or answers 200 with a held task when the usage hold trips (force overrides the hold).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSessionRequest"
+      responses:
+        "200":
+          description: Usage hold tripped — queued as a held task instead of spawned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HeldTask"
+        "201":
+          description: Session created and agent spawned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Session"
+        "400":
+          description: Invalid input (see error text).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: First run pending, name taken, worktree occupied, or herdr restart required (see code).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: The base branch does not resolve to a ref in the repo.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          description: Create failed downstream (git or the agent runner).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/sessions/done:
+    get:
+      operationId: listDoneSessions
+      description: Recently archived sessions for the Done lens.
+      responses:
+        "200":
+          description: Sessions.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/sessions/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      operationId: getSession
+      responses:
+        "200":
+          description: Session.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Session"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Unknown id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      operationId: archiveSession
+      description: Archives the session (stops the agent, keeps the row). Always 200.
+      responses:
+        "200":
+          description: Archived.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Ok"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/sessions/{id}/interrupt:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      operationId: interruptSession
+      responses:
+        "200":
+          description: Interrupt delivered.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Ok"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Unknown id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/repos:
+    get:
+      operationId: listRepos
+      responses:
+        "200":
+          description: Repos under the workspace root.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RepoList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+x-shepherd-events:
+  description: 'WebSocket /events. Same auth gate as HTTP (send Authorization on the upgrade). Every frame is an EventEnvelope: {"event": string, "data": object}. Client may send {"type":"presence","active":boolean}; the server never replies to it.'
+  envelope:
+    $ref: "#/components/schemas/EventEnvelope"
+  session:new:
+    description: A session row was created (also on relaunch and terminal create).
+    schema:
+      $ref: "#/components/schemas/Session"
+  session:status:
+    description: Status changed. May carry the whole Session or only id+status.
+    schema:
+      $ref: "#/components/schemas/SessionStatusEvent"
+  session:renamed:
+    schema:
+      $ref: "#/components/schemas/SessionRenamedEvent"
+  session:archived:
+    schema:
+      $ref: "#/components/schemas/SessionArchivedEvent"
+  session:block:
+    description: Agent is waiting on the operator (block != null) or unblocked (null).
+    schema:
+      $ref: "#/components/schemas/SessionBlockEvent"
+  session:ready:
+    schema:
+      $ref: "#/components/schemas/SessionReadyEvent"
+  automerge:status:
+    schema:
+      $ref: "#/components/schemas/AutoMergeStatus"
+  usage:limits:
+    schema:
+      $ref: "#/components/schemas/UsageLimits"
+x-shepherd-pty:
+  description: WebSocket /pty/{id}?cols=&rows=. Same auth gate as HTTP. Server→client frames are raw terminal bytes (binary or text). Client→server text frames are keystrokes, except frames starting with resizePrefix which carry "<cols>:<rows>\n". One owner per terminal id; a new attach closes the previous socket with closeCodes.superseded. closeCodes.gone means the session no longer has a live agent.
+  path: /pty/{id}
+  query: [cols, rows]
+  resizePrefix: "\u0000resize:"
+  closeCodes:
+    superseded: 4000
+    gone: 4001

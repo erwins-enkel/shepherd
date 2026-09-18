@@ -209,41 +209,49 @@ components:
           type: string
     SessionStatus:
       anyOf:
+        - $ref: "#/components/schemas/SessionStatusKnown"
         - type: string
-          enum:
-            - running
-            - idle
-            - blocked
-            - done
-            - archived
-        - type: string
+    SessionStatusKnown:
+      type: string
+      enum:
+        - running
+        - idle
+        - blocked
+        - done
+        - archived
     HerdrState:
       anyOf:
+        - $ref: "#/components/schemas/HerdrStateKnown"
         - type: string
-          enum:
-            - idle
-            - working
-            - blocked
-            - done
-            - unknown
-        - type: string
+    HerdrStateKnown:
+      type: string
+      enum:
+        - idle
+        - working
+        - blocked
+        - done
+        - unknown
     SessionArchiveReason:
       anyOf:
+        - $ref: "#/components/schemas/SessionArchiveReasonKnown"
         - type: string
-          enum:
-            - operator
-            - merged
-            - drain
-            - relaunch
-            - stale
-        - type: string
+    SessionArchiveReasonKnown:
+      type: string
+      enum:
+        - operator
+        - merged
+        - drain
+        - relaunch
+        - stale
     ExperimentRole:
       anyOf:
+        - $ref: "#/components/schemas/ExperimentRoleKnown"
         - type: string
-          enum:
-            - variant
-            - comparison
-        - type: string
+    ExperimentRoleKnown:
+      type: string
+      enum:
+        - variant
+        - comparison
     SandboxProfile:
       type: string
       enum:
@@ -722,17 +730,19 @@ components:
           type: boolean
     EventName:
       anyOf:
+        - $ref: "#/components/schemas/EventNameKnown"
         - type: string
-          enum:
-            - session:new
-            - session:status
-            - session:renamed
-            - session:archived
-            - session:block
-            - session:ready
-            - automerge:status
-            - usage:limits
-        - type: string
+    EventNameKnown:
+      type: string
+      enum:
+        - session:new
+        - session:status
+        - session:renamed
+        - session:archived
+        - session:block
+        - session:ready
+        - automerge:status
+        - usage:limits
     EventEnvelope:
       type: object
       additionalProperties: true

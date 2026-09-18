@@ -110,7 +110,163 @@ describe("swift-openapi-generator derivation", () => {
     expect(truthSession.required).toContain("sandboxApplied");
   });
 
+  test("every open enum named as a component splits into a <Name>Known closed enum", () => {
+    const truthSchemas = (truth.components as { schemas: Obj }).schemas;
+    const derivedSchemas = (derived.components as { schemas: Obj }).schemas;
+    const flagged = Object.keys(truthSchemas).filter(
+      (name) => isObj(truthSchemas[name]) && truthSchemas[name]["x-shepherd-open-enum"] === true,
+    );
+    expect(flagged).toContain("SessionStatus");
+    for (const name of flagged) {
+      expect(derivedSchemas[name]).toEqual({
+        anyOf: [{ $ref: `#/components/schemas/${name}Known` }, { type: "string" }],
+      });
+      const known = derivedSchemas[`${name}Known`] as Obj;
+      expect(known.type).toBe("string");
+      expect(known.enum).toEqual((truthSchemas[name] as Obj).enum as unknown[]);
+    }
+  });
+
   test("the committed file is what a fresh derivation produces", async () => {
     expect(await deriveSwiftSpec(truthText)).toBe(derivedText);
+  });
+});
+
+/** Minimal document the unit cases below hang their one interesting schema off. */
+function doc(schemas: string): string {
+  return [
+    "openapi: 3.1.0",
+    "info: { title: t, version: '1' }",
+    "paths: {}",
+    "components:",
+    "  schemas:",
+    schemas,
+  ].join("\n");
+}
+
+async function derive(schemas: string): Promise<Obj> {
+  const out = Bun.YAML.parse(await deriveSwiftSpec(doc(schemas))) as Obj;
+  return (out.components as { schemas: Obj }).schemas;
+}
+
+/**
+ * The rules above are stated over whole documents; these pin the walk itself. The derivation is
+ * schema-aware — it must know a `properties` key is a name, not a keyword — and strict: where it
+ * cannot rewrite a construct faithfully it throws with the offending JSON pointer instead of
+ * quietly dropping nullability.
+ */
+describe("derivation is schema-aware and strict", () => {
+  test("properties named after keywords are data, not keywords", async () => {
+    const schemas = await derive(
+      [
+        "    Thing:",
+        "      type: object",
+        "      required: [const, enum, oneOf]",
+        "      properties:",
+        "        const: { type: string }",
+        "        enum: { type: integer }",
+        "        oneOf: { type: boolean }",
+      ].join("\n"),
+    );
+    expect(schemas.Thing).toEqual({
+      type: "object",
+      required: ["const", "enum", "oneOf"],
+      properties: {
+        const: { type: "string" },
+        enum: { type: "integer" },
+        oneOf: { type: "boolean" },
+      },
+    });
+  });
+
+  test("a nullable union under items throws — there is no required list to relax", async () => {
+    const promise = derive(
+      [
+        "    Thing:",
+        "      type: array",
+        "      items:",
+        "        oneOf:",
+        "          - { type: string }",
+        '          - { type: "null" }',
+      ].join("\n"),
+    );
+    await expect(promise).rejects.toThrow(
+      /unsupported nullable union at #\/components\/schemas\/Thing\/items/,
+    );
+  });
+
+  test("a nullable union inside allOf throws", async () => {
+    const promise = derive(
+      [
+        "    Thing:",
+        "      allOf:",
+        "        - { type: object }",
+        "        - oneOf:",
+        "            - { type: string }",
+        '            - { type: "null" }',
+      ].join("\n"),
+    );
+    await expect(promise).rejects.toThrow(
+      /unsupported composition at #\/components\/schemas\/Thing\/allOf\/1/,
+    );
+  });
+
+  test("a nullable union carrying sibling constraints throws", async () => {
+    const promise = derive(
+      [
+        "    Thing:",
+        "      type: object",
+        "      properties:",
+        "        inner:",
+        "          required: [a]",
+        "          oneOf:",
+        "            - { type: object }",
+        '            - { type: "null" }',
+      ].join("\n"),
+    );
+    await expect(promise).rejects.toThrow(/sibling keys \[required\]/);
+  });
+
+  test("a named open enum becomes an alias onto a generated <Name>Known", async () => {
+    const schemas = await derive(
+      [
+        "    Colour:",
+        "      type: string",
+        "      enum: [red, green]",
+        "      x-shepherd-open-enum: true",
+      ].join("\n"),
+    );
+    expect(schemas.Colour).toEqual({
+      anyOf: [{ $ref: "#/components/schemas/ColourKnown" }, { type: "string" }],
+    });
+    expect(schemas.ColourKnown).toEqual({ type: "string", enum: ["red", "green"] });
+    // Insertion order is part of the determinism guarantee: the companion follows its source.
+    expect(Object.keys(schemas)).toEqual(["Colour", "ColourKnown"]);
+  });
+
+  test("rule (a) drops exactly the collapsed property from required", async () => {
+    const schemas = await derive(
+      [
+        "    Thing:",
+        "      type: object",
+        "      required: [before, nullable, after]",
+        "      properties:",
+        "        before: { type: string }",
+        "        nullable:",
+        "          oneOf:",
+        "            - { type: string }",
+        '            - { type: "null" }',
+        "        after: { type: string }",
+      ].join("\n"),
+    );
+    expect(schemas.Thing).toEqual({
+      type: "object",
+      required: ["before", "after"],
+      properties: {
+        before: { type: "string" },
+        nullable: { type: "string" },
+        after: { type: "string" },
+      },
+    });
   });
 });

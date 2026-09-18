@@ -10,18 +10,31 @@
  *   a. `oneOf`/`anyOf` of one schema plus `{type: "null"}` (apple/swift-openapi-generator#817)
  *      collapses to the non-null schema, and the property drops out of the enclosing `required`
  *      list — a Swift optional decodes JSON null as nil through `decodeIfPresent`.
- *   b. `null` inside an `enum` array (#118) is dropped. The `type: [x, "null"]` array stays; the
- *      generator handles that.
+ *   b. `null` inside an `enum` array (#118) is dropped.
  *   c. `const` (#261) is deleted. The runtime contract test already asserts those literal values.
- *   d. Enum schemas flagged `x-shepherd-open-enum: true` become the generator's documented
- *      open-enum shape (`anyOf: [{enum}, {type: string}]`), because generated Swift enums are
- *      closed and the server can emit a value a shipped client has never heard of.
+ *   d. Enum schemas flagged `x-shepherd-open-enum: true` become an open-enum shape, because
+ *      generated Swift enums are closed and the server can emit a value a shipped client has
+ *      never heard of. A *named* component splits into `<Name>Known` (the closed enum) plus
+ *      `<Name>: anyOf: [$ref <Name>Known, {type: string}]`, so the Swift client gets a named enum
+ *      type instead of an anonymous inline payload. An *inline* flagged property schema keeps the
+ *      inline `anyOf: [{type: string, enum: […]}, {type: string}]`.
  *
- * Everything else — `x-shepherd-events`, `x-shepherd-pty`, `additionalProperties`, response-level
- * `$ref`, path-level `parameters` — passes through untouched.
+ * The walk is schema-aware, not a context-free key sweep: it only applies these rules where a
+ * JSON Schema actually lives (`components.schemas` values, `properties`/`items`/
+ * `additionalProperties`/`allOf`/`anyOf`/`oneOf`/`not` inside a schema, and any `schema` value in
+ * the document — request/response content, parameters, headers, `x-shepherd-events`). The KEYS of
+ * `properties` and `components.schemas` are names, never keywords, so a property literally called
+ * `const`, `enum` or `oneOf` is left alone. Everything else — paths, `x-shepherd-pty`, the rest of
+ * the `x-*` extensions — passes through untouched.
  *
- * Determinism: insertion order is preserved everywhere and the output is formatted with the repo's
- * own prettier, so running this twice yields a byte-identical file. That is what
+ * The derivation is strict: rather than silently weakening the contract it throws, naming the JSON
+ * pointer, when it meets a construct it cannot faithfully rewrite (a nullable union anywhere the
+ * enclosing `required` cannot be relaxed, a union carrying constraints beside it, a nullable union
+ * or flagged enum inside `allOf`, or a nested-schema keyword this spec does not use).
+ *
+ * Determinism: insertion order is preserved everywhere (a generated `<Name>Known` is inserted
+ * directly after the component it came from) and the output is formatted with the repo's own
+ * prettier, so running this twice yields a byte-identical file. That is what
  * `bun run check:contract-swift` and `test/contract/swift-derivation.test.ts` rely on.
  *
  * Usage: bun run gen:contract-swift
@@ -42,10 +55,41 @@ export const GENERATED_HEADER =
 /** The flag F2 puts on read-side enums the server may outgrow. */
 const OPEN_ENUM = "x-shepherd-open-enum";
 
+/** Suffix of the closed-enum component rule (d) splits a named open enum into. */
+const KNOWN_SUFFIX = "Known";
+
+/** The only keys allowed beside a nullable union: annotations. Anything else (`required`,
+ *  `minLength`, `default`, another keyword) would be silently dropped by the collapse. */
+const UNION_ANNOTATIONS = new Set(["description", "title", "deprecated"]);
+
+/** Nested-schema keywords this spec does not use. They would need rules of their own, so meeting
+ *  one is a hard error rather than a verbatim copy that skips the rewrite underneath it. */
+const UNHANDLED_SCHEMA_KEYWORDS = new Set([
+  "patternProperties",
+  "propertyNames",
+  "prefixItems",
+  "contains",
+  "dependentSchemas",
+  "unevaluatedProperties",
+  "unevaluatedItems",
+  "if",
+  "then",
+  "else",
+]);
+
 type Obj = Record<string, unknown>;
 
 function isObj(v: unknown): v is Obj {
   return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+function isAnnotation(key: string): boolean {
+  return UNION_ANNOTATIONS.has(key) || key.startsWith("x-");
+}
+
+/** RFC 6901 escaping, so the pointer in an error message is copy-pasteable. */
+function ptr(base: string, token: string): string {
+  return `${base}/${token.replace(/~/g, "~0").replace(/\//g, "~1")}`;
 }
 
 /** Exactly `{type: "null"}` — the null branch of a nullable union. */
@@ -53,7 +97,8 @@ function isNullBranch(v: unknown): boolean {
   return isObj(v) && Object.keys(v).length === 1 && v.type === "null";
 }
 
-/** For `{oneOf|anyOf: [X, {type: "null"}]}` returns the union keyword and X; null otherwise. */
+/** For `{oneOf|anyOf: [X, {type: "null"}]}` returns the union keyword and X; null otherwise. Only
+ *  a two-branch union qualifies: a three-branch one has no single schema to collapse to. */
 function nullableUnion(node: Obj): { keyword: string; inner: Obj } | null {
   for (const keyword of ["oneOf", "anyOf"]) {
     const branches = node[keyword];
@@ -67,37 +112,120 @@ function nullableUnion(node: Obj): { keyword: string; inner: Obj } | null {
   return null;
 }
 
+/** True when a flagged enum schema also admits null (`type: [string, "null"]`). */
+function flaggedNullable(node: Obj): boolean {
+  if (node[OPEN_ENUM] !== true) return false;
+  return Array.isArray(node.type) ? node.type.includes("null") : node.type === "null";
+}
+
 /** True when the derivation makes this property schema optional rather than nullable: rule (a),
  *  and rule (d) for a flagged enum that was `type: [string, "null"]`. */
 function becomesOptional(schema: unknown): boolean {
   if (!isObj(schema)) return false;
-  if (nullableUnion(schema)) return true;
-  if (schema[OPEN_ENUM] !== true) return false;
-  return Array.isArray(schema.type) ? schema.type.includes("null") : schema.type === "null";
+  return nullableUnion(schema) !== null || flaggedNullable(schema);
 }
 
-/** Rule (d): an open enum becomes `anyOf: [{type: string, enum: [...]}, {type: string}]`, so an
- *  unknown member decodes into the generator's `case other(String)` instead of failing. */
-function openEnum(node: Obj): Obj {
+/** Rule (b): drop the `null` member. The `type: [x, "null"]` array beside it is deliberately left
+ *  alone — the generator handles a nullable type array, it only chokes on the enum member. That
+ *  asymmetry is intentional: removing the type's "null" too would make the property non-nullable
+ *  and force it out of `required`, which is a contract change, not a generator workaround. */
+function dropNullMembers(members: unknown[]): unknown[] {
+  return members.filter((m) => m !== null);
+}
+
+/** The `type` a `<Name>Known` / inline closed enum gets: the flagged schema's type with "null"
+ *  removed, which for every enum in this contract is plain `string`. */
+function closedType(node: Obj, pointer: string): unknown {
+  const raw = node.type;
+  const list = (Array.isArray(raw) ? raw : [raw]).filter((t) => t !== "null");
+  if (list.length !== 1 || typeof list[0] !== "string") {
+    throw new Error(
+      `unsupported open enum at ${pointer}: expected a single non-null type, got ${JSON.stringify(raw)}`,
+    );
+  }
+  return list[0];
+}
+
+/** Rule (d), inline form: `anyOf: [{type: string, enum: […]}, {type: string}]`, so an unknown
+ *  member decodes into the generator's `case other(String)` instead of failing the whole frame. */
+function inlineOpenEnum(node: Obj, pointer: string): Obj {
+  const type = closedType(node, pointer);
+  const members = Array.isArray(node.enum) ? dropNullMembers(node.enum) : [];
   const out: Obj = {};
   for (const [k, v] of Object.entries(node)) {
     if (k === OPEN_ENUM || k === "type" || k === "enum") continue;
     out[k] = v;
   }
-  const members = Array.isArray(node.enum) ? node.enum.filter((m) => m !== null) : [];
-  out.anyOf = [{ type: "string", enum: members }, { type: "string" }];
+  out.anyOf = [{ type, enum: members }, { type }];
   return out;
 }
 
-/** Applies every rule to `node` and, recursively, to everything under it. */
-function transform(node: unknown): unknown {
-  if (Array.isArray(node)) return node.map(transform);
-  if (!isObj(node)) return node;
+/** Rule (d), named form: the component becomes an alias onto `<Name>Known` plus a bare string, so
+ *  swift-openapi-generator emits a real `<Name>Known` enum type next to the open wrapper. */
+function namedOpenEnum(name: string, node: Obj, pointer: string): { alias: Obj; known: Obj } {
+  if (flaggedNullable(node)) {
+    // A named component cannot see the `required` lists that reference it, so dropping its
+    // nullability here would silently make every caller non-optional. Model it inline instead.
+    throw new Error(
+      `unsupported nullable open enum at ${pointer}: a named component cannot drop nullability without knowing its callers — inline the enum on the property, or make the component non-nullable`,
+    );
+  }
+  const type = closedType(node, pointer);
+  const known: Obj = { type, enum: Array.isArray(node.enum) ? dropNullMembers(node.enum) : [] };
+  if (typeof node.description === "string") known.description = node.description;
 
-  // Rule (a) first: collapse the nullable union, then keep transforming the schema it left behind
-  // (the inner schema may itself be an open enum or carry a `const`).
+  const alias: Obj = {};
+  for (const [k, v] of Object.entries(node)) {
+    if (k === OPEN_ENUM || k === "type" || k === "enum") continue;
+    alias[k] = v;
+  }
+  alias.anyOf = [{ $ref: `#/components/schemas/${name}${KNOWN_SUFFIX}` }, { type }];
+  return { alias, known };
+}
+
+/**
+ * Transforms one node that is known to sit in a schema position.
+ *
+ * `nullableOk` is true only for the values of a `properties` map, the one place where collapsing a
+ * nullable union is lossless because the enclosing object's `required` list can be relaxed to
+ * match. Anywhere else (`items`, an `allOf` branch, `additionalProperties`, a top-level component)
+ * there is no `required` to relax, so a nullable union is an error instead of a silent drop.
+ */
+function transformSchema(node: Obj, pointer: string, nullableOk: boolean): Obj {
+  for (const key of Object.keys(node)) {
+    if (UNHANDLED_SCHEMA_KEYWORDS.has(key)) {
+      throw new Error(
+        `unsupported schema keyword "${key}" at ${pointer}: the derivation has no rule for it — model it with the keywords the contract already uses`,
+      );
+    }
+  }
+
+  if (Array.isArray(node.allOf)) {
+    node.allOf.forEach((branch, i) => {
+      if (!isObj(branch)) return;
+      if (nullableUnion(branch) || branch[OPEN_ENUM] === true) {
+        throw new Error(
+          `unsupported composition at ${ptr(pointer, "allOf")}/${i}: allOf may not contain a nullable union or an open enum — hoist it to a named component or a property schema`,
+        );
+      }
+    });
+  }
+
+  // Rule (a): collapse the nullable union, then keep transforming the schema it left behind (the
+  // inner schema may itself carry a `const` or nested properties).
   const union = nullableUnion(node);
   if (union) {
+    const offenders = Object.keys(node).filter((k) => k !== union.keyword && !isAnnotation(k));
+    if (offenders.length > 0) {
+      throw new Error(
+        `unsupported nullable union at ${pointer}: the union carries sibling keys [${offenders.join(", ")}] that the collapse would drop — move them into the non-null branch`,
+      );
+    }
+    if (!nullableOk) {
+      throw new Error(
+        `unsupported nullable union at ${pointer}: only a property schema can become optional, because only there can the enclosing "required" list be relaxed — model this as a named component reference or a nullable type array instead`,
+      );
+    }
     const merged: Obj = {};
     for (const [k, v] of Object.entries(node)) {
       if (k === union.keyword) {
@@ -106,23 +234,55 @@ function transform(node: unknown): unknown {
         merged[k] = v;
       }
     }
-    return transform(merged);
+    return transformSchema(merged, pointer, false);
   }
 
-  // Rule (d) before the generic walk, so the branches it builds are walked too.
-  if (node[OPEN_ENUM] === true) return transform(openEnum(node));
+  // Rule (d), inline form. A nullable flagged enum loses its null the same way rule (a) does, so
+  // it needs the same `required` relaxation and the same guard.
+  if (node[OPEN_ENUM] === true) {
+    if (flaggedNullable(node) && !nullableOk) {
+      throw new Error(
+        `unsupported nullable open enum at ${pointer}: only a property schema can become optional — move the enum onto a property or make it non-nullable`,
+      );
+    }
+    return transformSchema(inlineOpenEnum(node, pointer), pointer, false);
+  }
 
   const out: Obj = {};
   for (const [key, value] of Object.entries(node)) {
+    const here = ptr(pointer, key);
     if (key === "const") continue; // rule (c)
     if (key === "enum" && Array.isArray(value)) {
-      out[key] = value.filter((m) => m !== null); // rule (b)
+      out[key] = dropNullMembers(value); // rule (b)
       continue;
     }
-    out[key] = transform(value);
+    if (key === "properties" && isObj(value)) {
+      // The keys here are property NAMES, never keywords — a property called `const` or `oneOf`
+      // is copied through; only its value is a schema.
+      const props: Obj = {};
+      for (const [name, sub] of Object.entries(value)) {
+        props[name] = isObj(sub) ? transformSchema(sub, ptr(here, name), true) : sub;
+      }
+      out[key] = props;
+      continue;
+    }
+    if ((key === "items" || key === "not" || key === "additionalProperties") && isObj(value)) {
+      out[key] = transformSchema(value, here, false);
+      continue;
+    }
+    if ((key === "allOf" || key === "anyOf" || key === "oneOf") && Array.isArray(value)) {
+      out[key] = value.map((branch, i) =>
+        isObj(branch) ? transformSchema(branch, `${here}/${i}`, false) : branch,
+      );
+      continue;
+    }
+    // Everything else is data, not a schema: `type`, `format`, `$ref`, `required`, annotations,
+    // `x-*` extensions. Copied verbatim.
+    out[key] = value;
   }
 
-  // Rules (a)/(d) turned some nullable properties into optional ones — drop them from `required`.
+  // Rules (a)/(d) turned some nullable properties into optional ones — drop exactly those from
+  // `required`, leaving every sibling name in place and in order.
   if (isObj(node.properties) && Array.isArray(out.required)) {
     const props = node.properties;
     out.required = out.required.filter(
@@ -132,10 +292,57 @@ function transform(node: unknown): unknown {
   return out;
 }
 
+/** `components.schemas`: the only place rule (d) can mint a named `<Name>Known` companion. */
+function transformSchemaMap(map: Obj, pointer: string): Obj {
+  const out: Obj = {};
+  for (const [name, schema] of Object.entries(map)) {
+    const here = ptr(pointer, name);
+    if (!isObj(schema)) {
+      out[name] = schema;
+      continue;
+    }
+    if (schema[OPEN_ENUM] === true) {
+      const knownName = `${name}${KNOWN_SUFFIX}`;
+      if (knownName in map) {
+        throw new Error(
+          `cannot split open enum at ${here}: component "${knownName}" already exists — rename it`,
+        );
+      }
+      const { alias, known } = namedOpenEnum(name, schema, here);
+      out[name] = alias;
+      out[knownName] = known;
+      continue;
+    }
+    out[name] = transformSchema(schema, here, false);
+  }
+  return out;
+}
+
+/** Walks everything that is NOT a schema, switching into the schema rules at `components.schemas`
+ *  and at any `schema` value (request/response content, parameters, headers, x-shepherd-events). */
+function walkDocument(node: unknown, pointer: string, inComponents: boolean): unknown {
+  if (Array.isArray(node)) return node.map((v, i) => walkDocument(v, `${pointer}/${i}`, false));
+  if (!isObj(node)) return node;
+  const out: Obj = {};
+  for (const [key, value] of Object.entries(node)) {
+    const here = ptr(pointer, key);
+    if (inComponents && key === "schemas" && isObj(value)) {
+      out[key] = transformSchemaMap(value, here);
+      continue;
+    }
+    if (key === "schema" && isObj(value)) {
+      out[key] = transformSchema(value, here, false);
+      continue;
+    }
+    out[key] = walkDocument(value, here, pointer === "#" && key === "components");
+  }
+  return out;
+}
+
 /** The whole derivation: truth YAML text in, generator-input YAML text out. */
 export async function deriveSwiftSpec(truthYaml: string): Promise<string> {
   const truth = YAML.parse(truthYaml) as unknown;
-  const derived = transform(truth);
+  const derived = walkDocument(truth, "#", false);
   const body = YAML.stringify(derived, { lineWidth: 0 });
   const cfg = await prettier.resolveConfig(DERIVED_PATH);
   return prettier.format(`${GENERATED_HEADER}\n${body}`, { ...cfg, parser: "yaml" });

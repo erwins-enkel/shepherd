@@ -37,12 +37,12 @@ There are two files here and they are not interchangeable:
 
 Four constructs are rewritten, each for an upstream limitation:
 
-| In `openapi.yaml`             | In `openapi.swift.yaml`                              | Why                              |
-| ----------------------------- | ---------------------------------------------------- | -------------------------------- |
-| `oneOf: [X, {type: "null"}]`  | `X`, and the property leaves `required`              | generator issue #817             |
-| `null` inside an `enum` array | the `null` member dropped                            | generator issue #118             |
-| `const: <value>`              | the keyword deleted                                  | generator issue #261             |
-| `x-shepherd-open-enum: true`  | `anyOf: [{type: string, enum: […]}, {type: string}]` | generated Swift enums are closed |
+| In `openapi.yaml`             | In `openapi.swift.yaml`                        | Why                              |
+| ----------------------------- | ---------------------------------------------- | -------------------------------- |
+| `oneOf: [X, {type: "null"}]`  | `X`, and the property leaves `required`        | generator issue #817             |
+| `null` inside an `enum` array | the `null` member dropped                      | generator issue #118             |
+| `const: <value>`              | the keyword deleted                            | generator issue #261             |
+| `x-shepherd-open-enum: true`  | `anyOf: [{$ref: <Name>Known}, {type: string}]` | generated Swift enums are closed |
 
 A Swift optional decodes JSON `null` as `nil` via `decodeIfPresent`, so collapsing a nullable union
 and dropping the property from `required` is lossless for the client. The dropped `const` values are
@@ -59,13 +59,30 @@ client has never heard of. Every **read-side** enum is therefore flagged `x-shep
 enums stay closed (`AgentProvider`, `SandboxProfile`, `TokenScope`, `Effort`): the client chooses
 those values, so a closed Swift enum is the point.
 
+A flagged **component** splits in two: `<Name>Known` carries the closed enum and `<Name>` becomes
+`anyOf: [$ref <Name>Known, {type: string}]`, so Swift gets a real `SessionStatusKnown` enum to
+switch over instead of an anonymous inline payload. A flagged **inline** property schema
+(`Session.planPhase`, `Session.haltReason`, `BlockReason.shape`/`quotaKind`) keeps the inline
+`anyOf: [{type: string, enum: […]}, {type: string}]` — there is no name to generate a type from.
+
+**The derivation is strict.** It walks schema positions only — `components.schemas` values,
+`properties`/`items`/`additionalProperties`/`allOf`/`anyOf`/`oneOf`/`not` inside a schema, and any
+`schema` value — so the keys of a `properties` map are names, never keywords, and a property called
+`const` or `oneOf` survives untouched. Where it cannot rewrite a construct faithfully it throws with
+the offending JSON pointer rather than weakening the contract: a nullable union is collapsed only
+under `properties` (the one place the enclosing `required` can be relaxed) and only when nothing but
+annotations sit beside it, and a nullable union or flagged enum inside `allOf` is an error. Adding
+such a shape to the truth file therefore fails `bun run gen:contract-swift` loudly instead of
+silently shipping a Swift model that cannot represent `null`.
+
 **Staying fresh.** `bun run gen:contract-swift` regenerates the derived file;
 `bun run check:contract-swift` regenerates and fails on any diff (same pattern as
 `check:herdr-types`). `test/contract/swift-derivation.test.ts` asserts the same thing under
 `bun run test`, plus that none of the four constructs survived and that every operationId and
-component schema of the truth file is still present. The `native/` regeneration target and the
-`native.yml` CI freshness job that runs it are **planned for sub-project 2** and are not on this
-branch yet.
+component schema of the truth file is still present. Verified on 2026-09-18 with
+swift-openapi-generator 1.13.1: the derived file builds with zero unsupported-schema warnings. The
+`native/` regeneration target and the `native.yml` CI freshness job that runs it are **planned for
+sub-project 2** and are not on this branch yet.
 
 [gen]: https://github.com/apple/swift-openapi-generator
 
@@ -73,10 +90,15 @@ branch yet.
 
 Server-produced objects use `additionalProperties: true` so the client tolerates new fields.
 Request bodies use `additionalProperties: false`: that states what the generated client sends, not
-what the server tolerates — only token minting actually rejects unknown keys (`POST
-/api/access-tokens` answers 400), while the other routes ignore them. Enums are copied verbatim
-from `src/types.ts`, `src/sandbox.ts`, `src/blocked.ts` and `src/token-scopes.ts`, and pinned to
-those constants by a test.
+what the server tolerates. Two routes actually reject an unknown key with 400 — `POST
+/api/access-tokens`, and `POST /api/sessions`, which answers `unknown key: …` for anything outside
+`ALLOWED_KEYS` (`src/validate.ts`). `POST /api/login` and `PUT /api/settings` ignore unknown keys.
+Enums are copied verbatim from `src/types.ts`, `src/sandbox.ts`, `src/blocked.ts` and
+`src/token-scopes.ts`, and pinned to those constants by a test.
+
+`Health.minClient` is a forward-compatibility placeholder: it is declared (and optional) so a
+future server can name the lowest native client version it supports without a contract change. No
+server emits it today, so the client must treat its absence as "no constraint".
 
 **Deliberately undeclared.** `415` (wrong content type) and `400` for malformed JSON are not
 declared on POST/PUT routes because the generated client always sends valid JSON. `403

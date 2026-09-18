@@ -28,33 +28,64 @@ public enum ShepherdError: Error, Equatable, Sendable {
   case contractMismatch(route: String, underlying: String)
   /// The profile violates the remote-URL policy.
   case insecureProfile(ServerProfileError)
-  /// The request never produced an HTTP response.
+  /// The request never produced a usable HTTP response. Carries the cause
+  /// *and* the underlying error's description, so connection refused, a
+  /// timeout and a TLS rejection stay distinguishable in a bug report.
   case transport(String)
 
   /// Maps a thrown error from the generated client. The generated client only
   /// throws for transport failures and body decoding failures — documented
   /// statuses come back as `Output` cases instead.
+  ///
+  /// The classification uses only public API: `ClientError.underlyingError`
+  /// (the root cause the runtime already unwrapped for us), `operationID`,
+  /// `causeDescription` and whether a `response` was ever received. The
+  /// runtime's own error enum is `internal`, so it can never be named here;
+  /// "we got as far as an HTTP response and still failed" is the reliable
+  /// signal that the failure is about the contract rather than the network.
   public static func from(_ error: any Error, route: String) -> ShepherdError {
     if let shepherd = error as? ShepherdError { return shepherd }
     if let profile = error as? ServerProfileError { return .insecureProfile(profile) }
+
     guard let clientError = error as? ClientError else {
-      return .transport(String(describing: error))
+      // A bare coding error — thrown by our own encoding of `PresenceFrame`,
+      // or by a decode outside an operation — is still a contract failure.
+      if error is DecodingError || error is EncodingError {
+        return .contractMismatch(route: route, underlying: capped(String(describing: error)))
+      }
+      return .transport(capped(String(describing: error)))
     }
+
+    // `operationID` is empty when the failure happened before the runtime knew
+    // which operation it was serving; the caller's `route` is the better name.
+    let operationRoute = clientError.operationID.isEmpty ? route : clientError.operationID
     let underlying = clientError.underlyingError
-    if underlying is DecodingError {
+
+    // A middleware of ours threw: the runtime wraps it, then hands the root
+    // cause straight back through `underlyingError`. Pass it through unchanged
+    // rather than re-describing it as a transport failure.
+    if let shepherd = underlying as? ShepherdError { return shepherd }
+    if let profile = underlying as? ServerProfileError { return .insecureProfile(profile) }
+
+    if underlying is DecodingError || underlying is EncodingError {
       return .contractMismatch(
-        route: clientError.operationID, underlying: String(describing: underlying))
+        route: operationRoute, underlying: capped(String(describing: underlying)))
     }
-    // The runtime's own error type — thrown when a response's shape does not
-    // match the contract (an undocumented content type, a missing required
-    // header) — is `internal` to OpenAPIRuntime 1.12.1, so it cannot be named
-    // in a cast. Matching the module-qualified type name is the only way to
-    // tell it apart from a genuine transport failure.
-    if String(reflecting: type(of: underlying)).hasPrefix("OpenAPIRuntime.") {
-      return .contractMismatch(
-        route: clientError.operationID, underlying: String(describing: underlying))
+
+    // The network layer's own vocabulary: URLSession, the BSD socket layer,
+    // and structured-concurrency cancellation. None of these ever means the
+    // server disagreed with the contract.
+    if underlying is URLError || underlying is POSIXError || underlying is CancellationError {
+      return .transport(capped("\(clientError.causeDescription): \(underlying)"))
     }
-    return .transport(clientError.causeDescription)
+
+    // Anything else: a response means the exchange reached the server and the
+    // runtime rejected what came back (undocumented content type, missing
+    // required header, unparseable body) — a contract mismatch. No response
+    // means the request never completed — a transport failure.
+    return clientError.response == nil
+      ? .transport(capped(clientError.causeDescription))
+      : .contractMismatch(route: operationRoute, underlying: capped(clientError.causeDescription))
   }
 
   /// Maps the generated `.undocumented(statusCode:_)` case. A 401 there means
@@ -74,5 +105,21 @@ public enum ShepherdError: Error, Equatable, Sendable {
     body.error == "first_run_pending"
       ? .firstRunPending
       : .conflict(code: body.code, message: body.error)
+  }
+
+  /// Ceiling on any diagnostic string carried into a case payload. The
+  /// runtime's descriptions interpolate whole generated `Output` values, so an
+  /// unbounded copy could drag a full session list into a log line or an
+  /// alert. The cap bounds that.
+  ///
+  /// It is *not* a redaction: nothing reachable here may carry a secret in the
+  /// first place. The only token in play is the `Authorization` header the
+  /// auth middleware adds after serialisation, and neither `causeDescription`
+  /// nor `underlyingError` describes request headers. Never widen this to
+  /// `ClientError.description`, which does print them.
+  private static let diagnosticLimit = 500
+
+  private static func capped(_ text: String) -> String {
+    text.count <= diagnosticLimit ? text : String(text.prefix(diagnosticLimit)) + "…"
   }
 }

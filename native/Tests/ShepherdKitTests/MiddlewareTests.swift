@@ -155,6 +155,93 @@ struct MiddlewareTests {
     #expect(attempts.get() == 1)
     #expect(response.status == .notFound)
   }
+
+  @Test("a credential store that cannot be read sends the request unauthenticated")
+  func keychainReadFailureSendsAnonymously() async throws {
+    let store = FailingCredentialStore()
+    let middleware = AuthenticationMiddleware(
+      store: store, credentialKey: "k", onUnauthorized: {})
+
+    let seen = Box<HTTPRequest?>(nil)
+    _ = try await middleware.intercept(
+      HTTPRequest(method: .get, scheme: nil, authority: nil, path: "/api/sessions"),
+      body: nil, baseURL: baseURL, operationID: "listSessions"
+    ) { request, _, _ in
+      seen.set(request)
+      return (HTTPResponse(status: .ok), nil)
+    }
+    #expect(seen.get()?.headerFields[.authorization] == nil)
+  }
+
+  @Test("a 401 on a request that carried no credential clears nothing")
+  func unauthorizedWithoutCredentialIsNotALogout() async throws {
+    let store = FailingCredentialStore()
+    let fired = Box(false)
+    let middleware = AuthenticationMiddleware(
+      store: store, credentialKey: "k", onUnauthorized: { fired.set(true) })
+
+    _ = try await middleware.intercept(
+      HTTPRequest(method: .get, scheme: nil, authority: nil, path: "/api/sessions"),
+      body: nil, baseURL: baseURL, operationID: "listSessions"
+    ) { _, _, _ in (HTTPResponse(status: .unauthorized), nil) }
+
+    #expect(store.wasDeleted == false)
+    #expect(fired.get() == false)
+  }
+
+  @Test("an anonymous 401 does not fire needsLogin")
+  func unauthorizedWithEmptyStoreIsNotALogout() async throws {
+    let fired = Box(false)
+    let middleware = AuthenticationMiddleware(
+      store: InMemoryCredentialStore(), credentialKey: "k", onUnauthorized: { fired.set(true) })
+
+    _ = try await middleware.intercept(
+      HTTPRequest(method: .get, scheme: nil, authority: nil, path: "/api/sessions"),
+      body: nil, baseURL: baseURL, operationID: "listSessions"
+    ) { _, _, _ in (HTTPResponse(status: .unauthorized), nil) }
+
+    #expect(fired.get() == false)
+  }
+
+  @Test("cancelling during the backoff stops the retry loop")
+  func cancellationStopsRetrying() async throws {
+    let attempts = Box(0)
+    let started = Box(false)
+    let middleware = RetryingMiddleware(maxAttempts: 5, initialBackoff: .seconds(5))
+
+    let task = Task {
+      try await middleware.intercept(
+        HTTPRequest(method: .get, scheme: nil, authority: nil, path: "/api/sessions"),
+        body: nil, baseURL: baseURL, operationID: "listSessions"
+      ) { _, _, _ in
+        attempts.set(attempts.get() + 1)
+        started.set(true)
+        throw URLError(.networkConnectionLost)
+      }
+    }
+
+    // Wait for the first attempt to fail, so the task is parked in the backoff
+    // sleep when the cancellation lands.
+    while !started.get() { await Task.yield() }
+    task.cancel()
+
+    await #expect(throws: (any Error).self) { _ = try await task.value }
+    #expect(attempts.get() == 1)
+  }
+}
+
+/// A store whose reads always fail, standing in for a locked or otherwise
+/// inaccessible Keychain. Records whether anything tried to delete the item.
+final class FailingCredentialStore: CredentialStore, @unchecked Sendable {
+  struct ReadFailure: Error {}
+
+  private let deleted = Box(false)
+
+  func load(for key: String) throws -> StoredCredential? { throw ReadFailure() }
+  func save(_ credential: StoredCredential, for key: String) throws {}
+  func delete(for key: String) throws { deleted.set(true) }
+
+  var wasDeleted: Bool { deleted.get() }
 }
 
 /// Minimal lock box so test closures can mutate state under Swift 6 strict

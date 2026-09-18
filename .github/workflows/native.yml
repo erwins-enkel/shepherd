@@ -1,0 +1,94 @@
+name: native
+
+# ShepherdKit is generated from contracts/openapi.swift.yaml, so this job is the
+# gate that a contract change still produces code that compiles and passes.
+# Paths-filtered so a PR that touches neither the contract nor native/ does
+# not pay for a macOS runner.
+#
+# `ui/messages/*.json` is in the filter for sub-project 4a: the Mac app's string
+# catalog is generated from those files, and its freshness check lives in this
+# same job. Keep the entry even though nothing in ShepherdKit reads it.
+on:
+  pull_request:
+    branches: [main, "epic/**"]
+    paths:
+      - "native/**"
+      - "contracts/**"
+      - "scripts/gen-contract-swift.ts"
+      - "ui/messages/*.json"
+      - ".github/workflows/native.yml"
+  push:
+    branches: [main]
+    paths:
+      - "native/**"
+      - "contracts/**"
+      - "scripts/gen-contract-swift.ts"
+      - "ui/messages/*.json"
+      - ".github/workflows/native.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Job key `shepherdkit` is load-bearing: sub-project 4a appends the Shepherd.app
+  # build, signature check and unit-test steps to THIS job. Do not rename it.
+  shepherdkit:
+    name: ShepherdKit
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Report the toolchain
+        run: |
+          swift --version
+          xcodebuild -version
+
+      # The three Apple OpenAPI packages all ship swift-tools-version:6.1, so
+      # an older default Xcode on the runner would fail with a confusing
+      # manifest error instead of a clear one.
+      - name: Require Swift 6.1 or newer
+        run: |
+          set -euo pipefail
+          version="$(swift -version 2>&1 | sed -n 's/.*Swift version \([0-9][0-9.]*\).*/\1/p' | head -1)"
+          echo "detected swift $version"
+          major="${version%%.*}"
+          rest="${version#*.}"
+          minor="${rest%%.*}"
+          if [ "$major" -lt 6 ] || { [ "$major" -eq 6 ] && [ "$minor" -lt 1 ]; }; then
+            echo "::error::Swift $version is too old; ShepherdKit needs 6.1+."
+            echo "Installed Xcodes:"; ls /Applications | grep -i '^Xcode' || true
+            echo "Pin a newer one with: sudo xcode-select -s /Applications/<Xcode>.app"
+            exit 1
+          fi
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: latest
+
+      - name: Install root deps
+        run: bun install --frozen-lockfile
+
+      # Gate 1: the derived Swift contract still matches the truth file.
+      # (Regenerates contracts/openapi.swift.yaml and runs git diff --exit-code.)
+      - name: Derived contract is current
+        run: bun run check:contract-swift
+
+      # Gate 2: the copy inside the ShepherdKit target still matches the
+      # derived contract. The generated Swift itself is never committed — the
+      # build plugin regenerates it every build, so it cannot go stale; these
+      # two copies are the only artefacts that CAN drift.
+      - name: Contract copy is in sync
+        run: ./native/scripts/sync-contract.sh --check
+
+      # Gate 3: the contract still generates code that compiles and passes.
+      - name: Build
+        run: swift build --package-path native
+
+      - name: Test
+        run: swift test --package-path native

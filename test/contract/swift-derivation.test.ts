@@ -270,3 +270,138 @@ describe("derivation is schema-aware and strict", () => {
     });
   });
 });
+
+/**
+ * Each of these pins one throw site that the tests above never reach: `closedType`'s guard,
+ * `namedOpenEnum`'s nullable-named-component guard, the unhandled-schema-keyword guard, the
+ * `allOf` guard's open-enum trigger (as opposed to its already-covered nullable-union trigger),
+ * the inline nullable-open-enum-outside-`properties` guard, and the `<Name>Known` collision
+ * guard.
+ */
+describe("every remaining throw path in the derivation is reachable", () => {
+  test("closedType throws when a flagged enum's type is not a single non-null type", async () => {
+    const promise = derive(
+      [
+        "    Thing:",
+        "      type: object",
+        "      properties:",
+        "        colour:",
+        "          type: [string, integer]",
+        "          enum: [red, 1]",
+        "          x-shepherd-open-enum: true",
+      ].join("\n"),
+    );
+    await expect(promise).rejects.toThrow(
+      /unsupported open enum at #\/components\/schemas\/Thing\/properties\/colour: expected a single non-null type, got \["string","integer"\]/,
+    );
+  });
+
+  test("namedOpenEnum throws when a named open-enum component is itself nullable", async () => {
+    const promise = derive(
+      [
+        "    Colour:",
+        '      type: [string, "null"]',
+        "      enum: [red, green, null]",
+        "      x-shepherd-open-enum: true",
+      ].join("\n"),
+    );
+    await expect(promise).rejects.toThrow(
+      /unsupported nullable open enum at #\/components\/schemas\/Colour: a named component cannot drop nullability/,
+    );
+  });
+
+  test("an unhandled schema keyword throws with its own pointer", async () => {
+    const promise = derive(
+      [
+        "    Thing:",
+        "      type: object",
+        "      patternProperties:",
+        "        '^x-': { type: string }",
+      ].join("\n"),
+    );
+    await expect(promise).rejects.toThrow(
+      /unsupported schema keyword "patternProperties" at #\/components\/schemas\/Thing/,
+    );
+  });
+
+  test("an open enum inside allOf throws, not only a nullable union", async () => {
+    const promise = derive(
+      [
+        "    Thing:",
+        "      allOf:",
+        "        - { type: object }",
+        "        - type: string",
+        "          enum: [a, b]",
+        "          x-shepherd-open-enum: true",
+      ].join("\n"),
+    );
+    await expect(promise).rejects.toThrow(
+      /unsupported composition at #\/components\/schemas\/Thing\/allOf\/1: allOf may not contain a nullable union or an open enum/,
+    );
+  });
+
+  test("a nullable flagged enum outside properties throws", async () => {
+    const promise = derive(
+      [
+        "    Thing:",
+        "      type: array",
+        "      items:",
+        '        type: [string, "null"]',
+        "        enum: [a, b, null]",
+        "        x-shepherd-open-enum: true",
+      ].join("\n"),
+    );
+    await expect(promise).rejects.toThrow(
+      /unsupported nullable open enum at #\/components\/schemas\/Thing\/items: only a property schema can become optional/,
+    );
+  });
+
+  test("a <Name>Known name collision throws", async () => {
+    const promise = derive(
+      [
+        "    Colour:",
+        "      type: string",
+        "      enum: [red, green]",
+        "      x-shepherd-open-enum: true",
+        "    ColourKnown:",
+        "      type: string",
+      ].join("\n"),
+    );
+    await expect(promise).rejects.toThrow(
+      /cannot split open enum at #\/components\/schemas\/Colour: component "ColourKnown" already exists/,
+    );
+  });
+});
+
+describe("component names that collide with schema keywords", () => {
+  test("a components.schemas entry literally named const or enum survives as a name", async () => {
+    const schemas = await derive(
+      ["    const:", "      type: string", "    enum:", "      type: integer"].join("\n"),
+    );
+    expect(schemas.const).toEqual({ type: "string" });
+    expect(schemas.enum).toEqual({ type: "integer" });
+  });
+});
+
+describe("namedOpenEnum description handling", () => {
+  test("description is copied onto both the alias and the generated Known component", async () => {
+    const schemas = await derive(
+      [
+        "    Colour:",
+        "      type: string",
+        "      enum: [red, green]",
+        "      x-shepherd-open-enum: true",
+        "      description: a colour",
+      ].join("\n"),
+    );
+    expect(schemas.Colour).toEqual({
+      description: "a colour",
+      anyOf: [{ $ref: "#/components/schemas/ColourKnown" }, { type: "string" }],
+    });
+    expect(schemas.ColourKnown).toEqual({
+      type: "string",
+      enum: ["red", "green"],
+      description: "a colour",
+    });
+  });
+});

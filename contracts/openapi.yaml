@@ -308,6 +308,18 @@ components:
             - $ref: "#/components/schemas/SandboxProfile"
             - type: "null"
         plain: { type: boolean }
+        force:
+          type: boolean
+          description: Bypass the usage-hold gate and spawn immediately.
+    HeldTask:
+      type: object
+      additionalProperties: true
+      description: The usage hold tripped — the task was queued instead of spawned.
+      required: [held, id, count]
+      properties:
+        held: { type: boolean, const: true }
+        id: { type: string }
+        count: { type: integer }
     Repo:
       type: object
       additionalProperties: true
@@ -522,6 +534,7 @@ paths:
           $ref: "#/components/responses/Unauthorized"
     post:
       operationId: createSession
+      description: Creates and spawns a session, or answers 200 with a held task when the usage hold trips (force overrides the hold).
       requestBody:
         required: true
         content:
@@ -529,6 +542,12 @@ paths:
             schema:
               $ref: "#/components/schemas/CreateSessionRequest"
       responses:
+        "200":
+          description: Usage hold tripped — queued as a held task instead of spawned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HeldTask"
         "201":
           description: Session created and agent spawned.
           content:
@@ -545,6 +564,18 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "409":
           description: First run pending, name taken, worktree occupied, or herdr restart required (see code).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: The base branch does not resolve to a ref in the repo.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          description: Create failed downstream (git or the agent runner).
           content:
             application/json:
               schema:

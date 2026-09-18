@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { config } from "../../src/config";
 import { firstRun } from "../../src/first-run";
 import { SESSION_COOKIE } from "../../src/operator-auth";
+import { WorktreeMissingBaseError } from "../../src/worktree";
 import {
   bearer,
   coverage,
@@ -195,16 +196,26 @@ describe("settings", () => {
 });
 
 describe("sessions", () => {
-  let created: { id: string };
-
-  test("POST /api/sessions creates (201) and rejects bad input (400)", async () => {
-    const res = await fetch(`${s.baseUrl}/api/sessions`, {
+  /** POST a standard create body. Each test gets its own session so none depends on another
+   *  test having run (or on the order they run in). */
+  async function post(body: Record<string, unknown>): Promise<Response> {
+    return fetch(`${s.baseUrl}/api/sessions`, {
       method: "POST",
       headers: { "content-type": "application/json", ...bearer(token) },
-      body: JSON.stringify({ repoPath: s.validRepo, baseBranch: "main", prompt: "contract" }),
+      body: JSON.stringify({ repoPath: s.validRepo, baseBranch: "main", ...body }),
     });
-    created = (await validateResponse("POST", "/api/sessions", res)) as { id: string };
+  }
+
+  async function createSession(prompt: string): Promise<{ id: string }> {
+    const res = await post({ prompt });
+    const body = (await validateResponse("POST", "/api/sessions", res)) as { id: string };
     expect(res.status).toBe(201);
+    return body;
+  }
+
+  test("POST /api/sessions creates (201) and rejects bad input (400)", async () => {
+    const created = await createSession("contract");
+    expect(created.id).toBeTruthy();
 
     const bad = await fetch(`${s.baseUrl}/api/sessions`, {
       method: "POST",
@@ -218,11 +229,7 @@ describe("sessions", () => {
   test("POST /api/sessions is 409 while first run is pending", async () => {
     firstRun.pending = true;
     try {
-      const res = await fetch(`${s.baseUrl}/api/sessions`, {
-        method: "POST",
-        headers: { "content-type": "application/json", ...bearer(token) },
-        body: JSON.stringify({ repoPath: s.validRepo, baseBranch: "main", prompt: "x" }),
-      });
+      const res = await post({ prompt: "x" });
       await validateResponse("POST", "/api/sessions", res);
       expect(res.status).toBe(409);
     } finally {
@@ -230,7 +237,72 @@ describe("sessions", () => {
     }
   });
 
+  // The usage-hold gate (config.usageHoldEnabled defaults on, usageHoldPct 80): shouldHold()
+  // compares max(session5h.pct, week.pct) against the threshold, so lifting the stubbed 5h
+  // window above it queues the task (200 HeldTask) instead of spawning. `force: true` is the
+  // client's documented override and must still spawn (201).
+  test("POST /api/sessions holds (200) over the usage threshold; force spawns anyway (201)", async () => {
+    const saved = s.stubs.usageLimits.limits;
+    s.stubs.usageLimits.limits = (now: number) => ({
+      ...saved(now),
+      session5h: { pct: config.usageHoldPct + 5, resetAt: now + 3_600_000 },
+    });
+    let heldId: string | null = null;
+    try {
+      const res = await post({ prompt: "held" });
+      const body = (await validateResponse("POST", "/api/sessions", res)) as {
+        held: boolean;
+        id: string;
+      };
+      expect(res.status).toBe(200);
+      expect(body.held).toBe(true);
+      heldId = body.id;
+
+      const forced = await post({ prompt: "forced", force: true });
+      const created = (await validateResponse("POST", "/api/sessions", forced)) as { id: string };
+      expect(forced.status).toBe(201);
+      expect(created.id).toBeTruthy();
+    } finally {
+      s.stubs.usageLimits.limits = saved;
+      // A held task is a row in held_tasks, not a session — it never shows up in
+      // GET /api/sessions — but drop it anyway so the store is left as we found it.
+      if (heldId) s.deps.store.removeHeldTask(heldId);
+    }
+  });
+
+  // createErrorResponse maps a missing base ref to 422; the service reaches it through
+  // worktree.ensureBaseRef, the first worktree call on the create path.
+  test("POST /api/sessions is 422 when the base ref is missing", async () => {
+    const saved = s.stubs.worktree.ensureBaseRef;
+    s.stubs.worktree.ensureBaseRef = async () => {
+      throw new WorktreeMissingBaseError("no-such-branch");
+    };
+    try {
+      const res = await post({ prompt: "missing base" });
+      await validateResponse("POST", "/api/sessions", res);
+      expect(res.status).toBe(422);
+    } finally {
+      s.stubs.worktree.ensureBaseRef = saved;
+    }
+  });
+
+  // Anything else create throws is a downstream failure: 502.
+  test("POST /api/sessions is 502 when the spawn fails", async () => {
+    const saved = s.stubs.herdr.start;
+    s.stubs.herdr.start = async () => {
+      throw new Error("boom");
+    };
+    try {
+      const res = await post({ prompt: "spawn fails" });
+      await validateResponse("POST", "/api/sessions", res);
+      expect(res.status).toBe(502);
+    } finally {
+      s.stubs.herdr.start = saved;
+    }
+  });
+
   test("GET /api/sessions and /api/sessions/{id}", async () => {
+    const created = await createSession("listed");
     const list = await fetch(`${s.baseUrl}/api/sessions`, { headers: bearer(token) });
     const sessions = (await validateResponse("GET", "/api/sessions", list)) as { id: string }[];
     expect(sessions.map((x) => x.id)).toContain(created.id);
@@ -245,6 +317,7 @@ describe("sessions", () => {
   });
 
   test("POST /api/sessions/{id}/interrupt", async () => {
+    const created = await createSession("interrupted");
     const ok = await fetch(`${s.baseUrl}/api/sessions/${created.id}/interrupt`, {
       method: "POST",
       headers: bearer(token),
@@ -263,6 +336,7 @@ describe("sessions", () => {
   // `.catch(() => null)` and never requires a JSON content-type), and the native client
   // archives without reaping — so the contract declares no requestBody either.
   test("DELETE /api/sessions/{id} archives; GET /api/sessions/done lists it", async () => {
+    const created = await createSession("archived");
     const del = await fetch(`${s.baseUrl}/api/sessions/${created.id}`, {
       method: "DELETE",
       headers: bearer(token),

@@ -28,7 +28,7 @@ Shepherd is configured through **three stacked tiers**, and only the first is en
 | Tier             | Source                                                                                          | Authority                                                                     |
 | ---------------- | ----------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
 | 1. Process env   | `Environment=` in `deploy/shepherd.service:22-31` + `EnvironmentFile=-%h/.shepherd/env` (`:33`) | Seeds tier 3 on a fresh DB; authoritative for infra knobs (port, host, paths) |
-| 2. Code defaults | `src/config.ts` — one eager `export const config = {…}` (`src/config.ts:557`)                   | The `??` right-hand side of ~182 reads                                        |
+| 2. Code defaults | `src/config.ts` — one eager `export const config = {…}` (`src/config.ts:557`)                   | The `??` right-hand side of 122 reads over 109 distinct `SHEPHERD_*` keys     |
 | 3. DB settings   | `settings` key/value table (`src/store.ts:1357`), **67 `getSetting` call sites**                | UI-configurable; wins at runtime for most behavioural knobs                   |
 
 Two consequences shape everything below.
@@ -69,30 +69,43 @@ set — that family is fully documented at `configuration.md:261-266`.)
 
 ### 1.2 Parsing is ad hoc and inconsistent
 
-`src/config.ts` reads env **119 times**. The idioms do not agree:
+`src/config.ts` reads env **122 times** (123 `process.env.<KEY>` occurrences, one of them prose in
+the comment at `src/config.ts:47`) over **109 distinct `SHEPHERD_*` keys**. The idioms do not agree
+— **five** of them parse a boolean:
 
-| Idiom                                      | Count | Meaning                  |
-| ------------------------------------------ | ----- | ------------------------ |
-| `process.env.X === "1"`                    | 14    | opt-in, default off      |
-| `process.env.X !== "0"`                    | 4     | kill switch, default on  |
-| `parseKillSwitch(…)` (`src/config.ts:449`) | 3     | same as `!== "0"`, named |
-| `Number(process.env.X ?? default)`         | 19    | of which ~13 unguarded   |
+| Idiom                                                                       | Count | Meaning                          |
+| --------------------------------------------------------------------------- | ----- | -------------------------------- |
+| `process.env.X === "1"`                                                     | 14    | opt-in, default off              |
+| `process.env.X !== "0"`                                                     | 4     | kill switch, default on          |
+| `parseKillSwitch(…)` (`src/config.ts:449`)                                  | 3     | same as `!== "0"`, named         |
+| list membership — `!["0","false"].includes(…)` / `["1","true"].includes(…)` | 4     | **3 of them kill-switch shaped** |
+| ad-hoc IIFE (`DO_NOT_TRACK`, `src/config.ts:637`)                           | 1     | opt-in, accepts `1` or `true`    |
+| `Number(process.env.X ?? default)`                                          | 19    | of which **6** unguarded         |
 
-Inline, only `parseHour` (`src/config.ts:456`), `clampCap` and two `|| 0` sites validate. **Shepherd
-also already has two hand-written boot validators** that hard-fail with a named, fixable message:
-`validatePreviewPortRange` (`src/config.ts:339`) and `validateAgentIngressPort`
-(`src/config.ts:391`), both invoked unconditionally at module scope in `src/index.ts:540-554`. The
-comment at `src/config.ts:385-386` states the idiom explicitly — "Fail-fast (throw), consistent with
-`validatePreviewPortRange` — never a silent fallback". That prior art matters, and §4 Stage 3 weighs
-it.
+**26 boolean keys in total** — 25 `SHEPHERD_*` plus `DO_NOT_TRACK`. The list-membership four are the
+easiest to miss because they never appear in a `=== "1"` / `!== "0"` grep:
+`SHEPHERD_TRIM_AUTO_CONTEXT` (`src/config.ts:779` via `parseTrimAutoContext`, **default on**),
+`SHEPHERD_USAGE_HOLD_ENABLED` (`:1005`, **default on**), `SHEPHERD_USAGE_HOLD_AUTO_RELEASE`
+(`:1014`, **default on**) and `SHEPHERD_USAGE_DOWNGRADE_ENABLED` (`:1026`, default off).
 
-Everything outside those validators propagates `NaN`:
+**Numeric reads are in better shape than a grep suggests: 13 of the 19 are guarded.** Seven go
+through `clampCap` (`:739`, `:825`, `:861`, `:873`, `:881`, `:1008`, `:1029`) and one through
+`clampFraction` (`:814`) — both fall back to a supplied default on a non-finite input
+(`src/config.ts:151,157`). Two guard inline (`:960` via `|| 0`, `:1000` via `Math.max(0, … || 0)`).
+Three more are rejected **at boot**: `:972`/`:973` by `validatePreviewPortRange`
+(`src/config.ts:339`) and `:569` by `validateAgentIngressPort` (`src/config.ts:391`), both invoked
+unconditionally at module scope in `src/index.ts:540-554`. The comment at `src/config.ts:385-386`
+states that idiom explicitly — "Fail-fast (throw), consistent with `validatePreviewPortRange` —
+never a silent fallback". That prior art is load-bearing for §4 Stage 3.
+
+That leaves **six genuinely unguarded numeric reads**, which propagate `NaN`:
 
 - `SHEPHERD_PUSH_COOLDOWN_MS=2m` → `NaN` (`src/config.ts:645`); every comparison against it is
   `false`, so the cooldown silently vanishes. Same shape for `SHEPHERD_AUTOPILOT_STEP_CAP`
-  (`src/config.ts:850`) and `SHEPHERD_AUTOMERGE_REBASE_CAP` (`src/config.ts:963`).
-  `SHEPHERD_PREVIEW_PORT_BASE` / `_COUNT` are **not** in this set — `validatePreviewPortRange`
-  rejects a non-finite value of either by name (`src/config.ts:345-349`).
+  (`:850`), `SHEPHERD_AUTOMERGE_REBASE_CAP` (`:963`), `SHEPHERD_PREVIEW_SWEEP_MS` (`:975`) and
+  `SHEPHERD_PREVIEW_KILL_MAX_AGE_MS` (`:981`). Note that `SHEPHERD_PREVIEW_PORT_BASE` / `_COUNT`
+  are **not** in this set despite sitting between them — `validatePreviewPortRange` rejects a
+  non-finite value of either by name (`src/config.ts:345-349`).
 - `SHEPHERD_PORT=seven` → `mainPort = NaN` (`src/config.ts:480`), which is never validated directly.
   It does not reach `serve()`: `agentIngressPort` defaults to `mainPort + 1` (`src/config.ts:569`),
   so it is `NaN` too, and `validateAgentIngressPort` throws first — but the message it prints names
@@ -105,7 +118,7 @@ Everything outside those validators propagates `NaN`:
 Six env keys are credentials: `SHEPHERD_PASSWORD`, `SHEPHERD_COOKIE_SECRET`, `SHEPHERD_TOKEN`,
 `SHEPHERD_VAPID_PRIVATE`, `ANTHROPIC_API_KEY`, and (weakly) `SHEPHERD_APTABASE_APP_KEY`.
 
-Shepherd spreads `...process.env` into child processes at **11 sites** (`src/pty-bridge.ts:36`,
+Shepherd spreads `...process.env` into child processes at **10 sites** (`src/pty-bridge.ts:36`,
 `src/socket-pty-bridge.ts:121`, `src/doc-agent.ts:139`, `src/preview-launch.ts:155`,
 `src/server.ts:6236`, `src/usage-probe.ts:172`, …). For the **`autonomous` and `standard`** sandbox
 profiles this is contained: the bwrap membrane does `--clearenv` and re-sets only `HOME`/`PATH`/`TERM`
@@ -322,11 +335,18 @@ Realistically a day of careful work, and it is the bulk of the cost.
 
 ### 3.2 The boolean-semantics trap
 
-The 14 `=== "1"` and 4 `!== "0"` sites mean different things. A mechanical rewrite to `@type=boolean`
-would **silently flip every kill switch's default**: `SHEPHERD_HOOKS_INGEST` unset today means _on_
+The five boolean idioms mean different things. A mechanical rewrite to `@type=boolean` would
+**silently flip every kill switch's default**: `SHEPHERD_HOOKS_INGEST` unset today means _on_
 (`parseKillSwitch` → `raw !== "0"`), and a schema line `SHEPHERD_HOOKS_INGEST=false` would make it
-_off_. Each of the 22 boolean keys must be transcribed individually with its current default as the
-schema value. This is the single most likely way an adoption PR ships a regression.
+_off_. Each of the **26** boolean keys must be transcribed individually with its current default as
+the schema value. This is the single most likely way an adoption PR ships a regression.
+
+**Work the list from the code, not from a grep.** An adopter who greps `=== "1"` and `!== "0"` finds
+21 of the 26 and misses the five that use another idiom — including the three list-membership
+kill switches (`SHEPHERD_TRIM_AUTO_CONTEXT`, `SHEPHERD_USAGE_HOLD_ENABLED`,
+`SHEPHERD_USAGE_HOLD_AUTO_RELEASE`, all **default on**, §1.2). Those are exactly the shape that
+regresses silently, so the grep-shaped approach fails precisely where this section is trying to
+protect you.
 
 ### 3.3 Tests
 
@@ -360,7 +380,7 @@ Shepherd credential in plaintext — strictly worse than today.
 sees them) — but **only with `env = false` in `bunfig.toml`** (§2.4), and it does nothing about the
 _other_ inherited env, so `trusted`-profile panes keep inheriting `GH_TOKEN`, `ANTHROPIC_API_KEY`
 and everything else. The genuinely useful, smaller piece is `@sensitive`: a **declarative,
-machine-readable list of which keys are credentials**, which the 11 spread sites could key off
+machine-readable list of which keys are credentials**, which the 10 spread sites could key off
 directly. Fixing `trusted`-profile inheritance stays
 [#2100](https://github.com/erwins-enkel/shepherd/issues/2100)'s job.
 
@@ -410,10 +430,16 @@ The cheaper alternative is **not hypothetical: the repo already does this twice.
 `validatePreviewPortRange` (`src/config.ts:339`) and `validateAgentIngressPort`
 (`src/config.ts:391`) are hand-written, throw a named and fixable message, run unconditionally at
 boot (`src/index.ts:540-554`), and cost nothing at startup. Extending that established idiom to the
-remaining ~13 unguarded `Number()` reads and the 22 booleans gets most of Stage 3's benefit with no
-dependency, no `node` requirement at boot, and no 0.4–0.6 s penalty. Stage 3 should be taken only if
-the 182-key **typed** surface — coercion plus generated types — is judged worth that price over
-extending the validators Shepherd already has.
+**six** unguarded `Number()` reads gets the whole of Stage 3's validation benefit with no
+dependency, no `node` requirement at boot and no 0.4–0.6 s penalty.
+
+**Six, not thirteen, is the honest size of the problem** — 13 of the 19 numeric reads are already
+guarded (§1.2), so the gap varlock would buy down is about half what a first pass suggests, and it
+is six lines of `clampCap` away from closed. That materially weakens Stage 3: its remaining
+justification is not "stop the `NaN`s" but the 109-key **typed** surface — coercion plus generated
+types plus one declaration site per key — and the 26 booleans still have to be transcribed by hand
+either way (§3.2). Take Stage 3 only if that typed surface is judged worth the boot cost; the
+validation argument alone no longer carries it.
 
 **Do not adopt**: `varlock run` in `shepherd.service` (and if it is ever used for a script, never
 without `--inject vars`), secret-provider plugins, local encryption, the credential proxy, framework
@@ -440,12 +466,15 @@ actually closes this repo's gap.
 | Claim                                       | Source                                                                                        |
 | ------------------------------------------- | --------------------------------------------------------------------------------------------- |
 | 182 keys referenced / 67 documented         | `grep` over `src scripts deploy` vs `docs-site/.../configuration.md`                          |
-| 119 env reads in one file                   | `src/config.ts`                                                                               |
+| 122 env reads / 109 distinct keys           | `src/config.ts` (123 occurrences, one in the comment at `:47`)                                |
 | 3 config tiers                              | `deploy/shepherd.service:22-33`, `src/config.ts:557`, `src/store.ts:1357`                     |
 | 67 `getSetting` call sites                  | 68 occurrences of `getSetting(` in `src/**/*.ts`, minus the definition at `src/store.ts:1825` |
+| 13 of 19 `Number()` reads guarded           | `clampCap`/`clampFraction` (`src/config.ts:151,157`) + `:960`, `:1000` + boot validators      |
+| 6 unguarded numeric reads                   | `src/config.ts:480,645,850,963,975,981`                                                       |
+| 26 boolean keys across 5 idioms             | 14+4+3 grep-visible; `:779`, `:1005`, `:1014`, `:1026` list-membership; `:637` `DO_NOT_TRACK` |
 | two existing boot validators                | `src/config.ts:339,391`, called at `src/index.ts:540-554`                                     |
 | membrane clears env; `trusted` does not     | `src/sandbox.ts:303-315,624-631,664`                                                          |
-| 11 `{...process.env}` spread sites          | `src/pty-bridge.ts:36` et al.                                                                 |
+| 10 `{...process.env}` spread sites          | `src/pty-bridge.ts:36` et al.; `src/herdr-session.ts:74` is prose in a doc comment            |
 | varlock 1.19.0, MIT, zero runtime deps      | `bun add varlock`; registry.npmjs.org/varlock                                                 |
 | Bun ≥ 1.3.3 gate + rationale                | `node_modules/varlock/dist/check-bun-version-*.mjs`                                           |
 | Bun `.env` autoload defeats the decorator   | A/B with and without `bunfig.toml` `env = false`                                              |

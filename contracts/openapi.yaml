@@ -110,7 +110,17 @@ components:
       type: object
       additionalProperties: true
       description: GET /api/settings returns many more fields; the native client relies only on these.
-      required: [repoRoot, repoRootDisplay, firstRunPending, defaultModel, defaultEffort, defaultAgentProvider, authMode, operatorLanguage]
+      required:
+        [
+          repoRoot,
+          repoRootDisplay,
+          firstRunPending,
+          defaultModel,
+          defaultEffort,
+          defaultAgentProvider,
+          authMode,
+          operatorLanguage,
+        ]
       properties:
         repoRoot: { type: string }
         repoRootDisplay: { type: string }
@@ -141,6 +151,187 @@ components:
       properties:
         repoRoot: { type: string }
         repoRootDisplay: { type: string }
+    SessionStatus:
+      type: string
+      enum: [running, idle, blocked, done, archived]
+    HerdrState:
+      type: string
+      enum: [idle, working, blocked, done, unknown]
+    SessionArchiveReason:
+      type: string
+      enum: [operator, merged, drain, relaunch, stale]
+    ExperimentRole:
+      type: string
+      enum: [variant, comparison]
+    SandboxProfile:
+      type: string
+      enum: [trusted, standard, autonomous]
+    Effort:
+      type: string
+      enum: [low, medium, high, xhigh, max, ultra]
+    Session:
+      type: object
+      additionalProperties: true
+      required:
+        - id
+        - desig
+        - name
+        - prompt
+        - repoPath
+        - baseBranch
+        - branch
+        - worktreePath
+        - isolated
+        - herdrSession
+        - herdrAgentId
+        - claudeSessionId
+        - model
+        - effort
+        - readyToMerge
+        - mergingSince
+        - autopilotEnabled
+        - autopilotPaused
+        - autopilotComplete
+        - planGateEnabled
+        - planPhase
+        - autoMergeEnabled
+        - auto
+        - issueNumber
+        - sandboxApplied
+        - status
+        - lastState
+        - createdAt
+        - updatedAt
+        - archivedAt
+        - haltReason
+        - haltedAt
+        - manualSteps
+      properties:
+        id: { type: string }
+        desig: { type: string, description: "Short designation like TASK-07." }
+        name: { type: string }
+        prompt: { type: string }
+        repoPath: { type: string }
+        baseBranch: { type: string }
+        branch: { type: [string, "null"] }
+        worktreePath: { type: string }
+        isolated: { type: boolean }
+        herdrSession: { type: string }
+        herdrAgentId: { type: string }
+        claudeSessionId: { type: string }
+        providerSessionId: { type: string }
+        agentProvider:
+          $ref: "#/components/schemas/AgentProvider"
+        model: { type: [string, "null"] }
+        effort: { type: [string, "null"] }
+        runtimeModel: { type: [string, "null"] }
+        runtimeEffort: { type: [string, "null"] }
+        contextTokens: { type: [integer, "null"] }
+        readyToMerge: { type: boolean }
+        mergingSince: { type: [integer, "null"] }
+        mergingTrainId: { type: [string, "null"] }
+        mergingPrNumber: { type: [integer, "null"] }
+        autopilotEnabled: { type: [boolean, "null"] }
+        autopilotStepCount: { type: integer }
+        autopilotPaused: { type: boolean }
+        autopilotComplete: { type: boolean }
+        autopilotQuestion: { type: [string, "null"] }
+        planGateEnabled: { type: [boolean, "null"] }
+        planPhase:
+          type: [string, "null"]
+          enum: [planning, executing, null]
+        research: { type: boolean }
+        epicAuthoring: { type: boolean }
+        landingRepair: { type: boolean }
+        plain: { type: boolean }
+        terminal: { type: boolean }
+        autoMergeEnabled: { type: [boolean, "null"] }
+        auto: { type: boolean }
+        issueNumber: { type: [integer, "null"] }
+        epicParent: { type: [integer, "null"] }
+        sandboxApplied:
+          oneOf:
+            - $ref: "#/components/schemas/SandboxProfile"
+            - type: "null"
+        sandboxDegraded: { type: boolean }
+        status:
+          $ref: "#/components/schemas/SessionStatus"
+        lastState:
+          $ref: "#/components/schemas/HerdrState"
+        createdAt: { type: integer }
+        updatedAt: { type: integer }
+        settledAt: { type: [integer, "null"] }
+        archivedAt: { type: [integer, "null"] }
+        archiveReason:
+          oneOf:
+            - $ref: "#/components/schemas/SessionArchiveReason"
+            - type: "null"
+        haltReason:
+          type: [string, "null"]
+          enum: [usage_limit, completed, operator, error, null]
+        haltedAt: { type: [integer, "null"] }
+        manualSteps:
+          type: array
+          items: { type: object, additionalProperties: true }
+        experimentId: { type: [string, "null"] }
+        experimentRole:
+          oneOf:
+            - $ref: "#/components/schemas/ExperimentRole"
+            - type: "null"
+        hasScratchpadFiles: { type: boolean }
+    SessionList:
+      type: array
+      items:
+        $ref: "#/components/schemas/Session"
+    CreateSessionRequest:
+      type: object
+      additionalProperties: false
+      required: [repoPath, baseBranch, prompt]
+      properties:
+        repoPath: { type: string }
+        baseBranch: { type: string }
+        prompt: { type: string, minLength: 1, maxLength: 8000 }
+        agentProvider:
+          $ref: "#/components/schemas/AgentProvider"
+        model: { type: [string, "null"] }
+        effort:
+          oneOf:
+            - $ref: "#/components/schemas/Effort"
+            - type: "null"
+        images:
+          type: array
+          items: { type: string }
+        planGateEnabled: { type: [boolean, "null"] }
+        autopilotEnabled: { type: [boolean, "null"] }
+        sandboxProfile:
+          oneOf:
+            - $ref: "#/components/schemas/SandboxProfile"
+            - type: "null"
+        plain: { type: boolean }
+    Repo:
+      type: object
+      additionalProperties: true
+      required: [name, path, display, realPath, isFork, hidden]
+      properties:
+        name: { type: string }
+        path: { type: string }
+        display: { type: string }
+        realPath: { type: string }
+        lastUsedAt: { type: integer }
+        recentAgentCount: { type: integer }
+        isFork: { type: boolean }
+        remoteSlug: { type: string }
+        hidden: { type: boolean }
+    RepoList:
+      type: object
+      additionalProperties: true
+      required: [repos, recentWindowDays]
+      properties:
+        repos:
+          type: array
+          items:
+            $ref: "#/components/schemas/Repo"
+        recentWindowDays: { type: integer }
   responses:
     Unauthorized:
       description: Missing or invalid credential.
@@ -314,6 +505,131 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/sessions:
+    get:
+      operationId: listSessions
+      description: Active (non-archived) sessions, oldest first. No pagination.
+      responses:
+        "200":
+          description: Sessions.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      operationId: createSession
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSessionRequest"
+      responses:
+        "201":
+          description: Session created and agent spawned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Session"
+        "400":
+          description: Invalid input (see error text).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: First run pending, name taken, worktree occupied, or herdr restart required (see code).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/sessions/done:
+    get:
+      operationId: listDoneSessions
+      description: Recently archived sessions for the Done lens.
+      responses:
+        "200":
+          description: Sessions.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/sessions/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      operationId: getSession
+      responses:
+        "200":
+          description: Session.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Session"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Unknown id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      operationId: archiveSession
+      description: Archives the session (stops the agent, keeps the row). Always 200.
+      responses:
+        "200":
+          description: Archived.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Ok"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/sessions/{id}/interrupt:
+    post:
+      operationId: interruptSession
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Interrupt delivered.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Ok"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Unknown id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/repos:
+    get:
+      operationId: listRepos
+      responses:
+        "200":
+          description: Repos under the workspace root.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RepoList"
         "401":
           $ref: "#/components/responses/Unauthorized"
 x-shepherd-events: {}

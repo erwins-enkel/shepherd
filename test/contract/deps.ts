@@ -47,7 +47,21 @@ export function makeContractDeps(): ContractDeps {
         tabId: "t",
         workspaceId: "w",
       }),
-      list: () => [],
+      // Reports the one pane `start` hands out as live, so the routes that only act on a LIVE
+      // agent (interrupt steers via matchAgents → liveAgentFor) reach their success path instead
+      // of the "dead pane" 404. Nothing is spawned: `send` below is a no-op.
+      list: () => [
+        {
+          terminalId: "term_x",
+          cwd: "/wt",
+          agent: "claude",
+          agentStatus: "working",
+          paneId: "p",
+          tabId: "t",
+          workspaceId: "w",
+          name: "x",
+        },
+      ],
       paneForegroundProcs: async () => ["claude"],
       stop: async () => {},
       send: () => {},

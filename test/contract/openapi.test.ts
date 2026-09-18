@@ -194,6 +194,97 @@ describe("settings", () => {
   });
 });
 
+describe("sessions", () => {
+  let created: { id: string };
+
+  test("POST /api/sessions creates (201) and rejects bad input (400)", async () => {
+    const res = await fetch(`${s.baseUrl}/api/sessions`, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...bearer(token) },
+      body: JSON.stringify({ repoPath: s.validRepo, baseBranch: "main", prompt: "contract" }),
+    });
+    created = (await validateResponse("POST", "/api/sessions", res)) as { id: string };
+    expect(res.status).toBe(201);
+
+    const bad = await fetch(`${s.baseUrl}/api/sessions`, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...bearer(token) },
+      body: JSON.stringify({ repoPath: "/etc", baseBranch: "main", prompt: "x" }),
+    });
+    await validateResponse("POST", "/api/sessions", bad);
+    expect(bad.status).toBe(400);
+  });
+
+  test("POST /api/sessions is 409 while first run is pending", async () => {
+    firstRun.pending = true;
+    try {
+      const res = await fetch(`${s.baseUrl}/api/sessions`, {
+        method: "POST",
+        headers: { "content-type": "application/json", ...bearer(token) },
+        body: JSON.stringify({ repoPath: s.validRepo, baseBranch: "main", prompt: "x" }),
+      });
+      await validateResponse("POST", "/api/sessions", res);
+      expect(res.status).toBe(409);
+    } finally {
+      firstRun.pending = false;
+    }
+  });
+
+  test("GET /api/sessions and /api/sessions/{id}", async () => {
+    const list = await fetch(`${s.baseUrl}/api/sessions`, { headers: bearer(token) });
+    const sessions = (await validateResponse("GET", "/api/sessions", list)) as { id: string }[];
+    expect(sessions.map((x) => x.id)).toContain(created.id);
+
+    const one = await fetch(`${s.baseUrl}/api/sessions/${created.id}`, { headers: bearer(token) });
+    await validateResponse("GET", "/api/sessions/{id}", one);
+    expect(one.status).toBe(200);
+
+    const missing = await fetch(`${s.baseUrl}/api/sessions/nope`, { headers: bearer(token) });
+    await validateResponse("GET", "/api/sessions/{id}", missing);
+    expect(missing.status).toBe(404);
+  });
+
+  test("POST /api/sessions/{id}/interrupt", async () => {
+    const ok = await fetch(`${s.baseUrl}/api/sessions/${created.id}/interrupt`, {
+      method: "POST",
+      headers: bearer(token),
+    });
+    await validateResponse("POST", "/api/sessions/{id}/interrupt", ok);
+    expect(ok.status).toBe(200);
+    const missing = await fetch(`${s.baseUrl}/api/sessions/nope/interrupt`, {
+      method: "POST",
+      headers: bearer(token),
+    });
+    await validateResponse("POST", "/api/sessions/{id}/interrupt", missing);
+    expect(missing.status).toBe(404);
+  });
+
+  // No request body: handleSessionDelete's `{reap}` body is optional (it parses with a
+  // `.catch(() => null)` and never requires a JSON content-type), and the native client
+  // archives without reaping — so the contract declares no requestBody either.
+  test("DELETE /api/sessions/{id} archives; GET /api/sessions/done lists it", async () => {
+    const del = await fetch(`${s.baseUrl}/api/sessions/${created.id}`, {
+      method: "DELETE",
+      headers: bearer(token),
+    });
+    await validateResponse("DELETE", "/api/sessions/{id}", del);
+    expect(del.status).toBe(200);
+    const done = await fetch(`${s.baseUrl}/api/sessions/done`, { headers: bearer(token) });
+    const list = (await validateResponse("GET", "/api/sessions/done", done)) as { id: string }[];
+    expect(list.map((x) => x.id)).toContain(created.id);
+  });
+});
+
+describe("repos", () => {
+  test("GET /api/repos lists the fake repo", async () => {
+    const res = await fetch(`${s.baseUrl}/api/repos`, { headers: bearer(token) });
+    const body = (await validateResponse("GET", "/api/repos", res)) as {
+      repos: { path: string }[];
+    };
+    expect(body.repos.map((r) => r.path)).toContain(s.validRepo);
+  });
+});
+
 // Sits directly before the coverage gate: it exercises every secured operation once, without
 // credentials, and records the 401 coverage the gate then checks for.
 describe("unauthenticated sweep", () => {

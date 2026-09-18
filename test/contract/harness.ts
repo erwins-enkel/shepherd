@@ -9,9 +9,10 @@ import { makeContractDeps, type ContractDeps } from "./deps";
 export interface Contract {
   paths: Record<string, PathItem>;
   components: { schemas: Record<string, unknown> };
-  /** Event name → declaration, plus the block-level `description` key, whose value is a plain
-   *  string. `declaredEvents()`/`validateEvent()` skip that key. */
-  "x-shepherd-events": Record<string, EventDecl | string>;
+  /** Event name → declaration, plus two non-event keys: `description` (a plain string documenting
+   *  the socket) and `envelope` (a `$ref` to the EventEnvelope schema every frame matches).
+   *  `declaredEvents()`/`validateEvent()` skip both. */
+  "x-shepherd-events": Record<string, EventDecl | string | { $ref: string }>;
   "x-shepherd-pty": {
     path: string;
     query: string[];
@@ -23,8 +24,10 @@ interface EventDecl {
   description?: string;
   schema: unknown;
 }
-/** The one non-event key inside `x-shepherd-events` (it documents the socket, not a frame). */
-const EVENTS_DESCRIPTION_KEY = "description";
+/** The keys inside `x-shepherd-events` that document the socket rather than name a frame:
+ *  `description` (prose) and `envelope` (the `$ref` to EventEnvelope, which is the shape of EVERY
+ *  frame and therefore not an event of its own). */
+const NON_EVENT_KEYS: ReadonlySet<string> = new Set(["description", "envelope"]);
 export interface ResponseDecl {
   content?: { "application/json": { schema: unknown } };
 }
@@ -132,7 +135,7 @@ export async function validateResponse(
 export function validateEvent(name: string, data: unknown): void {
   const contract = loadContract();
   const decl = contract["x-shepherd-events"][name];
-  if (name === EVENTS_DESCRIPTION_KEY || typeof decl === "string" || !decl) {
+  if (NON_EVENT_KEYS.has(name) || typeof decl !== "object" || !decl || !("schema" in decl)) {
     throw new Error(`contract has no event ${name}`);
   }
   const fn = compileRef(`#/x-shepherd-events/${pointerSegment(name)}/schema`);
@@ -192,9 +195,7 @@ export function declaredOperations(): string[] {
 }
 
 export function declaredEvents(): string[] {
-  return Object.keys(loadContract()["x-shepherd-events"]).filter(
-    (k) => k !== EVENTS_DESCRIPTION_KEY,
-  );
+  return Object.keys(loadContract()["x-shepherd-events"]).filter((k) => !NON_EVENT_KEYS.has(k));
 }
 
 /** Secured operations: everything without an explicit `security: []`. */

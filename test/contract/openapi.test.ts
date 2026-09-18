@@ -5,7 +5,10 @@ import { config } from "../../src/config";
 import { firstRun } from "../../src/first-run";
 import { SESSION_COOKIE } from "../../src/operator-auth";
 import { RESIZE_PREFIX } from "../../src/operator-activity";
+import { SANDBOX_PROFILES } from "../../src/sandbox";
 import { PTY_GONE_CODE, PTY_SUPERSEDED_CODE } from "../../src/server";
+import { TOKEN_SCOPES } from "../../src/token-scopes";
+import { AGENT_PROVIDERS, EFFORTS } from "../../src/types";
 import { WorktreeMissingBaseError } from "../../src/worktree";
 import * as fx from "./event-fixtures";
 import {
@@ -492,6 +495,25 @@ describe("contract structure", () => {
         }
       }
     }
+  });
+
+  // The enums are copied into the YAML by hand; these pin each copy to the exported constant it
+  // was copied from, so adding a scope/provider/effort/profile in TypeScript fails here instead of
+  // shipping a generated Swift enum that silently cannot represent the new member.
+  test("enum arrays equal the server constants they were copied from", () => {
+    const schemas = loadContract().components.schemas as Record<
+      string,
+      { enum: unknown[] } | undefined
+    >;
+    const members = (name: string): unknown[] => {
+      const schema = schemas[name];
+      expect(schema, `missing schema ${name}`).toBeTruthy();
+      return schema!.enum;
+    };
+    expect(members("TokenScope")).toEqual([...TOKEN_SCOPES]);
+    expect(members("AgentProvider")).toEqual([...AGENT_PROVIDERS]);
+    expect(members("Effort")).toEqual([...EFFORTS]);
+    expect(members("SandboxProfile")).toEqual([...SANDBOX_PROFILES]);
   });
 
   test("every component schema is referenced at least once", () => {

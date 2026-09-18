@@ -1,0 +1,58 @@
+openapi: 3.1.0
+info:
+  title: Shepherd native client contract
+  version: 1.0.0
+  description: The subset of the Shepherd HTTP/WS surface used by the native macOS/iOS client. Validated against the real server by test/contract/openapi.test.ts.
+servers:
+  - url: http://localhost:7330
+security:
+  - bearerAuth: []
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Minted access token (shp_...) or SHEPHERD_TOKEN.
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: shepherd_session
+      description: Signed operator session cookie issued by POST /api/login.
+  schemas:
+    Health:
+      type: object
+      additionalProperties: true
+      required: [ok]
+      properties:
+        ok:
+          type: boolean
+          const: true
+    Error:
+      type: object
+      additionalProperties: true
+      required: [error]
+      properties:
+        error:
+          type: string
+        code:
+          type: string
+paths:
+  /api/health:
+    get:
+      operationId: getHealth
+      security: []
+      responses:
+        "200":
+          description: Server is up.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+x-shepherd-events: {}
+x-shepherd-pty:
+  path: /pty/{id}
+  query: [cols, rows]
+  resizeFrame: "\0resize:<cols>:<rows>\n"
+  closeCodes:
+    superseded: 4000
+    gone: 4001

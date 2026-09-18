@@ -2,6 +2,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import Ajv2020, { type ValidateFunction } from "ajv/dist/2020";
 import { serve } from "../../src/server";
+import { config } from "../../src/config";
+import { hashPassword, SESSION_COOKIE } from "../../src/operator-auth";
 import { makeContractDeps, type ContractDeps } from "./deps";
 
 export interface Contract {
@@ -148,4 +150,68 @@ export function declaredOperations(): string[] {
 
 export function declaredEvents(): string[] {
   return Object.keys(loadContract()["x-shepherd-events"]);
+}
+
+// ── auth bootstrap (issue #1079 / #2082) ───────────────────────────────────
+// The gate is open when NO auth is configured (checkAuth's un-bootstrapped escape hatch), so a
+// contract run that wants to prove the gate has to turn it on the way bootstrapAuth() does at
+// boot — and put config back afterwards, because config is a process-wide singleton the rest of
+// the suite shares.
+
+export const PASSWORD = "operator-password";
+const SECRET = "contract-cookie-signing-secret";
+let saved: { secret: string | null; hash: string | null; token: string | null } | null = null;
+
+/** Turn the auth gate on the way bootstrapAuth() does at boot. */
+export async function withAuth(): Promise<void> {
+  saved = { secret: config.cookieSecret, hash: config.passwordHash, token: config.token };
+  config.cookieSecret = SECRET;
+  config.passwordHash = await hashPassword(PASSWORD);
+  config.token = null;
+}
+
+export function restoreAuth(): void {
+  if (!saved) return;
+  config.cookieSecret = saved.secret;
+  config.passwordHash = saved.hash;
+  config.token = saved.token;
+  saved = null;
+}
+
+/** Log in and return the raw `name=value` cookie pair, ready for a `cookie:` request header. */
+export async function login(s: ContractServer, password = PASSWORD): Promise<string> {
+  const res = await fetch(`${s.baseUrl}/api/login`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ password }),
+  });
+  await validateResponse("POST", "/api/login", res);
+  const setCookie = res.headers.get("set-cookie") ?? "";
+  const pair = setCookie.split(";")[0] ?? "";
+  if (!pair.startsWith(`${SESSION_COOKIE}=`)) {
+    throw new Error(`no ${SESSION_COOKIE} cookie in ${setCookie}`);
+  }
+  return pair;
+}
+
+/** Mint a `full`-scope access token through the real route; returns the plaintext and its id. */
+export async function mintToken(
+  s: ContractServer,
+  cookie: string,
+  name = "contract test",
+): Promise<{ token: string; id: string }> {
+  const res = await fetch(`${s.baseUrl}/api/access-tokens`, {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify({ name, expiresInDays: null, scope: "full" }),
+  });
+  const body = (await validateResponse("POST", "/api/access-tokens", res)) as {
+    token: string;
+    entry: { id: string };
+  };
+  return { token: body.token, id: body.entry.id };
+}
+
+export function bearer(token: string): Record<string, string> {
+  return { authorization: `Bearer ${token}` };
 }

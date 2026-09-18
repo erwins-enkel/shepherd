@@ -39,6 +39,70 @@ components:
           type: string
         code:
           type: string
+    Ok:
+      type: object
+      additionalProperties: true
+      required: [ok]
+      properties:
+        ok:
+          type: boolean
+          const: true
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required: [password]
+      properties:
+        password:
+          type: string
+    TokenScope:
+      type: string
+      enum: [read, submit, full]
+    AccessTokenMintRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 64
+        expiresInDays:
+          type: [integer, "null"]
+          enum: [30, 90, 365, null]
+        scope:
+          $ref: "#/components/schemas/TokenScope"
+    AccessTokenSummary:
+      type: object
+      additionalProperties: true
+      required: [id, name, hint, createdAt, lastUsedAt, expiresAt, scope]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        hint: { type: string }
+        createdAt: { type: integer }
+        lastUsedAt: { type: [integer, "null"] }
+        expiresAt: { type: [integer, "null"] }
+        scope:
+          $ref: "#/components/schemas/TokenScope"
+    AccessTokenMinted:
+      type: object
+      additionalProperties: true
+      required: [token, entry]
+      properties:
+        token:
+          type: string
+          pattern: "^shp_"
+        entry:
+          $ref: "#/components/schemas/AccessTokenSummary"
+    AccessTokenList:
+      type: object
+      additionalProperties: true
+      required: [tokens]
+      properties:
+        tokens:
+          type: array
+          items:
+            $ref: "#/components/schemas/AccessTokenSummary"
 paths:
   /api/health:
     get:
@@ -51,6 +115,112 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Health"
+  /api/login:
+    post:
+      operationId: login
+      security: []
+      description: Password login. Sets the shepherd_session cookie. The native client uses it once to mint an access token, then discards the cookie.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Logged in; Set-Cookie carries the session.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Ok"
+        "401":
+          description: Wrong password.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/logout:
+    post:
+      operationId: logout
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Session cookie cleared.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Ok"
+  /api/access-tokens:
+    get:
+      operationId: listAccessTokens
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: All tokens (no plaintext).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccessTokenList"
+        "403":
+          description: Caller is not an operator session (a bearer token cannot manage tokens).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    post:
+      operationId: mintAccessToken
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AccessTokenMintRequest"
+      responses:
+        "201":
+          description: Token minted; plaintext shown exactly once.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccessTokenMinted"
+        "400":
+          description: Invalid body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Caller is not an operator session.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/access-tokens/{id}:
+    delete:
+      operationId: revokeAccessToken
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Revoked.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Ok"
+        "404":
+          description: Unknown token id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 x-shepherd-events: {}
 x-shepherd-pty:
   path: /pty/{id}

@@ -75,7 +75,7 @@ jobs:
       # of silently reusing a stale checkout; restore-keys lets a cache miss
       # on that exact hash still warm-start from the most recent one.
       - name: Cache SwiftPM build state
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache@v6
         with:
           path: native/.build
           key: ${{ runner.os }}-spm-${{ hashFiles('native/Package.resolved') }}

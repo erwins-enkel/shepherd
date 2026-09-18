@@ -103,13 +103,17 @@ Schemas are written from `src/types.ts` (`Session`, `SessionStatus`, `AgentProvi
 efforts, `CreateSessionInput`, `RepoEntry`, access-token entry). Enums are copied verbatim so
 Swift gets real enums.
 
-Drift test (`test/contract/openapi.test.ts`, Bun): boots the server in isolated headless mode
-(same harness the herdr compat SOP uses), logs in, mints a token, calls every route in the
-contract with fixture inputs, and validates each response with `ajv` (already a dependency)
-against the contract's response schema. It also subscribes to `/events`, drives one session
-through create → status change → archive, and validates every captured event whose `event` name
-is in the contract. Unknown event names are ignored. Any route or event in the contract that the
-test cannot exercise fails the test, so the contract cannot contain untested surface.
+Drift test (`test/contract/openapi.test.ts`, Bun): starts the real HTTP/WS server in-process
+with `serve(deps, 0)` and the stubbed `herdr`/`worktree` deps that `test/server.test.ts` already
+uses (CI has neither herdr nor `claude` installed, and no existing test boots `src/index.ts`).
+It logs in, mints a token, calls every route in the contract with fixture inputs, and validates
+each response with `ajv` (already a dependency) against the contract's response schema. It also
+subscribes to `/events`, drives one session through create → archive so the server emits real
+`session:new` / `session:archived` frames, and emits the remaining contract events through the
+same `EventHub` from fixtures typed with the server's own TypeScript types, so a type change in
+`src/` breaks `bun run typecheck` before it can drift. Unknown event names are ignored. Any route
+or event in the contract that the test does not exercise fails the test, so the contract cannot
+contain untested surface.
 
 CI: the existing `ci.yml` runs it as part of `bun run test`. A new `native.yml` job on
 `macos-latest` regenerates Swift from the contract and fails if the generated output differs from

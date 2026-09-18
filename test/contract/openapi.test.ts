@@ -3,6 +3,7 @@ import {
   coverage,
   declaredEvents,
   declaredOperations,
+  loadContract,
   startContractServer,
   validateResponse,
   type ContractServer,
@@ -19,6 +20,17 @@ describe("health", () => {
     const res = await fetch(`${s.baseUrl}/api/health`);
     const body = (await validateResponse("GET", "/api/health", res)) as { ok: boolean };
     expect(body.ok).toBe(true);
+  });
+
+  test("declaredOperations ignores path-level parameters", () => {
+    const c = loadContract();
+    const before = declaredOperations().length;
+    (c.paths["/api/health"] as Record<string, unknown>).parameters = [{ name: "x", in: "query" }];
+    try {
+      expect(declaredOperations().length).toBe(before);
+    } finally {
+      delete (c.paths["/api/health"] as Record<string, unknown>).parameters;
+    }
   });
 });
 

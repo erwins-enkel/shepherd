@@ -5,7 +5,7 @@ import { serve } from "../../src/server";
 import { makeContractDeps, type ContractDeps } from "./deps";
 
 export interface Contract {
-  paths: Record<string, Record<string, Operation>>;
+  paths: Record<string, PathItem>;
   components: { schemas: Record<string, unknown> };
   "x-shepherd-events": Record<string, { description?: string; schema: unknown }>;
   "x-shepherd-pty": {
@@ -18,6 +18,10 @@ export interface Contract {
 interface Operation {
   operationId: string;
   responses: Record<string, { content?: { "application/json": { schema: unknown } } }>;
+}
+
+interface PathItem extends Record<string, unknown> {
+  parameters?: unknown[];
 }
 
 const CONTRACT_PATH = join(import.meta.dir, "..", "..", "contracts", "openapi.yaml");
@@ -65,7 +69,7 @@ export async function validateResponse(
   res: Response,
 ): Promise<unknown> {
   const contract = loadContract();
-  const op = contract.paths[template]?.[method.toLowerCase()];
+  const op = contract.paths[template]?.[method.toLowerCase()] as Operation | undefined;
   if (!op) throw new Error(`contract has no operation ${method} ${template}`);
   const status = String(res.status);
   const declared = op.responses[status];
@@ -76,8 +80,15 @@ export async function validateResponse(
   }
   coveredOperations.add(`${method.toUpperCase()} ${template} ${status}`);
   const schema = declared.content?.["application/json"]?.schema;
-  if (!schema) return null;
-  const body = await res.json();
+  if (schema === undefined) return null;
+  let body: unknown;
+  try {
+    body = await res.json();
+  } catch (e) {
+    throw new Error(`${method} ${template} ${status}: body is not JSON (${String(e)})`, {
+      cause: e,
+    });
+  }
   const fn = compileRef(
     `#/paths/${pointerSegment(template)}/${method.toLowerCase()}/responses/${status}/content/application~1json/schema`,
   );
@@ -119,12 +130,15 @@ export function startContractServer(): ContractServer {
   };
 }
 
+const HTTP_METHODS = ["get", "put", "post", "delete", "patch", "head", "options", "trace"] as const;
+
 /** Every "METHOD /template status" combination the contract declares. */
 export function declaredOperations(): string[] {
   const out: string[] = [];
   for (const [template, methods] of Object.entries(loadContract().paths)) {
     for (const [method, op] of Object.entries(methods)) {
-      for (const status of Object.keys(op.responses)) {
+      if (!HTTP_METHODS.includes(method as never)) continue;
+      for (const status of Object.keys((op as Operation).responses)) {
         out.push(`${method.toUpperCase()} ${template} ${status}`);
       }
     }

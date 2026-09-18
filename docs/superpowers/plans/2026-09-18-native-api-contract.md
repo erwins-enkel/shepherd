@@ -1,0 +1,2037 @@
+# Native API Contract (sub-project 1) Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Ship `contracts/openapi.yaml`, the single typed description of the Shepherd HTTP/WS surface the native macOS/iOS client uses, plus a Bun drift test that fails whenever the real server stops matching it.
+
+**Architecture:** The contract is a hand-written OpenAPI 3.1 document. A Bun test harness starts the real server in-process (`serve(deps, 0)` with the stubbed herdr/worktree deps the existing server tests use), exercises every operation and WebSocket event listed in the contract, and validates the real responses with `ajv` (draft 2020-12). A coverage gate fails the suite if the contract lists anything the test did not exercise. Event payloads that cannot be triggered without a real herdr are emitted through the same `EventHub` from fixtures typed with the server's own TypeScript types, so drift there breaks `bun run typecheck`.
+
+**Tech Stack:** Bun 1.3 (`Bun.YAML.parse`, built-in `WebSocket` with `headers`), `ajv` 8 (`Ajv2020`), `bun:test`, existing `src/server.ts` harness pattern.
+
+## Global Constraints
+
+- Spec: `docs/superpowers/specs/2026-09-18-native-macos-app-design.md` (sub-project 1 section). Read it first.
+- Run tests with `bun run test` (never bare `bun test`). Single file: `bun test ./test/contract/openapi.test.ts`.
+- Lint/typecheck before every commit: `bun run lint` and `bun run typecheck`. `test/` is type-checked.
+- CI has no `herdr`, `claude` or `gh`. The harness must never spawn them.
+- Do not add dependencies. `ajv` (^8) and `yaml` are already installed.
+- Commit messages follow conventional commits (`feat(contract): …`, `test(contract): …`, `docs(contract): …`); end every commit body with `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`.
+- Branch: `feat/native-api-contract`, cut from `origin/main`. Never merge main into it; rebase.
+- Contract paths use OpenAPI templates (`/api/sessions/{id}`). Enums are copied verbatim from `src/types.ts`, `src/sandbox.ts`, `src/blocked.ts`, `src/token-scopes.ts`.
+- Every schema for a server-produced object sets `additionalProperties: true` (the server may add fields; the client must tolerate them). Request bodies set `additionalProperties: false` (the server rejects unknown keys).
+- No prose in the YAML beyond one-line `description`s. Explanations go into `contracts/README.md`.
+
+---
+
+## File structure
+
+| File | Responsibility |
+| --- | --- |
+| `contracts/openapi.yaml` | The contract. `info`, `servers`, `security`, `paths`, `components.schemas`, `components.securitySchemes`, `x-shepherd-events` (WS `/events` catalogue), `x-shepherd-pty` (PTY protocol constants). |
+| `contracts/README.md` | Operator/developer-facing explanation: what the contract covers, how to extend it, how the drift test works. |
+| `test/contract/harness.ts` | Loads the YAML, builds the ajv validator, starts the in-process server, tracks coverage, offers `validate()` helpers. No test cases. |
+| `test/contract/deps.ts` | `makeContractDeps()`: the stubbed `AppDeps` (copied from `test/server-auth.test.ts`) plus temp repo root. |
+| `test/contract/event-fixtures.ts` | Typed fixtures for events that need herdr to occur naturally. Imports the server's TS types so drift is a type error. |
+| `test/contract/openapi.test.ts` | The drift test: one `describe` per contract area, final coverage gate. |
+| `src/version.ts` | `SHEPHERD_VERSION` read from root `package.json` (new; health endpoint needs it). |
+| `src/server.ts` (`handleHealth`, ~line 7157) | Adds `version` to the health body. |
+| `src/server.ts` (~line 8429) | Exports `PTY_SUPERSEDED_CODE` next to `PTY_GONE_CODE` if not already exported. |
+
+---
+
+### Task 1: Contract skeleton, validator harness, health route
+
+**Files:**
+- Create: `contracts/openapi.yaml`
+- Create: `test/contract/deps.ts`
+- Create: `test/contract/harness.ts`
+- Create: `test/contract/openapi.test.ts`
+
+**Interfaces:**
+- Produces: `loadContract(): Contract` — parsed YAML (`{ paths, components, "x-shepherd-events", "x-shepherd-pty" }`).
+- Produces: `startContractServer(): Promise<ContractServer>` where `ContractServer = { baseUrl: string; deps: AppDeps; stop(): void }`.
+- Produces: `validateResponse(method: string, template: string, res: Response): Promise<unknown>` — asserts the status exists in the contract, validates the JSON body against the response schema, records coverage, returns the parsed body.
+- Produces: `validateEvent(name: string, data: unknown): void` — validates against `x-shepherd-events[name].schema`, records coverage.
+- Produces: `coverage(): { operations: Set<string>; events: Set<string> }`.
+- Produces: `makeContractDeps(): { deps: AppDeps; tmpRoot: string; validRepo: string; cleanup(): void }`.
+
+- [ ] **Step 1: Create the branch**
+
+```bash
+cd /Users/kai.osthoff/githubrepos/shepherd
+git fetch origin main
+git checkout -b feat/native-api-contract origin/main
+```
+
+- [ ] **Step 2: Write the contract skeleton with only the health route**
+
+Create `contracts/openapi.yaml`:
+
+```yaml
+openapi: 3.1.0
+info:
+  title: Shepherd native client contract
+  version: 1.0.0
+  description: The subset of the Shepherd HTTP/WS surface used by the native macOS/iOS client. Validated against the real server by test/contract/openapi.test.ts.
+servers:
+  - url: http://localhost:7330
+security:
+  - bearerAuth: []
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Minted access token (shp_...) or SHEPHERD_TOKEN.
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: shepherd_session
+      description: Signed operator session cookie issued by POST /api/login.
+  schemas:
+    Health:
+      type: object
+      additionalProperties: true
+      required: [ok]
+      properties:
+        ok:
+          type: boolean
+          const: true
+    Error:
+      type: object
+      additionalProperties: true
+      required: [error]
+      properties:
+        error:
+          type: string
+        code:
+          type: string
+paths:
+  /api/health:
+    get:
+      operationId: getHealth
+      security: []
+      responses:
+        "200":
+          description: Server is up.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+x-shepherd-events: {}
+x-shepherd-pty:
+  path: /pty/{id}
+  query: [cols, rows]
+  resizeFrame: "\u0000resize:<cols>:<rows>\n"
+  closeCodes:
+    superseded: 4000
+    gone: 4001
+```
+
+- [ ] **Step 3: Write the stubbed deps module**
+
+Create `test/contract/deps.ts`:
+
+```ts
+import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { SessionStore } from "../../src/store";
+import { SessionService } from "../../src/service";
+import { EventHub } from "../../src/events";
+import type { AppDeps } from "../../src/server";
+import { config } from "../../src/config";
+
+export interface ContractDeps {
+  deps: AppDeps;
+  tmpRoot: string;
+  validRepo: string;
+  cleanup(): void;
+}
+
+/** Stubbed AppDeps mirroring test/server-auth.test.ts: in-memory store, real service and
+ *  EventHub, fake herdr/worktree so nothing is spawned. Also points config.repoRoot and
+ *  config.rootCeiling at a temp dir holding one fake repo. */
+export function makeContractDeps(): ContractDeps {
+  const tmpRoot = realpathSync(mkdtempSync(join(tmpdir(), "shepherd-contract-")));
+  const validRepo = join(tmpRoot, "repo");
+  mkdirSync(validRepo);
+  const savedRoot = config.repoRoot;
+  const savedCeiling = config.rootCeiling;
+  config.repoRoot = tmpRoot;
+  config.rootCeiling = tmpRoot;
+
+  const store = new SessionStore(":memory:");
+  const events = new EventHub();
+  const service = new SessionService({
+    store,
+    namer: async () => "x",
+    worktree: {
+      create: () => ({ worktreePath: "/wt", branch: "shepherd/x", isolated: true }),
+      ensureBaseRef: async () => {},
+      branchExists: () => false,
+      remove: () => {},
+    } as any,
+    herdr: {
+      start: async () => ({
+        terminalId: "term_x",
+        cwd: "/wt",
+        agent: "claude",
+        agentStatus: "working",
+        paneId: "p",
+        tabId: "t",
+        workspaceId: "w",
+      }),
+      list: () => [],
+      paneForegroundProcs: async () => ["claude"],
+      stop: async () => {},
+      send: () => {},
+    } as any,
+    events,
+  });
+  const usageLimits = {
+    limits: () => ({
+      session5h: null,
+      week: null,
+      perModelWeek: [],
+      credits: null,
+      stale: true,
+      calibratedAt: null,
+      subscriptionOnly: false,
+    }),
+    projections: () => [],
+  };
+  const deps: AppDeps = {
+    store,
+    service,
+    events,
+    usageLimits,
+    distiller: { distillNow: async () => {} },
+  };
+  return {
+    deps,
+    tmpRoot,
+    validRepo,
+    cleanup() {
+      config.repoRoot = savedRoot;
+      config.rootCeiling = savedCeiling;
+      rmSync(tmpRoot, { recursive: true, force: true });
+    },
+  };
+}
+```
+
+If `bun run typecheck` reports that `AppDeps` needs more required fields than `test/server-auth.test.ts` supplies, copy exactly what that file's `makeDeps()` returns; do not invent stubs.
+
+- [ ] **Step 4: Write the harness**
+
+Create `test/contract/harness.ts`:
+
+```ts
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import Ajv2020, { type ValidateFunction } from "ajv/dist/2020";
+import { serve, type AppDeps } from "../../src/server";
+import { makeContractDeps, type ContractDeps } from "./deps";
+
+export interface Contract {
+  paths: Record<string, Record<string, Operation>>;
+  components: { schemas: Record<string, unknown> };
+  "x-shepherd-events": Record<string, { description?: string; schema: unknown }>;
+  "x-shepherd-pty": {
+    path: string;
+    query: string[];
+    resizeFrame: string;
+    closeCodes: { superseded: number; gone: number };
+  };
+}
+interface Operation {
+  operationId: string;
+  responses: Record<string, { content?: { "application/json": { schema: unknown } } }>;
+}
+
+const CONTRACT_PATH = join(import.meta.dir, "..", "..", "contracts", "openapi.yaml");
+const CONTRACT_ID = "https://shepherd.run/contracts/openapi.yaml";
+
+let cached: Contract | null = null;
+export function loadContract(): Contract {
+  if (!cached) cached = Bun.YAML.parse(readFileSync(CONTRACT_PATH, "utf8")) as Contract;
+  return cached;
+}
+
+const ajv = new Ajv2020({ strict: false, allErrors: true });
+let registered = false;
+function ensureRegistered(): void {
+  if (registered) return;
+  ajv.addSchema(loadContract() as unknown as object, CONTRACT_ID);
+  registered = true;
+}
+const compiled = new Map<string, ValidateFunction>();
+function compileRef(pointer: string): ValidateFunction {
+  ensureRegistered();
+  let fn = compiled.get(pointer);
+  if (!fn) {
+    fn = ajv.compile({ $ref: `${CONTRACT_ID}${pointer}` });
+    compiled.set(pointer, fn);
+  }
+  return fn;
+}
+
+const coveredOperations = new Set<string>();
+const coveredEvents = new Set<string>();
+export function coverage() {
+  return { operations: coveredOperations, events: coveredEvents };
+}
+
+function fail(msg: string, errors: unknown): never {
+  throw new Error(`${msg}\n${JSON.stringify(errors, null, 2)}`);
+}
+
+/** Asserts `res.status` is declared for `method template` in the contract, validates the JSON
+ *  body against the declared schema (if any), records coverage, returns the parsed body. */
+export async function validateResponse(
+  method: string,
+  template: string,
+  res: Response,
+): Promise<unknown> {
+  const contract = loadContract();
+  const op = contract.paths[template]?.[method.toLowerCase()];
+  if (!op) throw new Error(`contract has no operation ${method} ${template}`);
+  const status = String(res.status);
+  const declared = op.responses[status];
+  if (!declared) {
+    throw new Error(`${method} ${template} returned ${status}, contract declares ${Object.keys(op.responses).join(", ")}`);
+  }
+  coveredOperations.add(`${method.toUpperCase()} ${template} ${status}`);
+  const schema = declared.content?.["application/json"]?.schema;
+  if (!schema) return null;
+  const body = await res.json();
+  const pointer = `#/paths/${encodeURIComponent(template).replace(/%2F/g, "~1")}/${method.toLowerCase()}/responses/${status}/content/application~1json/schema`;
+  const fn = compileRef(pointer);
+  if (!fn(body)) fail(`${method} ${template} ${status} body violates contract`, fn.errors);
+  return body;
+}
+
+export function validateEvent(name: string, data: unknown): void {
+  const contract = loadContract();
+  if (!contract["x-shepherd-events"][name]) throw new Error(`contract has no event ${name}`);
+  const fn = compileRef(`#/x-shepherd-events/${encodeURIComponent(name)}/schema`);
+  if (!fn(data)) fail(`event ${name} payload violates contract`, fn.errors);
+  coveredEvents.add(name);
+}
+
+/** Every "METHOD /template status" combination the contract declares. */
+export function declaredOperations(): string[] {
+  const out: string[] = [];
+  for (const [template, methods] of Object.entries(loadContract().paths)) {
+    for (const [method, op] of Object.entries(methods)) {
+      for (const status of Object.keys(op.responses)) {
+        out.push(`${method.toUpperCase()} ${template} ${status}`);
+      }
+    }
+  }
+  return out;
+}
+export function declaredEvents(): string[] {
+  return Object.keys(loadContract()["x-shepherd-events"]);
+}
+
+export interface ContractServer extends ContractDeps {
+  baseUrl: string;
+  wsUrl: string;
+  stop(): void;
+}
+
+export function startContractServer(): ContractServer {
+  const cd = makeContractDeps();
+  const server = serve(cd.deps, 0);
+  return {
+    ...cd,
+    baseUrl: `http://127.0.0.1:${server.port}`,
+    wsUrl: `ws://127.0.0.1:${server.port}`,
+    stop() {
+      server.stop(true);
+      cd.cleanup();
+    },
+  };
+}
+```
+
+Notes for the implementer:
+- `encodeURIComponent(template).replace(/%2F/g, "~1")` turns `/api/sessions/{id}` into the JSON-pointer segment `~1api~1sessions~1%7Bid%7D`. ajv resolves percent-encoded pointers. If ajv rejects the ref, fall back to `ajv.compile(schema)` on the schema object itself, but then also `ajv.addSchema` stays required for `$ref`s inside it.
+- `serve()` returns Bun's `Server`; check its `stop` signature in `test/server.test.ts` (search `server.stop`) and match it.
+
+- [ ] **Step 5: Write the first test (health) and the coverage gate**
+
+Create `test/contract/openapi.test.ts`:
+
+```ts
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import {
+  coverage,
+  declaredEvents,
+  declaredOperations,
+  startContractServer,
+  validateResponse,
+  type ContractServer,
+} from "./harness";
+
+let s: ContractServer;
+beforeAll(() => {
+  s = startContractServer();
+});
+afterAll(() => s.stop());
+
+describe("health", () => {
+  test("GET /api/health is public and matches the contract", async () => {
+    const res = await fetch(`${s.baseUrl}/api/health`);
+    const body = (await validateResponse("GET", "/api/health", res)) as { ok: boolean };
+    expect(body.ok).toBe(true);
+  });
+});
+
+describe("coverage gate", () => {
+  test("every declared operation and event was exercised", () => {
+    const { operations, events } = coverage();
+    const missingOps = declaredOperations().filter((o) => !operations.has(o));
+    const missingEvents = declaredEvents().filter((e) => !events.has(e));
+    expect(missingOps).toEqual([]);
+    expect(missingEvents).toEqual([]);
+  });
+});
+```
+
+The coverage gate must stay the **last** `describe` in the file for the whole plan; every later task adds its `describe` above it.
+
+- [ ] **Step 6: Run the test and make it pass**
+
+Run: `bun test ./test/contract/openapi.test.ts`
+Expected: 2 pass. If the health test fails with `unauthorized`, the harness is missing the auth-bootstrap that Task 2 adds; health is public, so this must pass without auth.
+
+- [ ] **Step 7: Lint, typecheck, commit**
+
+```bash
+bun run lint && bun run typecheck
+git add contracts/openapi.yaml test/contract/
+git commit -m "feat(contract): OpenAPI skeleton, ajv drift harness, health route
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 2: Health reports the server version
+
+**Files:**
+- Create: `src/version.ts`
+- Modify: `src/server.ts` (`handleHealth`, ~line 7157-7167)
+- Modify: `contracts/openapi.yaml` (`Health` schema)
+- Modify: `test/contract/openapi.test.ts` (health describe)
+- Test: `test/version.test.ts`
+
+**Interfaces:**
+- Produces: `SHEPHERD_VERSION: string` (semver from root `package.json`).
+- Produces: `GET /api/health` → `{ ok: true, version: string }`.
+
+- [ ] **Step 1: Write the failing version test**
+
+Create `test/version.test.ts`:
+
+```ts
+import { expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { SHEPHERD_VERSION } from "../src/version";
+
+test("SHEPHERD_VERSION equals package.json version", () => {
+  const pkg = JSON.parse(readFileSync(join(import.meta.dir, "..", "package.json"), "utf8"));
+  expect(SHEPHERD_VERSION).toBe(pkg.version);
+  expect(SHEPHERD_VERSION).toMatch(/^\d+\.\d+\.\d+/);
+});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+Run: `bun test ./test/version.test.ts`
+Expected: FAIL, cannot resolve `../src/version`.
+
+- [ ] **Step 3: Implement `src/version.ts`**
+
+```ts
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
+/** Root package.json version, read once at import. release-please bumps package.json, so this
+ *  is the single source for "which Shepherd is this" (health endpoint, native client checks). */
+export const SHEPHERD_VERSION: string = (() => {
+  try {
+    const raw = readFileSync(join(import.meta.dir, "..", "package.json"), "utf8");
+    const v = (JSON.parse(raw) as { version?: unknown }).version;
+    return typeof v === "string" ? v : "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+})();
+```
+
+- [ ] **Step 4: Run the version test**
+
+Run: `bun test ./test/version.test.ts`
+Expected: PASS.
+
+- [ ] **Step 5: Extend the contract and the drift test**
+
+In `contracts/openapi.yaml`, replace the `Health` schema:
+
+```yaml
+    Health:
+      type: object
+      additionalProperties: true
+      required: [ok, version]
+      properties:
+        ok:
+          type: boolean
+          const: true
+        version:
+          type: string
+          description: Root package.json version of the running server.
+```
+
+In `test/contract/openapi.test.ts`, extend the health test:
+
+```ts
+    const body = (await validateResponse("GET", "/api/health", res)) as {
+      ok: boolean;
+      version: string;
+    };
+    expect(body.ok).toBe(true);
+    expect(body.version).toMatch(/^\d+\.\d+\.\d+/);
+```
+
+- [ ] **Step 6: Run the drift test to verify it fails**
+
+Run: `bun test ./test/contract/openapi.test.ts`
+Expected: FAIL, "GET /api/health 200 body violates contract" with `required: version`.
+
+- [ ] **Step 7: Change `handleHealth`**
+
+In `src/server.ts`, add near the other imports:
+
+```ts
+import { SHEPHERD_VERSION } from "./version";
+```
+
+and change the return in `handleHealth`:
+
+```ts
+  return req.method === "HEAD"
+    ? new Response(null, { status: 200 })
+    : json({ ok: true, version: SHEPHERD_VERSION });
+```
+
+- [ ] **Step 8: Run both tests and the existing health tests**
+
+Run: `bun test ./test/contract/openapi.test.ts ./test/version.test.ts && grep -rln "api/health" test/*.ts | xargs bun test`
+Expected: all PASS. If an existing test asserts `toEqual({ ok: true })` on the health body, change it to `toMatchObject({ ok: true })`.
+
+- [ ] **Step 9: Lint, typecheck, commit**
+
+```bash
+bun run lint && bun run typecheck
+git add src/version.ts src/server.ts test/version.test.ts contracts/openapi.yaml test/contract/openapi.test.ts
+git commit -m "feat(server): report package version on GET /api/health
+
+Native clients compare it against their own contract version.
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 3: Auth routes — login, logout, access tokens, bearer gate
+
+**Files:**
+- Modify: `contracts/openapi.yaml` (paths + schemas)
+- Modify: `test/contract/harness.ts` (auth bootstrap helpers)
+- Modify: `test/contract/openapi.test.ts` (auth describe)
+
+**Interfaces:**
+- Consumes: `config.cookieSecret`, `config.passwordHash`, `config.token` (mutable, `src/config.ts`), `hashPassword`, `SESSION_COOKIE` (`src/operator-auth.ts`).
+- Produces: `withAuth(): Promise<void>` in harness (call in `beforeAll`) and `restoreAuth()` (in `afterAll`).
+- Produces: `login(s): Promise<string>` returns the raw `Set-Cookie` cookie pair for later requests; `mintToken(s, cookie): Promise<{ token: string; id: string }>`; `bearer(token): HeadersInit`.
+- Produces: harness constants `PASSWORD = "operator-password"`.
+
+- [ ] **Step 1: Add auth bootstrap to the harness**
+
+Append to `test/contract/harness.ts`:
+
+```ts
+import { config } from "../../src/config";
+import { hashPassword, SESSION_COOKIE } from "../../src/operator-auth";
+
+export const PASSWORD = "operator-password";
+const SECRET = "contract-cookie-signing-secret";
+let saved: { secret: string | null; hash: string | null; token: string | null } | null = null;
+
+/** Turn the auth gate on the way bootstrapAuth() does at boot. */
+export async function withAuth(): Promise<void> {
+  saved = { secret: config.cookieSecret, hash: config.passwordHash, token: config.token };
+  config.cookieSecret = SECRET;
+  config.passwordHash = await hashPassword(PASSWORD);
+  config.token = null;
+}
+export function restoreAuth(): void {
+  if (!saved) return;
+  config.cookieSecret = saved.secret;
+  config.passwordHash = saved.hash;
+  config.token = saved.token;
+  saved = null;
+}
+
+export async function login(s: ContractServer, password = PASSWORD): Promise<string> {
+  const res = await fetch(`${s.baseUrl}/api/login`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ password }),
+  });
+  await validateResponse("POST", "/api/login", res);
+  const setCookie = res.headers.get("set-cookie") ?? "";
+  const pair = setCookie.split(";")[0];
+  if (!pair.startsWith(`${SESSION_COOKIE}=`)) throw new Error(`no ${SESSION_COOKIE} cookie in ${setCookie}`);
+  return pair;
+}
+
+export async function mintToken(
+  s: ContractServer,
+  cookie: string,
+  name = "contract test",
+): Promise<{ token: string; id: string }> {
+  const res = await fetch(`${s.baseUrl}/api/access-tokens`, {
+    method: "POST",
+    headers: { "content-type": "application/json", cookie },
+    body: JSON.stringify({ name, expiresInDays: null, scope: "full" }),
+  });
+  const body = (await validateResponse("POST", "/api/access-tokens", res)) as {
+    token: string;
+    entry: { id: string };
+  };
+  return { token: body.token, id: body.entry.id };
+}
+
+export function bearer(token: string): Record<string, string> {
+  return { authorization: `Bearer ${token}` };
+}
+```
+
+Move the two new imports to the top of the file with the others.
+
+- [ ] **Step 2: Add the auth paths and schemas to the contract**
+
+Add under `components.schemas`:
+
+```yaml
+    Ok:
+      type: object
+      additionalProperties: true
+      required: [ok]
+      properties:
+        ok:
+          type: boolean
+          const: true
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required: [password]
+      properties:
+        password:
+          type: string
+    TokenScope:
+      type: string
+      enum: [read, submit, full]
+    AccessTokenMintRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 64
+        expiresInDays:
+          type: [integer, "null"]
+          enum: [30, 90, 365, null]
+        scope:
+          $ref: "#/components/schemas/TokenScope"
+    AccessTokenSummary:
+      type: object
+      additionalProperties: true
+      required: [id, name, hint, createdAt, lastUsedAt, expiresAt, scope]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        hint: { type: string }
+        createdAt: { type: integer }
+        lastUsedAt: { type: [integer, "null"] }
+        expiresAt: { type: [integer, "null"] }
+        scope:
+          $ref: "#/components/schemas/TokenScope"
+    AccessTokenMinted:
+      type: object
+      additionalProperties: true
+      required: [token, entry]
+      properties:
+        token:
+          type: string
+          pattern: "^shp_"
+        entry:
+          $ref: "#/components/schemas/AccessTokenSummary"
+    AccessTokenList:
+      type: object
+      additionalProperties: true
+      required: [tokens]
+      properties:
+        tokens:
+          type: array
+          items:
+            $ref: "#/components/schemas/AccessTokenSummary"
+```
+
+Add under `paths`:
+
+```yaml
+  /api/login:
+    post:
+      operationId: login
+      security: []
+      description: Password login. Sets the shepherd_session cookie. The native client uses it once to mint an access token, then discards the cookie.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Logged in; Set-Cookie carries the session.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Ok"
+        "401":
+          description: Wrong password.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/logout:
+    post:
+      operationId: logout
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Session cookie cleared.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Ok"
+  /api/access-tokens:
+    get:
+      operationId: listAccessTokens
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: All tokens (no plaintext).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccessTokenList"
+        "403":
+          description: Caller is not an operator session (a bearer token cannot manage tokens).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    post:
+      operationId: mintAccessToken
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AccessTokenMintRequest"
+      responses:
+        "201":
+          description: Token minted; plaintext shown exactly once.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccessTokenMinted"
+        "400":
+          description: Invalid body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Caller is not an operator session.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/access-tokens/{id}:
+    delete:
+      operationId: revokeAccessToken
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Revoked.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Ok"
+        "404":
+          description: Unknown token id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+```
+
+Check `POST /api/logout` in `src/server.ts` (search `"logout"`) and confirm it returns `{ ok: true }`; if it returns something else, mirror that in the `Ok` reference for logout.
+
+- [ ] **Step 3: Write the auth drift tests**
+
+In `test/contract/openapi.test.ts`, change the lifecycle hooks:
+
+```ts
+import {
+  bearer,
+  coverage,
+  declaredEvents,
+  declaredOperations,
+  login,
+  mintToken,
+  restoreAuth,
+  startContractServer,
+  validateResponse,
+  withAuth,
+  type ContractServer,
+} from "./harness";
+
+let s: ContractServer;
+let cookie: string;
+let token: string;
+let tokenId: string;
+
+beforeAll(async () => {
+  await withAuth();
+  s = startContractServer();
+  cookie = await login(s);
+  ({ token, id: tokenId } = await mintToken(s, cookie));
+});
+afterAll(() => {
+  s.stop();
+  restoreAuth();
+});
+```
+
+Add a describe above the coverage gate:
+
+```ts
+describe("auth", () => {
+  test("POST /api/login rejects a wrong password", async () => {
+    const res = await fetch(`${s.baseUrl}/api/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ password: "nope" }),
+    });
+    await validateResponse("POST", "/api/login", res);
+    expect(res.status).toBe(401);
+  });
+
+  test("bearer token passes the gate; no credential is 401", async () => {
+    const ok = await fetch(`${s.baseUrl}/api/settings`, { headers: bearer(token) });
+    expect(ok.status).toBe(200);
+    const anon = await fetch(`${s.baseUrl}/api/settings`);
+    expect(anon.status).toBe(401);
+  });
+
+  test("GET /api/access-tokens lists with cookie, 403 with bearer", async () => {
+    const list = await fetch(`${s.baseUrl}/api/access-tokens`, { headers: { cookie } });
+    const body = (await validateResponse("GET", "/api/access-tokens", list)) as {
+      tokens: { id: string }[];
+    };
+    expect(body.tokens.some((t) => t.id === tokenId)).toBe(true);
+    const viaBearer = await fetch(`${s.baseUrl}/api/access-tokens`, { headers: bearer(token) });
+    await validateResponse("GET", "/api/access-tokens", viaBearer);
+    expect(viaBearer.status).toBe(403);
+  });
+
+  test("POST /api/access-tokens rejects unknown fields (400) and bearer callers (403)", async () => {
+    const bad = await fetch(`${s.baseUrl}/api/access-tokens`, {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({ name: "x", nope: 1 }),
+    });
+    await validateResponse("POST", "/api/access-tokens", bad);
+    expect(bad.status).toBe(400);
+    const viaBearer = await fetch(`${s.baseUrl}/api/access-tokens`, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...bearer(token) },
+      body: JSON.stringify({ name: "x" }),
+    });
+    await validateResponse("POST", "/api/access-tokens", viaBearer);
+    expect(viaBearer.status).toBe(403);
+  });
+
+  test("DELETE /api/access-tokens/{id} revokes once, then 404", async () => {
+    const { id } = await mintToken(s, cookie, "to revoke");
+    const del = await fetch(`${s.baseUrl}/api/access-tokens/${id}`, {
+      method: "DELETE",
+      headers: { cookie },
+    });
+    await validateResponse("DELETE", "/api/access-tokens/{id}", del);
+    expect(del.status).toBe(200);
+    const again = await fetch(`${s.baseUrl}/api/access-tokens/${id}`, {
+      method: "DELETE",
+      headers: { cookie },
+    });
+    await validateResponse("DELETE", "/api/access-tokens/{id}", again);
+    expect(again.status).toBe(404);
+  });
+
+  test("POST /api/logout clears the cookie session", async () => {
+    const throwaway = await login(s);
+    const res = await fetch(`${s.baseUrl}/api/logout`, {
+      method: "POST",
+      headers: { cookie: throwaway },
+    });
+    await validateResponse("POST", "/api/logout", res);
+    expect(res.status).toBe(200);
+  });
+});
+```
+
+- [ ] **Step 4: Run and fix until green**
+
+Run: `bun test ./test/contract/openapi.test.ts`
+Expected: PASS. Typical fixes: `DELETE` may need the origin guard satisfied (it runs for POST/PUT/DELETE, but a missing `Origin` header is allowed per `src/validate.ts::classifyOrigin`, so send none); `/api/settings` may 409 while `firstRun.pending` is true, in which case set `firstRun.pending = false` in `makeContractDeps()` (import `firstRun` from `../../src/first-run`).
+
+- [ ] **Step 5: Lint, typecheck, commit**
+
+```bash
+bun run lint && bun run typecheck
+git add contracts/openapi.yaml test/contract/
+git commit -m "feat(contract): auth routes — login, logout, access tokens, bearer gate
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 4: Settings — first-run state and repo root
+
+**Files:**
+- Modify: `contracts/openapi.yaml`
+- Modify: `test/contract/openapi.test.ts`
+
+**Interfaces:**
+- Consumes: `firstRun` (`src/first-run.ts`, `pending: boolean`, `resolve()`), `config.rootCeiling` (set to `tmpRoot` by `makeContractDeps`).
+- Produces: `Settings` schema (required subset), `RepoRootRequest`, `RepoRootResponse`.
+
+- [ ] **Step 1: Add settings schemas and paths**
+
+Schemas:
+
+```yaml
+    AgentProvider:
+      type: string
+      enum: [claude, codex]
+    Settings:
+      type: object
+      additionalProperties: true
+      description: GET /api/settings returns many more fields; the native client relies only on these.
+      required: [repoRoot, repoRootDisplay, firstRunPending, defaultModel, defaultEffort, defaultAgentProvider, authMode, operatorLanguage]
+      properties:
+        repoRoot: { type: string }
+        repoRootDisplay: { type: string }
+        firstRunPending: { type: boolean }
+        defaultModel: { type: [string, "null"] }
+        defaultCodexModel: { type: [string, "null"] }
+        defaultEffort: { type: [string, "null"] }
+        defaultAgentProvider:
+          $ref: "#/components/schemas/AgentProvider"
+        authMode: { type: string }
+        operatorLanguage: { type: string }
+        envTokenActive: { type: boolean }
+        hasApiKey: { type: boolean }
+    RepoRootRequest:
+      type: object
+      additionalProperties: false
+      required: [repoRoot]
+      properties:
+        repoRoot: { type: string }
+    RepoRootResponse:
+      type: object
+      additionalProperties: true
+      required: [repoRoot, repoRootDisplay]
+      properties:
+        repoRoot: { type: string }
+        repoRootDisplay: { type: string }
+```
+
+Check the real types of `defaultModel`, `defaultEffort`, `authMode`, `operatorLanguage` in `src/config.ts` and tighten the schema (enum or non-null) where the config type is narrower than written above. Do not loosen.
+
+Paths:
+
+```yaml
+  /api/settings:
+    get:
+      operationId: getSettings
+      responses:
+        "200":
+          description: Operator settings incl. first-run state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Settings"
+    put:
+      operationId: putRepoRoot
+      description: Only the repoRoot form is part of this contract; it also resolves the first-run picker.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RepoRootRequest"
+      responses:
+        "200":
+          description: Repo root stored; first run resolved if it was pending.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RepoRootResponse"
+        "400":
+          description: Not an existing directory under the root ceiling.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+```
+
+- [ ] **Step 2: Write the settings tests**
+
+```ts
+import { firstRun } from "../../src/first-run";
+import { mkdirSync } from "node:fs";
+import { join } from "node:path";
+
+describe("settings", () => {
+  test("GET /api/settings reflects firstRunPending", async () => {
+    firstRun.pending = true;
+    try {
+      const res = await fetch(`${s.baseUrl}/api/settings`, { headers: bearer(token) });
+      const body = (await validateResponse("GET", "/api/settings", res)) as {
+        firstRunPending: boolean;
+      };
+      expect(body.firstRunPending).toBe(true);
+    } finally {
+      firstRun.pending = false;
+    }
+  });
+
+  test("PUT /api/settings repoRoot resolves first run; bad path is 400", async () => {
+    const child = join(s.tmpRoot, "workspace");
+    mkdirSync(child, { recursive: true });
+    firstRun.pending = true;
+    const ok = await fetch(`${s.baseUrl}/api/settings`, {
+      method: "PUT",
+      headers: { "content-type": "application/json", ...bearer(token) },
+      body: JSON.stringify({ repoRoot: child }),
+    });
+    const body = (await validateResponse("PUT", "/api/settings", ok)) as { repoRoot: string };
+    expect(body.repoRoot).toBe(child);
+    expect(firstRun.pending).toBe(false);
+
+    const bad = await fetch(`${s.baseUrl}/api/settings`, {
+      method: "PUT",
+      headers: { "content-type": "application/json", ...bearer(token) },
+      body: JSON.stringify({ repoRoot: join(s.tmpRoot, "does-not-exist") }),
+    });
+    await validateResponse("PUT", "/api/settings", bad);
+    expect(bad.status).toBe(400);
+  });
+});
+```
+
+Restore `config.repoRoot = s.tmpRoot` at the end of the PUT test so the sessions tests in Task 5 still see `validRepo` under the root.
+
+- [ ] **Step 3: Run, fix, commit**
+
+Run: `bun test ./test/contract/openapi.test.ts`
+Expected: PASS.
+
+```bash
+bun run lint && bun run typecheck
+git add contracts/openapi.yaml test/contract/openapi.test.ts
+git commit -m "feat(contract): settings — first-run state and repo root
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 5: Sessions and repos
+
+**Files:**
+- Modify: `contracts/openapi.yaml`
+- Modify: `test/contract/openapi.test.ts`
+
+**Interfaces:**
+- Consumes: `Session` (`src/types.ts:33-210`), `SandboxProfile` (`src/sandbox.ts:35`), `RepoEntry` (`src/repos.ts:35`), `validateCreate` (`src/validate.ts:524`).
+- Produces: `Session`, `SessionStatus`, `HerdrState`, `SessionArchiveReason`, `ExperimentRole`, `SandboxProfile`, `Effort`, `CreateSessionRequest`, `Repo`, `RepoList` schemas; the sessions and repos paths.
+
+- [ ] **Step 1: Add the session schemas**
+
+```yaml
+    SessionStatus:
+      type: string
+      enum: [running, idle, blocked, done, archived]
+    HerdrState:
+      type: string
+      enum: [idle, working, blocked, done, unknown]
+    SessionArchiveReason:
+      type: string
+      enum: [operator, merged, drain, relaunch, stale]
+    ExperimentRole:
+      type: string
+      enum: [variant, comparison]
+    SandboxProfile:
+      type: string
+      enum: [trusted, standard, autonomous]
+    Effort:
+      type: string
+      enum: [low, medium, high, xhigh, max, ultra]
+    Session:
+      type: object
+      additionalProperties: true
+      required:
+        - id
+        - desig
+        - name
+        - prompt
+        - repoPath
+        - baseBranch
+        - branch
+        - worktreePath
+        - isolated
+        - herdrSession
+        - herdrAgentId
+        - claudeSessionId
+        - model
+        - effort
+        - readyToMerge
+        - mergingSince
+        - autopilotEnabled
+        - autopilotPaused
+        - autopilotComplete
+        - planGateEnabled
+        - planPhase
+        - autoMergeEnabled
+        - auto
+        - issueNumber
+        - sandboxApplied
+        - status
+        - lastState
+        - createdAt
+        - updatedAt
+        - archivedAt
+        - haltReason
+        - haltedAt
+        - manualSteps
+      properties:
+        id: { type: string }
+        desig: { type: string, description: "Short designation like TASK-07." }
+        name: { type: string }
+        prompt: { type: string }
+        repoPath: { type: string }
+        baseBranch: { type: string }
+        branch: { type: [string, "null"] }
+        worktreePath: { type: string }
+        isolated: { type: boolean }
+        herdrSession: { type: string }
+        herdrAgentId: { type: string }
+        claudeSessionId: { type: string }
+        providerSessionId: { type: string }
+        agentProvider:
+          $ref: "#/components/schemas/AgentProvider"
+        model: { type: [string, "null"] }
+        effort: { type: [string, "null"] }
+        runtimeModel: { type: [string, "null"] }
+        runtimeEffort: { type: [string, "null"] }
+        contextTokens: { type: [integer, "null"] }
+        readyToMerge: { type: boolean }
+        mergingSince: { type: [integer, "null"] }
+        mergingTrainId: { type: [string, "null"] }
+        mergingPrNumber: { type: [integer, "null"] }
+        autopilotEnabled: { type: [boolean, "null"] }
+        autopilotStepCount: { type: integer }
+        autopilotPaused: { type: boolean }
+        autopilotComplete: { type: boolean }
+        autopilotQuestion: { type: [string, "null"] }
+        planGateEnabled: { type: [boolean, "null"] }
+        planPhase:
+          type: [string, "null"]
+          enum: [planning, executing, null]
+        research: { type: boolean }
+        epicAuthoring: { type: boolean }
+        landingRepair: { type: boolean }
+        plain: { type: boolean }
+        terminal: { type: boolean }
+        autoMergeEnabled: { type: [boolean, "null"] }
+        auto: { type: boolean }
+        issueNumber: { type: [integer, "null"] }
+        epicParent: { type: [integer, "null"] }
+        sandboxApplied:
+          oneOf:
+            - $ref: "#/components/schemas/SandboxProfile"
+            - type: "null"
+        sandboxDegraded: { type: boolean }
+        status:
+          $ref: "#/components/schemas/SessionStatus"
+        lastState:
+          $ref: "#/components/schemas/HerdrState"
+        createdAt: { type: integer }
+        updatedAt: { type: integer }
+        settledAt: { type: [integer, "null"] }
+        archivedAt: { type: [integer, "null"] }
+        archiveReason:
+          oneOf:
+            - $ref: "#/components/schemas/SessionArchiveReason"
+            - type: "null"
+        haltReason:
+          type: [string, "null"]
+          enum: [usage_limit, completed, operator, error, null]
+        haltedAt: { type: [integer, "null"] }
+        manualSteps:
+          type: array
+          items: { type: object, additionalProperties: true }
+        experimentId: { type: [string, "null"] }
+        experimentRole:
+          oneOf:
+            - $ref: "#/components/schemas/ExperimentRole"
+            - type: "null"
+        hasScratchpadFiles: { type: boolean }
+    SessionList:
+      type: array
+      items:
+        $ref: "#/components/schemas/Session"
+    CreateSessionRequest:
+      type: object
+      additionalProperties: false
+      required: [repoPath, baseBranch, prompt]
+      properties:
+        repoPath: { type: string }
+        baseBranch: { type: string }
+        prompt: { type: string, minLength: 1, maxLength: 8000 }
+        agentProvider:
+          $ref: "#/components/schemas/AgentProvider"
+        model: { type: [string, "null"] }
+        effort:
+          oneOf:
+            - $ref: "#/components/schemas/Effort"
+            - type: "null"
+        images:
+          type: array
+          items: { type: string }
+        planGateEnabled: { type: [boolean, "null"] }
+        autopilotEnabled: { type: [boolean, "null"] }
+        sandboxProfile:
+          oneOf:
+            - $ref: "#/components/schemas/SandboxProfile"
+            - type: "null"
+        plain: { type: boolean }
+    Repo:
+      type: object
+      additionalProperties: true
+      required: [name, path, display, realPath, isFork, hidden]
+      properties:
+        name: { type: string }
+        path: { type: string }
+        display: { type: string }
+        realPath: { type: string }
+        lastUsedAt: { type: integer }
+        recentAgentCount: { type: integer }
+        isFork: { type: boolean }
+        remoteSlug: { type: string }
+        hidden: { type: boolean }
+    RepoList:
+      type: object
+      additionalProperties: true
+      required: [repos, recentWindowDays]
+      properties:
+        repos:
+          type: array
+          items:
+            $ref: "#/components/schemas/Repo"
+        recentWindowDays: { type: integer }
+```
+
+Before committing, open `src/types.ts:33-210` and confirm every `required` entry above is a non-optional field there (no `?`). Remove from `required` anything that is optional in the interface; add nothing that is not in the interface.
+
+- [ ] **Step 2: Add the session and repo paths**
+
+```yaml
+  /api/sessions:
+    get:
+      operationId: listSessions
+      description: Active (non-archived) sessions, oldest first. No pagination.
+      responses:
+        "200":
+          description: Sessions.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionList"
+    post:
+      operationId: createSession
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSessionRequest"
+      responses:
+        "201":
+          description: Session created and agent spawned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Session"
+        "400":
+          description: Invalid input (see error text).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: First run pending, name taken, worktree occupied, or herdr restart required (see code).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/sessions/done:
+    get:
+      operationId: listDoneSessions
+      description: Recently archived sessions for the Done lens.
+      responses:
+        "200":
+          description: Sessions.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionList"
+  /api/sessions/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      operationId: getSession
+      responses:
+        "200":
+          description: Session.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Session"
+        "404":
+          description: Unknown id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      operationId: archiveSession
+      description: Archives the session (stops the agent, keeps the row). Always 200.
+      responses:
+        "200":
+          description: Archived.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Ok"
+  /api/sessions/{id}/interrupt:
+    post:
+      operationId: interruptSession
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Interrupt delivered.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Ok"
+        "404":
+          description: Unknown id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/repos:
+    get:
+      operationId: listRepos
+      responses:
+        "200":
+          description: Repos under the workspace root.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RepoList"
+```
+
+- [ ] **Step 3: Write the sessions and repos tests**
+
+```ts
+describe("sessions", () => {
+  let created: { id: string };
+
+  test("POST /api/sessions creates (201) and rejects bad input (400)", async () => {
+    const res = await fetch(`${s.baseUrl}/api/sessions`, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...bearer(token) },
+      body: JSON.stringify({ repoPath: s.validRepo, baseBranch: "main", prompt: "contract" }),
+    });
+    created = (await validateResponse("POST", "/api/sessions", res)) as { id: string };
+    expect(res.status).toBe(201);
+
+    const bad = await fetch(`${s.baseUrl}/api/sessions`, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...bearer(token) },
+      body: JSON.stringify({ repoPath: "/etc", baseBranch: "main", prompt: "x" }),
+    });
+    await validateResponse("POST", "/api/sessions", bad);
+    expect(bad.status).toBe(400);
+  });
+
+  test("POST /api/sessions is 409 while first run is pending", async () => {
+    firstRun.pending = true;
+    try {
+      const res = await fetch(`${s.baseUrl}/api/sessions`, {
+        method: "POST",
+        headers: { "content-type": "application/json", ...bearer(token) },
+        body: JSON.stringify({ repoPath: s.validRepo, baseBranch: "main", prompt: "x" }),
+      });
+      await validateResponse("POST", "/api/sessions", res);
+      expect(res.status).toBe(409);
+    } finally {
+      firstRun.pending = false;
+    }
+  });
+
+  test("GET /api/sessions and /api/sessions/{id}", async () => {
+    const list = await fetch(`${s.baseUrl}/api/sessions`, { headers: bearer(token) });
+    const sessions = (await validateResponse("GET", "/api/sessions", list)) as { id: string }[];
+    expect(sessions.map((x) => x.id)).toContain(created.id);
+
+    const one = await fetch(`${s.baseUrl}/api/sessions/${created.id}`, { headers: bearer(token) });
+    await validateResponse("GET", "/api/sessions/{id}", one);
+    expect(one.status).toBe(200);
+
+    const missing = await fetch(`${s.baseUrl}/api/sessions/nope`, { headers: bearer(token) });
+    await validateResponse("GET", "/api/sessions/{id}", missing);
+    expect(missing.status).toBe(404);
+  });
+
+  test("POST /api/sessions/{id}/interrupt", async () => {
+    const ok = await fetch(`${s.baseUrl}/api/sessions/${created.id}/interrupt`, {
+      method: "POST",
+      headers: bearer(token),
+    });
+    await validateResponse("POST", "/api/sessions/{id}/interrupt", ok);
+    const missing = await fetch(`${s.baseUrl}/api/sessions/nope/interrupt`, {
+      method: "POST",
+      headers: bearer(token),
+    });
+    await validateResponse("POST", "/api/sessions/{id}/interrupt", missing);
+    expect(missing.status).toBe(404);
+  });
+
+  test("DELETE /api/sessions/{id} archives; GET /api/sessions/done lists it", async () => {
+    const del = await fetch(`${s.baseUrl}/api/sessions/${created.id}`, {
+      method: "DELETE",
+      headers: { "content-type": "application/json", ...bearer(token) },
+      body: JSON.stringify({}),
+    });
+    await validateResponse("DELETE", "/api/sessions/{id}", del);
+    expect(del.status).toBe(200);
+    const done = await fetch(`${s.baseUrl}/api/sessions/done`, { headers: bearer(token) });
+    const list = (await validateResponse("GET", "/api/sessions/done", done)) as { id: string }[];
+    expect(list.map((x) => x.id)).toContain(created.id);
+  });
+});
+
+describe("repos", () => {
+  test("GET /api/repos lists the fake repo", async () => {
+    const res = await fetch(`${s.baseUrl}/api/repos`, { headers: bearer(token) });
+    const body = (await validateResponse("GET", "/api/repos", res)) as { repos: { path: string }[] };
+    expect(body.repos.map((r) => r.path)).toContain(s.validRepo);
+  });
+});
+```
+
+If `interrupt` on the stubbed herdr returns 404 for a live session, look at `SessionService.interrupt` in `src/service.ts` and give the herdr stub whatever it calls (probably `list()` needs to report `term_x` as live; then set `list: () => [{ terminalId: "term_x", cwd: "/wt", agent: "claude", agentStatus: "working", paneId: "p", tabId: "t", workspaceId: "w", name: "x" }]` in `deps.ts`). If `/api/repos` needs a `.git` directory to list a repo, run `Bun.spawnSync(["git", "init", "-q", validRepo])` in `makeContractDeps()`.
+
+- [ ] **Step 4: Run, fix, commit**
+
+Run: `bun test ./test/contract/openapi.test.ts`
+Expected: PASS, including the coverage gate (all declared statuses exercised: 201/400/409 for create, 200/404 for get and interrupt).
+
+```bash
+bun run lint && bun run typecheck
+git add contracts/openapi.yaml test/contract/
+git commit -m "feat(contract): sessions and repos routes with full Session schema
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 6: Realtime — /events catalogue, typed fixtures, PTY constants
+
+**Files:**
+- Create: `test/contract/event-fixtures.ts`
+- Modify: `contracts/openapi.yaml` (`x-shepherd-events`, `x-shepherd-pty`)
+- Modify: `src/server.ts` (~line 8429: export `PTY_SUPERSEDED_CODE` if missing)
+- Modify: `src/operator-activity.ts` (line 13: export `RESIZE_PREFIX`)
+- Modify: `test/contract/openapi.test.ts`
+
+**Interfaces:**
+- Consumes: `BlockReason` (`src/blocked.ts`), `AutoMergeStatus` (`src/automerge.ts:16`), `UsageLimits` (`src/usage-limits.ts:322`), `Session` (`src/types.ts`).
+- Produces: `EVENT_FIXTURES: Record<string, unknown>` typed per event; `PTY_SUPERSEDED_CODE = 4000`, `RESIZE_PREFIX` exported.
+- Produces: `collectEvents(s, token, run): Promise<{event: string; data: unknown}[]>` in harness.
+
+- [ ] **Step 1: Export the PTY constants**
+
+In `src/server.ts` near line 8429, ensure both exist:
+
+```ts
+export const PTY_SUPERSEDED_CODE = 4000;
+export const PTY_GONE_CODE = 4001;
+```
+
+Search for a literal `4000` used as a close code in `src/server.ts` (`grep -n "4000" src/server.ts`) and replace it with `PTY_SUPERSEDED_CODE` if it is a close code. In `src/operator-activity.ts` change line 13 to:
+
+```ts
+export const RESIZE_PREFIX = "\x00resize:";
+```
+
+Run `bun run typecheck`.
+
+- [ ] **Step 2: Write the typed event fixtures**
+
+Create `test/contract/event-fixtures.ts`:
+
+```ts
+import type { BlockReason } from "../../src/blocked";
+import type { AutoMergeStatus } from "../../src/automerge";
+import type { UsageLimits } from "../../src/usage-limits";
+
+/** Payloads for events the stubbed server cannot emit on its own. Each constant is annotated
+ *  with the server's own type, so `bun run typecheck` fails if the server shape moves. The
+ *  contract test emits them through deps.events and validates the frame the client sees. */
+
+export const statusEvent: { id: string; status: "running" | "idle" | "blocked" | "done" | "archived"; hasScratchpadFiles?: boolean } = {
+  id: "sess_fixture",
+  status: "blocked",
+  hasScratchpadFiles: false,
+};
+
+export const renamedEvent: { id: string; name: string; branch: string | null } = {
+  id: "sess_fixture",
+  name: "renamed task",
+  branch: "shepherd/renamed-task",
+};
+
+const block: BlockReason = {
+  shape: "yes-no",
+  options: [
+    { label: "Yes", send: "y\n" },
+    { label: "No", send: "n\n" },
+  ],
+  tail: ["Proceed? (y/n)"],
+};
+export const blockEvent: { id: string; block: BlockReason | null } = { id: "sess_fixture", block };
+export const unblockEvent: { id: string; block: BlockReason | null } = { id: "sess_fixture", block: null };
+
+export const readyEvent: { id: string; ready: boolean } = { id: "sess_fixture", ready: true };
+
+export const automergeEvent: AutoMergeStatus = {
+  repoPath: "/tmp/repo",
+  enabled: true,
+  state: "merging",
+  detail: "PR #12",
+  sessionId: "sess_fixture",
+};
+
+export const usageEvent: UsageLimits = {
+  session5h: { pct: 42, resetAt: 1_800_000_000_000 },
+  week: { pct: 10, resetAt: 1_800_500_000_000 },
+  perModelWeek: [{ model: "fable", pct: 5, resetAt: null, scrapedAt: 1_799_000_000_000, stale: false }],
+  credits: null,
+  stale: false,
+  calibratedAt: 1_799_000_000_000,
+  subscriptionOnly: false,
+};
+```
+
+If `session:status` / `session:renamed` / `session:ready` have named types in `src/`, import and use those instead of the inline annotations (search `grep -n "session:status" src/index.ts` for the emitter signature).
+
+- [ ] **Step 3: Add the event catalogue to the contract**
+
+Replace `x-shepherd-events: {}`:
+
+```yaml
+x-shepherd-events:
+  description: WebSocket /events. Same auth gate as HTTP (send Authorization on the upgrade). Every frame is {"event": string, "data": object}. Client may send {"type":"presence","active":boolean}; the server never replies to it.
+  session:new:
+    description: A session row was created (also on relaunch and terminal create).
+    schema:
+      $ref: "#/components/schemas/Session"
+  session:status:
+    description: Status changed. May carry the whole Session or only id+status.
+    schema:
+      type: object
+      additionalProperties: true
+      required: [id, status]
+      properties:
+        id: { type: string }
+        status:
+          $ref: "#/components/schemas/SessionStatus"
+        hasScratchpadFiles: { type: boolean }
+  session:renamed:
+    schema:
+      type: object
+      additionalProperties: true
+      required: [id, name, branch]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        branch: { type: [string, "null"] }
+  session:archived:
+    schema:
+      type: object
+      additionalProperties: true
+      required: [id]
+      properties:
+        id: { type: string }
+  session:block:
+    description: Agent is waiting on the operator (block != null) or unblocked (null).
+    schema:
+      type: object
+      additionalProperties: true
+      required: [id, block]
+      properties:
+        id: { type: string }
+        block:
+          oneOf:
+            - $ref: "#/components/schemas/BlockReason"
+            - type: "null"
+  session:ready:
+    schema:
+      type: object
+      additionalProperties: true
+      required: [id, ready]
+      properties:
+        id: { type: string }
+        ready: { type: boolean }
+  automerge:status:
+    schema:
+      $ref: "#/components/schemas/AutoMergeStatus"
+  usage:limits:
+    schema:
+      $ref: "#/components/schemas/UsageLimits"
+```
+
+Add these schemas under `components.schemas`:
+
+```yaml
+    BlockReason:
+      type: object
+      additionalProperties: true
+      required: [shape, options, tail]
+      properties:
+        shape:
+          type: string
+          enum: [menu, yes-no, awaiting-input, stall, quota]
+        options:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+            required: [label, send]
+            properties:
+              label: { type: string }
+              send: { type: string }
+        tail:
+          type: array
+          items: { type: string }
+        quotaKind:
+          type: string
+          enum: [rework, review, error, plan]
+        authUrl: { type: string }
+    AutoMergeStatus:
+      type: object
+      additionalProperties: true
+      required: [repoPath, enabled, state, detail, sessionId]
+      properties:
+        repoPath: { type: string }
+        enabled: { type: boolean }
+        state: { type: [string, "null"] }
+        detail: { type: [string, "null"] }
+        sessionId: { type: [string, "null"] }
+    LimitWindow:
+      type: object
+      additionalProperties: true
+      required: [pct, resetAt]
+      properties:
+        pct: { type: number }
+        resetAt: { type: integer }
+    ModelWeekWindow:
+      type: object
+      additionalProperties: true
+      required: [model, pct, resetAt, scrapedAt, stale]
+      properties:
+        model: { type: string }
+        pct: { type: number }
+        resetAt: { type: [integer, "null"] }
+        scrapedAt: { type: integer }
+        stale: { type: boolean }
+    CreditWindow:
+      type: object
+      additionalProperties: true
+      required: [pct, spent, cap, currency, resetAt, scrapedAt, stale]
+      properties:
+        pct: { type: number }
+        spent: { type: number }
+        cap: { type: number }
+        currency: { type: string }
+        resetAt: { type: [integer, "null"] }
+        scrapedAt: { type: integer }
+        stale: { type: boolean }
+    UsageLimits:
+      type: object
+      additionalProperties: true
+      required: [session5h, week, perModelWeek, credits, stale, calibratedAt, subscriptionOnly]
+      properties:
+        session5h:
+          oneOf:
+            - $ref: "#/components/schemas/LimitWindow"
+            - type: "null"
+        week:
+          oneOf:
+            - $ref: "#/components/schemas/LimitWindow"
+            - type: "null"
+        perModelWeek:
+          type: array
+          items:
+            $ref: "#/components/schemas/ModelWeekWindow"
+        credits:
+          oneOf:
+            - $ref: "#/components/schemas/CreditWindow"
+            - type: "null"
+        stale: { type: boolean }
+        calibratedAt: { type: [integer, "null"] }
+        subscriptionOnly: { type: boolean }
+```
+
+And replace `x-shepherd-pty` with:
+
+```yaml
+x-shepherd-pty:
+  description: WebSocket /pty/{id}?cols=&rows=. Same auth gate as HTTP. Server→client frames are raw terminal bytes (binary or text). Client→server text frames are keystrokes, except frames starting with resizePrefix which carry "<cols>:<rows>\n". One owner per terminal id; a new attach closes the previous socket with closeCodes.superseded. closeCodes.gone means the session no longer has a live agent.
+  path: /pty/{id}
+  query: [cols, rows]
+  resizePrefix: "\u0000resize:"
+  closeCodes:
+    superseded: 4000
+    gone: 4001
+```
+
+- [ ] **Step 4: Add the events collector to the harness**
+
+Append to `test/contract/harness.ts`:
+
+```ts
+/** Opens /events with a bearer token, runs `drive`, resolves with every frame received until
+ *  `settleMs` of silence after drive() returns. */
+export async function collectEvents(
+  s: ContractServer,
+  token: string,
+  drive: () => Promise<void>,
+  settleMs = 150,
+): Promise<{ event: string; data: unknown }[]> {
+  const frames: { event: string; data: unknown }[] = [];
+  const ws = new WebSocket(`${s.wsUrl}/events`, { headers: bearer(token) } as any);
+  await new Promise<void>((resolve, reject) => {
+    ws.onopen = () => resolve();
+    ws.onerror = (e) => reject(new Error(`events ws error: ${String(e)}`));
+  });
+  ws.onmessage = (m) => frames.push(JSON.parse(String(m.data)));
+  ws.send(JSON.stringify({ type: "presence", active: true }));
+  await drive();
+  await new Promise((r) => setTimeout(r, settleMs));
+  ws.close();
+  return frames;
+}
+```
+
+Bun's `WebSocket` constructor accepts `{ headers }` as a second argument; the `as any` keeps TypeScript's DOM typing quiet.
+
+- [ ] **Step 5: Write the realtime tests**
+
+```ts
+import { collectEvents, loadContract } from "./harness";
+import { PTY_GONE_CODE, PTY_SUPERSEDED_CODE } from "../../src/server";
+import { RESIZE_PREFIX } from "../../src/operator-activity";
+import * as fx from "./event-fixtures";
+import { validateEvent } from "./harness";
+
+describe("realtime /events", () => {
+  test("upgrade requires auth", async () => {
+    const closed = await new Promise<boolean>((resolve) => {
+      const ws = new WebSocket(`${s.wsUrl}/events`);
+      ws.onerror = () => resolve(true);
+      ws.onclose = () => resolve(true);
+      ws.onopen = () => resolve(false);
+    });
+    expect(closed).toBe(true);
+  });
+
+  test("real session:new and session:archived frames match the contract", async () => {
+    let id = "";
+    const frames = await collectEvents(s, token, async () => {
+      const res = await fetch(`${s.baseUrl}/api/sessions`, {
+        method: "POST",
+        headers: { "content-type": "application/json", ...bearer(token) },
+        body: JSON.stringify({ repoPath: s.validRepo, baseBranch: "main", prompt: "events" }),
+      });
+      id = ((await res.json()) as { id: string }).id;
+      await fetch(`${s.baseUrl}/api/sessions/${id}`, {
+        method: "DELETE",
+        headers: { "content-type": "application/json", ...bearer(token) },
+        body: JSON.stringify({}),
+      });
+    });
+    const names = frames.map((f) => f.event);
+    expect(names).toContain("session:new");
+    expect(names).toContain("session:archived");
+    for (const f of frames) {
+      if (f.event in loadContract()["x-shepherd-events"] && f.event !== "description") {
+        validateEvent(f.event, f.data);
+      }
+    }
+  });
+
+  test("typed fixtures for herdr-driven events pass through the hub unchanged", async () => {
+    const emits: [string, unknown][] = [
+      ["session:status", fx.statusEvent],
+      ["session:renamed", fx.renamedEvent],
+      ["session:block", fx.blockEvent],
+      ["session:block", fx.unblockEvent],
+      ["session:ready", fx.readyEvent],
+      ["automerge:status", fx.automergeEvent],
+      ["usage:limits", fx.usageEvent],
+    ];
+    const frames = await collectEvents(s, token, async () => {
+      for (const [name, data] of emits) s.deps.events.emit(name, data);
+    });
+    for (const [name, data] of emits) {
+      const seen = frames.find((f) => f.event === name && JSON.stringify(f.data) === JSON.stringify(data));
+      expect(seen, `frame ${name} not received`).toBeTruthy();
+      validateEvent(name, seen!.data);
+    }
+  });
+});
+
+describe("realtime /pty protocol constants", () => {
+  test("contract constants equal the server's", () => {
+    const pty = loadContract()["x-shepherd-pty"];
+    expect(pty.closeCodes.superseded).toBe(PTY_SUPERSEDED_CODE);
+    expect(pty.closeCodes.gone).toBe(PTY_GONE_CODE);
+    expect(pty.resizePrefix).toBe(RESIZE_PREFIX);
+    expect(pty.path).toBe("/pty/{id}");
+  });
+});
+```
+
+Update the `Contract` interface in the harness: `"x-shepherd-pty"` gains `resizePrefix: string` and drops `resizeFrame`; `"x-shepherd-events"` values may be a string for the `description` key, so type it as `Record<string, { description?: string; schema: unknown } | string>` and make `declaredEvents()` and `validateEvent()` skip the `description` key.
+
+- [ ] **Step 6: Run, fix, commit**
+
+Run: `bun test ./test/contract/openapi.test.ts`
+Expected: PASS incl. the coverage gate (all eight events covered). If `EventHub.emit` has a narrower signature than `(name: string, data: unknown)`, cast the name in the fixture loop rather than widening the hub.
+
+```bash
+bun run lint && bun run typecheck
+git add contracts/openapi.yaml test/contract/ src/server.ts src/operator-activity.ts
+git commit -m "feat(contract): /events catalogue with typed fixtures and PTY protocol constants
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 7: Contract self-checks and README
+
+**Files:**
+- Create: `contracts/README.md`
+- Modify: `test/contract/openapi.test.ts` (structure describe)
+- Modify: `package.json` (`test:contract` script)
+
+**Interfaces:**
+- Produces: `bun run test:contract` convenience script.
+
+- [ ] **Step 1: Add structural self-checks**
+
+Add a describe (above the coverage gate):
+
+```ts
+describe("contract structure", () => {
+  test("every operation has an operationId and JSON responses reference component schemas", () => {
+    const c = loadContract();
+    for (const [template, methods] of Object.entries(c.paths)) {
+      for (const [method, op] of Object.entries(methods)) {
+        if (method === "parameters") continue;
+        expect(op.operationId, `${method} ${template}`).toBeTruthy();
+        for (const [status, r] of Object.entries(op.responses)) {
+          const schema = r.content?.["application/json"]?.schema as { $ref?: string } | undefined;
+          if (schema) expect(schema.$ref, `${method} ${template} ${status}`).toMatch(/^#\/components\/schemas\//);
+        }
+      }
+    }
+  });
+
+  test("every component schema is referenced at least once", () => {
+    const c = loadContract();
+    const text = JSON.stringify(c);
+    for (const name of Object.keys(c.components.schemas)) {
+      expect(text.includes(`#/components/schemas/${name}"`), `unused schema ${name}`).toBe(true);
+    }
+  });
+});
+```
+
+The `Contract.paths` type must allow the `parameters` key at path level (it is an array, not an operation); type it as `Record<string, Record<string, Operation | unknown>>` and narrow in the loops.
+
+- [ ] **Step 2: Add the script**
+
+In root `package.json` `scripts`, after `"test"`:
+
+```json
+    "test:contract": "bun test ./test/contract",
+```
+
+- [ ] **Step 3: Write the README**
+
+Create `contracts/README.md`:
+
+```markdown
+# Shepherd native client contract
+
+`openapi.yaml` is the **only** description of the server surface the native macOS/iOS client
+(`native/`) may use. Swift models and client stubs are generated from it; nothing about the server
+is hand-typed on the Swift side.
+
+**What it covers.** Health and version, password login and access tokens, the first-run settings
+handshake, sessions (list, detail, create, archive, interrupt), repos, the `/events` WebSocket
+catalogue and the `/pty/{id}` terminal protocol. Everything else the web UI does is out of the
+contract until a native feature needs it.
+
+**How it stays true.** `test/contract/openapi.test.ts` starts the real server in-process with the
+same stubbed herdr the other server tests use, calls every operation in the file, and validates
+each response with ajv. It also watches `/events` and validates the frames. A coverage gate fails
+the run if the contract declares a route, status or event the test never saw, so the file cannot
+grow untested surface. Events that only a live herdr would emit are fed through the server's own
+`EventHub` from fixtures typed with the server's TypeScript types (`test/contract/event-fixtures.ts`),
+so a type change breaks `bun run typecheck` before it can drift.
+
+**How to extend it.** Add the schema under `components.schemas`, the path or event, then the test
+that exercises every declared status. Run `bun run test:contract`. Regenerate the Swift client in
+`native/` afterwards (its CI job fails if generated code is stale).
+
+**Rules.** Server-produced objects use `additionalProperties: true` so the client tolerates new
+fields. Request bodies use `additionalProperties: false` because the server rejects unknown keys.
+Enums are copied verbatim from `src/types.ts`, `src/sandbox.ts`, `src/blocked.ts` and
+`src/token-scopes.ts`.
+```
+
+- [ ] **Step 4: Run the whole root suite, lint, typecheck, commit**
+
+Run: `bun run test:contract && bun run test && bun run lint && bun run typecheck`
+Expected: all PASS. The full root suite takes several minutes; wait for it.
+
+```bash
+git add contracts/README.md package.json test/contract/openapi.test.ts
+git commit -m "docs(contract): README, structural self-checks, test:contract script
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 8: Open the PR
+
+**Files:** none new.
+
+- [ ] **Step 1: Rebase and push**
+
+```bash
+git fetch origin main
+git rebase origin/main
+bun run test:contract
+git push -u origin feat/native-api-contract
+```
+
+- [ ] **Step 2: Create the PR**
+
+```bash
+gh pr create --title "feat(contract): OpenAPI contract and drift test for the native client" --body "$(cat <<'EOF'
+Sub-project 1 of docs/superpowers/specs/2026-09-18-native-macos-app-design.md.
+
+- contracts/openapi.yaml: health, auth, settings, sessions, repos, /events catalogue, /pty constants
+- test/contract/: in-process drift test with ajv, coverage gate, typed event fixtures
+- GET /api/health now reports the package version
+- PTY_SUPERSEDED_CODE and RESIZE_PREFIX exported for the contract test
+
+Verified with `bun run test`, `bun run lint`, `bun run typecheck`.
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+EOF
+)"
+```
+
+---
+
+## Self-review
+
+**Spec coverage.** Contract routes (health, login/logout, access tokens, settings, sessions incl. done/interrupt, repos): Tasks 1-5. Realtime catalogue and PTY extension: Task 6. Drift test in-process with stubbed herdr, typed fixtures, coverage gate: Tasks 1, 6. Health version: Task 2. README: Task 7. The spec's `native.yml` CI job (regenerated Swift diff) belongs to sub-project 2, where the Swift package first exists; `ci.yml` already runs `bun test ./test` so the drift test is in CI without changes.
+
+**Placeholders.** None. Where a server detail must be confirmed (logout body, optional fields in `Session`, herdr stub for `interrupt`), the step names the exact file and what to do in each outcome.
+
+**Type consistency.** `ContractServer` (`baseUrl`, `wsUrl`, `deps`, `tmpRoot`, `validRepo`, `stop`) is used identically in Tasks 3-6. `validateResponse(method, template, res)` and `validateEvent(name, data)` signatures are unchanged after Task 1. `x-shepherd-pty.resizePrefix` replaces the Task 1 `resizeFrame` in Task 6, and the harness `Contract` type is updated in the same task.

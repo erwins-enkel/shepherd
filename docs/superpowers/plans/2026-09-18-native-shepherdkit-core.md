@@ -83,7 +83,7 @@ Sub-project 1 resolved this with two files. `contracts/openapi.yaml` stays the t
 - nullable `$ref` properties become plain `$ref`s that are simply **not** in `required` (the generator emits an optional, and `decodeIfPresent` turns an explicit JSON `null` into `nil`);
 - `null` is dropped from enum lists;
 - `const` is removed;
-- read-side enums flagged `x-shepherd-open-enum` — `SessionStatus`, `HerdrState`, `SessionArchiveReason`, `ExperimentRole`, `BlockReason.shape`, `BlockReason.quotaKind`, `Session.planPhase`, `Session.haltReason`, `EventName` — become the generator's open-enum pattern, `anyOf: [{type: string, enum: [...]}, {type: string}]`, which generates a wrapper struct that survives an unknown value.
+- read-side enums flagged `x-shepherd-open-enum` become the generator's open-enum pattern, which generates a wrapper struct that survives an unknown value. The nine flagged enums split into two shapes: the five **named** components — `SessionStatus`, `HerdrState`, `SessionArchiveReason`, `ExperimentRole`, `EventName` — become `anyOf: [{$ref: "#/components/schemas/<Name>Known"}, {type: string}]` with a separate closed enum component `<Name>Known` (`SessionStatusKnown`, `HerdrStateKnown`, `SessionArchiveReasonKnown`, `ExperimentRoleKnown`, `EventNameKnown`); the four **inline** properties — `BlockReason.shape`, `BlockReason.quotaKind`, `Session.planPhase`, `Session.haltReason` — have no name to hang a component on, so they keep the inline `anyOf: [{type: string, enum: [...]}, {type: string}]`.
 
 `bun run check:contract-swift` regenerates and runs `git diff --exit-code`, so the derived file can never lag the truth file. Task 2 of this plan consumes the derived file; Task 2's facade hides the `anyOf` wrapper behind `.known` / `rawValue` so no caller in the kit or the app deals with it.
 
@@ -130,11 +130,12 @@ grep -c 'type: "null"' contracts/openapi.swift.yaml
 grep -n "const:" contracts/openapi.swift.yaml
 grep -n "anyOf" contracts/openapi.swift.yaml | head -20
 grep -n "x-shepherd-open-enum" contracts/openapi.swift.yaml
+grep -n "SessionStatusKnown:\|HerdrStateKnown:\|SessionArchiveReasonKnown:\|ExperimentRoleKnown:\|EventNameKnown:" contracts/openapi.swift.yaml
 ```
 
-Expected: zero `type: "null"`, zero `const:`, nine `anyOf` open-enum wrappers (`SessionStatus`, `HerdrState`, `SessionArchiveReason`, `ExperimentRole`, `EventName`, and the four inline ones on `BlockReason.shape`, `BlockReason.quotaKind`, `Session.planPhase`, `Session.haltReason`), and zero remaining `x-shepherd-open-enum` markers — the flag is an input to the derivation, not an output.
+Expected: zero `type: "null"`, zero `const:`, nine `anyOf` open-enum wrappers — five of them naming a `<Name>Known` component (`SessionStatus`, `HerdrState`, `SessionArchiveReason`, `ExperimentRole`, `EventName`) and four inline ones (`BlockReason.shape`, `BlockReason.quotaKind`, `Session.planPhase`, `Session.haltReason`) — zero remaining `x-shepherd-open-enum` markers (the flag is an input to the derivation, not an output), and the file **must contain `SessionStatusKnown`**, alongside the other four `<Name>Known` component schemas (`HerdrStateKnown`, `SessionArchiveReasonKnown`, `ExperimentRoleKnown`, `EventNameKnown`). Missing `SessionStatusKnown` means the derivation no longer splits named enums into a wrapper plus a closed component — stop, this plan's facade assumes that split.
 
-If the counts differ, the derivation changed; update Task 2's `OpenEnum` conformance list to match exactly what `anyOf` appears on, and say so in the PR body.
+If the counts differ, the derivation changed; update Task 2's `OpenEnum` conformance list and the `<Name>Known` set to match exactly what `anyOf` appears on, and say so in the PR body.
 
 - [ ] **Step 5: Confirm the event schemas the realtime layer needs are named components**
 
@@ -173,11 +174,11 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 **Interfaces:**
 - Consumes: `contracts/openapi.swift.yaml`, verified in Task 1.
-- Produces: `Components.Schemas.Health` (`ok: Swift.Bool`, `version: Swift.String`, `minClient: Swift.String?`), `.Session`, `.SessionList = [Components.Schemas.Session]`, `.Settings`, `.RepoList`, `.Repo`, `.CreateSessionRequest`, `.HeldTask`, `.AccessTokenMinted`, `.AccessTokenSummary`, `.AccessTokenMintRequest`, `.LoginRequest`, `.RepoRootRequest`, `.RepoRootResponse`, `.Ok`, `.BlockReason`, `.AutoMergeStatus`, `.UsageLimits`, `.SessionStatus`, `.HerdrState`, `.AgentProvider`, `.TokenScope`, `.SandboxProfile`, `.Effort`, `.EventName`, `.EventEnvelope`, `.SessionStatusEvent`, `.SessionRenamedEvent`, `.SessionArchivedEvent`, `.SessionBlockEvent`, `.SessionReadyEvent`, and `Components.Schemas._Error` — note the underscore, because `Error` collides with `Swift.Error`. Also `Components.Responses.Unauthorized` with `.body` → `.json(Components.Schemas._Error)`. Every server-produced schema additionally carries `public var additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer` because the contract sets `additionalProperties: true`.
+- Produces: `Components.Schemas.Health` (`ok: Swift.Bool`, `version: Swift.String`, `minClient: Swift.String?`), `.Session`, `.SessionList = [Components.Schemas.Session]`, `.Settings`, `.RepoList`, `.Repo`, `.CreateSessionRequest`, `.HeldTask`, `.AccessTokenMinted`, `.AccessTokenSummary`, `.AccessTokenMintRequest`, `.LoginRequest`, `.RepoRootRequest`, `.RepoRootResponse`, `.Ok`, `.BlockReason`, `.AutoMergeStatus`, `.UsageLimits`, `.SessionStatus`, `.HerdrState`, `.SessionArchiveReason`, `.ExperimentRole`, `.AgentProvider`, `.TokenScope`, `.SandboxProfile`, `.Effort`, `.EventName`, `.EventEnvelope`, `.SessionStatusEvent`, `.SessionRenamedEvent`, `.SessionArchivedEvent`, `.SessionBlockEvent`, `.SessionReadyEvent`, and `Components.Schemas._Error`, plus the five closed enum components the named open enums split off: `.SessionStatusKnown`, `.HerdrStateKnown`, `.SessionArchiveReasonKnown`, `.ExperimentRoleKnown`, `.EventNameKnown` — note the underscore, because `Error` collides with `Swift.Error`. Also `Components.Responses.Unauthorized` with `.body` → `.json(Components.Schemas._Error)`. Every server-produced schema additionally carries `public var additionalProperties: OpenAPIRuntime.OpenAPIObjectContainer` because the contract sets `additionalProperties: true`.
 - Produces: the generated `Client` with `public init(serverURL: Foundation.URL, configuration: Configuration = .init(), transport: any ClientTransport, middlewares: [any ClientMiddleware] = [])` and one method per operation — `getHealth`, `login`, `logout`, `listAccessTokens`, `mintAccessToken`, `revokeAccessToken`, `getSettings`, `putRepoRoot`, `listSessions`, `createSession`, `listDoneSessions`, `getSession`, `archiveSession`, `interruptSession`, `listRepos` — each `func name(_ input: Operations.Name.Input) async throws -> Operations.Name.Output`, with the namespace type in UpperCamelCase (`Operations.GetHealth`) because `namingStrategy: idiomatic` is set.
 - Produces: `enum ShepherdLog { public static let subsystem: String; public static let client: Logger; public static let realtime: Logger; public static let store: Logger; public static let credentials: Logger }`.
 - Produces: `public protocol OpenEnum` with `associatedtype Known: RawRepresentable & Hashable & Sendable where Known.RawValue == String`, `var value1: Known? { get }`, `var value2: String? { get }`, `init(value1: Known?, value2: String?)`; and the extension members `var known: Known?`, `var rawValue: String`, `init(known: Known)`, `init(unknown raw: String)`.
-- Produces the public typealiases every later task and the app shell use: `Session`, `Settings`, `Repo`, `RepoList`, `HeldTask`, `SessionStatus`, `CreateSessionRequest`, `AgentProvider`, `Effort`, `Health`.
+- Produces the public typealiases every later task and the app shell use: `Session`, `Settings`, `Repo`, `RepoList`, `HeldTask`, `SessionStatus`, `SessionStatusKnown`, `HerdrStateKnown`, `SessionArchiveReasonKnown`, `ExperimentRoleKnown`, `EventNameKnown`, `CreateSessionRequest`, `AgentProvider`, `Effort`, `Health`.
 - Produces: `Fixtures.session(id:name:desig:status:readyToMerge:branch:)`, `.sessionJSON(id:name:)`, `.settings(firstRunPending:repoRoot:)`, `.repoList()`, `.health(version:)`, `.json(_:)`, `.errorJSON(_:code:)`.
 
 - [ ] **Step 1: Write the contract sync script**
@@ -329,21 +330,27 @@ Create `native/.gitignore`:
 
 - [ ] **Step 7: Write the open-enum facade**
 
-The derived contract turns nine read-side enums into `anyOf: [{type: string, enum: [...]}, {type: string}]`, which the generator emits as a wrapper struct with two optionals — `value1` holding the closed case when the value is known, `value2` holding the raw string always. That shape must not reach callers.
+The derived contract turns nine read-side enums into an `anyOf` wrapper struct with two optionals — `value1` holding the closed case when the value is known, `value2` holding the raw string always. Five of the nine are named components — `SessionStatus`, `HerdrState`, `SessionArchiveReason`, `ExperimentRole`, `EventName` — each split into the wrapper (`anyOf: [{$ref: "#/components/schemas/<Name>Known"}, {type: string}]`) plus a separate closed enum component `<Name>Known` (`SessionStatusKnown`, `HerdrStateKnown`, `SessionArchiveReasonKnown`, `ExperimentRoleKnown`, `EventNameKnown`), so `value1`'s type is that top-level `<Name>Known` enum. The other four are inline property schemas — `Session.planPhase`, `Session.haltReason`, `BlockReason.shape`, `BlockReason.quotaKind` — with no name to hang a component on, so they keep the inline `anyOf: [{type: string, enum: […]}, {type: string}]` and the generator nests their closed enum as `Value1Payload` inside the wrapper's own payload struct. Neither shape must reach callers.
 
 Create `native/Sources/ShepherdKit/Model/OpenEnum.swift`:
 
 ```swift
 import Foundation
 
-/// A generated open enum: `anyOf: [{type: string, enum: […]}, {type: string}]`.
+/// A generated open enum: `anyOf: [{$ref: <Name>Known}, {type: string}]` for a
+/// named schema (`SessionStatus`, `HerdrState`, `SessionArchiveReason`,
+/// `ExperimentRole`, `EventName`), or the inline `anyOf: [{type: string,
+/// enum: […]}, {type: string}]` for the four properties with no name to hang
+/// a component on (`Session.planPhase`, `Session.haltReason`,
+/// `BlockReason.shape`, `BlockReason.quotaKind`).
 ///
 /// swift-openapi-generator's enums are closed, so a server that learns a new
 /// `SessionStatus` would break decoding on an older client. The derived
 /// contract sidesteps that with an `anyOf` whose second branch is a bare
 /// string; this protocol hides the resulting two-optional wrapper behind
 /// `known` (the case we understand) and `rawValue` (what actually came over
-/// the wire).
+/// the wire), whether `Known` is the named `<Name>Known` enum or the
+/// generator's nested `Value1Payload`.
 public protocol OpenEnum {
   associatedtype Known: RawRepresentable & Hashable & Sendable where Known.RawValue == String
 
@@ -368,8 +375,13 @@ extension OpenEnum {
   public init(unknown raw: String) { self.init(value1: nil, value2: raw) }
 }
 
-// The nine schemas the derivation flags with `x-shepherd-open-enum`. The
-// generated code lives in this same module, so these are not retroactive
+// The nine schemas the derivation flags with `x-shepherd-open-enum`. Five —
+// SessionStatus, HerdrState, SessionArchiveReason, ExperimentRole, EventName —
+// are named components whose `value1` is the top-level `<Name>Known` enum
+// (SessionStatusKnown, …). BlockReason.ShapePayload/.QuotaKindPayload and
+// Session.PlanPhasePayload/.HaltReasonPayload are the four inline properties,
+// whose `value1` is instead the generator's own nested `Value1Payload` enum.
+// The generated code lives in this same module, so these are not retroactive
 // conformances across a module boundary.
 extension Components.Schemas.SessionStatus: OpenEnum {}
 extension Components.Schemas.HerdrState: OpenEnum {}
@@ -382,7 +394,7 @@ extension Components.Schemas.Session.PlanPhasePayload: OpenEnum {}
 extension Components.Schemas.Session.HaltReasonPayload: OpenEnum {}
 ```
 
-Task 1 Step 4 printed the exact set of `anyOf` schemas and Task 2 Step 11 prints the generated type names. If a nested payload type is spelled differently — say `Components.Schemas.BlockReason.ShapePayload` came out as something else — match the generated spelling here rather than guessing, and drop any conformance whose schema the derivation did not flag.
+Task 1 Step 4 printed the exact set of `anyOf` schemas and the five `<Name>Known` components, and Task 2 Step 12 prints the generated type names. If a nested payload type is spelled differently — say `Components.Schemas.BlockReason.ShapePayload` came out as something else, or a named enum's closed component is not called `<Name>Known` — match the generated spelling here rather than guessing, and drop any conformance whose schema the derivation did not flag.
 
 - [ ] **Step 8: Write the public typealiases**
 
@@ -405,6 +417,14 @@ public typealias CreateSessionRequest = Components.Schemas.CreateSessionRequest
 public typealias AgentProvider = Components.Schemas.AgentProvider
 public typealias Effort = Components.Schemas.Effort
 public typealias Health = Components.Schemas.Health
+
+// The closed enum each named open enum splits off (see OpenEnum.swift).
+// Switch on `<wrapper>.known` and get one of these back.
+public typealias SessionStatusKnown = Components.Schemas.SessionStatusKnown
+public typealias HerdrStateKnown = Components.Schemas.HerdrStateKnown
+public typealias SessionArchiveReasonKnown = Components.Schemas.SessionArchiveReasonKnown
+public typealias ExperimentRoleKnown = Components.Schemas.ExperimentRoleKnown
+public typealias EventNameKnown = Components.Schemas.EventNameKnown
 ```
 
 - [ ] **Step 9: Write the test that proves generation and the facade work**
@@ -495,6 +515,11 @@ struct GeneratedContractTests {
     #expect(AgentProvider.self == Components.Schemas.AgentProvider.self)
     #expect(Effort.self == Components.Schemas.Effort.self)
     #expect(Health.self == Components.Schemas.Health.self)
+    #expect(SessionStatusKnown.self == Components.Schemas.SessionStatusKnown.self)
+    #expect(HerdrStateKnown.self == Components.Schemas.HerdrStateKnown.self)
+    #expect(SessionArchiveReasonKnown.self == Components.Schemas.SessionArchiveReasonKnown.self)
+    #expect(ExperimentRoleKnown.self == Components.Schemas.ExperimentRoleKnown.self)
+    #expect(EventNameKnown.self == Components.Schemas.EventNameKnown.self)
   }
 
   @Test("logging uses the subsystem the spec fixes")
@@ -624,12 +649,12 @@ Expected: exit 0. The generator prints its configuration banner and **no** `warn
 GEN=native/.build/plugins/outputs/native/ShepherdKit/destination/OpenAPIGenerator/GeneratedSources
 ls "$GEN"
 grep -n "public func " "$GEN/Client.swift"
-grep -n "public struct SessionStatus\|public enum Value1Payload\|ShapePayload\|QuotaKindPayload\|PlanPhasePayload\|HaltReasonPayload" "$GEN/Types+Components+Schemas.swift"
+grep -n "public struct SessionStatus\b\|public enum SessionStatusKnown\|ShapePayload\|QuotaKindPayload\|PlanPhasePayload\|HaltReasonPayload" "$GEN/Types+Components+Schemas.swift"
 ```
 
 Expected file list: `Client.swift`, `Server.swift` (0 bytes), `Types.swift`, `Types+Components.swift`, `Types+Components+Headers.swift`, `Types+Components+Parameters.swift`, `Types+Components+RequestBodies.swift`, `Types+Components+Responses.swift`, `Types+Components+Schemas.swift`, `Types+Operations.swift`.
 Expected methods: the fifteen named in this task's Interfaces block.
-Expected open-enum shape: `SessionStatus` is a `struct` with `public var value1: …Value1Payload?` and `public var value2: Swift.String?`. If the generator named the inner enum or the properties differently, update `OpenEnum.swift` from Step 7 to match before continuing — every later task reads `.known` and `rawValue`, which is all the rest of the plan depends on.
+Expected open-enum shape, in two flavours: `SessionStatus` is a `struct` with `public var value1: Components.Schemas.SessionStatusKnown?` and `public var value2: Swift.String?`, and `SessionStatusKnown` is its own top-level `@frozen public enum SessionStatusKnown: String, Codable, Hashable, Sendable, CaseIterable`. `HerdrState`, `SessionArchiveReason`, `ExperimentRole` and `EventName` follow the identical pattern against their own `<Name>Known` enum. The four inline ones — `BlockReason.ShapePayload`, `BlockReason.QuotaKindPayload`, `Session.PlanPhasePayload`, `Session.HaltReasonPayload` — are structs of the same `value1`/`value2` shape, but `value1`'s type is instead the generator's own nested `Value1Payload` enum (for example `Components.Schemas.BlockReason.ShapePayload.Value1Payload`), because there is no component name to hang a top-level enum from. If the generator named an inner enum or a property differently, update `OpenEnum.swift` from Step 7 to match before continuing — every later task reads `.known` and `rawValue`, which is all the rest of the plan depends on.
 
 - [ ] **Step 13: Run the tests**
 
@@ -2981,27 +3006,27 @@ public enum ServerEvent: Decodable, Equatable, Sendable {
     }
 
     switch name.known {
-    case .sessionNew:
+    case .session_colon_new:
       self = payload(Session.self).map(ServerEvent.sessionNew) ?? .unknown(name: name.rawValue)
-    case .sessionStatus:
+    case .session_colon_status:
       self = payload(Components.Schemas.SessionStatusEvent.self).map(ServerEvent.sessionStatus)
         ?? .unknown(name: name.rawValue)
-    case .sessionRenamed:
+    case .session_colon_renamed:
       self = payload(Components.Schemas.SessionRenamedEvent.self).map(ServerEvent.sessionRenamed)
         ?? .unknown(name: name.rawValue)
-    case .sessionArchived:
+    case .session_colon_archived:
       self = payload(Components.Schemas.SessionArchivedEvent.self).map(ServerEvent.sessionArchived)
         ?? .unknown(name: name.rawValue)
-    case .sessionBlock:
+    case .session_colon_block:
       self = payload(Components.Schemas.SessionBlockEvent.self).map(ServerEvent.sessionBlock)
         ?? .unknown(name: name.rawValue)
-    case .sessionReady:
+    case .session_colon_ready:
       self = payload(Components.Schemas.SessionReadyEvent.self).map(ServerEvent.sessionReady)
         ?? .unknown(name: name.rawValue)
-    case .automergeStatus:
+    case .automerge_colon_status:
       self = payload(Components.Schemas.AutoMergeStatus.self).map(ServerEvent.automergeStatus)
         ?? .unknown(name: name.rawValue)
-    case .usageLimits:
+    case .usage_colon_limits:
       self = payload(Components.Schemas.UsageLimits.self).map(ServerEvent.usageLimits)
         ?? .unknown(name: name.rawValue)
     case nil:
@@ -3022,7 +3047,7 @@ public struct PresenceFrame: Encodable, Sendable {
 }
 ```
 
-The `EventName.Known` case labels come from `namingStrategy: idiomatic` applied to the contract's `session:new`, `session:status`, … values. Task 2 Step 12 printed the generated enum; if the cases are spelled differently (for example `sessionColonNew`), match the generated spelling here. The `case nil:` branch covers every unknown name and must stay.
+The `EventName.Known` case labels come from `namingStrategy: idiomatic` applied to the contract's `session:new`, `session:status`, … values. Task 2 Step 12 printed the generated enum; The probe build with generator 1.13.1 spelled them `session_colon_new`, `automerge_colon_status`, … (`:` becomes `_colon_`), which is what the switch above uses; if Task 2 Step 12 prints a different spelling, match it here. The `case nil:` branch covers every unknown name and must stay.
 
 - [ ] **Step 4: Run the event tests**
 
@@ -4290,11 +4315,14 @@ Sub-project 2a of `docs/superpowers/specs/2026-09-18-native-macos-app-design.md`
 `bun run gen:contract-swift` derives `contracts/openapi.swift.yaml` from it:
 nullable `$ref`s become optional plain `$ref`s, `null` leaves enum lists,
 `const` is dropped, and read-side enums marked `x-shepherd-open-enum` become
-`anyOf: [{enum}, {string}]` so an unfamiliar value still decodes.
-`bun run check:contract-swift` is the freshness gate.
+an `anyOf` wrapper so an unfamiliar value still decodes — a named `<Name>Known`
+component (`SessionStatusKnown`, `HerdrStateKnown`, `SessionArchiveReasonKnown`,
+`ExperimentRoleKnown`, `EventNameKnown`) for the five named schemas, an inline
+`{enum}`/`{string}` pair for the four inline properties. `bun run
+check:contract-swift` is the freshness gate.
 
 ShepherdKit generates from the **derived** file. `Model/OpenEnum.swift` hides
-the `anyOf` wrapper: use `status.known` for the case you understand and
+either wrapper: use `status.known` for the case you understand and
 `status.rawValue` for what actually arrived.
 
 Every server payload type comes from that generation, including all eight
@@ -4476,7 +4504,7 @@ Deliberately out of scope and stated as such: `PTYConnection` and its close-code
 **2. Placeholder scan.** No "TBD", no "add error handling", no "similar to Task N". Every code step carries complete code; every command step states the expected output. Four places tell the implementer to read a generated file and match it rather than guess (Task 2 Step 7's `OpenEnum` conformance list, Task 2 Step 10's `Session` initialiser, Task 2 Step 12's open-enum property names, Task 9 Step 3's `EventName` case labels); each names the exact file and symbol, because argument labels and case spellings in generated code are the one thing this plan cannot verify without running the generator over the derived contract — which Task 2 Step 12 makes the implementer do before any of those tasks depend on it. Task 1 Step 2 has a hard stop rather than a fallback if sub-project 1 has not merged.
 
 **3. Type consistency.** Checked across tasks:
-- Public typealiases `Session`, `Settings`, `Repo`, `RepoList`, `HeldTask`, `SessionStatus`, `CreateSessionRequest`, `AgentProvider`, `Effort`, `Health` — defined Task 2, used unqualified in Tasks 2, 5, 6, 7, 8, 9, 11. Types with no alias (`BlockReason`, `AutoMergeStatus`, `UsageLimits`, `Ok`, `RepoRootResponse`, `_Error`, the five `*Event`s, `EventName`, `HerdrState`) are always written `Components.Schemas.…`.
+- Public typealiases `Session`, `Settings`, `Repo`, `RepoList`, `HeldTask`, `SessionStatus`, `CreateSessionRequest`, `AgentProvider`, `Effort`, `Health` — defined Task 2, used unqualified in Tasks 2, 5, 6, 7, 8, 9, 11 — plus the five closed-enum typealiases `SessionStatusKnown`, `HerdrStateKnown`, `SessionArchiveReasonKnown`, `ExperimentRoleKnown`, `EventNameKnown`, defined and asserted Task 2. Types with no alias (`BlockReason`, `AutoMergeStatus`, `UsageLimits`, `Ok`, `RepoRootResponse`, `_Error`, the five `*Event`s, `EventName`, `HerdrState`, `SessionArchiveReason`, `ExperimentRole`) are always written `Components.Schemas.…` — only their `Known` component gets a short name.
 - `OpenEnum` members `known`, `rawValue`, `init(known:)`, `init(unknown:)` — defined Task 2, used in Tasks 2, 9, 11.
 - `StoredCredential(token:tokenId:)` — Task 3; used Tasks 4, 6, 7, 8, 11.
 - `CredentialStore.load(for:)/save(_:for:)/delete(for:)` — one spelling everywhere.

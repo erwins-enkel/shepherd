@@ -68,3 +68,8 @@ src/generated
 # project source, and a nested .gitignore under native/.build is not honoured
 # by prettier — same rationale as .cache above.
 native/.build
+
+# Native app: generated Xcode project + the xcstringstool-owned string catalog
+native/Apps/ShepherdMac/Shepherd.xcodeproj
+native/Apps/ShepherdMac/.build
+native/Apps/ShepherdMac/Resources/Localizable.xcstrings

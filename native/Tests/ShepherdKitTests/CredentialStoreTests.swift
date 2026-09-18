@@ -1,0 +1,59 @@
+import Foundation
+import Testing
+@testable import ShepherdKit
+
+@Suite("CredentialStore")
+struct CredentialStoreTests {
+  @Test("in-memory store round-trips and deletes")
+  func inMemoryRoundTrip() throws {
+    let store = InMemoryCredentialStore()
+    #expect(try store.load(for: "k") == nil)
+
+    let credential = StoredCredential(token: "shp_abc", tokenId: "tok_1")
+    try store.save(credential, for: "k")
+    #expect(try store.load(for: "k") == credential)
+
+    try store.delete(for: "k")
+    #expect(try store.load(for: "k") == nil)
+  }
+
+  @Test("deleting a key that was never stored is not an error")
+  func inMemoryDeleteMissing() throws {
+    try InMemoryCredentialStore().delete(for: "nope")
+  }
+
+  @Test("saving twice replaces the credential")
+  func inMemoryReplace() throws {
+    let store = InMemoryCredentialStore()
+    try store.save(StoredCredential(token: "a", tokenId: "1"), for: "k")
+    try store.save(StoredCredential(token: "b", tokenId: "2"), for: "k")
+    #expect(try store.load(for: "k")?.token == "b")
+  }
+
+  @Test("seeded store reads back its seed")
+  func inMemorySeed() throws {
+    let store = InMemoryCredentialStore(seed: ["k": StoredCredential(token: "t", tokenId: "i")])
+    #expect(try store.load(for: "k")?.tokenId == "i")
+  }
+
+  // Writes to the login keychain, so it uses a service name unique to this
+  // run and cleans up after itself.
+  @Test("keychain store round-trips, replaces and deletes")
+  func keychainRoundTrip() throws {
+    let service = "run.shepherd.kit.test.\(UUID().uuidString)"
+    let store = KeychainCredentialStore(service: service)
+    let key = "profile.test"
+    defer { try? store.delete(for: key) }
+
+    #expect(try store.load(for: key) == nil)
+    let credential = StoredCredential(token: "shp_keychain", tokenId: "tok_k")
+    try store.save(credential, for: key)
+    #expect(try store.load(for: key) == credential)
+
+    try store.save(StoredCredential(token: "shp_second", tokenId: "tok_k2"), for: key)
+    #expect(try store.load(for: key)?.token == "shp_second")
+
+    try store.delete(for: key)
+    #expect(try store.load(for: key) == nil)
+  }
+}

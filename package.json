@@ -58,7 +58,8 @@
     "prettier-plugin-tailwindcss": "^0.8.1",
     "svelte": "^5.57.0",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.70.0"
+    "typescript-eslint": "^8.70.0",
+    "yaml": "^2.9.0"
   },
   "dependencies": {
     "jsonrepair": "^3.15",

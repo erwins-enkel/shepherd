@@ -18,8 +18,12 @@ afterAll(() => s.stop());
 describe("health", () => {
   test("GET /api/health is public and matches the contract", async () => {
     const res = await fetch(`${s.baseUrl}/api/health`);
-    const body = (await validateResponse("GET", "/api/health", res)) as { ok: boolean };
+    const body = (await validateResponse("GET", "/api/health", res)) as {
+      ok: boolean;
+      version: string;
+    };
     expect(body.ok).toBe(true);
+    expect(body.version).toMatch(/^\d+\.\d+\.\d+/);
   });
 
   test("declaredOperations ignores path-level parameters", () => {

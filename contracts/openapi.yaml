@@ -22,11 +22,14 @@ components:
     Health:
       type: object
       additionalProperties: true
-      required: [ok]
+      required: [ok, version]
       properties:
         ok:
           type: boolean
           const: true
+        version:
+          type: string
+          description: Root package.json version of the running server.
     Error:
       type: object
       additionalProperties: true

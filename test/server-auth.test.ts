@@ -134,7 +134,7 @@ test("exemption: GET /api/health is public 200 WHILE /api/diagnostics still 401s
   const app = makeApp(makeDeps());
   const health = await app.fetch(new Request("http://x/api/health"));
   expect(health.status).toBe(200);
-  expect(await health.json()).toEqual({ ok: true });
+  expect(await health.json()).toMatchObject({ ok: true });
   // HEAD is exempt too (isPublicRequest covers GET+HEAD) → bodyless 200, NOT the /api 404.
   const headRes = await app.fetch(new Request("http://x/api/health", { method: "HEAD" }));
   expect(headRes.status).toBe(200);

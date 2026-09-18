@@ -12,6 +12,7 @@ import {
   TerminalUnsupportedError,
 } from "./service";
 import { WorktreeMissingBaseError, WorktreeOccupiedError, WorktreeRestoreError } from "./worktree";
+import { SHEPHERD_VERSION } from "./version";
 import {
   SpawnCanceled,
   SpawnPhaseTracker,
@@ -7163,7 +7164,9 @@ function handleHealth({ req, parts }: Ctx): Response | null {
   ) {
     return null;
   }
-  return req.method === "HEAD" ? new Response(null, { status: 200 }) : json({ ok: true });
+  return req.method === "HEAD"
+    ? new Response(null, { status: 200 })
+    : json({ ok: true, version: SHEPHERD_VERSION });
 }
 
 /** Authenticated (unlike handleHealth) — reports the herdr socket terminal transport's flag

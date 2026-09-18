@@ -1,0 +1,57 @@
+import Foundation
+
+/// A generated open enum: `anyOf: [{$ref: <Name>Known}, {type: string}]` for a
+/// named schema (`SessionStatus`, `HerdrState`, `SessionArchiveReason`,
+/// `ExperimentRole`, `EventName`), or the inline `anyOf: [{type: string,
+/// enum: […]}, {type: string}]` for the four properties with no name to hang
+/// a component on (`Session.planPhase`, `Session.haltReason`,
+/// `BlockReason.shape`, `BlockReason.quotaKind`).
+///
+/// swift-openapi-generator's enums are closed, so a server that learns a new
+/// `SessionStatus` would break decoding on an older client. The derived
+/// contract sidesteps that with an `anyOf` whose second branch is a bare
+/// string; this protocol hides the resulting two-optional wrapper behind
+/// `known` (the case we understand) and `rawValue` (what actually came over
+/// the wire), whether `Known` is the named `<Name>Known` enum or the
+/// generator's nested `Value1Payload`.
+public protocol OpenEnum {
+  associatedtype Known: RawRepresentable & Hashable & Sendable where Known.RawValue == String
+
+  var value1: Known? { get }
+  var value2: String? { get }
+  init(value1: Known?, value2: String?)
+}
+
+extension OpenEnum {
+  /// The case this client understands, or `nil` when the server sent
+  /// something newer. Switch on this and handle `nil` as "unrecognised".
+  public var known: Known? { value1 }
+
+  /// The wire value, known or not. Safe to log and to show in a diagnostic.
+  public var rawValue: String { value1?.rawValue ?? value2 ?? "" }
+
+  /// Build a value the client understands.
+  public init(known: Known) { self.init(value1: known, value2: known.rawValue) }
+
+  /// Build a value the client does not understand — used by tests to prove
+  /// an unknown value survives a round trip.
+  public init(unknown raw: String) { self.init(value1: nil, value2: raw) }
+}
+
+// The nine schemas the derivation flags with `x-shepherd-open-enum`. Five —
+// SessionStatus, HerdrState, SessionArchiveReason, ExperimentRole, EventName —
+// are named components whose `value1` is the top-level `<Name>Known` enum
+// (SessionStatusKnown, …). BlockReason.ShapePayload/.QuotaKindPayload and
+// Session.PlanPhasePayload/.HaltReasonPayload are the four inline properties,
+// whose `value1` is instead the generator's own nested `Value1Payload` enum.
+// The generated code lives in this same module, so these are not retroactive
+// conformances across a module boundary.
+extension Components.Schemas.SessionStatus: OpenEnum {}
+extension Components.Schemas.HerdrState: OpenEnum {}
+extension Components.Schemas.SessionArchiveReason: OpenEnum {}
+extension Components.Schemas.ExperimentRole: OpenEnum {}
+extension Components.Schemas.EventName: OpenEnum {}
+extension Components.Schemas.BlockReason.ShapePayload: OpenEnum {}
+extension Components.Schemas.BlockReason.QuotaKindPayload: OpenEnum {}
+extension Components.Schemas.Session.PlanPhasePayload: OpenEnum {}
+extension Components.Schemas.Session.HaltReasonPayload: OpenEnum {}

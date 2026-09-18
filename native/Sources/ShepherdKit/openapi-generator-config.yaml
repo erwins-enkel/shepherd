@@ -1,0 +1,8 @@
+# Consumed by the OpenAPIGenerator build plugin. Must sit in the target's
+# sources next to openapi.yaml. Generated output lands in .build/ and is
+# never committed — see native/README.md.
+generate:
+  - types
+  - client
+accessModifier: public
+namingStrategy: idiomatic

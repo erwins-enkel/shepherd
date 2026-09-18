@@ -11,7 +11,7 @@
     "gen:cli": "bun run scripts/gen-cli-reference.ts"
   },
   "dependencies": {
-    "@astrojs/starlight": "^0.42.0",
+    "@astrojs/starlight": "^0.42.1",
     "@vercel/analytics": "^2.0.1",
     "astro": "^7.3.2"
   },

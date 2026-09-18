@@ -344,6 +344,93 @@ components:
           items:
             $ref: "#/components/schemas/Repo"
         recentWindowDays: { type: integer }
+    BlockReason:
+      type: object
+      additionalProperties: true
+      required: [shape, options, tail]
+      properties:
+        shape:
+          type: string
+          enum: [menu, yes-no, awaiting-input, stall, quota]
+        options:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+            required: [label, send]
+            properties:
+              label: { type: string }
+              send: { type: string }
+        tail:
+          type: array
+          items: { type: string }
+        quotaKind:
+          type: string
+          enum: [rework, review, error, plan]
+        authUrl: { type: string }
+    AutoMergeStatus:
+      type: object
+      additionalProperties: true
+      required: [repoPath, enabled, state, detail, sessionId]
+      properties:
+        repoPath: { type: string }
+        enabled: { type: boolean }
+        state: { type: [string, "null"] }
+        detail: { type: [string, "null"] }
+        sessionId: { type: [string, "null"] }
+    LimitWindow:
+      type: object
+      additionalProperties: true
+      required: [pct, resetAt]
+      properties:
+        pct: { type: number }
+        resetAt: { type: integer }
+    ModelWeekWindow:
+      type: object
+      additionalProperties: true
+      required: [model, pct, resetAt, scrapedAt, stale]
+      properties:
+        model: { type: string }
+        pct: { type: number }
+        resetAt: { type: [integer, "null"] }
+        scrapedAt: { type: integer }
+        stale: { type: boolean }
+    CreditWindow:
+      type: object
+      additionalProperties: true
+      required: [pct, spent, cap, currency, resetAt, scrapedAt, stale]
+      properties:
+        pct: { type: number }
+        spent: { type: number }
+        cap: { type: number }
+        currency: { type: string }
+        resetAt: { type: [integer, "null"] }
+        scrapedAt: { type: integer }
+        stale: { type: boolean }
+    UsageLimits:
+      type: object
+      additionalProperties: true
+      required: [session5h, week, perModelWeek, credits, stale, calibratedAt, subscriptionOnly]
+      properties:
+        session5h:
+          oneOf:
+            - $ref: "#/components/schemas/LimitWindow"
+            - type: "null"
+        week:
+          oneOf:
+            - $ref: "#/components/schemas/LimitWindow"
+            - type: "null"
+        perModelWeek:
+          type: array
+          items:
+            $ref: "#/components/schemas/ModelWeekWindow"
+        credits:
+          oneOf:
+            - $ref: "#/components/schemas/CreditWindow"
+            - type: "null"
+        stale: { type: boolean }
+        calibratedAt: { type: [integer, "null"] }
+        subscriptionOnly: { type: boolean }
   responses:
     Unauthorized:
       description: Missing or invalid credential.
@@ -663,11 +750,70 @@ paths:
                 $ref: "#/components/schemas/RepoList"
         "401":
           $ref: "#/components/responses/Unauthorized"
-x-shepherd-events: {}
+x-shepherd-events:
+  description: 'WebSocket /events. Same auth gate as HTTP (send Authorization on the upgrade). Every frame is {"event": string, "data": object}. Client may send {"type":"presence","active":boolean}; the server never replies to it.'
+  session:new:
+    description: A session row was created (also on relaunch and terminal create).
+    schema:
+      $ref: "#/components/schemas/Session"
+  session:status:
+    description: Status changed. May carry the whole Session or only id+status.
+    schema:
+      type: object
+      additionalProperties: true
+      required: [id, status]
+      properties:
+        id: { type: string }
+        status:
+          $ref: "#/components/schemas/SessionStatus"
+        hasScratchpadFiles: { type: boolean }
+  session:renamed:
+    schema:
+      type: object
+      additionalProperties: true
+      required: [id, name, branch]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        branch: { type: [string, "null"] }
+  session:archived:
+    schema:
+      type: object
+      additionalProperties: true
+      required: [id]
+      properties:
+        id: { type: string }
+  session:block:
+    description: Agent is waiting on the operator (block != null) or unblocked (null).
+    schema:
+      type: object
+      additionalProperties: true
+      required: [id, block]
+      properties:
+        id: { type: string }
+        block:
+          oneOf:
+            - $ref: "#/components/schemas/BlockReason"
+            - type: "null"
+  session:ready:
+    schema:
+      type: object
+      additionalProperties: true
+      required: [id, ready]
+      properties:
+        id: { type: string }
+        ready: { type: boolean }
+  automerge:status:
+    schema:
+      $ref: "#/components/schemas/AutoMergeStatus"
+  usage:limits:
+    schema:
+      $ref: "#/components/schemas/UsageLimits"
 x-shepherd-pty:
+  description: WebSocket /pty/{id}?cols=&rows=. Same auth gate as HTTP. Server→client frames are raw terminal bytes (binary or text). Client→server text frames are keystrokes, except frames starting with resizePrefix which carry "<cols>:<rows>\n". One owner per terminal id; a new attach closes the previous socket with closeCodes.superseded. closeCodes.gone means the session no longer has a live agent.
   path: /pty/{id}
   query: [cols, rows]
-  resizeFrame: "\0resize:<cols>:<rows>\n"
+  resizePrefix: "\u0000resize:"
   closeCodes:
     superseded: 4000
     gone: 4001

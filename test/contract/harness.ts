@@ -9,14 +9,22 @@ import { makeContractDeps, type ContractDeps } from "./deps";
 export interface Contract {
   paths: Record<string, PathItem>;
   components: { schemas: Record<string, unknown> };
-  "x-shepherd-events": Record<string, { description?: string; schema: unknown }>;
+  /** Event name → declaration, plus the block-level `description` key, whose value is a plain
+   *  string. `declaredEvents()`/`validateEvent()` skip that key. */
+  "x-shepherd-events": Record<string, EventDecl | string>;
   "x-shepherd-pty": {
     path: string;
     query: string[];
-    resizeFrame: string;
+    resizePrefix: string;
     closeCodes: { superseded: number; gone: number };
   };
 }
+interface EventDecl {
+  description?: string;
+  schema: unknown;
+}
+/** The one non-event key inside `x-shepherd-events` (it documents the socket, not a frame). */
+const EVENTS_DESCRIPTION_KEY = "description";
 interface ResponseDecl {
   content?: { "application/json": { schema: unknown } };
 }
@@ -123,7 +131,10 @@ export async function validateResponse(
 
 export function validateEvent(name: string, data: unknown): void {
   const contract = loadContract();
-  if (!contract["x-shepherd-events"][name]) throw new Error(`contract has no event ${name}`);
+  const decl = contract["x-shepherd-events"][name];
+  if (name === EVENTS_DESCRIPTION_KEY || typeof decl === "string" || !decl) {
+    throw new Error(`contract has no event ${name}`);
+  }
   const fn = compileRef(`#/x-shepherd-events/${pointerSegment(name)}/schema`);
   if (!fn(data)) fail(`event ${name} payload violates contract`, fn.errors);
   coveredEvents.add(name);
@@ -172,7 +183,9 @@ export function declaredOperations(): string[] {
 }
 
 export function declaredEvents(): string[] {
-  return Object.keys(loadContract()["x-shepherd-events"]);
+  return Object.keys(loadContract()["x-shepherd-events"]).filter(
+    (k) => k !== EVENTS_DESCRIPTION_KEY,
+  );
 }
 
 /** Secured operations: everything without an explicit `security: []`. */
@@ -251,4 +264,32 @@ export async function mintToken(
 
 export function bearer(token: string): Record<string, string> {
   return { authorization: `Bearer ${token}` };
+}
+
+/** Opens /events with a bearer token, runs `drive`, resolves with every frame received until
+ *  `settleMs` of silence after drive() returns. The socket is always closed, so a failing
+ *  assertion downstream can't leave a dangling subscription behind. */
+export async function collectEvents(
+  s: ContractServer,
+  token: string,
+  drive: () => Promise<void>,
+  settleMs = 150,
+): Promise<{ event: string; data: unknown }[]> {
+  const frames: { event: string; data: unknown }[] = [];
+  // Bun's WebSocket constructor takes `{ headers }` as its second argument; the DOM lib typing
+  // this repo compiles against does not know about it.
+  const ws = new WebSocket(`${s.wsUrl}/events`, { headers: bearer(token) } as never);
+  await new Promise<void>((resolve, reject) => {
+    ws.onopen = () => resolve();
+    ws.onerror = (e) => reject(new Error(`events ws error: ${String(e)}`));
+  });
+  try {
+    ws.onmessage = (m) => frames.push(JSON.parse(String(m.data)));
+    ws.send(JSON.stringify({ type: "presence", active: true }));
+    await drive();
+    await new Promise((r) => setTimeout(r, settleMs));
+  } finally {
+    ws.close();
+  }
+  return frames;
 }

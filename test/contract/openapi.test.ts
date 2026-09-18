@@ -4,9 +4,13 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { config } from "../../src/config";
 import { firstRun } from "../../src/first-run";
 import { SESSION_COOKIE } from "../../src/operator-auth";
+import { RESIZE_PREFIX } from "../../src/operator-activity";
+import { PTY_GONE_CODE, PTY_SUPERSEDED_CODE } from "../../src/server";
 import { WorktreeMissingBaseError } from "../../src/worktree";
+import * as fx from "./event-fixtures";
 import {
   bearer,
+  collectEvents,
   coverage,
   declaredEvents,
   declaredOperations,
@@ -16,6 +20,7 @@ import {
   restoreAuth,
   securedOperations,
   startContractServer,
+  validateEvent,
   validateResponse,
   withAuth,
   type ContractServer,
@@ -356,6 +361,78 @@ describe("repos", () => {
       repos: { path: string }[];
     };
     expect(body.repos.map((r) => r.path)).toContain(s.validRepo);
+  });
+});
+
+describe("realtime /events", () => {
+  test("upgrade requires auth", async () => {
+    // checkAuth runs in `fetch`, before server.upgrade — an anonymous client never gets an open
+    // socket. Bun surfaces the rejected handshake as `error`, then `close`; either proves the gate.
+    const closed = await new Promise<boolean>((resolve) => {
+      const ws = new WebSocket(`${s.wsUrl}/events`);
+      ws.onerror = () => resolve(true);
+      ws.onclose = () => resolve(true);
+      ws.onopen = () => {
+        ws.close();
+        resolve(false);
+      };
+    });
+    expect(closed).toBe(true);
+  });
+
+  test("real session:new and session:archived frames match the contract", async () => {
+    const declared = new Set(declaredEvents());
+    let id = "";
+    const frames = await collectEvents(s, token, async () => {
+      const res = await fetch(`${s.baseUrl}/api/sessions`, {
+        method: "POST",
+        headers: { "content-type": "application/json", ...bearer(token) },
+        body: JSON.stringify({ repoPath: s.validRepo, baseBranch: "main", prompt: "events" }),
+      });
+      id = ((await res.json()) as { id: string }).id;
+      await fetch(`${s.baseUrl}/api/sessions/${id}`, {
+        method: "DELETE",
+        headers: bearer(token),
+      });
+    });
+    const names = frames.map((f) => f.event);
+    expect(names).toContain("session:new");
+    expect(names).toContain("session:archived");
+    // Everything the real server pushed that the contract declares must match it; frames for
+    // undeclared events (the native client ignores them) are not the contract's business.
+    for (const f of frames) if (declared.has(f.event)) validateEvent(f.event, f.data);
+  });
+
+  test("typed fixtures for herdr-driven events pass through the hub unchanged", async () => {
+    const emits: [string, unknown][] = [
+      ["session:status", fx.statusEvent],
+      ["session:renamed", fx.renamedEvent],
+      ["session:block", fx.blockEvent],
+      ["session:block", fx.unblockEvent],
+      ["session:ready", fx.readyEvent],
+      ["automerge:status", fx.automergeEvent],
+      ["usage:limits", fx.usageEvent],
+    ];
+    const frames = await collectEvents(s, token, async () => {
+      for (const [name, data] of emits) s.deps.events.emit(name, data);
+    });
+    for (const [name, data] of emits) {
+      const seen = frames.find(
+        (f) => f.event === name && JSON.stringify(f.data) === JSON.stringify(data),
+      );
+      expect(seen, `frame ${name} not received`).toBeTruthy();
+      validateEvent(name, seen!.data);
+    }
+  });
+});
+
+describe("realtime /pty protocol constants", () => {
+  test("contract constants equal the server's", () => {
+    const pty = loadContract()["x-shepherd-pty"];
+    expect(pty.closeCodes.superseded).toBe(PTY_SUPERSEDED_CODE);
+    expect(pty.closeCodes.gone).toBe(PTY_GONE_CODE);
+    expect(pty.resizePrefix).toBe(RESIZE_PREFIX);
+    expect(pty.path).toBe("/pty/{id}");
   });
 });
 

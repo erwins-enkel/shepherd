@@ -80,7 +80,14 @@ The second is the dangerous one: an opt-out flag set to `false` stays **enabled*
 
 ### 2.3 Numeric parsing fails open, sometimes to `NaN`
 
-The 16 `SHEPHERD_LEARNINGS_*` vars (`src/learnings-lifecycle.ts:19–46`) use bare `Number(process.env.X ?? default)` with **no finite check** — a typo yields `NaN`, silently. Same pattern for `SHEPHERD_PORT`, `SHEPHERD_AGENT_INGRESS_PORT`, `SHEPHERD_PUSH_COOLDOWN_MS`, `SHEPHERD_AUTOMERGE_REBASE_CAP`, and the `SHEPHERD_PREVIEW_PORT_*` family.
+**14 of the 16** `SHEPHERD_LEARNINGS_*` vars use bare `Number(process.env.X ?? default)` with **no finite check** — a typo yields `NaN`, silently. Same pattern for `SHEPHERD_PORT`, `SHEPHERD_AGENT_INGRESS_PORT`, `SHEPHERD_PUSH_COOLDOWN_MS`, `SHEPHERD_AUTOMERGE_REBASE_CAP`, and the `SHEPHERD_PREVIEW_PORT_*` family.
+
+The two exceptions are worth naming, because one of them is the pattern the rest should follow:
+
+- `SHEPHERD_LEARNINGS_AUTO_TRIAL` (`src/learnings-lifecycle.ts:16`) is a boolean kill-switch (`!== "0"`), so it belongs to §2.2's problem, not this one.
+- `SHEPHERD_LEARNINGS_PRUNE_DAYS` (`src/learnings-lifecycle.ts:33–36`) **is** validated, via `resolveProposedRetentionDays` (`:229–238`): it requires `Number.isFinite(parsed) && parsed > 0`, emits a `console.warn` naming the bad value, and falls back. Neither unchecked nor silent.
+
+That exception matters for scoping: Shepherd already has an in-repo precedent for exactly the "validate, warn visibly, fall back" behaviour a schema would generalise — `@type=number` would extend it to the other 14 rather than introduce a foreign idea.
 
 There are also **two different `envNum` helpers with incompatible signatures** — `src/house-rules.ts:34` takes a var _name_, `src/tmp-sweep.ts:42` takes a _value_.
 
@@ -90,7 +97,7 @@ The only startup hard-fails today are the port-range validators (`validatePrevie
 
 `configuration.md` is 423 lines of genuinely good, richly-cited prose covering 70 vars. It is kept current by `src/doc-agent.ts` — a nightly PR-gated documentation agent explicitly instructed to ground itself in _"`src/config.ts` — environment variables (names, defaults, behavior)"_ (`src/doc-agent.ts:1726`).
 
-There is **no mechanical check**. `scripts/check-generated-docs.sh` gates only the herdr CLI reference; `check:glossary`, `check:feature-catalog`, `check:model-mirror` cover other artifacts. Nothing asserts config.ts ↔ configuration.md parity. The result is 88 undocumented vars, including every role triple (`SHEPHERD_CRITIC_*`, `SHEPHERD_PLANNER_*`, `SHEPHERD_AUTOPILOT_*`, …), all 16 `SHEPHERD_LEARNINGS_*`, `SHEPHERD_AUTH_MODE`, and `SHEPHERD_DEFAULT_MODEL`.
+There is **no mechanical check**. `scripts/check-generated-docs.sh` gates only the herdr CLI reference; `check:glossary`, `check:feature-catalog`, `check:model-mirror` cover other artifacts. Nothing asserts config.ts ↔ configuration.md parity. The result is 88 undocumented vars, including every role triple (`SHEPHERD_CRITIC_*`, `SHEPHERD_PLANNER_*`, `SHEPHERD_AUTOPILOT_*`, …), 14 of the 16 `SHEPHERD_LEARNINGS_*` (the same two exceptions as §2.3 — `AUTO_TRIAL` and `PRUNE_DAYS` — are the documented ones), `SHEPHERD_AUTH_MODE`, and `SHEPHERD_DEFAULT_MODEL`.
 
 This is exactly `varlock audit`'s job: it exits `1` on drift in either direction — **missing in schema** (used in code, undeclared) and **unused in schema** (declared, no longer referenced).
 

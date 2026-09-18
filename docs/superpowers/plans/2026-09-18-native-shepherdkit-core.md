@@ -4,7 +4,7 @@
 
 **Goal:** Ship `native/`, a Swift package whose `ShepherdKit` library lets a SwiftUI app connect to a Shepherd server, log in, mint and store a token, stream `/events`, keep a live session list, and resolve first run — generated entirely from the contract.
 
-**Architecture:** `swift-openapi-generator` runs as an SPM **build plugin** over a copy of `contracts/openapi.swift.yaml` — the generator-friendly document that `bun run gen:contract-swift` derives from the truth file `contracts/openapi.yaml` — so the generated `Client`/`Components.Schemas` are regenerated on every build and never committed. `ShepherdClient` wraps that generated client with an auth middleware (Bearer from a `CredentialStore`) and a retry middleware, and maps every documented response case onto a `ShepherdError`. `EventStream` is a `URLSessionWebSocketTask` actor that decodes the generated `EventEnvelope`, switches on the generated `EventName`, and yields a `ServerEvent` enum whose payloads are all generated types. `SessionStore` is an `@Observable @MainActor` store that bootstraps from three GETs and then applies events with the same semantics as `ui/src/lib/store.svelte.ts::apply`.
+**Architecture:** `swift-openapi-generator` runs as an SPM **build plugin** over a copy of `contracts/openapi.swift.yaml` — the generator-friendly document that `bun run gen:contract-swift` derives from the truth file `contracts/openapi.yaml` — so the generated `Client`/`Components.Schemas` are regenerated on every build and never committed. `ShepherdClient` wraps that generated client with an auth middleware (Bearer from a `CredentialStore`) and a retry middleware, and maps every documented response case onto a `ShepherdError`. `EventStream` is a `URLSessionWebSocketTask` actor that decodes the generated `EventEnvelope`, switches on the generated `EventName`, and yields a `ServerEvent` enum whose payloads are all generated types. `SessionStore` is an `@Observable @MainActor` store that bootstraps from three GETs and then applies events with the same semantics as `ui/src/lib/store.svelte.ts::apply`; it also owns the connection model (`ConnectionState`, `start()`, `stop()`) so the apps render a state instead of re-deriving one from errors. It ships in two PRs: the package skeleton plus CI first, the client, realtime and store second.
 
 **Tech Stack:** Swift 6.1 tools / Swift 6 language mode, `swift-openapi-generator` 1.13.1, `swift-openapi-runtime` 1.12.1, `swift-openapi-urlsession` 1.3.1, `swift-testing`, `Network.framework` (`NWListener` + `NWProtocolWebSocket`) for the fake `/events` server, `Security.framework` for the Keychain.
 
@@ -21,8 +21,11 @@
 - **"Logging. `os.Logger` subsystems `run.shepherd.kit`."** Every log call in this package uses subsystem `run.shepherd.kit`. Never log a token, a password or a prompt body.
 - **Toolchain:** Xcode 26.6 / Swift 6.3.3 on the operator's machine (`swift --version` → `Apple Swift version 6.3.3`). CI needs Swift 6.1+ because all three Apple dependencies ship `// swift-tools-version:6.1`.
 - **Commits:** conventional commits with lowercase subjects (`feat(native): …`, `test(native): …`, `fix(contract): …`, `ci(native): …`). End every commit body with `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`.
-- **Branch:** `feat/native-shepherdkit`, cut from `origin/main`. Never `git merge main` into it; rebase. One feature per branch.
-- **CI:** a new `.github/workflows/native.yml` job on `macos-latest` running `swift build`, `swift test` and a generated-code freshness check (Task 12 defines it concretely).
+- **Two PRs, two branches.** This plan ships in two pieces so the app-shell plan (sub-project 4a) can start against a real package instead of a bootstrapped stand-in, and so `native/Package.swift` is authored exactly once, by this plan, before anything else references it.
+  - **PR 1 — branch `feat/native-shepherdkit`, cut from `origin/main`.** Tasks 1–2: the package skeleton, the generated client, the `OpenEnum` facade, `PublicTypes`, the generated-types tests, **`ServerProfile` and its remote-URL security policy**, and `.github/workflows/native.yml` (so CI exists from the very first PR). Title: `feat(native): shepherdkit package skeleton and generated client`. Task 2 ends with the PR and a **merge gate**. `ServerProfile` is in this PR on purpose: sub-project 4a's profile persistence and welcome flow need that one value type and nothing else from the kit, so shipping it in the skeleton unblocks 4a a whole PR earlier.
+  - **PR 2 — branch `feat/native-shepherdkit-core`, cut fresh from `origin/main` after PR 1 merges.** Tasks 3–12: credentials, errors, middlewares, the fake servers, `ShepherdClient`, `ProfileSetup`, `ServerEvent`, `EventStream`, `SessionStore`, the README and the CLAUDE.md entry. Title: `feat(native): ShepherdKit core — client, auth, events, session store`.
+  - Never branch PR 2 off PR 1's branch, and never `git merge main` into either; rebase. One feature per branch.
+- **CI:** `.github/workflows/native.yml`, one job named `shepherdkit` on `macos-latest` running the contract freshness checks, `swift build` and `swift test`. **Task 2 creates it** (PR 1). Sub-project 4a later *appends* app steps to that same job and adds a second job of its own; nothing in this plan renames or restructures it.
 - **NOT in this sub-project:** `PTYConnection`, SwiftTerm, any Xcode app target, any SwiftUI view, localisation/`gen-strings.sh`, `ShepherdLocalServer`. Those are 2b/3/4.
 - Run the Swift suite with `swift test --package-path native`. The repo's `bun run test` rule applies to the Bun packages; Task 1 touches `contracts/` and runs `bun run test:contract` from the repo root.
 
@@ -40,7 +43,7 @@
 | `native/Sources/ShepherdKit/Model/PublicTypes.swift` | Short public typealiases (`Session`, `Settings`, …) over `Components.Schemas.*`. |
 | `native/Sources/ShepherdKit/openapi-generator-config.yaml` | `generate: [types, client]`, `accessModifier: public`, `namingStrategy: idiomatic`. |
 | `native/Sources/ShepherdKit/Logging.swift` | `ShepherdLog` — the `os.Logger` instances for subsystem `run.shepherd.kit`. |
-| `native/Sources/ShepherdKit/Model/ServerProfile.swift` | `ServerProfile` value type + the remote-URL security policy. |
+| `native/Sources/ShepherdKit/Model/ServerProfile.swift` | `ServerProfile` value type + the remote-URL security policy. Created in **Task 2** (PR 1), so sub-project 4a gets it at Gate 1. |
 | `native/Sources/ShepherdKit/Model/ShepherdError.swift` | `ShepherdError` + mapping from generated outputs and thrown `ClientError`s. |
 | `native/Sources/ShepherdKit/Credentials/CredentialStore.swift` | `StoredCredential` + the `CredentialStore` protocol. |
 | `native/Sources/ShepherdKit/Credentials/InMemoryCredentialStore.swift` | Lock-guarded in-memory implementation for tests and previews. |
@@ -56,8 +59,8 @@
 | `native/Tests/ShepherdKitTests/Fixtures.swift` | JSON fixture strings and generated-type builders shared by the tests. |
 | `native/Tests/ShepherdKitTests/FakeEventServer.swift` | `NWListener` + `NWProtocolWebSocket` in-process `/events` server. |
 | `native/Tests/ShepherdKitTests/*Tests.swift` | One file per unit under test. |
-| `native/README.md` | What the package is, how the contract gets in, how to regenerate, how to run the tests. |
-| `.github/workflows/native.yml` | `macos-latest`: contract freshness, `swift build`, `swift test`. |
+| `native/README.md` | What the package is, how the contract gets in, how to regenerate, how to run the tests. Written in Task 12 (PR 2); sub-project 4a appends a Mac-app section to it. |
+| `.github/workflows/native.yml` | `macos-latest`, job `shepherdkit`: contract freshness, `swift build`, `swift test`. Created in **Task 2** (PR 1) so CI gates the very first PR. |
 
 ---
 
@@ -70,7 +73,7 @@ The generator ships two plugins. The **build plugin** (`plugins: [.plugin(name: 
 - the generator's own docs state "The number and names of generated files are _not_ considered to be stable, and can change at any time", so a committed snapshot churns on every dependency bump (1.13.1 already split `Types.swift` into eight files);
 - with the command plugin and no build plugin attached, SwiftPM emits `found 2 file(s) which are unhandled` for `openapi.yaml`/`openapi-generator-config.yaml`, and `exclude:`-ing them breaks the command plugin, which reads them from `target.sourceFiles`.
 
-The spec's CI intent is realised as `bun run check:contract-swift` (the derived contract still matches the truth file) **plus** `native/scripts/sync-contract.sh --check` (the copy inside the target still matches the derived contract) **plus** `swift build` + `swift test` on `macos-latest`. Task 12 implements all four.
+The spec's CI intent is realised as `bun run check:contract-swift` (the derived contract still matches the truth file) **plus** `native/scripts/sync-contract.sh --check` (the copy inside the target still matches the derived contract) **plus** `swift build` + `swift test` on `macos-latest`. **Task 2** implements all four, in PR 1, so no ShepherdKit code ever merges without them.
 
 **2. The contract reaches the target by copy, not symlink.**
 The build plugin filters `swiftTarget.sourceFiles` by last path component for exactly one of `openapi.yaml|openapi.yml|openapi.json`. A committed real file is guaranteed to enumerate, keeps `swift build --package-path native` working from a source tarball, and gives CI a literal byte-diff to gate on. A symlink adds a resolution risk for no benefit.
@@ -89,7 +92,39 @@ Sub-project 1 resolved this with two files. `contracts/openapi.yaml` stays the t
 
 ---
 
+## Task order and the two PRs
+
+| # | Task | PR / branch |
+| --- | --- | --- |
+| 1 | Branch, and verify the derived Swift contract | **PR 1** — `feat/native-shepherdkit` |
+| 2 | Swift package skeleton, generated client, public facade, **`ServerProfile`**, **and `native.yml`** — ends with PR 1 and a merge gate | **PR 1** |
+| 3 | `CredentialStore` — **starts a new branch cut from `origin/main`** | **PR 2** — `feat/native-shepherdkit-core` |
+| 4 | `ShepherdError` and the two middlewares | PR 2 |
+| 5 | `FakeShepherdServer` | PR 2 |
+| 6 | `ShepherdClient` — construction and reads | PR 2 |
+| 7 | `ShepherdClient` — writes | PR 2 |
+| 8 | `ProfileSetup` — login, token mint, logout | PR 2 |
+| 9 | `ServerEvent` | PR 2 |
+| 10 | `EventStream` and the fake `/events` server | PR 2 |
+| 11 | `SessionStore` and `ConnectionState` | PR 2 |
+| 12 | README, CLAUDE.md and the PR | PR 2 |
+
+Why the split, in one line: sub-project 4a's Xcode project must depend on a real
+`native/Package.swift` with a `ShepherdKit` library product, and two plans authoring that file
+in parallel would collide. PR 1 lands it — plus CI **and `ServerProfile`** — before 4a cuts its
+branch; PR 2 fills the package in while 4a builds views against the generated types.
+
+**PR 1 exports `ServerProfile`.** Alongside the generated types, the `OpenEnum` facade and the
+public typealiases, PR 1 ships `ServerProfile`, `ServerProfile.Mode`, `ServerProfileError` and
+the `validated()` / `requireSecureRemote(_:)` policy (Task 2, Steps 15–19). Sub-project 4a's
+Gate 1 therefore covers profile persistence and the remote-server form; only `CredentialStore`,
+`ShepherdClient`, `ProfileSetup`, `EventStream` and `SessionStore` wait for PR 2.
+
+---
+
 ### Task 1: Branch, and verify the derived Swift contract
+
+**PR:** 1 (`feat/native-shepherdkit`).
 
 **Files:** none created or modified. This task is a gate: it proves sub-project 1's derived contract is present and usable before any Swift is written against it.
 
@@ -158,18 +193,24 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ---
 
-### Task 2: Swift package skeleton, generated client, and the public facade
+### Task 2: Swift package skeleton, generated client, the public facade, `ServerProfile`, and CI
+
+**PR:** 1 (`feat/native-shepherdkit`). **This task ends the first PR** — it opens it and then
+stops at a merge gate. Nothing in Tasks 3–12 may be written on this branch.
 
 **Files:**
 - Create: `native/Package.swift`
+- Create: `.github/workflows/native.yml`
 - Create: `native/scripts/sync-contract.sh`
 - Create: `native/Sources/ShepherdKit/openapi.yaml` (copied, never hand-written)
 - Create: `native/Sources/ShepherdKit/openapi-generator-config.yaml`
 - Create: `native/Sources/ShepherdKit/Logging.swift`
 - Create: `native/Sources/ShepherdKit/Model/OpenEnum.swift`
 - Create: `native/Sources/ShepherdKit/Model/PublicTypes.swift`
+- Create: `native/Sources/ShepherdKit/Model/ServerProfile.swift`
 - Create: `native/Tests/ShepherdKitTests/GeneratedContractTests.swift`
 - Create: `native/Tests/ShepherdKitTests/Fixtures.swift`
+- Create: `native/Tests/ShepherdKitTests/ServerProfileTests.swift`
 - Create: `native/.gitignore`
 
 **Interfaces:**
@@ -180,6 +221,9 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Produces: `public protocol OpenEnum` with `associatedtype Known: RawRepresentable & Hashable & Sendable where Known.RawValue == String`, `var value1: Known? { get }`, `var value2: String? { get }`, `init(value1: Known?, value2: String?)`; and the extension members `var known: Known?`, `var rawValue: String`, `init(known: Known)`, `init(unknown raw: String)`.
 - Produces the public typealiases every later task and the app shell use: `Session`, `Settings`, `Repo`, `RepoList`, `HeldTask`, `SessionStatus`, `SessionStatusKnown`, `HerdrStateKnown`, `SessionArchiveReasonKnown`, `ExperimentRoleKnown`, `EventNameKnown`, `CreateSessionRequest`, `AgentProvider`, `Effort`, `Health`.
 - Produces: `Fixtures.session(id:name:desig:status:readyToMerge:branch:)`, `.sessionJSON(id:name:)`, `.settings(firstRunPending:repoRoot:)`, `.repoList()`, `.health(version:)`, `.json(_:)`, `.errorJSON(_:code:)`.
+- Produces: `public struct ServerProfile: Codable, Hashable, Sendable, Identifiable` with `public let id: UUID`, `public var name: String`, `public var baseURL: URL`, `public var mode: ServerProfile.Mode`, `public var credentialKey: String`; `public enum Mode: String, Codable, Hashable, Sendable { case local, remote }`; `public init(id: UUID = UUID(), name: String, baseURL: URL, mode: Mode, credentialKey: String? = nil)`; `public static func requireSecureRemote(_ url: URL) throws`; `@discardableResult public func validated() throws -> ServerProfile`.
+- Produces: `public enum ServerProfileError: Error, Equatable, Sendable { case insecureRemoteURL(String); case missingHost }`.
+- Produces: `.github/workflows/native.yml` with exactly one job, `shepherdkit`, on `macos-latest`. Sub-project 4a appends steps to that job by name and adds a second job; the job key, the workflow name and the `on:` filter are fixed here and must not change afterwards.
 
 - [ ] **Step 1: Write the contract sync script**
 
@@ -675,28 +719,11 @@ reaches callers. macOS 15 / iOS 18, Swift 6 language mode.
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```
 
----
+- [ ] **Step 15: Write the failing `ServerProfile` tests**
 
-### Task 3: ServerProfile and CredentialStore
-
-**Files:**
-- Create: `native/Sources/ShepherdKit/Model/ServerProfile.swift`
-- Create: `native/Sources/ShepherdKit/Credentials/CredentialStore.swift`
-- Create: `native/Sources/ShepherdKit/Credentials/InMemoryCredentialStore.swift`
-- Create: `native/Sources/ShepherdKit/Credentials/KeychainCredentialStore.swift`
-- Create: `native/Tests/ShepherdKitTests/ServerProfileTests.swift`
-- Create: `native/Tests/ShepherdKitTests/CredentialStoreTests.swift`
-
-**Interfaces:**
-- Consumes: `ShepherdLog` from Task 2.
-- Produces: `public struct ServerProfile: Codable, Hashable, Sendable, Identifiable` with `public let id: UUID`, `public var name: String`, `public var baseURL: URL`, `public var mode: ServerProfile.Mode`, `public var credentialKey: String`; `public enum Mode: String, Codable, Hashable, Sendable { case local, remote }`; `public init(id: UUID = UUID(), name: String, baseURL: URL, mode: Mode, credentialKey: String? = nil)`; `public static func requireSecureRemote(_ url: URL) throws`; `@discardableResult public func validated() throws -> ServerProfile`.
-- Produces: `public enum ServerProfileError: Error, Equatable, Sendable { case insecureRemoteURL(String); case missingHost }`.
-- Produces: `public struct StoredCredential: Codable, Hashable, Sendable { public let token: String; public let tokenId: String; public init(token: String, tokenId: String) }`.
-- Produces: `public protocol CredentialStore: Sendable { func load(for key: String) throws -> StoredCredential?; func save(_ credential: StoredCredential, for key: String) throws; func delete(for key: String) throws }`.
-- Produces: `public final class InMemoryCredentialStore: CredentialStore, @unchecked Sendable { public init(); public init(seed: [String: StoredCredential]) }`.
-- Produces: `public struct KeychainCredentialStore: CredentialStore, Sendable { public init(service: String = ShepherdLog.subsystem) }` and `public enum KeychainError: Error, Equatable { case unexpectedStatus(OSStatus); case malformedItem }`.
-
-- [ ] **Step 1: Write the failing profile tests**
+`ServerProfile` ships in this PR, not in PR 2, because sub-project 4a's profile persistence and
+remote-server form need this one value type and nothing else from the kit. It depends only on
+`Foundation`, so it compiles against the skeleton.
 
 Create `native/Tests/ShepherdKitTests/ServerProfileTests.swift`:
 
@@ -739,6 +766,13 @@ struct ServerProfileTests {
     try ServerProfile.requireSecureRemote(URL(string: "http://mac-mini.tail1234.ts.net:7330")!)
   }
 
+  @Test("a ts.net suffix only counts on a label boundary")
+  func tailnetSuffixNeedsALabelBoundary() {
+    #expect(throws: ServerProfileError.insecureRemoteURL("evilts.net")) {
+      try ServerProfile.requireSecureRemote(URL(string: "http://evilts.net")!)
+    }
+  }
+
   @Test("a hostless URL is rejected")
   func hostlessRejected() {
     #expect(throws: ServerProfileError.missingHost) {
@@ -767,12 +801,12 @@ struct ServerProfileTests {
 }
 ```
 
-- [ ] **Step 2: Run it and watch it fail**
+- [ ] **Step 16: Run it and watch it fail**
 
 Run: `swift test --package-path native --filter ServerProfile`
 Expected: FAIL — `error: cannot find 'ServerProfile' in scope`.
 
-- [ ] **Step 3: Implement ServerProfile**
+- [ ] **Step 17: Implement `ServerProfile`**
 
 Create `native/Sources/ShepherdKit/Model/ServerProfile.swift`:
 
@@ -830,6 +864,8 @@ public struct ServerProfile: Codable, Hashable, Sendable, Identifiable {
     }
     if url.scheme?.lowercased() == "https" { return }
     if isLoopback(host) { return }
+    // `.ts.net` with the leading dot, so "evilts.net" and a bare "ts.net"
+    // do not pass as tailnet names.
     if host.lowercased().hasSuffix(".ts.net") { return }
     throw ServerProfileError.insecureRemoteURL(host)
   }
@@ -848,12 +884,257 @@ public struct ServerProfile: Codable, Hashable, Sendable, Identifiable {
 }
 ```
 
-- [ ] **Step 4: Run the profile tests**
+`ServerProfile`, `ServerProfile.Mode` and `ServerProfileError` are hand-written top-level public
+types, so they get **no** typealias in `PublicTypes.swift` — a typealias of a type to itself does
+not compile. They are listed in that file's hand-written-types index comment, which Task 11
+Step 4 adds in one block once every hand-written type exists.
+
+- [ ] **Step 18: Run the profile tests**
 
 Run: `swift test --package-path native --filter ServerProfile`
-Expected: PASS — 8 tests (the loopback case runs three times), 0 failures.
+Expected: PASS — 9 tests (the loopback case runs three times), 0 failures.
 
-- [ ] **Step 5: Write the failing credential-store tests**
+- [ ] **Step 19: Commit `ServerProfile`**
+
+```bash
+git add native/Sources/ShepherdKit/Model/ServerProfile.swift native/Tests/ShepherdKitTests/ServerProfileTests.swift
+git commit -m "feat(native): server profile value type and remote url policy
+
+ServerProfile carries the https-unless-loopback-or-tailnet policy. It ships in
+the skeleton PR because sub-project 4a's profile persistence and remote-server
+form need this one value type and nothing else from the kit.
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
+```
+
+- [ ] **Step 20: Write the CI workflow**
+
+CI lands in this first PR, not at the end of the plan: the package and the generated client are
+exactly the things that can rot silently, and sub-project 4a will append its app steps to this
+job rather than author a competing workflow.
+
+Create `.github/workflows/native.yml`:
+
+```yaml
+name: native
+
+# ShepherdKit is generated from contracts/openapi.swift.yaml, so this job is the
+# gate that a contract change still produces code that compiles and passes.
+# Paths-filtered so a PR that touches neither the contract nor native/ does
+# not pay for a macOS runner.
+#
+# `ui/messages/*.json` is in the filter for sub-project 4a: the Mac app's string
+# catalog is generated from those files, and its freshness check lives in this
+# same job. Keep the entry even though nothing in ShepherdKit reads it.
+on:
+  pull_request:
+    branches: [main, "epic/**"]
+    paths:
+      - "native/**"
+      - "contracts/**"
+      - "scripts/gen-contract-swift.ts"
+      - "ui/messages/*.json"
+      - ".github/workflows/native.yml"
+  push:
+    branches: [main]
+    paths:
+      - "native/**"
+      - "contracts/**"
+      - "scripts/gen-contract-swift.ts"
+      - "ui/messages/*.json"
+      - ".github/workflows/native.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Job key `shepherdkit` is load-bearing: sub-project 4a appends the Shepherd.app
+  # build, signature check and unit-test steps to THIS job. Do not rename it.
+  shepherdkit:
+    name: ShepherdKit
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Report the toolchain
+        run: |
+          swift --version
+          xcodebuild -version
+
+      # The three Apple OpenAPI packages all ship swift-tools-version:6.1, so
+      # an older default Xcode on the runner would fail with a confusing
+      # manifest error instead of a clear one.
+      - name: Require Swift 6.1 or newer
+        run: |
+          set -euo pipefail
+          version="$(swift -version 2>&1 | sed -n 's/.*Swift version \([0-9][0-9.]*\).*/\1/p' | head -1)"
+          echo "detected swift $version"
+          major="${version%%.*}"
+          rest="${version#*.}"
+          minor="${rest%%.*}"
+          if [ "$major" -lt 6 ] || { [ "$major" -eq 6 ] && [ "$minor" -lt 1 ]; }; then
+            echo "::error::Swift $version is too old; ShepherdKit needs 6.1+."
+            echo "Installed Xcodes:"; ls /Applications | grep -i '^Xcode' || true
+            echo "Pin a newer one with: sudo xcode-select -s /Applications/<Xcode>.app"
+            exit 1
+          fi
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: latest
+
+      - name: Install root deps
+        run: bun install --frozen-lockfile
+
+      # Gate 1: the derived Swift contract still matches the truth file.
+      # (Regenerates contracts/openapi.swift.yaml and runs git diff --exit-code.)
+      - name: Derived contract is current
+        run: bun run check:contract-swift
+
+      # Gate 2: the copy inside the ShepherdKit target still matches the
+      # derived contract. The generated Swift itself is never committed — the
+      # build plugin regenerates it every build, so it cannot go stale; these
+      # two copies are the only artefacts that CAN drift.
+      - name: Contract copy is in sync
+        run: ./native/scripts/sync-contract.sh --check
+
+      # Gate 3: the contract still generates code that compiles and passes.
+      - name: Build
+        run: swift build --package-path native
+
+      - name: Test
+        run: swift test --package-path native
+```
+
+- [ ] **Step 21: Prove the freshness gate actually fails**
+
+```bash
+printf '\n# drift\n' >> native/Sources/ShepherdKit/openapi.yaml
+./native/scripts/sync-contract.sh --check || echo "gate fired as expected"
+./native/scripts/sync-contract.sh
+./native/scripts/sync-contract.sh --check
+```
+
+Expected: the first `--check` prints a diff plus `sync-contract: native/Sources/ShepherdKit/openapi.yaml is stale.` followed by `gate fired as expected`; the final `--check` prints `sync-contract: up to date`.
+
+- [ ] **Step 22: Commit the workflow**
+
+```bash
+git add .github/workflows/native.yml
+git commit -m "ci(native): macos job for build, test and contract freshness
+
+Generated code is regenerated on every build so it cannot be stale; the gate
+is the synced contract copy plus a green build and suite. The job is named
+shepherdkit because sub-project 4a appends the Shepherd.app steps to it.
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
+```
+
+- [ ] **Step 23: Rebase, push and open PR 1**
+
+```bash
+git fetch origin main
+git rebase origin/main
+bun run check:contract-swift
+./native/scripts/sync-contract.sh --check
+swift build --package-path native
+swift test --package-path native
+git push -u origin feat/native-shepherdkit
+gh pr create --base main --title "feat(native): shepherdkit package skeleton and generated client" --body "$(cat <<'EOF'
+Sub-project 2a of docs/superpowers/specs/2026-09-18-native-macos-app-design.md, **PR 1 of 2**.
+
+The Swift package plus `ServerProfile`, and nothing else: no client, no
+credential store, no session store, no realtime. Those are PR 2
+(`feat/native-shepherdkit-core`). This PR exists on its own so that
+`native/Package.swift` is authored exactly once, and so sub-project 4a can cut
+its branch against a real package instead of bootstrapping a stand-in.
+
+- `native/Package.swift`: SPM package, macOS 15 / iOS 18, Swift 6 language mode,
+  `ShepherdKit` library product.
+- The OpenAPI **build plugin** regenerates `Client` and `Components.Schemas` on
+  every build from a synced copy of `contracts/openapi.swift.yaml`. Generated
+  code is not committed; the copy is. No change to either contract in this PR.
+- `Model/OpenEnum.swift`: the nine open enums arrive as the generator's `anyOf`
+  wrapper; `.known` and `.rawValue` hide it, so an unfamiliar server value
+  decodes instead of throwing.
+- `Model/PublicTypes.swift`: short typealiases (`Session`, `Settings`,
+  `SessionStatus`, `SessionStatusKnown`, …) over the generated schemas.
+- `Model/ServerProfile.swift`: `ServerProfile`, `ServerProfile.Mode`,
+  `ServerProfileError` and the `validated()` / `requireSecureRemote(_:)` policy —
+  https unless the host is loopback or a `.ts.net` name. It is in this PR rather
+  than PR 2 because sub-project 4a's profile persistence and remote-server form
+  need this one value type and nothing else from the kit.
+- `Logging.swift`: `os.Logger` under subsystem `run.shepherd.kit`.
+- `.github/workflows/native.yml`, job `shepherdkit` on `macos-latest`:
+  `check:contract-swift`, `sync-contract.sh --check`, `swift build`, `swift test`.
+
+Verified with `bun run check:contract-swift`, `./native/scripts/sync-contract.sh --check`,
+`swift build --package-path native` and `swift test --package-path native`.
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+EOF
+)"
+```
+
+- [ ] **Step 24: Merge gate — stop here**
+
+Do **not** start Task 3 on this branch. Report the PR URL to the orchestrator and wait for it to
+merge. Two other plans key off this merge: sub-project 4a's Gate 1, and Task 3 below, which cuts
+a fresh branch from `origin/main`.
+
+Expected before continuing:
+
+```bash
+git fetch origin main
+git log --oneline origin/main -1 -- native/Package.swift
+```
+
+Expected: a commit on `origin/main` touching `native/Package.swift`. If there is none, PR 1 has
+not merged — wait.
+
+---
+
+### Task 3: CredentialStore
+
+**PR:** 2 (`feat/native-shepherdkit-core`). **This task opens the second branch.** Task 2's PR
+must be on `origin/main` first (Task 2, Step 24).
+
+- [ ] **Step 0: Cut the second branch from `origin/main`**
+
+```bash
+cd /Users/kai.osthoff/githubrepos/shepherd
+git fetch origin main
+git log --oneline origin/main -1 -- native/Package.swift
+git checkout -b feat/native-shepherdkit-core origin/main
+swift build --package-path native
+swift test --package-path native
+```
+
+Expected: the `git log` line shows PR 1's merge commit; the new branch is cut from
+`origin/main`, **not** from `feat/native-shepherdkit`; build and tests are green before a line
+of new code exists. If `git log` prints nothing, PR 1 has not merged — **stop and tell the
+orchestrator**. Branching off PR 1's branch instead would drag its commits into PR 2's diff.
+
+**Files:**
+- Create: `native/Sources/ShepherdKit/Credentials/CredentialStore.swift`
+- Create: `native/Sources/ShepherdKit/Credentials/InMemoryCredentialStore.swift`
+- Create: `native/Sources/ShepherdKit/Credentials/KeychainCredentialStore.swift`
+- Create: `native/Tests/ShepherdKitTests/CredentialStoreTests.swift`
+
+**Interfaces:**
+- Consumes: `ShepherdLog` from Task 2. `ServerProfile` and `ServerProfileError` are already on `origin/main` from PR 1 (Task 2, Steps 15–19); this task neither writes nor edits them.
+- Produces: `public struct StoredCredential: Codable, Hashable, Sendable { public let token: String; public let tokenId: String; public init(token: String, tokenId: String) }`.
+- Produces: `public protocol CredentialStore: Sendable { func load(for key: String) throws -> StoredCredential?; func save(_ credential: StoredCredential, for key: String) throws; func delete(for key: String) throws }`.
+- Produces: `public final class InMemoryCredentialStore: CredentialStore, @unchecked Sendable { public init(); public init(seed: [String: StoredCredential]) }`.
+- Produces: `public struct KeychainCredentialStore: CredentialStore, Sendable { public init(service: String = ShepherdLog.subsystem) }` and `public enum KeychainError: Error, Equatable { case unexpectedStatus(OSStatus); case malformedItem }`.
+
+- [ ] **Step 1: Write the failing credential-store tests**
 
 Create `native/Tests/ShepherdKitTests/CredentialStoreTests.swift`:
 
@@ -919,12 +1200,12 @@ struct CredentialStoreTests {
 }
 ```
 
-- [ ] **Step 6: Run it and watch it fail**
+- [ ] **Step 2: Run it and watch it fail**
 
 Run: `swift test --package-path native --filter CredentialStore`
 Expected: FAIL — `error: cannot find 'InMemoryCredentialStore' in scope`.
 
-- [ ] **Step 7: Implement the protocol and the in-memory store**
+- [ ] **Step 3: Implement the protocol and the in-memory store**
 
 Create `native/Sources/ShepherdKit/Credentials/CredentialStore.swift`:
 
@@ -995,7 +1276,7 @@ public final class InMemoryCredentialStore: CredentialStore, @unchecked Sendable
 }
 ```
 
-- [ ] **Step 8: Implement the Keychain store**
+- [ ] **Step 4: Implement the Keychain store**
 
 Create `native/Sources/ShepherdKit/Credentials/KeychainCredentialStore.swift`:
 
@@ -1069,19 +1350,20 @@ public struct KeychainCredentialStore: CredentialStore, Sendable {
 }
 ```
 
-- [ ] **Step 9: Run the credential tests**
+- [ ] **Step 5: Run the credential tests**
 
 Run: `swift test --package-path native --filter CredentialStore`
 Expected: PASS — 5 tests, 0 failures. If the keychain test fails with `unexpectedStatus(-34018)` (`errSecMissingEntitlement`), the test binary has no keychain access; run `swift test --package-path native` from Terminal rather than from an SSH session, and see the note Task 12 adds to `native/README.md`.
 
-- [ ] **Step 10: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add native/Sources/ShepherdKit/Model native/Sources/ShepherdKit/Credentials native/Tests/ShepherdKitTests
-git commit -m "feat(native): server profiles and credential stores
+git add native/Sources/ShepherdKit/Credentials native/Tests/ShepherdKitTests/CredentialStoreTests.swift
+git commit -m "feat(native): credential stores for the keychain and for tests
 
-ServerProfile carries the https-unless-loopback-or-tailnet policy; tokens go
-to the Keychain under run.shepherd.kit, with an in-memory store for tests.
+Tokens go to the Keychain under run.shepherd.kit, one generic-password item per
+profile keyed by ServerProfile.credentialKey, with an in-memory store for tests
+and previews.
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```
@@ -3578,16 +3860,32 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ---
 
-### Task 11: SessionStore
+### Task 11: SessionStore and ConnectionState
+
+**PR:** 2 (`feat/native-shepherdkit-core`).
 
 **Files:**
 - Create: `native/Sources/ShepherdKit/Model/SessionStore.swift`
+- Modify: `native/Sources/ShepherdKit/Model/PublicTypes.swift`
 - Create: `native/Tests/ShepherdKitTests/SessionStoreTests.swift`
 
+**Why the connection model lives here, not in the app.** "Connecting / live / needs login /
+first run / offline" is a fact about the server conversation, not about SwiftUI: deciding it
+needs the bootstrap result, the error taxonomy and the reconnect policy, all of which are in
+this package. Putting it in the app would mean every app (macOS now, iOS later) re-deriving it
+from `lastError` and guessing. `ConnectionState` carries a `String` message rather than an
+`Error` so it stays `Equatable` — a view that re-renders on every state change must be able to
+compare cheaply, and tests must be able to assert on an exact value.
+
 **Interfaces:**
-- Consumes: `ShepherdClient` (all reads and writes), `CreateOutcome`, `ServerEvent` and the generated `*Event` payloads, `EventStream`, `ShepherdError`, `ShepherdLog`, the `OpenEnum` facade and the public typealiases.
+- Consumes: `ShepherdClient` (all reads and writes), `CreateOutcome`, `ServerEvent` and the generated `*Event` payloads, `EventStream`, `ShepherdError`, `ServerProfile`, `CredentialStore`, `ShepherdLog`, the `OpenEnum` facade and the public typealiases.
+- Produces: `public enum ConnectionState: Sendable, Equatable { case idle, connecting, live, needsLogin, firstRunPending; case offline(message: String) }`.
 - Produces: `@Observable @MainActor public final class SessionStore` with
-  - `public init(client: ShepherdClient)`
+  - `public init(client: ShepherdClient, events: EventStream? = nil, reconnectDelay: Duration = .seconds(1))`
+  - `public convenience init(profile: ServerProfile, credentials: any CredentialStore) throws`
+  - `public private(set) var connection: ConnectionState`
+  - `public func start() async`
+  - `public func stop()`
   - `public private(set) var sessions: [Session]`
   - `public private(set) var blocks: [String: Components.Schemas.BlockReason]`
   - `public private(set) var settings: Settings?`
@@ -3605,6 +3903,24 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
   - `public func archive(id: String) async throws`
   - `public func interrupt(id: String) async throws`
   - `public func resolveFirstRun(path: String) async throws`
+- Produces: `public typealias`-free export of `ConnectionState` — it is a hand-written top-level public type, so `PublicTypes.swift` only *indexes* it in its header comment (a typealias of a type to itself does not compile). Everything the kit hands the app is named in that one file, whether or not it needs an alias.
+
+**Connection state machine** (`start()` drives it; every other transition is a side effect of a
+call the app made):
+
+| From | Trigger | To |
+| --- | --- | --- |
+| `.idle` | `start()` | `.connecting` |
+| `.connecting` | bootstrap succeeds, `settings.firstRunPending == false` | `.live` |
+| `.connecting` | bootstrap succeeds, `settings.firstRunPending == true` | `.firstRunPending` |
+| `.connecting` | bootstrap throws `.unauthenticated` | `.needsLogin` (terminal — `start()` returns) |
+| `.connecting` | bootstrap throws `.firstRunPending` (a 409) | `.firstRunPending` |
+| `.connecting` | bootstrap throws `.transport(message)` | `.offline(message:)`, retry after `reconnectDelay` |
+| `.connecting` | bootstrap throws anything else | `.offline(message:)`, retry after `reconnectDelay` |
+| `.offline` | the retry timer fires and `start()` is still running | `.connecting` |
+| `.firstRunPending` | `resolveFirstRun(_:)` succeeds (it refreshes) | `.live` |
+| any | a command comes back 401 | `.needsLogin` |
+| any | `stop()` | `.idle` |
 
 **Event semantics to mirror** (from `ui/src/lib/store.svelte.ts::apply`, lines ~442-520):
 
@@ -3633,14 +3949,35 @@ import Testing
 @MainActor
 @Suite("SessionStore")
 struct SessionStoreTests {
-  private func makeStore(_ server: FakeShepherdServer) throws -> SessionStore {
+  /// A store with no event socket: `start()` bootstraps and returns, which is
+  /// what makes the connection-state transitions testable without a listener.
+  private func makeStore(
+    _ server: FakeShepherdServer,
+    reconnectDelay: Duration = .milliseconds(20)
+  ) throws -> SessionStore {
     let credentials = InMemoryCredentialStore(
       seed: ["k": StoredCredential(token: "shp_test", tokenId: "tok")])
     let profile = ServerProfile(
       name: "fake", baseURL: server.baseURL, mode: .local, credentialKey: "k")
     return SessionStore(
       client: try ShepherdClient(
-        profile: profile, credentials: credentials, urlSession: server.urlSession()))
+        profile: profile, credentials: credentials, urlSession: server.urlSession()),
+      events: nil,
+      reconnectDelay: reconnectDelay)
+  }
+
+  /// Polls `condition` on the main actor until it holds or the deadline passes.
+  /// `start()` runs in its own task, so its transitions are observed, not awaited.
+  private func eventually(
+    timeout: Duration = .seconds(5),
+    _ condition: @MainActor () -> Bool
+  ) async -> Bool {
+    let deadline = ContinuousClock.now.advanced(by: timeout)
+    while ContinuousClock.now < deadline {
+      if condition() { return true }
+      try? await Task.sleep(for: .milliseconds(10))
+    }
+    return condition()
   }
 
   private func stubBootstrap(
@@ -3659,6 +3996,118 @@ struct SessionStoreTests {
   ) -> ServerEvent {
     .sessionStatus(Components.Schemas.SessionStatusEvent(
       id: id, status: status, hasScratchpadFiles: hasScratchpadFiles))
+  }
+
+  // MARK: connection state
+
+  @Test("a store that has not started is idle")
+  func idleBeforeStart() async throws {
+    let server = FakeShepherdServer()
+    defer { server.tearDown() }
+    try stubBootstrap(server)
+    #expect(try makeStore(server).connection == .idle)
+  }
+
+  @Test("start() bootstraps and goes live")
+  func startGoesLive() async throws {
+    let server = FakeShepherdServer()
+    defer { server.tearDown() }
+    try stubBootstrap(server, sessions: [Fixtures.session(id: "a")])
+    let store = try makeStore(server)
+
+    await store.start()
+
+    #expect(store.connection == .live)
+    #expect(store.sessions.map(\.id) == ["a"])
+  }
+
+  @Test("a pending first run is its own connection state")
+  func startReportsFirstRun() async throws {
+    let server = FakeShepherdServer()
+    defer { server.tearDown() }
+    try stubBootstrap(server, firstRunPending: true)
+    let store = try makeStore(server)
+
+    await store.start()
+    #expect(store.connection == .firstRunPending)
+  }
+
+  @Test("resolving first run moves the connection to live")
+  func resolvingFirstRunGoesLive() async throws {
+    let server = FakeShepherdServer()
+    defer { server.tearDown() }
+    try stubBootstrap(server, firstRunPending: true)
+    server.stub("PUT", "/api/settings", status: 200,
+                json: try Fixtures.json(Components.Schemas.RepoRootResponse(
+                  repoRoot: "/repos", repoRootDisplay: "~/repos")))
+    let store = try makeStore(server)
+    await store.start()
+    #expect(store.connection == .firstRunPending)
+
+    server.stub("GET", "/api/settings", status: 200,
+                json: try Fixtures.json(Fixtures.settings(firstRunPending: false)))
+    try await store.resolveFirstRun(path: "/repos")
+
+    #expect(store.connection == .live)
+  }
+
+  @Test("a 401 during bootstrap becomes needsLogin and stops")
+  func unauthorizedBootstrapBecomesNeedsLogin() async throws {
+    let server = FakeShepherdServer()
+    defer { server.tearDown() }
+    try stubBootstrap(server)
+    server.stub("GET", "/api/sessions", status: 401, json: try Fixtures.errorJSON("unauthorized"))
+    let store = try makeStore(server)
+
+    await store.start()
+
+    #expect(store.connection == .needsLogin)
+    #expect(store.lastError == .unauthenticated)
+  }
+
+  @Test("an unreachable server is offline, and stop() ends the retry loop")
+  func unreachableBecomesOfflineAndStopEndsTheLoop() async throws {
+    let server = FakeShepherdServer()
+    defer { server.tearDown() }
+    // Not a single stub: every request fails, which is what a dead server
+    // looks like from here.
+    let store = try makeStore(server)
+
+    let runner = Task { await store.start() }
+    #expect(await eventually {
+      if case .offline = store.connection { return true }
+      return false
+    })
+
+    store.stop()
+    _ = await runner.value
+    #expect(store.connection == .idle)
+  }
+
+  @Test("a 401 on a command publishes needsLogin")
+  func commandUnauthorizedPublishesNeedsLogin() async throws {
+    let server = FakeShepherdServer()
+    defer { server.tearDown() }
+    try stubBootstrap(server)
+    server.stub("POST", "/api/sessions", status: 401, json: try Fixtures.errorJSON("unauthorized"))
+    let store = try makeStore(server)
+    await store.start()
+    #expect(store.connection == .live)
+
+    await #expect(throws: ShepherdError.unauthenticated) {
+      _ = try await store.create(
+        CreateSessionRequest(repoPath: "/repos/demo", baseBranch: "main", prompt: "go"))
+    }
+    #expect(store.connection == .needsLogin)
+  }
+
+  @Test("the self-driving initialiser refuses an insecure remote profile")
+  func convenienceInitRefusesInsecureProfile() throws {
+    let profile = ServerProfile(
+      name: "box", baseURL: URL(string: "http://box.example.com")!, mode: .remote)
+    #expect(throws: ServerProfileError.insecureRemoteURL("box.example.com")) {
+      _ = try SessionStore(profile: profile, credentials: InMemoryCredentialStore())
+    }
   }
 
   // MARK: bootstrap
@@ -3977,11 +4426,39 @@ Create `native/Sources/ShepherdKit/Model/SessionStore.swift`:
 import Foundation
 import Observation
 
+/// Where the conversation with one server stands.
+///
+/// Carries a `String` rather than an `Error` so the whole enum is `Equatable`:
+/// views compare it on every render and tests assert on exact values.
+public enum ConnectionState: Sendable, Equatable {
+  /// Nothing has been started, or `stop()` has been called.
+  case idle
+  /// Bootstrapping, or waiting out a reconnect delay.
+  case connecting
+  /// Bootstrapped; events are flowing.
+  case live
+  /// The server rejected the token. The app must present a login sheet; the
+  /// stored credential has already been cleared by the auth middleware.
+  case needsLogin
+  /// The server has no workspace root yet. `resolveFirstRun(path:)` clears it.
+  case firstRunPending
+  /// The server could not be reached. The message is diagnostic, not copy:
+  /// show a localized banner and keep this for the log.
+  case offline(message: String)
+}
+
 /// The live view of one server, for a SwiftUI app to render.
 ///
 /// Event application mirrors `ui/src/lib/store.svelte.ts::apply` for the eight
 /// events in the contract, so the native client and the web UI cannot disagree
 /// about what a push means. `@MainActor` because every property here drives UI.
+///
+/// Two ways to use it:
+/// - `init(profile:credentials:)` + `start()` — self-driving. The store builds
+///   its own `ShepherdClient` and `EventStream`, bootstraps, publishes
+///   `connection`, and applies events until `stop()`. This is what an app wants.
+/// - `init(client:)` + `bootstrap()` / `apply(_:)` / `consume(_:)` — the
+///   lower-level API, for tests and for a caller that owns its own event loop.
 @Observable
 @MainActor
 public final class SessionStore {
@@ -3995,11 +4472,40 @@ public final class SessionStore {
   public private(set) var usageLimits: Components.Schemas.UsageLimits?
   /// The last command failure, for a banner. Cleared by the next success.
   public private(set) var lastError: ShepherdError?
+  /// Where the server conversation stands. `@Observable`-tracked like every
+  /// other property here, so SwiftUI and `withObservationTracking` both see it
+  /// move — a consumer never has to poll.
+  public private(set) var connection: ConnectionState = .idle
 
   private let client: ShepherdClient
+  private let eventStream: EventStream?
+  private let reconnectDelay: Duration
+  private var running = false
 
-  public init(client: ShepherdClient) {
+  /// - Parameters:
+  ///   - events: `nil` for a store the caller drives by hand — `start()` then
+  ///     bootstraps once and returns instead of running an event loop.
+  ///   - reconnectDelay: how long `start()` waits before re-bootstrapping after
+  ///     a failure. The design spec fixes 1 s; tests shorten it.
+  public init(
+    client: ShepherdClient,
+    events: EventStream? = nil,
+    reconnectDelay: Duration = .seconds(1)
+  ) {
     self.client = client
+    self.eventStream = events
+    self.reconnectDelay = reconnectDelay
+  }
+
+  /// The self-driving store: builds the client and the `/events` socket from a
+  /// profile, so an app needs exactly one object per server.
+  ///
+  /// - Throws: `ServerProfileError` when a `.remote` profile violates the
+  ///   https-unless-loopback-or-tailnet policy — the same failure
+  ///   `ShepherdClient.init` raises, surfaced at the same moment.
+  public convenience init(profile: ServerProfile, credentials: any CredentialStore) throws {
+    let client = try ShepherdClient(profile: profile, credentials: credentials)
+    self.init(client: client, events: EventStream(client: client))
   }
 
   /// True while the server still needs a workspace root.
@@ -4007,6 +4513,92 @@ public final class SessionStore {
 
   public func session(id: String) -> Session? {
     sessions.first { $0.id == id }
+  }
+
+  // MARK: - Lifecycle
+
+  /// Bootstrap, publish `connection`, then apply events until `stop()`.
+  ///
+  /// Never throws: for a long-running connection a failure is a *state*, not an
+  /// exception — the app renders `connection` rather than catching something.
+  /// Calling it twice is a no-op while the first call is still running.
+  public func start() async {
+    guard !running else { return }
+    running = true
+    defer { running = false }
+
+    while running {
+      connection = .connecting
+
+      do {
+        try await bootstrap()
+      } catch {
+        switch ShepherdError.from(error, route: "bootstrap") {
+        case .unauthenticated:
+          // Terminal: the middleware already cleared the token, and only a new
+          // login can help. The app calls start() again after ProfileSetup.
+          connection = .needsLogin
+          return
+        case .firstRunPending:
+          connection = .firstRunPending
+        case .transport(let message):
+          connection = .offline(message: message)
+          guard await waitBeforeRetry() else { return }
+          continue
+        case let other:
+          connection = .offline(message: String(describing: other))
+          guard await waitBeforeRetry() else { return }
+          continue
+        }
+      }
+
+      // A store with no socket (init(client:)) has nothing left to do.
+      guard let eventStream else { return }
+
+      await eventStream.start()
+      // Returns only when the stream finishes, which happens when this task is
+      // cancelled — AsyncStream iteration ends on cancellation. `running` then
+      // ends the loop without a further round trip.
+      await consume(eventStream.events())
+    }
+  }
+
+  /// Stop the event loop and return to `.idle`.
+  ///
+  /// Publishing `.idle` is deliberate: a consumer suspended on
+  /// `withObservationTracking(connection)` is woken by it and can finish.
+  public func stop() {
+    running = false
+    if let eventStream {
+      Task { await eventStream.stop() }
+    }
+    connection = .idle
+  }
+
+  /// `true` when the caller should try again, `false` when `stop()` or task
+  /// cancellation happened while waiting.
+  private func waitBeforeRetry() async -> Bool {
+    do { try await Task.sleep(for: reconnectDelay) } catch { return false }
+    return running
+  }
+
+  /// After a successful load, reconcile `connection` with what settings say.
+  /// `.idle` and `.needsLogin` are left alone: neither is this method's to
+  /// overrule — one means "not started", the other "the app owes us a login".
+  private func publishLoadedState() {
+    switch connection {
+    case .idle, .needsLogin:
+      break
+    case .connecting, .live, .firstRunPending, .offline:
+      connection = self.firstRunPending ? .firstRunPending : .live
+    }
+  }
+
+  /// Record a mapped failure. A 401 is also a connection fact, not just a
+  /// command failure — the app has to re-authenticate before anything works.
+  private func record(_ mapped: ShepherdError) {
+    lastError = mapped
+    if mapped == .unauthenticated { connection = .needsLogin }
   }
 
   // MARK: - Loading
@@ -4027,9 +4619,10 @@ public final class SessionStore {
       self.settings = loadedSettings
       self.repos = loadedRepos.repos
       lastError = nil
+      publishLoadedState()
     } catch {
       let mapped = ShepherdError.from(error, route: "bootstrap")
-      lastError = mapped
+      record(mapped)
       throw mapped
     }
   }
@@ -4101,7 +4694,7 @@ public final class SessionStore {
       return outcome
     } catch {
       let mapped = ShepherdError.from(error, route: "createSession")
-      lastError = mapped
+      record(mapped)
       throw mapped
     }
   }
@@ -4114,7 +4707,7 @@ public final class SessionStore {
       lastError = nil
     } catch {
       let mapped = ShepherdError.from(error, route: "archiveSession")
-      lastError = mapped
+      record(mapped)
       throw mapped
     }
   }
@@ -4125,7 +4718,7 @@ public final class SessionStore {
       lastError = nil
     } catch {
       let mapped = ShepherdError.from(error, route: "interruptSession")
-      lastError = mapped
+      record(mapped)
       throw mapped
     }
   }
@@ -4137,48 +4730,94 @@ public final class SessionStore {
       lastError = nil
     } catch {
       let mapped = ShepherdError.from(error, route: "putRepoRoot")
-      lastError = mapped
+      record(mapped)
       throw mapped
     }
+    // refresh() calls publishLoadedState(), so a resolved first run moves
+    // `connection` from .firstRunPending to .live without a further hop.
     try await refresh()
   }
 }
 ```
 
-- [ ] **Step 4: Run the store tests**
+- [ ] **Step 4: Index the connection model in PublicTypes**
+
+`PublicTypes.swift` is where a reader looks to learn what the kit exposes. `ConnectionState` is
+a hand-written top-level `public enum`, so it needs no alias — but it does need to appear here,
+or the index lies. Add this block to the **end** of
+`native/Sources/ShepherdKit/Model/PublicTypes.swift`:
+
+```swift
+// Hand-written public types. These are declared in the files named below, not
+// aliased here — a typealias of a type to itself does not compile — but they are
+// listed so this file stays the single index of ShepherdKit's public surface:
+//
+//   Model/SessionStore.swift      SessionStore, ConnectionState
+//   Model/ServerProfile.swift     ServerProfile, ServerProfile.Mode, ServerProfileError
+//   Model/ShepherdError.swift     ShepherdError
+//   Client/ShepherdClient.swift   ShepherdClient, CreateOutcome
+//   Client/ProfileSetup.swift     ProfileSetup
+//   Credentials/                  CredentialStore, StoredCredential,
+//                                 KeychainCredentialStore, InMemoryCredentialStore,
+//                                 KeychainError
+//   Realtime/ServerEvent.swift    ServerEvent, PresenceFrame
+//   Realtime/EventStream.swift    EventStream
+//   Model/OpenEnum.swift          OpenEnum
+//   Logging.swift                 ShepherdLog
+```
+
+- [ ] **Step 5: Run the store tests**
 
 Run: `swift test --package-path native --filter SessionStore`
-Expected: PASS — 18 tests, 0 failures.
+Expected: PASS — 27 tests, 0 failures. `unreachableBecomesOfflineAndStopEndsTheLoop` takes about
+a second: it waits for at least one `reconnectDelay` (20 ms in the fixture) plus the URL loading
+system's own failure latency.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add native/Sources/ShepherdKit/Model/SessionStore.swift native/Tests/ShepherdKitTests/SessionStoreTests.swift
-git commit -m "feat(native): observable session store
+git add native/Sources/ShepherdKit/Model/SessionStore.swift native/Sources/ShepherdKit/Model/PublicTypes.swift native/Tests/ShepherdKitTests/SessionStoreTests.swift
+git commit -m "feat(native): observable session store with a connection state
 
 Bootstrap from sessions+settings+repos, then apply the eight contract events
 with the same semantics as ui/src/lib/store.svelte.ts. Commands insert and
 drop optimistically so the list moves before the push lands.
+
+SessionStore(profile:credentials:) is self-driving: it builds the client and the
+/events socket, and start() publishes connecting/live/needsLogin/firstRunPending/
+offline so an app renders a state instead of catching an error. The state is
+@Observable-tracked, so no consumer has to poll it.
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```
 
 ---
 
-### Task 12: CI, README and the PR
+### Task 12: README, CLAUDE.md and the PR
+
+**PR:** 2 (`feat/native-shepherdkit-core`). This task closes it.
 
 **Files:**
-- Create: `.github/workflows/native.yml`
 - Create: `native/README.md`
 - Modify: `CLAUDE.md` (the package list at the top)
 
 **Interfaces:**
 - Consumes: everything. No new Swift API.
-- Produces: a `native` CI job that fails on a stale contract copy, a build error, or a test failure.
+- Produces: the package README and the repo-level pointer to it. **CI is not created here** — `.github/workflows/native.yml` and its `shepherdkit` job landed in PR 1 (Task 2, Step 20), so every commit in this PR has already been gated by it.
 
-- [ ] **Step 1: Write the workflow**
+- [ ] **Step 1: Confirm CI is present and still gating**
 
-Create `.github/workflows/native.yml`:
+```bash
+grep -n 'shepherdkit:' .github/workflows/native.yml
+grep -n 'check:contract-swift\|sync-contract.sh --check\|swift test --package-path native' .github/workflows/native.yml
+```
+
+Expected: the `shepherdkit` job key and all three gate steps, exactly as PR 1 left them. This
+task adds no workflow steps; if the file is missing, PR 1 did not merge and this branch was cut
+from the wrong place — stop and tell the orchestrator.
+
+<details>
+<summary>The workflow PR 1 created, for reference (do not re-create it)</summary>
 
 ```yaml
 name: native
@@ -4269,18 +4908,9 @@ jobs:
         run: swift test --package-path native
 ```
 
-- [ ] **Step 2: Prove the freshness gate actually fails**
+</details>
 
-```bash
-printf '\n# drift\n' >> native/Sources/ShepherdKit/openapi.yaml
-./native/scripts/sync-contract.sh --check || echo "gate fired as expected"
-./native/scripts/sync-contract.sh
-./native/scripts/sync-contract.sh --check
-```
-
-Expected: the first `--check` prints a diff plus `sync-contract: native/Sources/ShepherdKit/openapi.yaml is stale.` followed by `gate fired as expected`; the final `--check` prints `sync-contract: up to date`.
-
-- [ ] **Step 3: Write the package README**
+- [ ] **Step 2: Write the package README**
 
 Create `native/README.md`:
 
@@ -4302,7 +4932,7 @@ Sub-project 2a of `docs/superpowers/specs/2026-09-18-native-macos-app-design.md`
 | `Sources/ShepherdKit/openapi-generator-config.yaml` | Generator settings. |
 | `Sources/ShepherdKit/Client/` | `ShepherdClient`, the two middlewares, `ProfileSetup`. |
 | `Sources/ShepherdKit/Realtime/` | `ServerEvent`, `EventStream`. |
-| `Sources/ShepherdKit/Model/` | `ServerProfile`, `ShepherdError`, `SessionStore`, `OpenEnum`, the public typealiases. |
+| `Sources/ShepherdKit/Model/` | `ServerProfile`, `ShepherdError`, `SessionStore`, `ConnectionState`, `OpenEnum`, the public typealiases. |
 | `Sources/ShepherdKit/Credentials/` | `CredentialStore` and its two implementations. |
 
 ## Two contracts, one truth
@@ -4358,9 +4988,34 @@ over SSH.
 
 `EventStreamTests` binds a loopback `NWListener` on an ephemeral port. macOS
 may ask once for an incoming-connection exception; allow it.
+
+## Using it from an app
+
+```swift
+let store = try SessionStore(profile: profile, credentials: KeychainCredentialStore())
+let runner = Task { await store.start() }   // bootstrap, then the event loop
+// …render store.sessions and switch on store.connection…
+store.stop()
+runner.cancel()
 ```
 
-- [ ] **Step 4: Add the package to the repo's CLAUDE.md**
+`start()` never throws: `store.connection` moves through `.connecting`, `.live`,
+`.firstRunPending`, `.needsLogin` and `.offline(message:)`, and it is
+`@Observable`-tracked, so SwiftUI — or `withObservationTracking` outside a view —
+sees every transition without polling. `bootstrap()`, `apply(_:)` and
+`consume(_:)` remain available for a caller that would rather drive the loop
+itself; build such a store with `SessionStore(client:)`.
+
+## CI
+
+`.github/workflows/native.yml`, job `shepherdkit` on `macos-latest`, runs
+`bun run check:contract-swift`, `./native/scripts/sync-contract.sh --check`,
+`swift build --package-path native` and `swift test --package-path native`. It is
+paths-filtered to `native/**`, `contracts/**`, `scripts/gen-contract-swift.ts`
+and `ui/messages/*.json`.
+```
+
+- [ ] **Step 3: Add the package to the repo's CLAUDE.md**
 
 In `CLAUDE.md`, replace the opening paragraph:
 
@@ -4381,7 +5036,7 @@ the marketing site). Plus `native/`, a Swift package (`ShepherdKit`) generated f
 `swift test --package-path native`, never with `bun`. See `native/README.md`.
 ```
 
-- [ ] **Step 5: Run everything one last time**
+- [ ] **Step 4: Run everything one last time**
 
 ```bash
 bun run check:contract-swift
@@ -4394,40 +5049,40 @@ bun run lint
 
 Expected: `check:contract-swift` exits 0 with no diff; `sync-contract: up to date`; a clean build; every Swift suite passing; the Bun contract test passing; lint clean.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add .github/workflows/native.yml native/README.md CLAUDE.md
-git commit -m "ci(native): macos job for build, test and contract freshness
+git add native/README.md CLAUDE.md
+git commit -m "docs(native): shepherdkit readme and the repo package list
 
-Generated code is regenerated on every build so it cannot be stale; the gate
-is the synced contract copy plus a green build and suite.
+How the two contracts relate, how to change one, and how to build and test the
+package. CI for all of it landed with the package skeleton in the first PR.
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```
 
-- [ ] **Step 7: Rebase and push**
+- [ ] **Step 6: Rebase and push**
 
 ```bash
 git fetch origin main
 git rebase origin/main
 swift test --package-path native
-git push -u origin feat/native-shepherdkit
+git push -u origin feat/native-shepherdkit-core
 ```
 
-- [ ] **Step 8: Open the PR**
+- [ ] **Step 7: Open the PR**
 
 ```bash
-gh pr create --title "feat(native): ShepherdKit core — client, auth, events, session store" --body "$(cat <<'EOF'
-Sub-project 2a of docs/superpowers/specs/2026-09-18-native-macos-app-design.md.
+gh pr create --base main --title "feat(native): ShepherdKit core — client, auth, events, session store" --body "$(cat <<'EOF'
+Sub-project 2a of docs/superpowers/specs/2026-09-18-native-macos-app-design.md, **PR 2 of 2**.
 
-A Swift package under `native/` that a SwiftUI app can use to connect to a
+Fills in the package skeleton that PR 1 (`feat(native): shepherdkit package
+skeleton and generated client`) landed: a SwiftUI app can now connect to a
 server, log in, mint a token, list sessions live, and resolve first run.
 
-- `native/`: SPM package, macOS 15 / iOS 18, Swift 6 language mode. The OpenAPI
-  build plugin regenerates the client on every build from a synced copy of
-  `contracts/openapi.swift.yaml`; generated code is not committed, the copy is.
-  No change to either contract in this PR.
+- The OpenAPI build plugin regenerates the client on every build from the synced
+  copy of `contracts/openapi.swift.yaml`; generated code is not committed, the
+  copy is. No change to either contract in this PR.
 - Open enums (`SessionStatus`, `HerdrState`, `EventName`, …) arrive as the
   generator's `anyOf` wrapper; `OpenEnum` exposes `.known` and `.rawValue` so
   nothing downstream sees the wrapper, and an unfamiliar server value decodes
@@ -4444,11 +5099,16 @@ server, log in, mint a token, list sessions live, and resolve first run.
   decodes the generated `EventEnvelope` and dispatches on `EventName` into the
   generated `*Event` schemas — no hand-written payload models.
 - `SessionStore`: `@Observable @MainActor`, bootstrap + the eight contract events
-  applied exactly as `ui/src/lib/store.svelte.ts` applies them.
+  applied exactly as `ui/src/lib/store.svelte.ts` applies them. Plus the
+  connection model the apps need: `SessionStore(profile:credentials:)` builds its
+  own client and socket, and `start()` publishes `ConnectionState`
+  (`.idle/.connecting/.live/.needsLogin/.firstRunPending/.offline(message:)`) so
+  a UI renders a state instead of catching an error. `@Observable`-tracked, so
+  no consumer polls.
 - Tests: `URLProtocol` fake server for HTTP, a real `NWListener` WebSocket server
   for `/events`.
-- `.github/workflows/native.yml` on `macos-latest`: `check:contract-swift`,
-  `sync-contract.sh --check`, `swift build`, `swift test`.
+- CI: unchanged from PR 1 — `.github/workflows/native.yml`, job `shepherdkit`,
+  has gated every commit in this PR.
 
 Not in this PR (sub-project 2b): `PTYConnection`, SwiftTerm, any UI.
 
@@ -4480,49 +5140,66 @@ EOF
 | `EventStream`: `/events` with Bearer, `AsyncStream<ServerEvent>`, 1 s reconnect, presence frame | 10 |
 | Reconnect "immediately on `applicationDidBecomeActive`" | 10 (`reconnectNow()`; the app wires the notification in sub-project 4) |
 | `SessionStore` `@Observable`, keyed sessions, applies events like the web store, `create`/`archive`/`interrupt`/`refresh` | 11 |
+| `ConnectionState` + a self-driving `SessionStore(profile:credentials:)` / `start()` / `stop()`, so the apps hold no connection logic (spec: "Error surfaces" — 401 → login sheet, network loss → banner with retry, contract mismatch → version banner) | 11 |
 | Initial load `GET /api/sessions`, `/api/settings`, `/api/repos` | 11 |
 | `resolveFirstRun(path)` | 11 |
 | `CredentialStore` protocol + Keychain + in-memory | 3 |
-| `ServerProfile { id, name, baseURL, mode, credentialKey }` | 3 |
-| Remote profiles require https unless loopback or `.ts.net` | 3 (policy), 6 (enforced at client construction) |
+| `ServerProfile { id, name, baseURL, mode, credentialKey }` | **2** (PR 1, so sub-project 4a's Gate 1 covers it) |
+| Remote profiles require https unless loopback or `.ts.net` | **2** (policy), 6 (enforced at client construction) |
 | Tokens only in the Keychain, no password persistence | 3, 8 |
 | `os.Logger` subsystem `run.shepherd.kit` | 2 |
 | `FakeShepherdServer` (`URLProtocol` + a local WebSocket listener) replaying fixtures | 5, 10 |
 | Coverage: auth flow, 401 handling, store event application, reconnect policy | 8, 6, 11, 10 |
-| `native.yml` on `macos-latest`: build, test, generated-code drift | 12 |
+| `native.yml` on `macos-latest`: build, test, generated-code drift | **2** (moved into PR 1 so CI gates the first PR; Task 12 only verifies it) |
 | No UI dependency in ShepherdKit | Global Constraints; no task imports SwiftUI/AppKit/UIKit |
 | **Coordinator's contract decisions:** Swift generated from `contracts/openapi.swift.yaml`, never the truth file | Global Constraints, Decision 3, Task 1, Task 2 (sync script) |
 | Open enums get a `.known` / `rawValue` facade | 2 (`OpenEnum.swift`), asserted in 2, 9 and 11 |
 | `ServerEvent` decodes `EventEnvelope`, switches on `EventName`, uses the generated `*Event` types | 9 |
-| `native.yml` runs `check:contract-swift` as well as the copy check | 12 |
+| `native.yml` runs `check:contract-swift` as well as the copy check | 2 |
 | `Health.minClient` | 2 (`Fixtures.health(version:minClient:)`, asserted in the generated-types suite) |
 | Login/logout 200 declare a **required** `Set-Cookie` header | 8 (`stubLogin` sends one; without it the generated type refuses to decode) |
-| Names the app-shell plan assumed: `SessionStore.create(_:) -> CreateOutcome`, `ProfileSetup.logout(profile:credentials:)`, `EventStream.events()`, the ten typealiases | 11, 8, 10, 2 |
+| Names the app-shell plan consumes: `SessionStore.create(_:) -> CreateOutcome`, `SessionStore(profile:credentials:)`, `start()`/`stop()`/`connection`, `ConnectionState`, `ProfileSetup.logout(profile:credentials:)`, `EventStream.events()`, `ShepherdClient(profile:credentials:urlSession:) throws`, the fifteen typealiases | 11, 8, 10, 6, 2 |
 
 Deliberately out of scope and stated as such: `PTYConnection` and its close-code semantics, SwiftTerm, `scripts/gen-strings.sh`, the `Apps/` targets, `ShepherdLocalServer`. The spec's "fixtures exported by the drift test, so kit tests and the server contract share one fixture set" is implemented as Task 2's `Fixtures.swift`, which builds its JSON by encoding the **generated** types rather than importing a JSON file the Bun test writes — the fixtures cannot disagree with the contract, and the two suites need no build-order coupling. That is a deviation from the literal wording; it is listed as an open question below.
 
-**2. Placeholder scan.** No "TBD", no "add error handling", no "similar to Task N". Every code step carries complete code; every command step states the expected output. Four places tell the implementer to read a generated file and match it rather than guess (Task 2 Step 7's `OpenEnum` conformance list, Task 2 Step 10's `Session` initialiser, Task 2 Step 12's open-enum property names, Task 9 Step 3's `EventName` case labels); each names the exact file and symbol, because argument labels and case spellings in generated code are the one thing this plan cannot verify without running the generator over the derived contract — which Task 2 Step 12 makes the implementer do before any of those tasks depend on it. Task 1 Step 2 has a hard stop rather than a fallback if sub-project 1 has not merged.
+**2. Placeholder scan.** No "TBD", no "add error handling", no "similar to Task N". Every code step carries complete code; every command step states the expected output. Four places tell the implementer to read a generated file and match it rather than guess (Task 2 Step 7's `OpenEnum` conformance list, Task 2 Step 10's `Session` initialiser, Task 2 Step 12's open-enum property names, Task 9 Step 3's `EventName` case labels); each names the exact file and symbol, because argument labels and case spellings in generated code are the one thing this plan cannot verify without running the generator over the derived contract — which Task 2 Step 12 makes the implementer do before any of those tasks depend on it. Task 1 Step 2 has a hard stop rather than a fallback if sub-project 1 has not merged, and Task 2 Step 24 / Task 3 Step 0 are hard stops on PR 1's merge rather than "branch off PR 1 if it is still open".
 
 **3. Type consistency.** Checked across tasks:
 - Public typealiases `Session`, `Settings`, `Repo`, `RepoList`, `HeldTask`, `SessionStatus`, `CreateSessionRequest`, `AgentProvider`, `Effort`, `Health` — defined Task 2, used unqualified in Tasks 2, 5, 6, 7, 8, 9, 11 — plus the five closed-enum typealiases `SessionStatusKnown`, `HerdrStateKnown`, `SessionArchiveReasonKnown`, `ExperimentRoleKnown`, `EventNameKnown`, defined and asserted Task 2. Types with no alias (`BlockReason`, `AutoMergeStatus`, `UsageLimits`, `Ok`, `RepoRootResponse`, `_Error`, the five `*Event`s, `EventName`, `HerdrState`, `SessionArchiveReason`, `ExperimentRole`) are always written `Components.Schemas.…` — only their `Known` component gets a short name.
 - `OpenEnum` members `known`, `rawValue`, `init(known:)`, `init(unknown:)` — defined Task 2, used in Tasks 2, 9, 11.
 - `StoredCredential(token:tokenId:)` — Task 3; used Tasks 4, 6, 7, 8, 11.
+- `ServerProfile(id:name:baseURL:mode:credentialKey:)`, `.validated()`, `.requireSecureRemote(_:)`, `ServerProfile.Mode` — Task 2 (PR 1); used Tasks 6, 8, 11 and by sub-project 4a from Gate 1 onward.
 - `CredentialStore.load(for:)/save(_:for:)/delete(for:)` — one spelling everywhere.
 - `ShepherdError` cases `.unauthenticated`, `.forbidden`, `.firstRunPending`, `.notFound`, `.badRequest`, `.conflict(code:message:)`, `.unprocessable`, `.upstreamFailure`, `.contractMismatch(route:underlying:)`, `.insecureProfile`, `.transport` — Task 4; Tasks 6, 7, 8, 11 use only these. `ShepherdError.fromConflict` defined Task 4, used Task 7.
-- `ShepherdClient.currentToken()` — Task 6; used by `EventStream.init(client:)` in Task 10.
+- `ShepherdClient.currentToken()` — Task 6; used by `EventStream.init(client:)` in Task 10, which `SessionStore.init(profile:credentials:)` in Task 11 calls in turn.
+- `ConnectionState` cases `.idle`, `.connecting`, `.live`, `.needsLogin`, `.firstRunPending`, `.offline(message:)` — defined Task 11; both switches over it inside the kit (`publishLoadedState`, `start`) list every case, and the app-shell plan's two switches (`AppModel.routeSheet`, `BannerPolicy.kind`) do too.
+- `SessionStore` initialisers: designated `init(client:events:reconnectDelay:)` (both trailing parameters defaulted, so `SessionStore(client:)` still compiles everywhere Tasks 11's older tests use it) and convenience `init(profile:credentials:) throws`. `start()`/`stop()` are the lifecycle; `bootstrap()`/`refresh()`/`apply(_:)`/`consume(_:)` remain public as the lower-level API.
+- `SessionStore.stop()` publishes `connection = .idle`. The app-shell plan depends on that: its `withObservationTracking` watcher is released by the change rather than left suspended forever.
 - `CreateOutcome` with `.created(Session)` / `.held(HeldTask)` — defined Task 7, used in Tasks 7 and 11. The older name `CreateSessionOutcome` appears nowhere.
 - `SessionStore.create(_ input: CreateSessionRequest)` — unlabelled first parameter, matching the app-shell plan's call site.
 - `ProfileSetup.logout(profile:credentials:urlSession:)` with `urlSession` defaulted, so `logout(profile:credentials:)` compiles — Task 8.
 - `EventStream.events()` as a method — Task 10 interfaces, implementation and tests all use `stream.events()`.
-- `ServerProfileError.insecureRemoteURL(String)` / `.missingHost` — Task 3, asserted in Tasks 3 and 6.
+- `ServerProfileError.insecureRemoteURL(String)` / `.missingHost` — Task 2, asserted in Tasks 2 and 6.
 - `FakeShepherdServer.stub(_:_:status:json:)` / `.on(_:_:_:)` / `.requests()` / `.urlSession()` / `.tearDown()` and `FakeResponse(statusCode:headers:body:)` — Task 5, used identically in Tasks 6, 7, 8, 11.
 - `Fixtures.session(id:name:desig:status:readyToMerge:branch:)`, `.settings(firstRunPending:repoRoot:)`, `.repoList()`, `.health(version:minClient:)`, `.json(_:)`, `.errorJSON(_:code:)`, `.sessionJSON(id:name:)` — Task 2, used in Tasks 2, 5, 6, 7, 8, 9, 11.
 - `Box<Value>` — declared once, in Task 4's test file; Task 5's fake uses `FakeServerRegistry` and Task 10's uses its own private `State`, so there is no redeclaration.
 - `ShepherdLog.subsystem/client/realtime/store/credentials` — Task 2, used in Tasks 3, 4, 6, 8, 10, 11.
 - `PresenceFrame(active:)` — Task 9, used in Task 10.
 
-**4. Open questions for the orchestrator:**
+**4. PR split (Task order and the two PRs).** Tasks 1–2 are PR 1 and end at an explicit merge
+gate (Task 2, Step 24); Task 3 Step 0 cuts `feat/native-shepherdkit-core` from `origin/main`
+and hard-stops if PR 1 has not merged. `native/Package.swift` is written exactly once, in
+Task 2, and `.github/workflows/native.yml` with it — the app-shell plan (4a) now only appends
+steps to the `shepherdkit` job and never authors either file. PR 1 additionally exports
+`ServerProfile`, `ServerProfile.Mode` and `ServerProfileError` (Task 2, Steps 15–19), which is
+what lets 4a's `ProfileStore` and remote-server form sit behind Gate 1 instead of Gate 2; Task 3
+is now credentials only. Both plans state the same job key, the same branch names and the same
+gate conditions.
+
+**5. Open questions for the orchestrator:**
 - The spec says `native.yml` "regenerates Swift from the contract and fails if the generated output differs from what is committed". This plan does not commit generated Swift, so that literal diff has nothing to compare; the gate is `check:contract-swift` + `sync-contract.sh --check` + a green build and suite. Confirm that substitution, or ask for the command plugin and a committed `GeneratedSources/`.
 - The spec says the kit's fake server replays "recorded fixtures exported by the drift test". This plan builds fixtures by encoding the generated types instead. Confirm, or add an export step to sub-project 1's Bun test and a fixture-loading step here.
 - `SessionStatusEvent` is now a typed schema with `id`, `status` and `hasScratchpadFiles`, so the web store's "the push may carry the whole row, spread all of it" behaviour narrows to those three fields (Task 11 documents this). If the full-row merge matters for the MVP, the contract should say so — either by making `session:status`'s payload a `oneOf` over `Session`, or by dropping the full-row emission server-side.
 - Task 1 hard-stops if `contracts/openapi.swift.yaml`, `scripts/gen-contract-swift.ts` or the two package scripts are missing. Confirm sub-project 1 merges to `main` before this plan starts, or tell the executor which branch to cut from instead.
+- **Resolved (orchestrator decision D6):** `Model/ServerProfile.swift` is in **PR 1** (Task 2, Steps 15–19), not PR 2. Sub-project 4a's profile persistence and welcome flow therefore only need Gate 1. Task 3 is `CredentialStore` alone. The cost is that Task 2 is a long task; the benefit is that 4a is unblocked a whole PR earlier, and `ServerProfile` depends on nothing but `Foundation`, so it compiles against the skeleton.
+- `ConnectionState.offline(message:)` carries a diagnostic string, not a localized one: ShepherdKit has no catalog and the spec puts i18n in the app. The app maps `.offline` onto its own `native_banner_offline` copy and keeps the message for the log. Confirm that division, or move a localization hook into the kit.

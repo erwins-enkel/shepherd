@@ -19,94 +19,253 @@ Copied from `docs/superpowers/specs/2026-09-18-native-macos-app-design.md` (read
 - **i18n:** "EN and DE only, keys mirrored from the web catalogs, generated at build time." New app-only copy goes into `ui/messages/en.json` **and** `ui/messages/de.json` first, with the `native_` prefix, and only then into the Swift catalog. Never add a string only in Swift. Gate: `cd ui && bun run check:i18n`.
 - **Logging:** `os.Logger` subsystem **`run.shepherd.mac`**.
 - **Commits:** conventional commits, lowercase subjects (`feat(mac): …`, `test(mac): …`, `chore(mac): …`, `feat(i18n): …`). End every commit body with the trailer `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`.
-- **Branch:** `feat/native-mac-app-shell`, cut from `origin/main`. Rebase to update; never `git merge main`.
+- **Branch:** `feat/native-mac-app-shell`, cut from `origin/main` **after** sub-project 2a's first PR ("shepherdkit package skeleton and generated client") has merged — see "Two hard gates" below. Rebase to update; never `git merge main`.
 - **Never run bare `bun test`** (repo `CLAUDE.md`). Root tests are `bun run test`.
+- **This plan writes no Swift package manifest.** `native/Package.swift`, `native/Sources/ShepherdKit/**` and `native/scripts/sync-contract.sh` belong to sub-project 2a. If a task here seems to need one, the gate below has not been met — stop, do not bootstrap a stand-in.
 - **Out of scope for 4a — do not write any of it:** SwiftTerm / terminal view, local-server supervisor or installer bridge (`ShepherdLocalServer`), menu bar item, `UNUserNotificationCenter` notifications, the iOS target, epics/review/merge-train/settings surfaces, signing beyond ad-hoc.
 
-### ShepherdKit public interface this plan consumes (sub-project 2, planned in parallel)
+### Two hard gates
 
-These signatures are **assumed verbatim**. If the ShepherdKit plan lands a different name, reconcile there and update this plan's call sites — do not fork a second model layer.
+This plan depends on sub-project 2a, which ships as **two** PRs. Both gates are hard stops:
+if the gate is not met, tell the orchestrator and wait — never write a stand-in for kit code.
+
+| Gate | Requires on `origin/main` | Blocks | Verify with |
+| --- | --- | --- | --- |
+| **Gate 1** | `native/Package.swift` exposing the `ShepherdKit` library product, plus the generated types, the `OpenEnum` facade, the public typealiases **and `ServerProfile` / `ServerProfile.Mode` / `ServerProfileError`** (2a PR 1, "shepherdkit package skeleton and generated client") | Task 1 onward | `test -f native/Package.swift && swift build --package-path native` |
+| **Gate 2** | `feat/native-shepherdkit-core` merged — `CredentialStore`, `ShepherdClient`, `ProfileSetup`, `EventStream`, `ServerEvent`, `SessionStore`, `ConnectionState`, `ShepherdError` (2a PR 2) | Task 6 onward | `swift test --package-path native --filter SessionStore` |
+
+Tasks 1–5 compile against the **skeleton** kit only: the generated `Components.Schemas.*`
+types, the typealiases `Session`, `SessionStatus`, `SessionStatusKnown`, `AgentProvider`,
+`Effort`, `Settings`, `Repo`, `RepoList`, `HeldTask`, `CreateSessionRequest`, `Health`, and the
+value type `ServerProfile` with `ServerProfile.Mode`, `ServerProfileError` and
+`validated()` / `requireSecureRemote(_:)`. They must not reference `ShepherdClient`,
+`SessionStore`, `EventStream`, `ProfileSetup`, `CredentialStore`, `ConnectionState` or
+`ShepherdError`. Tasks 6–11 sit behind Gate 2 and may use all of it.
+
+`ServerProfile` sits in the skeleton PR on purpose (2a's decision D6): profile persistence
+(Task 5) needs that one value type and nothing else from the kit, so it does not have to wait
+for Gate 2.
+
+### Task order
+
+| # | Task | Gate |
+| --- | --- | --- |
+| 1 | Generated Xcode project and a launchable app shell | Gate 1 |
+| 2 | Localisation pipeline — catalog keys, generator, first unit test | Gate 1 |
+| 3 | Local server detection | Gate 1 |
+| 4 | Session presentation — status style, row, detail, preview data | Gate 1 |
+| 5 | Profile persistence in `UserDefaults` | Gate 1 |
+| 6 | `AppModel` — profiles, active store, sheet routing | **Gate 2** |
+| 7 | Welcome screen, error copy and login sheet | Gate 2 |
+| 8 | First-run folder picker | Gate 2 |
+| 9 | Main window — split view, toolbar, new-session sheet | Gate 2 |
+| 10 | Connection banner for offline and contract mismatch | Gate 2 |
+| 11 | XCUITest smoke test, CI and the PR | Gate 2 |
+
+There is no standalone URL-policy task. The https-unless-loopback-or-`.ts.net` rule lives in
+ShepherdKit as `ServerProfile.validated()` / `ServerProfile.requireSecureRemote(_:)`; this app
+calls it and never reimplements it. The only app-side validation left is the remote-server
+form's own parsing of a typed address — `RemoteServerForm` in Task 6.
+
+### ShepherdKit public interface this plan consumes (sub-project 2a)
+
+These signatures are **authoritative**: they are copied verbatim from
+`docs/superpowers/plans/2026-09-18-native-shepherdkit-core.md`. If a call site in this plan
+ever disagrees with the kit, **the kit wins** — fix the call site here, never fork a second
+model layer. The comment on each section says which of the two ShepherdKit PRs ships it
+(see "Two hard gates" below).
 
 ```swift
-public struct ServerProfile: Codable, Sendable, Identifiable, Hashable {
-    public var id: UUID
+// ── Skeleton PR ("shepherdkit package skeleton"): generated types + the
+//    open-enum facade + the public typealiases + ServerProfile.
+
+// MARK: Profiles
+
+public struct ServerProfile: Codable, Hashable, Sendable, Identifiable {
+    public enum Mode: String, Codable, Hashable, Sendable { case local, remote }
+    public let id: UUID
     public var name: String
     public var baseURL: URL
-    public var mode: ServerMode          // .local | .remote
+    public var mode: Mode
     public var credentialKey: String
-    public init(id: UUID, name: String, baseURL: URL, mode: ServerMode, credentialKey: String)
+    /// `credentialKey` defaults to "profile.<id.uuidString>".
+    public init(id: UUID = UUID(), name: String, baseURL: URL, mode: Mode, credentialKey: String? = nil)
+    /// Throws `.missingHost` when the URL has no host, and
+    /// `.insecureRemoteURL(host)` for plain http to anything that is not
+    /// loopback or a `.ts.net` name. https always passes.
+    public static func requireSecureRemote(_ url: URL) throws
+    /// Applies `requireSecureRemote` to `.remote` profiles only, and returns
+    /// `self`. `.local` profiles are exempt.
+    @discardableResult public func validated() throws -> ServerProfile
 }
-public enum ServerMode: String, Codable, Sendable { case local, remote }
+public enum ServerProfileError: Error, Equatable, Sendable {
+    case insecureRemoteURL(String)
+    case missingHost
+}
 
-public protocol CredentialStore: Sendable { /* KeychainCredentialStore, InMemoryCredentialStore */ }
+// ── Core PR ("feat/native-shepherdkit-core"): everything below.
 
-public struct ShepherdClient: Sendable {
-    public init(profile: ServerProfile, credentials: any CredentialStore)
+// MARK: Credentials
+
+public struct StoredCredential: Codable, Hashable, Sendable {
+    public let token: String
+    public let tokenId: String
+    public init(token: String, tokenId: String)
+}
+public protocol CredentialStore: Sendable {
+    func load(for key: String) throws -> StoredCredential?
+    func save(_ credential: StoredCredential, for key: String) throws
+    func delete(for key: String) throws
+}
+public struct KeychainCredentialStore: CredentialStore, Sendable {
+    public init(service: String = ShepherdLog.subsystem)
+}
+public final class InMemoryCredentialStore: CredentialStore, @unchecked Sendable {
+    public init()
+    public init(seed: [String: StoredCredential])
+}
+
+// MARK: Client
+
+public final class ShepherdClient: Sendable {
+    /// - Throws: `ServerProfileError` when a `.remote` profile is not https,
+    ///   loopback or `.ts.net`.
+    public init(profile: ServerProfile, credentials: any CredentialStore,
+                urlSession: URLSession = .shared) throws
+    public let profile: ServerProfile
+    public let needsLogin: AsyncStream<Void>
+    public func currentToken() -> String?
     public func health() async throws -> Health
     public func settings() async throws -> Settings
-    public func putRepoRoot(_ path: String) async throws
-    public func listSessions() async throws -> [Session]
-    public func listDoneSessions() async throws -> [Session]
-    public func createSession(_ input: CreateSessionRequest) async throws -> CreateOutcome
+    public func sessions() async throws -> [Session]
+    public func doneSessions() async throws -> [Session]
+    public func session(id: String) async throws -> Session
+    public func repos() async throws -> RepoList
+    public func createSession(_ request: CreateSessionRequest) async throws -> CreateOutcome
     public func archiveSession(id: String) async throws
     public func interruptSession(id: String) async throws
-    public func listRepos() async throws -> RepoList
+    public func putRepoRoot(_ path: String) async throws -> Components.Schemas.RepoRootResponse
 }
-public enum CreateOutcome: Sendable { case created(Session), held(HeldTask) }
+public enum CreateOutcome: Equatable, Sendable {
+    case created(Session)
+    case held(HeldTask)
+}
 
-public enum ShepherdError: Error, Sendable {
+public enum ShepherdError: Error, Equatable, Sendable {
     case unauthenticated
+    case forbidden
     case firstRunPending
-    case contractMismatch(route: String, underlying: any Error)
-    case transport(underlying: any Error)
-    case server(status: Int, code: String?, message: String?)
+    case notFound
+    case badRequest(String)
+    case conflict(code: String?, message: String)
+    case unprocessable(String)
+    case upstreamFailure(String)
+    case contractMismatch(route: String, underlying: String)
+    case insecureProfile(ServerProfileError)
+    case transport(String)
 }
 
 public enum ProfileSetup {
-    public static func login(profile: ServerProfile, password: String, credentials: any CredentialStore) async throws
-    public static func logout(profile: ServerProfile, credentials: any CredentialStore) async throws
+    @discardableResult
+    public static func login(
+        profile: ServerProfile,
+        password: String,
+        credentials: any CredentialStore,
+        urlSessionFactory: @Sendable (URLSessionConfiguration) -> URLSession = {
+            URLSession(configuration: $0)
+        }
+    ) async throws -> StoredCredential
+    public static func logout(
+        profile: ServerProfile, credentials: any CredentialStore, urlSession: URLSession = .shared
+    ) async throws
 }
 
-public struct EventStream: Sendable {
-    public init(profile: ServerProfile, credentials: any CredentialStore)
-    public func events() -> AsyncStream<ServerEvent>
+// MARK: Realtime
+
+public actor EventStream {
+    public init(baseURL: URL, tokenProvider: @escaping @Sendable () -> String?,
+                urlSession: URLSession = .shared, reconnectDelay: Duration = .seconds(1))
+    public init(client: ShepherdClient, urlSession: URLSession = .shared)
+    public static func eventsURL(for baseURL: URL) -> URL
+    public nonisolated func events() -> AsyncStream<ServerEvent>
+    public func start()
+    public func stop()
+    public func setActive(_ active: Bool)
+    public func reconnectNow()
 }
-public enum ServerEvent: Sendable {
+public enum ServerEvent: Decodable, Equatable, Sendable {
     case sessionNew(Session)
-    case sessionStatus(id: String, status: SessionStatus)
-    case sessionRenamed(id: String, name: String, branch: String?)
-    case sessionArchived(id: String)
-    case sessionBlock(id: String, block: BlockReason?)
-    case sessionReady(id: String, ready: Bool)
-    case automergeStatus(AutoMergeStatus)
-    case usageLimits(UsageLimits)
-    case unknown(String)
+    case sessionStatus(Components.Schemas.SessionStatusEvent)
+    case sessionRenamed(Components.Schemas.SessionRenamedEvent)
+    case sessionArchived(Components.Schemas.SessionArchivedEvent)
+    case sessionBlock(Components.Schemas.SessionBlockEvent)
+    case sessionReady(Components.Schemas.SessionReadyEvent)
+    case automergeStatus(Components.Schemas.AutoMergeStatus)
+    case usageLimits(Components.Schemas.UsageLimits)
+    case unknown(name: String)
+}
+
+// MARK: Store
+
+public enum ConnectionState: Sendable, Equatable {
+    case idle, connecting, live, needsLogin, firstRunPending
+    case offline(message: String)
 }
 
 @Observable @MainActor public final class SessionStore {
-    public init(profile: ServerProfile, credentials: any CredentialStore)
+    public init(client: ShepherdClient, events: EventStream? = nil,
+                reconnectDelay: Duration = .seconds(1))
+    /// Self-driving: builds the client and an `EventStream` internally.
+    /// - Throws: `ServerProfileError`, exactly like `ShepherdClient.init`.
+    public convenience init(profile: ServerProfile, credentials: any CredentialStore) throws
     public private(set) var sessions: [Session]
+    public private(set) var blocks: [String: Components.Schemas.BlockReason]
     public private(set) var settings: Settings?
     public private(set) var repos: [Repo]
+    public private(set) var autoMerge: [String: Components.Schemas.AutoMergeStatus]
+    public private(set) var usageLimits: Components.Schemas.UsageLimits?
+    public private(set) var lastError: ShepherdError?
+    /// `@Observable`-tracked, so SwiftUI and `withObservationTracking` both see changes.
     public private(set) var connection: ConnectionState
-    public func load() async
-    public func start()                                   // event loop
+    public var firstRunPending: Bool { get }
+    public func session(id: String) -> Session?
+    /// Bootstrap, then consume the event stream until `stop()`. Never throws:
+    /// failures land in `connection` and `lastError`.
+    public func start() async
+    public func stop()
+    public func bootstrap() async throws
+    public func refresh() async throws
+    public func apply(_ event: ServerEvent)
+    public func consume(_ events: AsyncStream<ServerEvent>) async
+    @discardableResult
     public func create(_ input: CreateSessionRequest) async throws -> CreateOutcome
     public func archive(id: String) async throws
     public func interrupt(id: String) async throws
     public func resolveFirstRun(path: String) async throws
 }
-public enum ConnectionState: Sendable {
-    case connecting, live, offline(any Error), needsLogin, firstRunPending
-}
 ```
 
-Generated model type names follow swift-openapi-generator conventions (`Components.Schemas.Session` etc.); **ShepherdKit re-exports typealiases** `Session`, `Settings`, `Repo`, `HeldTask`, `SessionStatus`, `AgentProvider`, `Effort`, `CreateSessionRequest`, `Health`, `RepoList`, `BlockReason`, `AutoMergeStatus`, `UsageLimits`. This plan uses only the typealiases.
+Generated model type names follow swift-openapi-generator conventions
+(`Components.Schemas.Session` etc.); **ShepherdKit re-exports typealiases** `Session`,
+`Settings`, `Repo`, `RepoList`, `HeldTask`, `SessionStatus`, `SessionStatusKnown`,
+`HerdrStateKnown`, `SessionArchiveReasonKnown`, `ExperimentRoleKnown`, `EventNameKnown`,
+`CreateSessionRequest`, `AgentProvider`, `Effort`, `Health`. Everything else is written out
+as `Components.Schemas.…` — there is no alias for `BlockReason`, `AutoMergeStatus`,
+`UsageLimits`, `RepoRootResponse` or the five `*Event` payloads. This plan uses an alias
+wherever one exists and the qualified name everywhere else.
+
+**`SessionStatus` is not a Swift enum.** The derived Swift contract turns it into an *open*
+enum: a generated wrapper struct exposing `.known: SessionStatusKnown?` (`.running`, `.idle`,
+`.blocked`, `.done`, `.archived`) and `.rawValue: String`, so a status a newer server invents
+still decodes. Never `switch` on a `SessionStatus` value directly — switch on `status.known`
+and handle `nil` as "a status this build does not know", showing `status.rawValue`. Build one
+with `SessionStatus(known: .running)` or `SessionStatus(unknown: "quiescing")`. `AgentProvider`
+and `Effort` are ordinary closed generated enums and do switch directly.
 
 Contract facts this plan depends on (`contracts/openapi.yaml`, sub-project 1 — already merged):
 
-- `Health` = `{ ok: true, version: String }`.
-- `SessionStatus` enum = `running | idle | blocked | done | archived`.
+- `Health` = `{ ok: true, version: String, minClient: String? }`.
+- `SessionStatusKnown` enum = `running | idle | blocked | done | archived`.
 - `Session` required fields used here: `id`, `desig`, `name`, `prompt`, `status`, `repoPath`, `baseBranch`; optional `agentProvider`, `model`, `effort`.
 - `Settings.firstRunPending: Bool`, `Settings.repoRoot: String`, `Settings.repoRootDisplay: String`, `Settings.defaultAgentProvider: AgentProvider`, `Settings.defaultModel: String`, `Settings.defaultEffort: String`.
 - `CreateSessionRequest` required: `repoPath`, `baseBranch`, `prompt`; optional `agentProvider`, `model` (nullable), `effort` (nullable), `plain`, `force`.
@@ -124,9 +283,8 @@ Contract facts this plan depends on (`contracts/openapi.yaml`, sub-project 1 —
 | `native/Apps/ShepherdMac/Sources/Info.plist` | Bundle metadata, generated by XcodeGen from `project.yml`. |
 | `native/Apps/ShepherdMac/Sources/Shepherd.entitlements` | Sandbox off, library validation off. Generated by XcodeGen. |
 | `native/Apps/ShepherdMac/Sources/App/ShepherdApp.swift` | `@main`, `WindowGroup`, root switch welcome ⇄ main window, sheet host. |
-| `native/Apps/ShepherdMac/Sources/App/AppModel.swift` | `@Observable @MainActor`: profiles, active profile, active `SessionStore`, sheet routing, connect/login/logout. |
+| `native/Apps/ShepherdMac/Sources/App/AppModel.swift` | `@Observable @MainActor`: profiles, active profile, active `SessionStore`, sheet routing, connect/login/logout. Also declares `RemoteServerForm`, the thin parser that turns a typed address into a `ServerProfile` and hands the security decision to `ServerProfile.validated()`. |
 | `native/Apps/ShepherdMac/Sources/App/ProfileStore.swift` | `UserDefaults` JSON persistence for `[ServerProfile]` + active id. Pure value type, no UI. |
-| `native/Apps/ShepherdMac/Sources/App/ServerURL.swift` | Remote URL parsing + https/loopback/`.ts.net` policy. |
 | `native/Apps/ShepherdMac/Sources/App/LocalServerProbe.swift` | Unauthenticated `GET /api/health` against `127.0.0.1:7330`. |
 | `native/Apps/ShepherdMac/Sources/App/Log.swift` | `os.Logger` instances, subsystem `run.shepherd.mac`. |
 | `native/Apps/ShepherdMac/Sources/App/L.swift` | `L.t(key)` / `L.t(key, args…)` localisation helper over `String(localized:)`. |
@@ -135,7 +293,8 @@ Contract facts this plan depends on (`contracts/openapi.yaml`, sub-project 1 —
 | `native/Apps/ShepherdMac/Sources/Welcome/FirstRunSheet.swift` | `NSOpenPanel` folder picker → `SessionStore.resolveFirstRun`. |
 | `native/Apps/ShepherdMac/Sources/Main/MainWindow.swift` | `NavigationSplitView` + toolbar + banner host. |
 | `native/Apps/ShepherdMac/Sources/Main/SessionRow.swift` | Sidebar row: status badge, `desig`, `name`, provider. |
-| `native/Apps/ShepherdMac/Sources/Main/SessionStatusStyle.swift` | `SessionStatus` → localized label + tint. |
+| `native/Apps/ShepherdMac/Sources/Main/SessionStatusStyle.swift` | `SessionStatus` (open enum) → localized label + tint. |
+| `native/Apps/ShepherdMac/Sources/Main/PreviewData.swift` | `#if DEBUG` builders for a `Session`, so the row and detail views have SwiftUI previews and the unit tests have fixtures. |
 | `native/Apps/ShepherdMac/Sources/Main/SessionDetailView.swift` | Placeholder detail pane: prompt, status, "terminal comes next". |
 | `native/Apps/ShepherdMac/Sources/Main/NewSessionSheet.swift` | Repo / prompt / provider / model / effort → `SessionStore.create`. |
 | `native/Apps/ShepherdMac/Sources/Main/ConnectionBanner.swift` | `.offline` / contract-mismatch / `.needsLogin` banner. |
@@ -149,7 +308,7 @@ Contract facts this plan depends on (`contracts/openapi.yaml`, sub-project 1 —
 | `native/README.md` | Build / run / test, three commands. |
 | `ui/messages/en.json`, `ui/messages/de.json` | The `native_*` keys (Task 2). |
 | `.gitignore`, `.prettierignore` | Ignore the generated `.xcodeproj` and `.build`. |
-| `.github/workflows/native.yml` | Add the app build+test step (Task 12). |
+| `.github/workflows/native.yml` | **Created by sub-project 2a** (job `shepherdkit`). This plan only *appends* app steps to that job and adds one new job, `shepherd-mac-ui` (Task 11). |
 
 ---
 
@@ -196,75 +355,47 @@ cd native/Apps/ShepherdMac && xcodegen generate && \
 - Create: `native/Apps/ShepherdMac/Sources/App/Log.swift`
 - Create: `native/scripts/build-app.sh`
 - Create: `native/scripts/test-app.sh`
-- Create: `native/README.md`
+- Modify: `native/README.md` (created by sub-project 2a — append, never overwrite)
 - Modify: `.gitignore`
 - Modify: `.prettierignore`
 
 **Interfaces:**
-- Consumes: local Swift package at `native/` exposing product `ShepherdKit` (sub-project 2).
+- Consumes: the local Swift package at `native/` exposing product `ShepherdKit` (sub-project 2a's **skeleton** PR — Gate 1). This plan never writes `native/Package.swift`.
 - Produces: bundle id `run.shepherd.mac`; scheme `Shepherd`; targets `Shepherd`, `ShepherdTests`, `ShepherdUITests`; build product `native/Apps/ShepherdMac/.build/Build/Products/{Release,Debug}/Shepherd.app`.
 - Produces: `enum Log { static let subsystem: String; static let app: Logger; static let connect: Logger; static let ui: Logger }`, subsystem `"run.shepherd.mac"`.
 
-- [ ] **Step 1: Cut the branch**
+- [ ] **Step 1: Check Gate 1 — the ShepherdKit package skeleton is on `origin/main`**
 
 ```bash
 cd /Users/kai.osthoff/githubrepos/shepherd
 git fetch origin main
-git checkout -b feat/native-mac-app-shell origin/main
+git log --oneline origin/main -- native/Package.swift | head -3
+git show origin/main:native/Package.swift | grep -n 'library(name: "ShepherdKit"'
 ```
 
-- [ ] **Step 2: Make sure XcodeGen is installed**
+Expected: at least one commit touching `native/Package.swift`, and a line declaring
+`.library(name: "ShepherdKit", targets: ["ShepherdKit"])`.
+
+If `native/Package.swift` does not exist on `origin/main`, sub-project 2a's first PR
+("feat(native): shepherdkit package skeleton and generated client") has **not** merged.
+**Stop and tell the orchestrator.** Do not create a stand-in `Package.swift` and do not
+hand-write a `ServerProfile`: the app would then link a package that the real kit later
+replaces, and the divergence would only surface as a merge conflict.
+
+- [ ] **Step 2: Cut the branch**
+
+```bash
+git checkout -b feat/native-mac-app-shell origin/main
+swift build --package-path native
+```
+
+Expected: `swift build` exits 0. That proves the skeleton kit compiles on this machine before
+the app target starts linking it.
+
+- [ ] **Step 3: Make sure XcodeGen is installed**
 
 Run: `xcodegen --version`
 Expected: `Version: 2.46.0` (or newer). If the command is not found: `brew install xcodegen`.
-
-- [ ] **Step 3: Make sure `native/Package.swift` exists**
-
-Run: `test -f native/Package.swift && echo present || echo missing`
-
-If it prints `missing` (sub-project 2 has not merged yet), create this **temporary bootstrap** so Task 1 can compile, and delete it the moment you rebase onto the ShepherdKit branch:
-
-`native/Package.swift`:
-
-```swift
-// swift-tools-version: 6.0
-import PackageDescription
-
-let package = Package(
-    name: "ShepherdNative",
-    platforms: [.macOS(.v15), .iOS(.v18)],
-    products: [
-        .library(name: "ShepherdKit", targets: ["ShepherdKit"])
-    ],
-    targets: [
-        .target(name: "ShepherdKit", swiftSettings: [.swiftLanguageMode(.v6)])
-    ]
-)
-```
-
-`native/Sources/ShepherdKit/ServerProfile.swift`:
-
-```swift
-import Foundation
-
-public enum ServerMode: String, Codable, Sendable { case local, remote }
-
-public struct ServerProfile: Codable, Sendable, Identifiable, Hashable {
-    public var id: UUID
-    public var name: String
-    public var baseURL: URL
-    public var mode: ServerMode
-    public var credentialKey: String
-
-    public init(id: UUID = UUID(), name: String, baseURL: URL, mode: ServerMode, credentialKey: String) {
-        self.id = id
-        self.name = name
-        self.baseURL = baseURL
-        self.mode = mode
-        self.credentialKey = credentialKey
-    }
-}
-```
 
 - [ ] **Step 4: Write the XcodeGen spec**
 
@@ -279,7 +410,9 @@ options:
   deploymentTarget:
     macOS: "15.0"
 packages:
-  ShepherdNative:
+  # The key must match the package's own name in native/Package.swift
+  # (`Package(name: "ShepherdKit", …)`), and the path is the package root.
+  ShepherdKit:
     path: ../..
 settings:
   base:
@@ -310,7 +443,7 @@ targets:
       - path: Sources
       - path: Resources
     dependencies:
-      - package: ShepherdNative
+      - package: ShepherdKit
         product: ShepherdKit
     settings:
       base:
@@ -530,17 +663,18 @@ Expected: a plist containing `<key>com.apple.security.app-sandbox</key><false/>`
 Run: `open native/Apps/ShepherdMac/.build/Build/Products/Release/Shepherd.app`
 Expected: a window titled "Shepherd" appears showing the word "Shepherd". Quit it with ⌘Q.
 
-- [ ] **Step 10: Write the README**
+- [ ] **Step 10: Append the app section to the README**
 
-Create `native/README.md`:
+`native/README.md` already exists — sub-project 2a wrote it for the Swift package. **Append**
+this to the end of that file; do not overwrite what is there.
 
 ````markdown
-# Shepherd native
+# Shepherd for Mac
 
-Swift package (`ShepherdKit`, `ShepherdLocalServer`) plus the macOS app under
-`Apps/ShepherdMac`. The Xcode project is **generated** from
-`Apps/ShepherdMac/project.yml` by [XcodeGen](https://github.com/yonaskolb/XcodeGen) —
-never edit `Shepherd.xcodeproj`, it is gitignored.
+The macOS app under `Apps/ShepherdMac`, built on the `ShepherdKit` package above. The Xcode
+project is **generated** from `Apps/ShepherdMac/project.yml` by
+[XcodeGen](https://github.com/yonaskolb/XcodeGen) — never edit `Shepherd.xcodeproj`, it is
+gitignored.
 
 ## Prerequisites
 
@@ -624,7 +758,13 @@ EOF
 
 - [ ] **Step 1: Add the `native_*` copy to both web catalogs**
 
-Add these 44 keys to `ui/messages/en.json` and `ui/messages/de.json`. Keys are snake_case with the `native_` prefix; `{param}` interpolation follows the repo convention.
+Add these 49 keys to `ui/messages/en.json` and `ui/messages/de.json`. Keys are snake_case with the `native_` prefix; `{param}` interpolation follows the repo convention.
+
+The five `native_error_*` keys at the end of the table are the inline copy for the
+`ShepherdError` cases that have no server-supplied text of their own. `ShepherdErrorCopy`
+(Task 7) switches exhaustively over the kit's error enum: the cases that *do* carry a server
+message (`badRequest`, `conflict`, `unprocessable`, `upstreamFailure`) show that message
+verbatim, and these five cover the rest.
 
 | Key | EN | DE |
 | --- | --- | --- |
@@ -672,6 +812,17 @@ Add these 44 keys to `ui/messages/en.json` and `ui/messages/de.json`. Keys are s
 | `native_archive_confirm_title` | `Archive this session?` | `Diese Session archivieren?` |
 | `native_archive_confirm_body` | `The agent stops and the worktree is released.` | `Der Agent stoppt und der Worktree wird freigegeben.` |
 | `native_archive_confirm_action` | `Archive` | `Archivieren` |
+| `native_error_forbidden` | `The server refused that request. Sign in again with the operator password.` | `Der Server hat diese Anfrage abgelehnt. Melde dich erneut mit dem Operator-Passwort an.` |
+| `native_error_not_found` | `That session no longer exists on the server.` | `Diese Session existiert auf dem Server nicht mehr.` |
+| `native_error_offline` | `Cannot reach the server. Check the connection and try again.` | `Server nicht erreichbar. Prüfe die Verbindung und versuche es erneut.` |
+| `native_error_mismatch` | `The server speaks a different API version than this app. Update one of them.` | `Der Server spricht eine andere API-Version als diese App. Aktualisiere eines von beiden.` |
+| `native_error_first_run` | `Choose a workspace folder before starting sessions.` | `Wähle einen Arbeitsordner, bevor du Sessions startest.` |
+
+Three of the reused web keys below — `common_close`, `common_save` and
+`newtask_prompt_placeholder` — are in `KEYS` but not called by any view in this plan. They are
+kept deliberately: they are the obvious copy for the next sheet to land, and a key that is in
+the catalog but unused costs one line, whereas a key that is used but missing makes
+`String(localized:)` echo the raw key on screen. Do not add any *further* unused key.
 
 The other 37 keys the app uses already exist in both catalogs and must **not** be edited: `agent_provider_claude`, `agent_provider_codex`, `common_cancel`, `common_close`, `common_loading`, `common_retry`, `common_save`, `effort_default`, `effort_label_{low,medium,high,xhigh,max,ultra}`, `login_{subtitle,password_label,password_placeholder,submit,busy,error}`, `newtask_{title,prompt_label,prompt_placeholder,repo_label,branch_label,branch_placeholder,model_label,model_default,effort_label,submit,spawning,create_failed}`, `status_{working,idle,blocked,done,archived}`.
 
@@ -737,6 +888,11 @@ export const KEYS: readonly string[] = [
   "native_detail_placeholder_body",
   "native_detail_placeholder_title",
   "native_detail_status_label",
+  "native_error_first_run",
+  "native_error_forbidden",
+  "native_error_mismatch",
+  "native_error_not_found",
+  "native_error_offline",
   "native_firstrun_body",
   "native_firstrun_choose",
   "native_firstrun_confirm",
@@ -894,10 +1050,10 @@ rm -f native/Apps/ShepherdMac/Resources/.gitkeep
 native/scripts/gen-strings.sh
 ```
 
-Expected: `Wrote …/Localizable.xcstrings (81 keys, en + de).`
+Expected: `Wrote …/Localizable.xcstrings (86 keys, en + de).`
 
 Run: `native/scripts/gen-strings.sh --check`
-Expected: `Localizable.xcstrings is up to date (81 keys).`
+Expected: `Localizable.xcstrings is up to date (86 keys).`
 
 Run: `jq -r '.strings.native_banner_mismatch.localizations.en.stringUnit.value' native/Apps/ShepherdMac/Resources/Localizable.xcstrings`
 Expected: `Server and app versions differ — server %1$@, app %2$@. Some things may not work.`
@@ -972,7 +1128,7 @@ struct StringCatalogTests {
 
     @Test func everyKeyHasTranslatedEnAndDe() throws {
         let catalog = try Self.load()
-        #expect(catalog.strings.count == 81)
+        #expect(catalog.strings.count == 86)
         for (key, entry) in catalog.strings {
             guard let en = entry.localizations["en"], let de = entry.localizations["de"] else {
                 Issue.record("\(key) is missing en or de")
@@ -1042,374 +1198,7 @@ EOF
 
 ---
 
-### Task 3: Remote server URL policy
-
-**Files:**
-- Create: `native/Apps/ShepherdMac/Sources/App/ServerURL.swift`
-- Create: `native/Apps/ShepherdMac/Tests/ServerURLTests.swift`
-
-**Interfaces:**
-- Consumes: `L.t(_:)` from Task 2.
-- Produces:
-
-```swift
-enum ServerURLError: Error, Equatable, Sendable { case empty, malformed, insecure }
-extension ServerURLError { var message: String { get } }   // localised
-enum ServerURL { static func normalize(_ raw: String) -> Result<URL, ServerURLError> }
-```
-
-Policy (spec, Cross-cutting → Security): "Remote profiles require `https` unless the host is loopback or a `.ts.net` name."
-
-- [ ] **Step 1: Write the failing tests**
-
-Create `native/Apps/ShepherdMac/Tests/ServerURLTests.swift`:
-
-```swift
-import Foundation
-import Testing
-@testable import Shepherd
-
-struct ServerURLTests {
-    @Test func blankInputIsEmpty() {
-        #expect(ServerURL.normalize("") == .failure(.empty))
-        #expect(ServerURL.normalize("   \n ") == .failure(.empty))
-    }
-
-    @Test func bareHostGetsHttps() {
-        #expect(ServerURL.normalize("shepherd.example.com")
-            == .success(URL(string: "https://shepherd.example.com")!))
-    }
-
-    @Test func httpsIsAlwaysAllowed() {
-        #expect(ServerURL.normalize("https://shepherd.example.ts.net")
-            == .success(URL(string: "https://shepherd.example.ts.net")!))
-        #expect(ServerURL.normalize("https://box.example.com:8443")
-            == .success(URL(string: "https://box.example.com:8443")!))
-    }
-
-    @Test func plainHttpIsRejectedForPublicHosts() {
-        #expect(ServerURL.normalize("http://shepherd.example.com") == .failure(.insecure))
-        #expect(ServerURL.normalize("http://192.168.1.10:7330") == .failure(.insecure))
-    }
-
-    @Test func plainHttpIsAllowedForLoopback() {
-        #expect(ServerURL.normalize("http://localhost:7330")
-            == .success(URL(string: "http://localhost:7330")!))
-        #expect(ServerURL.normalize("http://127.0.0.1:7330")
-            == .success(URL(string: "http://127.0.0.1:7330")!))
-    }
-
-    @Test func plainHttpIsAllowedForTailscale() {
-        #expect(ServerURL.normalize("http://box.tail1234.ts.net")
-            == .success(URL(string: "http://box.tail1234.ts.net")!))
-    }
-
-    @Test func tsNetSuffixMustSitOnALabelBoundary() {
-        // "evilts.net" and a bare "ts.net" must not pass as Tailscale names.
-        #expect(ServerURL.normalize("http://evilts.net") == .failure(.insecure))
-        #expect(ServerURL.normalize("http://ts.net") == .failure(.insecure))
-    }
-
-    @Test func trailingSlashAndPathAreDropped() {
-        #expect(ServerURL.normalize("https://box.example.ts.net/")
-            == .success(URL(string: "https://box.example.ts.net")!))
-        #expect(ServerURL.normalize("https://box.example.ts.net/api/health")
-            == .success(URL(string: "https://box.example.ts.net")!))
-    }
-
-    @Test func hostIsLowercased() {
-        #expect(ServerURL.normalize("HTTPS://BOX.Example.TS.NET")
-            == .success(URL(string: "https://box.example.ts.net")!))
-    }
-
-    @Test func otherSchemesAreMalformed() {
-        #expect(ServerURL.normalize("ws://box.example.ts.net") == .failure(.malformed))
-        #expect(ServerURL.normalize("file:///tmp") == .failure(.malformed))
-        #expect(ServerURL.normalize("https://") == .failure(.malformed))
-    }
-
-    @Test func errorsCarryLocalisedCopy() {
-        #expect(!ServerURLError.empty.message.isEmpty)
-        #expect(ServerURLError.insecure.message.contains("https"))
-    }
-}
-```
-
-- [ ] **Step 2: Run the tests to verify they fail**
-
-Run: `native/scripts/test-app.sh -only-testing:ShepherdTests`
-Expected: FAIL — `cannot find 'ServerURL' in scope`.
-
-- [ ] **Step 3: Implement the policy**
-
-Create `native/Apps/ShepherdMac/Sources/App/ServerURL.swift`:
-
-```swift
-import Foundation
-
-enum ServerURLError: Error, Equatable, Sendable {
-    case empty
-    case malformed
-    case insecure
-
-    var message: String {
-        switch self {
-        case .empty: L.t("native_url_error_empty")
-        case .malformed: L.t("native_url_error_malformed")
-        case .insecure: L.t("native_url_error_insecure")
-        }
-    }
-}
-
-/// Parses and vets an operator-typed server address.
-///
-/// The result is scheme + host + port only — the client appends its own paths.
-/// Plain http is accepted only for loopback and Tailscale (.ts.net) hosts;
-/// everything else must be https (design spec, Cross-cutting → Security).
-enum ServerURL {
-    static func normalize(_ raw: String) -> Result<URL, ServerURLError> {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return .failure(.empty) }
-
-        let withScheme = trimmed.contains("://") ? trimmed : "https://\(trimmed)"
-        guard var components = URLComponents(string: withScheme) else { return .failure(.malformed) }
-
-        guard let scheme = components.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
-            return .failure(.malformed)
-        }
-        guard let host = components.host?.lowercased(), !host.isEmpty else { return .failure(.malformed) }
-
-        if scheme == "http" && !isLoopback(host) && !isTailscale(host) {
-            return .failure(.insecure)
-        }
-
-        components.scheme = scheme
-        components.host = host
-        components.path = ""
-        components.query = nil
-        components.fragment = nil
-        components.user = nil
-        components.password = nil
-
-        guard let url = components.url else { return .failure(.malformed) }
-        return .success(url)
-    }
-
-    private static func isLoopback(_ host: String) -> Bool {
-        host == "localhost" || host == "127.0.0.1" || host == "::1" || host.hasSuffix(".localhost")
-    }
-
-    /// True only on a label boundary, so "evilts.net" does not qualify.
-    private static func isTailscale(_ host: String) -> Bool {
-        host.hasSuffix(".ts.net") && host.dropLast(".ts.net".count).contains(".")
-    }
-}
-```
-
-- [ ] **Step 4: Run the tests to verify they pass**
-
-Run: `native/scripts/test-app.sh -only-testing:ShepherdTests`
-Expected: `** TEST SUCCEEDED **`.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add native/Apps/ShepherdMac/Sources/App/ServerURL.swift native/Apps/ShepherdMac/Tests/ServerURLTests.swift
-git commit -m "$(cat <<'EOF'
-feat(mac): server url policy — https unless loopback or .ts.net
-
-Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
-EOF
-)"
-```
-
----
-
-### Task 4: Profile persistence in `UserDefaults`
-
-**Files:**
-- Create: `native/Apps/ShepherdMac/Sources/App/ProfileStore.swift`
-- Create: `native/Apps/ShepherdMac/Tests/ProfileStoreTests.swift`
-
-**Interfaces:**
-- Consumes: `ServerProfile`, `ServerMode` from ShepherdKit; `Log` from Task 1.
-- Produces:
-
-```swift
-struct ProfileStore: Sendable {
-    static let profilesKey = "run.shepherd.mac.profiles"
-    static let activeKey = "run.shepherd.mac.activeProfileID"
-    init(defaults: UserDefaults = .standard)
-    func load() -> (profiles: [ServerProfile], activeID: UUID?)
-    func save(profiles: [ServerProfile], activeID: UUID?)
-}
-```
-
-- [ ] **Step 1: Write the failing tests**
-
-Create `native/Apps/ShepherdMac/Tests/ProfileStoreTests.swift`:
-
-```swift
-import Foundation
-import Testing
-import ShepherdKit
-@testable import Shepherd
-
-struct ProfileStoreTests {
-    /// A throwaway UserDefaults suite per test.
-    private func makeDefaults() -> UserDefaults {
-        let name = UUID().uuidString
-        let defaults = UserDefaults(suiteName: name)!
-        defaults.removePersistentDomain(forName: name)
-        return defaults
-    }
-
-    private func profile(_ name: String, _ url: String, _ mode: ServerMode = .remote) -> ServerProfile {
-        ServerProfile(
-            id: UUID(), name: name, baseURL: URL(string: url)!, mode: mode,
-            credentialKey: "run.shepherd.mac.\(name)")
-    }
-
-    @Test func emptyDefaultsLoadEmpty() {
-        let store = ProfileStore(defaults: makeDefaults())
-        let loaded = store.load()
-        #expect(loaded.profiles.isEmpty)
-        #expect(loaded.activeID == nil)
-    }
-
-    @Test func profilesRoundTrip() {
-        let defaults = makeDefaults()
-        let store = ProfileStore(defaults: defaults)
-        let a = profile("Studio", "https://studio.example.ts.net")
-        let b = profile("This Mac", "http://127.0.0.1:7330", .local)
-
-        store.save(profiles: [a, b], activeID: b.id)
-
-        let loaded = ProfileStore(defaults: defaults).load()
-        #expect(loaded.profiles == [a, b])
-        #expect(loaded.activeID == b.id)
-    }
-
-    @Test func activeIdIsDroppedWhenItsProfileIsGone() {
-        let defaults = makeDefaults()
-        let store = ProfileStore(defaults: defaults)
-        let a = profile("Studio", "https://studio.example.ts.net")
-        let b = profile("Other", "https://other.example.ts.net")
-
-        store.save(profiles: [a, b], activeID: b.id)
-        store.save(profiles: [a], activeID: b.id)
-
-        #expect(store.load().activeID == nil)
-    }
-
-    @Test func corruptPayloadLoadsEmptyInsteadOfCrashing() {
-        let defaults = makeDefaults()
-        defaults.set(Data("not json".utf8), forKey: ProfileStore.profilesKey)
-        defaults.set("not-a-uuid", forKey: ProfileStore.activeKey)
-
-        let loaded = ProfileStore(defaults: defaults).load()
-        #expect(loaded.profiles.isEmpty)
-        #expect(loaded.activeID == nil)
-    }
-
-    @Test func savingEmptyClearsBothKeys() {
-        let defaults = makeDefaults()
-        let store = ProfileStore(defaults: defaults)
-        store.save(profiles: [profile("Studio", "https://studio.example.ts.net")], activeID: nil)
-        store.save(profiles: [], activeID: nil)
-
-        #expect(defaults.data(forKey: ProfileStore.profilesKey) == nil)
-        #expect(defaults.string(forKey: ProfileStore.activeKey) == nil)
-    }
-}
-```
-
-- [ ] **Step 2: Run the tests to verify they fail**
-
-Run: `native/scripts/test-app.sh -only-testing:ShepherdTests/ProfileStoreTests`
-Expected: FAIL — `cannot find 'ProfileStore' in scope`.
-
-- [ ] **Step 3: Implement the store**
-
-Create `native/Apps/ShepherdMac/Sources/App/ProfileStore.swift`:
-
-```swift
-import Foundation
-import ShepherdKit
-
-/// Server profiles persisted as JSON in UserDefaults. No secrets live here —
-/// tokens are in the Keychain under ServerProfile.credentialKey.
-struct ProfileStore: Sendable {
-    static let profilesKey = "run.shepherd.mac.profiles"
-    static let activeKey = "run.shepherd.mac.activeProfileID"
-
-    private let defaults: UserDefaults
-
-    init(defaults: UserDefaults = .standard) {
-        self.defaults = defaults
-    }
-
-    func load() -> (profiles: [ServerProfile], activeID: UUID?) {
-        guard let data = defaults.data(forKey: Self.profilesKey) else { return ([], nil) }
-
-        let profiles: [ServerProfile]
-        do {
-            profiles = try JSONDecoder().decode([ServerProfile].self, from: data)
-        } catch {
-            Log.app.error("dropping unreadable profile list: \(String(describing: error), privacy: .public)")
-            return ([], nil)
-        }
-
-        let raw = defaults.string(forKey: Self.activeKey)
-        guard let activeID = raw.flatMap(UUID.init(uuidString:)),
-              profiles.contains(where: { $0.id == activeID })
-        else {
-            return (profiles, nil)
-        }
-        return (profiles, activeID)
-    }
-
-    func save(profiles: [ServerProfile], activeID: UUID?) {
-        guard !profiles.isEmpty else {
-            defaults.removeObject(forKey: Self.profilesKey)
-            defaults.removeObject(forKey: Self.activeKey)
-            return
-        }
-        do {
-            defaults.set(try JSONEncoder().encode(profiles), forKey: Self.profilesKey)
-        } catch {
-            Log.app.error("could not persist profiles: \(String(describing: error), privacy: .public)")
-            return
-        }
-        if let activeID, profiles.contains(where: { $0.id == activeID }) {
-            defaults.set(activeID.uuidString, forKey: Self.activeKey)
-        } else {
-            defaults.removeObject(forKey: Self.activeKey)
-        }
-    }
-}
-```
-
-- [ ] **Step 4: Run the tests to verify they pass**
-
-Run: `native/scripts/test-app.sh -only-testing:ShepherdTests`
-Expected: `** TEST SUCCEEDED **`.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add native/Apps/ShepherdMac/Sources/App/ProfileStore.swift native/Apps/ShepherdMac/Tests/ProfileStoreTests.swift
-git commit -m "$(cat <<'EOF'
-feat(mac): persist server profiles as json in userdefaults
-
-Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
-EOF
-)"
-```
-
----
-
-### Task 5: Local server detection
+### Task 3: Local server detection
 
 **Files:**
 - Create: `native/Apps/ShepherdMac/Sources/App/LocalServerProbe.swift`
@@ -1595,7 +1384,602 @@ EOF
 
 ---
 
+### Task 4: Session presentation — status style, preview data, row and detail
+
+**Gate:** Gate 1 only. Every ShepherdKit name this task touches — `Session`, `SessionStatus`,
+`SessionStatusKnown`, `AgentProvider` — is a typealias over a generated schema, which the
+skeleton PR already ships. Nothing here references `SessionStore`, `ShepherdClient`,
+`EventStream` or `AppModel`, so the whole task lands before Gate 2.
+
+**Files:**
+- Create: `native/Apps/ShepherdMac/Sources/Main/PreviewData.swift`
+- Create: `native/Apps/ShepherdMac/Sources/Main/SessionStatusStyle.swift`
+- Create: `native/Apps/ShepherdMac/Sources/Main/SessionRow.swift`
+- Create: `native/Apps/ShepherdMac/Sources/Main/SessionDetailView.swift`
+- Create: `native/Apps/ShepherdMac/Tests/SessionStatusStyleTests.swift`
+
+**Interfaces:**
+- Consumes: `L` (Task 2); ShepherdKit `Session`, `SessionStatus`, `SessionStatusKnown`, `AgentProvider`.
+- Produces:
+
+```swift
+#if DEBUG
+enum PreviewData {
+    static func session(
+        id: String = "s1",
+        desig: String = "TASK-01",
+        name: String = "wire up the toolbar",
+        prompt: String = "Wire the toolbar buttons to the session store.",
+        status: SessionStatus = SessionStatus(known: .running),
+        agentProvider: AgentProvider? = .claude,
+        branch: String? = "feat/toolbar"
+    ) -> Session
+}
+#endif
+
+enum SessionStatusStyle {
+    static func label(_ status: SessionStatus) -> String
+    static func tint(_ status: SessionStatus) -> Color
+    static func providerLabel(_ provider: AgentProvider?) -> String?
+}
+struct SessionRow: View { let session: Session }
+struct SessionDetailView: View { let session: Session? }
+```
+
+Status → catalog key mapping. The contract's `running` maps to the web catalog's
+`status_working`; there is no `status_running` key. `SessionStatus` is an **open** enum, so a
+sixth value a newer server invents has no key at all — it falls back to the uppercased raw
+value, which adds no catalog key and cannot be mistaken for a missing translation.
+
+| `status.known` | key | EN | tint |
+| --- | --- | --- | --- |
+| `.running` | `status_working` | BUSY | `.green` |
+| `.idle` | `status_idle` | IDLE | `.secondary` |
+| `.blocked` | `status_blocked` | BLOCKED | `.orange` |
+| `.done` | `status_done` | WAITING | `.blue` |
+| `.archived` | `status_archived` | ARCHIVED | `.gray` |
+| `nil` (unknown) | — | `status.rawValue.uppercased()` | `.secondary` |
+
+- [ ] **Step 1: Write the preview/fixture builder**
+
+Create `native/Apps/ShepherdMac/Sources/Main/PreviewData.swift`:
+
+```swift
+#if DEBUG
+import Foundation
+import ShepherdKit
+
+/// Sample values for SwiftUI previews and for the view unit tests.
+///
+/// The session is built by DECODING contract-shaped JSON rather than by calling the
+/// generated memberwise initialiser: swift-openapi-generator orders that initialiser's
+/// parameters by schema order, which is not something this plan can pin, and decoding
+/// tolerates the contract gaining a new optional property without a source change.
+///
+/// DEBUG only — none of this ships in a Release build.
+enum PreviewData {
+    static func session(
+        id: String = "s1",
+        desig: String = "TASK-01",
+        name: String = "wire up the toolbar",
+        prompt: String = "Wire the toolbar buttons to the session store.",
+        status: SessionStatus = SessionStatus(known: .running),
+        agentProvider: AgentProvider? = .claude,
+        branch: String? = "feat/toolbar"
+    ) -> Session {
+        var payload: [String: Any] = [
+            "id": id,
+            "desig": desig,
+            "name": name,
+            "prompt": prompt,
+            "repoPath": "/repos/demo",
+            "baseBranch": "main",
+            "worktreePath": "/repos/demo-\(id)",
+            "isolated": false,
+            "herdrSession": "herdr-\(id)",
+            "herdrAgentId": "agent-\(id)",
+            "claudeSessionId": "claude-\(id)",
+            "readyToMerge": false,
+            "autopilotPaused": false,
+            "autopilotComplete": false,
+            "auto": false,
+            "status": status.rawValue,
+            "lastState": "working",
+            "createdAt": 1_700_000_000,
+            "updatedAt": 1_700_000_001,
+            "manualSteps": [String](),
+        ]
+        // An absent optional is an absent KEY, not a null: never put a Swift
+        // optional into a [String: Any] bound for JSONSerialization.
+        if let branch { payload["branch"] = branch }
+        if let agentProvider { payload["agentProvider"] = agentProvider.rawValue }
+
+        guard let data = try? JSONSerialization.data(withJSONObject: payload),
+              let decoded = try? JSONDecoder().decode(Session.self, from: data)
+        else {
+            fatalError("PreviewData.session no longer matches the contract's Session schema")
+        }
+        return decoded
+    }
+}
+#endif
+```
+
+- [ ] **Step 2: Write the failing status-style tests**
+
+Create `native/Apps/ShepherdMac/Tests/SessionStatusStyleTests.swift`:
+
+```swift
+import SwiftUI
+import Testing
+import ShepherdKit
+@testable import Shepherd
+
+@MainActor
+struct SessionStatusStyleTests {
+    private let all: [SessionStatus] = [
+        SessionStatus(known: .running),
+        SessionStatus(known: .idle),
+        SessionStatus(known: .blocked),
+        SessionStatus(known: .done),
+        SessionStatus(known: .archived),
+    ]
+
+    @Test func everyStatusHasANonEmptyLabel() {
+        for status in all { #expect(!SessionStatusStyle.label(status).isEmpty) }
+    }
+
+    @Test func labelsDoNotLeakRawKeys() {
+        // A missing catalog entry makes String(localized:) echo the key back.
+        for status in all { #expect(!SessionStatusStyle.label(status).hasPrefix("status_")) }
+    }
+
+    @Test func everyStatusHasADistinctLabel() {
+        #expect(Set(all.map(SessionStatusStyle.label)).count == all.count)
+    }
+
+    @Test func blockedDoneRunningAndArchivedAreVisuallyDistinct() {
+        #expect(SessionStatusStyle.tint(SessionStatus(known: .blocked))
+            != SessionStatusStyle.tint(SessionStatus(known: .done)))
+        #expect(SessionStatusStyle.tint(SessionStatus(known: .running))
+            != SessionStatusStyle.tint(SessionStatus(known: .archived)))
+    }
+
+    @Test func aStatusThisBuildDoesNotKnowFallsBackToItsRawValue() {
+        // The contract's read-side enums are open: a newer server may send a value
+        // this app has never compiled against, and the badge must still render.
+        let status = SessionStatus(unknown: "quiescing")
+        #expect(SessionStatusStyle.label(status) == "QUIESCING")
+        #expect(SessionStatusStyle.tint(status) == SessionStatusStyle.tint(SessionStatus(known: .idle)))
+    }
+
+    @Test func providerLabelIsNilWhenUnknown() {
+        #expect(SessionStatusStyle.providerLabel(nil) == nil)
+        #expect(SessionStatusStyle.providerLabel(.claude) != nil)
+        #expect(SessionStatusStyle.providerLabel(.codex) != SessionStatusStyle.providerLabel(.claude))
+    }
+
+    @Test func previewSessionCarriesWhatItWasGiven() {
+        let session = PreviewData.session(id: "abc", status: SessionStatus(known: .blocked))
+        #expect(session.id == "abc")
+        #expect(session.status.known == .blocked)
+        #expect(session.agentProvider == .claude)
+        #expect(PreviewData.session(agentProvider: nil).agentProvider == nil)
+    }
+}
+```
+
+- [ ] **Step 3: Run the tests to verify they fail**
+
+Run: `native/scripts/test-app.sh -only-testing:ShepherdTests/SessionStatusStyleTests`
+Expected: FAIL — `cannot find 'SessionStatusStyle' in scope`.
+
+- [ ] **Step 4: Implement the status style**
+
+Create `native/Apps/ShepherdMac/Sources/Main/SessionStatusStyle.swift`:
+
+```swift
+import SwiftUI
+import ShepherdKit
+
+/// Status badge copy and tint. Copy is mirrored from the web catalog: the
+/// contract's `running` is the web UI's "BUSY" (status_working) — there is no
+/// status_running key.
+///
+/// `SessionStatus` is an open enum, so `known` is optional: `nil` means the server
+/// sent a value this build has never heard of. That is not an error — show the raw
+/// wire value so the operator can at least read it.
+enum SessionStatusStyle {
+    static func label(_ status: SessionStatus) -> String {
+        guard let known = status.known else { return status.rawValue.uppercased() }
+        switch known {
+        case .running: return L.t("status_working")
+        case .idle: return L.t("status_idle")
+        case .blocked: return L.t("status_blocked")
+        case .done: return L.t("status_done")
+        case .archived: return L.t("status_archived")
+        }
+    }
+
+    static func tint(_ status: SessionStatus) -> Color {
+        guard let known = status.known else { return .secondary }
+        switch known {
+        case .running: return .green
+        case .idle: return .secondary
+        case .blocked: return .orange
+        case .done: return .blue
+        case .archived: return .gray
+        }
+    }
+
+    static func providerLabel(_ provider: AgentProvider?) -> String? {
+        switch provider {
+        case .claude: L.t("agent_provider_claude")
+        case .codex: L.t("agent_provider_codex")
+        case nil: nil
+        }
+    }
+}
+```
+
+- [ ] **Step 5: Run the tests to verify they pass**
+
+Run: `native/scripts/test-app.sh -only-testing:ShepherdTests`
+Expected: `** TEST SUCCEEDED **`.
+
+- [ ] **Step 6: Write the sidebar row**
+
+Create `native/Apps/ShepherdMac/Sources/Main/SessionRow.swift`:
+
+```swift
+import SwiftUI
+import ShepherdKit
+
+struct SessionRow: View {
+    let session: Session
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Circle()
+                .fill(SessionStatusStyle.tint(session.status))
+                .frame(width: 8, height: 8)
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(verbatim: session.desig)
+                        .font(.caption.monospaced().weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Text(verbatim: session.name).lineLimit(1)
+                }
+                HStack(spacing: 6) {
+                    Text(verbatim: SessionStatusStyle.label(session.status))
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(SessionStatusStyle.tint(session.status))
+                    if let provider = SessionStatusStyle.providerLabel(session.agentProvider) {
+                        Text(verbatim: provider).font(.caption2).foregroundStyle(.secondary)
+                    }
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 2)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("session-row-\(session.id)")
+    }
+}
+
+#if DEBUG
+#Preview("Session rows") {
+    List {
+        SessionRow(session: PreviewData.session(status: SessionStatus(known: .running)))
+        SessionRow(session: PreviewData.session(
+            id: "s2", desig: "TASK-02", name: "blocked on review",
+            status: SessionStatus(known: .blocked), agentProvider: .codex))
+        SessionRow(session: PreviewData.session(
+            id: "s3", desig: "TASK-03", name: "future status",
+            status: SessionStatus(unknown: "quiescing"), agentProvider: nil))
+    }
+    .frame(width: 320)
+}
+#endif
+```
+
+- [ ] **Step 7: Write the detail placeholder**
+
+Create `native/Apps/ShepherdMac/Sources/Main/SessionDetailView.swift`:
+
+```swift
+import SwiftUI
+import ShepherdKit
+
+struct SessionDetailView: View {
+    let session: Session?
+
+    var body: some View {
+        if let session {
+            VStack(alignment: .leading, spacing: 20) {
+                HStack(spacing: 8) {
+                    Text(verbatim: session.desig).font(.title3.monospaced().weight(.semibold))
+                    Text(verbatim: session.name).font(.title3)
+                    Spacer()
+                    Text(verbatim: L.t("native_detail_status_label"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(verbatim: SessionStatusStyle.label(session.status))
+                        .font(.caption.weight(.semibold))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(SessionStatusStyle.tint(session.status).opacity(0.18), in: Capsule())
+                        .foregroundStyle(SessionStatusStyle.tint(session.status))
+                }
+
+                GroupBox(L.t("newtask_prompt_label")) {
+                    ScrollView {
+                        Text(verbatim: session.prompt)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .textSelection(.enabled)
+                    }
+                    .frame(maxHeight: 220)
+                }
+
+                GroupBox(L.t("native_detail_placeholder_title")) {
+                    Text(verbatim: L.t("native_detail_placeholder_body"))
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                Spacer()
+            }
+            .padding(24)
+            .accessibilityIdentifier("session-detail")
+        } else {
+            ContentUnavailableView(L.t("native_detail_no_selection"), systemImage: "sidebar.left")
+        }
+    }
+}
+
+#if DEBUG
+#Preview("Detail") {
+    SessionDetailView(session: PreviewData.session()).frame(width: 720, height: 520)
+}
+
+#Preview("No selection") {
+    SessionDetailView(session: nil).frame(width: 720, height: 520)
+}
+#endif
+```
+
+- [ ] **Step 8: Build and run the tests**
+
+Run: `native/scripts/test-app.sh -only-testing:ShepherdTests`
+Expected: `** TEST SUCCEEDED **`.
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add native/Apps/ShepherdMac/Sources/Main native/Apps/ShepherdMac/Tests/SessionStatusStyleTests.swift
+git commit -m "$(cat <<'EOF'
+feat(mac): session row, detail placeholder and open-enum status badge
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+EOF
+)"
+```
+
+---
+
+### Task 5: Profile persistence in `UserDefaults`
+
+**Gate:** Gate 1 only. `ServerProfile` ships in sub-project 2a's **skeleton** PR (2a Task 2,
+Steps 15–19), so this task needs nothing from `feat/native-shepherdkit-core`. Confirm it is
+really there before starting:
+
+```bash
+swift test --package-path native --filter ServerProfile
+```
+
+Expected: PASS. If the filter matches no tests, 2a's PR 1 is older than decision D6 — **stop and
+tell the orchestrator**; do not hand-write a stand-in `ServerProfile`.
+
+This task uses `ServerProfile`, `ServerProfile.Mode` and `Log` and nothing else from the kit, so
+it lands entirely before Gate 2.
+
+**Files:**
+- Create: `native/Apps/ShepherdMac/Sources/App/ProfileStore.swift`
+- Create: `native/Apps/ShepherdMac/Tests/ProfileStoreTests.swift`
+
+**Interfaces:**
+- Consumes: `ServerProfile` and its nested `ServerProfile.Mode` from ShepherdKit; `Log` from Task 1.
+  There is no top-level `ServerMode` type — the mode is `ServerProfile.Mode`, and inside a
+  `ServerProfile(...)` argument list it is spelled `.local` / `.remote` as usual.
+- Produces:
+
+```swift
+struct ProfileStore: Sendable {
+    static let profilesKey = "run.shepherd.mac.profiles"
+    static let activeKey = "run.shepherd.mac.activeProfileID"
+    init(defaults: UserDefaults = .standard)
+    func load() -> (profiles: [ServerProfile], activeID: UUID?)
+    func save(profiles: [ServerProfile], activeID: UUID?)
+}
+```
+
+- [ ] **Step 1: Write the failing tests**
+
+Create `native/Apps/ShepherdMac/Tests/ProfileStoreTests.swift`:
+
+```swift
+import Foundation
+import Testing
+import ShepherdKit
+@testable import Shepherd
+
+struct ProfileStoreTests {
+    /// A throwaway UserDefaults suite per test.
+    private func makeDefaults() -> UserDefaults {
+        let name = UUID().uuidString
+        let defaults = UserDefaults(suiteName: name)!
+        defaults.removePersistentDomain(forName: name)
+        return defaults
+    }
+
+    private func profile(
+        _ name: String, _ url: String, _ mode: ServerProfile.Mode = .remote
+    ) -> ServerProfile {
+        ServerProfile(
+            id: UUID(), name: name, baseURL: URL(string: url)!, mode: mode,
+            credentialKey: "run.shepherd.mac.\(name)")
+    }
+
+    @Test func emptyDefaultsLoadEmpty() {
+        let store = ProfileStore(defaults: makeDefaults())
+        let loaded = store.load()
+        #expect(loaded.profiles.isEmpty)
+        #expect(loaded.activeID == nil)
+    }
+
+    @Test func profilesRoundTrip() {
+        let defaults = makeDefaults()
+        let store = ProfileStore(defaults: defaults)
+        let a = profile("Studio", "https://studio.example.ts.net")
+        let b = profile("This Mac", "http://127.0.0.1:7330", .local)
+
+        store.save(profiles: [a, b], activeID: b.id)
+
+        let loaded = ProfileStore(defaults: defaults).load()
+        #expect(loaded.profiles == [a, b])
+        #expect(loaded.activeID == b.id)
+    }
+
+    @Test func activeIdIsDroppedWhenItsProfileIsGone() {
+        let defaults = makeDefaults()
+        let store = ProfileStore(defaults: defaults)
+        let a = profile("Studio", "https://studio.example.ts.net")
+        let b = profile("Other", "https://other.example.ts.net")
+
+        store.save(profiles: [a, b], activeID: b.id)
+        store.save(profiles: [a], activeID: b.id)
+
+        #expect(store.load().activeID == nil)
+    }
+
+    @Test func corruptPayloadLoadsEmptyInsteadOfCrashing() {
+        let defaults = makeDefaults()
+        defaults.set(Data("not json".utf8), forKey: ProfileStore.profilesKey)
+        defaults.set("not-a-uuid", forKey: ProfileStore.activeKey)
+
+        let loaded = ProfileStore(defaults: defaults).load()
+        #expect(loaded.profiles.isEmpty)
+        #expect(loaded.activeID == nil)
+    }
+
+    @Test func savingEmptyClearsBothKeys() {
+        let defaults = makeDefaults()
+        let store = ProfileStore(defaults: defaults)
+        store.save(profiles: [profile("Studio", "https://studio.example.ts.net")], activeID: nil)
+        store.save(profiles: [], activeID: nil)
+
+        #expect(defaults.data(forKey: ProfileStore.profilesKey) == nil)
+        #expect(defaults.string(forKey: ProfileStore.activeKey) == nil)
+    }
+}
+```
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `native/scripts/test-app.sh -only-testing:ShepherdTests/ProfileStoreTests`
+Expected: FAIL — `cannot find 'ProfileStore' in scope`.
+
+- [ ] **Step 3: Implement the store**
+
+Create `native/Apps/ShepherdMac/Sources/App/ProfileStore.swift`:
+
+```swift
+import Foundation
+import ShepherdKit
+
+/// Server profiles persisted as JSON in UserDefaults. No secrets live here —
+/// tokens are in the Keychain under ServerProfile.credentialKey.
+struct ProfileStore: Sendable {
+    static let profilesKey = "run.shepherd.mac.profiles"
+    static let activeKey = "run.shepherd.mac.activeProfileID"
+
+    private let defaults: UserDefaults
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
+
+    func load() -> (profiles: [ServerProfile], activeID: UUID?) {
+        guard let data = defaults.data(forKey: Self.profilesKey) else { return ([], nil) }
+
+        let profiles: [ServerProfile]
+        do {
+            profiles = try JSONDecoder().decode([ServerProfile].self, from: data)
+        } catch {
+            Log.app.error("dropping unreadable profile list: \(String(describing: error), privacy: .public)")
+            return ([], nil)
+        }
+
+        let raw = defaults.string(forKey: Self.activeKey)
+        guard let activeID = raw.flatMap(UUID.init(uuidString:)),
+              profiles.contains(where: { $0.id == activeID })
+        else {
+            return (profiles, nil)
+        }
+        return (profiles, activeID)
+    }
+
+    func save(profiles: [ServerProfile], activeID: UUID?) {
+        guard !profiles.isEmpty else {
+            defaults.removeObject(forKey: Self.profilesKey)
+            defaults.removeObject(forKey: Self.activeKey)
+            return
+        }
+        do {
+            defaults.set(try JSONEncoder().encode(profiles), forKey: Self.profilesKey)
+        } catch {
+            Log.app.error("could not persist profiles: \(String(describing: error), privacy: .public)")
+            return
+        }
+        if let activeID, profiles.contains(where: { $0.id == activeID }) {
+            defaults.set(activeID.uuidString, forKey: Self.activeKey)
+        } else {
+            defaults.removeObject(forKey: Self.activeKey)
+        }
+    }
+}
+```
+
+- [ ] **Step 4: Run the tests to verify they pass**
+
+Run: `native/scripts/test-app.sh -only-testing:ShepherdTests`
+Expected: `** TEST SUCCEEDED **`.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add native/Apps/ShepherdMac/Sources/App/ProfileStore.swift native/Apps/ShepherdMac/Tests/ProfileStoreTests.swift
+git commit -m "$(cat <<'EOF'
+feat(mac): persist server profiles as json in userdefaults
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+EOF
+)"
+```
+
+---
+
 ### Task 6: `AppModel` — profiles, active store, sheet routing
+
+**Gate:** **Gate 2** — this is the **first** task behind it (`CredentialStore`,
+`KeychainCredentialStore`, `InMemoryCredentialStore`, `ShepherdClient`, `SessionStore`,
+`ConnectionState`, `ProfileSetup`, `ShepherdError`). Before starting, run
+`git fetch origin main && git rebase origin/main` and then
+`swift test --package-path native --filter SessionStore`; if that filter matches no tests,
+sub-project 2a's core PR has not merged — **stop and tell the orchestrator**. Never hand-write a
+stand-in for kit code.
 
 **Files:**
 - Create: `native/Apps/ShepherdMac/Sources/App/AppModel.swift`
@@ -1605,11 +1989,24 @@ EOF
 - Create: `native/Apps/ShepherdMac/Sources/Main/MainWindow.swift` (stub, filled in Task 9)
 
 **Interfaces:**
-- Consumes: `ProfileStore` (Task 4), `ServerURL`/`ServerURLError` (Task 3), `L` (Task 2), `Log` (Task 1), ShepherdKit's `ServerProfile`, `CredentialStore`, `KeychainCredentialStore`, `InMemoryCredentialStore`, `SessionStore`, `ProfileSetup`, `ConnectionState`.
+- Consumes: `ProfileStore` (Task 5), `L` (Task 2), `Log` (Task 1), ShepherdKit's `ServerProfile`, `ServerProfileError`, `CredentialStore`, `KeychainCredentialStore`, `InMemoryCredentialStore`, `SessionStore`, `ProfileSetup`, `ConnectionState`, `ShepherdError`.
 - Produces:
 
 ```swift
 enum AppSheet: Identifiable, Equatable { case login(ServerProfile), firstRun, newSession }
+
+/// The remote-server form's own validation. It parses what the operator typed
+/// and hands the *security* decision to the kit: `profile(name:address:)` builds
+/// a `ServerProfile` and returns `try profile.validated()`, so an insecure
+/// address comes back as `ServerProfileError.insecureRemoteURL(host)` from
+/// ShepherdKit rather than from a second policy implementation in this app.
+enum RemoteServerForm {
+    /// Only the two failures the kit cannot express: nothing typed, and
+    /// something that is not an http(s) URL at all.
+    enum FieldError: Error, Equatable, Sendable { case empty, malformed }
+    static func normalize(_ raw: String) throws -> URL
+    static func profile(name: String, address: String, credentialKey: String) throws -> ServerProfile
+}
 
 @Observable @MainActor final class AppModel {
     init(defaults: UserDefaults = .standard, credentials: any CredentialStore = KeychainCredentialStore())
@@ -1626,8 +2023,20 @@ enum AppSheet: Identifiable, Equatable { case login(ServerProfile), firstRun, ne
     func activate(_ profile: ServerProfile) async
     func signIn(profile: ServerProfile, password: String) async throws
     func signOutActive() async
+    /// Internal, not private: the unit tests drive it directly.
+    func routeSheet(for state: ConnectionState, profile: ServerProfile)
 }
 ```
+
+**How the store is driven.** `SessionStore` is self-driving: `SessionStore(profile:credentials:)`
+builds its own `ShepherdClient` and `EventStream`, and `start()` bootstraps, publishes
+`connection`, and then consumes the event stream until `stop()`. `AppModel` therefore owns two
+tasks per activation — one running `store.start()`, one watching `store.connection` — and no
+networking of its own.
+
+**No polling.** `SessionStore.connection` is `@Observable`-tracked, so the watcher suspends on
+`withObservationTracking` and wakes on the next mutation. Do **not** reintroduce a timer: a
+400 ms poll both burns wakeups and loses transitions that flip back within one tick.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1672,10 +2081,52 @@ struct AppModelTests {
 
     @Test func insecureAddressesAreRejectedAndNothingIsStored() {
         let model = makeModel()
-        #expect(throws: ServerURLError.insecure) {
+        // The rejection comes from ShepherdKit's ServerProfile.validated(),
+        // not from a second policy in this app.
+        #expect(throws: ServerProfileError.insecureRemoteURL("studio.example.com")) {
             try model.addRemoteProfile(name: "Bad", address: "http://studio.example.com")
         }
         #expect(model.profiles.isEmpty)
+    }
+
+    @Test func plainHttpIsAllowedForLoopbackAndTailnetNames() throws {
+        let model = makeModel()
+        let loopback = try model.addRemoteProfile(name: "Local", address: "http://127.0.0.1:7330")
+        #expect(loopback.baseURL == URL(string: "http://127.0.0.1:7330")!)
+        let tailnet = try model.addRemoteProfile(name: "Box", address: "http://box.tail1234.ts.net")
+        #expect(tailnet.baseURL == URL(string: "http://box.tail1234.ts.net")!)
+    }
+
+    @Test func aTsNetSuffixOnlyCountsOnALabelBoundary() {
+        let model = makeModel()
+        #expect(throws: ServerProfileError.insecureRemoteURL("evilts.net")) {
+            try model.addRemoteProfile(name: "Evil", address: "http://evilts.net")
+        }
+    }
+
+    @Test func blankAddressesAreAFormError() {
+        let model = makeModel()
+        #expect(throws: RemoteServerForm.FieldError.empty) {
+            try model.addRemoteProfile(name: "Bad", address: "   \n ")
+        }
+        #expect(model.profiles.isEmpty)
+    }
+
+    @Test func nonHttpSchemesAreAFormError() {
+        let model = makeModel()
+        #expect(throws: RemoteServerForm.FieldError.malformed) {
+            try model.addRemoteProfile(name: "Bad", address: "ws://box.example.ts.net")
+        }
+        #expect(throws: RemoteServerForm.FieldError.malformed) {
+            try model.addRemoteProfile(name: "Bad", address: "https://")
+        }
+    }
+
+    @Test func pathsQueriesAndCaseAreStrippedFromTheAddress() throws {
+        let model = makeModel()
+        let profile = try model.addRemoteProfile(
+            name: "Studio", address: "HTTPS://BOX.Example.TS.NET/api/health?x=1")
+        #expect(profile.baseURL == URL(string: "https://box.example.ts.net")!)
     }
 
     @Test func credentialKeysAreUniquePerProfile() throws {
@@ -1725,6 +2176,40 @@ struct AppModelTests {
     @Test func appVersionComesFromTheBundle() {
         #expect(!makeModel().appVersion.isEmpty)
     }
+
+    // MARK: - Connection routing
+
+    @Test func needsLoginRoutesToTheLoginSheet() throws {
+        let model = makeModel()
+        let profile = try model.addRemoteProfile(name: "Studio", address: "https://studio.example.ts.net")
+        model.routeSheet(for: .needsLogin, profile: profile)
+        #expect(model.sheet == .login(profile))
+    }
+
+    @Test func firstRunPendingRoutesToTheFolderPicker() throws {
+        let model = makeModel()
+        let profile = try model.addRemoteProfile(name: "Studio", address: "https://studio.example.ts.net")
+        model.routeSheet(for: .firstRunPending, profile: profile)
+        #expect(model.sheet == .firstRun)
+    }
+
+    @Test func quietStatesOpenNoSheet() throws {
+        let model = makeModel()
+        let profile = try model.addRemoteProfile(name: "Studio", address: "https://studio.example.ts.net")
+        for state: ConnectionState in [.idle, .connecting, .live, .offline(message: "timed out")] {
+            model.sheet = nil
+            model.routeSheet(for: state, profile: profile)
+            #expect(model.sheet == nil, "\(state) should not open a sheet")
+        }
+    }
+
+    @Test func anOpenSheetIsNotReplaced() throws {
+        let model = makeModel()
+        let profile = try model.addRemoteProfile(name: "Studio", address: "https://studio.example.ts.net")
+        model.sheet = .newSession
+        model.routeSheet(for: .needsLogin, profile: profile)
+        #expect(model.sheet == .newSession)
+    }
 }
 ```
 
@@ -1756,6 +2241,66 @@ enum AppSheet: Identifiable, Equatable {
     }
 }
 
+/// The remote-server form's own validation: parsing only.
+///
+/// The https-unless-loopback-or-`.ts.net` rule is **ShepherdKit's**
+/// (`ServerProfile.validated()`), and this app never reimplements it — a second
+/// copy of a security policy is a second place for it to be wrong. What is left
+/// here is what the kit cannot express: an empty field, and text that is not an
+/// http(s) URL at all.
+enum RemoteServerForm {
+    enum FieldError: Error, Equatable, Sendable {
+        case empty
+        case malformed
+    }
+
+    /// Scheme + host + port only — the client appends its own paths. A bare
+    /// host gets `https://`, the host is lowercased, and path, query, fragment
+    /// and any userinfo are dropped.
+    static func normalize(_ raw: String) throws -> URL {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { throw FieldError.empty }
+
+        let withScheme = trimmed.contains("://") ? trimmed : "https://\(trimmed)"
+        guard var components = URLComponents(string: withScheme) else { throw FieldError.malformed }
+
+        guard let scheme = components.scheme?.lowercased(),
+              scheme == "http" || scheme == "https"
+        else { throw FieldError.malformed }
+        guard let host = components.host?.lowercased(), !host.isEmpty else {
+            throw FieldError.malformed
+        }
+
+        components.scheme = scheme
+        components.host = host
+        components.path = ""
+        components.query = nil
+        components.fragment = nil
+        components.user = nil
+        components.password = nil
+
+        guard let url = components.url else { throw FieldError.malformed }
+        return url
+    }
+
+    /// Builds a `.remote` profile and returns it only if the kit's policy
+    /// accepts it. Throws `FieldError` for a typo and `ServerProfileError` for
+    /// an address the policy rejects.
+    static func profile(
+        name: String, address: String, credentialKey: String
+    ) throws -> ServerProfile {
+        let url = try normalize(address)
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let profile = ServerProfile(
+            id: UUID(),
+            name: trimmed.isEmpty ? (url.host() ?? url.absoluteString) : trimmed,
+            baseURL: url,
+            mode: .remote,
+            credentialKey: credentialKey)
+        return try profile.validated()
+    }
+}
+
 /// Owns the profile list, the active SessionStore and sheet routing. Holds no
 /// networking of its own — everything server-facing goes through ShepherdKit.
 @Observable
@@ -1769,6 +2314,9 @@ final class AppModel {
 
     private let persistence: ProfileStore
     private let credentials: any CredentialStore
+    /// Runs `SessionStore.start()` — bootstrap plus the event loop.
+    private var storeRunner: Task<Void, Never>?
+    /// Watches `SessionStore.connection` and routes sheets off it.
     private var connectionWatcher: Task<Void, Never>?
 
     init(defaults: UserDefaults = .standard, credentials: any CredentialStore = KeychainCredentialStore()) {
@@ -1788,13 +2336,11 @@ final class AppModel {
 
     @discardableResult
     func addRemoteProfile(name: String, address: String) throws -> ServerProfile {
-        let url = try ServerURL.normalize(address).get()
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let profile = ServerProfile(
-            id: UUID(),
-            name: trimmed.isEmpty ? (url.host() ?? url.absoluteString) : trimmed,
-            baseURL: url,
-            mode: .remote,
+        // RemoteServerForm parses; ShepherdKit decides whether the address is
+        // allowed. Nothing is appended if either step throws.
+        let profile = try RemoteServerForm.profile(
+            name: name,
+            address: address,
             credentialKey: "run.shepherd.mac.\(UUID().uuidString)")
         profiles.append(profile)
         persist()
@@ -1831,15 +2377,37 @@ final class AppModel {
 
     func activate(_ profile: ServerProfile) async {
         connectionWatcher?.cancel()
+        connectionWatcher = nil
+        storeRunner?.cancel()
+        storeRunner = nil
+        store?.stop()
+
         activeProfile = profile
         selectedSessionID = nil
-        let store = SessionStore(profile: profile, credentials: credentials)
-        self.store = store
         persist()
 
-        await store.load()
-        store.start()
+        let store: SessionStore
+        do {
+            store = try SessionStore(profile: profile, credentials: credentials)
+        } catch {
+            // The only failure `SessionStore.init(profile:credentials:)` has is
+            // ServerProfileError.insecureRemoteURL, and addRemoteProfile already
+            // applied the same policy — so this can only fire for a row persisted
+            // by an older build. Drop back to the welcome screen rather than
+            // linking an unusable store.
+            Log.connect.error(
+                "cannot use profile \(profile.name, privacy: .public): \(String(describing: error), privacy: .public)")
+            self.store = nil
+            activeProfile = nil
+            persist()
+            return
+        }
+
+        self.store = store
         watchConnection(store, profile: profile)
+        // start() bootstraps, publishes `connection`, then consumes the event
+        // stream until stop(). It never throws — failures land in `connection`.
+        storeRunner = Task { await store.start() }
     }
 
     func signIn(profile: ServerProfile, password: String) async throws {
@@ -1856,29 +2424,59 @@ final class AppModel {
 
     // MARK: - Internals
 
-    /// Turns the store's connection state into sheet routing: a 401 opens the
-    /// login sheet, a pending first run opens the folder picker. Polling at
-    /// 400 ms keeps this independent of how ShepherdKit publishes the state.
+    /// Turns the store's connection state into sheet routing.
+    ///
+    /// `SessionStore.connection` is `@Observable`-tracked, so this suspends on
+    /// `withObservationTracking` and wakes on the next mutation — no timer, no
+    /// missed transition. `withObservationTracking` fires `onChange` exactly once,
+    /// which is why the loop re-registers on every pass.
     private func watchConnection(_ store: SessionStore, profile: ServerProfile) {
-        connectionWatcher = Task { [weak self] in
+        routeSheet(for: store.connection, profile: profile)
+
+        connectionWatcher = Task { @MainActor [weak self] in
+            var current = store.connection
             while !Task.isCancelled {
-                guard let self else { return }
-                switch store.connection {
-                case .needsLogin:
-                    if self.sheet == nil { self.sheet = .login(profile) }
-                case .firstRunPending:
-                    if self.sheet == nil { self.sheet = .firstRun }
-                case .connecting, .live, .offline:
-                    break
+                await withCheckedContinuation { continuation in
+                    withObservationTracking {
+                        _ = store.connection
+                    } onChange: {
+                        continuation.resume()
+                    }
                 }
-                try? await Task.sleep(for: .milliseconds(400))
+                // `onChange` runs just before the property is written, so yield
+                // once to let the writer finish before reading the new value.
+                await Task.yield()
+                guard let self, !Task.isCancelled else { return }
+
+                let next = store.connection
+                guard next != current else { continue }
+                current = next
+                self.routeSheet(for: next, profile: profile)
             }
+        }
+    }
+
+    /// A 401 opens the login sheet; a pending first run opens the folder picker.
+    /// An already-open sheet is never replaced — the operator is mid-task in it.
+    func routeSheet(for state: ConnectionState, profile: ServerProfile) {
+        switch state {
+        case .needsLogin:
+            if sheet == nil { sheet = .login(profile) }
+        case .firstRunPending:
+            if sheet == nil { sheet = .firstRun }
+        case .idle, .connecting, .live, .offline:
+            break
         }
     }
 
     private func teardown() {
         connectionWatcher?.cancel()
         connectionWatcher = nil
+        storeRunner?.cancel()
+        storeRunner = nil
+        // stop() also publishes `connection = .idle`, which releases the
+        // watcher's continuation so the cancelled task can actually finish.
+        store?.stop()
         store = nil
         activeProfile = nil
         sheet = nil
@@ -1978,18 +2576,190 @@ EOF
 
 ---
 
-### Task 7: Welcome screen and login sheet
+### Task 7: Welcome screen, error copy and login sheet
+
+**Gate:** Gate 2 (`ProfileSetup`, `ShepherdError`).
 
 **Files:**
+- Create: `native/Apps/ShepherdMac/Sources/App/ShepherdErrorCopy.swift`
+- Create: `native/Apps/ShepherdMac/Tests/ShepherdErrorCopyTests.swift`
 - Modify: `native/Apps/ShepherdMac/Sources/Welcome/WelcomeView.swift`
 - Create: `native/Apps/ShepherdMac/Sources/Welcome/LoginSheet.swift`
 
 **Interfaces:**
-- Consumes: `AppModel` (Task 6), `LocalServerProbe` / `LocalServerStatus` (Task 5), `ServerURLError` (Task 3), `L` (Task 2).
-- Produces: `struct WelcomeView: View`; `struct LoginSheet: View` with `init(profile: ServerProfile, onDismiss: @escaping () -> Void)`.
-- Produces accessibility identifiers the Task 12 smoke test relies on: `welcome-local-card`, `welcome-remote-card`, `welcome-remote-url`, `welcome-remote-connect`, `login-password`.
+- Consumes: `AppModel` and `RemoteServerForm` (Task 6), `LocalServerProbe` / `LocalServerStatus` (Task 3), `L` (Task 2), ShepherdKit `ShepherdError`, `ServerProfileError`, `ProfileSetup`.
+- Produces:
 
-- [ ] **Step 1: Write the welcome screen**
+```swift
+enum ShepherdErrorCopy {
+    /// Operator-facing copy for any error a ShepherdKit call can throw.
+    static func message(_ error: any Error) -> String
+    /// True when the right response is "sign in again".
+    static func isAuthFailure(_ error: any Error) -> Bool
+}
+```
+
+- Produces: `struct WelcomeView: View`; `struct LoginSheet: View` with `init(profile: ServerProfile, onDismiss: @escaping () -> Void)`.
+- Produces accessibility identifiers the Task 11 smoke test relies on: `welcome-local-card`, `welcome-remote-card`, `welcome-remote-url`, `welcome-remote-connect`, `login-password`.
+
+- [ ] **Step 1: Write the failing error-copy tests**
+
+Create `native/Apps/ShepherdMac/Tests/ShepherdErrorCopyTests.swift`:
+
+```swift
+import Foundation
+import Testing
+import ShepherdKit
+@testable import Shepherd
+
+@MainActor
+struct ShepherdErrorCopyTests {
+    /// Every case ShepherdKit declares, so a new case upstream shows up here as a
+    /// compile error in the array literal rather than as a silent Swift dump on screen.
+    private let all: [ShepherdError] = [
+        .unauthenticated,
+        .forbidden,
+        .firstRunPending,
+        .notFound,
+        .badRequest("bad input"),
+        .conflict(code: "name_taken", message: "name taken"),
+        .unprocessable("no such ref"),
+        .upstreamFailure("git exploded"),
+        .contractMismatch(route: "listSessions", underlying: "keyNotFound"),
+        .insecureProfile(.insecureRemoteURL("box.example.com")),
+        .transport("connection lost"),
+    ]
+
+    @Test func everyCaseHasNonEmptyCopy() {
+        for error in all { #expect(!ShepherdErrorCopy.message(error).isEmpty) }
+    }
+
+    @Test func copyNeverLeaksACatalogKeyOrASwiftDump() {
+        for error in all {
+            let copy = ShepherdErrorCopy.message(error)
+            #expect(!copy.hasPrefix("native_"), "\(error) leaked a catalog key")
+            #expect(!copy.hasPrefix("login_"), "\(error) leaked a catalog key")
+            #expect(!copy.contains("ShepherdError."), "\(error) leaked a Swift dump")
+        }
+    }
+
+    @Test func serverSuppliedMessagesAreShownVerbatim() {
+        #expect(ShepherdErrorCopy.message(ShepherdError.badRequest("bad input")) == "bad input")
+        #expect(ShepherdErrorCopy.message(
+            ShepherdError.conflict(code: "name_taken", message: "name taken")) == "name taken")
+        #expect(ShepherdErrorCopy.message(ShepherdError.unprocessable("no such ref")) == "no such ref")
+        #expect(ShepherdErrorCopy.message(ShepherdError.upstreamFailure("git exploded")) == "git exploded")
+    }
+
+    @Test func theUrlPolicyErrorReusesTheWelcomeCopy() {
+        #expect(ShepherdErrorCopy.message(ShepherdError.insecureProfile(.insecureRemoteURL("box")))
+            == L.t("native_url_error_insecure"))
+    }
+
+    /// The remote-server form throws the kit's ServerProfileError bare, not
+    /// wrapped in ShepherdError.insecureProfile, so both spellings must land on
+    /// the same copy.
+    @Test func aBareProfileErrorGetsTheSameCopy() {
+        #expect(ShepherdErrorCopy.message(ServerProfileError.insecureRemoteURL("box"))
+            == L.t("native_url_error_insecure"))
+        #expect(ShepherdErrorCopy.message(ServerProfileError.missingHost)
+            == L.t("native_url_error_malformed"))
+    }
+
+    @Test func formFieldErrorsGetTheirOwnCopy() {
+        #expect(ShepherdErrorCopy.message(RemoteServerForm.FieldError.empty)
+            == L.t("native_url_error_empty"))
+        #expect(ShepherdErrorCopy.message(RemoteServerForm.FieldError.malformed)
+            == L.t("native_url_error_malformed"))
+    }
+
+    @Test func onlyAuthFailuresAskForANewSignIn() {
+        #expect(ShepherdErrorCopy.isAuthFailure(ShepherdError.unauthenticated))
+        #expect(ShepherdErrorCopy.isAuthFailure(ShepherdError.forbidden))
+        #expect(!ShepherdErrorCopy.isAuthFailure(ShepherdError.notFound))
+        #expect(!ShepherdErrorCopy.isAuthFailure(URLError(.timedOut)))
+    }
+
+    @Test func aNonKitErrorStillGetsCopy() {
+        #expect(!ShepherdErrorCopy.message(URLError(.timedOut)).isEmpty)
+    }
+}
+```
+
+- [ ] **Step 2: Run the tests to verify they fail**
+
+Run: `native/scripts/test-app.sh -only-testing:ShepherdTests/ShepherdErrorCopyTests`
+Expected: FAIL — `cannot find 'ShepherdErrorCopy' in scope`.
+
+- [ ] **Step 3: Implement the error copy**
+
+Create `native/Apps/ShepherdMac/Sources/App/ShepherdErrorCopy.swift`:
+
+```swift
+import Foundation
+import ShepherdKit
+
+/// The single place that turns a ShepherdKit error into operator-facing copy.
+///
+/// The switch is exhaustive over `ShepherdError` on purpose: when the kit gains a
+/// case, this file must stop compiling rather than quietly render a Swift dump in
+/// a sheet. Cases the server describes in words (`badRequest`, `conflict`,
+/// `unprocessable`, `upstreamFailure`) show that text verbatim — it is already
+/// written for a human and is more specific than anything this app could add.
+enum ShepherdErrorCopy {
+    static func message(_ error: any Error) -> String {
+        // The remote-server form's two parse failures.
+        if let field = error as? RemoteServerForm.FieldError {
+            switch field {
+            case .empty: return L.t("native_url_error_empty")
+            case .malformed: return L.t("native_url_error_malformed")
+            }
+        }
+        // ServerProfile.validated() throws this bare; ShepherdClient wraps the
+        // same value in .insecureProfile. One spelling of the copy for both.
+        if let profile = error as? ServerProfileError {
+            switch profile {
+            case .insecureRemoteURL: return L.t("native_url_error_insecure")
+            case .missingHost: return L.t("native_url_error_malformed")
+            }
+        }
+        guard let shepherd = error as? ShepherdError else {
+            // Anything not from the kit — a URLError from the local probe, say.
+            return L.t("native_error_offline")
+        }
+        switch shepherd {
+        case .unauthenticated: return L.t("login_error")
+        case .forbidden: return L.t("native_error_forbidden")
+        case .firstRunPending: return L.t("native_error_first_run")
+        case .notFound: return L.t("native_error_not_found")
+        case .badRequest(let message): return message
+        case .conflict(_, let message): return message
+        case .unprocessable(let message): return message
+        case .upstreamFailure(let message): return message
+        case .contractMismatch: return L.t("native_error_mismatch")
+        case .insecureProfile(let reason): return message(reason)
+        case .transport: return L.t("native_error_offline")
+        }
+    }
+
+    static func isAuthFailure(_ error: any Error) -> Bool {
+        guard let shepherd = error as? ShepherdError else { return false }
+        switch shepherd {
+        case .unauthenticated, .forbidden: return true
+        case .firstRunPending, .notFound, .badRequest, .conflict, .unprocessable,
+             .upstreamFailure, .contractMismatch, .insecureProfile, .transport:
+            return false
+        }
+    }
+}
+```
+
+- [ ] **Step 4: Run the tests to verify they pass**
+
+Run: `native/scripts/test-app.sh -only-testing:ShepherdTests`
+Expected: `** TEST SUCCEEDED **`.
+
+- [ ] **Step 5: Write the welcome screen**
 
 Replace `native/Apps/ShepherdMac/Sources/Welcome/WelcomeView.swift` in full:
 
@@ -2098,10 +2868,10 @@ struct WelcomeView: View {
         do {
             remoteError = nil
             pendingLogin = try model.addRemoteProfile(name: remoteName, address: remoteAddress)
-        } catch let error as ServerURLError {
-            remoteError = error.message
         } catch {
-            remoteError = String(describing: error)
+            // One mapper for everything: RemoteServerForm.FieldError for a typo,
+            // ShepherdKit's ServerProfileError for an address the policy rejects.
+            remoteError = ShepherdErrorCopy.message(error)
         }
     }
 }
@@ -2135,7 +2905,7 @@ private struct WelcomeCard<Content: View>: View {
 }
 ```
 
-- [ ] **Step 2: Write the login sheet**
+- [ ] **Step 6: Write the login sheet**
 
 Create `native/Apps/ShepherdMac/Sources/Welcome/LoginSheet.swift`:
 
@@ -2203,34 +2973,35 @@ struct LoginSheet: View {
                 try await model.signIn(profile: profile, password: password)
                 password = ""
                 onDismiss()
-            } catch ShepherdError.server(status: 401, _, _) {
-                error = L.t("login_error")
-            } catch ShepherdError.unauthenticated {
-                error = L.t("login_error")
             } catch {
-                error = String(describing: error)
+                // ShepherdErrorCopy is exhaustive over ShepherdError, so a wrong
+                // password reads "wrong password" and every other failure reads as
+                // itself instead of as a Swift dump.
+                self.error = ShepherdErrorCopy.message(error)
             }
         }
     }
 }
 ```
 
-- [ ] **Step 3: Build**
+- [ ] **Step 7: Build**
 
 Run: `native/scripts/build-app.sh Debug`
 Expected: `** BUILD SUCCEEDED **`.
 
-- [ ] **Step 4: Eyeball it**
+- [ ] **Step 8: Eyeball it**
 
 Run: `open native/Apps/ShepherdMac/.build/Build/Products/Debug/Shepherd.app`
 Expected: two cards side by side — "Run on this Mac" (showing either the found version or "No local server is running on port 7330…") and "Connect to a remote server" with Name + Server address fields. Typing `http://example.com` and pressing Connect shows the insecure-address error in red. Quit with ⌘Q.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
-git add native/Apps/ShepherdMac/Sources/Welcome
+git add native/Apps/ShepherdMac/Sources/Welcome \
+        native/Apps/ShepherdMac/Sources/App/ShepherdErrorCopy.swift \
+        native/Apps/ShepherdMac/Tests/ShepherdErrorCopyTests.swift
 git commit -m "$(cat <<'EOF'
-feat(mac): welcome screen with local-detect and remote-connect cards
+feat(mac): welcome screen, exhaustive kit error copy and login sheet
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
 EOF
@@ -2241,12 +3012,14 @@ EOF
 
 ### Task 8: First-run folder picker
 
+**Gate:** Gate 2 (`SessionStore.resolveFirstRun(path:)`).
+
 **Files:**
 - Create: `native/Apps/ShepherdMac/Sources/Welcome/FirstRunSheet.swift`
 - Create: `native/Apps/ShepherdMac/Tests/FolderPickerTests.swift`
 
 **Interfaces:**
-- Consumes: `AppModel.store` (Task 6), `SessionStore.resolveFirstRun(path:)`, `L` (Task 2).
+- Consumes: `AppModel.store` (Task 6), `ShepherdErrorCopy` (Task 7), `L` (Task 2), ShepherdKit `SessionStore.resolveFirstRun(path:)` — which already calls `refresh()` on success, so the sheet must **not** reload the store itself.
 - Produces:
 
 ```swift
@@ -2379,12 +3152,13 @@ struct FirstRunSheet: View {
         Task {
             defer { busy = false }
             do {
+                // resolveFirstRun PUTs the root and then refreshes the store, so
+                // there is nothing to reload here.
                 try await store.resolveFirstRun(path: chosen.path(percentEncoded: false))
-                await store.load()
                 model.sheet = nil
                 Log.app.info("first run resolved")
             } catch {
-                self.error = L.t("native_firstrun_failed", String(describing: error))
+                self.error = L.t("native_firstrun_failed", ShepherdErrorCopy.message(error))
             }
         }
     }
@@ -2410,305 +3184,19 @@ EOF
 
 ---
 
-### Task 9: Main window — split view, session list, detail placeholder
+### Task 9: Main window — split view, toolbar, new-session sheet
 
-**Files:**
-- Create: `native/Apps/ShepherdMac/Sources/Main/SessionStatusStyle.swift`
-- Create: `native/Apps/ShepherdMac/Sources/Main/SessionRow.swift`
-- Create: `native/Apps/ShepherdMac/Sources/Main/SessionDetailView.swift`
-- Modify: `native/Apps/ShepherdMac/Sources/Main/MainWindow.swift`
-- Create: `native/Apps/ShepherdMac/Tests/SessionStatusStyleTests.swift`
-
-**Interfaces:**
-- Consumes: `AppModel` (Task 6), `L` (Task 2), ShepherdKit `Session`, `SessionStatus`, `AgentProvider`.
-- Produces:
-
-```swift
-enum SessionStatusStyle {
-    static func label(_ status: SessionStatus) -> String
-    static func tint(_ status: SessionStatus) -> Color
-    static func providerLabel(_ provider: AgentProvider?) -> String?
-}
-struct SessionRow: View { let session: Session }
-struct SessionDetailView: View { let session: Session? }
-struct MainWindow: View { }
-```
-
-Status → catalog key mapping. The contract's `running` maps to the web catalog's `status_working`; there is no `status_running` key.
-
-| `SessionStatus` | key | EN | tint |
-| --- | --- | --- | --- |
-| `running` | `status_working` | BUSY | `.green` |
-| `idle` | `status_idle` | IDLE | `.secondary` |
-| `blocked` | `status_blocked` | BLOCKED | `.orange` |
-| `done` | `status_done` | WAITING | `.blue` |
-| `archived` | `status_archived` | ARCHIVED | `.gray` |
-
-- [ ] **Step 1: Write the failing test**
-
-Create `native/Apps/ShepherdMac/Tests/SessionStatusStyleTests.swift`:
-
-```swift
-import SwiftUI
-import Testing
-import ShepherdKit
-@testable import Shepherd
-
-@MainActor
-struct SessionStatusStyleTests {
-    private let all: [SessionStatus] = [.running, .idle, .blocked, .done, .archived]
-
-    @Test func everyStatusHasANonEmptyLabel() {
-        for status in all { #expect(!SessionStatusStyle.label(status).isEmpty) }
-    }
-
-    @Test func labelsDoNotLeakRawKeys() {
-        // A missing catalog entry makes String(localized:) echo the key back.
-        for status in all { #expect(!SessionStatusStyle.label(status).hasPrefix("status_")) }
-    }
-
-    @Test func everyStatusHasADistinctLabel() {
-        #expect(Set(all.map(SessionStatusStyle.label)).count == all.count)
-    }
-
-    @Test func blockedDoneRunningAndArchivedAreVisuallyDistinct() {
-        #expect(SessionStatusStyle.tint(.blocked) != SessionStatusStyle.tint(.done))
-        #expect(SessionStatusStyle.tint(.running) != SessionStatusStyle.tint(.archived))
-    }
-
-    @Test func providerLabelIsNilWhenUnknown() {
-        #expect(SessionStatusStyle.providerLabel(nil) == nil)
-        #expect(SessionStatusStyle.providerLabel(.claude) != nil)
-        #expect(SessionStatusStyle.providerLabel(.codex) != SessionStatusStyle.providerLabel(.claude))
-    }
-}
-```
-
-- [ ] **Step 2: Run the test to verify it fails**
-
-Run: `native/scripts/test-app.sh -only-testing:ShepherdTests/SessionStatusStyleTests`
-Expected: FAIL — `cannot find 'SessionStatusStyle' in scope`.
-
-- [ ] **Step 3: Implement the status style**
-
-Create `native/Apps/ShepherdMac/Sources/Main/SessionStatusStyle.swift`:
-
-```swift
-import SwiftUI
-import ShepherdKit
-
-/// Status badge copy and tint. Copy is mirrored from the web catalog: the
-/// contract's `running` is the web UI's "BUSY" (status_working) — there is no
-/// status_running key.
-enum SessionStatusStyle {
-    static func label(_ status: SessionStatus) -> String {
-        switch status {
-        case .running: L.t("status_working")
-        case .idle: L.t("status_idle")
-        case .blocked: L.t("status_blocked")
-        case .done: L.t("status_done")
-        case .archived: L.t("status_archived")
-        }
-    }
-
-    static func tint(_ status: SessionStatus) -> Color {
-        switch status {
-        case .running: .green
-        case .idle: .secondary
-        case .blocked: .orange
-        case .done: .blue
-        case .archived: .gray
-        }
-    }
-
-    static func providerLabel(_ provider: AgentProvider?) -> String? {
-        switch provider {
-        case .claude: L.t("agent_provider_claude")
-        case .codex: L.t("agent_provider_codex")
-        case nil: nil
-        }
-    }
-}
-```
-
-- [ ] **Step 4: Run the test to verify it passes**
-
-Run: `native/scripts/test-app.sh -only-testing:ShepherdTests`
-Expected: `** TEST SUCCEEDED **`.
-
-- [ ] **Step 5: Write the sidebar row**
-
-Create `native/Apps/ShepherdMac/Sources/Main/SessionRow.swift`:
-
-```swift
-import SwiftUI
-import ShepherdKit
-
-struct SessionRow: View {
-    let session: Session
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Circle()
-                .fill(SessionStatusStyle.tint(session.status))
-                .frame(width: 8, height: 8)
-                .accessibilityHidden(true)
-
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text(verbatim: session.desig)
-                        .font(.caption.monospaced().weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    Text(verbatim: session.name).lineLimit(1)
-                }
-                HStack(spacing: 6) {
-                    Text(verbatim: SessionStatusStyle.label(session.status))
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(SessionStatusStyle.tint(session.status))
-                    if let provider = SessionStatusStyle.providerLabel(session.agentProvider) {
-                        Text(verbatim: provider).font(.caption2).foregroundStyle(.secondary)
-                    }
-                }
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(.vertical, 2)
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("session-row-\(session.id)")
-    }
-}
-```
-
-- [ ] **Step 6: Write the detail placeholder**
-
-Create `native/Apps/ShepherdMac/Sources/Main/SessionDetailView.swift`:
-
-```swift
-import SwiftUI
-import ShepherdKit
-
-struct SessionDetailView: View {
-    let session: Session?
-
-    var body: some View {
-        if let session {
-            VStack(alignment: .leading, spacing: 20) {
-                HStack(spacing: 8) {
-                    Text(verbatim: session.desig).font(.title3.monospaced().weight(.semibold))
-                    Text(verbatim: session.name).font(.title3)
-                    Spacer()
-                    Text(verbatim: L.t("native_detail_status_label"))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Text(verbatim: SessionStatusStyle.label(session.status))
-                        .font(.caption.weight(.semibold))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(SessionStatusStyle.tint(session.status).opacity(0.18), in: Capsule())
-                        .foregroundStyle(SessionStatusStyle.tint(session.status))
-                }
-
-                GroupBox(L.t("newtask_prompt_label")) {
-                    ScrollView {
-                        Text(verbatim: session.prompt)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .textSelection(.enabled)
-                    }
-                    .frame(maxHeight: 220)
-                }
-
-                GroupBox(L.t("native_detail_placeholder_title")) {
-                    Text(verbatim: L.t("native_detail_placeholder_body"))
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-
-                Spacer()
-            }
-            .padding(24)
-            .accessibilityIdentifier("session-detail")
-        } else {
-            ContentUnavailableView(L.t("native_detail_no_selection"), systemImage: "sidebar.left")
-        }
-    }
-}
-```
-
-- [ ] **Step 7: Write the split view**
-
-Replace `native/Apps/ShepherdMac/Sources/Main/MainWindow.swift` in full:
-
-```swift
-import SwiftUI
-import ShepherdKit
-
-struct MainWindow: View {
-    @Environment(AppModel.self) private var model
-
-    var body: some View {
-        NavigationSplitView {
-            sidebar.navigationSplitViewColumnWidth(min: 260, ideal: 300, max: 420)
-        } detail: {
-            SessionDetailView(session: selectedSession)
-        }
-        .navigationTitle(model.activeProfile?.name ?? "Shepherd")
-    }
-
-    private var sessions: [Session] { model.store?.sessions ?? [] }
-
-    private var selectedSession: Session? {
-        guard let id = model.selectedSessionID else { return nil }
-        return sessions.first { $0.id == id }
-    }
-
-    private var sidebar: some View {
-        @Bindable var model = model
-
-        return Group {
-            if sessions.isEmpty {
-                ContentUnavailableView(L.t("native_sidebar_empty"), systemImage: "tray")
-            } else {
-                List(sessions, id: \.id, selection: $model.selectedSessionID) { session in
-                    SessionRow(session: session).tag(session.id)
-                }
-            }
-        }
-        .navigationTitle(L.t("native_sidebar_title"))
-        .accessibilityIdentifier("session-sidebar")
-    }
-}
-```
-
-- [ ] **Step 8: Build and run the tests**
-
-Run: `native/scripts/test-app.sh -only-testing:ShepherdTests`
-Expected: `** TEST SUCCEEDED **`.
-
-- [ ] **Step 9: Commit**
-
-```bash
-git add native/Apps/ShepherdMac/Sources/Main native/Apps/ShepherdMac/Tests/SessionStatusStyleTests.swift
-git commit -m "$(cat <<'EOF'
-feat(mac): navigationsplitview with the live session list and detail placeholder
-
-Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
-EOF
-)"
-```
-
----
-
-### Task 10: Toolbar — new session, archive, interrupt, profile switcher
+**Gate:** Gate 2 (`SessionStore`, `CreateOutcome`).
 
 **Files:**
 - Create: `native/Apps/ShepherdMac/Sources/Main/NewSessionSheet.swift`
-- Modify: `native/Apps/ShepherdMac/Sources/Main/MainWindow.swift`
+- Modify: `native/Apps/ShepherdMac/Sources/Main/MainWindow.swift` (replaces the Task 6 stub in full)
 - Modify: `native/Apps/ShepherdMac/Sources/App/ShepherdApp.swift`
 
 **Interfaces:**
-- Consumes: `AppModel` (Task 6), `SessionStore.create(_:)` / `.archive(id:)` / `.interrupt(id:)`, ShepherdKit `CreateSessionRequest`, `CreateOutcome`, `Repo`, `Effort`, `AgentProvider`, `Settings`.
-- Consumes: `AppSheet` (Task 6), `LoginSheet` (Task 7), `FirstRunSheet` (Task 8).
-- Produces: `struct NewSessionSheet: View`; toolbar identifiers `toolbar-servers`, `toolbar-new-session`, `toolbar-interrupt`, `toolbar-archive`.
+- Consumes: `AppModel` and `AppSheet` (Task 6), `SessionRow` / `SessionDetailView` / `SessionStatusStyle` (Task 4), `LoginSheet` and `ShepherdErrorCopy` (Task 7), `FirstRunSheet` (Task 8), `L` (Task 2).
+- Consumes: ShepherdKit `SessionStore.create(_:)` / `.archive(id:)` / `.interrupt(id:)`, `CreateSessionRequest`, `CreateOutcome`, `Session`, `Repo`, `Effort`, `AgentProvider`, `Settings`.
+- Produces: `struct NewSessionSheet: View`; the full `MainWindow` (sidebar + detail + toolbar + archive confirmation); toolbar identifiers `toolbar-servers`, `toolbar-new-session`, `toolbar-interrupt`, `toolbar-archive`.
 
 - [ ] **Step 1: Write the new-session sheet**
 
@@ -2834,7 +3322,7 @@ struct NewSessionSheet: View {
                     message = L.t("native_newsession_held")
                 }
             } catch {
-                message = L.t("newtask_create_failed", String(describing: error))
+                message = L.t("newtask_create_failed", ShepherdErrorCopy.message(error))
             }
         }
     }
@@ -2956,7 +3444,7 @@ struct MainWindow: View {
                 try await store.archive(id: id)
                 model.selectedSessionID = nil
             } catch {
-                Log.ui.error("archive failed: \(String(describing: error), privacy: .public)")
+                Log.ui.error("archive failed: \(ShepherdErrorCopy.message(error), privacy: .public)")
             }
         }
     }
@@ -2967,7 +3455,7 @@ struct MainWindow: View {
             do {
                 try await store.interrupt(id: id)
             } catch {
-                Log.ui.error("interrupt failed: \(String(describing: error), privacy: .public)")
+                Log.ui.error("interrupt failed: \(ShepherdErrorCopy.message(error), privacy: .public)")
             }
         }
     }
@@ -3027,7 +3515,9 @@ EOF
 
 ---
 
-### Task 11: Connection banner for offline and contract mismatch
+### Task 10: Connection banner for offline and contract mismatch
+
+**Gate:** Gate 2 (`ConnectionState`, `ShepherdError`, `ShepherdClient.health()`).
 
 **Files:**
 - Create: `native/Apps/ShepherdMac/Sources/Main/ConnectionBanner.swift`
@@ -3036,7 +3526,7 @@ EOF
 - Modify: `native/Apps/ShepherdMac/Sources/Main/MainWindow.swift`
 
 **Interfaces:**
-- Consumes: `ConnectionState`, `ShepherdError`, `ShepherdClient.health()`, `AppModel.appVersion` (Task 6), `L` (Task 2).
+- Consumes: ShepherdKit `ConnectionState`, `ShepherdError`, `ShepherdClient.health()`, `SessionStore.refresh()` / `.connection` / `.lastError`; `AppModel.appVersion` (Task 6); `L` (Task 2).
 - Produces:
 
 ```swift
@@ -3045,15 +3535,21 @@ enum BannerKind: Equatable, Sendable {
     case versionMismatch(server: String, app: String)
     case needsLogin
 }
-extension BannerKind { var message: String; var systemImage: String }
+extension BannerKind { var message: String { get }; var systemImage: String { get } }
 enum BannerPolicy {
-    static func kind(for state: ConnectionState, serverName: String,
-                     serverVersion: String?, appVersion: String) -> BannerKind?
+    static func kind(for state: ConnectionState, lastError: ShepherdError?,
+                     serverName: String, serverVersion: String?, appVersion: String) -> BannerKind?
 }
 struct ConnectionBanner: View { let kind: BannerKind; let onRetry: () -> Void }
 ```
 
 - Produces on `AppModel`: `private(set) var serverVersion: String?`, `func refreshHealth() async`, `func retryActive() async`.
+
+**Why `lastError` is a parameter.** `ConnectionState.offline` carries a *message*, not an error
+value: `SessionStore` maps only `ShepherdError.transport` onto it. A `contractMismatch` is a
+different animal — the socket is fine, the payloads are not — so it lands in
+`SessionStore.lastError` while `connection` may still read `.live`. The policy therefore takes
+both, and a contract mismatch wins over a plain offline banner whenever both versions are known.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -3065,55 +3561,69 @@ import Testing
 import ShepherdKit
 @testable import Shepherd
 
+@MainActor
 struct ConnectionBannerTests {
-    @Test func liveWithMatchingVersionsShowsNothing() {
-        #expect(BannerPolicy.kind(for: .live, serverName: "Studio",
-                                  serverVersion: "3.41.0", appVersion: "3.41.0") == nil)
-    }
-
-    @Test func connectingShowsNothing() {
-        #expect(BannerPolicy.kind(for: .connecting, serverName: "Studio",
+    @Test func idleAndConnectingShowNothing() {
+        #expect(BannerPolicy.kind(for: .idle, lastError: nil, serverName: "Studio",
+                                  serverVersion: nil, appVersion: "3.41.0") == nil)
+        #expect(BannerPolicy.kind(for: .connecting, lastError: nil, serverName: "Studio",
                                   serverVersion: nil, appVersion: "3.41.0") == nil)
     }
 
+    @Test func liveWithMatchingVersionsShowsNothing() {
+        #expect(BannerPolicy.kind(for: .live, lastError: nil, serverName: "Studio",
+                                  serverVersion: "3.41.0", appVersion: "3.41.0") == nil)
+    }
+
     @Test func firstRunPendingShowsNothingBecauseASheetHandlesIt() {
-        #expect(BannerPolicy.kind(for: .firstRunPending, serverName: "Studio",
+        #expect(BannerPolicy.kind(for: .firstRunPending, lastError: nil, serverName: "Studio",
                                   serverVersion: "3.41.0", appVersion: "3.41.0") == nil)
     }
 
     @Test func offlineNamesTheServer() {
-        let kind = BannerPolicy.kind(for: .offline(URLError(.timedOut)), serverName: "Studio",
-                                     serverVersion: nil, appVersion: "3.41.0")
+        let kind = BannerPolicy.kind(for: .offline(message: "timed out"), lastError: .transport("timed out"),
+                                     serverName: "Studio", serverVersion: nil, appVersion: "3.41.0")
         #expect(kind == .offline(server: "Studio"))
         #expect(kind?.message.contains("Studio") == true)
     }
 
     @Test func needsLoginHasItsOwnBanner() {
-        #expect(BannerPolicy.kind(for: .needsLogin, serverName: "Studio",
+        #expect(BannerPolicy.kind(for: .needsLogin, lastError: .unauthenticated, serverName: "Studio",
                                   serverVersion: "3.41.0", appVersion: "3.41.0") == .needsLogin)
     }
 
     @Test func differingVersionsShowBothNumbers() {
-        let kind = BannerPolicy.kind(for: .live, serverName: "Studio",
+        let kind = BannerPolicy.kind(for: .live, lastError: nil, serverName: "Studio",
                                      serverVersion: "3.42.0", appVersion: "3.41.0")
         #expect(kind == .versionMismatch(server: "3.42.0", app: "3.41.0"))
         #expect(kind?.message.contains("3.42.0") == true)
         #expect(kind?.message.contains("3.41.0") == true)
     }
 
-    @Test func aContractMismatchRaisesTheVersionBanner() {
-        let error = ShepherdError.contractMismatch(
-            route: "/api/sessions", underlying: URLError(.cannotParseResponse))
-        let kind = BannerPolicy.kind(for: .offline(error), serverName: "Studio",
-                                     serverVersion: "3.42.0", appVersion: "3.41.0")
-        #expect(kind == .versionMismatch(server: "3.42.0", app: "3.41.0"))
+    @Test func aContractMismatchRaisesTheVersionBannerEvenWhileLive() {
+        let error = ShepherdError.contractMismatch(route: "listSessions", underlying: "keyNotFound")
+        #expect(BannerPolicy.kind(for: .live, lastError: error, serverName: "Studio",
+                                  serverVersion: "3.42.0", appVersion: "3.41.0")
+            == .versionMismatch(server: "3.42.0", app: "3.41.0"))
+    }
+
+    @Test func aContractMismatchOutranksOffline() {
+        let error = ShepherdError.contractMismatch(route: "listSessions", underlying: "keyNotFound")
+        #expect(BannerPolicy.kind(for: .offline(message: "lost"), lastError: error, serverName: "Studio",
+                                  serverVersion: "3.42.0", appVersion: "3.41.0")
+            == .versionMismatch(server: "3.42.0", app: "3.41.0"))
     }
 
     @Test func aContractMismatchWithoutAKnownServerVersionFallsBackToOffline() {
-        let error = ShepherdError.contractMismatch(
-            route: "/api/sessions", underlying: URLError(.cannotParseResponse))
-        #expect(BannerPolicy.kind(for: .offline(error), serverName: "Studio",
+        let error = ShepherdError.contractMismatch(route: "listSessions", underlying: "keyNotFound")
+        #expect(BannerPolicy.kind(for: .offline(message: "lost"), lastError: error, serverName: "Studio",
                                   serverVersion: nil, appVersion: "3.41.0") == .offline(server: "Studio"))
+    }
+
+    @Test func aCommandFailureIsNotABanner() {
+        // A rejected create is reported inline by the sheet, not by the banner.
+        #expect(BannerPolicy.kind(for: .live, lastError: .badRequest("bad input"), serverName: "Studio",
+                                  serverVersion: "3.41.0", appVersion: "3.41.0") == nil)
     }
 
     @Test func everyKindHasCopyAndAnIcon() {
@@ -3161,10 +3671,15 @@ enum BannerKind: Equatable, Sendable {
 }
 
 /// Decides which non-blocking banner (if any) the main window shows.
-/// `.firstRunPending` is deliberately silent — FirstRunSheet handles it.
+///
+/// `.firstRunPending` is deliberately silent — FirstRunSheet handles it — and so is
+/// `.idle`, which only means "no store is running yet". Command failures
+/// (`badRequest`, `conflict`, …) are reported inline by the sheet that caused them,
+/// so the only `lastError` this policy reacts to is `.contractMismatch`.
 enum BannerPolicy {
     static func kind(
         for state: ConnectionState,
+        lastError: ShepherdError?,
         serverName: String,
         serverVersion: String?,
         appVersion: String
@@ -3174,15 +3689,22 @@ enum BannerPolicy {
             return .versionMismatch(server: serverVersion, app: appVersion)
         }()
 
+        let sawContractMismatch: Bool = {
+            guard let lastError, case .contractMismatch = lastError else { return false }
+            return true
+        }()
+
         switch state {
-        case .connecting, .firstRunPending:
+        case .idle, .connecting, .firstRunPending:
             return nil
-        case .live:
-            return mismatch
         case .needsLogin:
             return .needsLogin
-        case .offline(let error):
-            if case ShepherdError.contractMismatch = error, let mismatch { return mismatch }
+        case .live:
+            return mismatch
+        case .offline:
+            // A decode failure against a server we can name a version for is a
+            // version problem, not a network problem — say the useful thing.
+            if sawContractMismatch, let mismatch { return mismatch }
             return .offline(server: serverName)
         }
     }
@@ -3208,7 +3730,22 @@ struct ConnectionBanner: View {
         .accessibilityIdentifier("connection-banner")
     }
 }
+
+#if DEBUG
+#Preview("Banners") {
+    VStack(spacing: 0) {
+        ConnectionBanner(kind: .offline(server: "Studio")) {}
+        ConnectionBanner(kind: .versionMismatch(server: "3.42.0", app: "3.41.0")) {}
+        ConnectionBanner(kind: .needsLogin) {}
+    }
+    .frame(width: 640)
+}
+#endif
 ```
+
+`.live` returning `mismatch` covers the contract-mismatch-while-live case too: the mismatch is
+computed from the two version numbers, which is exactly what `aContractMismatchRaisesTheVersionBannerEvenWhileLive`
+asserts. `sawContractMismatch` only matters when the connection has additionally dropped.
 
 - [ ] **Step 4: Track the server version on `AppModel`**
 
@@ -3222,25 +3759,30 @@ Add these two methods directly above the `// MARK: - Internals` line:
 
 ```swift
     /// GET /api/health so the version banner has both numbers to compare.
+    /// `/api/health` is the one route with `security: []`, so this works even
+    /// before a token exists.
     func refreshHealth() async {
         guard let profile = activeProfile else { return }
         do {
-            let health = try await ShepherdClient(profile: profile, credentials: credentials).health()
-            serverVersion = health.version
+            let client = try ShepherdClient(profile: profile, credentials: credentials)
+            serverVersion = try await client.health().version
         } catch {
-            Log.connect.debug("health check failed: \(String(describing: error), privacy: .public)")
+            Log.connect.debug("health check failed: \(ShepherdErrorCopy.message(error), privacy: .public)")
         }
     }
 
-    /// Banner "Retry": reload the store and re-check health.
+    /// Banner "Retry": reload the store and re-check health. `refresh()` throws,
+    /// and its failure is already recorded in `store.lastError` and `connection`,
+    /// so there is nothing for this method to do with it.
     func retryActive() async {
         guard let store else { return }
-        await store.load()
+        try? await store.refresh()
         await refreshHealth()
     }
 ```
 
-In `activate(_:)`, insert `await refreshHealth()` immediately after `await store.load()`.
+In `activate(_:)`, insert `await refreshHealth()` as the last line of the method, immediately
+after `storeRunner = Task { await store.start() }`.
 In `teardown()`, insert `serverVersion = nil` immediately after `store = nil`.
 
 - [ ] **Step 5: Show the banner in the main window**
@@ -3265,11 +3807,15 @@ and add this computed property directly below `selectedSession`:
         guard let store = model.store, let profile = model.activeProfile else { return nil }
         return BannerPolicy.kind(
             for: store.connection,
+            lastError: store.lastError,
             serverName: profile.name,
             serverVersion: model.serverVersion,
             appVersion: model.appVersion)
     }
 ```
+
+Both `store.connection` and `store.lastError` are `@Observable`-tracked, so SwiftUI re-evaluates
+`bannerKind` on its own whenever either moves — no manual invalidation.
 
 - [ ] **Step 6: Run the tests to verify they pass**
 
@@ -3290,18 +3836,25 @@ EOF
 
 ---
 
-### Task 12: XCUITest smoke test, CI and the PR
+### Task 11: XCUITest smoke test, CI and the PR
 
 **Files:**
 - Create: `native/Apps/ShepherdMac/UITests/WelcomeSmokeUITests.swift`
 - Modify: `.github/workflows/native.yml`
 - Modify: `native/README.md`
 
+**Gate:** Gate 2 (the app under test links the full kit).
+
 **Interfaces:**
 - Consumes: the accessibility identifiers from Task 7 (`welcome-local-card`, `welcome-remote-card`, `welcome-remote-url`, `welcome-remote-connect`) and the EN catalog copy from Task 2.
-- Produces: the `native.yml` steps that build, verify the signature of, and test the app on `macos-latest`.
+- Consumes: `.github/workflows/native.yml` and its `shepherdkit` job, **created by sub-project 2a's first PR**.
+- Produces: extra steps appended to the existing `shepherdkit` job (string-catalog freshness, app build, signature check, unit tests) and one new job, `shepherd-mac-ui`, for the XCUITest bundle.
 
-> `.github/workflows/native.yml` is created by the ShepherdKit plan (sub-project 2). If it does not exist when you reach this task, create it with the header shown in Step 3 and reconcile the `swift build` / `swift test` steps on rebase.
+> **`native.yml` already exists.** Sub-project 2a created it, with the `on:`/`permissions:`/
+> `concurrency:` header and the `shepherdkit` job. This task **only appends** — it never
+> rewrites the header and never renames the job. If the file is missing when you reach this
+> task, Gate 1 was never really met: **stop and tell the orchestrator** rather than authoring a
+> second, competing workflow.
 
 - [ ] **Step 1: Write the smoke test**
 
@@ -3373,47 +3926,24 @@ Expected: `** TEST SUCCEEDED **` with three passing cases. A window flashes on s
 
 > If the runner fails with `dlopen … different Team IDs`, `ENABLE_HARDENED_RUNTIME: NO` is missing from the `ShepherdUITests` target in `project.yml`. Re-read Task 1, Step 4.
 
-- [ ] **Step 3: Add the app build and test to CI**
+- [ ] **Step 3: Confirm the workflow this task extends**
 
-Add these steps to the macOS job in `.github/workflows/native.yml`, after the ShepherdKit `swift test` step. If the file does not exist yet, create it with this header first:
-
-```yaml
-name: native
-
-on:
-  pull_request:
-    paths:
-      - "contracts/**"
-      - "native/**"
-      - "ui/messages/*.json"
-      - ".github/workflows/native.yml"
-  push:
-    branches: [main]
-
-permissions:
-  contents: read
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
-jobs:
-  native:
-    name: native
-    runs-on: macos-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version: latest
+```bash
+test -f .github/workflows/native.yml && grep -n 'shepherdkit:\|swift test --package-path native' .github/workflows/native.yml
 ```
 
-Then the app steps (these are the steps this task owns):
+Expected: the job key `shepherdkit:` and the `swift test --package-path native` step, both from
+sub-project 2a. If either is missing, stop (see the note above).
+
+- [ ] **Step 4: Append the app steps to the `shepherdkit` job**
+
+Append these steps to the **end of the existing `shepherdkit` job's `steps:` list** in
+`.github/workflows/native.yml` — after 2a's `swift test` step. Do not touch the `on:`,
+`permissions:` or `concurrency:` blocks, and do not add a second checkout or a second Bun setup:
+2a's job already has both.
 
 ```yaml
+      # ── Shepherd for Mac (sub-project 4a) ───────────────────────────────
       - name: Install XcodeGen
         run: brew install xcodegen
 
@@ -3432,28 +3962,70 @@ Then the app steps (these are the steps this task owns):
           grep -q 'flags=0x10002(adhoc,runtime)' /tmp/codesign.txt
           codesign -d --entitlements :- "$APP" | grep -q 'com.apple.security.app-sandbox'
 
-      - name: Test Shepherd.app
-        run: native/scripts/test-app.sh
+      - name: Unit tests
+        # Blocking. The XCUITest bundle is deliberately NOT run here — see the
+        # shepherd-mac-ui job below.
+        run: native/scripts/test-app.sh -only-testing:ShepherdTests
 ```
 
-- [ ] **Step 4: Document the CI contract in the README**
+`ui/messages/*.json` must already be in the workflow's `paths:` filter for the catalog check to
+fire on a copy-only change. 2a created the filter with that entry
+(`native/**`, `contracts/**`, `scripts/gen-contract-swift.ts`, `ui/messages/*.json`,
+`.github/workflows/native.yml`); verify it and add the entry if it is missing:
+
+```bash
+grep -n 'ui/messages' .github/workflows/native.yml
+```
+
+- [ ] **Step 5: Add the XCUITest job as a separate, non-blocking job**
+
+Append this **second job** to `jobs:` in `.github/workflows/native.yml`, at the same indentation
+as `shepherdkit:`:
+
+```yaml
+  shepherd-mac-ui:
+    name: Shepherd for Mac (XCUITest)
+    runs-on: macos-latest
+    # Non-blocking on purpose. XCUITest needs a real GUI login session; on a
+    # hosted runner it is flaky in ways that have nothing to do with the diff.
+    # A red run here is a signal to look, not a reason to stop a merge. Promote
+    # it to blocking only after it has been green for a sustained run of PRs.
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: UI smoke test
+        run: native/scripts/test-app.sh -only-testing:ShepherdUITests
+```
+
+- [ ] **Step 6: Document the CI contract in the README**
 
 Append to `native/README.md`:
 
 ```markdown
-## CI
+## CI for the Mac app
 
-`.github/workflows/native.yml` on `macos-latest` runs, in order:
+`.github/workflows/native.yml` runs two jobs on `macos-latest`.
+
+Job `shepherdkit` (blocking) — after the ShepherdKit contract, build and test steps:
 
 1. `bun native/scripts/gen-strings.ts --check` — the committed string catalog
    must match `ui/messages/{en,de}.json`.
 2. `native/scripts/build-app.sh Release` — the app must build.
 3. `codesign -dv` — the bundle must report `flags=0x10002(adhoc,runtime)` and
    carry the no-sandbox entitlement.
-4. `native/scripts/test-app.sh` — unit bundle plus the XCUITest smoke test.
+4. `native/scripts/test-app.sh -only-testing:ShepherdTests` — the unit bundle.
+
+Job `shepherd-mac-ui` (`continue-on-error: true`, **non-blocking**) runs
+`native/scripts/test-app.sh -only-testing:ShepherdUITests`. XCUITest needs a real GUI login
+session, so a red run there is a prompt to investigate, not a merge blocker.
 ```
 
-- [ ] **Step 5: Full local verification**
+- [ ] **Step 7: Full local verification**
 
 Run: `native/scripts/test-app.sh`
 Expected: `** TEST SUCCEEDED **` — every unit test plus all three UI tests.
@@ -3464,7 +4036,7 @@ Expected: exits 0.
 Run: `bunx prettier --check native/`
 Expected: `All matched files use Prettier code style!` (run `bunx prettier --write native/` first if it reports differences).
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add native .github/workflows/native.yml
@@ -3476,12 +4048,16 @@ EOF
 )"
 ```
 
-- [ ] **Step 7: Open the PR**
+- [ ] **Step 9: Open the PR**
 
 ```bash
 git push -u origin feat/native-mac-app-shell
 gh pr create --base main --title "feat(mac): shepherd for mac app shell" --body "$(cat <<'EOF'
 Sub-project 4a of the native macOS app: the first launchable Shepherd.app.
+
+Depends on both ShepherdKit PRs (sub-project 2a): the package skeleton and the
+core client/store. This branch was cut from `origin/main` after the skeleton
+merged and rebased onto it again after the core merged.
 
 - XcodeGen-generated Xcode project (`native/Apps/ShepherdMac/project.yml`); the
   `.xcodeproj` is gitignored.
@@ -3514,43 +4090,82 @@ EOF
 | `native/Apps/ShepherdMac/` from a checked-in spec, not a hand-edited `.pbxproj` | 1 |
 | Decision between XcodeGen and SwiftPM, with the build and `open` commands | "Project-generation decision", verified empirically |
 | macOS 15+, Swift 6 strict concurrency, SwiftUI-only, no sandbox, hardened runtime, ad-hoc signing | Global Constraints + Task 1 `project.yml` |
-| `ShepherdApp.swift` (`@main`) | 1, 6, 10 |
-| `AppModel` (`@Observable`, profiles in `UserDefaults` as JSON, active `SessionStore`) | 4, 6 |
-| `WelcomeView` — "Run on this Mac" (detect only) + "Connect to a remote server" | 5, 7 |
-| `LoginSheet` including re-login on `.needsLogin` | 6 (routing), 7 (sheet), 10 (host) |
+| `ShepherdApp.swift` (`@main`) | 1, 6, 9 |
+| `AppModel` (`@Observable`, profiles in `UserDefaults` as JSON, active `SessionStore`) | 5, 6 |
+| `WelcomeView` — "Run on this Mac" (detect only) + "Connect to a remote server" | 3, 7 |
+| `LoginSheet` including re-login on `.needsLogin` | 6 (routing), 7 (sheet), 9 (host) |
 | `FirstRunSheet` with a native folder picker → `resolveFirstRun` | 8 |
-| `MainWindow` `NavigationSplitView`, sidebar with status badge / `desig` / `name` / provider | 9 |
-| Detail placeholder "Terminal comes in the next milestone" with prompt + status | 9 |
-| Toolbar: new-session sheet (repo, prompt, provider, model, effort), archive, interrupt, profile switcher | 10 |
-| Error banner for `.offline` / `.contractMismatch` showing server + app versions from `health()` | 11 |
+| `MainWindow` `NavigationSplitView`, sidebar with status badge / `desig` / `name` / provider | 4 (row + detail), 9 (split view) |
+| Detail placeholder "Terminal comes in the next milestone" with prompt + status | 4 |
+| Toolbar: new-session sheet (repo, prompt, provider, model, effort), archive, interrupt, profile switcher | 9 |
+| Error banner for `.offline` / `.contractMismatch` showing server + app versions from `health()` | 10 |
 | `native/scripts/gen-strings.sh`, xcstrings format, app-only copy in both JSON catalogs with `native_` prefix, every key listed with EN/DE | 2 |
-| `os.Logger` subsystem `run.shepherd.mac` | 1 (used in 4, 5, 6, 8, 10, 11) |
-| Unit tests for profile persistence and URL validation | 3, 4 |
-| One XCUITest smoke: launch → welcome shows both cards | 12 |
-| `native/README.md` with build / run / test | 1, plus the CI section in 12 |
-| CI: extend `native.yml` with the app build, exact step | 12 |
+| `os.Logger` subsystem `run.shepherd.mac` | 1 (used in 3, 5, 6, 8, 9, 10) |
+| Unit tests for profile persistence and address validation | 5 (`ProfileStore`), 6 (`RemoteServerForm` + `ServerProfile.validated()`); the policy itself is tested in the kit (2a Task 2) |
+| One XCUITest smoke: launch → welcome shows both cards | 11 |
+| `native/README.md` with build / run / test | 1 (appended to 2a's file), plus the CI section in 11 |
+| CI: extend `native.yml` with the app build, exact step | 11 (appends to 2a's `shepherdkit` job; XCUITest is the separate non-blocking `shepherd-mac-ui` job) |
 | Out of scope respected (no SwiftTerm, supervisor, menu bar, notifications, iOS, real signing) | no task touches them |
 
-**2. Placeholder scan.** No "TBD", "similar to Task N", "add appropriate error handling", or "write tests for the above". Every code step carries complete code; every command step carries an exact command and its expected output. The forward references in Task 6 (`WelcomeView`, `MainWindow`) are resolved inside that same task at Step 4 with full source, before the build in Step 6.
+**2. Placeholder scan.** No "TBD", "similar to Task N", "add appropriate error handling", or
+"write tests for the above". Every code step carries complete code; every command step carries an
+exact command and its expected output. The forward references in Task 6 (`WelcomeView`,
+`MainWindow`) are resolved inside that same task at Step 4 with full source, before the build in
+Step 6. Both gate checks are hard stops with an explicit "stop and tell the orchestrator", not
+fallbacks: this plan never bootstraps a stand-in `Package.swift`, `ServerProfile` or
+`native.yml`.
 
-**3. Type consistency.** Cross-checked across tasks:
+**3. Type consistency.**
 
-- `ServerURL.normalize(_:) -> Result<URL, ServerURLError>` — defined Task 3, called in Task 6 (`AppModel.addRemoteProfile` via `.get()`), error surfaced in Task 7 as `error.message`.
-- `ProfileStore.load()` returns the labelled tuple `(profiles:activeID:)` — defined Task 4, destructured in the Task 6 initialiser with the same labels.
-- `ProfileStore.profilesKey` / `.activeKey` — defined Task 4, reused verbatim as the launch-argument names in the Task 12 UI test.
-- `LocalServerProbe.probe(url:)` returns `LocalServerStatus` — defined Task 5, called in Task 7 with the defaulted argument.
-- `AppSheet` cases `.login(ServerProfile)` / `.firstRun` / `.newSession` — defined Task 6, produced in Tasks 6 (connection watcher), 10 (toolbar), and consumed by the Task 10 `RootView` switch. All three cases are constructed somewhere and all three are handled.
-- `AppModel.appVersion` — defined Task 6, consumed in Task 11 `bannerKind`.
-- `AppModel.serverVersion` / `refreshHealth()` / `retryActive()` — added Task 11 and consumed only in Task 11.
-- `AppModel.signIn(profile:password:)` — defined Task 6, called in Task 7.
-- `AppModel.signOutActive()` — defined Task 6, called in Task 10.
-- `SessionStatusStyle.label/tint/providerLabel` — defined Task 9, consumed by `SessionRow` and `SessionDetailView` in the same task.
-- `BannerPolicy.kind(for:serverName:serverVersion:appVersion:)` — identical argument labels in the Task 11 test and the Task 11 call site.
+*Against ShepherdKit (sub-project 2a) — the authoritative side:*
+
+- `ShepherdClient` is a `final class` with a **throwing** `init(profile:credentials:urlSession:)`. Every construction in this plan is `try` (Task 10 `refreshHealth`).
+- `SessionStore.init(profile:credentials:)` is a **throwing convenience** initialiser; Task 6 `activate` wraps it in `do/catch`. There is no `SessionStore.load()` — the lifecycle is `start()` / `stop()`, with `refresh()` for an explicit reload (Task 10 `retryActive`) and `bootstrap()` available for callers that want to drive it themselves.
+- `ConnectionState` has six cases — `.idle`, `.connecting`, `.live`, `.needsLogin`, `.firstRunPending`, `.offline(message:)`. Both switches over it (Task 6 `routeSheet`, Task 10 `BannerPolicy.kind`) list all six; `.offline` carries a `String`, never an `Error`.
+- `ShepherdError` has eleven cases. `ShepherdErrorCopy` (Task 7) switches exhaustively over all of them and is the only place this app matches on the enum; no call site pattern-matches a case inline, so a new kit case breaks exactly one file. The case `server(status:code:message:)` from the draft of this plan **does not exist** and appears nowhere.
+- `ServerProfile.Mode` is nested; there is no top-level `ServerMode`. Task 5 and Task 6 both spell it `ServerProfile.Mode` when they need the type by name.
+- `ServerProfile.validated()` is `@discardableResult` and throws `ServerProfileError`; `RemoteServerForm.profile(name:address:credentialKey:)` (Task 6) returns its result, so an insecure address never becomes a stored profile. This app has no second copy of the https/loopback/`.ts.net` rule, and no app-local URL-policy type of any kind.
+- `ProfileSetup.login(profile:password:credentials:)` and `.logout(profile:credentials:)` compile because the kit defaults the trailing session parameters (Task 6).
+- `SessionStatus` is the generator's **open-enum wrapper**, not a Swift enum: Task 4 switches on `status.known` and falls back to `status.rawValue`, and every literal is built with `SessionStatus(known:)` / `SessionStatus(unknown:)`. `AgentProvider` and `Effort` are closed enums and are matched directly (Tasks 4, 9).
+- `CreateOutcome` is `.created(Session)` / `.held(HeldTask)` — matched in Task 9.
+- `SessionStore.resolveFirstRun(path:)` refreshes on success, so Task 8 does not reload afterwards.
+- `SessionStore.stop()` publishes `connection = .idle`; Task 6's `teardown` relies on that to release its `withObservationTracking` continuation.
+
+*Within this plan:*
+
+- `RemoteServerForm.normalize(_:) -> URL` and `.profile(name:address:credentialKey:) -> ServerProfile` — defined Task 6 in `AppModel.swift`, called by `AppModel.addRemoteProfile`; `RemoteServerForm.FieldError` and ShepherdKit's `ServerProfileError` are both surfaced in Task 7 through `ShepherdErrorCopy.message(_:)`.
+- `ProfileStore.load()` returns the labelled tuple `(profiles:activeID:)` — defined Task 5, destructured in the Task 6 initialiser with the same labels.
+- `ProfileStore.profilesKey` / `.activeKey` — defined Task 5, reused verbatim as the launch-argument names in the Task 11 UI test.
+- `LocalServerProbe.probe(url:)` returns `LocalServerStatus` — defined Task 3, called in Task 7 with the defaulted argument.
+- `PreviewData.session(id:desig:name:prompt:status:agentProvider:branch:)` — defined Task 4, used by the Task 4 previews and tests only; `#if DEBUG`, so it never ships.
+- `SessionStatusStyle.label/tint/providerLabel` — defined Task 4, consumed by `SessionRow` and `SessionDetailView` (Task 4) and `SessionDetailView`'s host `MainWindow` (Task 9).
+- `AppSheet` cases `.login(ServerProfile)` / `.firstRun` / `.newSession` — defined Task 6, produced in Tasks 6 (`routeSheet`) and 9 (toolbar), consumed by the Task 9 `RootView` switch. All three are constructed somewhere and all three are handled.
+- `AppModel.routeSheet(for:profile:)` — internal (not private) so the Task 6 tests drive it; called from `watchConnection` in the same file.
+- `AppModel.appVersion` — defined Task 6, consumed in Task 10 `bannerKind`.
+- `AppModel.serverVersion` / `refreshHealth()` / `retryActive()` — added Task 10 and consumed only in Task 10.
+- `AppModel.signIn(profile:password:)` — defined Task 6, called in Task 7. `signOutActive()` — defined Task 6, called in Task 9.
+- `ShepherdErrorCopy.message(_:)` / `.isAuthFailure(_:)` — defined Task 7, used in Tasks 7, 8, 9, 10.
+- `BannerPolicy.kind(for:lastError:serverName:serverVersion:appVersion:)` — identical argument labels in the Task 10 test and the Task 10 call site.
 - `FolderPicking.chooseFolder(prompt:)` and `FirstRunSheet.picker` — defined Task 8, exercised by the Task 8 tests.
-- `L.t(_:)` / `L.t(_:_:)` — defined Task 2, used everywhere. Every literal key passed to `L.t` in Tasks 3, 6, 7, 8, 9, 10 and 11 appears in the Task 2 `KEYS` array, and `KEYS` is what `StringCatalogTests` asserts (count 81 = 44 new `native_*` keys + 37 reused web keys, matching the generator's printed output).
+- `L.t(_:)` / `L.t(_:_:)` — defined Task 2, used everywhere. Every literal key passed to `L.t` in Tasks 4, 6, 7, 8, 9 and 10 appears in the Task 2 `KEYS` array, and `KEYS` is what `StringCatalogTests` asserts (count 86 = 49 new `native_*` keys + 37 reused web keys, matching the generator's printed output).
 
 **Fixed inline during this review:**
-- The draft used `status_running`; that key does not exist in the web catalog. Task 9 now maps `SessionStatus.running` to `status_working` and says why, and the mapping table is in the task body.
-- The draft let the UI-test target inherit `ENABLE_HARDENED_RUNTIME: YES`, which makes XCTRunner fail to load the test bundle. Task 1's `project.yml` now sets it to `NO` for that target only, with the reason in a comment, and Task 12 Step 2 carries the diagnostic.
+- The draft used `status_running`; that key does not exist in the web catalog. Task 4 now maps `SessionStatusKnown.running` to `status_working` and says why, and the mapping table is in the task body.
+- The draft let the UI-test target inherit `ENABLE_HARDENED_RUNTIME: YES`, which makes XCTRunner fail to load the test bundle. Task 1's `project.yml` now sets it to `NO` for that target only, with the reason in a comment, and Task 11 Step 2 carries the diagnostic.
 - The draft's `remove(_:)` called `teardown()` (which persists) and then `persist()` again; Task 6 now persists exactly once on either path.
 - `provider_badge_claude` / `provider_badge_codex` were dropped from `KEYS`: `SessionStatusStyle.providerLabel` uses `agent_provider_*`, and an unused key would fail nothing but would drift.
+- The draft assumed a ShepherdKit API that the kit plan does not ship (`ShepherdClient` as a struct with `listSessions()`, `ShepherdError.server(status:code:message:)`, `SessionStore.load()`, `ConnectionState.offline(any Error)`, a top-level `ServerMode`, `SessionStatus` as a plain enum). The whole interface block and every call site now match `2026-09-18-native-shepherdkit-core.md` verbatim.
+- The draft polled `store.connection` every 400 ms. Task 6 now suspends on `withObservationTracking`, which is what `@Observable` state is for.
+- The draft bootstrapped a stand-in `native/Package.swift` and a hand-written `ServerProfile` when sub-project 2 had not merged. Both are deleted: Task 1 is a hard gate on the real package.
+- The draft offered a fallback `native.yml` header. Deleted: 2a owns that file, Task 11 only appends, and the XCUITest bundle moved to its own `continue-on-error` job so GUI flakiness cannot block a merge.
+- Five `native_error_*` keys were added in Task 2 so `ShepherdErrorCopy` can be exhaustive without rendering Swift dumps; the catalog count moved from 81 to 86 everywhere it is asserted.
+- **Orchestrator decision D7.** The draft had a standalone Task 3, "Remote server URL policy", whose app-local `normalize` returned a `Result<URL, …>` and reimplemented the https-unless-loopback-or-`.ts.net` rule. That task is deleted: the rule is ShepherdKit's `ServerProfile.validated()` / `requireSecureRemote(_:)`, and a second copy of a security policy is a second place for it to be wrong. What survives is `RemoteServerForm` (Task 6, in `AppModel.swift`) — parsing only, throwing `FieldError.empty` / `.malformed` for what the kit cannot express — and `ShepherdErrorCopy` (Task 7), which now maps a bare `ServerProfileError` and a `RemoteServerForm.FieldError` onto the same three keys the deleted type used. No catalog key was added or removed: `native_url_error_empty`, `native_url_error_malformed` and `native_url_error_insecure` are all still reached, so `KEYS` stays at 86.
+- **Orchestrator decision D6, applied here.** `ServerProfile` moved into 2a's skeleton PR, so `ProfileStore` moved from Gate 2 to Gate 1 and is now Task 5. Tasks were renumbered 4→3, 5→4, 6→5, 7→6, 8→7, 9→8, 10→9, 11→10, 12→11; every cross-reference in this document was updated with them.
+
+**Resolved (was an open question).** `ProfileStore` persists `[ServerProfile]`, and the draft put
+it behind Gate 2 because `ServerProfile` shipped in 2a's *core* PR. The orchestrator moved
+`Model/ServerProfile.swift` into 2a's **skeleton** PR (2a Task 2, Steps 15–19), so `ProfileStore`
+is now Task 5 behind **Gate 1** and the welcome flow starts a whole PR earlier. Gate 2 still gates
+`CredentialStore`, `ShepherdClient`, `ProfileSetup`, `EventStream`, `ServerEvent`, `SessionStore`,
+`ConnectionState` and `ShepherdError`, from Task 6 onward — the two gates are otherwise unchanged,
+same verify commands, same hard stops.

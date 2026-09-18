@@ -97,7 +97,7 @@ native client uses. Initial surface:
 | Settings | `GET /api/settings`, `PUT /api/settings` (repoRoot only) |
 | Sessions | `GET /api/sessions`, `GET /api/sessions/done`, `GET /api/sessions/{id}`, `POST /api/sessions`, `DELETE /api/sessions/{id}`, `POST /api/sessions/{id}/interrupt` |
 | Repos | `GET /api/repos` |
-| Realtime | `WS /events` envelope `{event, data}` with schemas for `session:new`, `session:status`, `session:renamed`, `session:archived`, `session:block`, `session:ready`, `automerge:status`, `usage:limits`; inbound presence frame. `WS /pty/{id}` documented as an `x-shepherd-protocol` extension (query `cols`, `rows`; raw bytes; resize frame `\x00resize:<cols>:<rows>\n`; close codes 4000 superseded, 4001 gone). |
+| Realtime | `WS /events` envelope `{event, data}` with schemas for `session:new`, `session:status`, `session:renamed`, `session:archived`, `session:block`, `session:ready`, `automerge:status`, `usage:limits`; inbound presence frame. `WS /pty/{id}` documented as an `x-shepherd-pty` extension (query `cols`, `rows`; raw bytes; resize frame `\x00resize:<cols>:<rows>\n`; close codes 4000 superseded, 4001 gone). |
 
 Schemas are written from `src/types.ts` (`Session`, `SessionStatus`, `AgentProvider`, models,
 efforts, `CreateSessionInput`, `RepoEntry`, access-token entry). Enums are copied verbatim so
@@ -115,9 +115,20 @@ same `EventHub` from fixtures typed with the server's own TypeScript types, so a
 or event in the contract that the test does not exercise fails the test, so the contract cannot
 contain untested surface.
 
-CI: the existing `ci.yml` runs it as part of `bun run test`. A new `native.yml` job on
-`macos-latest` regenerates Swift from the contract and fails if the generated output differs from
-what is committed, so a contract change always ships with regenerated client code.
+Generator input: Apple's swift-openapi-generator does not support `oneOf`/`anyOf` branches of
+`type: "null"`, `null` inside `enum`, or `const`, and its enums are closed. The truth file keeps
+those constructs (the drift test needs them); `scripts/gen-contract-swift.ts` derives the
+committed `contracts/openapi.swift.yaml` (nullable refs become optional, `null` leaves enum
+lists, `const` is dropped, read-side enums flagged `x-shepherd-open-enum` become the open-enum
+`anyOf` pattern with a named `<Name>Known` closed enum). `bun run check:contract-swift` and a
+freshness test under `bun run test` keep the derived file current. Swift is generated ONLY from
+the derived file.
+
+CI: the existing `ci.yml` runs the drift and freshness tests as part of `bun run test`. A new
+`native.yml` job on `macos-latest` (owned by sub-project 2) runs `check:contract-swift`, checks
+that the copy of the derived file inside the Swift package is current, and runs `swift build` +
+`swift test`. Generated Swift is not committed (build plugin), so "current derived file plus a
+green build" is the freshness gate.
 
 Server changes required: none for auth or transport. One addition: `GET /api/health` gains
 `{ok, version, minClient?}` so the app can show "server newer/older than app". `version` is the
@@ -156,8 +167,8 @@ over"), 4001 → `.gone`. Other closes retry every 1 s; eight consecutive attach
 tests and previews.
 
 **Tests.** A `FakeShepherdServer` (Swift, `URLProtocol` + a local WebSocket listener) replays
-recorded fixtures exported by the drift test, so kit tests and the server contract share one
-fixture set. Coverage: auth flow, 401 handling, store event application, PTY close-code semantics,
+fixtures built by encoding the generated contract types, so kit fixtures cannot disagree with
+the contract and need no build-order coupling to the Bun drift test. Coverage: auth flow, 401 handling, store event application, PTY close-code semantics,
 reconnect policy.
 
 ## Sub-project 3: ShepherdLocalServer (macOS)

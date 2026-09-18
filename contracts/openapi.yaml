@@ -103,6 +103,44 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AccessTokenSummary"
+    AgentProvider:
+      type: string
+      enum: [claude, codex]
+    Settings:
+      type: object
+      additionalProperties: true
+      description: GET /api/settings returns many more fields; the native client relies only on these.
+      required: [repoRoot, repoRootDisplay, firstRunPending, defaultModel, defaultEffort, defaultAgentProvider, authMode, operatorLanguage]
+      properties:
+        repoRoot: { type: string }
+        repoRootDisplay: { type: string }
+        firstRunPending: { type: boolean }
+        defaultModel: { type: string }
+        defaultCodexModel: { type: [string, "null"] }
+        defaultEffort: { type: string }
+        defaultAgentProvider:
+          $ref: "#/components/schemas/AgentProvider"
+        authMode:
+          type: string
+          enum: [subscription, api-key]
+        operatorLanguage:
+          type: string
+          enum: [en, de]
+        envTokenActive: { type: boolean }
+        hasApiKey: { type: boolean }
+    RepoRootRequest:
+      type: object
+      additionalProperties: false
+      required: [repoRoot]
+      properties:
+        repoRoot: { type: string }
+    RepoRootResponse:
+      type: object
+      additionalProperties: true
+      required: [repoRoot, repoRootDisplay]
+      properties:
+        repoRoot: { type: string }
+        repoRootDisplay: { type: string }
   responses:
     Unauthorized:
       description: Missing or invalid credential.
@@ -242,6 +280,42 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /api/settings:
+    get:
+      operationId: getSettings
+      responses:
+        "200":
+          description: Operator settings incl. first-run state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Settings"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    put:
+      operationId: putRepoRoot
+      description: Only the repoRoot form is part of this contract; it also resolves the first-run picker.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RepoRootRequest"
+      responses:
+        "200":
+          description: Repo root stored; first run resolved if it was pending.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RepoRootResponse"
+        "400":
+          description: Not an existing directory under the root ceiling.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
 x-shepherd-events: {}
 x-shepherd-pty:
   path: /pty/{id}

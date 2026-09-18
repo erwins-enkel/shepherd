@@ -1,4 +1,8 @@
+import { mkdirSync } from "node:fs";
+import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { config } from "../../src/config";
+import { firstRun } from "../../src/first-run";
 import { SESSION_COOKIE } from "../../src/operator-auth";
 import {
   bearer,
@@ -145,6 +149,48 @@ describe("auth", () => {
     // instruction and sends the cleared pair back is unauthenticated.
     const after = await fetch(`${s.baseUrl}/api/settings`, { headers: { cookie: clearedPair } });
     expect(after.status).toBe(401);
+  });
+});
+
+describe("settings", () => {
+  test("GET /api/settings reflects firstRunPending", async () => {
+    firstRun.pending = true;
+    try {
+      const res = await fetch(`${s.baseUrl}/api/settings`, { headers: bearer(token) });
+      const body = (await validateResponse("GET", "/api/settings", res)) as {
+        firstRunPending: boolean;
+      };
+      expect(body.firstRunPending).toBe(true);
+    } finally {
+      firstRun.pending = false;
+    }
+  });
+
+  test("PUT /api/settings repoRoot resolves first run; bad path is 400", async () => {
+    const child = join(s.tmpRoot, "workspace");
+    mkdirSync(child, { recursive: true });
+    firstRun.pending = true;
+    try {
+      const ok = await fetch(`${s.baseUrl}/api/settings`, {
+        method: "PUT",
+        headers: { "content-type": "application/json", ...bearer(token) },
+        body: JSON.stringify({ repoRoot: child }),
+      });
+      const body = (await validateResponse("PUT", "/api/settings", ok)) as { repoRoot: string };
+      expect(body.repoRoot).toBe(child);
+      expect(firstRun.pending).toBe(false);
+
+      const bad = await fetch(`${s.baseUrl}/api/settings`, {
+        method: "PUT",
+        headers: { "content-type": "application/json", ...bearer(token) },
+        body: JSON.stringify({ repoRoot: join(s.tmpRoot, "does-not-exist") }),
+      });
+      await validateResponse("PUT", "/api/settings", bad);
+      expect(bad.status).toBe(400);
+    } finally {
+      config.repoRoot = s.tmpRoot;
+      firstRun.pending = false;
+    }
   });
 });
 

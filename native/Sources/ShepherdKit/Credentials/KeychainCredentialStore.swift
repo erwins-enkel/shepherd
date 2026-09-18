@@ -37,16 +37,32 @@ public struct KeychainCredentialStore: CredentialStore, Sendable {
 
   public func save(_ credential: StoredCredential, for key: String) throws {
     let data = try JSONEncoder().encode(credential)
-    // Replace rather than update-or-add: a malformed leftover item would let
-    // SecItemUpdate succeed while leaving undecodable bytes in place.
-    try delete(for: key)
 
+    // Add first, so a failing write never leaves a window with no stored
+    // credential (delete-then-add would). `kSecAttrAccessible` is only
+    // settable on add, so it is part of this query and not the update below.
     var attributes = baseQuery(for: key)
     attributes[kSecValueData as String] = data
     attributes[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
 
-    let status = SecItemAdd(attributes as CFDictionary, nil)
-    guard status == errSecSuccess else { throw KeychainError.unexpectedStatus(status) }
+    let addStatus = SecItemAdd(attributes as CFDictionary, nil)
+    if addStatus == errSecSuccess {
+      ShepherdLog.credentials.debug("stored credential for \(key, privacy: .public)")
+      return
+    }
+    guard addStatus == errSecDuplicateItem else {
+      throw KeychainError.unexpectedStatus(addStatus)
+    }
+
+    // An item for this key already exists: update its data in place rather
+    // than delete-then-add.
+    let updateStatus = SecItemUpdate(
+      baseQuery(for: key) as CFDictionary,
+      [kSecValueData as String: data] as CFDictionary
+    )
+    guard updateStatus == errSecSuccess else {
+      throw KeychainError.unexpectedStatus(updateStatus)
+    }
     ShepherdLog.credentials.debug("stored credential for \(key, privacy: .public)")
   }
 

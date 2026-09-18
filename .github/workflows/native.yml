@@ -108,6 +108,22 @@ jobs:
       - name: Build
         run: swift build --package-path native
 
+      # The Keychain round-trip tests in CredentialStoreTests need an
+      # unlocked, default keychain to write to — macos-latest runners start
+      # with none attached non-interactively. Without this, SecItemAdd fails
+      # with errSecInteractionNotAllowed and those tests would only run
+      # locally. `runner.os == 'macOS'` is always true for this job, but the
+      # guard keeps the step honest if it's ever copied to a non-mac runner.
+      - name: Prepare a test keychain
+        if: runner.os == 'macOS'
+        working-directory: ${{ runner.temp }}
+        run: |
+          security create-keychain -p "" ci.keychain-db
+          security set-keychain-settings -lut 21600 ci.keychain-db
+          security unlock-keychain -p "" ci.keychain-db
+          security list-keychains -d user -s ci.keychain-db $(security list-keychains -d user | tr -d '"')
+          security default-keychain -s ci.keychain-db
+
       - name: Test
         run: swift test --package-path native
 

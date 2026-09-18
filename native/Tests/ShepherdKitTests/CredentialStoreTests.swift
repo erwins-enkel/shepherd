@@ -38,7 +38,10 @@ struct CredentialStoreTests {
 
   // Writes to the login keychain, so it uses a service name unique to this
   // run and cleans up after itself.
-  @Test("keychain store round-trips, replaces and deletes")
+  @Test(
+    "keychain store round-trips, replaces and deletes",
+    .enabled(if: KeychainAvailability.isUsable)
+  )
   func keychainRoundTrip() throws {
     let service = "run.shepherd.kit.test.\(UUID().uuidString)"
     let store = KeychainCredentialStore(service: service)
@@ -55,5 +58,24 @@ struct CredentialStoreTests {
 
     try store.delete(for: key)
     #expect(try store.load(for: key) == nil)
+  }
+
+  // Saving twice for the same key hits `SecItemAdd`'s `errSecDuplicateItem`
+  // path on the second call, which must fall through to `SecItemUpdate`
+  // rather than leaving the first token in place (or failing outright).
+  @Test(
+    "keychain store save updates an existing item in place",
+    .enabled(if: KeychainAvailability.isUsable)
+  )
+  func keychainSaveUpdatesInPlace() throws {
+    let service = "run.shepherd.kit.test.\(UUID().uuidString)"
+    let store = KeychainCredentialStore(service: service)
+    let key = "profile.update"
+    defer { try? store.delete(for: key) }
+
+    try store.save(StoredCredential(token: "shp_first", tokenId: "tok_1"), for: key)
+    try store.save(StoredCredential(token: "shp_second", tokenId: "tok_2"), for: key)
+
+    #expect(try store.load(for: key) == StoredCredential(token: "shp_second", tokenId: "tok_2"))
   }
 }

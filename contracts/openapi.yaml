@@ -103,6 +103,13 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AccessTokenSummary"
+  responses:
+    Unauthorized:
+      description: Missing or invalid credential.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
 paths:
   /api/health:
     get:
@@ -151,6 +158,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Ok"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
   /api/access-tokens:
     get:
       operationId: listAccessTokens
@@ -163,6 +172,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AccessTokenList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "403":
           description: Caller is not an operator session (a bearer token cannot manage tokens).
           content:
@@ -192,6 +203,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
         "403":
           description: Caller is not an operator session.
           content:
@@ -215,6 +228,14 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Ok"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Caller is not an operator session (a bearer token cannot manage tokens).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "404":
           description: Unknown token id.
           content:

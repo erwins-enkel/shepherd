@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { SESSION_COOKIE } from "../../src/operator-auth";
 import {
   bearer,
   coverage,
@@ -8,6 +9,7 @@ import {
   login,
   mintToken,
   restoreAuth,
+  securedOperations,
   startContractServer,
   validateResponse,
   withAuth,
@@ -26,8 +28,11 @@ beforeAll(async () => {
   ({ token, id: tokenId } = await mintToken(s, cookie));
 });
 afterAll(() => {
-  s.stop();
-  restoreAuth();
+  try {
+    s?.stop();
+  } finally {
+    restoreAuth();
+  }
 });
 
 describe("health", () => {
@@ -101,6 +106,12 @@ describe("auth", () => {
 
   test("DELETE /api/access-tokens/{id} revokes once, then 404", async () => {
     const { id } = await mintToken(s, cookie, "to revoke");
+    const viaBearer = await fetch(`${s.baseUrl}/api/access-tokens/${id}`, {
+      method: "DELETE",
+      headers: bearer(token),
+    });
+    await validateResponse("DELETE", "/api/access-tokens/{id}", viaBearer);
+    expect(viaBearer.status).toBe(403);
     const del = await fetch(`${s.baseUrl}/api/access-tokens/${id}`, {
       method: "DELETE",
       headers: { cookie },
@@ -123,6 +134,35 @@ describe("auth", () => {
     });
     await validateResponse("POST", "/api/logout", res);
     expect(res.status).toBe(200);
+    const setCookie = res.headers.get("set-cookie") ?? "";
+    const clearedPair = setCookie.split(";")[0] ?? "";
+    expect(clearedPair.startsWith(`${SESSION_COOKIE}=`)).toBe(true);
+    expect(setCookie).toContain("Max-Age=0");
+    // The session cookie is stateless — operator-auth.ts documents there is no server-side
+    // revocation list, so logout only instructs the client to overwrite the cookie with the
+    // empty value above; it does not invalidate the old signed value itself (a client still
+    // sending `throwaway` would stay authenticated). A client that honors the Set-Cookie
+    // instruction and sends the cleared pair back is unauthenticated.
+    const after = await fetch(`${s.baseUrl}/api/settings`, { headers: { cookie: clearedPair } });
+    expect(after.status).toBe(401);
+  });
+});
+
+// Sits directly before the coverage gate: it exercises every secured operation once, without
+// credentials, and records the 401 coverage the gate then checks for.
+describe("unauthenticated sweep", () => {
+  test("every secured operation rejects a request without credentials with 401", async () => {
+    for (const { method, template } of securedOperations()) {
+      const path = template.replace(/\{[^}]+\}/g, "x");
+      const init: RequestInit = { method: method.toUpperCase() };
+      if (["post", "put", "patch"].includes(method)) {
+        init.headers = { "content-type": "application/json" };
+        init.body = "{}";
+      }
+      const res = await fetch(`${s.baseUrl}${path}`, init);
+      await validateResponse(method.toUpperCase(), template, res);
+      expect(res.status, `${method.toUpperCase()} ${template}`).toBe(401);
+    }
   });
 });
 

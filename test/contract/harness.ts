@@ -17,9 +17,13 @@ export interface Contract {
     closeCodes: { superseded: number; gone: number };
   };
 }
+interface ResponseDecl {
+  content?: { "application/json": { schema: unknown } };
+}
 interface Operation {
   operationId: string;
-  responses: Record<string, { content?: { "application/json": { schema: unknown } } }>;
+  security?: unknown[];
+  responses: Record<string, ResponseDecl | { $ref: string }>;
 }
 
 interface PathItem extends Record<string, unknown> {
@@ -63,6 +67,19 @@ function fail(msg: string, errors: unknown): never {
   throw new Error(`${msg}\n${JSON.stringify(errors, null, 2)}`);
 }
 
+/** Resolve a `#/…` JSON pointer (RFC 6901) against the contract document. */
+function resolveRef(contract: Contract, ref: string): unknown {
+  if (!ref.startsWith("#/")) throw new Error(`unsupported $ref (must be a local pointer): ${ref}`);
+  let node: unknown = contract;
+  for (const raw of ref.slice(2).split("/")) {
+    const key = decodeURIComponent(raw).replace(/~1/g, "/").replace(/~0/g, "~");
+    if (typeof node !== "object" || node === null) throw new Error(`cannot resolve ${ref}`);
+    node = (node as Record<string, unknown>)[key];
+  }
+  if (node === undefined) throw new Error(`$ref not found: ${ref}`);
+  return node;
+}
+
 /** Asserts `res.status` is declared for `method template` in the contract, validates the JSON
  *  body against the declared schema (if any), records coverage, returns the parsed body. */
 export async function validateResponse(
@@ -74,11 +91,19 @@ export async function validateResponse(
   const op = contract.paths[template]?.[method.toLowerCase()] as Operation | undefined;
   if (!op) throw new Error(`contract has no operation ${method} ${template}`);
   const status = String(res.status);
-  const declared = op.responses[status];
-  if (!declared) {
+  const rawDeclared = op.responses[status];
+  if (!rawDeclared) {
     throw new Error(
       `${method} ${template} returned ${status}, contract declares ${Object.keys(op.responses).join(", ")}`,
     );
+  }
+  let pointer = `#/paths/${pointerSegment(template)}/${method.toLowerCase()}/responses/${status}`;
+  let declared: ResponseDecl;
+  if ("$ref" in rawDeclared) {
+    pointer = rawDeclared.$ref;
+    declared = resolveRef(contract, rawDeclared.$ref) as ResponseDecl;
+  } else {
+    declared = rawDeclared;
   }
   coveredOperations.add(`${method.toUpperCase()} ${template} ${status}`);
   const schema = declared.content?.["application/json"]?.schema;
@@ -91,9 +116,7 @@ export async function validateResponse(
       cause: e,
     });
   }
-  const fn = compileRef(
-    `#/paths/${pointerSegment(template)}/${method.toLowerCase()}/responses/${status}/content/application~1json/schema`,
-  );
+  const fn = compileRef(`${pointer}/content/application~1json/schema`);
   if (!fn(body)) fail(`${method} ${template} ${status} body violates contract`, fn.errors);
   return body;
 }
@@ -150,6 +173,20 @@ export function declaredOperations(): string[] {
 
 export function declaredEvents(): string[] {
   return Object.keys(loadContract()["x-shepherd-events"]);
+}
+
+/** Secured operations: everything without an explicit `security: []`. */
+export function securedOperations(): { method: string; template: string }[] {
+  const out: { method: string; template: string }[] = [];
+  for (const [template, methods] of Object.entries(loadContract().paths)) {
+    for (const [method, op] of Object.entries(methods)) {
+      if (!HTTP_METHODS.includes(method as never)) continue;
+      const security = (op as Operation).security;
+      const isPublic = Array.isArray(security) && security.length === 0;
+      if (!isPublic) out.push({ method, template });
+    }
+  }
+  return out;
 }
 
 // ── auth bootstrap (issue #1079 / #2082) ───────────────────────────────────

@@ -44,6 +44,35 @@ struct ServerProfileTests {
     }
   }
 
+  @Test("a fully-qualified tailnet name (trailing DNS root dot) is accepted")
+  func tailnetFQDNAccepted() throws {
+    try ServerProfile.requireSecureRemote(URL(string: "http://mini.tail1234.ts.net.:7330")!)
+  }
+
+  @Test("the whole 127.0.0.0/8 loopback block is accepted, not just 127.0.0.1")
+  func loopbackIPv4BlockAccepted() throws {
+    try ServerProfile.requireSecureRemote(URL(string: "http://127.0.0.2:7330")!)
+  }
+
+  @Test("the expanded IPv6 loopback form is accepted")
+  func loopbackIPv6ExpandedFormAccepted() throws {
+    try ServerProfile.requireSecureRemote(URL(string: "http://[0:0:0:0:0:0:0:1]:7330")!)
+  }
+
+  @Test("a non-http(s) scheme is rejected even on an otherwise-loopback host")
+  func nonHTTPSchemeRejected() {
+    #expect(throws: ServerProfileError.insecureRemoteURL("localhost")) {
+      try ServerProfile.requireSecureRemote(URL(string: "ftp://localhost:7330")!)
+    }
+  }
+
+  @Test("a schemeless URL is rejected")
+  func schemelessRejected() {
+    #expect(throws: ServerProfileError.insecureRemoteURL("localhost")) {
+      try ServerProfile.requireSecureRemote(URL(string: "//localhost:7330")!)
+    }
+  }
+
   @Test("a hostless URL is rejected")
   func hostlessRejected() {
     #expect(throws: ServerProfileError.missingHost) {

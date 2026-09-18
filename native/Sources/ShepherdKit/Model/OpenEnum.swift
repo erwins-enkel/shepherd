@@ -14,7 +14,7 @@ import Foundation
 /// `known` (the case we understand) and `rawValue` (what actually came over
 /// the wire), whether `Known` is the named `<Name>Known` enum or the
 /// generator's nested `Value1Payload`.
-public protocol OpenEnum {
+public protocol OpenEnum: Sendable, Hashable {
   associatedtype Known: RawRepresentable & Hashable & Sendable where Known.RawValue == String
 
   var value1: Known? { get }
@@ -28,6 +28,16 @@ extension OpenEnum {
   public var known: Known? { value1 }
 
   /// The wire value, known or not. Safe to log and to show in a diagnostic.
+  ///
+  /// Falls back to `""` only when BOTH `value1` and `value2` are `nil` — a
+  /// state the generated `Decodable` initialiser never produces (decoding
+  /// always sets one of the two branches, or throws) and the wire never
+  /// sends. The only way to reach it is `Self(value1: nil, value2: nil)`,
+  /// a memberwise construction this module does not use; `init(unknown:)`
+  /// always sets `value2`, and `init(known:)` always sets both. Treat a `""`
+  /// you see here as a bug in whoever built the value that way, not a real
+  /// wire value — the server can send `""` as a string, but that still
+  /// round-trips through `value2`, not this fallback.
   public var rawValue: String { value1?.rawValue ?? value2 ?? "" }
 
   /// Build a value the client understands.

@@ -59,6 +59,57 @@ enum Fixtures {
     try JSONEncoder().encode(session(id: id, name: name))
   }
 
+  /// A raw JSON `Session` object, built directly from a dictionary rather
+  /// than by encoding `session(...)` above — used where the point of the
+  /// test is *decoding* (e.g. proving `Session` really is the generated
+  /// type, or that a nullable ref round-trips both its `null` and non-null
+  /// forms), so the fixture must not go through the same Swift model it is
+  /// checking. Every key in the base dictionary is either a *required*
+  /// property of `#/components/schemas/Session`, or one of the three
+  /// optional-ref properties (`sandboxApplied`, `archiveReason`,
+  /// `experimentRole`) the nullable-ref regression test exercises — those
+  /// three default to JSON `null`. `overrides` replaces entries by key with
+  /// raw JSON-serializable values (not Swift models).
+  static func minimalSessionJSON(overrides: [String: Any] = [:]) throws -> Data {
+    var dict: [String: Any] = [
+      "id": "s1",
+      "desig": "TASK-01",
+      "name": "session",
+      "prompt": "do the thing",
+      "repoPath": "/repos/demo",
+      "baseBranch": "main",
+      "branch": NSNull(),
+      "worktreePath": "/repos/demo-s1",
+      "isolated": false,
+      "herdrSession": "herdr-s1",
+      "herdrAgentId": "agent-s1",
+      "claudeSessionId": "claude-s1",
+      "model": NSNull(),
+      "effort": NSNull(),
+      "readyToMerge": false,
+      "mergingSince": NSNull(),
+      "autopilotEnabled": NSNull(),
+      "autopilotPaused": false,
+      "autopilotComplete": false,
+      "planGateEnabled": NSNull(),
+      "autoMergeEnabled": NSNull(),
+      "auto": false,
+      "issueNumber": NSNull(),
+      "sandboxApplied": NSNull(),
+      "status": "running",
+      "lastState": "working",
+      "createdAt": 1_700_000_000,
+      "updatedAt": 1_700_000_001,
+      "archivedAt": NSNull(),
+      "archiveReason": NSNull(),
+      "haltedAt": NSNull(),
+      "manualSteps": [],
+      "experimentRole": NSNull(),
+    ]
+    for (key, value) in overrides { dict[key] = value }
+    return try JSONSerialization.data(withJSONObject: dict)
+  }
+
   static func settings(firstRunPending: Bool = false, repoRoot: String = "/repos") -> Settings {
     Settings(
       repoRoot: repoRoot,

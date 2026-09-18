@@ -23,7 +23,7 @@ if [ ! -f "$src" ]; then
   exit 1
 fi
 
-if [ "${1:-}" = "--check" ]; then
+check() {
   if [ ! -f "$dst" ]; then
     echo "sync-contract: missing $dst — run native/scripts/sync-contract.sh" >&2
     exit 1
@@ -34,8 +34,19 @@ if [ "${1:-}" = "--check" ]; then
     exit 1
   fi
   echo "sync-contract: up to date"
-  exit 0
-fi
+}
 
-cp "$src" "$dst"
-echo "sync-contract: contracts/openapi.swift.yaml -> native/Sources/ShepherdKit/openapi.yaml"
+copy() {
+  mkdir -p "$(dirname "$dst")"
+  cp "$src" "$dst"
+  echo "sync-contract: contracts/openapi.swift.yaml -> native/Sources/ShepherdKit/openapi.yaml"
+}
+
+case "${1:-}" in
+  "") copy ;;
+  --check) check ;;
+  *)
+    echo "usage: sync-contract.sh [--check]" >&2
+    exit 2
+    ;;
+esac

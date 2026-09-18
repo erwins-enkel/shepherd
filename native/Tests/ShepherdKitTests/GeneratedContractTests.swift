@@ -18,11 +18,26 @@ struct GeneratedContractTests {
   func nullableRefsBecameOptionals() throws {
     // In the truth file these are `oneOf: [$ref, {type: "null"}]`, which the
     // generator silently drops. The derivation turns them into optional
-    // plain $refs, so their presence here is the regression test.
-    let session = Fixtures.session(id: "s1")
-    #expect(session.sandboxApplied == nil)
-    #expect(session.archiveReason == nil)
-    #expect(session.experimentRole == nil)
+    // plain $refs — decoding an explicit JSON `null` for each is the
+    // regression test: a silently-dropped nullable would fail this decode
+    // outright rather than merely disagree about the field's value.
+    let nullJSON = try Fixtures.minimalSessionJSON()
+    let nullSession = try JSONDecoder().decode(Session.self, from: nullJSON)
+    #expect(nullSession.sandboxApplied == nil)
+    #expect(nullSession.archiveReason == nil)
+    #expect(nullSession.experimentRole == nil)
+
+    // And the non-null branch resolves to the value the server actually
+    // sent, not just "decoded without throwing".
+    let presentJSON = try Fixtures.minimalSessionJSON(overrides: [
+      "archiveReason": "merged",
+      "sandboxApplied": "standard",
+      "experimentRole": "variant",
+    ])
+    let presentSession = try JSONDecoder().decode(Session.self, from: presentJSON)
+    #expect(presentSession.archiveReason?.known == .merged)
+    #expect(presentSession.sandboxApplied == .standard)
+    #expect(presentSession.experimentRole?.known == .variant)
   }
 
   @Test("UsageLimits keeps its nullable windows")
@@ -71,7 +86,16 @@ struct GeneratedContractTests {
   }
 
   @Test("the public typealiases point at the generated types")
-  func typealiasesResolve() {
+  func typealiasesResolve() throws {
+    // A metatype comparison alone can't fail: `Session.self` is substituted
+    // by the compiler at the point of use, so a wrong alias would break the
+    // build long before this line ran. Decoding a fixture through the alias
+    // and checking a field round-trips is the behavioural version — it
+    // actually exercises `Session` as the type callers use it as.
+    let json = try Fixtures.minimalSessionJSON(overrides: ["id": "typealias-check"])
+    let session = try JSONDecoder().decode(Session.self, from: json)
+    #expect(session.id == "typealias-check")
+
     #expect(Session.self == Components.Schemas.Session.self)
     #expect(Settings.self == Components.Schemas.Settings.self)
     #expect(Repo.self == Components.Schemas.Repo.self)

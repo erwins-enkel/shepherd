@@ -62,3 +62,9 @@ src/generated
 # Generated fallow duplication baseline (fallow dupes --save-baseline) — machine-
 # written on regeneration; formatting it by hand would churn every re-capture.
 .fallow-dupes-baseline.json
+
+# SwiftPM build state for the native/ package (checkouts of its Apple deps,
+# the OpenAPIGenerator plugin's derived-data-style build products). Not
+# project source, and a nested .gitignore under native/.build is not honoured
+# by prettier — same rationale as .cache above.
+native/.build

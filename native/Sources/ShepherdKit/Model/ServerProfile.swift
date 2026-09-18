@@ -49,11 +49,23 @@ public struct ServerProfile: Codable, Hashable, Sendable, Identifiable {
     guard let host = url.host(percentEncoded: false), !host.isEmpty else {
       throw ServerProfileError.missingHost
     }
-    if url.scheme?.lowercased() == "https" { return }
+    // The loopback/tailnet exceptions below only ever loosen `https` to
+    // plain `http`; they are not a license for an unrelated protocol. A
+    // missing scheme (a "//host" reference) or anything other than http(s)
+    // (e.g. `ftp`) is rejected outright, before either exception applies.
+    guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
+      throw ServerProfileError.insecureRemoteURL(host)
+    }
+    if scheme == "https" { return }
     if isLoopback(host) { return }
+    // A fully-qualified tailnet name ends in a trailing DNS root dot
+    // ("mini.tail1234.ts.net."); strip at most one before the suffix check
+    // so that form is still recognised.
+    var withoutRootDot = host
+    if withoutRootDot.hasSuffix(".") { withoutRootDot.removeLast() }
     // `.ts.net` with the leading dot, so "evilts.net" and a bare "ts.net"
     // do not pass as tailnet names.
-    if host.lowercased().hasSuffix(".ts.net") { return }
+    if withoutRootDot.lowercased().hasSuffix(".ts.net") { return }
     throw ServerProfileError.insecureRemoteURL(host)
   }
 
@@ -65,7 +77,20 @@ public struct ServerProfile: Codable, Hashable, Sendable, Identifiable {
   }
 
   private static func isLoopback(_ host: String) -> Bool {
+    // `host(percentEncoded:)` already strips a bracketed IPv6 literal's
+    // brackets, but the trim stays as a defensive no-op for any caller that
+    // hands this a raw, still-bracketed string.
     let bare = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]")).lowercased()
-    return bare == "localhost" || bare == "127.0.0.1" || bare == "::1"
+    if bare == "localhost" || bare == "::1" || bare == "0:0:0:0:0:0:0:1" { return true }
+    return isLoopbackIPv4(bare)
+  }
+
+  /// The whole 127.0.0.0/8 block, not just 127.0.0.1 — RFC 5735 reserves all
+  /// of it for loopback, and local tooling (e.g. sandboxed proxies) sometimes
+  /// binds to another address in the block.
+  private static func isLoopbackIPv4(_ host: String) -> Bool {
+    guard host.hasPrefix("127.") else { return false }
+    let octets = host.split(separator: ".", omittingEmptySubsequences: false)
+    return octets.count == 4 && octets.allSatisfy { UInt8($0) != nil }
   }
 }

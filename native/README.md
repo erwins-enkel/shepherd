@@ -67,12 +67,12 @@ Developer ID and notarisation are a later sub-project — switching is a
 ### Local code signing (stable Keychain access)
 
 An ad-hoc signature carries no identity, so **every rebuild is a different signer** as far as
-the login Keychain is concerned. The "Always Allow" you granted the last build does not apply
-to the next one, macOS asks again, and an unattended run stalls: the app gives up on its
-credential probe after 8 s and falls back to the login sheet. Signing every local build with
-one long-lived, self-signed identity gives that Keychain ACL something stable to point at —
-the bundle's designated requirement becomes `identifier "run.shepherd.mac" and certificate
-root = H"…"`, and that requirement is identical from one build to the next.
+the Keychain is concerned. The "Always Allow" you granted the last build does not apply to the
+next one, macOS asks again, and an unattended run stalls: the app gives up on its credential
+probe after 8 s and falls back to the login sheet. Signing every local build with one
+long-lived, self-signed identity gives that Keychain ACL something stable to point at — the
+bundle's designated requirement becomes `identifier "run.shepherd.mac" and certificate root =
+H"…"`, and that requirement is identical from one build to the next.
 
 Run this once per machine:
 
@@ -80,51 +80,89 @@ Run this once per machine:
 native/scripts/dev-signing-identity.sh
 ```
 
-It creates a self-signed code-signing certificate named exactly `Shepherd Local Dev` in your
-login keychain (`openssl req` → `openssl pkcs12` → `security import -T /usr/bin/codesign -T
-/usr/bin/security`), trusts it for the `codeSign` policy for your user only, and prints the
-identity's SHA-1. It is idempotent: a second run says "Already present" and changes nothing.
+It is idempotent: a second run says "Already present" and changes nothing.
 
-`--check` reports whether the identity is usable (exit 0) or not (exit 1); `--remove` deletes
-the certificate, its private key and the trust setting again.
+#### Why a keychain of its own
 
-From then on `build-app.sh` and `test-app.sh` find it themselves and pass
-`CODE_SIGN_IDENTITY="Shepherd Local Dev" CODE_SIGN_STYLE=Manual` to `xcodebuild`. Both scripts
-print the mode they chose on their first line. `SHEPHERD_CODESIGN_IDENTITY=…` overrides the
-choice; with neither set nor installed they fall back to `project.yml`'s ad-hoc default, which
-is exactly what CI does — `native.yml` is untouched and still asserts an ad-hoc,
-hardened-runtime, sandbox-off bundle.
+The identity does **not** live in your login keychain. A private key there has an empty
+"partition list", and macOS answers every `codesign` request against such a key with a modal
+_"codesign wants to use your confidential information"_ dialog. The one scripted cure,
+`security set-key-partition-list`, needs the **keychain's** password on the command line — and
+this project will not ask you for your login password. So the script makes a keychain it owns
+and knows the password to:
+
+|          |                                                                                          |
+| -------- | ---------------------------------------------------------------------------------------- |
+| keychain | `~/Library/Keychains/shepherd-dev-signing.keychain-db`                                   |
+| password | `~/Library/Application Support/Shepherd/dev-signing.keychain-pass` (random, mode `0600`) |
+| identity | `Shepherd Local Dev`, self-signed, 3650 days                                             |
+
+The script creates the keychain, appends it to your **user** keychain search list (keeping
+every entry that was already there), turns auto-lock off with `security set-keychain-settings`,
+unlocks it, imports the identity with `-T /usr/bin/codesign`, and finally runs
+`security set-key-partition-list -S apple-tool:,apple:,codesign:`. That last call is the one
+that stops the prompt. Nothing in your login keychain is read or written except the one-time
+migration below.
+
+The certificate is deliberately left **untrusted**. Marking a self-signed certificate "always
+trust" is itself a modal authorisation dialog, and `codesign` does not need one: handed the
+certificate's SHA-1 it signs perfectly happily, and `codesign --verify --strict` passes on the
+result. That is why `build-app.sh`/`test-app.sh` pass the **hash**, not the name, as
+`CODE_SIGN_IDENTITY`, together with `--keychain …` in `OTHER_CODE_SIGN_FLAGS`. They also unlock
+the signing keychain before `xcodebuild` runs, and print the mode they chose on their first
+line. `SHEPHERD_CODESIGN_IDENTITY=…` still overrides the choice; with nothing installed they
+fall back to `project.yml`'s ad-hoc default, which is exactly what CI does — `native.yml` still
+asserts an ad-hoc, hardened-runtime, sandbox-off bundle.
 
 Hardened Runtime stays on in every mode. The
 `com.apple.security.cs.disable-library-validation` entitlement already in `project.yml` is what
 lets a hardened bundle load code signed by a team-less identity, so the dev-identity path needs
-no relaxation: `codesign --verify --strict` passes on the result.
+no relaxation.
 
-#### The prompts
+#### Migrating off the login keychain (one-time)
 
-- **Creating the identity.** Writing the per-user trust setting needs no admin account. macOS
-  may still show one "You are making changes to your Certificate Trust Settings" dialog asking
-  for your **login password**. If it is refused or cancelled, the script does not fail silently
-  — it prints the exact Keychain Access steps (login keychain → My Certificates → _Shepherd
-  Local Dev_ → Trust → Code Signing → Always Trust) and exits non-zero.
-- **The first build afterwards.** `codesign` has to unlock the new private key, so macOS may
-  ask once: _"codesign wants to sign using key … in your keychain."_ Click **Always Allow**,
-  not "Allow" — that writes `codesign` into the key's ACL for good. This is the last Keychain
-  prompt for these builds. The scripted equivalent, `security set-key-partition-list`, wants
-  your keychain password on the command line, so it is deliberately not automated.
-- **Running the app.** Nothing new. The bundle is built locally and never quarantined, so
-  Gatekeeper does not gate it, and the app's own token item is asked for once and then
-  remembered for as long as the identity lives.
+An earlier version of this script put `Shepherd Local Dev` in the login keychain. Re-running
+`dev-signing-identity.sh` migrates it: a private key cannot be exported from there without a
+password dialog, so the script instead deletes that identity by exact common name
+(`security delete-identity -c "Shepherd Local Dev"`, which needs no dialog) and generates a
+fresh one in the dedicated keychain.
 
-#### Reverting
+**A new certificate means a new root hash, so the app's designated requirement changes ONE more
+time.** The next launch of a freshly built `Shepherd.app` asks once for its own stored token —
+click **Always Allow**. After that the requirement is stable for good, and no build, test or
+launch asks again. (The old certificate's per-user trust entry is left behind on purpose:
+removing it is another modal dialog, and with the certificate gone the entry refers to nothing.
+Clear it by hand in Keychain Access if it bothers you.)
+
+#### Tests never touch a Keychain by default
+
+The `SecItem*` round-trip tests in `CredentialStoreTests` are opt-in, because a freshly built
+test runner is a different signer too and would make macOS ask about items an earlier run
+created. They — and the availability probe itself, which is a real write — only run with:
 
 ```
-native/scripts/dev-signing-identity.sh --remove
+SHEPHERD_KEYCHAIN_TESTS=1 swift test --package-path native
 ```
 
-Builds go back to ad-hoc immediately — no edit to `project.yml` or the scripts is involved. The
-app's Keychain item survives, but its ACL now points at a certificate that is gone, so the next
-build prompts again. Nothing about CI changes either way.
+Both the plain and the `TEST_RUNNER_`-prefixed spelling are read, so it works under
+`xcodebuild` too. Without it those tests report as _skipped_ and a plain
+`swift test --package-path native` or `native/scripts/test-app.sh -only-testing:ShepherdTests`
+performs zero Keychain access. CI sets the variable in the `Test` step, right after the step
+that prepares a throwaway keychain; `keychainIsUsableOnCI` fails if CI ever loses either half,
+so the suite cannot go quietly silent.
+
+#### Checking and reverting
+
+```
+native/scripts/dev-signing-identity.sh --check    # exit 0 if usable, 1 if not
+native/scripts/dev-signing-identity.sh --remove   # identity, search-list entry, keychain, password
+```
+
+`--check` also flags a stale copy left in the login keychain. `--remove` takes the keychain out
+of the search list first, then deletes the keychain file and the password file. Builds go back
+to ad-hoc immediately — no edit to `project.yml` or the scripts is involved. The app's Keychain
+item survives, but its ACL now points at a certificate that is gone, so the next build prompts
+again. Nothing about CI changes either way.
 
 ## Parallel streams: seams and rules
 

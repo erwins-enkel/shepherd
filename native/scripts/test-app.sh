@@ -10,6 +10,9 @@ APP_DIR="$(cd "$SCRIPT_DIR/../Apps/ShepherdMac" && pwd)"
 # shellcheck source=native/scripts/codesign-mode.sh
 . "$SCRIPT_DIR/codesign-mode.sh"
 shepherd_codesign_args
+# Unlocks the dev signing keychain (no-op when there is none), so codesign does
+# not stop the build with a password dialog.
+shepherd_unlock_signing_keychain
 
 command -v xcodegen >/dev/null 2>&1 || {
   echo "xcodegen not found. Install it with: brew install xcodegen" >&2

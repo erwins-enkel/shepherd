@@ -162,8 +162,12 @@ shown at the bottom (demoted — see Known gaps).
 > predates it, so an out-of-enum `kind` (a German-translated enum token is the live case) produced no
 > flag at all and `normalize` collapsed it to `unknown`. **`no-tool` / `parse-fail` being 0 does not
 > cover that case** — such a trial is mechanically clean. These rows cannot be back-filled, because
-> the per-trial evidence was never recorded, so they are left unknown rather than assumed clean. The
-> German rows were re-measured under the fixed scorer in
+> the per-trial evidence was never recorded, so they are left unknown rather than assumed clean —
+> **including the German rows**. #2368 re-measured the German fixtures under the fixed scorer, but in
+> the **operator-language ON** condition (German directive live), whereas this table is the #1626
+> baseline: the English prompt against a German tail, measured before `operatorLanguage` existed. It
+> is a different condition, not a re-run of these rows, so do not read the two against each other —
+> `de-gate-spec` 4/5 here and 15/27 there are two prompts, not a regression. See
 > [Re-validation under the fixed scorer (#2368)](#re-validation-under-the-fixed-scorer-2368).
 
 - **Gating accuracy (after demotion): `33/34 = 97.1%`** → `GATING_ACCURACY_FLOOR` pinned at **0.80**
@@ -407,6 +411,12 @@ sessions is not controlled for — see the noise-band amendment above). 135 tria
 `--trials 9` lifts the two baseline German fixtures from their default 5; the three gating fixtures
 already pin `trials: 9`.
 
+**A/B leg: operator-language ON** — the _after_ leg, German directive live for every `de` fixture.
+`--operator-language-off` was NOT passed. That is deliberate: the `27/27` under re-validation is an
+ON-leg number, so this reproduces its condition exactly. It is therefore comparable to the
+[#2169 validation runs](#german-abstain-bucket-rewrite-2169) and **not** to the OFF-leg German rows
+in [Baseline numbers](#baseline-numbers).
+
 | id                     | seg      | expected | T (pooled) | kind distribution     | correct   | no-tool | parse-fail | unrec. |
 | ---------------------- | -------- | -------- | ---------- | --------------------- | --------- | ------- | ---------- | ------ |
 | `de-gate-commit`       | gating   | gate     | 27         | `gate:27`             | **27/27** | 0       | 0          | **0**  |
@@ -428,10 +438,12 @@ gating accuracy **`81/81 = 100%`**. `GATING_ACCURACY_FLOOR` is unchanged at `0.8
   reaches a report at all: `runEval` aborts with `CANNOT_RUN` and discards partial results, so a
   transport failure cannot masquerade as a model-side miss.)
 - **`de-gate-spec` is better characterised than before, and unchanged.** It posted exactly `5/9` in
-  each of the three runs — `15/27`, a stable ~56% `gate` rate. Its prior record (5/5, 2/5, 4/5, 2/5
-  at `T=5` = 13/20) read as wild instability; pooled at `T=9` it is an ordinary split, straddling the
-  2/5 its English twin `gate-spec-first` posts. Still the recorded known gap, still non-gating, and
-  still no claim that any change moved it.
+  each of the three runs — `15/27`, a stable ~56% `gate` rate. Its comparable prior record is the
+  four post-#2177 runs in [#2169](#german-abstain-bucket-rewrite-2169) (5/5, 2/5, 4/5, 2/5 at `T=5` =
+  13/20), which are the same ON-leg condition; those read as wild instability, and pooled at `T=9`
+  this is an ordinary split instead. Still the recorded known gap, still non-gating, and still no
+  claim that any change moved it. Its 4/5 in [Baseline numbers](#baseline-numbers) is **not** a
+  comparison point — that row is the OFF leg.
 
 ### What this does NOT establish
 

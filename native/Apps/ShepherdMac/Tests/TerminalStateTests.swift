@@ -216,3 +216,145 @@ struct TerminalStateTests {
         #expect(model.promptBusy == false)
     }
 }
+
+/// Hands out a fresh `FakeAttachment` per call and keeps them, so a test can
+/// assert how many sockets a model opened — and re-attaching never re-consumes
+/// an `AsyncStream` that already has an iterator on it.
+@MainActor
+final class FakeAttachmentFactory {
+    private(set) var made: [FakeAttachment] = []
+
+    func make() -> FakeAttachment {
+        let attachment = FakeAttachment()
+        made.append(attachment)
+        return attachment
+    }
+}
+
+/// Records the order commands actually ran in, for the serial-queue tests.
+private actor CommandLog {
+    private(set) var entries: [String] = []
+    func append(_ entry: String) { entries.append(entry) }
+}
+
+/// A verdict the server handed down survives a tab switch. Re-attaching behind
+/// the operator's back would bump whoever took the terminal over, or spin for
+/// ever on a session whose agent is gone.
+@MainActor
+struct TerminalParkingTests {
+    private func makeModel(_ factory: FakeAttachmentFactory) -> TerminalSessionModel {
+        TerminalSessionModel(
+            sessionID: "s1", reply: { _ in }, makeAttachment: { _, _ in factory.make() })
+    }
+
+    @Test func detachThenAttachKeepsASupersededTerminalParked() async {
+        let factory = FakeAttachmentFactory()
+        let model = makeModel(factory)
+        model.attach(cols: 80, rows: 24)
+        factory.made[0].emit(.closed(.superseded))
+        #expect(await settle(until: { model.phase == .superseded }))
+
+        model.detach()
+        model.attach(cols: 80, rows: 24)
+
+        // No second socket, and the banner the operator left is still there.
+        #expect(model.phase == .superseded)
+        #expect(factory.made.count == 1)
+    }
+
+    @Test func detachThenAttachKeepsAGoneSessionParked() async {
+        let factory = FakeAttachmentFactory()
+        let model = makeModel(factory)
+        model.attach(cols: 80, rows: 24)
+        factory.made[0].emit(.closed(.gone))
+        #expect(await settle(until: { model.phase == .ended(.gone) }))
+
+        model.detach()
+        model.attach(cols: 80, rows: 24)
+
+        #expect(model.phase == .ended(.gone))
+        #expect(factory.made.count == 1)
+    }
+
+    @Test func takeOverIsTheOneWayOutOfAParkedTerminal() async {
+        let factory = FakeAttachmentFactory()
+        let model = makeModel(factory)
+        model.attach(cols: 80, rows: 24)
+        factory.made[0].emit(.closed(.unreachable))
+        #expect(await settle(until: { model.phase == .ended(.unreachable) }))
+        model.detach()
+        model.attach(cols: 80, rows: 24)
+
+        model.takeOver()
+
+        // `detach` dropped the attachment, so the take-over is a fresh socket
+        // rather than a no-op on a dead one.
+        #expect(model.phase == .connecting)
+        #expect(factory.made.count == 2)
+        #expect(factory.made[1].startCount == 1)
+    }
+
+    @Test func detachStopsTheAttachmentExactlyOnce() async {
+        let factory = FakeAttachmentFactory()
+        let model = makeModel(factory)
+        model.attach(cols: 80, rows: 24)
+        factory.made[0].emit(.attached)
+        #expect(await settle(until: { model.phase == .live }))
+
+        model.detach()
+        model.detach()
+
+        #expect(factory.made[0].stopCount == 1)
+    }
+
+    @Test func aStoppedSocketIsDroppedSoTheNextAttachRebuilds() async {
+        let factory = FakeAttachmentFactory()
+        let model = makeModel(factory)
+        model.attach(cols: 80, rows: 24)
+        // `stop()` is terminal for an attachment instance: a socket that closed
+        // itself must never be handed a second `start()`.
+        factory.made[0].emit(.closed(.stopped))
+        #expect(await settle(until: { model.phase == .idle }))
+
+        model.attach(cols: 80, rows: 24)
+
+        #expect(model.phase == .connecting)
+        #expect(factory.made.count == 2)
+        #expect(factory.made[1].startCount == 1)
+    }
+}
+
+@MainActor
+struct PTYCommandQueueTests {
+    @Test func commandsRunInOrderAndNeverBeforeThePrologue() async {
+        let log = CommandLog()
+        let drained = Counter()
+        let queue = PTYCommandQueue(
+            prologue: { await log.append("taps") },
+            epilogue: { Task { @MainActor in drained.bump() } })
+
+        queue.enqueue { await log.append("start") }
+        queue.enqueue { await log.append("send") }
+        queue.enqueue { await log.append("stop") }
+        queue.finish()
+
+        #expect(await settle(until: { drained.value == 1 }))
+        #expect(await log.entries == ["taps", "start", "send", "stop"])
+    }
+
+    @Test func nothingRunsAfterFinish() async {
+        let log = CommandLog()
+        let drained = Counter()
+        let queue = PTYCommandQueue(
+            prologue: {}, epilogue: { Task { @MainActor in drained.bump() } })
+
+        queue.enqueue { await log.append("stop") }
+        queue.finish()
+        queue.enqueue { await log.append("takeOver") }
+
+        #expect(await settle(until: { drained.value == 1 }))
+        // A take-over that outran a stop would reopen the socket with no taps
+        // on it, and the view would sit in "connecting" for ever.
+        #expect(await log.entries == ["stop"])
+    }
+}

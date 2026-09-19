@@ -62,6 +62,14 @@ final class TerminalSessionModel {
     private var cols = 100
     private var rows = 30
     private var generation = 0
+    /// The verdict a previous attach ended on, held across `detach()`.
+    ///
+    /// Without it a tab switch would re-attach behind the operator's back: a
+    /// `.superseded` terminal would bump whoever took it over, and an
+    /// `.ended(.gone)` one would spin on a session that has no agent left.
+    /// Only `takeOver()` clears it, because only the operator can decide to
+    /// reclaim the terminal.
+    private var parked: Phase?
 
     init(
         sessionID: String,
@@ -94,6 +102,11 @@ final class TerminalSessionModel {
             attachment.resize(cols: self.cols, rows: self.rows)
             return
         }
+        if let parked {
+            // The socket is gone, but so is the reason to open another one.
+            phase = parked
+            return
+        }
         generation += 1
         let generation = self.generation
         let attachment = makeAttachment(self.cols, self.rows)
@@ -118,14 +131,22 @@ final class TerminalSessionModel {
 
     /// Close the socket and drop the pumps. Bumps the generation, so anything
     /// still in flight is discarded when it lands.
+    ///
+    /// A verdict (`.superseded` or either `.ended`) is remembered rather than
+    /// cleared: the next `attach()` restores it instead of opening a second
+    /// socket.
     func detach() {
         generation += 1
         for pump in pumps { pump.cancel() }
         pumps = []
+        switch phase {
+        case .superseded, .ended: parked = phase
+        case .idle, .connecting, .live: parked = nil
+        }
         attachment?.stop()
         attachment = nil
         pendingOutput = []
-        phase = .idle
+        phase = parked ?? .idle
         // The busy gate belongs to the generation that opened it: an in-flight
         // reply now lands on the stale branch of `submitPrompt` and clears
         // nothing, so leaving it set would lock the prompt bar for good.
@@ -142,7 +163,13 @@ final class TerminalSessionModel {
     /// behind the operator's back. `.gone` and `.unreachable` stay distinct
     /// phases — the copy behind them differs — but both are recoverable here.
     func takeOver() {
-        guard let attachment else { return }
+        parked = nil
+        guard let attachment else {
+            // `detach()` dropped the socket while the verdict stood. The
+            // operator asked for the terminal back, so open a new one.
+            attach(cols: cols, rows: rows)
+            return
+        }
         phase = .connecting
         attachment.takeOver()
     }
@@ -203,6 +230,11 @@ final class TerminalSessionModel {
         case .closed(.superseded):
             phase = .superseded
         case .closed(.stopped):
+            // `stop()` is terminal for an attachment instance: drop it so the
+            // next `attach()` builds a fresh one rather than re-`start()`ing a
+            // socket that has already closed itself.
+            attachment = nil
+            parked = nil
             phase = .idle
         case .closed(let closure):
             phase = .ended(closure)

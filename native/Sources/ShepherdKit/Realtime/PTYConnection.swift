@@ -3,10 +3,13 @@ import Foundation
 /// One attached terminal: the `/pty/{id}` WebSocket.
 ///
 /// Shaped like `EventStream` — bearer on the upgrade, an `AsyncStream` of
-/// output, a `lifecycle()` stream, capped exponential backoff — but with the
-/// PTY's own single-owner policy: a 4000 (superseded) or 4001 (gone) close is
-/// terminal and must never be retried. Reconnecting after a 4000 restarts the
-/// takeover war with the device that just took the terminal.
+/// output, a `lifecycle()` stream, capped exponential backoff — except that
+/// both streams are per-call broadcasts (a terminal has more than one reader)
+/// rather than the single-consumer streams `EventStream` hands its store. The
+/// difference that matters is the PTY's own single-owner policy: a 4000
+/// (superseded) or 4001 (gone) close is terminal and must never be retried.
+/// Reconnecting after a 4000 restarts the takeover war with the device that
+/// just took the terminal.
 public actor PTYConnection {
   /// Why the connection stopped for good.
   public enum Closure: Sendable, Equatable {
@@ -46,10 +49,14 @@ public actor PTYConnection {
   private let reconnectDelay: Duration
   private let maxReconnectDelay: Duration
 
-  private let outputContinuation: AsyncStream<Data>.Continuation
-  private let lifecycleContinuation: AsyncStream<LifecycleEvent>.Continuation
-  private nonisolated let outputStream: AsyncStream<Data>
-  private nonisolated let lifecycleStream: AsyncStream<LifecycleEvent>
+  /// One continuation per live `output()` / `lifecycle()` stream. Dictionaries,
+  /// not a single shared continuation, because a shared `AsyncStream` splits
+  /// its elements between iterators instead of broadcasting — see `output()`.
+  private var outputTaps: [UUID: AsyncStream<Data>.Continuation] = [:]
+  private var lifecycleTaps: [UUID: AsyncStream<LifecycleEvent>.Continuation] = [:]
+  /// A trailing UTF-8 sequence `send(_:)` is holding until the caller finishes
+  /// it. At most 3 bytes. See `send(_:)`.
+  private var pendingInput = Data()
 
   private var task: URLSessionWebSocketTask?
   private var pump: Task<Void, Never>?
@@ -63,6 +70,11 @@ public actor PTYConnection {
   /// window from a later one that also opened and lost a socket. Same guard
   /// `EventStream.scheduleReconnect` uses, for the same reason.
   private var connectionGeneration = 0
+  /// The raw WebSocket close code of the socket that closed most recently, or
+  /// `0` when it died without a close frame (a dropped TCP connection). Read
+  /// inside URLSession's completion callback, before anything can hop back onto
+  /// this actor — see `nextFrame(on:)`.
+  private(set) var lastCloseCode = 0
   private var currentReconnectDelay: Duration
   private var connectedAt: ContinuousClock.Instant?
   private var consecutiveFastFails = 0
@@ -86,16 +98,6 @@ public actor PTYConnection {
     self.reconnectDelay = reconnectDelay
     self.maxReconnectDelay = maxReconnectDelay
     self.currentReconnectDelay = reconnectDelay
-    // Terminal output is bursty; 4096 chunks is far above what one repaint
-    // produces between reads by the view.
-    let (output, outputContinuation) = AsyncStream<Data>.makeStream(
-      bufferingPolicy: .bufferingNewest(4096))
-    outputStream = output
-    self.outputContinuation = outputContinuation
-    let (lifecycle, lifecycleContinuation) = AsyncStream<LifecycleEvent>.makeStream(
-      bufferingPolicy: .bufferingNewest(16))
-    lifecycleStream = lifecycle
-    self.lifecycleContinuation = lifecycleContinuation
   }
 
   /// Derive the URL and the token from a live client.
@@ -108,13 +110,29 @@ public actor PTYConnection {
       tokenProvider: { client.currentToken() }, urlSession: urlSession, cols: cols, rows: rows)
   }
 
+  /// RFC 3986 unreserved characters: what a path segment may carry literally.
+  ///
+  /// Narrower than `.urlPathAllowed` (which passes `/` and the sub-delims) and
+  /// wider than `.alphanumerics`, and the difference is load-bearing:
+  /// herdr matches `/^\/pty\/([^/]+)$/` and uses the captured segment **raw**,
+  /// with no decoding (`src/server.ts`), exactly as the web client sends it
+  /// (`ui/src/lib/pty.ts`). Percent-encoding the `-` of a UUID would make every
+  /// real session id a *different* id to the server — a guaranteed 404 — so
+  /// `-._~` must pass through, while `/`, `?`, `#` and space must not.
+  static let unreservedPathCharacters: CharacterSet = {
+    var allowed = CharacterSet.alphanumerics
+    allowed.insert(charactersIn: "-._~")
+    return allowed
+  }()
+
   /// `http(s)://host/prefix` → `ws(s)://host/prefix/pty/<id>?cols=&rows=`,
-  /// preserving a reverse-proxy path prefix and percent-encoding the id.
+  /// preserving a reverse-proxy path prefix and encoding only what a path
+  /// segment may not carry literally (see `unreservedPathCharacters`).
   /// Never force-unwraps: a baseURL `URLComponents` will not round-trip falls
   /// back to string surgery rather than trapping.
   public static func ptyURL(for baseURL: URL, sessionID: String, cols: Int, rows: Int) -> URL {
     let encoded =
-      sessionID.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? sessionID
+      sessionID.addingPercentEncoding(withAllowedCharacters: unreservedPathCharacters) ?? sessionID
     guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
       return fallbackURL(baseURL: baseURL, encodedID: encoded, cols: cols, rows: rows)
     }
@@ -146,11 +164,66 @@ public actor PTYConnection {
     return URL(string: absolute) ?? appended
   }
 
-  /// Output bytes, oldest first. Single-consumer, like `EventStream.events()`:
-  /// two iterators would split the elements, not each get a copy.
-  public nonisolated func output() -> AsyncStream<Data> { outputStream }
-  /// Socket lifecycle, oldest first. Single-consumer for the same reason.
-  public nonisolated func lifecycle() -> AsyncStream<LifecycleEvent> { lifecycleStream }
+  /// Output bytes, oldest first — **one independent stream per call**.
+  ///
+  /// Several consumers (the terminal view, a recorder, a test) each see every
+  /// chunk. A single shared `AsyncStream` would hand each chunk to whichever
+  /// iterator asked first, and for a terminal that is not a slow view but a
+  /// corrupted one: half the escape sequences would go to the other reader.
+  ///
+  /// Buffered `.bufferingNewest(4096)` per stream — terminal output is bursty,
+  /// and a consumer that stalls drops its own oldest chunks rather than holding
+  /// the socket's reader back for everybody. A consumer that stops iterating
+  /// (cancels its task, drops the iterator) removes its own tap; `stop()`
+  /// finishes every stream it handed out, so a `for await` over one ends
+  /// instead of hanging. A stream taken while the connection is stopped stays
+  /// open and starts delivering at the next `start()`/`takeOver()`.
+  public func output() -> AsyncStream<Data> {
+    let (stream, continuation) = AsyncStream<Data>.makeStream(
+      bufferingPolicy: .bufferingNewest(4096))
+    let id = UUID()
+    // Runs on whatever executor ended the stream, so it hops back onto the
+    // actor before touching the registry.
+    continuation.onTermination = { [weak self] _ in
+      Task { await self?.removeOutputTap(id) }
+    }
+    outputTaps[id] = continuation
+    return stream
+  }
+
+  /// Socket lifecycle, oldest first — one independent stream per call, for the
+  /// same reason `output()` is: a view and a status indicator both need to see
+  /// `.reattached`, not one each. Buffered `.bufferingNewest(16)`; finished by
+  /// `stop()`.
+  public func lifecycle() -> AsyncStream<LifecycleEvent> {
+    let (stream, continuation) = AsyncStream<LifecycleEvent>.makeStream(
+      bufferingPolicy: .bufferingNewest(16))
+    let id = UUID()
+    continuation.onTermination = { [weak self] _ in
+      Task { await self?.removeLifecycleTap(id) }
+    }
+    lifecycleTaps[id] = continuation
+    return stream
+  }
+
+  private func removeOutputTap(_ id: UUID) { outputTaps[id] = nil }
+  private func removeLifecycleTap(_ id: UUID) { lifecycleTaps[id] = nil }
+
+  /// Fans one lifecycle event out to every `lifecycle()` stream.
+  private func deliver(lifecycle event: LifecycleEvent) {
+    for tap in lifecycleTaps.values { tap.yield(event) }
+  }
+
+  /// Ends every stream this connection handed out. Called by `stop()`: the
+  /// buffered events (the closing `.closed(.stopped)` included) still drain
+  /// before each `for await` ends.
+  private func finishTaps() {
+    for tap in outputTaps.values { tap.finish() }
+    for tap in lifecycleTaps.values { tap.finish() }
+    outputTaps.removeAll()
+    lifecycleTaps.removeAll()
+  }
+
   /// The size the next attach will use.
   public func currentSize() -> PTYSize { PTYSize(cols: cols, rows: rows) }
 
@@ -163,9 +236,10 @@ public actor PTYConnection {
     connect()
   }
 
-  /// Closes the socket and stops retrying. Does **not** finish `output()` —
-  /// `start()`/`takeOver()` can reopen it — so a consumer that no longer wants
-  /// bytes must cancel its own task.
+  /// Closes the socket, stops retrying, and finishes every `output()` and
+  /// `lifecycle()` stream handed out so far — a consumer's `for await` ends on
+  /// its own rather than hanging on a terminal nobody will feed again. A caller
+  /// that reopens with `start()`/`takeOver()` takes fresh streams.
   public func stop() {
     guard !stopped else { return }
     stopped = true
@@ -173,7 +247,11 @@ public actor PTYConnection {
     pump = nil
     task?.cancel(with: .goingAway, reason: nil)
     task = nil
-    lifecycleContinuation.yield(.closed(.stopped))
+    // Held input belongs to the session that just ended; completing it into the
+    // next one would inject a stray character.
+    pendingInput = Data()
+    deliver(lifecycle: .closed(.stopped))
+    finishTaps()
   }
 
   /// Re-attach after a `.superseded` (or any terminal state the operator wants
@@ -191,8 +269,54 @@ public actor PTYConnection {
 
   /// Keystrokes, verbatim. Dropped when there is no live socket: a terminal has
   /// no sensible queue semantics for input typed while detached.
+  ///
+  /// The bridge demuxes a single stdin **string** stream, so input goes out as
+  /// a text frame and therefore has to be valid UTF-8. A caller that feeds this
+  /// raw bytes — a keyboard pipe, a paste chunked by whatever read it — can
+  /// split a multi-byte character across two calls, and decoding each half on
+  /// its own would put two U+FFFD replacement characters on the wire instead of
+  /// the character. So an incomplete trailing sequence (never more than 3
+  /// bytes) is held back and prepended to the next call; `stop()` drops it.
+  /// Nothing else is buffered: complete bytes always go out on the same call.
   public func send(_ bytes: Data) {
-    task?.send(.string(String(decoding: bytes, as: UTF8.self))) { _ in }
+    var outgoing = pendingInput + bytes
+    pendingInput = Data()
+    let held = Self.incompleteTrailingUTF8Count(of: outgoing)
+    if held > 0 {
+      pendingInput = Data(outgoing.suffix(held))
+      outgoing = Data(outgoing.prefix(outgoing.count - held))
+    }
+    guard !outgoing.isEmpty else { return }
+    task?.send(.string(String(decoding: outgoing, as: UTF8.self))) { _ in }
+  }
+
+  /// How many bytes at the end of `buffer` open a multi-byte UTF-8 sequence the
+  /// caller has not finished yet (0–3).
+  ///
+  /// Only a *valid* unfinished sequence is held: a byte that can never lead one
+  /// is passed through, because nothing will ever complete it and holding it
+  /// would stall every keystroke behind it.
+  static func incompleteTrailingUTF8Count(of buffer: Data) -> Int {
+    let bytes = [UInt8](buffer)
+    var trailing = 0
+    while trailing < 3, trailing < bytes.count {
+      let byte = bytes[bytes.count - 1 - trailing]
+      if byte & 0b1100_0000 == 0b1000_0000 {  // continuation byte: keep walking
+        trailing += 1
+        continue
+      }
+      let expected: Int
+      switch byte {
+      case 0x00...0x7f: return 0  // ASCII lead: the tail is already complete
+      case 0xc2...0xdf: expected = 2
+      case 0xe0...0xef: expected = 3
+      case 0xf0...0xf4: expected = 4
+      default: return 0  // 0xc0/0xc1/0xf5…: never a valid lead
+      }
+      let have = trailing + 1
+      return have < expected ? have : 0
+    }
+    return 0  // three continuation bytes with no lead in reach: not ours to fix
   }
 
   /// Remember the size (so a reconnect attaches at it) and, if a socket is
@@ -216,30 +340,81 @@ public actor PTYConnection {
     connectionGeneration += 1
     connectedAt = .now
     socket.resume()
-    lifecycleContinuation.yield(everAttached ? .reattached : .attached)
-    everAttached = true
+    // Yielded before the upgrade is confirmed, like
+    // `EventStream.LifecycleEvent.connected`: a refused upgrade shows up as the
+    // `.detached` right after. `everAttached` deliberately does *not* flip
+    // here — see `deliver(output:)`.
+    deliver(lifecycle: everAttached ? .reattached : .attached)
     pump = Task { [weak self] in await self?.receiveLoop(socket) }
   }
 
-  private func receiveLoop(_ socket: URLSessionWebSocketTask) async {
-    while !Task.isCancelled {
-      do {
-        switch try await socket.receive() {
-        case .string(let text): outputContinuation.yield(Data(text.utf8))
-        case .data(let data): outputContinuation.yield(data)
-        @unknown default: break
-        }
-      } catch {
-        break  // any receive failure means the socket is gone
-      }
-    }
-    await handleClose(of: socket)
+  /// One received frame, or the close that ended the socket.
+  ///
+  /// `URLSessionWebSocketTask.Message` is not `Sendable` and the close code has
+  /// to cross the same boundary, so the callback maps both into this.
+  private enum Frame: Sendable {
+    case text(String)
+    case binary(Data)
+    case closed(code: Int)
   }
 
-  deinit {
-    outputContinuation.finish()
-    lifecycleContinuation.finish()
+  /// `receive()` plus the close code, read **inside URLSession's own completion
+  /// callback**: the earliest moment the code is final and the last one nothing
+  /// else has had a chance to touch.
+  ///
+  /// The `async` form of `receive()` resumes its caller back on this actor, and
+  /// `receiveLoop` is actor-isolated, so the gap between "the socket failed"
+  /// and "we look at why" is however long the actor stays busy — a `stop()` or
+  /// `takeOver()` queued ahead of the resumption runs in it, cancels the task
+  /// with `.goingAway` and replaces `task`. Capturing here turns the close code
+  /// into a *value* that travels to `handleClose(of:closeCode:)`, so Task 3's
+  /// policy cannot accidentally read it back off actor state that has moved on.
+  /// (Darwin keeps a close code that was already delivered even across a later
+  /// `cancel(with:)` — measured, not assumed — so this is the belt to that
+  /// brace, not a workaround for it.)
+  private nonisolated func nextFrame(on socket: URLSessionWebSocketTask) async -> Frame {
+    await withCheckedContinuation { continuation in
+      socket.receive { result in
+        switch result {
+        case .success(.string(let text)): continuation.resume(returning: .text(text))
+        case .success(.data(let data)): continuation.resume(returning: .binary(data))
+        // An unknown message kind cannot be replayed to the view, and any
+        // failure means the socket is gone: both end the loop.
+        case .success, .failure:
+          continuation.resume(returning: .closed(code: socket.closeCode.rawValue))
+        }
+      }
+    }
   }
+
+  private func receiveLoop(_ socket: URLSessionWebSocketTask) async {
+    var closeCode = 0
+    receiving: while !Task.isCancelled {
+      switch await nextFrame(on: socket) {
+      case .text(let text): deliver(output: Data(text.utf8))
+      case .binary(let data): deliver(output: data)
+      case .closed(let code):
+        closeCode = code
+        break receiving
+      }
+    }
+    await handleClose(of: socket, closeCode: closeCode)
+  }
+
+  /// Fans one chunk of terminal output out to every `output()` stream, and
+  /// records that this socket really carried a session.
+  ///
+  /// The first frame is what flips `everAttached`, not `connect()`: the server
+  /// replays the scrollback on every *successful* attach, so `.reattached`
+  /// (which tells the view to clear its buffer first) must only follow an
+  /// attach that actually delivered something. An attach whose upgrade was
+  /// refused carried no scrollback, and reporting `.reattached` after it would
+  /// make the view clear a buffer the server is not going to refill.
+  private func deliver(output bytes: Data) {
+    everAttached = true
+    for tap in outputTaps.values { tap.yield(bytes) }
+  }
+
 }
 
 /// The attach dimensions of a `PTYConnection`.
@@ -254,9 +429,25 @@ public struct PTYSize: Equatable, Sendable {
 
 extension PTYConnection {
   /// TEMPORARY (Task 2 only). Task 3 replaces this with the real close policy.
-  private func handleClose(of socket: URLSessionWebSocketTask) async {
+  ///
+  /// - Parameter closeCode: the raw WebSocket close code this socket carried
+  ///   when it died, captured in URLSession's completion callback before any
+  ///   hop back onto this actor (`nextFrame(on:)`), or `0` when it closed with
+  ///   no close frame at all. Task 3 switches its close policy on this
+  ///   parameter — 4000 `.superseded`, 4001 `.gone`, everything else a backed
+  ///   off retry — and should keep reading the parameter rather than going back
+  ///   to the socket: by the time this runs, a racing `stop()`/`takeOver()` may
+  ///   have cancelled that task with `.goingAway` and pointed `task` at a new
+  ///   one (or at `nil`), so `task?.closeCode` is a different socket's answer.
+  ///   `URLSessionWebSocketTask.CloseCode` has no case for 4000/4001, so
+  ///   compare raw values, never enum cases.
+  private func handleClose(of socket: URLSessionWebSocketTask, closeCode: Int) async {
+    // Before the guard: a `stop()` that won the race still wants the code
+    // recorded, and Task 3's policy needs it for the socket it actually
+    // belonged to.
+    lastCloseCode = closeCode
     guard !stopped, task === socket else { return }
     task = nil
-    lifecycleContinuation.yield(.detached)
+    deliver(lifecycle: .detached)
   }
 }

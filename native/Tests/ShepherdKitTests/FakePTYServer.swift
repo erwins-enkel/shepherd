@@ -19,6 +19,9 @@ final class FakePTYServer: @unchecked Sendable {
   /// `PTYConnection.ptyURL(for:…)`, which appends `/pty/<id>` and swaps the
   /// scheme. Replaces FakeEventServer's `url` (which hard-coded `/events`).
   let baseURL: URL
+  /// The ephemeral port this listener bound, and the key `UpgradeTargets` files
+  /// this server's request lines under.
+  private let port: UInt16
 
   init() throws {
     let parameters = NWParameters.tcp
@@ -35,6 +38,10 @@ final class FakePTYServer: @unchecked Sendable {
       return NWProtocolWebSocket.Response(status: .accept, subprotocol: nil)
     }
     parameters.defaultProtocolStack.applicationProtocols.insert(options, at: 0)
+    // Under the WebSocket layer, so it sees the upgrade request's bytes — the
+    // request line included. See `UpgradePeekFramer`.
+    parameters.defaultProtocolStack.applicationProtocols.insert(
+      NWProtocolFramer.Options(definition: UpgradePeekFramer.definition), at: 1)
     // Bind loopback only: the suite must never listen on a routable address,
     // and this also keeps macOS from asking for a firewall exception.
     parameters.requiredLocalEndpoint = .hostPort(host: .ipv4(.loopback), port: .any)
@@ -68,8 +75,21 @@ final class FakePTYServer: @unchecked Sendable {
       listener.cancel()
       throw FakePTYServerError.didNotBind
     }
+    self.port = port.rawValue
     baseURL = URL(string: "http://127.0.0.1:\(port.rawValue)")!
   }
+
+  /// Every upgrade request target this listener received, in order, exactly as
+  /// it arrived on the wire: `/pty/<id>?cols=…&rows=…`.
+  ///
+  /// herdr matches `/^\/pty\/([^/]+)$/` and uses the captured segment **raw**
+  /// (`src/server.ts`), so an id the client percent-encoded is a different
+  /// session id to the server and 404s. Asserting the literal target here is
+  /// what makes the fake catch that.
+  func requestTargets() -> [String] { UpgradeTargets.shared.targets(port: port) }
+
+  /// The target of the most recent upgrade, or `nil` if none arrived yet.
+  func lastRequestTarget() -> String? { requestTargets().last }
 
   /// Push raw terminal bytes as a binary frame, the way herdr's bridge does.
   /// Replaces FakeEventServer's text-only `send(_ json: String)`.
@@ -99,6 +119,14 @@ final class FakePTYServer: @unchecked Sendable {
   /// Replaces `closeCurrentConnection()`.
   func dropCurrentConnection() { state.current()?.cancel() }
 
+  /// Whether the client answered our close frame (or dropped the connection).
+  ///
+  /// A barrier for close-code tests: URLSession echoes a close frame only after
+  /// it has processed ours, so once this is true the client's `closeCode` is
+  /// final and anything the test does next is genuinely "after the close",
+  /// not racing its delivery.
+  func sawPeerClose() -> Bool { state.peerClosed() }
+
   func receivedTexts() -> [String] { state.texts() }
   func upgradeHeaders() -> [String: String] { state.headers() }
 
@@ -125,11 +153,18 @@ final class FakePTYServer: @unchecked Sendable {
   func stop() {
     state.cancelAll()
     listener.cancel()
+    UpgradeTargets.shared.forget(port: port)
   }
 
   private static func receiveLoop(_ connection: NWConnection, state: State) {
-    connection.receiveMessage { content, _, _, error in
-      if error != nil { return }
+    connection.receiveMessage { content, context, _, error in
+      let metadata =
+        context?.protocolMetadata(definition: NWProtocolWebSocket.definition)
+        as? NWProtocolWebSocket.Metadata
+      if error != nil || metadata?.opcode == .close {
+        state.recordPeerClose()
+        return
+      }
       if let content, let text = String(data: content, encoding: .utf8), !text.isEmpty {
         state.recordText(text)
       }
@@ -146,6 +181,7 @@ final class FakePTYServer: @unchecked Sendable {
     private var lastHeaders: [String: String] = [:]
     private var upgrades = 0
     private var rejectUpgrades = false
+    private var sawPeerClose = false
 
     func adopt(_ connection: NWConnection) {
       lock.lock()
@@ -157,6 +193,18 @@ final class FakePTYServer: @unchecked Sendable {
       lock.lock()
       defer { lock.unlock() }
       return connectionsList.last
+    }
+
+    func recordPeerClose() {
+      lock.lock()
+      defer { lock.unlock() }
+      sawPeerClose = true
+    }
+
+    func peerClosed() -> Bool {
+      lock.lock()
+      defer { lock.unlock() }
+      return sawPeerClose
     }
 
     func recordText(_ text: String) {
@@ -214,4 +262,103 @@ final class FakePTYServer: @unchecked Sendable {
 
 enum FakePTYServerError: Error, Equatable {
   case didNotBind
+}
+
+/// The upgrade request lines each fake listener saw, keyed by its port.
+///
+/// A global because `NWProtocolFramer.Definition` takes a *type*, not an
+/// instance: there is no way to hand a framer a reference to the server that
+/// installed it. The `Host` header carries the listener's ephemeral port, which
+/// is unique per `FakePTYServer`, so parallel suites never read each other's
+/// requests.
+final class UpgradeTargets: @unchecked Sendable {
+  static let shared = UpgradeTargets()
+  private let lock = NSLock()
+  private var byPort: [UInt16: [String]] = [:]
+
+  func record(_ target: String, port: UInt16) {
+    lock.lock()
+    defer { lock.unlock() }
+    byPort[port, default: []].append(target)
+  }
+
+  func targets(port: UInt16) -> [String] {
+    lock.lock()
+    defer { lock.unlock() }
+    return byPort[port] ?? []
+  }
+
+  func forget(port: UInt16) {
+    lock.lock()
+    defer { lock.unlock() }
+    byPort[port] = nil
+  }
+}
+
+/// Copies the HTTP request line of the WebSocket upgrade out of the byte
+/// stream, then passes every byte through untouched.
+///
+/// `NWProtocolWebSocket.Options.setClientRequestHandler` hands over the
+/// upgrade's *headers* but not its request line, so the path is only visible
+/// below the WebSocket layer. This framer sits between TCP and WebSocket and
+/// peeks at the first request without consuming or rewriting anything.
+final class UpgradePeekFramer: NWProtocolFramerImplementation {
+  static let label = "UpgradePeek"
+  static let definition = NWProtocolFramer.Definition(implementation: UpgradePeekFramer.self)
+  /// Enough for any upgrade request; past it we stop buffering rather than grow
+  /// without bound on a connection that never sends a header block.
+  private static let maxHeadBytes = 8192
+
+  private var head = Data()
+  private var recorded = false
+
+  init(framer: NWProtocolFramer.Instance) {}
+  func start(framer: NWProtocolFramer.Instance) -> NWProtocolFramer.StartResult { .ready }
+  func wakeup(framer: NWProtocolFramer.Instance) {}
+  func stop(framer: NWProtocolFramer.Instance) -> Bool { true }
+  func cleanup(framer: NWProtocolFramer.Instance) {}
+
+  func handleInput(framer: NWProtocolFramer.Instance) -> Int {
+    while true {
+      var available = 0
+      _ = framer.parseInput(minimumIncompleteLength: 1, maximumLength: 65535) { buffer, _ in
+        guard let buffer, !buffer.isEmpty else { return 0 }
+        available = buffer.count
+        if !self.recorded { self.peek(Data(buffer)) }
+        // 0: peek only. `deliverInputNoCopy` below is what consumes the bytes.
+        return 0
+      }
+      guard available > 0 else { return 0 }
+      guard
+        framer.deliverInputNoCopy(
+          length: available, message: NWProtocolFramer.Message(instance: framer),
+          isComplete: false)
+      else { return 0 }
+    }
+  }
+
+  func handleOutput(
+    framer: NWProtocolFramer.Instance, message: NWProtocolFramer.Message, messageLength: Int,
+    isComplete: Bool
+  ) {
+    try? framer.writeOutputNoCopy(length: messageLength)
+  }
+
+  private func peek(_ bytes: Data) {
+    head.append(bytes)
+    guard let text = String(data: head, encoding: .utf8),
+      let headerEnd = text.range(of: "\r\n\r\n")
+    else {
+      if head.count > Self.maxHeadBytes { recorded = true }
+      return
+    }
+    recorded = true
+    head = Data()
+    let lines = String(text[..<headerEnd.lowerBound]).components(separatedBy: "\r\n")
+    let requestLine = (lines.first ?? "").split(separator: " ")
+    guard requestLine.count >= 2 else { return }
+    let hostLine = lines.dropFirst().first { $0.lowercased().hasPrefix("host:") } ?? ""
+    guard let port = hostLine.split(separator: ":").last.flatMap({ UInt16($0) }) else { return }
+    UpgradeTargets.shared.record(String(requestLine[1]), port: port)
+  }
 }

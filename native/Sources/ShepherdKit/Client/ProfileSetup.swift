@@ -14,14 +14,15 @@ public enum ProfileSetup {
 
   /// `Shepherd for Mac (<hostname>)`, truncated to fit the contract.
   ///
-  /// The trim drops whole characters but measures Unicode scalars, because
-  /// that is what JSON Schema's `maxLength` counts: a Mac named with an emoji
-  /// would otherwise pass a 64-character name the server reads as longer.
+  /// The trim drops whole characters but measures UTF-16 code units, because
+  /// that is what the server's `normalizeTokenName` counts via JavaScript's
+  /// `.length`: a Mac named with an emoji would otherwise pass a
+  /// 64-character name the server reads as longer.
   public static func tokenName(hostName: String = ProcessInfo.processInfo.hostName) -> String {
     let prefix = "Shepherd for Mac ("
-    let budget = maxTokenNameLength - prefix.unicodeScalars.count - 1  // the closing paren
+    let budget = maxTokenNameLength - prefix.utf16.count - 1  // the closing paren
     var host = hostName
-    while host.unicodeScalars.count > budget { host.removeLast() }
+    while host.utf16.count > budget { host.removeLast() }
     return "\(prefix)\(host))"
   }
 
@@ -97,9 +98,12 @@ public enum ProfileSetup {
     return credential
   }
 
-  /// Revokes the stored token when the server is reachable, and always clears
-  /// the local entry. A logout must never leave the app holding a token it
-  /// believes is valid.
+  /// Attempts to revoke the stored token, and always clears the local entry.
+  /// A logout must never leave the app holding a token it believes is valid.
+  ///
+  /// If the profile fails the remote-URL security policy, the revocation is
+  /// skipped entirely — the token never goes on the wire — and only the
+  /// local credential is cleared.
   public static func logout(
     profile: ServerProfile,
     credentials: any CredentialStore,
@@ -115,9 +119,14 @@ public enum ProfileSetup {
       return
     }
 
-    // Revocation needs an operator session, which a logged-out app does not
-    // have — but the server also accepts the cookie-less call when the token
-    // itself authenticates the request, so try it and tolerate any failure.
+    // The revoke is attempted with the bearer token that authenticates this
+    // client. Today's server declines `DELETE /api/access-tokens/{id}` for
+    // bearer callers — it answers 403 `operator_session_required`, because
+    // only an operator cookie may manage tokens — so on that response the
+    // token stays valid server-side until it expires or an operator revokes
+    // it in the web UI. A server that adds self-revocation for a full-scope
+    // token will let this same call succeed instead. Either way, the local
+    // credential is always cleared below.
     let client = Client(
       serverURL: profile.baseURL,
       transport: URLSessionTransport(configuration: .init(session: urlSession)),

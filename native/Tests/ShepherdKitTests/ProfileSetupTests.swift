@@ -44,10 +44,10 @@ struct ProfileSetupTests {
     #expect(long.count <= 64)
     #expect(long.hasPrefix("Shepherd for Mac ("))
     #expect(long.hasSuffix(")"))
-    // `maxLength: 64` counts Unicode scalars, so a Mac named in emoji has to
-    // be measured the same way the server measures it.
+    // The server's `normalizeTokenName` counts UTF-16 code units (JS's
+    // `.length`), so a Mac named in emoji has to be measured the same way.
     let emoji = ProfileSetup.tokenName(hostName: String(repeating: "👩‍👩‍👧", count: 40))
-    #expect(emoji.unicodeScalars.count <= 64)
+    #expect(emoji.utf16.count <= 64)
     #expect(emoji.hasSuffix(")"))
   }
 
@@ -122,6 +122,10 @@ struct ProfileSetupTests {
     let jar = try #require(configuration.httpCookieStorage)
     #expect(jar !== HTTPCookieStorage.shared)
     #expect(HTTPCookieStorage.shared.cookies(for: server.baseURL)?.isEmpty ?? true)
+    // The login cookie can only reach the mint call if the session is
+    // actually configured to accept and send cookies at all.
+    #expect(configuration.httpShouldSetCookies)
+    #expect(configuration.httpCookieAcceptPolicy != .never)
   }
 
   @Test("a wrong password is unauthenticated and stores nothing")
@@ -137,6 +141,8 @@ struct ProfileSetupTests {
         urlSessionFactory: { _ in server.urlSession() })
     }
     #expect(try credentials.load(for: "k") == nil)
+    // A rejected login must never reach the mint call.
+    #expect(server.requests().count == 1)
   }
 
   @Test("a 403 on the mint is forbidden and stores nothing")
@@ -157,13 +163,35 @@ struct ProfileSetupTests {
     #expect(try credentials.load(for: "k") == nil)
   }
 
-  @Test("logout revokes the token then clears the Keychain entry")
-  func logoutRevokesAndClears() async throws {
+  // A 200 here is the future server path — self-revocation for a full-scope
+  // bearer token isn't live yet, but the stub exercises the success branch
+  // for whenever the server-side change lands.
+  @Test("logout attempts to revoke the token then clears the Keychain entry")
+  func logoutAttemptsRevokeThenClears() async throws {
     let server = FakeShepherdServer()
     defer { server.tearDown() }
     server.stub(
       "DELETE", "/api/access-tokens/tok_1", status: 200,
       json: try Fixtures.json(Components.Schemas.Ok(ok: true)))
+    let credentials = InMemoryCredentialStore(
+      seed: ["k": StoredCredential(token: "shp_minted", tokenId: "tok_1")])
+
+    try await ProfileSetup.logout(
+      profile: profile(server), credentials: credentials, urlSession: server.urlSession())
+
+    #expect(server.requests().contains { $0.path == "/api/access-tokens/tok_1" })
+    #expect(try credentials.load(for: "k") == nil)
+  }
+
+  @Test(
+    "logout tolerates today's 403 operator_session_required and still clears the Keychain entry"
+  )
+  func logoutTolerates403WhenServerRequiresAnOperatorSession() async throws {
+    let server = FakeShepherdServer()
+    defer { server.tearDown() }
+    server.stub(
+      "DELETE", "/api/access-tokens/tok_1", status: 403,
+      json: try Fixtures.errorJSON("operator_session_required"))
     let credentials = InMemoryCredentialStore(
       seed: ["k": StoredCredential(token: "shp_minted", tokenId: "tok_1")])
 

@@ -15,6 +15,13 @@ stricter: a `SHEPHERD_PORT` that is not an integer in `[1, 65535]` aborts startu
 message naming that variable. A few variables have their own clamping or fallback rules
 — those are noted in the variable's own row below.
 
+Every variable below is also declared in `.env.schema` at the repo root. A gate
+(`bun run check:env-schema-docs`, run in CI and pre-push) fails when a `SHEPHERD_*`
+variable is declared there and has no row here, so a new knob cannot ship
+undocumented ([#2361](https://github.com/erwins-enkel/shepherd/issues/2361)). The
+handful of genuinely contributor-only variables are marked `@docsExempt` in the
+schema and deliberately absent from this page.
+
 ## Core
 
 | Variable | Default | Purpose |
@@ -30,6 +37,7 @@ message naming that variable. A few variables have their own clamping or fallbac
 | `SHEPHERD_COOKIE_SECRET` | _(generated + persisted)_ | HMAC secret that signs the session cookie. Set it to pin a stable secret across DB resets; rotating it invalidates every outstanding session (the all-sessions kill-switch) |
 | `SHEPHERD_TOKEN` | _(none)_ | Optional operator bearer for CLI/curl/machine clients: when set, `Authorization: Bearer <token>` is accepted as an alternative to the session cookie. Browser operators use the password login instead; spawned agents don't use this (they reach the server over the loopback ingress). **This is the deployment-provisioned option** — for a client you *install* rather than deploy (a launcher extension, the Capture extension, a cron job), prefer minting a named token in the HUD under **Settings → Access**, which needs no restart and can be revoked one client at a time ([#2082](https://github.com/erwins-enkel/shepherd/issues/2082)). A minted token also carries a **scope** — `read`, `submit` or `full` — chosen when you create it and fixed afterwards, so a read-only client cannot spawn sessions or reach a terminal ([#2083](https://github.com/erwins-enkel/shepherd/issues/2083)). `SHEPHERD_TOKEN` itself is **unscoped**: it is the break-glass credential and always has full reach. Both are accepted at once |
 | `HERDR_BIN` | `herdr` | Path to the herdr binary |
+| `SHEPHERD_NODE_BIN` | _(resolved)_ | Explicit `node` binary for the PTY attach helper; when non-empty it wins over resolution outright. Resolution exists because a mise/nvm-managed node is usually absent from the launcher's `PATH`, and without a usable node **every session pane stays black** — so this is the escape hatch when the diagnosed node is the wrong one rather than a missing one |
 | `HERDR_SESSION` | `default` | herdr session name |
 | `HERDR_SOCKET_PATH` | _(derived from `HERDR_SESSION`)_ | Unix-socket path for herdr's native JSON-RPC API. When unset it's derived: a non-`default` `HERDR_SESSION` uses its own per-session socket (`~/.config/herdr/sessions/<name>/herdr.sock`); the `default` session uses herdr's top-level socket (`~/.config/herdr/herdr.sock`). An explicit value normally wins — **except** when Shepherd runs inside a herdr pane (`HERDR_ENV=1`) and the value was inherited from that pane while a non-`default` `HERDR_SESSION` is set: the explicit `HERDR_SESSION` then wins (Shepherd prefers its per-session socket and warns), so a dev/test instance can't silently attach to the parent pane's herd ([#1596](https://github.com/erwins-enkel/shepherd/issues/1596)). Set `SHEPHERD_HERDR_IGNORE_SESSION=1` to keep the inherited socket. Consulted by the socket driver and, via `process.env`, by every spawned `herdr` CLI |
 | `SHEPHERD_HERDR_SOCKET` | `0` (off) | Opt-in: talk to herdr over its native Unix-socket JSON-RPC API instead of shelling out to the `herdr` CLI for every call (issues #1529, #1553, #1567). Covers the async read surface plus the entire async write surface — the spawn/teardown/rename writes (`start`/`stop`/`relabel`/`closeTab`) and `send` (writing text to an agent's PTY). Only the synchronous `list`/`read`/`tabs`/`panes` still shell out, because a sync call can't await a socket round-trip without blocking the event loop. It does **not** by itself move the browser terminal onto the socket — that is a separate, still-default-off sub-flag (`SHEPHERD_HERDR_SOCKET_TERMINAL`, below). Default-off because the socket protocol is still preview-unstable; the driver falls back to the CLI on any protocol mismatch, so enabling it is reversible |
@@ -37,6 +45,8 @@ message naming that variable. A few variables have their own clamping or fallbac
 | `SHEPHERD_HERDR_IGNORE_SESSION` | `0` (off) | Escape hatch for the in-pane session/socket conflict ([#1596](https://github.com/erwins-enkel/shepherd/issues/1596)): when Shepherd runs inside a herdr pane and a non-`default` `HERDR_SESSION` disagrees with the pane-inherited `HERDR_SOCKET_PATH`, it normally prefers the session's own socket. Set to `1` to suppress that override and keep the inherited socket (attach to the parent pane's herd), ignoring the `HERDR_SESSION` hint |
 | `SHEPHERD_FORGES` | `~/.shepherd/forges.json` | Path to the git-host config |
 | `SHEPHERD_PLUGINS_DIR` | `~/.shepherd/plugins` (next to the DB) | Directory scanned at boot for server-side plugins (private/out-of-repo extensions). Lives alongside the state DB so plugins survive `bun run update` and never leak into the public repo; a missing/empty dir loads nothing. See [Server-side plugins](https://github.com/erwins-enkel/shepherd/blob/main/docs/plugins.md) |
+| `SHEPHERD_HERDR_UPDATE_LOG` | `~/.shepherd/herdr-update.log` (next to the DB) | Audit log for `herdr update`. Written by the transient systemd update unit rather than the server, so the record survives the restart the update triggers — `cat` it when an update left herdr in an unexpected state |
+| `SHEPHERD_CODEX_UPDATE_LOG` | `~/.shepherd/codex-update.log` (next to the DB) | The same, for `codex update` |
 | `SHEPHERD_SANDBOX_DEFAULT_PROFILE` | `trusted` | Default sandbox profile for every spawned agent (`trusted` / `standard` / `autonomous`) — see below |
 | `SHEPHERD_SANDBOX_EXTRA_HOSTS` | _(none)_ | Comma-separated extra hostnames always allowlisted by the **autonomous** profile's egress firewall, on top of the built-in Anthropic + forge hosts (e.g. `registry.corp.com,pypi.corp.io` for a private package registry). Operator escape hatch; no effect on `trusted`/`standard`, which are not network-confined |
 | `SHEPHERD_TRUST_ISSUE_AUTHORS` | `0` (off) | Opt-in escape hatch for the fail-closed author-trust gate on autonomous (`auto=true`) drain. Set `1` to treat issue authors as trusted on forges that can't supply a GitHub-style `authorAssociation` (non-GitHub — Gitea/local), where autonomous drain would otherwise be silently disabled. Does **not** relax the gate on GitHub, where author trust is verifiable — a GitHub miss or untrusted author still refuses. See the [Security](/reference/security/) page |
@@ -48,6 +58,140 @@ message naming that variable. A few variables have their own clamping or fallbac
 | `SHEPHERD_USAGE_DOWNGRADE_ENABLED` | `false` | Companion to the usage hold: when on, every newly spawned agent (main task agents **and** the role agents) runs on `SHEPHERD_USAGE_DOWNGRADE_MODEL` instead of its configured model once usage reaches the downgrade threshold — work keeps flowing, just cheaper. Opt-in (no behavior change when off); set `1`/`true` to enable |
 | `SHEPHERD_USAGE_DOWNGRADE_PCT` | `70` | Downgrade threshold: when the higher of the 5-hour / weekly usage window reaches this percent, new spawns are downgraded. Range `0`–`100`; default `70` is deliberately **below** `SHEPHERD_USAGE_HOLD_PCT` (`80`) so usage downgrades first and only later holds |
 | `SHEPHERD_USAGE_DOWNGRADE_MODEL` | `haiku` | Model the downgrade routes spawns to while active — a default-model setting (`auto` / `default` / `<alias>`) |
+| `SHEPHERD_HOUSE_RULES_BUDGET_CHARS` | `4000` | Character budget for the house-rules block prepended to every agent prompt. Active and promoted rules fill it greedily by most-recently-effective priority until the cap is reached; the remainder stay visible-but-uninjected in the Learnings drawer for the operator to prune. Only an unusually large curated rule set ever reaches this |
+| `SHEPHERD_STANDARD_COMMAND` | _(bundled German prompt)_ | Legacy seed for the backlog quick-launch **Standard** issue action. Quick-launch actions now live in the editable steers list, so this value only seeds (or migrates) that one default entry the first time the steers are read; a previously customized `standardCommand` setting takes precedence over it |
+| `SHEPHERD_REMOTE_CONTROL_AT_STARTUP` | `0` (off) | Set `1` to inject `remoteControlAtStartup` into every spawned agent's `--settings`, which **overrides** the operator's own `~/.claude/settings.json`. Default off suppresses Claude Code Remote Control's auto-start and its notification noise for agent sessions; `/remote-control` (`/rc`) still enables it per session from the terminal. UI-configurable + persisted |
+| `SHEPHERD_PROFILE_LOOP` | `0` (off) | Set `1` to enable event-loop-lag sampling and per-call timing. Diagnostic only, and zero-cost when unset — the instrumentation short-circuits rather than being compiled out, so it can be turned on for one restart without a rebuild |
+
+## Operator authentication
+
+The login password, cookie secret and break-glass bearer are in **Core** above — they gate
+the *operator's* access to the HUD. The two variables here decide what credential the
+*agents* bill against. The mode is UI-configurable (**Settings → Coding CLI**), and both
+values are persisted in the `settings` table: the env only seeds a fresh DB, and a stored
+value wins on every later boot.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `SHEPHERD_AUTH_MODE` | `subscription` | Auth footing for spawned agents: `subscription` runs them on Claude subscription OAuth; `api-key` bills them against an Anthropic API key instead. Unrecognised values fall back to `subscription` rather than failing the boot. Under `api-key` the raw key is **never** stored — Shepherd writes an `apiKeyHelper` script, hands the agent a credential-less config dir and lets the helper supply the key ([#660](https://github.com/erwins-enkel/shepherd/issues/660)) |
+| `SHEPHERD_API_KEY_HELPER_PATH` | _(Shepherd writes one)_ | Point `api-key` mode at a pre-existing `apiKeyHelper` script instead of the one Shepherd manages — for an operator whose key already comes from a vault, keychain or `pass`. Unset, Shepherd owns the helper file. Only the path is ever persisted |
+
+## Web push (VAPID)
+
+A keypair is generated and persisted in the `settings` table on first use, so push works
+with none of these set. Provide them to pin a stable pair across DB resets — a rotated
+keypair invalidates every existing browser subscription, which then has to re-subscribe.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `SHEPHERD_VAPID_PUBLIC` | _(generated + persisted)_ | VAPID public key, handed to the browser when it subscribes |
+| `SHEPHERD_VAPID_PRIVATE` | _(generated + persisted)_ | VAPID private key. Set it together with `SHEPHERD_VAPID_PUBLIC` or not at all — a half-configured pair cannot sign for the key the browser holds |
+| `SHEPHERD_VAPID_SUBJECT` | `https://github.com/erwins-enkel/shepherd` | JWT `sub` claim sent with every push. Must be a routable `https:` or `mailto:` URL: Apple's push service rejects a non-routable one (`mailto:shepherd@localhost` and the like) with HTTP 403 `BadJwtToken`, which is why the default is a real URL rather than a local address |
+
+## Model, effort and provider defaults
+
+What a **new** session starts on. All five are persisted and UI-configurable; the env value
+seeds a fresh DB and an absent or invalid value falls back to the default shown.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `SHEPHERD_DEFAULT_AGENT_PROVIDER` | `claude` | Coding CLI newly spawned task sessions use — `claude` or `codex`. Note this also reaches the **role agents**: every role seeded `inherit` (below) follows it, so flipping it globally re-points the critic, planner, distiller, optimizer and merge-suggest too |
+| `SHEPHERD_DEFAULT_MODEL` | `auto` | Default Claude model. `auto` means "no stored preference": the New Task picker falls back to its client-side promo suggestion and drain spawns emit no `--model` at all. Any explicit alias applies to both the picker and drain/autopilot auto-spawns |
+| `SHEPHERD_DEFAULT_CODEX_MODEL` | `gpt-5.6-sol` | Default model for Codex sessions, kept separate because the alias spaces do not overlap. `default` emits no `--model` flag and lets Codex choose |
+| `SHEPHERD_DEFAULT_EFFORT` | `default` | Default reasoning effort. `default` emits no effort flag; the tiers are `low`, `medium`, `high`, `xhigh`, `max`, `ultra`. There is no `auto` tier — unlike the model setting, effort has no promo fallback to defer to |
+| `SHEPHERD_FABLE_AVAILABLE` | `true` | Kill switch for Fable. When off, a spawn asking for `--model fable` is transparently rerouted to `opus[1m]` at argv-assembly time **without** rewriting the stored session model, so cost accounting and replay still record the operator's actual intent. Turn it off while Fable is unavailable to your account rather than editing sessions |
+
+## Role agents
+
+Shepherd's background roles are ordinary agent spawns, each with its own **CLI / model /
+effort** triple. The vocabulary is the same for every role:
+
+- **CLI** — `inherit` follows the global `SHEPHERD_DEFAULT_AGENT_PROVIDER`; `claude` or
+  `codex` pins the role to one provider regardless of what sessions use.
+- **Model** — `default` emits no `--model` flag (with `inherit`, that means the operator's
+  global default model); any alias pins it. Tokens are validated against the union of both
+  providers' aliases.
+- **Effort** — `default` emits no effort flag; otherwise a tier as above.
+
+All are persisted and UI-configurable; the env values seed a fresh DB. The doc agent's and
+maintain loop's own triples live with their features, further down this page.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `SHEPHERD_CRITIC_CLI` | `inherit` | **PR critic** — reviews a green PR and posts a verdict, driving both the session critic and the standalone PR critic |
+| `SHEPHERD_CRITIC_MODEL` | `default` | Model the critic runs on |
+| `SHEPHERD_CRITIC_EFFORT` | `high` | The one role seeded **above** the global default. The critic is a rigor role: a value resolving below `high` measurably weakens PR review, so Shepherd warns at boot (and on the Settings/PATCH paths) instead of silently accepting it. It still accepts the value — this is a warning, not a floor |
+| `SHEPHERD_PLANNER_CLI` | `inherit` | **Plan-gate reviewer** — adversarially critiques a plan before execution is allowed to start |
+| `SHEPHERD_PLANNER_MODEL` | `default` | Model the plan-gate reviewer runs on |
+| `SHEPHERD_PLANNER_EFFORT` | `default` | Deliberately **not** seeded `high` like the critic. The planner has no independent spawn — it *is* the plan-gate reviewer, which inherits the session's own effort ([#1417](https://github.com/erwins-enkel/shepherd/issues/1417)), so `default` preserves that inheritance and a `max` session reviews its plan at `max`. An explicit tier here overrides that for every session, downgrading high-effort ones and surprising low-effort ones |
+| `SHEPHERD_RECAP_CLI` | `claude` | **Recap writer** — summarises a session at the archive chokepoint, so the summary outlives the session |
+| `SHEPHERD_RECAP_MODEL` | `sonnet` | Pinned rather than inherited, preserving the hardcoded default this role had before roles were configurable |
+| `SHEPHERD_RECAP_EFFORT` | `low` | Summarising a finished transcript is not a reasoning-heavy job |
+| `SHEPHERD_NAMER_CLI` | `claude` | **Namer** — reads the task prompt and renames the session from its instant heuristic name to a two-to-four-word one, in the background |
+| `SHEPHERD_NAMER_MODEL` | `haiku` | Pinned cheap on purpose: this is a constant-cadence classifier that runs on *every* session, so following a heavy global default would inflate naming cost for no benefit |
+| `SHEPHERD_NAMER_EFFORT` | `low` | As above — a slug is not a reasoning task |
+| `SHEPHERD_LLM_NAMING` | `true` | Kill switch for that rename. `0` keeps the instant heuristic name and never spawns the namer |
+| `SHEPHERD_AUTOPILOT_CLI` | `claude` | **Autopilot** — the transient stop-classifier that decides an unattended session's next move |
+| `SHEPHERD_AUTOPILOT_MODEL` | `haiku` | Pinned cheap for the same reason as the namer: it runs on a fixed cadence for the life of every autonomous session |
+| `SHEPHERD_AUTOPILOT_EFFORT` | `low` | As above |
+| `SHEPHERD_AUTOPILOT_STEP_CAP` | `10` | Runaway guard: auto-steers autopilot may spend on one session before it stops and waits for the operator. It bounds cost on a session that is looping rather than progressing |
+| `SHEPHERD_DISTILLER_CLI` | `inherit` | **Distiller** — turns captured session learnings into proposed house rules |
+| `SHEPHERD_DISTILLER_MODEL` | `default` | Model the distiller runs on |
+| `SHEPHERD_DISTILLER_EFFORT` | `default` | Effort tier for the distiller |
+| `SHEPHERD_DISTILLER_INTERVAL_DAYS` | `1` | Per-repository throttle on **automatic** distiller runs; a manual run ignores it. Clamped to `1`–`14`, and an out-of-range or unparseable value falls back to `1` (the historic daily cadence) rather than disabling the throttle |
+| `SHEPHERD_OPTIMIZER_CLI` | `inherit` | **Optimizer** — the one-click improvement pass over a repo's own agent instructions |
+| `SHEPHERD_OPTIMIZER_MODEL` | `default` | Model the optimizer runs on |
+| `SHEPHERD_OPTIMIZER_EFFORT` | `default` | Effort tier for the optimizer |
+| `SHEPHERD_MERGE_SUGGEST_CLI` | `inherit` | **Merge suggester** — proposes a merge order for the open PR queue |
+| `SHEPHERD_MERGE_SUGGEST_MODEL` | `default` | Model the merge suggester runs on |
+| `SHEPHERD_MERGE_SUGGEST_EFFORT` | `default` | Effort tier for the merge suggester |
+
+## Review rounds, merge train and spend
+
+`SHEPHERD_REVIEW_TIMEOUT_MS` (in **Core**) bounds a single critic *run*; the two cycle caps
+here bound how many runs a piece of work gets before it stops being retried and waits for a
+human. Both are clamped, UI-configurable and persisted, with the env seeding a fresh DB.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `SHEPHERD_REVIEW_CYCLES_CAP` | `3` | Critic → fix rounds a PR gets before the session escalates to the operator instead of re-reviewing. Clamped `1`–`8`; an out-of-range or unparseable value falls back to the default |
+| `SHEPHERD_PLAN_REVIEW_CYCLES_CAP` | `5` | The same for plan-gate adversarial-review rounds, before the plan is escalated to the operator. Clamped `1`–`12`, and independent of the PR cap above |
+| `SHEPHERD_AUTOMERGE_REBASE_CAP` | `5` | Consecutive auto-rebases the merge train spends on one PR whose base keeps moving under it, before it pauses that PR for the operator. It bounds a rebase loop against a busy `main`, not rebase failures |
+| `SHEPHERD_EXTRA_CREDITS_DRAIN_CEILING` | `0` | Account-wide **extra-credit** (pay-as-you-go overage) ceiling, in account currency units, that autonomous drain and autopilot may run past; they pause once measured spend strictly exceeds it. The default `0` means pause on *any* overage spend, which is the conservative reading — raise it deliberately. Negative and unparseable values clamp to `0`. Persisted + UI-configurable |
+| `SHEPHERD_PUSH_COOLDOWN_MS` | `120000` (2 min) | Collapses repeat web pushes from the same session inside this window, so one busy session cannot flood a phone. `0` disables the coalescing entirely |
+| `SHEPHERD_REDUCED_PUSH_MODE` | `0` (off) | Set `1` for quieter devices: the push layer then sends only `ready` notifications plus cost alerts, dropping the rest. Global (not per-device); UI-configurable + persisted |
+
+## Learnings lifecycle
+
+The admission and retirement machinery behind distilled house rules, which move
+**proposed → trial → active → retired** under a background sweep. Two conventions run
+through the table: *N* is the number of observations backing a rule, and every
+`MAX_…_PER_SWEEP` bounds one pass of the sweep, not the total — a large backlog drains over
+several sweeps by design.
+
+These knobs change **when** a rule moves, never what it says. All are env-only, and all are
+read **once at startup** rather than per sweep, so a change needs a restart to take effect.
+The injection-driven passes (trial, reap, retire) stay dormant for a repository with
+learnings disabled; the proposed-prune below is the deliberate exception and runs regardless.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `SHEPHERD_LEARNINGS_AUTO_TRIAL` | `true` | Kill switch for promoting qualifying proposed learnings into active trials. `0` leaves promotion entirely manual — the admission gate the automation exists to unblock |
+| `SHEPHERD_LEARNINGS_TRIAL_NMIN` | `4` | Strength gate: observations a proposed learning needs before it may enter trial at all |
+| `SHEPHERD_LEARNINGS_TRIAL_SESSION_FLOOR` | `2` | Hard floor on distinct contributing sessions. No single-session rule is ever trialled, however much evidence one session produced — one session's quirk is not a house rule |
+| `SHEPHERD_LEARNINGS_TRIAL_MIN_KINDS` | `2` | Breadth gate, first path: distinct *kinds* of evidence behind the rule |
+| `SHEPHERD_LEARNINGS_TRIAL_MIN_SESSIONS` | `3` | Breadth gate, second path: distinct sessions. A candidate that clears the strength gate and the session floor qualifies on **either** breadth path — enough kinds, or enough sessions — so raising one alone does not tighten admission |
+| `SHEPHERD_LEARNINGS_MAX_TRIAL_PER_SWEEP` | `3` | Promotions per sweep |
+| `SHEPHERD_LEARNINGS_TRIAL_REAP_NMIN` | `8` | Trial reaper, evidence branch: injections a trial must have had before it can be judged inert |
+| `SHEPHERD_LEARNINGS_TRIAL_REAP_DAYS` | `21` | Trial age, in days, that the same evidence branch also requires. Both conditions must hold |
+| `SHEPHERD_LEARNINGS_TRIAL_REAP_MAX_DAYS` | `60` | Time branch: a trial older than this is reaped regardless of how rarely it was injected. It is the anti-zombie fallback for a rule that never got its chance because the house-rules budget kept crowding it out. A trial that was ever marked helpful is exempt from **both** branches |
+| `SHEPHERD_LEARNINGS_MAX_REAP_PER_SWEEP` | `5` | Trial reaps per sweep |
+| `SHEPHERD_LEARNINGS_PRUNE_DAYS` | `3` | Permanently deletes **proposed** learnings whose newest evidence is older than this. Applied in full each sweep — no cap and no exemption — and it ignores the repository's learnings toggle, because it is status- and age-based rather than injection-driven. Zero, negative and unparseable values are refused with a warning and the default is used, so the prune cannot be silently disabled by a typo ([#1794](https://github.com/erwins-enkel/shepherd/issues/1794)) |
+| `SHEPHERD_LEARNINGS_WILSON_Z` | `1.96` | *z* for the Wilson lower bound used to score a rule's help rate; `1.96` is the conventional 95% value. The bound is a confidence-discounted rate rather than the raw ratio — the fewer injections a rule has, the further below its observed ratio it scores, which is why the low-evidence case is guarded separately by `SHEPHERD_LEARNINGS_RETIRE_NMIN`. Raising *z* widens the interval and pushes the bound down, so rules retire **more** readily; lowering it moves the score back toward the observed ratio |
+| `SHEPHERD_LEARNINGS_RETIRE_NMIN` | `8` | Injections an active rule needs before auto-retire considers it at all. A rule with no recorded ineffective outcome is never retired regardless of this |
+| `SHEPHERD_LEARNINGS_BASE_RATE` | `0.5` | The bar a rule's Wilson lower bound is compared against while the repository has too little history to measure one — retirement means "demonstrably worse than its peers", so a bar is needed before peers exist |
+| `SHEPHERD_LEARNINGS_BASE_RATE_MIN_N` | `20` | Injections across the repository's proven rules before that measured peer rate replaces the assumed `SHEPHERD_LEARNINGS_BASE_RATE` |
+| `SHEPHERD_LEARNINGS_MAX_RETIRE_PER_SWEEP` | `3` | Auto-retirements per sweep |
 
 ## Live preview
 
@@ -82,6 +226,7 @@ Settings → Diagnose reports which case a host is in — see
 | `SHEPHERD_TMP_ENTRY_LIMIT` | `1000` | Entry-count sweep threshold, used where the filesystem allocates inodes on demand (btrfs/XFS/ZFS) and a percentage is meaningless — also the warning band of the **Temp filesystem inodes** row for that signal (error band: 10x) |
 | `SHEPHERD_TMP_STALE_HOURS` | `24` | Scratch staleness cutoff |
 | `SHEPHERD_TMP_SWEEP_DIR` | _(default tmp root)_ | Override the swept tmp root |
+| `SHEPHERD_AGENT_TMPDIR` | `~/.cache/shepherd/tmp` | Disk-backed `TMPDIR` handed to spawned (trusted) agents, so **all** of their temp I/O — per-session scratch trees, git worktrees, dependency installs and bare-`$TMPDIR` tool caches — lands on a real filesystem instead of the `/tmp` tmpfs, whose *inode* table it otherwise exhausts (ENOSPC with bytes to spare) ([#1875](https://github.com/erwins-enkel/shepherd/issues/1875)). Set it to the **empty string** to disable the redirect and inherit tmpfs again; that is the one-variable rollback, and it is why an unset value and an empty value mean different things here |
 
 See [Operating Shepherd](/operating/) for the host-level `/etc/fstab` belt.
 
@@ -163,6 +308,7 @@ same session — a `stranded` session is the revival population and is never aut
 | --- | --- | --- |
 | `SHEPHERD_SESSION_AUTO_ARCHIVE` | `1` (on) | Set `0` to disable the hourly auto-archive of **settled** sessions. When on, a session that stopped working 7 days ago is archived — but only with positive evidence that it is finished: no claude process left in its worktree, no open PR, no uncommitted or unpushed work, and nothing in flight (merge train, plan-gate round, reviewer spawn). Every gate fails closed, so anything unreadable spares the session. It archives at most 5 per sweep (each one generates a recap) and keeps the task's issue claim, so the drain never re-queues what it swept ([#1156](https://github.com/erwins-enkel/shepherd/issues/1156)) |
 | `SHEPHERD_AUTO_REVIVE` | `0` (off) | Set `1` to seed autonomous auto-revive on for a fresh DB. When on, only the **default-account** complement of stranded sessions is auto-revived (account panes keep recovering via `reDriveAccount`); each revive is bounded so a persistently-refused session gives up rather than re-firing every sweep. Operators can still trigger a manual **revive all** from the HUD regardless of this flag ([#1630](https://github.com/erwins-enkel/shepherd/issues/1630)) |
+| `SHEPHERD_SESSION_HOUSEKEEPING` | `1` (on) | Kill switch for the daily **DB housekeeping** sweep, which deletes archived sessions past the retention window or beyond the newest-N cap and cascades their review rows. It only ever touches already-archived history — it cannot tear down a live session the way auto-archive can. UI-configurable + persisted; `0` seeds it off on a fresh DB |
 
 ## Push-based hook ingestion
 

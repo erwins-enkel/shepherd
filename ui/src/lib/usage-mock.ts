@@ -475,10 +475,10 @@ const docsSatAll = docsTasksAll.reduce((a, t) => a + t.satelliteUnits, 0);
 // Fixtures
 // ---------------------------------------------------------------------------
 
-/** Returns a realistic per-range fixture for the /usage breakdown. */
 /** Fixed so the mock never drifts with the clock. */
 const MOCK_JUDGE_DAY = "2026-09-19";
 
+/** Returns a realistic per-range fixture for the /usage breakdown. */
 export function mockBreakdown(range: UsageRange): UsageBreakdown {
   switch (range) {
     case "24h": {

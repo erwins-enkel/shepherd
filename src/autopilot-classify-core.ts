@@ -145,6 +145,14 @@ export function classifierPrompt(
  * valid kind with a non-string summary keeps the kind and drops the summary; a valid
  * summary is clipped to 280 chars.
  */
+export function normalize(raw: RawVerdict | null): AutopilotVerdict {
+  if (!raw || typeof raw.kind !== "string" || !KINDS.includes(raw.kind as AutopilotKind)) {
+    return SURFACE;
+  }
+  const summary = typeof raw.summary === "string" ? raw.summary.slice(0, 280) : "";
+  return { kind: raw.kind as AutopilotKind, summary };
+}
+
 // ── judge path (issue #2369) ────────────────────────────────────────────────────
 
 /** The question id the classifier asks under. */
@@ -231,12 +239,4 @@ export function summaryFromTail(tail: string[]): string {
     .filter((l) => l !== "" && !CHROME_ONLY_RE.test(l))
     .slice(-SUMMARY_TAIL_LINES);
   return lines.join(" ").slice(0, 280);
-}
-
-export function normalize(raw: RawVerdict | null): AutopilotVerdict {
-  if (!raw || typeof raw.kind !== "string" || !KINDS.includes(raw.kind as AutopilotKind)) {
-    return SURFACE;
-  }
-  const summary = typeof raw.summary === "string" ? raw.summary.slice(0, 280) : "";
-  return { kind: raw.kind as AutopilotKind, summary };
 }

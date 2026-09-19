@@ -4592,6 +4592,16 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
 
   /** Drop delivery facts for sessions created before `beforeTs` (own retention sweep, matching
    *  reviewer_spawns' window — the two are read together). Returns the count removed. */
+  pruneDeliveryFacts(beforeTs: number): number {
+    const n = (
+      this.db
+        .query(`SELECT COUNT(*) AS c FROM delivery_facts WHERE createdAt < ?`)
+        .get(beforeTs) as { c: number }
+    ).c;
+    this.db.run(`DELETE FROM delivery_facts WHERE createdAt < ?`, [beforeTs]);
+    return n;
+  }
+
   // ── judge spend (issue #2369) ────────────────────────────────────────────────
   /** Today's (or any day's) judge spend, or null when nothing was spent that day. */
   getJudgeSpend(day: string): { calls: number; usd: number } | null {
@@ -4629,16 +4639,6 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       }
     ).c;
     this.db.run(`DELETE FROM judge_spend WHERE day < ?`, [beforeDay]);
-    return n;
-  }
-
-  pruneDeliveryFacts(beforeTs: number): number {
-    const n = (
-      this.db
-        .query(`SELECT COUNT(*) AS c FROM delivery_facts WHERE createdAt < ?`)
-        .get(beforeTs) as { c: number }
-    ).c;
-    this.db.run(`DELETE FROM delivery_facts WHERE createdAt < ?`, [beforeTs]);
     return n;
   }
 

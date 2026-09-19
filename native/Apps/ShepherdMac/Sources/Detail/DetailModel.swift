@@ -107,12 +107,17 @@ final class DetailModel: AppExtension {
     private(set) var diff: [String: Loaded<DiffPayload>] = [:]
     private(set) var files: [String: Loaded<FilesPayload>] = [:]
     private(set) var git: [String: Loaded<GitState?>] = [:]
-    /// Feed+session keys with a `.ready` value already on screen that are quietly re-reading it —
-    /// a poll tick, a push-driven reload, or a manual Refresh pressed while content is showing.
-    /// `@Observable`-tracked (unlike `stamps`/`alive`) so a tab can dim a Refresh button or show a
-    /// "still current as of…" hint without blanking what `Loaded` already holds. Never the reason
-    /// a view chooses `.loading`: only `hasReadyValue(_:_:)` decides that, at the start of `load`.
-    private(set) var refreshingKeys: Set<String> = []
+    /// How many reads are in flight for a feed+session that already has a `.ready` value on
+    /// screen — a poll tick, a push-driven reload, or a manual Refresh pressed while content is
+    /// showing. `@Observable`-tracked (unlike `stamps`/`alive`) so a tab can dim a Refresh button
+    /// or show a "still current as of…" hint without blanking what `Loaded` already holds. Never
+    /// the reason a view chooses `.loading`: only `hasReadyValue(_:_:)` decides that, at the start
+    /// of `load`.
+    ///
+    /// A count, not a set of keys: a poll tick and a manual Refresh overlap routinely, and the
+    /// one that finishes first must not clear the mark out from under the one still running —
+    /// which is exactly what a shared flag did, re-enabling the Refresh button mid-read.
+    private(set) var refreshCounts: [String: Int] = [:]
 
     /// How a poll waits. Replaced in tests so the loop runs at full speed.
     @ObservationIgnored var sleep: @Sendable (Duration) async throws -> Void = {
@@ -161,7 +166,7 @@ final class DetailModel: AppExtension {
     /// Reads one feed for one session. Safe to call while a read is already in flight.
     ///
     /// The first read for a session shows `.loading`; a read that lands on top of a `.ready`
-    /// value instead keeps that value on screen and tracks the read in `refreshingKeys`, so a
+    /// value instead keeps that value on screen and counts the read in `refreshCounts`, so a
     /// poll tick or a push never blanks content the operator is looking at. A cancelled read
     /// writes nothing to either cache — it is the app walking away from its own call, not a
     /// failure to report — and a background refresh that fails for real keeps the last good
@@ -169,19 +174,20 @@ final class DetailModel: AppExtension {
     func load(_ feed: DetailFeed, session id: String) async {
         let stamp = nextStamp(feed, id)
         let firstLoad = !hasReadyValue(feed, id)
+        let refreshKey = key(feed, id)
         if firstLoad {
             set(feed, id, .loading)
         } else {
-            refreshingKeys.insert(key(feed, id))
+            beginRefresh(refreshKey)
         }
+        // Balanced here rather than inside `commit`, so this read clears exactly the mark it put
+        // there — a superseded, failed or cancelled read included.
+        defer { if !firstLoad { endRefresh(refreshKey) } }
         do {
             switch feed {
             case .activity:
                 let entries = try await loaders.activity(id)
-                commit(feed, id, stamp) {
-                    self.activity[id] = .ready(entries)
-                    self.refreshingKeys.remove(self.key(feed, id))
-                }
+                commit(feed, id, stamp) { self.activity[id] = .ready(entries) }
             case .diff:
                 let result = try await loaders.diff(id)
                 let previous = diff[id]?.value
@@ -198,28 +204,21 @@ final class DetailModel: AppExtension {
                 }
                 commit(feed, id, stamp) {
                     self.diff[id] = .ready(DiffPayload(result: result, notes: notes))
-                    self.refreshingKeys.remove(self.key(feed, id))
                 }
             case .files:
                 let listing = try await loaders.scratchpad(id, nil)
                 commit(feed, id, stamp) {
                     self.files[id] = .ready(FilesPayload(source: .scratchpad, listing: listing))
-                    self.refreshingKeys.remove(self.key(feed, id))
                 }
             case .git:
                 let state = try await loaders.git(id)
-                commit(feed, id, stamp) {
-                    self.git[id] = .ready(state)
-                    self.refreshingKeys.remove(self.key(feed, id))
-                }
+                commit(feed, id, stamp) { self.git[id] = .ready(state) }
             }
         } catch {
             if isCancellation(error) {
                 // No cache write: cancelling the task that made this call is not a server,
-                // network or contract failure, so there is nothing to show for it. Still routed
-                // through `commit` so a stale cancellation never clears a *newer* load's
-                // `refreshingKeys` entry out from under it.
-                commit(feed, id, stamp) { self.refreshingKeys.remove(self.key(feed, id)) }
+                // network or contract failure, so there is nothing to show for it. The `defer`
+                // above still balances this read's own refresh mark.
                 return
             }
             let copy = ShepherdErrorCopy.message(error)
@@ -229,7 +228,6 @@ final class DetailModel: AppExtension {
                 } else {
                     Log.ui.debug("a background refresh failed; keeping the last good value")
                 }
-                self.refreshingKeys.remove(self.key(feed, id))
             }
         }
     }
@@ -239,6 +237,7 @@ final class DetailModel: AppExtension {
     /// content, not a background refresh of the content already on screen.
     func browse(session id: String, source: FilesSource, path: String?) async {
         let stamp = nextStamp(.files, id)
+        let previous = files[id]
         set(.files, id, .loading)
         do {
             let listing: BrowseListing
@@ -250,7 +249,14 @@ final class DetailModel: AppExtension {
                 self.files[id] = .ready(FilesPayload(source: source, listing: listing))
             }
         } catch {
-            if isCancellation(error) { return }
+            if isCancellation(error) {
+                // Unlike `load`, nothing re-runs this: a browse is the operator navigating, and
+                // there is no `.task(id:)` to heal a `.loading` that never resolves. Put back
+                // whatever the tab was showing — `nil` means "never loaded", so the next visit
+                // starts over rather than inheriting a spinner.
+                commit(.files, id, stamp) { self.files[id] = previous }
+                return
+            }
             let copy = ShepherdErrorCopy.message(error)
             commit(.files, id, stamp) { self.set(.files, id, .failed(copy)) }
         }
@@ -277,7 +283,7 @@ final class DetailModel: AppExtension {
     /// this to dim a Refresh control or show a subtler "updating" hint instead of the loading
     /// chrome `Loaded.loading` drives — that chrome is reserved for the first read of a session.
     func isRefreshing(_ feed: DetailFeed, session id: String) -> Bool {
-        refreshingKeys.contains(key(feed, id))
+        (refreshCounts[key(feed, id)] ?? 0) > 0
     }
 
     /// Keeps `activity`/`git` current without a timer. `session:activity`/`session:git` are
@@ -395,7 +401,7 @@ final class DetailModel: AppExtension {
 
     /// Whether `feed`+`id` already holds a `.ready` value — the line between a session's first
     /// read (shows `Loaded.loading`) and a background refresh of what is already on screen
-    /// (tracked in `refreshingKeys` instead). A previous `.failed` counts as "no ready value": a
+    /// (counted in `refreshCounts` instead). A previous `.failed` counts as "no ready value": a
     /// retry after a failure has nothing to keep showing, so it gets the loading chrome again.
     private func hasReadyValue(_ feed: DetailFeed, _ id: String) -> Bool {
         switch feed {
@@ -441,19 +447,17 @@ final class DetailModel: AppExtension {
         Task { [weak self] in await self?.runPushLoad(feed, id) }
     }
 
+    /// Runs the read this push asked for, then drains whatever queued behind it — iteratively,
+    /// never by calling itself: a session that streams frames for hours would otherwise grow the
+    /// call chain by one frame per queued follow-up.
     private func runPushLoad(_ feed: DetailFeed, _ id: String) async {
-        await load(feed, session: id)
         let k = key(feed, id)
-        guard alive else {
-            pushInFlight.remove(k)
-            pushPending.remove(k)
-            return
+        await load(feed, session: id)
+        while alive, pushPending.remove(k) != nil {
+            await load(feed, session: id)
         }
-        if pushPending.remove(k) != nil {
-            await runPushLoad(feed, id)
-        } else {
-            pushInFlight.remove(k)
-        }
+        pushInFlight.remove(k)
+        pushPending.remove(k)
     }
 
     /// Drops cache, stamp and bookkeeping entries for sessions no longer in `activeIDs`.
@@ -465,9 +469,24 @@ final class DetailModel: AppExtension {
         files = files.filter { activeIDs.contains($0.key) }
         git = git.filter { activeIDs.contains($0.key) }
         stamps = stamps.filter { activeIDs.contains(sessionID(fromKey: $0.key)) }
-        refreshingKeys = refreshingKeys.filter { activeIDs.contains(sessionID(fromKey: $0)) }
+        refreshCounts = refreshCounts.filter { activeIDs.contains(sessionID(fromKey: $0.key)) }
         pushInFlight = pushInFlight.filter { activeIDs.contains(sessionID(fromKey: $0)) }
         pushPending = pushPending.filter { activeIDs.contains(sessionID(fromKey: $0)) }
+    }
+
+    private func beginRefresh(_ refreshKey: String) {
+        refreshCounts[refreshKey, default: 0] += 1
+    }
+
+    /// Clamped at zero and removed when it gets there, so a `prune(activeIDs:)` that dropped the
+    /// entry while a read was still running cannot leave a negative count behind.
+    private func endRefresh(_ refreshKey: String) {
+        guard let count = refreshCounts[refreshKey] else { return }
+        if count <= 1 {
+            refreshCounts.removeValue(forKey: refreshKey)
+        } else {
+            refreshCounts[refreshKey] = count - 1
+        }
     }
 
     private func isCancellation(_ error: any Error) -> Bool {

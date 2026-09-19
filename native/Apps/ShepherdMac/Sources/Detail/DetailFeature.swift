@@ -20,6 +20,22 @@ enum DetailFeature {
     static func model(_ app: AppModel) -> DetailModel? { app.extension(DetailModel.self) }
 }
 
+/// The identity a detail tab's `.task(id:)` keys on: the selected session **and** the model
+/// showing it.
+///
+/// The session id alone is not enough. `AppModel` builds a fresh `DetailModel` per activation, so
+/// a profile switch can leave the same session id selected in front of an empty cache — and a
+/// task that did not re-run would sit on loading chrome nothing ever fills.
+struct DetailTaskKey: Hashable {
+    let session: String
+    let model: ObjectIdentifier
+
+    init(session: String, model: DetailModel) {
+        self.session = session
+        self.model = ObjectIdentifier(model)
+    }
+}
+
 /// What a tab should render. A tab maps its own `Loaded` value onto this.
 enum DetailStatePhase: Equatable {
     case loading

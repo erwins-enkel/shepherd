@@ -42,6 +42,13 @@ final class CallCounter {
     var calls = 0
 }
 
+/// A main-actor box so an injected read can reach the model it belongs to — the model cannot be
+/// captured by the closures its own initialiser takes.
+@MainActor
+final class ModelBox {
+    var model: DetailModel?
+}
+
 @MainActor
 struct DetailModelTests {
     private func entry(_ n: Int, _ summary: String) -> ActivityEntry {
@@ -330,6 +337,94 @@ struct DetailModelTests {
         #expect(await settleDetail(until: { calls == 3 }))  // exactly one follow-up read
         _ = await settleDetail(until: { false }, yields: 50)
         #expect(calls == 3)
+    }
+
+    // MARK: - Overlapping refreshes each own their own in-flight mark
+
+    /// A poll tick and a manual Refresh overlap routinely. The one that finishes first must not
+    /// clear the "refreshing" mark out from under the one still running, or the Refresh button
+    /// re-enables — and the "updating" hint disappears — while a read is still in flight.
+    @Test func anOverlappingRefreshStaysMarkedUntilTheSlowerOneFinishes() async {
+        let slow = LoadGate()
+        let fast = LoadGate()
+        var calls = 0
+        var loaders = DetailModel.Loaders.stubbed()
+        loaders.activity = { _ in
+            calls += 1
+            let n = calls
+            if n == 2 { await slow.wait() }
+            if n == 3 { await fast.wait() }
+            return [self.entry(n, "call \(n)")]
+        }
+        let model = DetailModel(loaders: loaders)
+        await model.load(.activity, session: "s1")  // call 1 seeds the ready value
+
+        let slower = Task { await model.load(.activity, session: "s1") }  // call 2
+        #expect(await settleDetail(until: { slow.isWaiting }))
+        let faster = Task { await model.load(.activity, session: "s1") }  // call 3
+        #expect(await settleDetail(until: { fast.isWaiting }))
+        #expect(model.isRefreshing(.activity, session: "s1"))
+
+        fast.open()
+        await faster.value
+        // Call 2 is still in flight: the tab is still refreshing.
+        #expect(model.isRefreshing(.activity, session: "s1"))
+
+        slow.open()
+        await slower.value
+        #expect(model.isRefreshing(.activity, session: "s1") == false)
+    }
+
+    /// A session that streams frames for hours queues follow-up after follow-up. The follow-up
+    /// runner must iterate, so the call chain stays flat however many pushes queue up behind it.
+    @Test func aLongRunOfQueuedPushesTerminatesWithOneReadEach() async {
+        let box = ModelBox()
+        var calls = 0
+        var loaders = DetailModel.Loaders.stubbed()
+        loaders.activity = { _ in
+            calls += 1
+            // Queue the next push from inside the running read, 200 times over.
+            if calls < 201 { box.model?.schedulePushLoad(.activity, session: "s1") }
+            return [self.entry(calls, "call \(calls)")]
+        }
+        let model = DetailModel(loaders: loaders)
+        box.model = model
+
+        await model.load(.activity, session: "s1")  // call 1, and queues the first push
+        #expect(await settleDetail(until: { calls == 201 }, yields: 5_000))
+        _ = await settleDetail(until: { false }, yields: 50)
+        #expect(calls == 201)
+    }
+
+    // MARK: - A cancelled browse never strands the files tab on a spinner
+
+    @Test func aCancelledBrowseRestoresTheListingItWasShowing() async {
+        var calls = 0
+        var loaders = DetailModel.Loaders.stubbed()
+        loaders.scratchpad = { _, path in
+            calls += 1
+            if calls == 2 { throw ShepherdError.cancelled }
+            return BrowseListing(path: path ?? "", parent: nil, entries: [])
+        }
+        let model = DetailModel(loaders: loaders)
+        await model.load(.files, session: "s1")
+        #expect(model.files["s1"]?.value != nil)
+
+        await model.browse(session: "s1", source: .scratchpad, path: "sub")
+
+        // Navigation has no `.task(id:)` to re-run it, so a stuck `.loading` would be permanent.
+        #expect(model.files["s1"]?.isLoading == false)
+        #expect(model.files["s1"]?.value != nil)
+    }
+
+    @Test func aCancelledFirstBrowseLeavesNoEntryBehind() async {
+        var loaders = DetailModel.Loaders.stubbed()
+        loaders.worktree = { _, _ in throw CancellationError() }
+        let model = DetailModel(loaders: loaders)
+
+        await model.browse(session: "s1", source: .worktree, path: nil)
+
+        #expect(model.files["s1"] == nil)
     }
 
     // MARK: - Pruning sessions the store no longer lists

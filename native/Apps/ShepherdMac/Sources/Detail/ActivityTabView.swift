@@ -27,18 +27,25 @@ struct ActivityTabView: View {
         }
         .accessibilityIdentifier("detail-tab-activity")
         .toolbar {
-            ToolbarItem {
+            // An explicit id: four detail tabs each add a Refresh item, and SwiftUI matches
+            // toolbar items by identity when one tab replaces another.
+            ToolbarItem(id: "detail-activity-refresh") {
                 Button(L.t("native_detail_refresh"), systemImage: "arrow.clockwise", action: reload)
                     .labelStyle(.iconOnly)
                     .disabled(state.isLoading || model.isRefreshing(.activity, session: session.id))
             }
         }
-        .task(id: session.id) { await model.poll(.activity, session: session.id) }
+        .task(id: DetailTaskKey(session: session.id, model: model)) {
+            await model.poll(.activity, session: session.id)
+        }
     }
 
-    private var phase: DetailStatePhase {
+    private var phase: DetailStatePhase { Self.phase(for: state) }
+
+    /// Lifted out of `body` so the mapping is assertable without hosting a view.
+    static func phase(for state: Loaded<[ActivityEntry]>) -> DetailStatePhase {
         if let failure = state.failure { return .failed(failure) }
-        if state.value == nil { return .loading }
+        guard let entries = state.value else { return .loading }
         return entries.isEmpty ? .empty(L.t("activity_empty")) : .content
     }
 

@@ -73,6 +73,30 @@ struct DetailFeatureTests {
         app.teardown()
     }
 
+    // MARK: - The identity a tab's load task keys on
+
+    /// Session id alone is not enough: a profile switch builds a fresh `DetailModel` with empty
+    /// caches, and a tab whose `.task(id:)` did not re-run for the same selected session would
+    /// sit on a spinner nothing ever fills.
+    @Test func theTaskKeyChangesWhenTheModelDoesEvenForTheSameSession() {
+        let first = DetailModel(loaders: .stubbed())
+        let second = DetailModel(loaders: .stubbed())
+
+        #expect(DetailTaskKey(session: "s1", model: first) == DetailTaskKey(session: "s1", model: first))
+        #expect(DetailTaskKey(session: "s1", model: first) != DetailTaskKey(session: "s1", model: second))
+        #expect(DetailTaskKey(session: "s1", model: first) != DetailTaskKey(session: "s2", model: first))
+    }
+
+    // MARK: - The activity tab's state mapping
+
+    @Test func theActivityPhaseMapsEveryLoadedState() {
+        #expect(ActivityTabView.phase(for: .loading) == .loading)
+        #expect(ActivityTabView.phase(for: .failed("nope")) == .failed("nope"))
+        #expect(ActivityTabView.phase(for: .ready([])) == .empty(L.t("activity_empty")))
+        let entry = ActivityEntry(ts: 1, tool: "Edit", summary: "did", status: .init(known: .ok))
+        #expect(ActivityTabView.phase(for: .ready([entry])) == .content)
+    }
+
     @Test func theActivityTabHasNoModelToRenderBeforeInstall() async throws {
         let app = makeModel()
         await app.activate(try remote(app, "five"))

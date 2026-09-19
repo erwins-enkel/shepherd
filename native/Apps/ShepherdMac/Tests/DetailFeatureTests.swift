@@ -31,6 +31,17 @@ struct DetailFeatureTests {
         #expect(DetailTabRegistry.tabs.map(\.id).contains("prompt"))
     }
 
+    @Test func installRegistersTheDiffTabAtOrderTwenty() {
+        let app = makeModel()
+        DetailFeature.install(app)
+
+        let tab = DetailTabRegistry.tabs.first { $0.id == "diff" }
+        #expect(tab != nil)
+        #expect(tab?.order == 20)
+        // Activity (10) before diff (20) before the built-in prompt tab (1_000).
+        #expect(DetailTabRegistry.tabs.map(\.id) == ["activity", "diff", "prompt"])
+    }
+
     @Test func installBuildsTheModelImmediatelyWhenAStoreIsAlreadyLive() async throws {
         let app = makeModel()
         await app.activate(try remote(app, "one"))
@@ -55,6 +66,7 @@ struct DetailFeatureTests {
         DetailFeature.install(app)
 
         #expect(DetailTabRegistry.tabs.filter { $0.id == "activity" }.count == 1)
+        #expect(DetailTabRegistry.tabs.filter { $0.id == "diff" }.count == 1)
         #expect(DetailFeature.model(app) === first)
         app.teardown()
     }
@@ -95,6 +107,28 @@ struct DetailFeatureTests {
         #expect(ActivityTabView.phase(for: .ready([])) == .empty(L.t("activity_empty")))
         let entry = ActivityEntry(ts: 1, tool: "Edit", summary: "did", status: .init(known: .ok))
         #expect(ActivityTabView.phase(for: .ready([entry])) == .content)
+    }
+
+    // MARK: - The diff tab's state mapping
+
+    @Test func theDiffPhaseMapsEveryLoadedState() {
+        #expect(DiffTabView.phase(for: .loading) == .loading)
+        #expect(DiffTabView.phase(for: .failed("nope")) == .failed("nope"))
+
+        let empty = DiffResult(
+            base: "main", baseRef: "origin/main", head: nil, fetchFailed: false, truncated: false,
+            files: [])
+        #expect(
+            DiffTabView.phase(for: .ready(.init(result: empty, notes: [])))
+                == .empty(L.t("diff_empty", "main")))
+
+        var withFile = empty
+        withFile.files = [
+            DiffFile(
+                path: "x.swift", status: .init(known: .modified), additions: 1, deletions: 0,
+                binary: false, patch: "@@ -1 +1 @@\n-a\n+b")
+        ]
+        #expect(DiffTabView.phase(for: .ready(.init(result: withFile, notes: []))) == .content)
     }
 
     @Test func theActivityTabHasNoModelToRenderBeforeInstall() async throws {

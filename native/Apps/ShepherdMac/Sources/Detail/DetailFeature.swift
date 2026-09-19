@@ -13,6 +13,7 @@ enum DetailFeature {
         // store, so every cache dies with the server it belongs to.
         app.register(DetailModel.self)
         DetailTabRegistry.register(ActivityTab())
+        DetailTabRegistry.register(DiffTab())
     }
 
     /// The model for the active store, or nil between activations. Every tab view starts here.
@@ -83,5 +84,18 @@ struct ActivityTab: DetailTab {
     func makeView(session: Session, store: SessionStore, app: AppModel) -> AnyView {
         guard let model = DetailFeature.model(app) else { return AnyView(EmptyView()) }
         return AnyView(ActivityTabView(session: session, model: model))
+    }
+}
+
+struct DiffTab: DetailTab {
+    let id = "diff"
+    var title: String { L.t("native_detail_tab_diff") }
+    let systemImage = "plusminus"
+    let order = 20
+
+    @MainActor
+    func makeView(session: Session, store: SessionStore, app: AppModel) -> AnyView {
+        guard let model = DetailFeature.model(app) else { return AnyView(EmptyView()) }
+        return AnyView(DiffTabView(session: session, model: model))
     }
 }

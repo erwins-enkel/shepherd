@@ -43,8 +43,12 @@ enum HerdLens: String, CaseIterable, Sendable {
 }
 
 /// The fourteen lifecycle stages of `stageOf` (`herd-partition.ts:48-62, 116-183`), declared in
-/// the web's render order (`STAGE_ORDER`, `:190-205`). Nine are decided by per-session git state,
-/// which stream S2 owns; until its classifier is injected they stay empty.
+/// the web's render order (`STAGE_ORDER`, `:190-205`). Eleven come from stream S2: ten through
+/// `stageOf`'s `gitStage` closure directly, and the eleventh, `reviewerRunning`, through the
+/// model's separate `inReview` predicate — the same one the Ready lens also tests on its own
+/// (`HerdPartition.shown`). Until S2's classifier and reviewer predicate are injected, all eleven
+/// stay empty. `merging` (`isMerging`), `ready` (`session.readyToMerge`) and the default `active`
+/// floor take no git input at all.
 enum HerdStage: String, CaseIterable, Sendable {
     case active, ciRunning, ciFailed, reviewerRunning, reworkRunning, needsRework
     case branchProtectionBlocked, waitingOnReviewer, waitingOnMerger, draftAwaitingSignoff
@@ -180,9 +184,10 @@ enum HerdPartition {
     /// `reviewerRunning` is deliberately not in `NOT_YOUR_TURN`. Without it a `readyToMerge`
     /// session whose review is still running would be listed as awaiting the operator when the
     /// reviewer has it. Stream S2 owns the classifier; until then nothing is under review.
+    @MainActor
     static func shown(
         _ sessions: [Session], lens: HerdLens, workingBlocked: [String: Bool], now: Int,
-        gitStage: (Session) -> HerdStage?, inReview: (Session) -> Bool
+        gitStage: @MainActor (Session) -> HerdStage?, inReview: @MainActor (Session) -> Bool
     ) -> [Session] {
         switch lens {
         case .next, .owed: return []
@@ -192,7 +197,8 @@ enum HerdPartition {
                 guard displayStatus(session, workingBlocked: workingBlocked).known != .running,
                     !inReview(session)
                 else { return false }
-                return !notYourTurn.contains(stageOf(session, now: now, gitStage: gitStage))
+                return !notYourTurn.contains(
+                    stageOf(session, now: now, gitStage: gitStage, inReview: inReview))
             }
         }
     }
@@ -204,17 +210,24 @@ enum HerdPartition {
     }
 
     /// `gitStage` is stream S2's classifier: it returns the stage for any git-decided case, or
-    /// `nil` when none applies.
+    /// `nil` when none applies. `inReview` is its "a critic run is in flight" predicate
+    /// (`isReviewing`, `herd-partition.ts:127`), which decides `reviewerRunning` directly rather
+    /// than through `gitStage` — the web's `stageOf` checks it as its own cascade branch, not as
+    /// part of the git snapshot.
     ///
-    /// It is NOT simply consulted first. The web's `terminalStage` (`herd-partition.ts:116-134`)
-    /// is one flat first-match cascade in which the two git-free checks are interleaved with the
+    /// Neither is simply consulted first. The web's `terminalStage` (`herd-partition.ts:116-134`)
+    /// is one flat first-match cascade in which the git-free checks are interleaved with the
     /// git-decided ones: `merged` then `merging` then the two rework/branch-protection stages then
     /// `readyToMerge` then `reviewerRunning`, `reworkRunning`, `ciRunning`, `ciFailed`, and the
     /// handoff stages last. So a `readyToMerge` session with CI still pending belongs under Ready,
-    /// not under CI. Ranking the candidates by `precedence` and taking the lowest reproduces that
-    /// cascade exactly, in whatever order the candidates happen to be produced.
+    /// not under CI, and one with a review in flight still belongs under Ready if it is also
+    /// `readyToMerge` — `readyToMerge` is checked first. Ranking the candidates by `precedence` and
+    /// taking the lowest reproduces that cascade exactly, in whatever order the candidates happen
+    /// to be produced.
+    @MainActor
     static func stageOf(
-        _ session: Session, now: Int, gitStage: (Session) -> HerdStage?
+        _ session: Session, now: Int, gitStage: @MainActor (Session) -> HerdStage?,
+        inReview: @MainActor (Session) -> Bool
     ) -> HerdStage {
         var best = HerdStage.active
         if let stage = gitStage(session), stage.precedence < best.precedence { best = stage }
@@ -222,16 +235,23 @@ enum HerdPartition {
             best = .merging
         }
         if session.readyToMerge, HerdStage.ready.precedence < best.precedence { best = .ready }
+        if inReview(session), HerdStage.reviewerRunning.precedence < best.precedence {
+            best = .reviewerRunning
+        }
         return best
     }
 
     /// Groups in `HerdStage`'s declaration order, which is the web's `STAGE_ORDER`; empties dropped.
+    @MainActor
     static func groups(
-        _ sessions: [Session], now: Int, gitStage: (Session) -> HerdStage?
+        _ sessions: [Session], now: Int, gitStage: @MainActor (Session) -> HerdStage?,
+        inReview: @MainActor (Session) -> Bool
     ) -> [HerdGroup] {
         var buckets: [HerdStage: [Session]] = [:]
         for session in sessions {
-            buckets[stageOf(session, now: now, gitStage: gitStage), default: []].append(session)
+            buckets[
+                stageOf(session, now: now, gitStage: gitStage, inReview: inReview), default: []
+            ].append(session)
         }
         return HerdStage.allCases.compactMap { stage in
             guard let rows = buckets[stage], !rows.isEmpty else { return nil }

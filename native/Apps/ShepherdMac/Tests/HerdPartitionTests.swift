@@ -8,8 +8,12 @@ import ShepherdKit
 @MainActor
 struct HerdPartitionTests {
     private let now = 1_800_000_000_000
-    private let noGit: (Session) -> HerdStage? = { _ in nil }
-    private let noReview: (Session) -> Bool = { _ in false }
+    // `@MainActor`, matching `HerdPartition`'s own parameter types (Medium fix: those closures are
+    // `@MainActor` now instead of the nonisolated type `SidebarModel` used to bridge into with
+    // `MainActor.assumeIsolated`) — a global-actor function type is implicitly `Sendable`, so this
+    // needs no separate annotation for that.
+    private let noGit: @MainActor (Session) -> HerdStage? = { _ in nil }
+    private let noReview: @MainActor (Session) -> Bool = { _ in false }
 
     private func session(
         _ id: String, repo: String = "/repos/a",
@@ -77,7 +81,9 @@ struct HerdPartitionTests {
             session("idle", status: SessionStatus(known: .idle)),
             session("blocked", status: SessionStatus(known: .blocked)),
         ]
-        func shown(_ wb: [String: Bool], _ git: @escaping (Session) -> HerdStage?) -> [String] {
+        func shown(_ wb: [String: Bool], _ git: @escaping @MainActor (Session) -> HerdStage?)
+            -> [String]
+        {
             HerdPartition.shown(
                 sessions, lens: .ready, workingBlocked: wb, now: now, gitStage: git,
                 inReview: noReview
@@ -137,8 +143,8 @@ struct HerdPartitionTests {
     /// `reworkRunning`, `ciRunning` and `ciFailed` — a green-but-pending PR that is ready to merge
     /// renders under Ready, not under CI. Only `merged` (`:121`) and `merging` (`:122`) outrank it.
     @Test func stagePrecedenceFollowsTheWebsFirstMatchCascade() {
-        func stage(_ s: Session, _ git: @escaping (Session) -> HerdStage?) -> HerdStage {
-            HerdPartition.stageOf(s, now: now, gitStage: git)
+        func stage(_ s: Session, _ git: @escaping @MainActor (Session) -> HerdStage?) -> HerdStage {
+            HerdPartition.stageOf(s, now: now, gitStage: git, inReview: noReview)
         }
         let ready = session("r", ready: true)
         #expect(stage(ready, { _ in .ciRunning }) == .ready, "ready outranks a pending CI run")
@@ -162,6 +168,30 @@ struct HerdPartitionTests {
         #expect(stage(session("q"), { _ in .ciRunning }) == .ciRunning)
     }
 
+    /// H2: `reviewerRunning` is decided by `inReview` directly, not by `gitStage` — the web's
+    /// `stageOf` checks `isReviewing(s.id)` as its own cascade branch (`herd-partition.ts:127`), so
+    /// a critic-run session must land in `reviewerRunning` even when `gitStage` returns `nil` for
+    /// it, and not fall through to `active`.
+    @Test func reviewerRunningComesFromInReviewNotFromGitStage() {
+        let plain = session("a")
+        #expect(
+            HerdPartition.stageOf(plain, now: now, gitStage: noGit, inReview: { _ in true })
+                == .reviewerRunning)
+        #expect(HerdPartition.stageOf(plain, now: now, gitStage: noGit, inReview: noReview) == .active)
+
+        // `readyToMerge` is checked earlier in the cascade (`:124` before `:127`) and still wins.
+        let ready = session("b", ready: true)
+        #expect(
+            HerdPartition.stageOf(ready, now: now, gitStage: noGit, inReview: { _ in true })
+                == .ready)
+
+        // A stage `gitStage` ranks above `reviewerRunning` (e.g. `needsRework`) still wins too.
+        #expect(
+            HerdPartition.stageOf(
+                plain, now: now, gitStage: { _ in .needsRework }, inReview: { _ in true })
+                == .needsRework)
+    }
+
     /// The rank is `STAGE_ORDER`-independent: `HerdStage.allCases` is the RENDER order, the
     /// cascade is the CLASSIFY order, and the two differ (active renders first but classifies
     /// last). A stage added to one without the other would tie here.
@@ -182,7 +212,7 @@ struct HerdPartitionTests {
                 session("ready", ready: true),
                 session("active"),
                 session("merging", mergingSince: now - 1_000),
-            ], now: now, gitStage: noGit)
+            ], now: now, gitStage: noGit, inReview: noReview)
         #expect(groups.map(\.stage) == [.active, .ready, .merging])
         #expect(groups.allSatisfy { !$0.sessions.isEmpty })
     }

@@ -136,14 +136,17 @@ keep relative statements only ("clears the 0.80 floor, holds the German buckets"
 knowingly. The second was chosen. **The same clause constrains how the eventual nightly drift eval
 reports** — that is now a standing constraint on the JEV leg, not a one-off.
 
-**This file takes the second option for itself, so that merging it does not pre-empt the decision.**
-Where our own measurements matter to an argument here — §2.1, §5.3 — they appear as relative
-statements ("abstains came back more confident than the correct calls", "reaches parity at
-0.40–0.60") and the figures are left in `docs/eval-stop-classifier.md`, whose fate the decision
-governs. Third-party numbers published by other people about their own runs are cited as-is and
-attributed; they are not measurements from this account, and they are the evidence the scan exists to
-report. If the decision comes out the other way, this file needs no edit — only #2364's three
-locations do.
+**This file was drafted to that standard before the decision was taken**, so it needed no redaction
+of its own when #2371 landed. Where our own measurements matter to an argument here — §2.1, §5.3 —
+they appear as relative statements ("abstains came back more confident than the correct calls",
+"reaches parity at 0.40–0.60"). Third-party numbers published by other people about their own runs
+are cited as-is and attributed: they are not measurements from this account, and they are the
+evidence the scan exists to report.
+
+One surface the redaction initially missed, worth recording because it is the general lesson:
+**issues and pull-request bodies on a public repo are published too.** #2369 carried the full
+results table and was amended after the fact. Anything that states the JEV figures — not just files
+under `docs/` — is in scope for this clause.
 
 ---
 

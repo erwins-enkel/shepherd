@@ -129,8 +129,27 @@ struct MainWindow: View {
         .accessibilityIdentifier("session-sidebar")
     }
 
+    /// The connection-level banner, or `nil` when there is nothing to say.
+    /// Both `store.connection` and `store.lastError` are `@Observable`-tracked,
+    /// so SwiftUI re-evaluates this on its own whenever either moves.
+    private var bannerKind: BannerKind? {
+        guard let store = model.store, let profile = model.activeProfile else { return nil }
+        return BannerPolicy.kind(
+            for: store.connection,
+            lastError: store.lastError,
+            serverName: profile.name,
+            serverVersion: model.serverVersion,
+            appVersion: model.appVersion,
+            minClient: model.serverMinClient)
+    }
+
     private var detail: some View {
         VStack(spacing: 0) {
+            // Above the command notice: the banner is about the connection the
+            // whole window depends on, the notice about one command that failed.
+            if let kind = bannerKind {
+                ConnectionBanner(kind: kind) { Task { await model.retryActive() } }
+            }
             if let message = command.message {
                 NoticeBar(message: message) { command.clear() }
             }

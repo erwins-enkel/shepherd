@@ -106,6 +106,12 @@ final class AppModel {
     private(set) var profiles: [ServerProfile] = []
     private(set) var activeProfile: ServerProfile?
     private(set) var store: SessionStore?
+    /// What `GET /api/health` last reported for the active profile, or `nil`
+    /// while it is unknown — no activation yet, or a health call that failed.
+    /// The banner compares them against `appVersion`; an unknown server version
+    /// deliberately shows no version banner at all.
+    private(set) var serverVersion: String?
+    private(set) var serverMinClient: String?
     /// The one sheet over everything, written by the views and by routing.
     ///
     /// Hand-written accessors — the `@Observable` "manually track changes"
@@ -173,11 +179,21 @@ final class AppModel {
     var logout: @MainActor (ServerProfile, any CredentialStore) async throws -> Void = {
         try await ProfileSetup.logout(profile: $0, credentials: $1)
     }
+    /// The health call, behind the same seam, so a test can stub the round-trip
+    /// or hold it open. Takes the store's own client rather than building a
+    /// second one: `/api/health` is the one route with `security: []`, so the
+    /// authenticated client answers it whether or not a token exists yet.
+    @ObservationIgnored
+    var health: @MainActor (ShepherdClient) async throws -> Health = { try await $0.health() }
 
     @ObservationIgnored private let persistence: ProfileStore
     @ObservationIgnored private let credentials: any CredentialStore
     /// Runs `SessionStore.start()` — bootstrap plus the event loop.
     @ObservationIgnored private var storeRunner: Task<Void, Never>?
+    /// Runs the activation's first `refreshHealth()`. Its own task, not a step
+    /// inside `activate(_:)` or `storeRunner`: a health call that hangs must
+    /// delay neither the caller of `activate(_:)` nor the store's bootstrap.
+    @ObservationIgnored private var healthRunner: Task<Void, Never>?
     /// Watches `SessionStore.connection` and routes sheets off it.
     @ObservationIgnored private var connectionWatcher: Task<Void, Never>?
     /// The live activation's connection source and the profile it belongs to,
@@ -315,12 +331,18 @@ final class AppModel {
         watchedProfile = nil
         storeRunner?.cancel()
         storeRunner = nil
+        healthRunner?.cancel()
+        healthRunner = nil
         // A stopped SessionStore cannot be restarted — the kit is explicit that
         // an app builds a fresh one per activation, which is what happens below.
         store?.stop()
 
         activeProfile = profile
         selectedSessionID = nil
+        // The versions belong to the server being left; carried over, the banner
+        // would compare this app against a server it is no longer talking to.
+        serverVersion = nil
+        serverMinClient = nil
         // The warning names the profile being left; carried over, it would tell
         // the operator that the server they are now signed in to failed to sign
         // them out.
@@ -373,6 +395,41 @@ final class AppModel {
             guard self != nil, let store else { return }
             await store.start()
         }
+        healthRunner = Task { @MainActor [weak self] in await self?.refreshHealth() }
+    }
+
+    /// GET /api/health so the version banner has both numbers to compare.
+    ///
+    /// Never throws: an unreachable or unparsable health route simply leaves the
+    /// versions unknown, which is exactly the state in which the banner says
+    /// "cannot reach this server" rather than anything about versions.
+    func refreshHealth() async {
+        guard let store else { return }
+        do {
+            let reported = try await self.health(store.client)
+            // The operator may have switched servers — or left entirely — while
+            // this was in flight. A version that belongs to a store the app has
+            // moved on from must not reach the banner.
+            guard store === self.store else {
+                Log.connect.debug("dropping a health result for a store that is no longer active")
+                return
+            }
+            serverVersion = reported.version
+            serverMinClient = reported.minClient
+        } catch {
+            Log.connect.debug(
+                "health check failed: \(ShepherdErrorCopy.message(error), privacy: .public)")
+        }
+    }
+
+    /// Banner "Retry": reload the store and re-check health. `refresh()` throws,
+    /// and its failure is already recorded in `store.lastError` and
+    /// `connection`, so there is nothing for this method to do with it.
+    func retryActive() async {
+        guard let store else { return }
+        try? await store.refresh()
+        guard store === self.store else { return }
+        await refreshHealth()
     }
 
     func signIn(profile: ServerProfile, password: String) async throws {
@@ -618,10 +675,14 @@ final class AppModel {
         watchedProfile = nil
         storeRunner?.cancel()
         storeRunner = nil
+        healthRunner?.cancel()
+        healthRunner = nil
         // stop() also publishes `connection = .idle`, which releases the
         // watcher's continuation so the cancelled task can actually finish.
         store?.stop()
         store = nil
+        serverVersion = nil
+        serverMinClient = nil
         activeProfile = nil
         sheet = nil
         selectedSessionID = nil

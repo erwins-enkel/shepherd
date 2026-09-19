@@ -16,6 +16,11 @@ settings:
     SWIFT_STRICT_CONCURRENCY: complete
     SWIFT_UPCOMING_FEATURE_EXISTENTIAL_ANY: YES
     CODE_SIGN_STYLE: Manual
+    # Ad-hoc is the default, and what CI builds with. A local build overrides
+    # both of these on the xcodebuild command line when a stable self-signed
+    # identity is installed — see native/scripts/codesign-mode.sh and
+    # native/scripts/dev-signing-identity.sh. Nothing here needs to change for
+    # that, so CI keeps producing the ad-hoc bundle its signature check expects.
     CODE_SIGN_IDENTITY: "-"
     CODE_SIGNING_REQUIRED: YES
     CODE_SIGNING_ALLOWED: YES

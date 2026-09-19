@@ -31,6 +31,7 @@ import {
   type Operation,
   type ResponseDecl,
 } from "./harness";
+import { operationTemplate, streamOwnedEvents, streamOwnedPaths } from "./stream-blocks";
 
 let s: ContractServer;
 let cookie: string;
@@ -564,11 +565,27 @@ describe("unauthenticated sweep", () => {
 // The coverage gate stays the LAST describe in this file for the whole plan; every later
 // contract area adds its describe above it.
 describe("coverage gate", () => {
-  test("every declared operation and event was exercised", () => {
-    const { operations, events } = coverage();
-    const missingOps = declaredOperations().filter((o) => !operations.has(o));
-    const missingEvents = declaredEvents().filter((e) => !events.has(e));
+  // Block-aware. A path inside a `# ── stream: … ──` block belongs to the stream that
+  // added it, and its fixtures live in that stream's own test/contract/<stream>.test.ts.
+  // Bun runs test files in filesystem order, so this gate can run BEFORE those files —
+  // policing their paths here would fail every stream branch the day it adds a route.
+  // Each stream file ends with its own gate over operationsForStream(<name>).
+  test("every declared operation outside a stream block was exercised", () => {
+    const { operations } = coverage();
+    const owned = streamOwnedPaths();
+    const missingOps = declaredOperations().filter(
+      (o) => !owned.has(operationTemplate(o)) && !operations.has(o),
+    );
     expect(missingOps).toEqual([]);
-    expect(missingEvents).toEqual([]);
+  });
+
+  // Block-aware for the same reason, and with the same split: `x-shepherd-events` carries
+  // a third marked block per stream, and an event declared inside one is covered by that
+  // stream's own test/contract/<stream>.test.ts — which ends with a gate over
+  // eventsForStream(<name>) — not here, because Bun's file order may put this file first.
+  test("every declared event outside a stream block was exercised", () => {
+    const { events } = coverage();
+    const owned = streamOwnedEvents();
+    expect(declaredEvents().filter((e) => !owned.has(e) && !events.has(e))).toEqual([]);
   });
 });

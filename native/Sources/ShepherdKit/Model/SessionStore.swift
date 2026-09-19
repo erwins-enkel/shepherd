@@ -74,7 +74,12 @@ public final class SessionStore {
   /// hand-driven `start()` has returned (a store built with `events: nil`
   /// bootstraps and returns), and in the second case a 401 on a later command
   /// still has to reach `connection`.
-  @ObservationIgnored private var stopped = false
+  ///
+  /// Not `private`: `SessionStore+EventTap.swift` reads it too, to refuse a
+  /// tap on a store that already finished every continuation in `stop()` —
+  /// registering one afterward would hand out a stream nothing ever broadcasts
+  /// to or finishes, hanging the caller's `for await` forever.
+  @ObservationIgnored var stopped = false
   /// The delay the *next* bootstrap retry will sleep for. Starts at
   /// `reconnectDelay`, doubles (capped at `maxReconnectDelay`) after every
   /// bootstrap attempt that fails, and resets to `reconnectDelay` once one
@@ -88,6 +93,14 @@ public final class SessionStore {
   /// is reached through a main-actor-isolated accessor, which a `deinit` may
   /// not call.
   @ObservationIgnored private var consumer: Task<Void, Never>?
+  /// Live event taps, keyed by the id `events()` handed out.
+  ///
+  /// Not `private`: `SessionStore+EventTap.swift` is a different file and owns
+  /// every write to this. One continuation per `events()` call, so several
+  /// streams can each consume every frame without competing for elements the
+  /// way a single shared `AsyncStream` would.
+  @ObservationIgnored
+  var eventTaps: [UUID: AsyncStream<ServerEvent>.Continuation] = [:]
   /// The task following `EventStream.lifecycle()`. Separate from `consumer`
   /// because the two streams move independently: frames keep arriving on a
   /// healthy socket while nothing happens on the lifecycle stream, and a
@@ -277,6 +290,9 @@ public final class SessionStore {
     // Assigned rather than published: `stopped` is already true, and `.idle`
     // is the one state that outranks the gate.
     connection = .idle
+    // A tap must not outlive the store it reads from: finishing the
+    // continuations ends every consumer's `for await`.
+    finishEventTaps()
   }
 
   /// A store that goes out of scope while it is running must not leave a live
@@ -556,9 +572,15 @@ public final class SessionStore {
       autoMerge[status.repoPath] = status
     case .usageLimits(let limits):
       usageLimits = limits
-    case .unknown(let name):
+    case .unknown(let name, _):
       ShepherdLog.store.debug("ignoring event \(name, privacy: .public)")
     }
+
+    // Every frame the store applies, decoded or not, reaches the taps here —
+    // AFTER the switch above has mutated state, structurally: a tap consumer
+    // that reads `sessions` (or any other published property) the moment it
+    // receives this event sees state that already includes it.
+    broadcast(event)
   }
 
   /// Append on `session:new`, ignoring a duplicate id — a push can race the

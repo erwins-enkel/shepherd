@@ -4,7 +4,17 @@
 set -euo pipefail
 
 CONFIG="${1:-Release}"
-APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../Apps/ShepherdMac" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+APP_DIR="$(cd "$SCRIPT_DIR/../Apps/ShepherdMac" && pwd)"
+
+# Fills CODESIGN_ARGS and prints which signing mode this machine uses.
+# shellcheck source=native/scripts/codesign-mode.sh
+. "$SCRIPT_DIR/codesign-mode.sh"
+shepherd_codesign_args
+# Unlocks the dev signing keychain, or stops right here. It is a no-op unless
+# that identity was the one chosen above; when it WAS chosen and cannot be
+# unlocked, failing now beats letting codesign hang on a password dialog.
+shepherd_unlock_signing_keychain || exit 1
 
 command -v xcodegen >/dev/null 2>&1 || {
   echo "xcodegen not found. Install it with: brew install xcodegen" >&2
@@ -23,6 +33,7 @@ xcodebuild \
   -destination 'platform=macOS' \
   -derivedDataPath .build \
   -skipPackagePluginValidation \
+  "${CODESIGN_ARGS[@]+"${CODESIGN_ARGS[@]}"}" \
   build
 
 echo

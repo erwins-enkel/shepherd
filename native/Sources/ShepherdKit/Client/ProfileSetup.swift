@@ -18,8 +18,14 @@ public enum ProfileSetup {
   /// that is what the server's `normalizeTokenName` counts via JavaScript's
   /// `.length`: a Mac named with an emoji would otherwise pass a
   /// 64-character name the server reads as longer.
-  public static func tokenName(hostName: String = ProcessInfo.processInfo.hostName) -> String {
-    let prefix = "Shepherd for Mac ("
+  ///
+  /// - Parameter prefix: An isolated UI-test launch passes a different one
+  ///   — `"Shepherd UI test ("` — so its throwaway tokens never share a name
+  ///   with an operator's real one, and can be told apart and swept by name.
+  public static func tokenName(
+    prefix: String = "Shepherd for Mac (",
+    hostName: String = ProcessInfo.processInfo.hostName
+  ) -> String {
     let budget = maxTokenNameLength - prefix.utf16.count - 1  // the closing paren
     var host = hostName
     while host.utf16.count > budget { host.removeLast() }
@@ -29,6 +35,15 @@ public enum ProfileSetup {
   /// Logs in with `password`, mints a full-scope token that never expires,
   /// stores it under `profile.credentialKey`, and discards the cookie.
   ///
+  /// - Parameter tokenName: the name the mint call gives the token. Defaults
+  ///   to `tokenName()` — `"Shepherd for Mac (<host>)"` — which is what every
+  ///   real sign-in should keep using; an isolated UI-test launch passes its
+  ///   own fixed name instead.
+  /// - Parameter sweepPriorTokensNamed: when non-nil, revokes every existing
+  ///   token with exactly this name before minting — see `sweepTokens(named:
+  ///   client:)`. `nil` (the default) skips the sweep entirely, which is what
+  ///   every real sign-in should keep doing: nothing here may touch an
+  ///   operator's other tokens.
   /// - Parameter urlSessionFactory: injected so tests can hand back a session
   ///   wired to `FakeShepherdServer`. Production passes the default, which
   ///   builds a session from the ephemeral configuration below.
@@ -38,6 +53,8 @@ public enum ProfileSetup {
     profile: ServerProfile,
     password: String,
     credentials: any CredentialStore,
+    tokenName: String = tokenName(),
+    sweepPriorTokensNamed: String? = nil,
     urlSessionFactory: @Sendable (URLSessionConfiguration) -> URLSession = {
       URLSession(configuration: $0)
     }
@@ -77,10 +94,14 @@ public enum ProfileSetup {
       }
     } catch { throw ShepherdError.from(error, route: "login") }
 
+    if let sweepName = sweepPriorTokensNamed {
+      await sweepTokens(named: sweepName, client: client)
+    }
+
     let minted: Components.Schemas.AccessTokenMinted
     do {
       let request = Components.Schemas.AccessTokenMintRequest(
-        name: tokenName(), expiresInDays: nil, scope: .full)
+        name: tokenName, expiresInDays: nil, scope: .full)
       switch try await client.mintAccessToken(.init(body: .json(request))) {
       case .created(let created): minted = try created.body.json
       case .badRequest(let bad): throw ShepherdError.badRequest(try bad.body.json.error)
@@ -108,6 +129,37 @@ public enum ProfileSetup {
     ShepherdLog.client.notice(
       "minted an access token for \(validated.name, privacy: .public)")
     return credential
+  }
+
+  /// Best-effort cleanup for a caller that mints under a fixed, repeatable
+  /// name — an isolated UI-test launch mints `"Shepherd UI test (<host>)"`
+  /// on every run. Revokes every existing token named exactly `name` before
+  /// `login` mints a fresh one, so a server the tests run against does not
+  /// accumulate one live token per run forever.
+  ///
+  /// Rides the cookie session `login` above just opened: `GET
+  /// /api/access-tokens` is cookieAuth-only, like the mint call, so this is
+  /// the only window in which it can run at all — there is no bearer token
+  /// yet, and the one this call mints belongs to the *next* run.
+  ///
+  /// Never throws and never blocks the mint that follows: a server that
+  /// cannot be listed or a token that cannot be revoked leaves the stale
+  /// entries in place rather than failing the sign-in this sweep is a
+  /// courtesy to.
+  private static func sweepTokens(named name: String, client: Client) async {
+    do {
+      switch try await client.listAccessTokens(.init()) {
+      case .ok(let ok):
+        for entry in try ok.body.json.tokens where entry.name == name {
+          _ = try? await client.revokeAccessToken(.init(path: .init(id: entry.id)))
+        }
+      case .unauthorized, .forbidden, .undocumented:
+        break
+      }
+    } catch {
+      ShepherdLog.client.notice(
+        "could not sweep prior tokens sharing the incoming name; leaving them in place")
+    }
   }
 
   /// Attempts to revoke the stored token, and always clears the local entry.

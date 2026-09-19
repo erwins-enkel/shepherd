@@ -3,6 +3,31 @@ import Testing
 import ShepherdKit
 @testable import Shepherd
 
+/// `Sendable` gate for the model's injected seams (`probeExternal`, `health`),
+/// which are `@Sendable` closures and so cannot hold a main-actor `Gate`
+/// (pattern: AppModelTests.swift's `Gate`/`ProbeHold`, kept local to this file
+/// rather than reaching across test files). `isWaiting` lets a test poll until
+/// the parked call has actually reached the gate before it moves on, instead
+/// of guessing with a fixed number of yields.
+actor LocalServerGate {
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var opened = false
+    private(set) var isWaiting = false
+
+    func wait() async {
+        if opened { return }
+        isWaiting = true
+        await withCheckedContinuation { continuation = $0 }
+    }
+
+    func open() {
+        opened = true
+        isWaiting = false
+        continuation?.resume()
+        continuation = nil
+    }
+}
+
 @Suite(.serialized) @MainActor struct LocalServerModelTests {
     private func tempHome() throws -> URL {
         let url = URL(fileURLWithPath: NSTemporaryDirectory())
@@ -29,6 +54,44 @@ import ShepherdKit
         let defaults = UserDefaults(suiteName: suite)!
         defaults.removePersistentDomain(forName: suite)
         return AppModel(defaults: defaults, credentials: InMemoryCredentialStore())
+    }
+
+    /// Writes a `/bin/sh` script under `dir` that sleeps, optionally printing
+    /// the operator-password boot line first — but only on its *first* run
+    /// (a marker file gates it), mirroring a real `bun run src/index.ts`,
+    /// which mints a password once on a fresh install and never reprints it on
+    /// a later restart. Touches no bun, install.sh or real Shepherd server —
+    /// pattern: `fakeScript` in `LocalServerSupervisorTests.swift`, duplicated
+    /// locally because that helper lives in the `ShepherdKitTests` target.
+    private func fakeScript(in dir: URL, emitPasswordOnce: Bool) throws -> LocalServerLaunch {
+        let marker = dir.appendingPathComponent("password-shown")
+        let script = dir.appendingPathComponent("fake.sh")
+        let passwordLine = emitPasswordOnce
+            ? """
+              if [ ! -f '\(marker.path)' ]; then
+                echo 'Operator password (shown ONCE): abcdefghijklmnopqrstuvwxyz012345'
+                touch '\(marker.path)'
+              fi
+              """
+            : ""
+        let body = "#!/bin/sh\n\(passwordLine)\nsleep 100\n"
+        try body.write(to: script, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+        return LocalServerLaunch(
+            executable: URL(fileURLWithPath: "/bin/sh"), arguments: [script.path],
+            workingDirectory: dir, environment: ["PATH": "/usr/bin:/bin"])
+    }
+
+    /// Yields until `condition` holds or the budget runs out. Everything under
+    /// test here is main-actor work a yield lets run, so there is nothing to
+    /// sleep for. Pattern: `settle` in AppModelTests.swift, kept local since
+    /// that one is `private` to its own file.
+    private func settle(until condition: () -> Bool, yields: Int = 500) async -> Bool {
+        for _ in 0..<yields {
+            if condition() { return true }
+            await Task.yield()
+        }
+        return condition()
     }
 
     @Test func aMissingCheckoutReadsAsNotInstalled() async throws {
@@ -94,5 +157,149 @@ import ShepherdKit
         LocalServerFeature.install()
         #expect(WelcomeSlots.localPanel != nil)
         WelcomeSlots.reset()
+    }
+
+    // MARK: - Review fixes (H1, H2, Medium — see task-7-report.md)
+
+    /// H1: a `restart()` that mints no new password used to re-copy the
+    /// *already consumed* one back into `capturedPassword`, because `act()`
+    /// read the supervisor's copy without ever clearing it — so it sat there
+    /// to be re-read by every later action, `connect()`'s own
+    /// `capturedPassword = nil` notwithstanding.
+    @Test func restartDoesNotResurrectAPasswordAlreadyHandedToConnect() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let launch = try fakeScript(in: home, emitPasswordOnce: true)
+        let app = freshApp()
+        let model = LocalServerModel(
+            environment: LocalServerEnvironment(home: home),
+            probeExternal: { false },
+            // A small delay, not an instant `true`: the boot line reaches
+            // `capturedPassword` through the supervisor's output pump, a
+            // concurrent `Task` racing this closure. A real health check hits
+            // a network round trip and loses that race in practice; an
+            // instant stub here would not. `act()` reads `capturedPassword`
+            // exactly once, right after `start()` returns — pattern:
+            // `theGeneratedPasswordIsCapturedAndRedacted` in
+            // LocalServerSupervisorTests.swift, which polls with `waitUntil`
+            // for the same reason.
+            health: { try? await Task.sleep(for: .milliseconds(50)); return true },
+            launch: { launch })
+
+        await model.start()
+        #expect(model.capturedPassword != nil)
+
+        model.connect(app)
+        #expect(model.capturedPassword == nil)
+
+        await model.restart()
+        #expect(model.capturedPassword == nil)
+        guard case .running = model.state else {
+            Issue.record("expected .running after restart, got \(model.state)")
+            return
+        }
+    }
+
+    /// H2: `install()`/`start()`/`stop()`/`restart()`/`act()` had no seam a
+    /// unit test could drive — `init` hardcoded a real `LocalServerSupervisor`
+    /// wired to the production `health`/`launch` closures. `health` is now
+    /// gated so this test can observe `busy` while the transition is
+    /// genuinely in flight, not just before and after.
+    @Test func startKeepsBusyTrueUntilHealthResolvesThenTransitionsToRunning() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let launch = try fakeScript(in: home, emitPasswordOnce: false)
+        let gate = LocalServerGate()
+        let model = LocalServerModel(
+            environment: LocalServerEnvironment(home: home),
+            probeExternal: { false },
+            health: { await gate.wait(); return true },
+            launch: { launch })
+
+        #expect(model.busy == false)
+        let task = Task { await model.start() }
+        #expect(await settle(until: { model.busy }))
+        #expect(model.canStart == false)  // every action is gated while busy
+        #expect(model.canInstall == false)
+
+        await gate.open()
+        await task.value
+
+        #expect(model.busy == false)
+        guard case .running = model.state else {
+            Issue.record("expected .running, got \(model.state)")
+            return
+        }
+
+        await model.stop()
+        #expect(model.state == .stopped)
+        #expect(model.busy == false)
+    }
+
+    /// H2, continued: a second `start()` racing the first must be a no-op —
+    /// the busy guard, not the supervisor's own lifecycle gate, is what this
+    /// model-level test exercises.
+    @Test func aSecondStartWhileBusyIsANoOp() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let launch = try fakeScript(in: home, emitPasswordOnce: false)
+        let gate = LocalServerGate()
+        let model = LocalServerModel(
+            environment: LocalServerEnvironment(home: home),
+            probeExternal: { false },
+            health: { await gate.wait(); return true },
+            launch: { launch })
+
+        let first = Task { await model.start() }
+        #expect(await settle(until: { model.busy }))
+
+        await model.start()  // parked behind `guard !busy else { return }`
+        if case .running = model.state {
+            Issue.record("a second start() while busy must not itself resolve to .running")
+        }
+
+        await gate.open()
+        await first.value
+        guard case .running = model.state else {
+            Issue.record("expected .running once the first start() completed, got \(model.state)")
+            return
+        }
+    }
+
+    /// Medium: `refresh()` used to write `state` unconditionally, so a refresh
+    /// still in flight when `start()` landed and finished could resume
+    /// afterwards and stomp the newer `.running` state back down to whatever
+    /// the probe/supervisor reported before `start()` ran.
+    @Test func aStaleRefreshCannotOverwriteANewerStartedState() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let launch = try fakeScript(in: home, emitPasswordOnce: false)
+        let gate = LocalServerGate()
+        let model = LocalServerModel(
+            environment: LocalServerEnvironment(home: home),
+            // Nothing is running yet when this refresh starts, so it falls
+            // through to the loopback probe — held open here so the refresh
+            // is still in flight once `start()` below has already finished.
+            probeExternal: { await gate.wait(); return false },
+            health: { true },
+            launch: { launch })
+
+        let refreshTask = Task { await model.refresh() }
+        var parked = false
+        for _ in 0..<500 {
+            if await gate.isWaiting { parked = true; break }
+            await Task.yield()
+        }
+        #expect(parked)  // the refresh is parked in the probe, not resolved yet
+
+        await model.start()
+        guard case .running = model.state else {
+            Issue.record("expected .running before the stale refresh resumes, got \(model.state)")
+            return
+        }
+
+        await gate.open()
+        await refreshTask.value
+
+        guard case .running = model.state else {
+            Issue.record("a stale refresh overwrote the running state with \(model.state)")
+            return
+        }
     }
 }

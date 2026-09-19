@@ -1,5 +1,6 @@
 import { Database, type SQLQueryBindings } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
+import { RELEVANCE_DROP_BELOW } from "./house-rules-relevance";
 import type {
   BlockJudgeLogRow,
   Session,
@@ -1618,6 +1619,24 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     this.db.run(`CREATE TABLE IF NOT EXISTS session_injected_learnings (
       sessionId TEXT NOT NULL, learningId TEXT NOT NULL,
       PRIMARY KEY (sessionId, learningId))`);
+    // Relevance verdicts (#2376): what the judge said about each candidate rule for one session.
+    // `applied` separates a verdict that actually gated injection (enforce) from one that only
+    // observed (shadow), so a mode flip does not retroactively re-read the history.
+    //
+    // NO foreign key, for the same reason as the row above (written at argv assembly, before the
+    // sessions row exists) — and, unlike it, these rows must OUTLIVE the session twice over:
+    // `takeSessionInjectedLearnings` deletes its rows at archive, and `pruneSessions` deletes the
+    // sessions row itself. Neither may take a durable per-rule statistic with it, so this table is
+    // deliberately absent from that cascade (same standing as `delivery_facts` and
+    // `post_merge_steps` — do not "tidy" it in). `pruneLearningRelevance` is therefore the ONLY
+    // thing that ever removes one, on its own age window.
+    this.db.run(`CREATE TABLE IF NOT EXISTS learning_relevance (
+      sessionId TEXT NOT NULL, learningId TEXT NOT NULL,
+      p REAL NOT NULL, applied INTEGER NOT NULL, judgedAt INTEGER NOT NULL,
+      PRIMARY KEY (sessionId, learningId))`);
+    this.db.run(
+      `CREATE INDEX IF NOT EXISTS idx_learning_relevance_learning ON learning_relevance (learningId)`,
+    );
     // Phase 4 background merge-suggestions (#843). kind='intra': repoPath+targetId set,
     // repoPaths NULL. kind='cross': repoPath/targetId NULL, repoPaths set. signature is a
     // hash of the sorted member rule ids only (never text) for dedupe.
@@ -4718,6 +4737,60 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       }
     ).c;
     this.db.run(`DELETE FROM block_judge_log WHERE ts < ?`, [beforeTs]);
+    return n;
+  }
+
+  // ── house-rule relevance verdicts (issue #2376) ──────────────────────────────
+  /** Record one session's relevance verdicts. Idempotent per (session, rule); empty → no-op.
+   *  `applied` is false in shadow mode, where the verdict was observed but did not gate. */
+  recordLearningRelevance(
+    sessionId: string,
+    verdicts: readonly { learningId: string; p: number; relevant: boolean }[],
+    opts: { applied: boolean; at: number },
+  ): void {
+    if (verdicts.length === 0) return;
+    this.db.transaction(() => {
+      for (const v of verdicts) {
+        this.db.run(
+          `INSERT INTO learning_relevance (sessionId, learningId, p, applied, judgedAt)
+           VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(sessionId, learningId) DO UPDATE SET
+             p = excluded.p, applied = excluded.applied, judgedAt = excluded.judgedAt`,
+          [sessionId, v.learningId, v.p, opts.applied ? 1 : 0, opts.at],
+        );
+      }
+    })();
+  }
+
+  /** Per-rule verdict tallies for one repo's rules: how many sessions the rule was judged for, and
+   *  in how many of those the request was judged relevant to it. Rules with no verdict are absent,
+   *  so a caller defaults them to zero. */
+  learningRelevanceStats(repoPath: string): Map<string, { judged: number; relevant: number }> {
+    const rows = this.db
+      .query(
+        `SELECT r.learningId AS learningId, COUNT(*) AS judged,
+                SUM(CASE WHEN r.p >= ? THEN 1 ELSE 0 END) AS relevant
+           FROM learning_relevance r
+           JOIN learnings l ON l.id = r.learningId
+          WHERE l.repoPath = ?
+          GROUP BY r.learningId`,
+      )
+      .all(RELEVANCE_DROP_BELOW, repoPath) as {
+      learningId: string;
+      judged: number;
+      relevant: number;
+    }[];
+    return new Map(rows.map((r) => [r.learningId, { judged: r.judged, relevant: r.relevant }]));
+  }
+
+  /** Drop verdict rows judged before `beforeTs`. Returns the count removed. */
+  pruneLearningRelevance(beforeTs: number): number {
+    const n = (
+      this.db
+        .query(`SELECT COUNT(*) AS c FROM learning_relevance WHERE judgedAt < ?`)
+        .get(beforeTs) as { c: number }
+    ).c;
+    this.db.run(`DELETE FROM learning_relevance WHERE judgedAt < ?`, [beforeTs]);
     return n;
   }
 

@@ -121,6 +121,7 @@ import { classifyStop } from "./autopilot-llm";
 import { createTypeSafeJudge } from "./judge-typesafe";
 import { JudgeSpendLedger, dayKeyBefore } from "./judge-spend";
 import { BlockBackstop } from "./block-backstop";
+import { isRelevanceMode } from "./house-rules-relevance";
 import { tailLines } from "./blocked";
 import { recommendPrompt, RECOMMEND_LABEL } from "./prompt-recommend";
 import { shapeTask, SHAPE_LABEL } from "./task-shape";
@@ -439,6 +440,10 @@ const savedJudgeUsd = store.getSetting("judgeDailyUsd");
 // handler's, so a hand-edited row cannot widen the runaway guard past what the UI allows.
 if (savedJudgeUsd !== null && savedJudgeUsd.trim() !== "" && Number.isFinite(Number(savedJudgeUsd)))
   config.judgeDailyUsd = Math.min(1000, Math.max(0, Number(savedJudgeUsd)));
+// House-rule relevance (#2376): same rule — the persisted mode wins over the env seed, and an
+// unrecognised stored value keeps the default rather than arming something unreadable.
+const savedRelevance = store.getSetting("houseRuleRelevance");
+if (isRelevanceMode(savedRelevance)) config.houseRuleRelevance = savedRelevance;
 // a UI-chosen auth mode (persisted) overrides the env seed; absent or unrecognised → keep default.
 const savedAm = store.getSetting("authMode");
 if (savedAm !== null) {
@@ -825,6 +830,11 @@ const service = new SessionService({
   // build their own argv and bypass pushModelFlag, so they are not downgraded. See pushModelFlag in
   // service.ts + roleEnv below.
   usageDowngrade: () => usageDowngradeModel(),
+  // #2376: both thunks — the judge client and its ledger are built much further down this file, so
+  // the deps cannot capture the values, and reading them per spawn is what lets the Settings toggle
+  // take effect on the next session instead of at the next restart.
+  judge: () => armedJudge(),
+  judgeSpend: () => judgeSpend,
   detectEgressHostLoopback,
   namer: generateName,
   refineName: config.llmNaming
@@ -2153,6 +2163,12 @@ if (judgeClient) {
 } else if (config.judgeEnabled) {
   console.warn("[judge] SHEPHERD_JUDGE is on but no JEV_API_KEY is set — the judge stays unarmed.");
 }
+if (config.houseRuleRelevance !== "off") {
+  const armed = judgeClient !== null && config.judgeEnabled;
+  console.log(
+    `[house-rules] relevance gate ${config.houseRuleRelevance}${armed ? "" : " — INERT, the judge is not armed"}`,
+  );
+}
 
 // The judge BEHIND blocked.ts's regexes (#2375). Built whenever a key exists and gated on its own
 // mode, read live per block: deliberately independent of `judgeEnabled`, since coupling the two
@@ -2869,6 +2885,10 @@ const runDailySweep = (opts?: { skipTmpSweep?: boolean }) => {
   // Reclaim session_injected_learnings rows for sessions that vanished without archive()
   // (force-removed/crashed) — archive() consumes the rest.
   store.pruneOrphanInjectedLearnings();
+  // Relevance verdicts (#2376) deliberately outlive their session — they are the per-rule statistic
+  // the drawer reads, so they are NOT cascaded by the sessions prune (same standing as
+  // delivery_facts). That makes this age sweep the only thing that ever removes one.
+  store.pruneLearningRelevance(Date.now() - config.relevanceRetentionDays * 86_400_000);
   // Skip on the boot-time run: fireTmpSweep("boot") already ran the fallow/worktree
   // sweep seconds earlier, so re-running it here only duplicates the work (and the log).
   if (!opts?.skipTmpSweep) fireTmpSweep("daily");

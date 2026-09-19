@@ -49,8 +49,16 @@ export interface HouseRulesPlan {
   injected: Learning[]; // priority order, fit within budget (Always-rules first, then matched-scoped)
   dropped: Learning[]; // candidates over budget, priority order
   scoped: Learning[]; // scope-gated: have globs but no target path matched (NOT over budget)
+  judgedOut: Learning[]; // relevance-gated (#2376): a candidate the judge found irrelevant (NOT over budget)
   budgetChars: number;
   usedChars: number; // exact rendered length of the block (XML tag + intro + bullets)
+}
+
+export interface HouseRulesPlanOptions {
+  /** Ids the relevance judge ruled out for THIS session (#2376). Members are moved to
+   *  {@link HouseRulesPlan.judgedOut}: never injected, never counted against the budget — the same
+   *  treatment scope-gated rules get. Omitted/empty ⇒ the pre-#2376 plan exactly. */
+  judgedOutIds?: ReadonlySet<string>;
 }
 
 /**
@@ -182,6 +190,28 @@ export function learningMatchesScope(learning: Learning, paths: string[]): boole
   return learning.scopeGlobs.some((g) => globMatchesAnyPath(g, paths));
 }
 
+/**
+ * The glob triage, as its own function (#2376): rules this session could inject
+ * (`candidates` — Always-rules plus matched-scoped) versus rules its target paths gate out
+ * (`gated`). Input order is preserved in both; neither is prioritized or budgeted.
+ *
+ * Exported because the relevance judge has to ask about EXACTLY the set the planner will then
+ * fill from. {@link planHouseRulesInjection} calls this too, so the two splits are the same
+ * code and cannot drift into disagreeing about a rule.
+ */
+export function candidateRules(
+  rules: Learning[],
+  paths: string[],
+): { candidates: Learning[]; gated: Learning[] } {
+  const candidates: Learning[] = [];
+  const gated: Learning[] = [];
+  for (const r of rules) {
+    if (isAlwaysRule(r) || learningMatchesScope(r, paths)) candidates.push(r);
+    else gated.push(r);
+  }
+  return { candidates, gated };
+}
+
 /** Priority sort: hard trial tier (non-trials before unproven trials) as primary key,
  *  then composite recency-decay + smoothed-help score desc, then updatedAt desc.
  *  A proven trial (helpfulCount>0) is NOT tiered — it competes by score normally.
@@ -198,9 +228,12 @@ export function prioritize(rules: Learning[], now: number = Date.now()): Learnin
 }
 
 /** Plan which house rules inject under the char budget, scoped to the session's target
- *  files (#842). Rules split three ways: Always-rules (no globs), matched-scoped (globs hit
- *  a `targetPaths` entry), and scope-gated (globs, no match → `scoped`, never injected and
- *  never counted against budget). Budget fill is four ordered sub-passes, all non-trials
+ *  files (#842). Rules split three ways via {@link candidateRules}: Always-rules (no globs),
+ *  matched-scoped (globs hit a `targetPaths` entry), and scope-gated (globs, no match →
+ *  `scoped`, never injected and never counted against budget). A candidate in
+ *  `opts.judgedOutIds` (#2376) is moved to `judgedOut` and gets that same treatment — the
+ *  relevance judge can only subtract from the candidate set, never add to it, so a scope-gated
+ *  rule can never reappear here. Budget fill is four ordered sub-passes, all non-trials
  *  before any unproven trial:
  *  (A) Always non-trials → (B) matched-scoped non-trials →
  *  (C) Always unproven-trials → (D) matched-scoped unproven-trials.
@@ -215,15 +248,18 @@ export function planHouseRulesInjection(
   budgetChars: number,
   now: number = Date.now(),
   targetPaths?: string[],
+  opts: HouseRulesPlanOptions = {},
 ): HouseRulesPlan {
   const paths = targetPaths ?? [];
+  const { candidates, gated } = candidateRules(rules, paths);
+  const judgedOutIds = opts.judgedOutIds;
   const always: Learning[] = [];
   const matchedScoped: Learning[] = [];
-  const gated: Learning[] = [];
-  for (const r of rules) {
-    if (isAlwaysRule(r)) always.push(r);
-    else if (learningMatchesScope(r, paths)) matchedScoped.push(r);
-    else gated.push(r);
+  const judgedOut: Learning[] = [];
+  for (const r of candidates) {
+    if (judgedOutIds?.has(r.id)) judgedOut.push(r);
+    else if (isAlwaysRule(r)) always.push(r);
+    else matchedScoped.push(r);
   }
   const splitTier = (rules: Learning[]) => {
     const nonTrial: Learning[] = [],
@@ -273,6 +309,7 @@ export function planHouseRulesInjection(
     injected,
     dropped,
     scoped: prioritize(gated, now),
+    judgedOut: prioritize(judgedOut, now),
     budgetChars,
     usedChars: injected.length === 0 ? 0 : used,
   };

@@ -82,7 +82,16 @@ import type { Leftover, ProcessReaper } from "./process-reaper";
 import { SESSION_MARKER_ENV } from "./process-reaper";
 import type { PreviewService } from "./preview";
 import type { TelemetryService } from "./telemetry";
-import { extractTargetPaths, planHouseRulesInjection, renderHouseRulesBlock } from "./house-rules";
+import {
+  candidateRules,
+  extractTargetPaths,
+  planHouseRulesInjection,
+  prioritize,
+  renderHouseRulesBlock,
+} from "./house-rules";
+import { judgeHouseRuleRelevance, type RelevanceOutcome } from "./house-rules-relevance";
+import type { Judge } from "./judge";
+import type { JudgeSpendLedger } from "./judge-spend";
 import { isGoodOutcome } from "./learnings-lifecycle";
 import { effectiveAutopilot } from "./effective-autopilot";
 import { amendmentBlock, type TaskAmendment } from "./task-amendments";
@@ -300,6 +309,14 @@ export interface ServiceDeps {
    *  Codex main sessions bypass pushModelFlag, so they are not downgraded. Wired from src/index.ts
    *  off usageLimits + config; absent in tests → no downgrade. Consumed by pushModelFlag. */
   usageDowngrade?: () => string | null;
+  /** #2376: the armed relevance judge, read PER SPAWN so the Settings toggle takes effect on the
+   *  next session rather than at the next restart. Absent/null ⇒ house rules plan exactly as they
+   *  did before the gate existed. */
+  judge?: () => Judge | null;
+  /** Shared with the stop classifier — one armed capability, one daily ceiling. A thunk like
+   *  `judge` above: the ledger is constructed long after this service is, so the dep cannot hold
+   *  the value itself. */
+  judgeSpend?: () => Pick<JudgeSpendLedger, "allow" | "record"> | null;
   /** Live Codex auth mode. Read per resolution/spawn because login mode can change at runtime. */
   readCodexAuthMode?: () => CodexAuthMode;
   /** Per-session DNS-drop watcher; absent in tests that don't care → no-op. */
@@ -2905,13 +2922,92 @@ export class SessionService {
     return outcome;
   }
 
+  /**
+   * Ask the relevance judge which of this session's candidate rules the request is actually about
+   * (#2376), and persist what it said.
+   *
+   * ASYNC AND SEPARATE FROM {@link recordInjectedHouseRules} on purpose. The argv builders and
+   * `composeDirectives` are synchronous, and making the whole chain async to accommodate one
+   * optional HTTP call would be a large refactor for a feature that is off by default. So the call
+   * happens HERE, in the already-async spawn preparation, and the only thing that crosses into the
+   * synchronous side is a set of ids.
+   *
+   * Returns null whenever nothing was judged — the gate is off, the judge is unarmed, learnings are
+   * off for the repo, or the call failed. Null and "judged nothing out" are deliberately the same
+   * downstream code path, because every failure has to land on today's injection.
+   *
+   * Verdicts are recorded in BOTH modes; `applied` is what separates a verdict that gated injection
+   * from one that only observed. That is the point of shadow mode — the disabled state still
+   * produces the evidence for arming it.
+   */
+  private async judgeHouseRuleRelevanceFor(
+    sessionId: string,
+    input: StandardCreateInput,
+  ): Promise<ReadonlySet<string> | null> {
+    const mode = config.houseRuleRelevance;
+    const judge = this.deps.judge?.() ?? null;
+    if (mode === "off" || !judge) return null;
+    const { repoPath } = input;
+    if (!this.deps.store.getRepoConfig(repoPath).learningsEnabled) return null;
+
+    const targetPaths = extractTargetPaths(
+      [input.prompt, input.issueRef?.title, input.issueRef?.body],
+      repoPath,
+    );
+    // Prioritized before the cap so, when there are more candidates than one call may carry, the
+    // rules that go unjudged are the ones least likely to have been injected anyway.
+    const { candidates } = candidateRules(
+      prioritize(this.deps.store.listActiveLearnings(repoPath)),
+      targetPaths,
+    );
+
+    let outcome: RelevanceOutcome;
+    try {
+      outcome = await judgeHouseRuleRelevance(
+        candidates,
+        {
+          prompt: input.prompt,
+          issueTitle: input.issueRef?.title,
+          issueBody: input.issueRef?.body,
+          targetPaths,
+        },
+        { judge, spend: this.deps.judgeSpend?.() ?? null, mode },
+      );
+    } catch (err) {
+      // judgeHouseRuleRelevance is itself fail-open, so reaching here means a defect rather than a
+      // transport failure. Still must not cost a spawn.
+      console.warn("[house-rules] relevance gate threw (injecting the unfiltered set):", err);
+      return null;
+    }
+    if (outcome.verdicts.length === 0) return null;
+
+    try {
+      this.deps.store.recordLearningRelevance(sessionId, outcome.verdicts, {
+        applied: mode === "enforce",
+        at: Date.now(),
+      });
+    } catch (err) {
+      console.warn("[house-rules] recording relevance verdicts failed:", err);
+    }
+    console.log(
+      `[house-rules] relevance ${mode}: ${outcome.verdicts.filter((v) => v.relevant).length}/` +
+        `${outcome.verdicts.length} relevant, $${outcome.costUsd.toFixed(6)}`,
+    );
+    return outcome.judgedOutIds;
+  }
+
   /** Active+promoted rules for the repo as an XML-wrapped block, or null when none /
    *  learnings disabled. Always-rules plus glob-scoped rules whose globs match files named
    *  in the task text (prompt + attached issue), with the budget capping within that matched
-   *  set (#842). Records the injected rule ids against the session (join rows only — counters
-   *  are advanced symmetrically with the reward at archive, never here). Injected into every
-   *  new agent's system prompt via composeSystemPrompt. */
-  private recordInjectedHouseRules(sessionId: string, input: StandardCreateInput): string | null {
+   *  set (#842), minus anything the relevance judge ruled out for this session (#2376 —
+   *  `judgedOutIds`, null unless the gate is armed AND enforcing). Records the injected rule ids
+   *  against the session (join rows only — counters are advanced symmetrically with the reward at
+   *  archive, never here). Injected into every new agent's system prompt via composeSystemPrompt. */
+  private recordInjectedHouseRules(
+    sessionId: string,
+    input: StandardCreateInput,
+    judgedOutIds: ReadonlySet<string> | null,
+  ): string | null {
     const { repoPath } = input;
     if (!this.deps.store.getRepoConfig(repoPath).learningsEnabled) return null;
     const targetPaths = extractTargetPaths(
@@ -2923,6 +3019,7 @@ export class SessionService {
       config.houseRulesBudgetChars,
       Date.now(),
       targetPaths,
+      judgedOutIds ? { judgedOutIds } : {},
     );
     this.deps.store.recordInjectedLearnings(
       sessionId,
@@ -3032,10 +3129,14 @@ export class SessionService {
     autopilotActive: boolean;
     trimmed: boolean;
     agentProvider: AgentProvider;
+    /** #2376: rules the relevance judge ruled out for this session, already awaited by the caller
+     *  (this path is synchronous). Null = no judgement was made, which is both the off state and
+     *  every failure. */
+    judgedOutIds: ReadonlySet<string> | null;
   }): string {
     const { input, sessionId, planGateOn, isolated, baseUrl, autopilotActive, trimmed } = args;
     const repoConfig = this.deps.store.getRepoConfig(input.repoPath);
-    const houseRules = this.recordInjectedHouseRules(sessionId, input);
+    const houseRules = this.recordInjectedHouseRules(sessionId, input, args.judgedOutIds);
     const planGate = planGateOn ? (input.auto ? "auto" : "interactive") : undefined;
     const buildQueue = repoConfig.buildQueueEnabled
       ? buildQueueDirective({
@@ -3127,6 +3228,7 @@ export class SessionService {
     isolated: boolean,
     trim: Awaited<ReturnType<typeof trimDecision>>,
     baseUrl: string,
+    judgedOutIds: ReadonlySet<string> | null,
   ): string[] {
     const repoConfig = this.deps.store.getRepoConfig(input.repoPath);
     // `--add-dir` (#2002) rides FIRST, where the next token is always a flag: it is variadic and
@@ -3169,6 +3271,7 @@ export class SessionService {
         ),
         trimmed: trim.trimmed,
         agentProvider: "claude",
+        judgedOutIds,
       }),
     );
     this.pushModelFlag(argv, input.model);
@@ -3185,6 +3288,7 @@ export class SessionService {
     planGateOn: boolean | undefined;
     isolated: boolean;
     baseUrl: string;
+    judgedOutIds: ReadonlySet<string> | null;
   }): string[] {
     const { input, sessionId, launchId, promptArg, planGateOn, isolated, baseUrl } = args;
     const repoConfig = this.deps.store.getRepoConfig(input.repoPath);
@@ -3210,6 +3314,7 @@ export class SessionService {
       autopilotActive,
       trimmed: false,
       agentProvider: "codex",
+      judgedOutIds: args.judgedOutIds,
     });
     argv.push(
       `${codexLaunchMarker(launchId)}${promptArg}\n\n<shepherd-directives>\n${directives}\n</shepherd-directives>`,
@@ -3583,6 +3688,10 @@ export class SessionService {
     // pass a runtime override so a session that already left planning does not re-enter the gate.
     const planGateOn = opts.planGateOn ?? this.resolvePlanGateOn(spawnInput, repoConfig);
     const trim = await this.trimFor(spawnInput.auto, wt.worktreePath);
+    // #2376: awaited HERE, before argv assembly, because both argv builders and composeDirectives
+    // are synchronous. Fail-open inside — null on every failure, which is the same code path as the
+    // gate being off.
+    const judgedOutIds = await this.judgeHouseRuleRelevanceFor(sessionId, spawnInput);
     const profileOverride =
       agentProvider === "codex"
         ? "trusted"
@@ -3600,6 +3709,7 @@ export class SessionService {
             planGateOn,
             isolated: wt.isolated,
             baseUrl,
+            judgedOutIds,
           })
         : this.buildSpawnArgv(
             spawnInput,
@@ -3610,6 +3720,7 @@ export class SessionService {
             wt.isolated,
             trim,
             baseUrl,
+            judgedOutIds,
           );
     return {
       launchIdentity:

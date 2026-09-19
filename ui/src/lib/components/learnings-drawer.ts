@@ -226,6 +226,16 @@ export function helpRate(rule: {
   return { helped: rule.helpfulCount, pulls: rule.injectedCount };
 }
 
+/** Relevance stat for a rule (#2376): null until the judge has ruled on it at least once, so a
+ *  corpus that has never run the gate shows nothing rather than a misleading 0/0. */
+export function relevanceRate(rule: {
+  relevanceJudged: number;
+  relevanceRelevant: number;
+}): { relevant: number; judged: number } | null {
+  if (rule.relevanceJudged === 0) return null;
+  return { relevant: rule.relevanceRelevant, judged: rule.relevanceJudged };
+}
+
 /** Whether the open Learnings drawer should auto-close because it has nothing to show.
  *  Gated on `loaded` (the first learnings fetch resolved): a deep-link that opens the
  *  drawer before the async load populates the lists must NOT be closed by the still-empty

@@ -44,6 +44,7 @@ type LearningsStore = Pick<
   | "listRetiredLearnings"
   | "getRetiredSeenAt"
   | "getRepoConfig"
+  | "learningRelevanceStats"
 >;
 
 /**
@@ -194,6 +195,14 @@ export class LearningsService {
       const seenAt = this.store.getRetiredSeenAt(repoPath);
       const unseenRetired = retired.filter((r) => (r.retiredAt ?? 0) > seenAt).length;
       const enabled = this.store.getRepoConfig(repoPath).learningsEnabled;
+      // #2376: how often the relevance judge has found each rule applicable to a real request.
+      // Independent of `enabled` and of the planner — it is history, not a plan — so it rides on
+      // both branches below. Rules with no verdict yet read 0/0 and the drawer omits the stat.
+      const relevance = this.store.learningRelevanceStats(repoPath);
+      const withRelevance = (r: Learning) => ({
+        relevanceJudged: relevance.get(r.id)?.judged ?? 0,
+        relevanceRelevant: relevance.get(r.id)?.relevant ?? 0,
+      });
       if (!enabled) {
         // Injection disabled: skip the planner; every rule uninjected, used 0.
         return {
@@ -205,6 +214,7 @@ export class LearningsService {
             ...r,
             injected: false,
             scoped: r.scopeGlobs.length > 0,
+            ...withRelevance(r),
           })),
           retired,
           unseenRetired,
@@ -226,6 +236,7 @@ export class LearningsService {
           ...r,
           injected: injectedIds.has(r.id),
           scoped: r.scopeGlobs.length > 0,
+          ...withRelevance(r),
         })),
         retired,
         unseenRetired,

@@ -5,6 +5,7 @@
     injectionBadge,
     showIneffective,
     helpRate,
+    relevanceRate,
     isUnprovenTrialRule,
   } from "../learnings-drawer";
   import type { LearningsCtx } from "./ctx";
@@ -56,6 +57,12 @@
     {#if helpRate(rule) !== null}
       {@const hr = helpRate(rule)!}
       <span class="help-rate">{m.learnings_help_rate({ helped: hr.helped, pulls: hr.pulls })}</span>
+    {/if}
+    {#if relevanceRate(rule) !== null}
+      {@const rr = relevanceRate(rule)!}
+      <span class="help-rate"
+        >{m.learnings_relevance_rate({ relevant: rr.relevant, judged: rr.judged })}</span
+      >
     {/if}
     <span class="spacer"></span>
     <div class="iactions">

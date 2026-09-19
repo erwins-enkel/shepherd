@@ -4,6 +4,9 @@ import {
   SPEC,
   WRITE_TOOL,
   extractVerdict,
+  jevAuthoredState,
+  jevQuestion,
+  jevVerdict,
   outcomeFor,
   type Fixture,
 } from "../scripts/eval-stop-classifier";
@@ -12,6 +15,7 @@ import {
   decide,
   formatReport,
   majority,
+  outcomeFrom,
   parseArgs,
   tolerantParse,
   type AnthropicResponse,
@@ -337,4 +341,174 @@ test("WRITE_TOOL requires file_path and content (verdict is read from content)",
   expect(WRITE_TOOL.name).toBe("Write");
   expect(WRITE_TOOL.input_schema.required).toContain("content");
   expect(WRITE_TOOL.input_schema.required).toContain("file_path");
+});
+
+// ---------------------------------------------------------------------------
+// The JEV leg (`--backend jev`) — the go/no-go from docs/research/jev-system-one-models.md
+// ---------------------------------------------------------------------------
+
+const KINDS: AutopilotKind[] = ["gate", "question", "finished", "complete", "unknown"];
+
+test("the verbatim framing asks about the SAME five kinds, with the prompt carrying the definitions", () => {
+  const question = jevQuestion(parseArgs(SPEC, ["--backend", "jev"]));
+  expect(question.type).toBe("choice");
+  // The option set IS the production enum — JEV's decoder then makes an out-of-enum `kind`
+  // impossible, which is the whole structural argument for this leg.
+  expect(Object.keys(question.criteria).sort()).toEqual([...KINDS].sort());
+  // Bare names: the state (the real prompt) already defines each kind, so descriptions here would
+  // say the same thing twice and make the two framings differ in more than one variable.
+  expect(Object.values(question.criteria).every((c) => c === null)).toBe(true);
+});
+
+test("the authored framing carries per-kind criteria instead, distilled from the prompt", () => {
+  const question = jevQuestion(parseArgs(SPEC, ["--backend", "jev", "--jev-authored"]));
+  expect(Object.keys(question.criteria).sort()).toEqual([...KINDS].sort());
+  expect(question.criteria.unknown).toContain("never guess");
+  expect(question.criteria.finished).toContain("pull request");
+});
+
+test("the authored state clips exactly as the production prompt clips", () => {
+  const fixture: Fixture = {
+    ...FIXTURES[0]!,
+    taskPrompt: "T".repeat(2_000),
+    tail: Array.from({ length: 30 }, (_, i) => `line ${i}`),
+  };
+  const state = jevAuthoredState(fixture);
+  expect(state.task).toHaveLength(1_500);
+  // Last 20 lines only, most recent last — the same window `classifierPrompt` takes.
+  expect(state.terminal_tail.split("\n")).toHaveLength(20);
+  expect(state.terminal_tail.split("\n")[0]).toBe("line 10");
+  expect(state.terminal_tail.length).toBeLessThanOrEqual(3_000);
+});
+
+test("a JEV choice becomes the verdict the existing scorer already reads", () => {
+  const raw = jevVerdict({
+    kind: { type: "choice", choice: "gate", confidence: 0.84, probabilities: { gate: 0.88 } },
+  });
+  expect(raw).toEqual({ kind: "gate", summary: "" });
+  // The summary is empty BY CONSTRUCTION — JEV cannot generate prose. This eval scores `kind`
+  // only, so nothing is lost here; in production it costs the operator-facing gloss (research
+  // doc §3a).
+  expect(SPEC.score(FIXTURES[1]!, raw)).toEqual({
+    label: "gate",
+    correct: true,
+    unrecognised: false,
+  });
+});
+
+test("a missing or out-of-enum answer is rejected rather than collapsed to `unknown`", () => {
+  // `normalize` MUST collapse a bad verdict to `unknown` (bias to surface). Doing that here would
+  // score a transport failure as a correct abstain on the two fixtures that measure abstaining —
+  // so this returns null, which the harness records as a mechanical miss.
+  expect(jevVerdict({})).toBeNull();
+  expect(
+    jevVerdict({
+      kind: { type: "choice", choice: "GATE", confidence: 1, probabilities: {} },
+    }),
+  ).toBeNull();
+});
+
+test("the jev backend is offered under its own pinned snapshot, never a floating alias", () => {
+  expect(Object.keys(SPEC.backends ?? {})).toEqual(["jev"]);
+  const model = parseArgs(SPEC, ["--backend", "jev"]).model;
+  expect(model).toBe("jev-1.13.0");
+  expect(model).not.toContain("latest");
+});
+
+test("the report header names the framing, and says what T does NOT measure here", () => {
+  const verbatim = formatReport(SPEC, [], decide([], 0.8), parseArgs(SPEC, ["--backend", "jev"]));
+  expect(verbatim).toContain("backend=jev");
+  expect(verbatim).toContain("VERBATIM");
+  // JEV is near-deterministic; without this line a reader would take T=9 for a variance measure.
+  expect(verbatim).toContain("near-deterministic");
+
+  const authored = formatReport(
+    SPEC,
+    [],
+    decide([], 0.8),
+    parseArgs(SPEC, ["--backend", "jev", "--jev-authored"]),
+  );
+  expect(authored).toContain("AUTHORED");
+  // The German directives live in the PROMPT, so the authored framing does not exercise them —
+  // stated in the header because it is the first thing to misread in the German buckets.
+  expect(authored).toContain("does not exercise them");
+
+  // The Anthropic leg's header is untouched by any of this.
+  expect(formatReport(SPEC, [], decide([], 0.8), parseArgs(SPEC, []))).not.toContain("jev framing");
+});
+
+test("an unrecognised verdict is never counted correct — not even on the abstain fixtures", () => {
+  // THE TRAP this guards, which is specific to the two `unknown` fixtures: `normalize` answers
+  // `unknown` for anything it cannot read, and `unknown` is what those two fixtures EXPECT. So
+  // before this was fixed, failures that produced no judgement at all scored a perfect 9/9 on
+  // exactly the buckets whose job is measuring abstention.
+  const ambiguous = FIXTURES.find((f) => f.id === "ambiguous-unknown")!;
+  const german = FIXTURES.find((f) => f.id === "de-ambiguous-unknown")!;
+  const verdictless = { toolUsed: false, content: null, turns: 1 };
+
+  // SHAPE 2, and the more dangerous one: a verdict that parses cleanly but whose `kind` was
+  // TRANSLATED. `CLASSIFIER_OUTPUT_LANGUAGE_DE` exists because the model really does this, and such
+  // a trial looks mechanically perfect — toolUsed and parseOk both true — so nothing but
+  // `unrecognised` names it.
+  const translated = {
+    toolUsed: true,
+    content: '{"kind":"unbekannt","summary":"Kann ich nicht sagen."}',
+    turns: 1,
+  };
+  for (const fixture of [ambiguous, german]) {
+    const o = outcomeFrom(SPEC, fixture, translated);
+    expect(o).toMatchObject({ toolUsed: true, parseOk: true, label: "unknown", correct: false });
+    expect(o.unrecognised).toBe(true);
+  }
+  const translatedAgg = aggregate(
+    german,
+    Array.from({ length: 9 }, () => outcomeFrom(SPEC, german, translated)),
+    SPEC.labels,
+  );
+  expect(translatedAgg.unrecognised).toBe(9);
+  expect(translatedAgg.correct).toBe(0);
+  expect(translatedAgg.majorityCorrect).toBe(false);
+  expect(decide([translatedAgg], 0.8).pass).toBe(false);
+
+  // An out-of-enum kind is not correct on a NON-abstain fixture either.
+  expect(
+    outcomeFrom(
+      SPEC,
+      FIXTURES.find((f) => f.id === "gate-commit-now")!,
+      translated,
+    ).correct,
+  ).toBe(false);
+
+  for (const fixture of [ambiguous, german]) {
+    const o = outcomeFrom(SPEC, fixture, verdictless);
+    expect(o.correct).toBe(false);
+    expect(o.toolUsed).toBe(false);
+    // The label still reads `unknown` — that IS normalize's answer, and the distribution is not
+    // the place this is disambiguated. `no-tool` is.
+    expect(o.label).toBe("unknown");
+  }
+
+  // ...and the whole way up: nine such trials must not pass the gate.
+  const agg = aggregate(
+    ambiguous,
+    Array.from({ length: 9 }, () => outcomeFrom(SPEC, ambiguous, verdictless)),
+    SPEC.labels,
+  );
+  expect(agg.noTool).toBe(9);
+  expect(agg.correct).toBe(0);
+  expect(agg.majorityCorrect).toBe(false);
+  expect(decide([agg], 0.8).pass).toBe(false);
+
+  // A GENUINE abstain — the model really wrote `{"kind":"unknown"}` — still scores correct.
+  const real = outcomeFor(ambiguous, {
+    content: [
+      {
+        type: "tool_use",
+        id: "t",
+        name: "Write",
+        input: { file_path: "v.json", content: '{"kind":"unknown","summary":"cannot tell"}' },
+      },
+    ],
+  });
+  expect(real).toMatchObject({ toolUsed: true, label: "unknown", correct: true });
 });

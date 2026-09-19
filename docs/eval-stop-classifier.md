@@ -33,6 +33,13 @@ threshold that tolerates the classifier's nondeterminism.
   `normalize` collapses a missing/garbage verdict **and** a genuine model `unknown` into the same
   `{kind:"unknown"}`, the report keeps distinct `no-tool` and `parse-fail` tallies so a mechanical
   failure never masquerades as a genuine abstain.
+- **A verdict-less trial is never scored correct.** This is the sharp edge of the point above, and it
+  is specific to the two `unknown` fixtures: `normalize(null)` returns `unknown` (bias to surface —
+  correct in production), so crediting it would score a transport failure as a _correct abstain_ on
+  exactly the buckets that exist to measure abstention. Nine failed trials on `ambiguous-unknown`
+  would have reported a flawless 9/9. The trial still carries `label: unknown` in the distribution —
+  that is what `normalize` returned — so **read the `no-tool` tally, not the `unknown` count**, to
+  tell a failure from an abstain.
 
 ## How to run
 
@@ -44,6 +51,15 @@ ANTHROPIC_API_KEY=… bun run eval:stop-classifier --json     # machine-readable
 # Flags: --trials N  --model <id>  --temperature <t>  --threshold <0..1>  --filter <substr>  --json
 #        --operator-language-off   (#1627 A/B: force operator-language OFF for every fixture — the
 #                                   *before* leg ≡ #1626 baseline; omit it for the *after* leg)
+#        --backend <anthropic|jev> (default anthropic; see "JEV backend" below)
+
+# The same fixtures against JEV instead of Haiku. Needs JEV_API_KEY (~/.shepherd/eval.env).
+JEV_API_KEY=… bun run eval:stop-classifier --backend jev --json                  # verbatim framing
+JEV_API_KEY=… bun run eval:stop-classifier --backend jev --jev-authored --json   # authored framing
+
+# Replay a completed run's recorded distributions against candidate abstain thresholds.
+# Reads a file; makes no calls and needs no key.
+bun run scripts/eval-jev.ts <report.json> [questionId] [--all]
 ```
 
 The two A/B legs (#1627) — run on the same branch/commit for a clean before/after:
@@ -326,6 +342,92 @@ Validation — the full German set, twice, `--filter de- --trials 5`:
   both identical. `test/autopilot-llm.test.ts` pins it going forward.
 - **Only `kind` is measured.** As elsewhere in this doc, nothing here verifies that `summary`
   actually renders in German.
+
+## JEV backend — the go/no-go
+
+`docs/research/jev-system-one-models.md` recommends JEV (TypeSafe AI's "System One" decision model)
+for `classifyStop` and parks the whole recommendation behind one gate: _add a JEV backend to this
+harness, run these fixtures, and see._ `--backend jev` is that backend. **Nothing in production calls
+JEV** — this is a measurement, and the section below is its result.
+
+The bar the research doc set: **≥97.1% gating accuracy** (the Haiku baseline), **`ambiguous-unknown`
+holds**, **German buckets pass**.
+
+### Results — `jev-1.13.0`, 2026-09-19, same fixtures, same trial counts
+
+| framing                                   | gating accuracy   | `ambiguous-unknown` | `de-ambiguous-unknown` | German gate/question | cost    |
+| ----------------------------------------- | ----------------- | ------------------- | ---------------------- | -------------------- | ------- |
+| Haiku baseline (`--backend anthropic`)    | 33/34 = **97.1%** | 9/9 `unknown`       | 27/27 (after #2177)    | pass                 | ~$2     |
+| **verbatim** (`--backend jev`)            | 61/61 = **100%**  | **9/9 `unknown`**   | **9/9 `unknown`**      | **9/9 + 9/9**        | $0.0037 |
+| authored (`--backend jev --jev-authored`) | 56/61 = 91.8%     | **4/9 — FAIL**      | 9/9 `unknown`          | 9/9 + 9/9            | $0.0020 |
+
+**Verdict: GO**, on the verbatim framing, with no confidence threshold. It clears every clause of the
+bar, and it additionally closes the one recorded **known gap**: `gate-spec-first` — the prompt's own
+canonical `gate` exemplar, which Haiku splits 3:2 toward `question` — comes back **5/5 `gate`**, as
+does its German twin `de-gate-spec`. Both are baseline (non-gating) fixtures, so this is a reported
+improvement, not a moved gate.
+
+### The two framings, and why the obvious one lost
+
+- **verbatim** (default) — `state` is the REAL production prompt from `src/autopilot-classify-core.ts`
+  (`classifierPrompt()`), `criteria` are the five bare kind names. JEV reads exactly what Haiku reads.
+- **authored** (`--jev-authored`) — `state` is structured (`{task, terminal_tail}`) and `criteria`
+  carry per-kind descriptions distilled from the prompt's enum block.
+
+Authored is the shape a `Judge` seam would plausibly ship, and it is the one a reasonable person
+expects to win. It lost, in the dangerous direction: it calls the ambiguous English tail **`gate`**
+(5/9, mean confidence 0.28) — i.e. it would tell autopilot to type `1` into a live PTY on a tail that
+says nothing of the kind. **Carrying the prompt's full text into `state` is doing real work**, and it
+is free: the prompt is imported, so it cannot go stale, exactly as on the Anthropic leg.
+
+### Abstain: chosen enum vs. spread probability (research doc §3b)
+
+That doc calls this its single most important unknown. Today `unknown` is a **chosen** enum value; JEV
+can also abstain by **spreading probability**, which surfaces as low confidence. Every trial's full
+distribution is recorded in the `--json` report (`trialDetails`), so candidate thresholds are replayed
+**offline** over a completed run — `bun run scripts/eval-jev.ts <report.json>` — instead of one being
+pinned before a paid run.
+
+| threshold | verbatim                                               | authored                            |
+| --------- | ------------------------------------------------------ | ----------------------------------- |
+| 0.00      | **100% (61/61)**                                       | 91.8% (56/61)                       |
+| 0.30      | 100%                                                   | 96.7% — rescues `ambiguous-unknown` |
+| 0.40–0.60 | 100%                                                   | **100%** — fully rescued            |
+| 0.70      | 90.2% — **breaks** `gate-commit-now`, `de-gate-commit` | 100%                                |
+| 0.90      | 77.0% — breaks both gates                              | 78.7% — breaks both gates           |
+
+Both mechanisms work. **Verbatim needs neither**: JEV picks `unknown` on its own, and every threshold
+above 0.6 makes it strictly worse.
+
+The reason is a confidence ordering that runs opposite to the intuition, and it is the most useful
+thing this run measured:
+
+| bucket                               | verbatim mean confidence |
+| ------------------------------------ | ------------------------ |
+| `question` / `finished` / `complete` | 0.99–1.00                |
+| `ambiguous-unknown` (abstain)        | **0.78**                 |
+| `gate` (en + de)                     | **0.64 / 0.73**          |
+
+The abstains come back **confidently abstaining**; the least-confident answers are the _correct_
+`gate` calls, because "proceed is obviously right" genuinely is the closest call in the enum. So a
+low-confidence→`unknown` rule does not buy caution — it converts correct gates into surfaced sessions.
+If a threshold is ever wanted in production, the evidence says **≤0.6**, and the honest reading is
+that it earns nothing on this fixture set.
+
+### What this run does NOT establish
+
+- **`summary` is out of scope here.** JEV cannot generate prose; this eval scores `kind` only. In
+  production the summary is the one-line gloss telling an operator _why_ a session paused — a real, if
+  small, regression that the research doc §3a costs out. Nothing here measures it.
+- **12 curated fixtures.** Same bounded-coverage caveat as every other leg of this harness, and JEV
+  saw them for the first time — but so did Haiku.
+- **Near-determinism means T is not a variance measurement on this leg.** Four identical requests
+  returned the same choice with confidence drifting ~±0.04. Trial counts were kept identical to the
+  Claude baseline for comparability, not because they measure the same thing.
+- **The authored framing never exercises the operator-language directives at all** — they live in the
+  prompt, which that framing replaces. Its German results are not comparable to #1627's A/B.
+- **One vendor snapshot, once.** Pinned to `jev-1.13.0`, never `jev-latest`, so a re-point cannot be
+  read as a prompt change.
 
 ## Fidelity caveats
 

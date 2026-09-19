@@ -4,8 +4,11 @@ import ShepherdKit
 
 /// Where one tab's data stands. `failed` carries copy that has already been through
 /// `ShepherdErrorCopy`, so a view never maps an error itself.
+///
+/// There is no `idle` case: a session that has never been loaded simply has no dictionary entry,
+/// and every call site that needs a non-optional default falls back to `.loading` — the same
+/// thing an absent entry and an in-flight first load look like to the operator.
 enum Loaded<Value: Equatable & Sendable>: Equatable, Sendable {
-    case idle
     case loading
     case ready(Value)
     case failed(String)
@@ -104,6 +107,12 @@ final class DetailModel: AppExtension {
     private(set) var diff: [String: Loaded<DiffPayload>] = [:]
     private(set) var files: [String: Loaded<FilesPayload>] = [:]
     private(set) var git: [String: Loaded<GitState?>] = [:]
+    /// Feed+session keys with a `.ready` value already on screen that are quietly re-reading it —
+    /// a poll tick, a push-driven reload, or a manual Refresh pressed while content is showing.
+    /// `@Observable`-tracked (unlike `stamps`/`alive`) so a tab can dim a Refresh button or show a
+    /// "still current as of…" hint without blanking what `Loaded` already holds. Never the reason
+    /// a view chooses `.loading`: only `hasReadyValue(_:_:)` decides that, at the start of `load`.
+    private(set) var refreshingKeys: Set<String> = []
 
     /// How a poll waits. Replaced in tests so the loop runs at full speed.
     @ObservationIgnored var sleep: @Sendable (Duration) async throws -> Void = {
@@ -121,10 +130,20 @@ final class DetailModel: AppExtension {
     /// The `session:activity`/`session:git` tap. Ended by `teardown()`; also ends on its own once
     /// `store.events()` finishes, which happens when the store's `stop()` runs.
     @ObservationIgnored private var watcher: Task<Void, Never>?
+    /// Watches `store.sessions` so a session that drops out of it (archived, removed, or simply
+    /// never seen again after a reconnect) has its caches pruned instead of growing forever.
+    @ObservationIgnored private var sessionsWatcher: Task<Void, Never>?
+    /// Feed+session keys a push-driven reload is currently running for — at most one HTTP read
+    /// per key even when several frames arrive before the first read returns.
+    @ObservationIgnored private var pushInFlight: Set<String> = []
+    /// A key whose in-flight push read got another frame while it was running: re-read exactly
+    /// once more after the current read finishes, rather than once per extra frame.
+    @ObservationIgnored private var pushPending: Set<String> = []
 
     init(store: SessionStore, app: AppModel) {
         self.loaders = .live(store.client)
         subscribe(store)
+        watchSessions(store)
     }
 
     /// Test initialiser: the same model with hand-driven reads and no event tap — tests drive
@@ -135,42 +154,89 @@ final class DetailModel: AppExtension {
         alive = false
         watcher?.cancel()
         watcher = nil
+        sessionsWatcher?.cancel()
+        sessionsWatcher = nil
     }
 
     /// Reads one feed for one session. Safe to call while a read is already in flight.
+    ///
+    /// The first read for a session shows `.loading`; a read that lands on top of a `.ready`
+    /// value instead keeps that value on screen and tracks the read in `refreshingKeys`, so a
+    /// poll tick or a push never blanks content the operator is looking at. A cancelled read
+    /// writes nothing to either cache — it is the app walking away from its own call, not a
+    /// failure to report — and a background refresh that fails for real keeps the last good
+    /// value rather than replacing it with an error.
     func load(_ feed: DetailFeed, session id: String) async {
         let stamp = nextStamp(feed, id)
-        set(feed, id, .loading)
+        let firstLoad = !hasReadyValue(feed, id)
+        if firstLoad {
+            set(feed, id, .loading)
+        } else {
+            refreshingKeys.insert(key(feed, id))
+        }
         do {
             switch feed {
             case .activity:
                 let entries = try await loaders.activity(id)
-                commit(feed, id, stamp) { self.activity[id] = .ready(entries) }
+                commit(feed, id, stamp) {
+                    self.activity[id] = .ready(entries)
+                    self.refreshingKeys.remove(self.key(feed, id))
+                }
             case .diff:
                 let result = try await loaders.diff(id)
-                var notes: [DiffNote] = []
-                do { notes = try await loaders.annotations(id) } catch {
-                    Log.ui.debug("diff annotations failed; keeping the diff")
+                let previous = diff[id]?.value
+                // Re-reading the annotations on every 15 s tick is wasted work once the diff
+                // itself has not moved: `head` is the branch's current commit, so an unchanged
+                // `head` means an unchanged diff, and the previous notes are still correct.
+                var notes = previous?.notes ?? []
+                if previous == nil || previous?.result.head != result.head {
+                    do { notes = try await loaders.annotations(id) } catch {
+                        if isCancellation(error) { throw error }
+                        Log.ui.debug("diff annotations failed; keeping the diff")
+                        notes = previous?.notes ?? []
+                    }
                 }
                 commit(feed, id, stamp) {
                     self.diff[id] = .ready(DiffPayload(result: result, notes: notes))
+                    self.refreshingKeys.remove(self.key(feed, id))
                 }
             case .files:
                 let listing = try await loaders.scratchpad(id, nil)
                 commit(feed, id, stamp) {
                     self.files[id] = .ready(FilesPayload(source: .scratchpad, listing: listing))
+                    self.refreshingKeys.remove(self.key(feed, id))
                 }
             case .git:
                 let state = try await loaders.git(id)
-                commit(feed, id, stamp) { self.git[id] = .ready(state) }
+                commit(feed, id, stamp) {
+                    self.git[id] = .ready(state)
+                    self.refreshingKeys.remove(self.key(feed, id))
+                }
             }
         } catch {
+            if isCancellation(error) {
+                // No cache write: cancelling the task that made this call is not a server,
+                // network or contract failure, so there is nothing to show for it. Still routed
+                // through `commit` so a stale cancellation never clears a *newer* load's
+                // `refreshingKeys` entry out from under it.
+                commit(feed, id, stamp) { self.refreshingKeys.remove(self.key(feed, id)) }
+                return
+            }
             let copy = ShepherdErrorCopy.message(error)
-            commit(feed, id, stamp) { self.set(feed, id, .failed(copy)) }
+            commit(feed, id, stamp) {
+                if firstLoad {
+                    self.set(feed, id, .failed(copy))
+                } else {
+                    Log.ui.debug("a background refresh failed; keeping the last good value")
+                }
+                self.refreshingKeys.remove(self.key(feed, id))
+            }
         }
     }
 
-    /// Lists one directory of one files source, replacing whatever the files tab held.
+    /// Lists one directory of one files source, replacing whatever the files tab held. Always
+    /// shows `.loading`, unlike `load(_:session:)`: this is the operator navigating to different
+    /// content, not a background refresh of the content already on screen.
     func browse(session id: String, source: FilesSource, path: String?) async {
         let stamp = nextStamp(.files, id)
         set(.files, id, .loading)
@@ -184,6 +250,7 @@ final class DetailModel: AppExtension {
                 self.files[id] = .ready(FilesPayload(source: source, listing: listing))
             }
         } catch {
+            if isCancellation(error) { return }
             let copy = ShepherdErrorCopy.message(error)
             commit(.files, id, stamp) { self.set(.files, id, .failed(copy)) }
         }
@@ -206,35 +273,71 @@ final class DetailModel: AppExtension {
     /// what the action returned.
     func refreshGit(session id: String) async { await load(.git, session: id) }
 
+    /// Whether `feed`+`id` has a value already on screen and is quietly re-reading it. A tab uses
+    /// this to dim a Refresh control or show a subtler "updating" hint instead of the loading
+    /// chrome `Loaded.loading` drives — that chrome is reserved for the first read of a session.
+    func isRefreshing(_ feed: DetailFeed, session id: String) -> Bool {
+        refreshingKeys.contains(key(feed, id))
+    }
+
     /// Keeps `activity`/`git` current without a timer. `session:activity`/`session:git` are
     /// declared under this stream's own `x-shepherd-events` block but never added to `EventName`
     /// (Decision 3), so they arrive through `store.events()` as
     /// `ServerEvent.unknown(name:payload:)`: match the raw name, decode `payload` into the schema
-    /// this stream's own contract block names, and reload exactly the session id the frame
-    /// carries — never every open tab. `load(_:session:)`'s own `commit(_:_:_:_:)` already drops a
-    /// write once `alive` is false, so this loop needs no liveness check beyond `weak self`, and
-    /// it ends on its own once `store.events()` finishes on `stop()`, or sooner if `teardown()`
-    /// cancels it directly.
+    /// this stream's own contract block names, and schedule a reload for exactly the session id
+    /// the frame carries — never every open tab, and never a session this model has no cache
+    /// entry for, since nobody has opened that tab to read the result. `schedulePushLoad(_:session:)`
+    /// coalesces a burst of frames for the same feed+session into at most one HTTP read at a
+    /// time; `load(_:session:)`'s own `commit(_:_:_:_:)` already drops a write once `alive` is
+    /// false, so this loop needs no liveness check beyond `weak self`, and it ends on its own once
+    /// `store.events()` finishes on `stop()`, or sooner if `teardown()` cancels it directly.
     private func subscribe(_ store: SessionStore) {
         watcher = Task { @MainActor [weak self] in
             for await event in store.events() {
                 guard let self else { return }
                 guard case .unknown(let name, let payload) = event, let payload else { continue }
                 switch name {
-                case "session:activity":
+                case Self.activityEventName:
                     guard
                         let decoded = try? JSONDecoder().decode(
                             SessionActivityEvent.self, from: payload)
                     else { continue }
-                    await self.load(.activity, session: decoded.id)
-                case "session:git":
+                    self.schedulePushLoad(.activity, session: decoded.id)
+                case Self.gitEventName:
                     guard
                         let decoded = try? JSONDecoder().decode(SessionGitEvent.self, from: payload)
                     else { continue }
-                    await self.load(.git, session: decoded.id)
+                    self.schedulePushLoad(.git, session: decoded.id)
                 default:
                     continue
                 }
+            }
+        }
+    }
+
+    /// Prunes caches for sessions the store no longer lists, so a long-running window does not
+    /// grow the four caches (and their bookkeeping) without bound. Reads `store.sessions`
+    /// up front, then re-arms on every subsequent write through `withObservationTracking`,
+    /// mirroring `AppModel.watchConnection(_:profile:generation:)`.
+    private func watchSessions(_ store: SessionStore) {
+        sessionsWatcher = Task { @MainActor [weak self] in
+            guard let self else { return }
+            var known = Set(store.sessions.map(\.id))
+            self.prune(activeIDs: known)
+            while !Task.isCancelled {
+                await withCheckedContinuation { continuation in
+                    withObservationTracking {
+                        _ = store.sessions
+                    } onChange: {
+                        continuation.resume()
+                    }
+                }
+                guard !Task.isCancelled else { return }
+                await Task.yield()
+                let ids = Set(store.sessions.map(\.id))
+                guard ids != known else { continue }
+                known = ids
+                self.prune(activeIDs: known)
             }
         }
     }
@@ -245,7 +348,17 @@ final class DetailModel: AppExtension {
     /// differently-typed dictionaries, so this carries the intent instead.
     private enum Mark { case loading, failed(String) }
 
+    private static let activityEventName = "session:activity"
+    private static let gitEventName = "session:git"
+
     private func key(_ feed: DetailFeed, _ id: String) -> String { "\(feed.rawValue):\(id)" }
+
+    /// The session id half of a `key(_:_:)` string, for pruning the flat `String` sets that key
+    /// carries no `DetailFeed` of its own to switch on.
+    private func sessionID(fromKey composite: String) -> String {
+        guard let colon = composite.firstIndex(of: ":") else { return composite }
+        return String(composite[composite.index(after: colon)...])
+    }
 
     private func nextStamp(_ feed: DetailFeed, _ id: String) -> Int {
         let next = (stamps[key(feed, id)] ?? 0) + 1
@@ -278,5 +391,88 @@ final class DetailModel: AppExtension {
         case (.files, .failed(let m)): files[id] = .failed(m)
         case (.git, .failed(let m)): git[id] = .failed(m)
         }
+    }
+
+    /// Whether `feed`+`id` already holds a `.ready` value — the line between a session's first
+    /// read (shows `Loaded.loading`) and a background refresh of what is already on screen
+    /// (tracked in `refreshingKeys` instead). A previous `.failed` counts as "no ready value": a
+    /// retry after a failure has nothing to keep showing, so it gets the loading chrome again.
+    private func hasReadyValue(_ feed: DetailFeed, _ id: String) -> Bool {
+        switch feed {
+        case .activity:
+            guard let entry = activity[id], case .ready = entry else { return false }
+            return true
+        case .diff:
+            guard let entry = diff[id], case .ready = entry else { return false }
+            return true
+        case .files:
+            guard let entry = files[id], case .ready = entry else { return false }
+            return true
+        case .git:
+            guard let entry = git[id], case .ready = entry else { return false }
+            return true
+        }
+    }
+
+    /// Whether `feed`+`id` has any dictionary entry at all — loading, ready or failed. A push
+    /// frame for a session with none is a session no open tab has ever read, so there is nothing
+    /// for the reload to update and the push is dropped rather than firing a read nobody watches.
+    private func hasCacheEntry(_ feed: DetailFeed, _ id: String) -> Bool {
+        switch feed {
+        case .activity: return activity[id] != nil
+        case .diff: return diff[id] != nil
+        case .files: return files[id] != nil
+        case .git: return git[id] != nil
+        }
+    }
+
+    /// Turns a push frame into a `load(_:session:)` call, coalescing a burst of frames for the
+    /// same feed+session into at most one HTTP read running at a time plus at most one queued
+    /// follow-up — never one read per frame. Internal, not private, so a test can drive the
+    /// coalescing directly without standing up a live `SessionStore` and `EventStream`.
+    func schedulePushLoad(_ feed: DetailFeed, session id: String) {
+        guard hasCacheEntry(feed, id) else { return }
+        let k = key(feed, id)
+        guard !pushInFlight.contains(k) else {
+            pushPending.insert(k)
+            return
+        }
+        pushInFlight.insert(k)
+        Task { [weak self] in await self?.runPushLoad(feed, id) }
+    }
+
+    private func runPushLoad(_ feed: DetailFeed, _ id: String) async {
+        await load(feed, session: id)
+        let k = key(feed, id)
+        guard alive else {
+            pushInFlight.remove(k)
+            pushPending.remove(k)
+            return
+        }
+        if pushPending.remove(k) != nil {
+            await runPushLoad(feed, id)
+        } else {
+            pushInFlight.remove(k)
+        }
+    }
+
+    /// Drops cache, stamp and bookkeeping entries for sessions no longer in `activeIDs`.
+    /// Internal, not private, so a test can drive it directly without standing up a live
+    /// `SessionStore` and waiting on `withObservationTracking`.
+    func prune(activeIDs: Set<String>) {
+        activity = activity.filter { activeIDs.contains($0.key) }
+        diff = diff.filter { activeIDs.contains($0.key) }
+        files = files.filter { activeIDs.contains($0.key) }
+        git = git.filter { activeIDs.contains($0.key) }
+        stamps = stamps.filter { activeIDs.contains(sessionID(fromKey: $0.key)) }
+        refreshingKeys = refreshingKeys.filter { activeIDs.contains(sessionID(fromKey: $0)) }
+        pushInFlight = pushInFlight.filter { activeIDs.contains(sessionID(fromKey: $0)) }
+        pushPending = pushPending.filter { activeIDs.contains(sessionID(fromKey: $0)) }
+    }
+
+    private func isCancellation(_ error: any Error) -> Bool {
+        if error is CancellationError { return true }
+        if let shepherd = error as? ShepherdError, shepherd == .cancelled { return true }
+        return false
     }
 }

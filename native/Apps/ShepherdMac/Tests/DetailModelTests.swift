@@ -163,4 +163,194 @@ struct DetailModelTests {
         #expect(DetailFeed.activity.interval == nil)
         #expect(DetailFeed.diff.interval == .seconds(15))
     }
+
+    // MARK: - H1: a refresh keeps the last good value visible
+
+    @Test func aRefreshKeepsTheOldValueVisibleWhileItRuns() async {
+        let gate = LoadGate()
+        var calls = 0
+        var loaders = DetailModel.Loaders.stubbed()
+        loaders.activity = { _ in
+            calls += 1
+            let n = calls
+            if n == 2 { await gate.wait() }
+            return [self.entry(n, "call \(n)")]
+        }
+        let model = DetailModel(loaders: loaders)
+        await model.load(.activity, session: "s1")
+        #expect(model.activity["s1"]?.value?.first?.summary == "call 1")
+        #expect(model.isRefreshing(.activity, session: "s1") == false)
+
+        let refresh = Task { await model.load(.activity, session: "s1") }
+        #expect(await settleDetail(until: { gate.isWaiting }))
+        // Still the old value — a refresh never blanks to `.loading`.
+        #expect(model.activity["s1"]?.value?.first?.summary == "call 1")
+        #expect(model.isRefreshing(.activity, session: "s1"))
+
+        gate.open()
+        await refresh.value
+        #expect(model.activity["s1"]?.value?.first?.summary == "call 2")
+        #expect(model.isRefreshing(.activity, session: "s1") == false)
+    }
+
+    @Test func aFailedRefreshKeepsTheLastGoodValueRatherThanShowingAnError() async {
+        var calls = 0
+        var loaders = DetailModel.Loaders.stubbed()
+        loaders.activity = { _ in
+            calls += 1
+            if calls == 1 { return [self.entry(1, "good")] }
+            throw ShepherdError.transport("offline")
+        }
+        let model = DetailModel(loaders: loaders)
+        await model.load(.activity, session: "s1")
+        #expect(model.activity["s1"]?.value?.first?.summary == "good")
+
+        await model.load(.activity, session: "s1")  // the refresh that fails
+        #expect(model.activity["s1"]?.value?.first?.summary == "good")
+        #expect(model.activity["s1"]?.failure == nil)
+        #expect(model.isRefreshing(.activity, session: "s1") == false)
+    }
+
+    @Test func aFailedFirstLoadStillShowsTheError() async {
+        var loaders = DetailModel.Loaders.stubbed()
+        loaders.activity = { _ in throw ShepherdError.transport("offline") }
+        let model = DetailModel(loaders: loaders)
+        await model.load(.activity, session: "s1")
+        #expect(model.activity["s1"]?.failure != nil)
+    }
+
+    // MARK: - H2: a cancelled read writes nothing to the cache
+
+    @Test func aCancelledFirstLoadNeverBecomesAFailure() async {
+        var loaders = DetailModel.Loaders.stubbed()
+        loaders.activity = { _ in throw CancellationError() }
+        let model = DetailModel(loaders: loaders)
+        await model.load(.activity, session: "s1")
+        // The synchronous `.loading` set before the read still stands — cancelling the read
+        // itself must not turn it into `.failed("server unreachable")`.
+        #expect(model.activity["s1"] == .loading)
+        #expect(model.activity["s1"]?.failure == nil)
+    }
+
+    @Test func aCancelledRefreshKeepsTheLastGoodValue() async {
+        var calls = 0
+        var loaders = DetailModel.Loaders.stubbed()
+        loaders.activity = { _ in
+            calls += 1
+            if calls == 1 { return [self.entry(1, "good")] }
+            throw ShepherdError.cancelled
+        }
+        let model = DetailModel(loaders: loaders)
+        await model.load(.activity, session: "s1")
+        await model.load(.activity, session: "s1")
+        #expect(model.activity["s1"]?.value?.first?.summary == "good")
+        #expect(model.isRefreshing(.activity, session: "s1") == false)
+    }
+
+    // MARK: - Diff annotations only re-read when the diff itself moved
+
+    @Test func annotationsAreNotRefetchedWhenTheDiffHeadIsUnchanged() async {
+        var diffCalls = 0
+        var annotationCalls = 0
+        var loaders = DetailModel.Loaders.stubbed()
+        loaders.annotations = { _ in
+            annotationCalls += 1
+            return []
+        }
+        loaders.diff = { _ in
+            diffCalls += 1
+            let head = diffCalls <= 2 ? "abc" : "def"
+            return DiffResult(
+                base: "main", baseRef: "main", head: head, fetchFailed: false, truncated: false,
+                files: [])
+        }
+        let model = DetailModel(loaders: loaders)
+
+        await model.load(.diff, session: "s1")  // first load: always reads annotations
+        #expect(annotationCalls == 1)
+        await model.load(.diff, session: "s1")  // same head: skip
+        #expect(annotationCalls == 1)
+        await model.load(.diff, session: "s1")  // head moved: read again
+        #expect(annotationCalls == 2)
+    }
+
+    // MARK: - H3: a push for a session nobody opened is dropped
+
+    @Test func pushLoadsAreSkippedForASessionWithNoCacheEntry() async {
+        var calls = 0
+        var loaders = DetailModel.Loaders.stubbed()
+        loaders.activity = { _ in
+            calls += 1
+            return []
+        }
+        let model = DetailModel(loaders: loaders)
+        model.schedulePushLoad(.activity, session: "never-opened")
+        _ = await settleDetail(until: { false }, yields: 50)
+        #expect(calls == 0)
+        #expect(model.activity["never-opened"] == nil)
+    }
+
+    @Test func pushLoadReloadsASessionAlreadyOpen() async {
+        var calls = 0
+        var loaders = DetailModel.Loaders.stubbed()
+        loaders.activity = { _ in
+            calls += 1
+            return [self.entry(calls, "push \(calls)")]
+        }
+        let model = DetailModel(loaders: loaders)
+        await model.load(.activity, session: "s1")
+        #expect(calls == 1)
+
+        model.schedulePushLoad(.activity, session: "s1")
+        #expect(await settleDetail(until: { calls == 2 }))
+        #expect(await settleDetail(until: { model.activity["s1"]?.value?.first?.summary == "push 2" }))
+    }
+
+    @Test func aBurstOfPushesForTheSameKeyCoalescesIntoOneFollowUpRead() async {
+        let gate = LoadGate()
+        var calls = 0
+        var loaders = DetailModel.Loaders.stubbed()
+        loaders.activity = { _ in
+            calls += 1
+            let n = calls
+            if n == 2 { await gate.wait() }
+            return [self.entry(n, "call \(n)")]
+        }
+        let model = DetailModel(loaders: loaders)
+        await model.load(.activity, session: "s1")  // seeds the cache entry the push requires
+        #expect(calls == 1)
+
+        model.schedulePushLoad(.activity, session: "s1")  // starts call 2, then gates
+        #expect(await settleDetail(until: { gate.isWaiting }))
+        model.schedulePushLoad(.activity, session: "s1")  // coalesced: no new read yet
+        model.schedulePushLoad(.activity, session: "s1")  // still coalesced
+        #expect(calls == 2)
+
+        gate.open()
+        #expect(await settleDetail(until: { calls == 3 }))  // exactly one follow-up read
+        _ = await settleDetail(until: { false }, yields: 50)
+        #expect(calls == 3)
+    }
+
+    // MARK: - Pruning sessions the store no longer lists
+
+    @Test func pruneDropsCachesForSessionsNoLongerActive() async {
+        var loaders = DetailModel.Loaders.stubbed()
+        loaders.activity = { _ in [self.entry(1, "hi")] }
+        let model = DetailModel(loaders: loaders)
+        await model.load(.activity, session: "keep")
+        await model.load(.activity, session: "drop")
+        #expect(model.activity["keep"] != nil)
+        #expect(model.activity["drop"] != nil)
+
+        model.prune(activeIDs: ["keep"])
+
+        #expect(model.activity["keep"] != nil)
+        #expect(model.activity["drop"] == nil)
+
+        // A push for the pruned session is a session nobody has open any more.
+        model.schedulePushLoad(.activity, session: "drop")
+        _ = await settleDetail(until: { false }, yields: 50)
+        #expect(model.activity["drop"] == nil)
+    }
 }

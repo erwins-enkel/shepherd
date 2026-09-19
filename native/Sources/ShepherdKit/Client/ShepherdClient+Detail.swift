@@ -19,11 +19,6 @@ extension Components.Schemas.MergeStateStatus: OpenEnum {}
 extension Components.Schemas.PrReviewState: OpenEnum {}
 
 // MARK: - Short names for the generated detail schemas
-//
-// `PrReviewerOptions` and `MergeMethod` are deliberately not aliased here: they belong to
-// `reviewers()` and the PR-action writes, which a later task adds together with the still-missing
-// 502 on `GET /git/reviewers` (see this task's report). Adding the alias now, unused, would just
-// invite a redeclaration clash when that task lands its own copy.
 
 public typealias ActivityEntry = Components.Schemas.ActivityEntry
 public typealias DiffResult = Components.Schemas.DiffResult
@@ -33,6 +28,10 @@ public typealias BrowseListing = Components.Schemas.BrowseListing
 public typealias BrowseEntry = Components.Schemas.BrowseEntry
 public typealias GitState = Components.Schemas.GitState
 public typealias PrReview = Components.Schemas.PrReview
+public typealias PrReviewerOptions = Components.Schemas.PrReviewerOptions
+/// The request-side merge method (`merge` | `squash` | `rebase`). A closed enum: it never
+/// appears in a server response, so a client never needs to tolerate a value it doesn't know.
+public typealias MergeMethod = Components.Schemas.MergeMethod
 // Decoded from `ServerEvent.unknown(name:payload:)`'s `payload` in `DetailModel.subscribe(_:)` —
 // `session:activity`/`session:git` are declared under this stream's own `x-shepherd-events` block
 // but never added to `EventName`, so the app decodes them itself through these two.
@@ -142,8 +141,147 @@ extension ShepherdClient {
     } catch { throw ShepherdError.from(error, route: "getSessionGit") }
   }
 
-  // `reviewers()` is deliberately not here yet: the contract's `GET /git/reviewers` is missing
-  // its reachable 502 (`reviewRequestError` funnels a thrown forge into an undeclared 502 —
-  // Task 1's report flagged this). A fixer is adding that status now; Task 4 adds `reviewers()`
-  // together with the PR-action writes once it lands, per the orchestrator's note on this task.
+  /// Candidate reviewers for the open PR. GitHub only; any other forge, or one that refuses the
+  /// request, comes back as a `.badRequest`/`.conflict` carrying the server's machine code.
+  public func reviewers(sessionID: String) async throws -> PrReviewerOptions {
+    do {
+      switch try await generated.getPullRequestReviewers(.init(path: .init(id: sessionID))) {
+      case .ok(let ok): return try ok.body.json
+      case .badRequest(let bad): throw ShepherdError.badRequest(try bad.body.json.code)
+      case .unauthorized: throw ShepherdError.unauthenticated
+      case .notFound: throw ShepherdError.notFound
+      case .conflict(let conflict):
+        let code = try conflict.body.json.code
+        throw ShepherdError.conflict(code: code, message: try conflict.body.json.error ?? code)
+      case .badGateway(let bad):
+        throw ShepherdError.upstreamFailure(try bad.body.json.error ?? bad.body.json.code)
+      case .undocumented(let status, _):
+        throw ShepherdError.fromUndocumented(statusCode: status, route: "getPullRequestReviewers")
+      }
+    } catch { throw ShepherdError.from(error, route: "getPullRequestReviewers") }
+  }
+}
+
+// MARK: - PR actions
+
+extension ShepherdClient {
+  /// Opens a PR for the session branch. `nil` for either field lets the server fall back to the
+  /// session's name and prompt. The response carries no `kind` — see `GitState`.
+  public func openPR(sessionID: String, title: String?, body: String?) async throws -> GitState {
+    do {
+      switch try await generated.openPullRequest(
+        .init(path: .init(id: sessionID), body: .json(.init(title: title, body: body)))
+      ) {
+      case .ok(let ok): return try ok.body.json
+      case .unauthorized: throw ShepherdError.unauthenticated
+      case .notFound: throw ShepherdError.notFound
+      case .conflict(let conflict): throw ShepherdError.fromConflict(try conflict.body.json)
+      case .badGateway(let bad): throw ShepherdError.upstreamFailure(try bad.body.json.error)
+      case .undocumented(let status, _):
+        throw ShepherdError.fromUndocumented(statusCode: status, route: "openPullRequest")
+      }
+    } catch { throw ShepherdError.from(error, route: "openPullRequest") }
+  }
+
+  /// Merges the open PR. `nil` takes the forge's own defaults (its merge method, and deleting
+  /// the branch). A 502 here often means the host only *enqueued* the merge — still not a
+  /// success, and the server's sentence says which it was.
+  public func mergePR(
+    sessionID: String, method: MergeMethod?, deleteBranch: Bool?
+  ) async throws -> GitState {
+    do {
+      switch try await generated.mergePullRequest(
+        .init(
+          path: .init(id: sessionID),
+          body: .json(.init(method: method, deleteBranch: deleteBranch)))
+      ) {
+      case .ok(let ok): return try ok.body.json
+      case .unauthorized: throw ShepherdError.unauthenticated
+      case .notFound: throw ShepherdError.notFound
+      case .conflict(let conflict): throw ShepherdError.fromConflict(try conflict.body.json)
+      case .badGateway(let bad): throw ShepherdError.upstreamFailure(try bad.body.json.error)
+      case .undocumented(let status, _):
+        throw ShepherdError.fromUndocumented(statusCode: status, route: "mergePullRequest")
+      }
+    } catch { throw ShepherdError.from(error, route: "mergePullRequest") }
+  }
+
+  /// Marks the PR ready for review. Idempotent server-side. A forge with no `markReady` (e.g.
+  /// `LocalForge`) answers 400.
+  public func markPRReady(sessionID: String) async throws -> GitState {
+    do {
+      switch try await generated.setPullRequestReady(.init(path: .init(id: sessionID))) {
+      case .ok(let ok): return try ok.body.json
+      case .badRequest(let bad): throw ShepherdError.badRequest(try bad.body.json.error)
+      case .unauthorized: throw ShepherdError.unauthenticated
+      case .notFound: throw ShepherdError.notFound
+      case .conflict(let conflict): throw ShepherdError.fromConflict(try conflict.body.json)
+      case .badGateway(let bad): throw ShepherdError.upstreamFailure(try bad.body.json.error)
+      case .undocumented(let status, _):
+        throw ShepherdError.fromUndocumented(statusCode: status, route: "setPullRequestReady")
+      }
+    } catch { throw ShepherdError.from(error, route: "setPullRequestReady") }
+  }
+
+  /// Converts the PR back to a draft. Idempotent server-side. A forge with no `convertToDraft`
+  /// (e.g. `LocalForge`) answers 400.
+  public func markPRDraft(sessionID: String) async throws -> GitState {
+    do {
+      switch try await generated.setPullRequestDraft(.init(path: .init(id: sessionID))) {
+      case .ok(let ok): return try ok.body.json
+      case .badRequest(let bad): throw ShepherdError.badRequest(try bad.body.json.error)
+      case .unauthorized: throw ShepherdError.unauthenticated
+      case .notFound: throw ShepherdError.notFound
+      case .conflict(let conflict): throw ShepherdError.fromConflict(try conflict.body.json)
+      case .badGateway(let bad): throw ShepherdError.upstreamFailure(try bad.body.json.error)
+      case .undocumented(let status, _):
+        throw ShepherdError.fromUndocumented(statusCode: status, route: "setPullRequestDraft")
+      }
+    } catch { throw ShepherdError.from(error, route: "setPullRequestDraft") }
+  }
+
+  /// Closes the PR without merging. A forge with no `closePr` (e.g. `LocalForge`) answers 400.
+  public func closePR(sessionID: String) async throws -> GitState {
+    do {
+      switch try await generated.closePullRequest(.init(path: .init(id: sessionID))) {
+      case .ok(let ok): return try ok.body.json
+      case .badRequest(let bad): throw ShepherdError.badRequest(try bad.body.json.error)
+      case .unauthorized: throw ShepherdError.unauthenticated
+      case .notFound: throw ShepherdError.notFound
+      case .conflict(let conflict): throw ShepherdError.fromConflict(try conflict.body.json)
+      case .badGateway(let bad): throw ShepherdError.upstreamFailure(try bad.body.json.error)
+      case .undocumented(let status, _):
+        throw ShepherdError.fromUndocumented(statusCode: status, route: "closePullRequest")
+      }
+    } catch { throw ShepherdError.from(error, route: "closePullRequest") }
+  }
+
+  /// Requests a human review on the open PR. GitHub only.
+  ///
+  /// - Returns: `true` when the server requested the review but its own follow-up status read
+  ///   failed (`refreshPending`), so the caller should re-read `git(sessionID:)`. This route's
+  ///   error bodies carry a machine code and often no prose, so the code stands in for both.
+  @discardableResult
+  public func requestPRReview(
+    sessionID: String, prNumber: Int, reviewer: String
+  ) async throws -> Bool {
+    do {
+      switch try await generated.requestPullRequestReview(
+        .init(path: .init(id: sessionID), body: .json(.init(prNumber: prNumber, reviewer: reviewer)))
+      ) {
+      case .ok(let ok): return try ok.body.json.refreshPending ?? false
+      case .badRequest(let bad): throw ShepherdError.badRequest(try bad.body.json.code)
+      case .unauthorized: throw ShepherdError.unauthenticated
+      case .forbidden: throw ShepherdError.forbidden
+      case .notFound: throw ShepherdError.notFound
+      case .conflict(let conflict):
+        let code = try conflict.body.json.code
+        throw ShepherdError.conflict(code: code, message: try conflict.body.json.error ?? code)
+      case .unprocessableContent(let unprocessable):
+        throw ShepherdError.unprocessable(try unprocessable.body.json.code)
+      case .undocumented(let status, _):
+        throw ShepherdError.fromUndocumented(statusCode: status, route: "requestPullRequestReview")
+      }
+    } catch { throw ShepherdError.from(error, route: "requestPullRequestReview") }
+  }
 }

@@ -100,7 +100,177 @@ struct ShepherdClientDetailReadTests {
     }
   }
 
-  // `reviewers()` is not tested here — the method is not implemented yet. See the note on
-  // `ShepherdClient+Detail.swift` and this task's report: `GET /git/reviewers` is missing its
-  // reachable 502 in the contract, and Task 4 adds both together once that lands.
+  @Test("reviewers come back whole; an unsupported forge is a bad request with its code")
+  func reviewers() async throws {
+    let fake = FakeShepherdServer()
+    defer { fake.tearDown() }
+    fake.stub("GET", "/api/sessions/s1/git/reviewers", status: 200, json: DetailFixtures.reviewers)
+    #expect(try await detailClient(fake).reviewers(sessionID: "s1").logins.count == 2)
+
+    let unsupported = FakeShepherdServer()
+    defer { unsupported.tearDown() }
+    unsupported.stub(
+      "GET", "/api/sessions/s1/git/reviewers", status: 400,
+      json: Data(#"{"code":"review_request_unsupported"}"#.utf8))
+    await #expect(throws: ShepherdError.badRequest("review_request_unsupported")) {
+      _ = try await detailClient(unsupported).reviewers(sessionID: "s1")
+    }
+
+    let angry = FakeShepherdServer()
+    defer { angry.tearDown() }
+    angry.stub(
+      "GET", "/api/sessions/s1/git/reviewers", status: 502,
+      json: Data(#"{"code":"review_request_failed","error":"forge unreachable"}"#.utf8))
+    await #expect(throws: ShepherdError.upstreamFailure("forge unreachable")) {
+      _ = try await detailClient(angry).reviewers(sessionID: "s1")
+    }
+  }
+}
+
+@Suite("ShepherdClient detail writes")
+@MainActor
+struct ShepherdClientDetailWriteTests {
+  private func sentJSON(_ fake: FakeShepherdServer) throws -> [String: Any] {
+    let body = try #require(fake.requests().last?.body)
+    return try #require(try JSONSerialization.jsonObject(with: body) as? [String: Any])
+  }
+
+  @Test("opening a PR sends the title and body it was given")
+  func openPR() async throws {
+    let fake = FakeShepherdServer()
+    defer { fake.tearDown() }
+    fake.stub("POST", "/api/sessions/s1/git/pr", status: 200, json: DetailFixtures.gitState)
+    #expect(try await detailClient(fake).openPR(sessionID: "s1", title: "T", body: "B").number == 12)
+    let json = try sentJSON(fake)
+    #expect(json["title"] as? String == "T")
+    #expect(json["body"] as? String == "B")
+  }
+
+  @Test("an empty diff is a conflict carrying the server's sentence")
+  func openPRConflict() async throws {
+    let fake = FakeShepherdServer()
+    defer { fake.tearDown() }
+    fake.stub(
+      "POST", "/api/sessions/s1/git/pr", status: 409,
+      json: Data(#"{"error":"no commits to merge"}"#.utf8))
+    await #expect(throws: ShepherdError.conflict(code: nil, message: "no commits to merge")) {
+      _ = try await detailClient(fake).openPR(sessionID: "s1", title: nil, body: nil)
+    }
+  }
+
+  @Test("merging sends the method and the delete-branch choice; an enqueued merge is a failure")
+  func mergePR() async throws {
+    let fake = FakeShepherdServer()
+    defer { fake.tearDown() }
+    fake.stub("POST", "/api/sessions/s1/git/merge", status: 200, json: DetailFixtures.gitState)
+    _ = try await detailClient(fake).mergePR(sessionID: "s1", method: .squash, deleteBranch: false)
+    let json = try sentJSON(fake)
+    #expect(json["method"] as? String == "squash")
+    #expect(json["deleteBranch"] as? Bool == false)
+
+    let enqueued = FakeShepherdServer()
+    defer { enqueued.tearDown() }
+    enqueued.stub(
+      "POST", "/api/sessions/s1/git/merge", status: 502,
+      json: Data(#"{"error":"merge enqueued","code":"merge_enqueued"}"#.utf8))
+    await #expect(throws: ShepherdError.upstreamFailure("merge enqueued")) {
+      _ = try await detailClient(enqueued).mergePR(
+        sessionID: "s1", method: nil, deleteBranch: nil)
+    }
+  }
+
+  @Test("ready, draft and close all answer the full git state")
+  func draftStateAndClose() async throws {
+    for route in ["ready", "draft", "close"] {
+      let fake = FakeShepherdServer()
+      defer { fake.tearDown() }
+      fake.stub("POST", "/api/sessions/s1/git/\(route)", status: 200, json: DetailFixtures.gitState)
+      let client = try detailClient(fake)
+      let state =
+        switch route {
+        case "ready": try await client.markPRReady(sessionID: "s1")
+        case "draft": try await client.markPRDraft(sessionID: "s1")
+        default: try await client.closePR(sessionID: "s1")
+        }
+      #expect(state.kind?.known == .github)
+    }
+  }
+
+  @Test("a draft still awaiting sign-off is a conflict with its code")
+  func readyBlocked() async throws {
+    let fake = FakeShepherdServer()
+    defer { fake.tearDown() }
+    fake.stub(
+      "POST", "/api/sessions/s1/git/ready", status: 409,
+      json: Data(#"{"code":"draft_awaiting_signoff","error":"Draft mode."}"#.utf8))
+    await #expect(
+      throws: ShepherdError.conflict(code: "draft_awaiting_signoff", message: "Draft mode.")
+    ) { _ = try await detailClient(fake).markPRReady(sessionID: "s1") }
+  }
+
+  @Test("a forge missing a PR-mutation capability is a bad request with the server's sentence")
+  func missingCapability() async throws {
+    let fake = FakeShepherdServer()
+    defer { fake.tearDown() }
+    fake.stub(
+      "POST", "/api/sessions/s1/git/close", status: 400,
+      json: Data(#"{"error":"this host does not support closing a pull request"}"#.utf8))
+    await #expect(
+      throws: ShepherdError.badRequest("this host does not support closing a pull request")
+    ) { _ = try await detailClient(fake).closePR(sessionID: "s1") }
+  }
+
+  @Test("requesting a review reports refreshPending and sends both fields")
+  func requestReview() async throws {
+    let fake = FakeShepherdServer()
+    defer { fake.tearDown() }
+    fake.stub(
+      "POST", "/api/sessions/s1/git/request-review", status: 200,
+      json: Data(#"{"ok":true,"refreshPending":true}"#.utf8))
+    #expect(
+      try await detailClient(fake).requestPRReview(
+        sessionID: "s1", prNumber: 12, reviewer: "octocat") == true)
+    let json = try sentJSON(fake)
+    #expect(json["prNumber"] as? Int == 12)
+    #expect(json["reviewer"] as? String == "octocat")
+  }
+
+  @Test("a draft PR is a conflict carrying the machine code")
+  func requestReviewDraft() async throws {
+    let fake = FakeShepherdServer()
+    defer { fake.tearDown() }
+    fake.stub(
+      "POST", "/api/sessions/s1/git/request-review", status: 409,
+      json: Data(#"{"code":"review_request_draft"}"#.utf8))
+    await #expect(
+      throws: ShepherdError.conflict(
+        code: "review_request_draft", message: "review_request_draft")
+    ) {
+      _ = try await detailClient(fake).requestPRReview(
+        sessionID: "s1", prNumber: 12, reviewer: "octocat")
+    }
+  }
+
+  @Test("the host forbids the request, or rejects the reviewer login")
+  func requestReviewForbiddenOrInvalid() async throws {
+    let forbidden = FakeShepherdServer()
+    defer { forbidden.tearDown() }
+    forbidden.stub(
+      "POST", "/api/sessions/s1/git/request-review", status: 403,
+      json: Data(#"{"code":"review_request_forbidden"}"#.utf8))
+    await #expect(throws: ShepherdError.forbidden) {
+      _ = try await detailClient(forbidden).requestPRReview(
+        sessionID: "s1", prNumber: 12, reviewer: "octocat")
+    }
+
+    let invalid = FakeShepherdServer()
+    defer { invalid.tearDown() }
+    invalid.stub(
+      "POST", "/api/sessions/s1/git/request-review", status: 422,
+      json: Data(#"{"code":"review_request_invalid_reviewer"}"#.utf8))
+    await #expect(throws: ShepherdError.unprocessable("review_request_invalid_reviewer")) {
+      _ = try await detailClient(invalid).requestPRReview(
+        sessionID: "s1", prNumber: 12, reviewer: "not-a-user")
+    }
+  }
 }

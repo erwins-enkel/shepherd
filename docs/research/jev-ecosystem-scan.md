@@ -115,18 +115,26 @@ TypeSafe's **[Master Customer Agreement §2.3(f)](https://typesafe.ai/legal/mca)
 customer will not _"publish benchmarks or performance information about the Services"_. §2.3(b)
 separately forbids using Output for model distillation or to develop a similar or competing product.
 
-`erwins-enkel/shepherd` is public, and #2364 publishes measured JEV numbers in **three** places, not
+`erwins-enkel/shepherd` is public, and #2364 published measured JEV numbers in **three** places, not
 one: the PR description, the new "JEV backend — the go/no-go" section of `docs/eval-stop-classifier.md`
 (results table, framing comparison and the full threshold sweep), and the amendment to §9 of
 [`jev-system-one-models.md`](./jev-system-one-models.md) itself. This was found because one scanned
 project ships zero real JEV numbers on purpose and says why; the clause was then read at the source
-rather than taken on trust.
+rather than taken on trust. Note §2.3 is a flat prohibition list, (a)–(m), with **no
+prior-written-consent carve-out**.
 
-This is an operator decision, not a research finding, and it is cheap while #2364 is unmerged. The
-options are: record the **decision** ("GO; the verbatim framing beat the authored one") and keep the
-tables in a local eval artefact; keep relative statements only ("clears the 0.80 floor, holds the
-German buckets"); or publish knowingly. The same clause will constrain how the eventual nightly
-drift eval reports, so it is worth settling once rather than per-PR.
+**Resolved 2026-09-19 by #2371** (operator decision, after #2364 had already merged): absolute JEV
+figures in all three locations became relative statements. The verdict, the bar, the fixtures, the
+harness and every caveat stayed; the Haiku baseline is our own measurement of an Anthropic model,
+is not "the Services", and stayed stated in full. The figures remain in git history — #2371 removes
+them from the live documents, not from the repository's past, and rewriting `main` was judged
+disproportionate.
+
+This was an operator decision, not a research finding. The options were: record the **decision**
+("GO; the verbatim framing beat the authored one") and keep the tables in a local eval artefact;
+keep relative statements only ("clears the 0.80 floor, holds the German buckets"); or publish
+knowingly. The second was chosen. **The same clause constrains how the eventual nightly drift eval
+reports** — that is now a standing constraint on the JEV leg, not a one-off.
 
 **This file takes the second option for itself, so that merging it does not pre-empt the decision.**
 Where our own measurements matter to an argument here — §2.1, §5.3 — they appear as relative
@@ -523,8 +531,8 @@ Every verdict in §3 comes from opening the repository. None comes from the blur
 Nothing here is a new commitment; it is a revision of the plan already in
 [`jev-system-one-models.md`](./jev-system-one-models.md) §9.
 
-1. **Settle the §1.4 publication question** before #2364 merges. Operator decision, one-time, and it
-   also sets how the nightly drift eval may report.
+1. ~~Settle the §1.4 publication question.~~ **Done — #2371.** Relative statements everywhere; the
+   standing constraint it sets on the nightly drift eval's JEV leg is the part that outlives it.
 2. **Build the `Judge` seam on `@typesafe-ai/sdk`**, pinned to `jev-1.13.0`, with base URL and model
    id as configuration (§2.3), **raw probabilities carried across the seam** rather than a vendor
    `confidence` scalar, and no fabricated confidence for `noul` answers (§1.2).

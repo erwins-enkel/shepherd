@@ -1,8 +1,11 @@
 # Shepherd
 
-Five packages, each with its own deps and lockfile: root (herdr/server, `bun`), `ui/` (SvelteKit),
-`extension/`, `docs-site/` (Astro Starlight, docs.shepherd.run) and `site/` (Astro, the marketing
-site).
+Five Bun/Node packages, each with its own deps and lockfile: root (herdr/server, `bun`), `ui/`
+(SvelteKit), `extension/`, `docs-site/` (Astro Starlight, docs.shepherd.run) and `site/` (Astro,
+the marketing site). Plus `native/`, a Swift package (`ShepherdKit`) generated from
+`contracts/openapi.swift.yaml` (derived from `contracts/openapi.yaml` by
+`bun run gen:contract-swift`) — build and test it with `swift build --package-path native` and
+`swift test --package-path native`, never with `bun`. See `native/README.md`.
 
 > Conventions for UI, i18n, feature announcements and the glossary live in `.claude/rules/` and
 > load automatically when you touch the files they govern. They are published under
@@ -25,13 +28,16 @@ an explanation surface. Longer instructions belong in a disclosure or docs.
 `extension/` run `vitest`. Bare `bun test` invokes Bun's runner over the wrong file set and
 "passes" without running the suite you meant.
 
-| Package      | Lint/check      | Test           |
-| ------------ | --------------- | -------------- |
-| Root         | `bun run lint`  | `bun run test` |
-| `ui/`        | `bun run check` | `bun run test` |
-| `extension/` | `bun run check` | `bun run test` |
+| Package      | Lint/check                          | Test                               |
+| ------------ | ----------------------------------- | ---------------------------------- |
+| Root         | `bun run lint`                      | `bun run test`                     |
+| `ui/`        | `bun run check`                     | `bun run test`                     |
+| `extension/` | `bun run check`                     | `bun run test`                     |
+| `native/`    | `swift build --package-path native` | `swift test --package-path native` |
 
-Run both halves when a change spans server + UI.
+Run both halves when a change spans server + UI. `native/` is Swift, not Bun/Node — build and
+test it with the two commands above, not `bun run`. The `Shepherd.app` shell built on top of it
+has its own build/run/test scripts under `native/scripts/`; see `native/README.md`.
 
 Deps for those three install themselves — the `ensure-deps.sh` SessionStart hook runs
 `bun install` in root, `ui/` and `extension/` when `node_modules` is absent. It does **not**

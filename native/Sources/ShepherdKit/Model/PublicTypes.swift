@@ -22,3 +22,20 @@ public typealias HerdrStateKnown = Components.Schemas.HerdrStateKnown
 public typealias SessionArchiveReasonKnown = Components.Schemas.SessionArchiveReasonKnown
 public typealias ExperimentRoleKnown = Components.Schemas.ExperimentRoleKnown
 public typealias EventNameKnown = Components.Schemas.EventNameKnown
+
+// Hand-written public types. These are declared in the files named below, not
+// aliased here — a typealias of a type to itself does not compile — but they are
+// listed so this file stays the single index of ShepherdKit's public surface:
+//
+//   Model/SessionStore.swift      SessionStore, ConnectionState
+//   Model/ServerProfile.swift     ServerProfile, ServerProfile.Mode, ServerProfileError
+//   Model/ShepherdError.swift     ShepherdError
+//   Client/ShepherdClient.swift   ShepherdClient, CreateOutcome
+//   Client/ProfileSetup.swift     ProfileSetup
+//   Credentials/                  CredentialStore, StoredCredential,
+//                                 KeychainCredentialStore, InMemoryCredentialStore,
+//                                 KeychainError
+//   Realtime/ServerEvent.swift    ServerEvent, PresenceFrame
+//   Realtime/EventStream.swift    EventStream
+//   Model/OpenEnum.swift          OpenEnum
+//   Logging.swift                 ShepherdLog

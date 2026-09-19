@@ -1,5 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "astro",
+  "installCommand": "rm -rf node_modules && bun install --frozen-lockfile",
   "ignoreCommand": "bash ../scripts/vercel-ignore-build.sh ./ ../src ../docs ../CLAUDE.md ../.claude/rules"
 }

@@ -458,6 +458,11 @@ export interface PrStatus {
   >;
   /** true = PR is a draft / not ready-for-review. Absent ⇒ treat as false. */
   isDraft?: boolean;
+  /** The PR's actual base (target) branch ref name, e.g. "main" — the branch a merge really
+   *  lands on. Undefined when there is no PR, or on hosts that don't supply it. */
+  baseRefName?: string;
+  /** The method Shepherd would land this PR with (the forge's configured method). Display-only. */
+  mergeMethod?: MergeMethod;
 }
 
 /** Which kind of PR this is — drives the PRs tab type tag (mirrors server `PrKind`). */
@@ -497,6 +502,15 @@ export interface PullRequest {
    *  flavor; deployment-environment `waiting` gates are not detected). Drives the
    *  PRs-tab "needs approval" chip. Display-only. Absent ⇒ false. */
   awaitingWorkflowApproval?: boolean;
+  /** Head commit SHA. The merge confirmation binds the operator's confirmation to it. */
+  headSha?: string;
+  /** The PR's actual base (target) branch — unlike `nonDefaultBase`, always populated when the
+   *  host supplies it. The merge confirmation names it. */
+  baseRefName?: string;
+  /** The method Shepherd would land this PR with. Display-only. */
+  mergeMethod?: MergeMethod;
+  /** Who a manual merge of this PR would be taken over from. Absent ⇒ nobody. */
+  mergeGate?: MergeResponsibility;
 }
 
 /** Result of fast-forwarding a repo's local default-branch checkout after a merge
@@ -1056,6 +1070,7 @@ export interface GitState extends PrStatus {
   handoff?: "reviewer" | "merger";
   /** The responsible login; absent for a fork waiting on unnamed maintainers. */
   handoffWho?: string;
+
   /** Active changes requested by the configured reviewer, or a maintainer on an unconfigured fork. */
   reviewBlock?: {
     reviewer: string;
@@ -1065,6 +1080,20 @@ export interface GitState extends PrStatus {
   /** Web URL of the backlog issue this session was spawned for, or absent when the
    *  session has no linked issue or the repo has no web forge (local mode). */
   issueUrl?: string;
+  /** Who a manual merge of this PR would be taken over from. Absent ⇒ nobody. */
+  mergeGate?: MergeResponsibility;
+}
+
+/** Who a manual merge would be taken over FROM (mirrors server `MergeResponsibility`).
+ *
+ *  Server-stamped from `.shepherd/roles.json` by the same function the merge gate runs, so the
+ *  confirmation dialog states — and echoes back — exactly what the gate will re-derive. NOT the
+ *  same as `handoff`, which is the herd's "waiting on" readout: that one appears only on an open
+ *  + green PR and is inferred from the PR's reviewers when a repo configures no roles. */
+export interface MergeResponsibility {
+  handoff?: "reviewer" | "merger";
+  handoffWho?: string;
+  reviewBlockBy?: string;
 }
 
 /** Per-repo reviewer + merger logins, from `.shepherd/roles.json`. */

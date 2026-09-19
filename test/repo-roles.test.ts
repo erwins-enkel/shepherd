@@ -353,3 +353,81 @@ test("PUT /api/repo-roles: push failure → 502 generic pushError, raw error not
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// ── merge-gate stamp (#2299) ────────────────────────────────────────────────────────────────
+//
+// `handoff` is the herd's "waiting on" readout: open + CI-cleared only, and inferred from the
+// PR's reviewers where no roles are configured. `mergeGate` is what the merge confirmation states
+// and echoes back to the gate that validates it, so it must follow the GATE's rules instead.
+
+test("mergeGate names the responsible merger even while CI has not cleared", () => {
+  const dir = repoWithRoles({ reviewer: null, merger: "scoop" });
+  // checks "pending" on a GitHub repo WITH workflows never clears, so no handoff is stamped…
+  const g = annotateHandoff(gitState({ number: 7, checks: "pending" }), dir, "kai");
+  expect(g.handoff).toBeUndefined();
+  // …but the merge is still offered, so the confirmation must still name @scoop.
+  expect(g.mergeGate).toEqual({ handoff: "merger", handoffWho: "scoop" });
+});
+
+test("mergeGate is stamped on a non-GitHub host, where checks never clear at all", () => {
+  const dir = repoWithRoles({ reviewer: null, merger: "scoop" });
+  const g = annotateHandoff(gitState({ kind: "gitea", number: 7 }), dir, "kai");
+  expect(g.handoff).toBeUndefined();
+  expect(g.mergeGate).toEqual({ handoff: "merger", handoffWho: "scoop" });
+});
+
+test("mergeGate is absent when the operator holds the roles themselves", () => {
+  const dir = repoWithRoles({ reviewer: null, merger: "kai" });
+  expect(annotateHandoff(gitState({ number: 7 }), dir, "kai").mergeGate).toBeUndefined();
+});
+
+test("mergeGate is absent on a repo that configures no roles, however the handoff is inferred", () => {
+  const g = annotateHandoff(
+    gitState({ number: 7, checks: "success", requestedReviewers: ["scoop"] }),
+    "/no/such/repo",
+    "kai",
+  );
+  expect(g.handoff).toBe("merger"); // inferred readout stays
+  expect(g.handoffInferred).toBe(true);
+  expect(g.mergeGate).toBeUndefined(); // …but nothing is taken over
+});
+
+test("mergeGate reports the reviewer's open changes where the readout says 'your turn'", () => {
+  const dir = repoWithRoles({ reviewer: "scoop", merger: null });
+  const g = annotateHandoff(
+    gitState({
+      number: 7,
+      checks: "success",
+      reviewerStates: { scoop: { state: "changes_requested", latestAt: 1 } },
+    }),
+    dir,
+    "kai",
+  );
+  expect(g.handoff).toBeUndefined(); // configuredHandoff collapses a review block to self
+  expect(g.mergeGate).toEqual({
+    handoff: "reviewer",
+    handoffWho: "scoop",
+    reviewBlockBy: "scoop",
+  });
+});
+
+test("mergeGate is cleared when the roles no longer name anyone", () => {
+  // annotateHandoff re-annotates ALREADY-annotated states (the roles dialog's re-push, the
+  // poller's prev). A responsibility the operator has since cleared must not survive, or every
+  // merge entry point keeps offering to "take over" a merge that is now their own.
+  const dir = repoWithRoles({ reviewer: null, merger: "scoop" });
+  const annotated = annotateHandoff(gitState({ number: 7 }), dir, "kai");
+  expect(annotated.mergeGate).toBeDefined();
+
+  const cleared = annotateHandoff(annotated, "/no/such/repo", "kai");
+  expect(cleared.mergeGate).toBeUndefined();
+});
+
+test("mergeGate is replaced, not merged, when the roles are reassigned", () => {
+  const scoopRepo = repoWithRoles({ reviewer: null, merger: "scoop" });
+  const danaRepo = repoWithRoles({ reviewer: null, merger: "dana" });
+  const annotated = annotateHandoff(gitState({ number: 7 }), scoopRepo, "kai");
+
+  const reassigned = annotateHandoff(annotated, danaRepo, "kai");
+  expect(reassigned.mergeGate).toEqual({ handoff: "merger", handoffWho: "dana" });
+});

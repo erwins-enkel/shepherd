@@ -92,6 +92,8 @@ test("GiteaForge.listPullRequests: maps open PRs and fans out per-PR checks", as
       ],
       headSha: "deadbeef",
       headRefName: "feature",
+      // The method Shepherd would land it with — the merge confirmation names it (#2299).
+      mergeMethod: "squash",
     },
   ]);
   // list call + default-branch call + one commit-status call

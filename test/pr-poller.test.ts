@@ -2209,3 +2209,19 @@ test("snapshot: single-session repo (count<2) never calls snapshot.refresh", asy
   expect(calls.refresh).toBe(0); // count<2 → per-session, no snapshot call
   expect(stats.prStatus).toBe(1); // per-session fallback
 });
+
+test("gitStateChanged: true when the stamped merge responsibility appears or changes", () => {
+  // Not CI-gated like `handoff`, and the merge confirmation reads it — on a stable open PR
+  // nothing else in this comparison moves, so without this term a freshly derived (or cleared)
+  // responsibility would be recomputed every poll and discarded every poll.
+  const none = openGit();
+  const scoop = openGit({ mergeGate: { handoff: "merger", handoffWho: "scoop" } });
+  const dana = openGit({ mergeGate: { handoff: "merger", handoffWho: "dana" } });
+
+  expect(gitStateChanged(none, scoop)).toBe(true);
+  expect(gitStateChanged(scoop, none)).toBe(true);
+  expect(gitStateChanged(scoop, dana)).toBe(true);
+  expect(
+    gitStateChanged(scoop, openGit({ mergeGate: { handoff: "merger", handoffWho: "scoop" } })),
+  ).toBe(false);
+});

@@ -21,6 +21,22 @@ describe("createDecommissionCommit", () => {
     expect(api.archiveSession).toHaveBeenCalledWith("s1", ["vite:5173"]);
   });
 
+  it("forwards the operator's merge confirmation to the gated merge endpoint", async () => {
+    // The decommission dialog IS this merge's confirmation (#2299): without the payload the
+    // server refuses the merge whenever the repo puts someone else on the hook.
+    const api = actions();
+    const mergeConfirm = {
+      headSha: "abc123",
+      baseRefName: "main",
+      handoff: "merger" as const,
+      handoffWho: "scoop",
+      reviewBlockBy: null,
+    };
+    await createDecommissionCommit({ id: "s1", action: "merge", mergeConfirm }, api).run();
+
+    expect(api.mergePr).toHaveBeenCalledWith("s1", mergeConfirm);
+  });
+
   it("retries a failed PR action before attempting the archive", async () => {
     const api = actions();
     api.closePr.mockRejectedValueOnce(new Error("close failed"));
@@ -44,6 +60,24 @@ describe("createDecommissionCommit", () => {
 
     expect(api.closePr).toHaveBeenCalledTimes(1);
     expect(api.archiveSession).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps the merge pending when it was refused, so a rebuilt commit still merges", async () => {
+    // A refused merge confirmation (#2299) must not silently degrade into "archive without
+    // merging" — the operator asked for a merge. The caller rebuilds the confirmation and
+    // re-runs; `remaining` staying "merge" is what makes that second run do the merge.
+    const api = actions();
+    api.mergePr.mockRejectedValueOnce(
+      Object.assign(new Error("confirm"), { code: "merge_confirm_stale" }),
+    );
+    const commit = createDecommissionCommit({ id: "s1", action: "merge" }, api);
+
+    await expect(commit.run()).rejects.toThrow("confirm");
+    expect(api.archiveSession).not.toHaveBeenCalled();
+
+    await commit.run();
+    expect(api.mergePr).toHaveBeenCalledTimes(2);
+    expect(api.archiveSession).toHaveBeenCalledTimes(1);
   });
 
   it("does not repeat a successful merge when the immediate archive retry is needed", async () => {

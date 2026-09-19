@@ -87,6 +87,7 @@ import type {
   AccessToken,
   TokenScope,
 } from "./types";
+import type { MergeConfirmPayload } from "$lib/components/merge-confirm";
 import { m } from "$lib/paraglide/messages";
 import { auth } from "$lib/auth.svelte";
 
@@ -176,6 +177,52 @@ export class ApiError extends Error {
  *  {@link ApiError} to attach a `code`. Read it off the built error rather than re-deriving it from
  *  the body, so "server authored" has exactly one definition and cannot drift between call sites. */
 const serverAuthored = (e: Error): boolean => e instanceof ApiError && e.serverAuthored;
+
+/** A merge the server would not run because the repo's roles put someone else on the hook, or
+ *  because what the operator confirmed no longer holds (#2299). Carries the server's freshly
+ *  derived verdict so the dialog can RE-STATE the responsibility rather than guess at it from an
+ *  error string. `forge.merge` was not called. */
+export class MergeRefusedError extends ApiError {
+  constructor(
+    status: number,
+    message: string,
+    code: "merge_confirm_required" | "merge_confirm_stale",
+    readonly gate: {
+      handoff?: "reviewer" | "merger" | null;
+      handoffWho?: string | null;
+      reviewBlockBy?: string | null;
+    },
+    /** The PR as the server just read it — what a re-confirmation must be built against. */
+    readonly pr: { headSha?: string | null; baseRefName?: string | null },
+    serverAuthoredMessage = true,
+  ) {
+    super(status, message, code, serverAuthoredMessage);
+  }
+}
+
+/** Build the error for a failed merge response. Returns a {@link MergeRefusedError} for the two
+ *  confirmation refusals and an ordinary {@link ApiError} (code preserved) for everything else. */
+async function mergeRefusal(r: Response): Promise<Error> {
+  const msg = (await r.json().catch(() => ({ error: `${r.status}` }))) as {
+    error?: string;
+    code?: string;
+    gate?: MergeRefusedError["gate"];
+    headSha?: string | null;
+    baseRefName?: string | null;
+  };
+  const base = apiError(r.status, msg, `error ${r.status}`);
+  if (isPreviewBlocked(base)) return base;
+  if (msg.code === "merge_confirm_required" || msg.code === "merge_confirm_stale")
+    return new MergeRefusedError(
+      r.status,
+      base.message,
+      msg.code,
+      msg.gate ?? {},
+      { headSha: msg.headSha ?? null, baseRefName: msg.baseRefName ?? null },
+      serverAuthored(base),
+    );
+  return new ApiError(r.status, base.message, msg.code, serverAuthored(base));
+}
 
 /** Build an Error from a failed response, preferring the server's `{error}` body
  *  (e.g. "no active workspace") over the bare status code so the UI shows the real
@@ -1359,20 +1406,13 @@ export async function listRunJobs(
 export async function mergeBacklogPr(
   repoPath: string,
   number: number,
-  body?: { method?: MergeMethod; deleteBranch?: boolean },
+  body?: { method?: MergeMethod; deleteBranch?: boolean; confirm?: MergeConfirmPayload },
 ): Promise<void> {
   const r = await fetch("/api/prs/merge", JSON_POST({ repo: repoPath, number, ...body }));
-  if (!r.ok) {
-    const msg = (await r.json().catch(() => ({ error: `${r.status}` }))) as {
-      error?: string;
-      code?: string;
-    };
-    // Carry the server's `code` so the row can tell "still merging" (a stacked PR handed to
-    // GitHub's async merge API, #2059) apart from an actual merge failure.
-    const base = apiError(r.status, msg, `error ${r.status}`);
-    if (isPreviewBlocked(base)) throw base;
-    throw new ApiError(r.status, base.message, msg.code, serverAuthored(base));
-  }
+  // Carry the server's `code` so the row can tell "still merging" (a stacked PR handed to
+  // GitHub's async merge API, #2059) apart from an actual merge failure, and a refused/stale
+  // confirmation (#2299) apart from both.
+  if (!r.ok) throw await mergeRefusal(r);
 }
 
 /** Fast-forward a repo's local default-branch checkout after a merge. Returns the
@@ -1579,11 +1619,16 @@ export async function openPr(
   return gitJson(await fetch(`/api/sessions/${id}/git/pr`, JSON_POST(body ?? {})));
 }
 
+/** Land a session's PR. `confirm` echoes back what the merge confirmation dialog showed the
+ *  operator; the server re-derives it and refuses (409) when it no longer holds — see
+ *  {@link MergeRefusedError}. */
 export async function mergePr(
   id: string,
-  body?: { method?: MergeMethod; deleteBranch?: boolean },
+  body?: { method?: MergeMethod; deleteBranch?: boolean; confirm?: MergeConfirmPayload },
 ): Promise<PrStatus> {
-  return gitJson(await fetch(`/api/sessions/${id}/git/merge`, JSON_POST(body ?? {})));
+  const res = await fetch(`/api/sessions/${id}/git/merge`, JSON_POST(body ?? {}));
+  if (!res.ok) throw await mergeRefusal(res);
+  return res.json();
 }
 
 export async function closePr(id: string): Promise<PrStatus> {

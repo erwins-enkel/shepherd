@@ -1,6 +1,7 @@
 <script lang="ts">
   import { dialog } from "$lib/a11yDialog";
   import { m } from "$lib/paraglide/messages";
+  import { CONFIRM_ARM_MS, isMergeTakeover, type MergeTrainItem } from "./merge-confirm";
 
   let {
     repoLabel,
@@ -12,8 +13,9 @@
   }: {
     /** Short repo name (basename) for the desc line. */
     repoLabel: string;
-    /** PRs the train will work through — `#<number> <title>` per row. */
-    items: { number: number; title: string }[];
+    /** PRs the train will work through — `#<number> <title>` per row, each carrying the repo's
+     *  configured responsibility when it is not the operator's (#2299). */
+    items: MergeTrainItem[];
     /** false = ready-group path (genuinely flagged ready); true = backlog hand-pick. */
     handpicked: boolean;
     /** Ready PRs in OTHER repos excluded from this train (>0 only on the ready path). */
@@ -22,6 +24,19 @@
     /** Launch the merge train. */
     onconfirm: () => void;
   } = $props();
+
+  // A merge train lands other people's PRs too. It stays a deliberate automation the operator
+  // switched on — nothing server-side gates it — but it must not hide WHOSE PRs it will carry.
+  const foreign = $derived(items.filter((it) => isMergeTakeover(it.mergeGate ?? {})));
+  const takeover = $derived(foreign.length > 0);
+
+  // Same arm delay as the single-merge confirmation, for the same reason: the click that opened
+  // this must not be able to answer it.
+  let armed = $state(false);
+  $effect(() => {
+    const t = setTimeout(() => (armed = true), CONFIRM_ARM_MS);
+    return () => clearTimeout(t);
+  });
 </script>
 
 <div
@@ -56,9 +71,16 @@
         <div class="row">
           <span class="num">#{it.number}</span>
           <span class="nm">{it.title}</span>
+          {#if it.mergeGate?.handoffWho}
+            <span class="who">@{it.mergeGate.handoffWho}</span>
+          {/if}
         </div>
       {/each}
     </div>
+
+    {#if takeover}
+      <p class="warn">{m.mergetrain_confirm_handoff({ count: foreign.length })}</p>
+    {/if}
 
     {#if otherRepoCount > 0}
       <p class="warn">{m.mergetrain_confirm_other_repos({ count: otherRepoCount })}</p>
@@ -66,8 +88,8 @@
 
     <div class="actions">
       <button type="button" class="ghost" onclick={onclose}>{m.common_cancel()}</button>
-      <button type="button" class="run" onclick={onconfirm}>
-        {m.mergetrain_confirm_action()}
+      <button type="button" class="run" disabled={!armed} onclick={onconfirm}>
+        {takeover ? m.mergetrain_confirm_action_takeover() : m.mergetrain_confirm_action()}
       </button>
     </div>
   </div>
@@ -148,6 +170,17 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .who {
+    margin-left: auto;
+    flex-shrink: 0;
+    color: var(--color-amber);
+    font-size: var(--fs-micro);
+    letter-spacing: 0.08em;
+  }
+  .run:disabled {
+    opacity: 0.45;
+    cursor: default;
   }
   .warn {
     margin: 0;

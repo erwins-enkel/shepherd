@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { rmSync } from "node:fs";
 import type { GitState, PrReviewBlock, PrReviewerState, PrStatus } from "./forge/types";
 import { checksCleared, repoHasNoCiCached } from "./checks-gate";
+import { evaluateMergeGate, mergeResponsibility, reviewBlockFor } from "./merge-gate";
 
 /** Per-repo responsibility config, committed to `.shepherd/roles.json` at the repo
  *  root. Values are GitHub logins (the merger/reviewer for this repo) or null when
@@ -198,18 +199,6 @@ function readRolesFromRef(repoPath: string): RepoRoles {
   return EMPTY;
 }
 
-function stateForReviewer(
-  reviewerStates: Record<string, PrReviewerState> | undefined,
-  reviewer: string | null,
-): { login: string; state: PrReviewerState } | null {
-  if (!reviewer || !reviewerStates) return null;
-  const reviewerLc = reviewer.toLowerCase();
-  for (const [login, state] of Object.entries(reviewerStates)) {
-    if (login.toLowerCase() === reviewerLc) return { login, state };
-  }
-  return null;
-}
-
 function inferredForkReviewBlock(
   reviewerStates: Record<string, PrReviewerState> | undefined,
 ): PrReviewBlock | undefined {
@@ -252,24 +241,35 @@ export function annotateHandoff(
   delete base.handoffWho;
   delete base.handoffInferred;
   delete base.reviewBlock;
+  // Same reason, and load-bearing: this function re-annotates ALREADY-annotated states (the role
+  // dialog's re-push, the poller's prev), so a responsibility the operator has since cleared or
+  // reassigned would otherwise survive and keep the takeover wording on a merge that is now
+  // their own.
+  delete base.mergeGate;
   const roles = readRepoRoles(repoPath);
   const unconfiguredFork = !roles.reviewer && !roles.merger && !!base.isFork;
   const handoffEligible =
     base.state === "open" &&
     !(unconfiguredFork && base.isDraft) &&
     checksCleared(base.checks, noCi);
-  const scoped = stateForReviewer(base.reviewerStates, roles.reviewer);
   const reviewBlock =
     unconfiguredFork && handoffEligible
       ? inferredForkReviewBlock(base.reviewerStates)
-      : scoped?.state.state === "changes_requested"
-        ? ({
-            reviewer: scoped.login,
-            state: "changes_requested",
-            latestAt: scoped.state.latestAt,
-          } as const)
-        : undefined;
+      : reviewBlockFor(roles, base.reviewerStates);
   if (reviewBlock) base.reviewBlock = reviewBlock;
+  // Stamped BEFORE the eligibility gate and from the roles file alone (#2299): the merge
+  // confirmation must name whose merge it is taking over even on a PR the herd is not yet
+  // surfacing — a red or pending PR is still manually mergeable, and on a non-GitHub host
+  // `checksCleared` never clears at all, so a CI-gated readout would never name anyone there.
+  const gate = mergeResponsibility(
+    evaluateMergeGate({
+      roles,
+      me,
+      latestReview: base.latestReview,
+      reviewerStates: base.reviewerStates,
+    }),
+  );
+  if (gate) base.mergeGate = gate;
   if (!handoffEligible) return base;
   const { handoff, handoffWho, inferred } = computeHandoff(
     roles,

@@ -10,7 +10,6 @@
     canToggleDraft,
     showMerge = false,
     showRequestReview = false,
-    mergeArmed = false,
     autoFocus = true,
     busy = false,
     onopen,
@@ -26,7 +25,6 @@
     canToggleDraft: boolean;
     showMerge?: boolean;
     showRequestReview?: boolean;
-    mergeArmed?: boolean;
     autoFocus?: boolean;
     busy?: boolean;
     onopen: () => void;
@@ -163,7 +161,6 @@
   {#if showMerge}
     <button
       class="pm-item"
-      class:armed={mergeArmed}
       type="button"
       role="menuitem"
       tabindex="-1"
@@ -171,9 +168,7 @@
       aria-busy={busy}
       onclick={onmerge}
     >
-      <span class="pm-icon" aria-hidden="true">⇥</span>{mergeArmed
-        ? m.prbadge_confirm_merge()
-        : m.prbadge_merge()}
+      <span class="pm-icon" aria-hidden="true">⇥</span>{m.prbadge_merge()}
     </button>
   {/if}
   <button
@@ -233,13 +228,6 @@
   .pm-item:disabled {
     cursor: not-allowed;
     color: var(--color-faint);
-  }
-  /* two-tap arm: first click arms (amber, like .gbtn.armed), second click merges */
-  .pm-item.armed {
-    color: var(--color-amber);
-  }
-  .pm-item.armed .pm-icon {
-    color: var(--color-amber);
   }
   .pm-icon {
     font-size: var(--fs-meta);

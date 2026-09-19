@@ -210,3 +210,49 @@ test("archive atomically removes the session git cache row", () => {
     db.close();
   });
 });
+
+// ── merge responsibility survives a restart (#2299) ─────────────────────────────────────────
+//
+// The cache is rehydrated straight from these rows at boot, and the poller only writes a
+// recomputed state back when something ELSE about the PR changed. On a stable open PR nothing
+// else moves, so a responsibility dropped here would never come back — leaving every merge
+// confirmation unable to name the person whose merge it is taking over.
+
+test("session git cache round-trips the stamped merge responsibility", () => {
+  withFileStore((store, path) => {
+    const session = store.create(base);
+    const git: GitState = {
+      kind: "github",
+      state: "open",
+      number: 7,
+      checks: "pending",
+      deployConfigured: false,
+      mergeGate: { handoff: "merger", handoffWho: "scoop", reviewBlockBy: "scoop" },
+    };
+    store.putSessionGitCache(session.id, git);
+
+    expect(new SessionStore(path).listSessionGitCache()).toEqual({ [session.id]: git });
+  });
+});
+
+test("session git cache rejects a responsibility that names nobody", () => {
+  withFileStore((store, path) => {
+    const session = store.create(base);
+    const db = new Database(path);
+    db.run(`INSERT INTO session_git_cache (sessionId, gitJson, updatedAt) VALUES (?, ?, ?)`, [
+      session.id,
+      JSON.stringify({
+        kind: "github",
+        state: "open",
+        number: 7,
+        checks: "none",
+        deployConfigured: false,
+        mergeGate: { handoff: "merger" }, // no login — a shape this never writes
+      }),
+      Date.now(),
+    ]);
+    db.close();
+
+    expect(new SessionStore(path).listSessionGitCache()).toEqual({});
+  });
+});

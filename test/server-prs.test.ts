@@ -5,7 +5,14 @@ import { makeApp, type AppDeps } from "../src/server";
 import type { SessionStore } from "../src/store";
 import type { SessionService } from "../src/service";
 import type { EventHub } from "../src/events";
-import type { GitForge, MergeInput, OpenPrSnapshot, PullRequest } from "../src/forge/types";
+import type {
+  GitForge,
+  MergeInput,
+  OpenPrSnapshot,
+  PrStatus,
+  PullRequest,
+} from "../src/forge/types";
+import type { RepoRoles } from "../src/repo-roles";
 import { DEPENDABOT_REBASE_COMMAND, EMPTY_BACKLOG_COUNTS } from "../src/forge/types";
 import { OpenPrSnapshotService } from "../src/open-pr-snapshot";
 import { config } from "../src/config";
@@ -372,4 +379,215 @@ test("POST /api/prs/merge invalidates the snapshot so the next GET /api/prs drop
   //    the merged PR; with it the GET misses and fetches the post-merge (empty) list.
   const after = await (await app.fetch(getReq(repoDir))).json();
   expect(after.prs).toEqual([]);
+});
+
+// ── manual-merge responsibility gate (#2299) ────────────────────────────────────────────────
+//
+// The gate reads `.shepherd/roles.json` via AppDeps.readRoles, so these drive it directly rather
+// than committing a roles file to a throwaway repo's default branch.
+
+const GATED_STATUS: PrStatus = {
+  state: "open",
+  number: 12,
+  checks: "success",
+  deployConfigured: false,
+  headSha: "abc123",
+  baseRefName: "main",
+};
+
+function gatedDeps(
+  over: {
+    roles?: RepoRoles;
+    status?: PrStatus;
+    merge?: GitForge["merge"];
+    me?: string | null;
+  } = {},
+): AppDeps {
+  const forge = fakeForge({
+    currentUser: async () => (over.me === undefined ? "patrick" : over.me),
+    merge: over.merge ?? (async () => {}),
+  });
+  const deps = makeDeps(() => forge);
+  deps.readRoles = () => over.roles ?? { reviewer: null, merger: "scoop" };
+  deps.openPrSnapshot = {
+    get: async () => ({
+      prs: [],
+      statuses: new Map([["feat/x", over.status ?? GATED_STATUS]]),
+      capped: false,
+    }),
+  };
+  return deps;
+}
+
+const CONFIRM = {
+  headSha: "abc123",
+  baseRefName: "main",
+  handoff: "merger",
+  handoffWho: "scoop",
+  reviewBlockBy: null,
+};
+
+test("POST /api/prs/merge refuses a foreign-responsibility merge and never calls forge.merge", async () => {
+  let called = false;
+  const app = makeApp(
+    gatedDeps({
+      merge: async () => {
+        called = true;
+      },
+    }),
+  );
+  const res = await app.fetch(mergeReq({ repo: repoDir, number: 12 }));
+  expect(res.status).toBe(409);
+  const body = await res.json();
+  expect(body.code).toBe("merge_confirm_required");
+  expect(body.gate).toEqual({
+    handoff: "merger",
+    handoffWho: "scoop",
+    reviewBlockBy: null,
+    requiresConfirm: true,
+  });
+  expect(called).toBe(false);
+});
+
+test("POST /api/prs/merge accepts a matching confirmation and binds the confirmed revision", async () => {
+  let opts: MergeInput | null = null;
+  const app = makeApp(
+    gatedDeps({
+      merge: async (_n, o) => {
+        opts = o;
+      },
+    }),
+  );
+  const res = await app.fetch(mergeReq({ repo: repoDir, number: 12, confirm: CONFIRM }));
+  expect(res.status).toBe(200);
+  expect(opts!.expectedHeadSha).toBe("abc123");
+});
+
+test("POST /api/prs/merge refuses a confirmation whose head moved, without merging", async () => {
+  let called = false;
+  const app = makeApp(
+    gatedDeps({
+      status: { ...GATED_STATUS, headSha: "def456" },
+      merge: async () => {
+        called = true;
+      },
+    }),
+  );
+  const res = await app.fetch(mergeReq({ repo: repoDir, number: 12, confirm: CONFIRM }));
+  expect(res.status).toBe(409);
+  expect((await res.json()).code).toBe("merge_confirm_stale");
+  expect(called).toBe(false);
+});
+
+test("POST /api/prs/merge fails closed when the PR cannot be located at all", async () => {
+  // No snapshot entry and no row to read one from ⇒ no review data. The reviewer/merger still
+  // read as foreign, so a confirmation is REQUIRED and an unconfirmed request never merges.
+  let called = false;
+  const deps = gatedDeps({
+    merge: async () => {
+      called = true;
+    },
+  });
+  deps.openPrSnapshot = { get: async () => ({ prs: [], statuses: new Map(), capped: false }) };
+  const res = await makeApp(deps).fetch(mergeReq({ repo: repoDir, number: 12 }));
+  expect(res.status).toBe(409);
+  expect((await res.json()).code).toBe("merge_confirm_required");
+  expect(called).toBe(false);
+});
+
+test("POST /api/prs/merge reads the PR directly on a host with no open-PR snapshot", async () => {
+  // Gitea implements no listOpenPrSnapshot, so the snapshot service can serve nothing. Without the
+  // direct fallback the gate saw no head, and EVERY backlog merge on those repos was refused.
+  let opts: MergeInput | null = null;
+  const forge = fakeForge({
+    currentUser: async () => "patrick",
+    listPullRequests: async () => [{ ...PR, headRefName: "feat/x" }],
+    prStatus: async (head) =>
+      head === "feat/x" ? GATED_STATUS : { state: "none", checks: "none", deployConfigured: false },
+    merge: async (_n, o) => {
+      opts = o;
+    },
+  });
+  const deps = makeDeps(() => forge);
+  deps.readRoles = () => ({ reviewer: null, merger: "scoop" });
+  deps.openPrSnapshot = { get: async () => null };
+
+  const res = await makeApp(deps).fetch(mergeReq({ repo: repoDir, number: 12, confirm: CONFIRM }));
+  expect(res.status).toBe(200);
+  expect(opts!.expectedHeadSha).toBe("abc123");
+});
+
+test("POST /api/prs/merge reads a PR the head-keyed snapshot batch deduped away", async () => {
+  // A fork head-branch collision drops a PR from `statuses` while its row still ships in `prs`.
+  let merged = false;
+  const forge = fakeForge({
+    currentUser: async () => "patrick",
+    prStatus: async () => GATED_STATUS,
+    merge: async () => {
+      merged = true;
+    },
+  });
+  const deps = makeDeps(() => forge);
+  deps.readRoles = () => ({ reviewer: null, merger: "scoop" });
+  deps.openPrSnapshot = {
+    get: async () => ({
+      prs: [{ ...PR, headRefName: "feat/x" }],
+      statuses: new Map(),
+      capped: false,
+    }),
+  };
+
+  const res = await makeApp(deps).fetch(mergeReq({ repo: repoDir, number: 12, confirm: CONFIRM }));
+  expect(res.status).toBe(200);
+  expect(merged).toBe(true);
+});
+
+test("POST /api/prs/merge leaves an unconfigured repo ungated", async () => {
+  let called = false;
+  const app = makeApp(
+    gatedDeps({
+      roles: { reviewer: null, merger: null },
+      merge: async () => {
+        called = true;
+      },
+    }),
+  );
+  expect((await app.fetch(mergeReq({ repo: repoDir, number: 12 }))).status).toBe(200);
+  expect(called).toBe(true);
+});
+
+test("POST /api/prs/merge gates on the configured reviewer's active changes_requested", async () => {
+  let called = false;
+  const app = makeApp(
+    gatedDeps({
+      roles: { reviewer: "scoop", merger: null },
+      status: {
+        ...GATED_STATUS,
+        latestReview: { state: "approved", author: "dana", submittedAt: 1 },
+        reviewerStates: { scoop: { state: "changes_requested", latestAt: 1 } },
+      },
+      merge: async () => {
+        called = true;
+      },
+    }),
+  );
+  const res = await app.fetch(mergeReq({ repo: repoDir, number: 12 }));
+  expect(res.status).toBe(409);
+  expect((await res.json()).gate.reviewBlockBy).toBe("scoop");
+  expect(called).toBe(false);
+});
+
+test("POST /api/prs/merge fails closed when the operator's login cannot be resolved", async () => {
+  let called = false;
+  const app = makeApp(
+    gatedDeps({
+      me: null,
+      roles: { reviewer: null, merger: "patrick" },
+      merge: async () => {
+        called = true;
+      },
+    }),
+  );
+  expect((await app.fetch(mergeReq({ repo: repoDir, number: 12 }))).status).toBe(409);
+  expect(called).toBe(false);
 });

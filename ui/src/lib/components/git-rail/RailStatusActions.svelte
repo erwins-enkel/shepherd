@@ -42,7 +42,7 @@
     local: boolean;
     autopilotOn: boolean;
     busy: boolean;
-    armed: "merge" | "redeploy" | "review" | "review-plan" | null;
+    armed: "redeploy" | "review" | "review-plan" | null;
     mergeBlocked: boolean;
     mergeBlockedReason: string | undefined;
     ready: boolean;
@@ -60,7 +60,7 @@
     planReviewBlockedReason: string | null;
     startPr: () => void;
     togglePrDraft: (draft: boolean) => Promise<boolean>;
-    doMerge: (skipArm?: boolean) => Promise<void>;
+    doMerge: () => void;
     doRedeploy: (skipArm?: boolean) => Promise<void>;
     toggleReview: (e?: Event) => void;
     doReview: () => Promise<void>;
@@ -275,16 +275,16 @@
   {/if}
   {#if mergeBtn}
     <button
-      class={["gbtn", "merge", { armed: armed === "merge" }]}
+      class={["gbtn", "merge"]}
       type="button"
       disabled={mergeBlocked}
       title={mergeBlockedReason}
       onclick={() => doMerge()}
     >
       {#if local}
-        {armed === "merge" ? m.gitrail_confirm_merge_locally() : m.gitrail_merge_locally()}
+        {m.gitrail_merge_locally()}
       {:else}
-        {armed === "merge" ? m.gitrail_confirm_merge() : m.gitrail_merge()}
+        {m.gitrail_merge()}
       {/if}
     </button>
   {/if}

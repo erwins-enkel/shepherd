@@ -7,6 +7,7 @@ import type { Session } from "../src/types";
 import type { GitForge, GitState, MergeMethod, PrStatus } from "../src/forge/types";
 import { EMPTY_BACKLOG_COUNTS } from "../src/forge/types";
 import { PrPoller, type PrCache } from "../src/pr-poller";
+import type { RepoRoles } from "../src/repo-roles";
 
 const ORIGIN = "http://localhost";
 
@@ -805,4 +806,103 @@ test("POST git/pr passes draft=false to forge.openPr when repo draftMode=false",
   const app = makeApp(makeDeps(f, SESSION, { draftMode: false }));
   await app.fetch(post("/api/sessions/s1/git/pr", {}));
   expect(calls[0]?.draft).toBe(false);
+});
+
+// ── manual-merge responsibility gate (#2299) ────────────────────────────────────────────────
+
+const GATED_PR: PrStatus = {
+  state: "open",
+  number: 5,
+  checks: "success",
+  deployConfigured: true,
+  headSha: "abc123",
+  baseRefName: "main",
+};
+
+const GATE_CONFIRM = {
+  headSha: "abc123",
+  baseRefName: "main",
+  handoff: "merger",
+  handoffWho: "scoop",
+  reviewBlockBy: null,
+};
+
+function gatedApp(over: { roles?: RepoRoles; pr?: PrStatus; me?: string | null } = {}) {
+  const f = fakeForge({
+    prStatus: async () => over.pr ?? GATED_PR,
+    currentUser: async () => (over.me === undefined ? "patrick" : over.me),
+  });
+  const deps = makeDeps(f);
+  deps.readRoles = () => over.roles ?? { reviewer: null, merger: "scoop" };
+  return { app: makeApp(deps), f };
+}
+
+test("POST git/merge refuses a foreign-responsibility merge and never calls forge.merge", async () => {
+  const { app, f } = gatedApp();
+  const res = await app.fetch(post("/api/sessions/s1/git/merge", {}));
+  expect(res.status).toBe(409);
+  const body = await res.json();
+  expect(body.code).toBe("merge_confirm_required");
+  expect(body.gate).toEqual({
+    handoff: "merger",
+    handoffWho: "scoop",
+    reviewBlockBy: null,
+    requiresConfirm: true,
+  });
+  expect(f.log.some((l) => l.startsWith("merge:"))).toBe(false);
+});
+
+test("POST git/merge accepts a matching confirmation and binds the confirmed revision", async () => {
+  let opts: unknown = null;
+  const f = fakeForge({
+    prStatus: async () => GATED_PR,
+    currentUser: async () => "patrick",
+    merge: async (_n, o) => {
+      opts = o;
+    },
+  });
+  const deps = makeDeps(f);
+  deps.readRoles = () => ({ reviewer: null, merger: "scoop" });
+  const res = await makeApp(deps).fetch(
+    post("/api/sessions/s1/git/merge", { confirm: GATE_CONFIRM }),
+  );
+  expect(res.status).toBe(200);
+  expect((opts as { expectedHeadSha?: string }).expectedHeadSha).toBe("abc123");
+});
+
+test("POST git/merge refuses a confirmation whose head moved, without merging", async () => {
+  const { app, f } = gatedApp({ pr: { ...GATED_PR, headSha: "def456" } });
+  const res = await app.fetch(post("/api/sessions/s1/git/merge", { confirm: GATE_CONFIRM }));
+  expect(res.status).toBe(409);
+  expect((await res.json()).code).toBe("merge_confirm_stale");
+  expect(f.log.some((l) => l.startsWith("merge:"))).toBe(false);
+});
+
+test("POST git/merge refuses a confirmation whose target branch moved, without merging", async () => {
+  const { app, f } = gatedApp({ pr: { ...GATED_PR, baseRefName: "epic/9" } });
+  const res = await app.fetch(post("/api/sessions/s1/git/merge", { confirm: GATE_CONFIRM }));
+  expect(res.status).toBe(409);
+  expect((await res.json()).code).toBe("merge_confirm_stale");
+  expect(f.log.some((l) => l.startsWith("merge:"))).toBe(false);
+});
+
+test("POST git/merge leaves a repo without configured roles ungated", async () => {
+  const { app, f } = gatedApp({ roles: { reviewer: null, merger: null } });
+  expect((await app.fetch(post("/api/sessions/s1/git/merge", {}))).status).toBe(200);
+  expect(f.log.some((l) => l.startsWith("merge:"))).toBe(true);
+});
+
+test("POST git/merge does not gate when the operator holds both roles", async () => {
+  const { app, f } = gatedApp({
+    roles: { reviewer: "Patrick", merger: "patrick" },
+    pr: { ...GATED_PR, latestReview: { state: "approved", author: "patrick", submittedAt: 1 } },
+  });
+  expect((await app.fetch(post("/api/sessions/s1/git/merge", {}))).status).toBe(200);
+  expect(f.log.some((l) => l.startsWith("merge:"))).toBe(true);
+});
+
+test("POST git/merge fails closed when the operator's login cannot be resolved", async () => {
+  const { app, f } = gatedApp({ me: null, roles: { reviewer: null, merger: "patrick" } });
+  expect((await app.fetch(post("/api/sessions/s1/git/merge", {}))).status).toBe(409);
+  expect(f.log.some((l) => l.startsWith("merge:"))).toBe(false);
 });

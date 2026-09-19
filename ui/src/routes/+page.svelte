@@ -167,6 +167,13 @@
     type DecommissionPrAction,
     type DecommissionRequest,
   } from "$lib/decommission-commit";
+  import {
+    isMergeConfirmRefusal,
+    mergeConfirmFromGit,
+    mergeConfirmPayload,
+    mergeRefusalResponsibility,
+    type MergeTrainItem,
+  } from "$lib/components/merge-confirm";
 
   const store = new HerdStore();
 
@@ -347,7 +354,7 @@
   // trigger armed it, so the modal stays uniform across both paths.
   let pendingTrain = $state<{
     repoLabel: string;
-    items: { number: number; title: string }[];
+    items: MergeTrainItem[];
     handpicked: boolean;
     otherRepoCount: number;
     run: () => Promise<void>;
@@ -1125,7 +1132,7 @@
     // surfaced as the modal's warn line, NOT a post-launch toast (no double-surfacing).
     pendingTrain = {
       repoLabel: basename(repoPath),
-      items: prs.map((p) => ({ number: p.number, title: p.title })),
+      items: prs.map((p) => ({ number: p.number, title: p.title, mergeGate: p.mergeGate })),
       handpicked: false,
       otherRepoCount,
       run: async () => {
@@ -1158,7 +1165,7 @@
     // backlog overlay). The launch body runs on confirm; backlog stays open until then.
     pendingTrain = {
       repoLabel: basename(repoPath),
-      items: prs.map((p) => ({ number: p.number, title: p.title })),
+      items: prs.map((p) => ({ number: p.number, title: p.title, mergeGate: p.mergeGate })),
       handpicked: true,
       otherRepoCount: 0,
       run: async () => {
@@ -2317,7 +2324,9 @@
     request: PendingDecommission,
     commit: DecommissionCommit = createDecommissionCommit(request, {
       closePr,
-      mergePr,
+      // The decommission dialog IS this merge's confirmation, so it carries the operator's
+      // confirmed revision + responsibility through to the gated endpoint (#2299).
+      mergePr: (id, confirm) => mergePr(id, { deleteBranch: true, confirm }),
       archiveSession,
     }),
   ) {
@@ -2339,7 +2348,12 @@
         // the same decommission, so the row never dead-ends.
         try {
           await commit.run();
-        } catch {
+        } catch (err) {
+          // A refused merge confirmation (#2299) must NOT be retried as-is: the payload is bound
+          // to a responsibility or revision the server has already rejected, so replaying it
+          // 409s forever and the session could never be decommissioned at all. Re-open the PR
+          // decision instead, so the operator answers the state the server actually reports.
+          if (isMergeConfirmRefusal(err) && reopenPrDecommission(request, err)) return;
           toasts.info(m.toast_decommission_failed({ name }), {
             sticky: true,
             alert: true,
@@ -2349,6 +2363,27 @@
         }
       },
     });
+  }
+
+  /** Re-open the decommission PR dialog after the server refused the merge confirmation, with the
+   *  responsibility the REFUSAL reported rather than the cached one — re-opening against the same
+   *  cached state would rebuild the same payload and earn the same refusal forever. Returns false
+   *  when the session or its PR is gone, so the caller falls back to the ordinary failure toast. */
+  function reopenPrDecommission(request: PendingDecommission, err: unknown): boolean {
+    const cached = store.git[request.id];
+    if (!store.sessions.some((s) => s.id === request.id) || cached?.state !== "open") return false;
+    const fresh = mergeRefusalResponsibility(err);
+    toasts.info(m.toast_decommission_merge_refused({ name: request.name }), {
+      alert: true,
+      key: `decommission-fail:${request.id}`,
+    });
+    decommissionPr = {
+      id: request.id,
+      name: request.name,
+      git: fresh ? { ...cached, mergeGate: fresh } : cached,
+      reap: request.reap,
+    };
+    return true;
   }
 
   function onarchive(id: string, reap?: string[]) {
@@ -2365,11 +2400,15 @@
     const pending = decommissionPr;
     decommissionPr = null;
     if (!pending) return;
+    // The dialog only offers "merge" on an open PR, so the context resolves; a null here means
+    // the PR moved under the dialog and the server's own gate refuses it.
+    const ctx = action === "merge" ? mergeConfirmFromGit(pending.git) : null;
     deferDecommission({
       id: pending.id,
       name: pending.name,
       reap: pending.reap,
       action,
+      ...(ctx ? { mergeConfirm: mergeConfirmPayload(ctx) } : {}),
     });
   }
 

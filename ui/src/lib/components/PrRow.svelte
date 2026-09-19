@@ -1,8 +1,11 @@
 <script lang="ts">
-  import { onDestroy } from "svelte";
   import type { PullRequest } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
-  import { ApiError, mergeBacklogPr, requestDependabotRebase } from "$lib/api";
+  import { ApiError, MergeRefusedError, mergeBacklogPr, requestDependabotRebase } from "$lib/api";
+  import { basename } from "./learnings-drawer";
+  import { mergeConfirmFromPr } from "./merge-confirm";
+  import { MergeConfirmFlow } from "./merge-confirm-flow.svelte";
+  import MergeConfirmHost from "./MergeConfirmHost.svelte";
   import { showRebaseOffer } from "./pr-row";
   import { isConflicting } from "$lib/pr-conflict";
   import { relativeAge } from "$lib/format";
@@ -34,10 +37,9 @@
     inTrain?: boolean;
   } = $props();
 
-  // Merge is outward-facing and hard to reverse, so it arms on first click and
-  // fires on the second. The armed state self-disarms after a few seconds so a
-  // stray click never leaves a hot button waiting.
-  let armed = $state(false);
+  // Merge is outward-facing and hard to reverse, so it goes through the merge confirmation
+  // (#2299) — the arm-then-click it used to use was answerable by a single double-click.
+  const mergeFlow = new MergeConfirmFlow();
   let mergeBusy = $state(false);
   let failed = $state(false);
   // #2059: a stacked PR goes through GitHub's async merge API, which can return "in flight"
@@ -49,7 +51,6 @@
   let requesting = $state(false);
   let requested = $state(false);
   let rebaseFailed = $state(false);
-  let disarmTimer: ReturnType<typeof setTimeout> | null = null;
 
   // The worst-of rollup dot expands into the head commit's individual CI jobs.
   // Default collapsed so a long PR list stays scannable.
@@ -82,44 +83,34 @@
           : "",
   );
 
-  function disarm() {
-    armed = false;
-    if (disarmTimer) {
-      clearTimeout(disarmTimer);
-      disarmTimer = null;
-    }
-  }
-
-  // The row can unmount mid-arm (its PR leaves the list); drop any pending timer
-  // so it never fires disarm() against a destroyed instance.
-  onDestroy(() => {
-    if (disarmTimer) clearTimeout(disarmTimer);
-  });
-
-  async function onmerge() {
+  function onmerge() {
     if (mergeBusy || blocked) return;
     failed = false;
     mergeInFlight = false;
     rebaseFailed = false; // a fresh merge attempt clears any stale rebase-error text
-    if (!armed) {
-      armed = true;
-      disarmTimer = setTimeout(disarm, 4000);
-      return;
-    }
-    disarm();
-    mergeBusy = true;
-    try {
-      await mergeBacklogPr(repoPath, pr.number);
-      onmerged(pr.number);
-    } catch (e) {
-      // The PR is not gone from the list either way, so the row stays — only the message differs.
-      if (e instanceof ApiError && (e.code === "merge_enqueued" || e.code === "merge_pending")) {
-        mergeInFlight = true;
-      } else {
-        failed = true;
+    // Captured at dialog-open time: the confirmation is answered later, and a row can rebind to
+    // a different PR while it is open.
+    const repo = repoPath;
+    const number = pr.number;
+    mergeFlow.open(mergeConfirmFromPr(pr, basename(repo)), async (confirm) => {
+      mergeBusy = true;
+      try {
+        await mergeBacklogPr(repo, number, { deleteBranch: true, confirm });
+        onmerged(number);
+      } catch (e) {
+        if (e instanceof MergeRefusedError) {
+          mergeBusy = false;
+          throw e; // the dialog re-states the responsibility and stays open
+        }
+        // The PR is not gone from the list either way, so the row stays — only the message differs.
+        if (e instanceof ApiError && (e.code === "merge_enqueued" || e.code === "merge_pending")) {
+          mergeInFlight = true;
+        } else {
+          failed = true;
+        }
+        mergeBusy = false;
       }
-      mergeBusy = false;
-    }
+    });
   }
 
   async function onrebase() {
@@ -287,7 +278,6 @@
       {#if !pr.isDraft}
         <button
           class="merge-btn"
-          class:armed
           disabled={mergeBusy || blocked || inTrain}
           onclick={onmerge}
           title={inTrain
@@ -296,16 +286,14 @@
               ? m.prspanel_merge_blocked_title()
               : undefined}
         >
-          {mergeBusy
-            ? m.prspanel_merging()
-            : armed
-              ? m.prspanel_merge_confirm()
-              : m.prspanel_merge_button()}
+          {mergeBusy ? m.prspanel_merging() : m.prspanel_merge_button()}
         </button>
       {/if}
     </div>
   </div>
 </div>
+
+<MergeConfirmHost flow={mergeFlow} />
 
 <style>
   .pr-row {
@@ -634,14 +622,6 @@
   .merge-btn:hover:not(:disabled) {
     border-color: var(--color-amber);
     color: var(--color-amber);
-  }
-
-  /* Armed merge: the one moment this control earns the amber action accent +
-     the inset glow doctrine reserves for a primary/active button. */
-  .merge-btn.armed {
-    border-color: var(--color-amber);
-    color: var(--color-amber);
-    box-shadow: inset 0 0 18px -10px var(--color-amber);
   }
 
   .merge-btn:disabled {

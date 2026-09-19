@@ -180,8 +180,10 @@ describe("PrsPanel launch-train toolbar", () => {
     seed([pr(1), pr(3)]);
     // exact: the launch button's name ("Launch merge train") substring-matches
     // "Merge", so without exact we'd grab the wrong control.
-    await page.getByRole("button", { name: m.prspanel_merge_button(), exact: true }).nth(1).click(); // arm PR 2 (rows in order 1,2,3)
-    await page.getByRole("button", { name: m.prspanel_merge_confirm(), exact: true }).click(); // confirm
+    await page.getByRole("button", { name: m.prspanel_merge_button(), exact: true }).nth(1).click(); // open the confirmation for PR 2 (rows in order 1,2,3)
+    const confirm = page.getByRole("button", { name: m.mergeconfirm_confirm(), exact: true });
+    await expect.element(confirm).toBeEnabled();
+    await confirm.click();
 
     await expect.element(checkbox(2)).not.toBeInTheDocument();
     await expect

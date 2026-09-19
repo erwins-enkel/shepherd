@@ -154,6 +154,22 @@ export interface PrReviewBlock {
   latestAt: number | null;
 }
 
+/** Who a manual merge would be taken over FROM (#2299) — the repo's configured responsibility for
+ *  one PR, as `evaluateMergeGate` derives it. Absent ⇒ nothing to take over.
+ *
+ *  Deliberately NOT the same thing as `GitState.handoff`, which is a herd readout: that one is
+ *  stamped only on an open + GREEN PR and is inferred from the PR's reviewers when a repo carries
+ *  no `.shepherd/roles.json`. This is stamped from the roles file alone and regardless of CI, so
+ *  the merge confirmation states exactly what the server's gate will re-derive when it runs — the
+ *  two deriving it differently is what makes a confirmation read as stale. */
+export interface MergeResponsibility {
+  handoff?: "reviewer" | "merger";
+  /** The responsible login; always set alongside `handoff`. */
+  handoffWho?: string;
+  /** The configured reviewer's login when they have active changes requested. */
+  reviewBlockBy?: string;
+}
+
 /** An open PR surfaced in the backlog PRs tab. Lighter than PrStatus: it is a
  *  list row across all forge repos, not one session's live git state. */
 export interface PullRequest {
@@ -183,8 +199,13 @@ export interface PullRequest {
    *  default branch (e.g. an epic/stacked branch); `undefined` for the common
    *  default-targeting PR. This is intentionally NOT the raw base ref — do not
    *  rely on it to read a PR's actual target; it exists solely to surface
-   *  non-default (stacked) PRs in the backlog PRs tab. */
+   *  non-default (stacked) PRs in the backlog PRs tab. Read {@link baseRefName}
+   *  when you need the real target. */
   nonDefaultBase?: string;
+  /** The PR's actual base (target) branch ref name, e.g. "main" — always populated when the host
+   *  supplies it, unlike {@link nonDefaultBase}. The merge confirmation dialog names it, so the
+   *  operator sees the branch the merge really lands on. */
+  baseRefName?: string;
   /** Head commit SHA (`headRefOid`); drives the standalone critic's per-head dedup. */
   headSha?: string;
   /** Head branch name; used to skip PRs already managed by a live session. */
@@ -194,6 +215,13 @@ export interface PullRequest {
    *  Actions-bot flavor; deployment-environment `waiting` gates are NOT detected).
    *  Display-only: does not affect merge gating. Absent ⇒ treat as false. */
   awaitingWorkflowApproval?: boolean;
+  /** The method Shepherd would land this PR with (the forge's configured `mergeMethod`).
+   *  Display-only — the merge confirmation dialog names it; the endpoints still resolve the
+   *  method themselves. Absent on payloads that predate the field. */
+  mergeMethod?: MergeMethod;
+  /** Who a manual merge of this PR would be taken over from (#2299). Stamped by the PRs route,
+   *  NOT by the forge. Absent ⇒ nothing to take over. */
+  mergeGate?: MergeResponsibility;
 }
 
 export interface PrStatus {
@@ -240,6 +268,13 @@ export interface PrStatus {
   baseRefName?: string;
   /** A deploy workflow is configured for this host. */
   deployConfigured: boolean;
+  /** Who a manual merge of this PR would be taken over from (#2299). Stamped in `annotateHandoff`
+   *  alongside the display handoff, but from the roles file alone and with no CI precondition —
+   *  see {@link MergeResponsibility}. Absent ⇒ nothing to take over. */
+  mergeGate?: MergeResponsibility;
+  /** The method Shepherd would land this PR with (the forge's configured `mergeMethod`).
+   *  Display-only — see {@link PullRequest.mergeMethod}. */
+  mergeMethod?: MergeMethod;
 }
 
 /** A session's forge kind plus its current PR status — the GET /api/sessions/:id/git
@@ -328,6 +363,11 @@ export interface MergeInput {
    *  landing/retire) leave it unset and get a {@link StackedMergeRefusedError} instead.
    *  Absent/false ⇒ refuse. No effect on hosts without a stack concept (Gitea, Local). */
   allowStacked?: boolean;
+  /** Bind the merge to the revision the operator confirmed (#2299): the host refuses the merge if
+   *  the PR's head moved since. Set by the manual merge endpoints from the confirmation dialog's
+   *  payload; autonomous callers leave it unset. Hosts without an optimistic-concurrency guard
+   *  (Gitea, Local) ignore it — there the server-side confirm check is the only binding. */
+  expectedHeadSha?: string;
 }
 
 /** Base for the merge outcomes that are NOT "the PR is merged" (#2059).

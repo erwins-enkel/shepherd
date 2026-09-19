@@ -238,7 +238,9 @@ export class GiteaForge implements GitForge {
       isDraft: (pr.title ?? "").startsWith(GiteaForge.WIP_PREFIX),
       checks: await this.checksFor(pr.head?.sha),
       headSha: pr.head?.sha,
+      baseRefName: pr.base?.ref ?? undefined,
       deployConfigured,
+      mergeMethod: this.mergeMethod,
     };
   }
 
@@ -264,13 +266,15 @@ export class GiteaForge implements GitForge {
         checks: "none" as ChecksState,
         jobs: [] as WorkflowJob[],
       }));
+      const author = pr.user?.login ?? "";
+      const base = pr.base?.ref;
       return {
         number: pr.number,
         title: pr.title ?? "",
         url: pr.html_url,
-        author: pr.user?.login ?? "",
+        author,
         kind: classifyPr({
-          author: pr.user?.login ?? "",
+          author,
           title: pr.title ?? "",
           headRefName: pr.head?.ref,
           labels: (pr.labels ?? []).map((l) => l.name).filter((n): n is string => !!n),
@@ -280,9 +284,11 @@ export class GiteaForge implements GitForge {
         mergeable: pr.mergeable ?? null,
         checks,
         jobs,
-        nonDefaultBase: def && pr.base?.ref && pr.base.ref !== def ? pr.base.ref : undefined,
+        nonDefaultBase: def && base && base !== def ? base : undefined,
         headSha: pr.head?.sha,
         headRefName: pr.head?.ref,
+        baseRefName: base,
+        mergeMethod: this.mergeMethod,
       } satisfies PullRequest;
     });
   }

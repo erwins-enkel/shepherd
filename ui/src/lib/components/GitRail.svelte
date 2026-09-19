@@ -10,6 +10,7 @@
     reviewPlan,
     isPlanReviewError,
     planReviewStarted,
+    MergeRefusedError,
   } from "$lib/api";
   import type { DrainStatus, GitState, Session, SessionStatus } from "$lib/types";
   import { toasts } from "$lib/toasts.svelte";
@@ -20,6 +21,10 @@
   import { criticChip, criticBadgeLabel, criticTitle } from "./critic-badge";
   import { canOfferPlanReview, canTriggerPlanReview } from "./plan-gate-badge";
   import RailStatusActions from "./git-rail/RailStatusActions.svelte";
+  import MergeConfirmHost from "./MergeConfirmHost.svelte";
+  import { basename } from "./learnings-drawer";
+  import { mergeConfirmFromGit } from "./merge-confirm";
+  import { MergeConfirmFlow } from "./merge-confirm-flow.svelte";
   import PlanDriftNote from "./git-rail/PlanDriftNote.svelte";
   import AutomationPanel from "./AutomationPanel.svelte";
   import { automationCount, AUTOMATION_TOTAL } from "./git-rail-automation";
@@ -102,10 +107,12 @@
   // Repo-automation panel (pill-anchored popover; replaces the icon-toggle horde)
   let showAutomation = $state(false);
 
-  // two-step confirm for destructive actions (mirrors decommission UX)
-  let armed = $state<"merge" | "redeploy" | "review" | "review-plan" | null>(null);
+  // two-step confirm for destructive actions (mirrors decommission UX). Merge is NOT among them
+  // any more: a two-step arm is answerable by one double-click, so it goes through
+  // MergeConfirmDialog instead (#2299).
+  let armed = $state<"redeploy" | "review" | "review-plan" | null>(null);
   let armTimer: ReturnType<typeof setTimeout> | undefined;
-  function arm(which: "merge" | "redeploy" | "review" | "review-plan"): boolean {
+  function arm(which: "redeploy" | "review" | "review-plan"): boolean {
     if (armed === which) {
       clearTimeout(armTimer);
       armed = null;
@@ -163,6 +170,7 @@
     err = null;
     retry = null;
     armed = null;
+    mergeFlow.close(); // a merge already in flight keeps its dialog until it settles
     showPr = false;
     showReview = false;
     showAutomation = false;
@@ -323,34 +331,46 @@
     });
   }
 
-  // skipArm lets the inline Retry re-run a confirmed action without a second arm tap
-  async function doMerge(skipArm = false) {
-    if (!skipArm && !arm("merge")) return;
-    busy = true;
-    err = null;
-    retry = null;
-    try {
-      const mergedId = sessionId;
-      // Capture the session identity AND its FF target/isolation before the await —
-      // the GitRail instance rebinds on a session switch, and the toast lives 15s, so
-      // a live read could pair a new session's isolated flag with the old FF target.
-      const isIsolated = isolated;
-      const ffPath = repoPath;
-      const ffBranch = baseBranch;
-      git = { kind: git?.kind ?? "github", ...(await mergePr(sessionId)) };
-      showMergedToast(git.kind, mergedId, isIsolated, ffPath, ffBranch);
-    } catch (e) {
-      // prefer the known local cause over a raw server string
-      err =
-        git?.checks === "failure"
-          ? m.gitrail_merge_failed_checks()
-          : git && isConflicting(git)
-            ? m.gitrail_merge_failed_unmergeable()
-            : m.gitrail_merge_failed({ reason: reason(e, m.gitrail_merge()) });
-      retry = () => doMerge(true);
-    } finally {
-      busy = false;
-    }
+  // Opens the merge confirmation (#2299). The inline Retry re-opens it rather than replaying the
+  // previous answer: a confirmation is bound to the revision and responsibility it was given for,
+  // and by retry time either may have moved.
+  const mergeFlow = new MergeConfirmFlow();
+  function doMerge() {
+    const ctx = mergeConfirmFromGit(git, basename(repoPath));
+    if (!ctx) return;
+    // Captured at DIALOG-OPEN time, not at confirm time: the rail rebinds on a session switch,
+    // and the confirmation is answered later — a live read could merge a different session's PR.
+    const mergedId = sessionId;
+    mergeFlow.open(ctx, async (confirm) => {
+      busy = true;
+      err = null;
+      retry = null;
+      try {
+        // Same reason for the FF target/isolation, which additionally must travel together: the
+        // toast lives 15s, so pairing a new session's isolated flag with the old FF target would
+        // fast-forward the wrong checkout.
+        const isIsolated = isolated;
+        const ffPath = repoPath;
+        const ffBranch = baseBranch;
+        git = {
+          kind: git?.kind ?? "github",
+          ...(await mergePr(mergedId, { deleteBranch: true, confirm })),
+        };
+        showMergedToast(git.kind, mergedId, isIsolated, ffPath, ffBranch);
+      } catch (e) {
+        if (e instanceof MergeRefusedError) throw e; // the dialog re-states and stays open
+        // prefer the known local cause over a raw server string
+        err =
+          git?.checks === "failure"
+            ? m.gitrail_merge_failed_checks()
+            : git && isConflicting(git)
+              ? m.gitrail_merge_failed_unmergeable()
+              : m.gitrail_merge_failed({ reason: reason(e, m.gitrail_merge()) });
+        retry = () => doMerge();
+      } finally {
+        busy = false;
+      }
+    });
   }
 
   async function doRedeploy(skipArm = false) {
@@ -778,6 +798,7 @@
       />
     {/if}
 
+    <MergeConfirmHost flow={mergeFlow} />
     {#if armedEntry}
       <Coachmark
         targetId={armedEntry.targetId ?? null}

@@ -1,6 +1,8 @@
 <script lang="ts">
   import { dialog } from "$lib/a11yDialog";
   import { prMergeAvailable } from "$lib/components/pr-badge";
+  import MergeHandoffNotice from "$lib/components/MergeHandoffNotice.svelte";
+  import { isMergeTakeover } from "$lib/components/merge-confirm";
   import { m } from "$lib/paraglide/messages";
   import type { GitState } from "$lib/types";
 
@@ -17,6 +19,9 @@
   } = $props();
 
   const title = $derived(m.decommission_pr_title({ number: git.number ?? "?" }));
+  // This dialog IS the merge's confirmation (#2299) — it is already modal, already an explicit
+  // choice, so it states the responsibility here rather than stacking a second dialog on top.
+  const takeover = $derived(isMergeTakeover(git.mergeGate ?? {}));
 </script>
 
 <div
@@ -33,13 +38,22 @@
 
     <p>{m.decommission_pr_desc({ name })}</p>
 
+    {#if prMergeAvailable(git)}
+      <MergeHandoffNotice
+        handoff={git.mergeGate?.handoff}
+        handoffWho={git.mergeGate?.handoffWho}
+        reviewBlockBy={git.mergeGate?.reviewBlockBy}
+        compact
+      />
+    {/if}
+
     <div class="actions">
       <button type="button" class="action primary" onclick={() => onselect("keep")}>
         {m.decommission_pr_keep()}
       </button>
       {#if prMergeAvailable(git)}
-        <button type="button" class="action" onclick={() => onselect("merge")}>
-          {m.decommission_pr_merge()}
+        <button type="button" class="action" class:takeover onclick={() => onselect("merge")}>
+          {takeover ? m.decommission_pr_merge_takeover() : m.decommission_pr_merge()}
         </button>
       {/if}
       <button type="button" class="action danger" onclick={() => onselect("close")}>
@@ -114,6 +128,12 @@
   .action.danger {
     border-color: var(--color-red);
     color: var(--color-red);
+  }
+  /* Taking over someone else's merge: amber, like every other consequential-but-permitted
+     action. Not the red danger treatment — it is allowed, it just must be deliberate. */
+  .action.takeover {
+    border-color: var(--color-amber);
+    color: var(--color-amber);
   }
   .action.cancel {
     border-color: transparent;

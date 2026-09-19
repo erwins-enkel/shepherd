@@ -68,6 +68,18 @@ describe("mergeConfirmFromGit", () => {
     expect(ctx).toMatchObject({ handoff: "merger", handoffWho: "scoop", reviewBlockBy: "scoop" });
   });
 
+  it("drops an INFERRED handoff — only a configured role is someone else's to take over", () => {
+    // GitState.handoff doubles as the herd's "waiting on" readout and is guessed from the PR's
+    // reviewers on a repo with no roles file. Carrying that into the confirmation would both
+    // overstate it and disagree with the server gate, which 409'd the first confirm.
+    const ctx = mergeConfirmFromGit(
+      git({ handoff: "merger", handoffWho: "scoop", handoffInferred: true }),
+    )!;
+    expect(ctx.handoff).toBeNull();
+    expect(ctx.handoffWho).toBeNull();
+    expect(isMergeTakeover(ctx)).toBe(false);
+  });
+
   it("refuses to build a context without an open PR, so no dialog can open on one", () => {
     expect(mergeConfirmFromGit(undefined)).toBeNull();
     expect(mergeConfirmFromGit(null)).toBeNull();
@@ -141,8 +153,17 @@ describe("applyMergeGate", () => {
     });
   });
 
-  it("keeps the shown revision when the server could not resolve one", () => {
+  it("adopts an unresolved revision verbatim, so a re-confirmation converges", () => {
+    // The server sends null for "I could not resolve this". Re-adopting the client's own value
+    // there would re-submit the same mismatching sha and loop on the same refusal.
     const ctx = mergeConfirmFromGit(git())!;
-    expect(applyMergeGate(ctx, {}, { headSha: null }).headSha).toBe("abc123");
+    const next = applyMergeGate(ctx, {}, { headSha: null, baseRefName: null });
+    expect(next.headSha).toBeNull();
+    expect(next.baseBranch).toBeNull();
+  });
+
+  it("keeps the shown revision when the refusal carried no revision fields at all", () => {
+    const ctx = mergeConfirmFromGit(git())!;
+    expect(applyMergeGate(ctx, {}).headSha).toBe("abc123");
   });
 });

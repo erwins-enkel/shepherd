@@ -227,6 +227,28 @@ describe("PrBadge", () => {
     });
   }
 
+  it("treats an inferred handoff as nobody's takeover and merges on one confirmation", async () => {
+    // Unconfigured repo: the handoff is guessed from the PR's reviewers. The dialog must stay
+    // neutral, and the single confirmation must produce a single merge request — echoing the
+    // inferred responsibility used to come back as a 409 "responsibility changed".
+    const fetch = vi.fn(async () => new Response(JSON.stringify(git({ state: "merged" }))));
+    vi.stubGlobal("fetch", fetch);
+    render(PrBadge, {
+      props: {
+        git: git({ handoff: "merger", handoffWho: "scoop", handoffInferred: true }),
+        sessionId: "s1",
+      },
+    });
+
+    await page.getByRole("button", { name: m.prbadge_button_title({ label: "PR #12" }) }).click();
+    await page.getByRole("menuitem", { name: m.prbadge_merge() }).click();
+    await vi.waitFor(() => expect(confirmButton()).toBeEnabled());
+    expect(confirmButton()!.textContent?.trim()).toBe(String(m.mergeconfirm_confirm()));
+
+    await confirmButton()!.click();
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+  });
+
   it("names the responsible person and sends the confirmation back with the merge", async () => {
     // Typed so the assertion below can read the request body off the recorded call.
     const fetch = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(

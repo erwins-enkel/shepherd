@@ -97,26 +97,47 @@ export function evaluateMergeGate(input: {
   };
 }
 
+/** Two named people drifted apart. Either side unnamed is NOT drift: the client's dialog derives
+ *  what it shows from `GitState`'s display annotation, which follows different rules than this gate
+ *  (it infers a handoff where the gate requires configured roles, and it collapses an active review
+ *  block to "your turn" where the gate does not). Comparing an absent name against a present one
+ *  would read those legitimate differences as a change nobody made. */
+const namedDrift = (submitted: string | null, derived: string | null): boolean =>
+  !!submitted && !!derived && fold(submitted) !== fold(derived);
+
 /** Whether the submitted confirmation still authorizes THIS merge.
  *
  *  `confirm` absent is fine only when nothing needed confirming — that keeps callers that never
  *  open the dialog working on unconfigured repos, and refuses them everywhere else.
  *
- *  Staleness is drift of anything the operator was shown: the responsibility itself, the PR's head
- *  revision, or its target branch. A current value the server could not resolve NEVER satisfies a
- *  submitted one — an unknown head is not a matching head. */
+ *  Three things can invalidate a confirmation, and only these three:
+ *  - the PR's head revision moved (the operator confirmed a different diff),
+ *  - its target branch moved (it would land somewhere else),
+ *  - the NAMED responsible person changed (they confirmed taking over from someone else).
+ *
+ *  Each is checked only where both sides are actually known. A value the server could not resolve
+ *  means "we don't know", never "it moved" — hosts that cannot answer (Gitea has no open-PR
+ *  snapshot) would otherwise have every manual merge refused. The revision stays bound where the
+ *  host can bind it: `expectedHeadSha` reaches GitHub as `--match-head-commit` regardless.
+ *
+ *  The handoff ROLE is deliberately not compared. A reviewer approving flips the same person from
+ *  "reviewer" to "merger", which is the responsibility being discharged, not changing hands. */
 export function validateMergeConfirm(
   verdict: MergeGateVerdict,
   current: { headSha?: string | null; baseRefName?: string | null },
   confirm?: MergeConfirm | null,
 ): MergeConfirmCheck {
   if (!confirm) return verdict.requiresConfirm ? "confirm_required" : "ok";
-  if (confirm.handoff !== verdict.handoff) return "confirm_stale";
-  if (fold(confirm.handoffWho) !== fold(verdict.handoffWho)) return "confirm_stale";
-  if (fold(confirm.reviewBlockBy) !== fold(verdict.reviewBlockBy)) return "confirm_stale";
-  if (confirm.headSha && confirm.headSha !== (current.headSha ?? null)) return "confirm_stale";
-  if (confirm.baseRefName && confirm.baseRefName !== (current.baseRefName ?? null))
+  if (current.headSha && confirm.headSha && confirm.headSha !== current.headSha)
     return "confirm_stale";
+  if (current.baseRefName && confirm.baseRefName && confirm.baseRefName !== current.baseRefName)
+    return "confirm_stale";
+  if (!verdict.requiresConfirm) return "ok";
+  // Nobody else was on the hook when the dialog opened, but somebody is now — the operator was
+  // never asked to take anything over, so ask rather than treating it as a stale answer.
+  if (!confirm.handoff && !confirm.reviewBlockBy) return "confirm_required";
+  if (namedDrift(confirm.handoffWho, verdict.handoffWho)) return "confirm_stale";
+  if (namedDrift(confirm.reviewBlockBy, verdict.reviewBlockBy)) return "confirm_stale";
   return "ok";
 }
 

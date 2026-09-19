@@ -54,12 +54,18 @@ export function isMergeTakeover(ctx: { handoff?: unknown; reviewBlockBy?: unknow
 }
 
 /** A session's live git state → confirmation context. Null when there is no PR to merge, so a
- *  caller cannot open the dialog on an empty rail. */
+ *  caller cannot open the dialog on an empty rail.
+ *
+ *  An INFERRED handoff is dropped: `GitState.handoff` doubles as the herd's "waiting on" readout
+ *  and is guessed from the PR's reviewers when a repo has no `.shepherd/roles.json`. Only a
+ *  configured role makes a merge someone else's to take over, so presenting an inferred one as a
+ *  takeover would both overstate it and disagree with the server gate. */
 export function mergeConfirmFromGit(
   git: GitState | null | undefined,
   repoLabel?: string,
 ): MergeConfirmContext | null {
   if (!git || git.state !== "open" || !git.number) return null;
+  const configured = !git.handoffInferred;
   return {
     repoLabel,
     number: git.number,
@@ -67,8 +73,8 @@ export function mergeConfirmFromGit(
     baseBranch: git.baseRefName ?? null,
     mergeMethod: git.mergeMethod ?? null,
     headSha: git.headSha ?? null,
-    handoff: git.handoff ?? null,
-    handoffWho: git.handoffWho ?? null,
+    handoff: (configured && git.handoff) || null,
+    handoffWho: (configured && git.handoffWho) || null,
     // GitState carries the whole block; only the reviewer's login reaches the confirmation.
     reviewBlockBy: git.reviewBlock?.reviewer ?? null,
   };
@@ -118,7 +124,10 @@ export function applyMergeGate(
     handoff: gate.handoff ?? null,
     handoffWho: gate.handoffWho ?? null,
     reviewBlockBy: gate.reviewBlockBy ?? null,
-    headSha: pr.headSha ?? ctx.headSha,
-    baseBranch: pr.baseRefName ?? ctx.baseBranch,
+    // Adopted VERBATIM, null included: the server sends null for "I could not resolve this", and
+    // re-adopting the client's own value there would re-submit the same mismatch forever.
+    // `undefined` (the field absent) is the only case that keeps what the dialog showed.
+    headSha: pr.headSha === undefined ? ctx.headSha : pr.headSha,
+    baseBranch: pr.baseRefName === undefined ? ctx.baseBranch : pr.baseRefName,
   };
 }

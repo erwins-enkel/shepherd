@@ -479,7 +479,9 @@ test("POST /api/prs/merge refuses a confirmation whose head moved, without mergi
   expect(called).toBe(false);
 });
 
-test("POST /api/prs/merge fails closed when the snapshot does not carry the PR", async () => {
+test("POST /api/prs/merge fails closed when the PR cannot be located at all", async () => {
+  // No snapshot entry and no row to read one from ⇒ no review data. The reviewer/merger still
+  // read as foreign, so a confirmation is REQUIRED and an unconfirmed request never merges.
   let called = false;
   const deps = gatedDeps({
     merge: async () => {
@@ -487,9 +489,57 @@ test("POST /api/prs/merge fails closed when the snapshot does not carry the PR",
     },
   });
   deps.openPrSnapshot = { get: async () => ({ prs: [], statuses: new Map(), capped: false }) };
-  const res = await makeApp(deps).fetch(mergeReq({ repo: repoDir, number: 12, confirm: CONFIRM }));
+  const res = await makeApp(deps).fetch(mergeReq({ repo: repoDir, number: 12 }));
   expect(res.status).toBe(409);
+  expect((await res.json()).code).toBe("merge_confirm_required");
   expect(called).toBe(false);
+});
+
+test("POST /api/prs/merge reads the PR directly on a host with no open-PR snapshot", async () => {
+  // Gitea implements no listOpenPrSnapshot, so the snapshot service can serve nothing. Without the
+  // direct fallback the gate saw no head, and EVERY backlog merge on those repos was refused.
+  let opts: MergeInput | null = null;
+  const forge = fakeForge({
+    currentUser: async () => "patrick",
+    listPullRequests: async () => [{ ...PR, headRefName: "feat/x" }],
+    prStatus: async (head) =>
+      head === "feat/x" ? GATED_STATUS : { state: "none", checks: "none", deployConfigured: false },
+    merge: async (_n, o) => {
+      opts = o;
+    },
+  });
+  const deps = makeDeps(() => forge);
+  deps.readRoles = () => ({ reviewer: null, merger: "scoop" });
+  deps.openPrSnapshot = { get: async () => null };
+
+  const res = await makeApp(deps).fetch(mergeReq({ repo: repoDir, number: 12, confirm: CONFIRM }));
+  expect(res.status).toBe(200);
+  expect(opts!.expectedHeadSha).toBe("abc123");
+});
+
+test("POST /api/prs/merge reads a PR the head-keyed snapshot batch deduped away", async () => {
+  // A fork head-branch collision drops a PR from `statuses` while its row still ships in `prs`.
+  let merged = false;
+  const forge = fakeForge({
+    currentUser: async () => "patrick",
+    prStatus: async () => GATED_STATUS,
+    merge: async () => {
+      merged = true;
+    },
+  });
+  const deps = makeDeps(() => forge);
+  deps.readRoles = () => ({ reviewer: null, merger: "scoop" });
+  deps.openPrSnapshot = {
+    get: async () => ({
+      prs: [{ ...PR, headRefName: "feat/x" }],
+      statuses: new Map(),
+      capped: false,
+    }),
+  };
+
+  const res = await makeApp(deps).fetch(mergeReq({ repo: repoDir, number: 12, confirm: CONFIRM }));
+  expect(res.status).toBe(200);
+  expect(merged).toBe(true);
 });
 
 test("POST /api/prs/merge leaves an unconfigured repo ungated", async () => {

@@ -1075,6 +1075,10 @@ export interface GitState extends PrStatus {
   handoff?: "reviewer" | "merger";
   /** The responsible login; absent for a fork waiting on unnamed maintainers. */
   handoffWho?: string;
+  /** true when `handoff` was auto-inferred from the PR's reviewers rather than read from
+   *  `.shepherd/roles.json`. The merge confirmation ignores an inferred handoff: only configured
+   *  roles make a merge someone else's to take over. */
+  handoffInferred?: boolean;
   /** Active changes requested by the configured reviewer, or a maintainer on an unconfigured fork. */
   reviewBlock?: {
     reviewer: string;

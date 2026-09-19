@@ -137,6 +137,12 @@ const GATED: MergeGateVerdict = {
   reviewBlockBy: null,
   requiresConfirm: true,
 };
+const OPEN: MergeGateVerdict = {
+  handoff: null,
+  handoffWho: null,
+  reviewBlockBy: null,
+  requiresConfirm: false,
+};
 const CURRENT = { headSha: "abc123", baseRefName: "main" };
 const CONFIRM: MergeConfirm = {
   headSha: "abc123",
@@ -147,13 +153,7 @@ const CONFIRM: MergeConfirm = {
 };
 
 test("no confirmation is required when nothing is being taken over", () => {
-  const open: MergeGateVerdict = {
-    handoff: null,
-    handoffWho: null,
-    reviewBlockBy: null,
-    requiresConfirm: false,
-  };
-  expect(validateMergeConfirm(open, CURRENT, null)).toBe("ok");
+  expect(validateMergeConfirm(OPEN, CURRENT, null)).toBe("ok");
 });
 
 test("a gated merge without a confirmation is refused", () => {
@@ -163,6 +163,88 @@ test("a gated merge without a confirmation is refused", () => {
 test("a matching confirmation passes", () => {
   expect(validateMergeConfirm(GATED, CURRENT, CONFIRM)).toBe("ok");
 });
+
+// ── the dialog's view and the gate's view legitimately differ ────────────────────────────────
+//
+// The client builds its confirmation from GitState's DISPLAY annotation, which follows other
+// rules than this gate. Reading those differences as drift would refuse the FIRST deliberate
+// confirmation on ordinary repos — one confirmation must produce one merge.
+
+test("an inferred handoff the gate does not share is not drift", () => {
+  // Unconfigured repo: annotateHandoff infers a merger from the PR's reviewers, the gate gates on
+  // nothing. Before, this 409'd every first merge on a repo with no roles file.
+  expect(
+    validateMergeConfirm(OPEN, CURRENT, {
+      ...CONFIRM,
+      handoff: "merger",
+      handoffWho: "scoop",
+    }),
+  ).toBe("ok");
+});
+
+test("a fork's inferred handoff and review block are not drift either", () => {
+  expect(
+    validateMergeConfirm(OPEN, CURRENT, {
+      ...CONFIRM,
+      handoff: "reviewer",
+      handoffWho: null,
+      reviewBlockBy: "maintainer",
+    }),
+  ).toBe("ok");
+});
+
+test("a review block the dialog showed satisfies a handoff the gate derived from it", () => {
+  // configuredHandoff collapses an active changes_requested to "your turn", so the dialog shows
+  // only the block; the gate reports the reviewer. Same fact, two derivations — not drift.
+  expect(
+    validateMergeConfirm(
+      { handoff: "reviewer", handoffWho: "scoop", reviewBlockBy: "scoop", requiresConfirm: true },
+      CURRENT,
+      { ...CONFIRM, handoff: null, handoffWho: null, reviewBlockBy: "scoop" },
+    ),
+  ).toBe("ok");
+});
+
+test("the handoff role flipping on the same person is not drift", () => {
+  // The reviewer approved between dialog and confirm: reviewer → merger, same @scoop. The
+  // responsibility was discharged, not handed to somebody else.
+  expect(validateMergeConfirm(GATED, CURRENT, { ...CONFIRM, handoff: "reviewer" })).toBe("ok");
+});
+
+// ── what IS drift ───────────────────────────────────────────────────────────────────────────
+
+test("a confirmation is stale once the responsible person changed", () => {
+  expect(validateMergeConfirm({ ...GATED, handoffWho: "dana" }, CURRENT, CONFIRM)).toBe(
+    "confirm_stale",
+  );
+});
+
+test("a confirmation is stale once the review blocker changed", () => {
+  expect(
+    validateMergeConfirm({ ...GATED, reviewBlockBy: "dana" }, CURRENT, {
+      ...CONFIRM,
+      reviewBlockBy: "scoop",
+    }),
+  ).toBe("confirm_stale");
+});
+
+test("responsibility appearing after the dialog opened is re-asked, not treated as stale", () => {
+  // The operator was never told anyone else was on the hook, so there is nothing to call stale.
+  expect(
+    validateMergeConfirm(GATED, CURRENT, {
+      ...CONFIRM,
+      handoff: null,
+      handoffWho: null,
+      reviewBlockBy: null,
+    }),
+  ).toBe("confirm_required");
+});
+
+test("responsible logins compare folded, so host casing is not drift", () => {
+  expect(validateMergeConfirm({ ...GATED, handoffWho: "Scoop" }, CURRENT, CONFIRM)).toBe("ok");
+});
+
+// ── revision binding ────────────────────────────────────────────────────────────────────────
 
 test("a confirmation is stale once the head moved", () => {
   expect(validateMergeConfirm(GATED, { ...CURRENT, headSha: "def456" }, CONFIRM)).toBe(
@@ -176,34 +258,11 @@ test("a confirmation is stale once the target branch moved", () => {
   );
 });
 
-test("an unresolvable current head never satisfies a confirmed one", () => {
-  expect(validateMergeConfirm(GATED, { baseRefName: "main" }, CONFIRM)).toBe("confirm_stale");
-});
-
-test("a confirmation is stale once the responsibility itself changed", () => {
-  expect(validateMergeConfirm({ ...GATED, handoff: "reviewer" }, CURRENT, CONFIRM)).toBe(
-    "confirm_stale",
-  );
-  expect(validateMergeConfirm({ ...GATED, handoffWho: "dana" }, CURRENT, CONFIRM)).toBe(
-    "confirm_stale",
-  );
-  expect(validateMergeConfirm({ ...GATED, reviewBlockBy: "scoop" }, CURRENT, CONFIRM)).toBe(
-    "confirm_stale",
-  );
-});
-
-test("a confirmation for a takeover that no longer applies is stale, not silently accepted", () => {
-  const cleared: MergeGateVerdict = {
-    handoff: null,
-    handoffWho: null,
-    reviewBlockBy: null,
-    requiresConfirm: false,
-  };
-  expect(validateMergeConfirm(cleared, CURRENT, CONFIRM)).toBe("confirm_stale");
-});
-
-test("responsible logins compare folded, so host casing is not drift", () => {
-  expect(validateMergeConfirm({ ...GATED, handoffWho: "Scoop" }, CURRENT, CONFIRM)).toBe("ok");
+test("a head the server could not resolve is unknown, not moved", () => {
+  // Hosts with no open-PR snapshot (Gitea) resolve nothing here. Refusing on that would 409 every
+  // manual merge on those repos; GitHub still binds the revision host-side via --match-head-commit.
+  expect(validateMergeConfirm(OPEN, { baseRefName: "main" }, CONFIRM)).toBe("ok");
+  expect(validateMergeConfirm(OPEN, {}, CONFIRM)).toBe("ok");
 });
 
 test("parseMergeConfirm keeps only well-formed fields and rejects non-objects", () => {
@@ -222,6 +281,6 @@ test("parseMergeConfirm keeps only well-formed fields and rejects non-objects", 
 
 test("a malformed confirmation cannot satisfy a gate", () => {
   expect(validateMergeConfirm(GATED, CURRENT, parseMergeConfirm({ handoff: "nonsense" }))).toBe(
-    "confirm_stale",
+    "confirm_required",
   );
 });

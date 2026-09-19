@@ -6750,18 +6750,28 @@ async function handleActionsRunJobs({ req, parts, url, deps }: Ctx): Promise<Res
   }
 }
 
-/** One backlog PR's live status, from the repo's shared open-PR snapshot. Number-keyed because a
- *  backlog row carries no session branch. Null when there is no snapshot service, the fetch failed,
- *  or the PR is not in it — all of which the merge gate treats as "nothing known". */
-async function prSnapshotStatus(
+/** One backlog PR's live status. Number-keyed, because a backlog row carries no session branch.
+ *
+ *  The repo's shared open-PR snapshot answers this for free on GitHub, but it cannot always:
+ *  Gitea implements no `listOpenPrSnapshot` at all, and the GitHub batch is keyed by head branch,
+ *  so a fork collision drops a PR from `statuses` while its row still ships in `prs`. Both cases
+ *  would otherwise leave the merge gate with no review data (failing closed on every merge) and no
+ *  head to bind the confirmation to — so fall back to a direct read, which is one extra round-trip
+ *  on an explicit operator action.
+ *
+ *  Null only when the PR cannot be located or read at all; the gate treats that as "nothing
+ *  known" and fails closed. */
+async function manualMergePrStatus(
   forge: GitForge,
   number: number,
   deps: AppDeps,
 ): Promise<PrStatus | null> {
   const snap = await deps.openPrSnapshot?.get(forge).catch(() => null);
-  if (!snap) return null;
-  for (const status of snap.statuses.values()) if (status.number === number) return status;
-  return null;
+  for (const status of snap?.statuses.values() ?? []) if (status.number === number) return status;
+  const rows = snap?.prs ?? (await forge.listPullRequests().catch(() => []));
+  const head = rows.find((pr) => pr.number === number)?.headRefName;
+  if (!head) return null;
+  return await forge.prStatus(head).catch(() => null);
 }
 
 /** Resolve + validate a backlog merge request: repo, PR number, forge, and the operator's
@@ -6786,7 +6796,7 @@ async function resolveBacklogMerge(
     // Same snapshot the PRs panel rendered the row from, so the operator's confirmation and this
     // check see one view of the PR. A miss (the snapshot moved on, or the fetch failed) leaves
     // every field unresolved, which fails closed rather than merging on no information.
-    (await prSnapshotStatus(forge, body.number, deps)) ?? {},
+    (await manualMergePrStatus(forge, body.number, deps)) ?? {},
     confirm,
     deps,
   );

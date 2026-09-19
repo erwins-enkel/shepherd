@@ -213,8 +213,8 @@ enum BannerPolicy {
         // True whenever `lastError` itself is a contract mismatch, whether or
         // not `mismatch` above could turn it into its own banner. A mismatch
         // discovered *by* the health call that would have named the server
-        // (`serverVersion == nil`) leaves `mismatch` `nil` too — this still
-        // says the socket is not to be trusted, same as `.offline`.
+        // (`serverVersion == nil`) leaves `mismatch` `nil` too — the banner
+        // still has to say the socket is not to be trusted.
         let hasMismatchError: Bool = {
             guard let lastError, case .contractMismatch = lastError else { return false }
             return true
@@ -229,9 +229,12 @@ enum BannerPolicy {
             if let tooOld { return tooOld }
             if let mismatch { return mismatch }
             // The mismatch was the health payload itself, so there is no
-            // server version to show — fall back to offline, like the
-            // `.offline` branch does below.
-            if hasMismatchError { return .offline(server: serverName) }
+            // server version to show. This is the *common* mismatch path — the
+            // health call discovers the disagreement and nulls the version —
+            // and the socket is live, so "cannot reach this server" would be
+            // the one thing the operator can see is false. Say what is true
+            // instead: the server answered, and something about it is wrong.
+            if hasMismatchError { return .unhealthy(server: serverName) }
             // The socket is up but the server says it is not well. Nothing
             // else in the window would say so.
             return serverUnhealthy ? .unhealthy(server: serverName) : nil

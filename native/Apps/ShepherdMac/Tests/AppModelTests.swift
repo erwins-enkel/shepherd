@@ -385,7 +385,10 @@ struct AppModelTests {
 
         #expect(model.activeProfile == a)
         #expect(try credentials.load(for: b.credentialKey) == nil)
-        #expect(loggedOut.contains(b.id))
+        // Two revokes, not "at least one": `remove(_:)` makes one and the
+        // sign-in completion's own cleanup makes the other. `contains` held
+        // for either alone, so it could not fail for the bug it guards.
+        #expect(loggedOut.filter { $0 == b.id }.count == 2)
         model.teardown()
     }
 
@@ -422,7 +425,10 @@ struct AppModelTests {
         #expect(model.activeProfile == nil)
         #expect(model.store == nil)
         #expect(try credentials.load(for: b.credentialKey) == nil)
-        #expect(loggedOut.contains(b.id))
+        // Two revokes, not "at least one": `remove(_:)` makes one and the
+        // sign-in completion's own cleanup makes the other. `contains` held
+        // for either alone, so it could not fail for the bug it guards.
+        #expect(loggedOut.filter { $0 == b.id }.count == 2)
     }
 
     /// S1 (fix wave 3): removing an *inactive* profile must not disturb the
@@ -960,5 +966,146 @@ struct AppModelTests {
 
         #expect(await settle(until: { model.sheet == .firstRun }))
         model.teardown()
+    }
+
+    // MARK: - Removal is not re-entrant
+
+    /// B2 (whole-branch wave): the welcome screen's Remove fires a `Task` per
+    /// click, so two clicks used to start two removals of the same row. The
+    /// second one re-ran the whole sequence — a second `teardown()`, a second
+    /// server-side revoke of a token the first call had already revoked — on a
+    /// row that was on its way out.
+    @Test func aSecondRemoveOfTheSameProfileIsIgnoredWhileTheFirstIsInFlight() async throws {
+        let model = makeModel()
+        let profile = try remote(model, "studio")
+        var revokes = 0
+        let gate = Gate()
+        model.logout = { _, _ in
+            revokes += 1
+            // Only the first call parks, so an unguarded second call fails this
+            // test on the count instead of hanging it.
+            if revokes == 1 { await gate.wait() }
+        }
+
+        let first = Task { await model.remove(profile) }
+        #expect(await settle(until: { gate.isWaiting }))
+
+        await model.remove(profile)
+        #expect(revokes == 1)
+
+        gate.open()
+        await first.value
+
+        #expect(revokes == 1)
+        #expect(model.profiles.isEmpty)
+    }
+
+    // MARK: - A saved server is not added twice
+
+    /// B8: typing the address of a server that is already saved appended a
+    /// second row with a fresh `credentialKey`, so `savedServers` accumulated
+    /// orphans — and the original row's token stayed live under a row the
+    /// operator could no longer tell apart.
+    @Test func addingAnAddressThatIsAlreadySavedReusesThatRow() throws {
+        let model = makeModel()
+        let saved = try model.addRemoteProfile(name: "Studio", address: "https://studio.example.ts.net")
+
+        let again = try model.addRemoteProfile(
+            name: "Studio again", address: "STUDIO.Example.TS.NET/api/health?x=1")
+
+        #expect(again.id == saved.id)
+        #expect(again.credentialKey == saved.credentialKey)
+        #expect(model.profiles == [saved])
+        #expect(model.savedServers.count == 1)
+    }
+
+    @Test func connectingToAnAddressThatIsAlreadySavedLogsIntoThatRow() throws {
+        let model = makeModel()
+        let saved = try model.addRemoteProfile(name: "Studio", address: "https://studio.example.ts.net")
+
+        let again = try model.beginRemoteLogin(name: "", address: "studio.example.ts.net")
+
+        #expect(again.id == saved.id)
+        #expect(model.sheet == .login(saved))
+        #expect(model.profiles == [saved])
+    }
+
+    @Test func aDifferentAddressStillAddsItsOwnRow() throws {
+        let model = makeModel()
+        let a = try remote(model, "a")
+        let b = try remote(model, "b")
+        #expect(model.profiles == [a, b])
+    }
+
+    /// The local card owns loopback; a remote row that happens to point at the
+    /// same URL must not be swallowed by it, and vice versa.
+    @Test func theLocalProfileIsNotDedupedAgainstARemoteRow() throws {
+        let model = makeModel()
+        let local = model.addLocalProfile()
+        let remoteLoopback = try model.addRemoteProfile(name: "Loopback", address: "http://127.0.0.1:7330")
+        #expect(remoteLoopback.id != local.id)
+        #expect(model.profiles.count == 2)
+    }
+
+    // MARK: - Relaunching reconnects the restored profile
+
+    /// B5: `init` restores `activeProfile` from `UserDefaults` but starts no
+    /// store, so a relaunch came up with a profile "active" and nothing behind
+    /// it — the main window rendered against a `nil` store, no watcher was
+    /// armed and no sheet could ever be routed. The launch task reconnects it;
+    /// a missing credential is then the watcher's problem, and it routes
+    /// `.login`.
+    @Test func theRestoredActiveProfileIsReconnectedOnLaunch() async throws {
+        let name = UUID().uuidString
+        let defaults = UserDefaults(suiteName: name)!
+        defaults.removePersistentDomain(forName: name)
+        let profile = ServerProfile(
+            id: UUID(),
+            name: "Studio",
+            baseURL: URL(string: "https://studio.example.ts.net")!,
+            mode: .remote,
+            credentialKey: "run.shepherd.mac.restored")
+        ProfileStore(defaults: defaults).save(profiles: [profile], activeID: profile.id)
+
+        let model = AppModel(defaults: defaults, credentials: InMemoryCredentialStore())
+        #expect(model.activeProfile == profile)
+        #expect(model.store == nil)
+
+        await model.restoreActiveProfile()
+
+        #expect(model.activeProfile == profile)
+        #expect(model.store != nil)
+        #expect(model.store?.client.profile.id == profile.id)
+        model.teardown()
+    }
+
+    /// The launch task runs once per window appearance, and a second run must
+    /// not tear a live activation down and build it again.
+    @Test func restoringTwiceKeepsTheStoreThatIsAlreadyRunning() async throws {
+        let name = UUID().uuidString
+        let defaults = UserDefaults(suiteName: name)!
+        defaults.removePersistentDomain(forName: name)
+        let profile = ServerProfile(
+            id: UUID(),
+            name: "Studio",
+            baseURL: URL(string: "https://studio.example.ts.net")!,
+            mode: .remote,
+            credentialKey: "run.shepherd.mac.restored")
+        ProfileStore(defaults: defaults).save(profiles: [profile], activeID: profile.id)
+        let model = AppModel(defaults: defaults, credentials: InMemoryCredentialStore())
+        await model.restoreActiveProfile()
+        let running = model.store
+
+        await model.restoreActiveProfile()
+
+        #expect(model.store === running)
+        model.teardown()
+    }
+
+    @Test func restoringWithNoPersistedActiveProfileStartsNothing() async {
+        let model = makeModel()
+        await model.restoreActiveProfile()
+        #expect(model.store == nil)
+        #expect(model.activeProfile == nil)
     }
 }

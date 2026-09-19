@@ -238,6 +238,17 @@ final class AppModel {
 
     // MARK: - Profiles
 
+    /// Adds a `.remote` profile for `address`, or returns the saved one that
+    /// already points there.
+    ///
+    /// Idempotent per normalized base URL, like `addLocalProfile()` is for the
+    /// local row. Re-typing a saved server's address used to append a *second*
+    /// row with a fresh `credentialKey`: `savedServers` accumulated rows the
+    /// operator could not tell apart, and the original row's token stayed live
+    /// under one of them. The stored row wins — it is the one whose Keychain
+    /// item is real — so only the address decides identity here, not the name
+    /// typed alongside it. `.local` rows are never candidates: "Run on this
+    /// Mac" owns loopback and has its own card.
     @discardableResult
     func addRemoteProfile(name: String, address: String) throws -> ServerProfile {
         // RemoteServerForm parses; ShepherdKit decides whether the address is
@@ -246,6 +257,10 @@ final class AppModel {
             name: name,
             address: address,
             credentialKey: "run.shepherd.mac.\(UUID().uuidString)")
+        if let existing = profiles.first(where: { $0.mode == .remote && $0.baseURL == profile.baseURL }) {
+            Log.app.info("reusing the saved profile for this address")
+            return existing
+        }
         profiles.append(profile)
         persist()
         Log.app.info("added remote profile \(profile.name, privacy: .public)")
@@ -324,6 +339,14 @@ final class AppModel {
     /// bails out early on a generation mismatch — removal always runs to
     /// completion once started.
     func remove(_ profile: ServerProfile) async {
+        // Not re-entrant: the welcome screen fires a `Task` per click, so two
+        // clicks used to start two removals of the same row — a second
+        // `teardown()`, and a second server-side revoke of a token the first
+        // call had already revoked.
+        guard !removing.contains(profile.id) else {
+            Log.app.debug("ignoring a second remove for a profile already being removed")
+            return
+        }
         removing.insert(profile.id)
         if activeProfile?.id == profile.id {
             teardown()
@@ -445,6 +468,24 @@ final class AppModel {
             await store.start()
         }
         beginHealthRefresh()
+    }
+
+    /// Reconnects the profile restored from `UserDefaults`, once, at launch.
+    ///
+    /// `init` restores `activeProfile` but starts nothing — it cannot, because
+    /// activation is async — so a relaunch used to come up with a profile
+    /// "active" and no store behind it: the main window never appeared, no
+    /// watcher was armed, and no sheet could be routed. `ShepherdApp`'s root
+    /// view calls this from its launch task.
+    ///
+    /// A missing or revoked credential is not this method's problem: the
+    /// activation's watcher sees `.needsLogin` and routes the login sheet.
+    /// Idempotent — a second call while a store is already running keeps it,
+    /// rather than tearing a live activation down and building it again.
+    func restoreActiveProfile() async {
+        guard store == nil, let profile = activeProfile else { return }
+        Log.connect.info("reconnecting the restored profile \(profile.name, privacy: .public)")
+        await activate(profile)
     }
 
     /// GET /api/health so the banner knows what the server asks of this client.

@@ -4137,5 +4137,8 @@
   "native_welcome_saved_connect": "Connect",
   "native_welcome_saved_remove": "Remove",
   "native_banner_client_too_old": "This server needs app version {minimum} or newer — you have {app}. Update Shepherd for Mac.",
-  "native_banner_unhealthy": "{server} answered but reports a problem. Retrying."
+  "native_banner_unhealthy": "{server} answered but reports a problem. Retrying.",
+  "native_welcome_saved_remove_confirm_title": "Remove {server}?",
+  "native_welcome_saved_remove_confirm_body": "The saved sign-in for this server will be revoked and deleted from the Keychain.",
+  "native_welcome_saved_remove_confirm_action": "Remove"
 }

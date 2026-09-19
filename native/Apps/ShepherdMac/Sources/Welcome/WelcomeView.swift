@@ -9,6 +9,8 @@ struct WelcomeView: View {
     @State private var remoteName = ""
     @State private var remoteAddress = ""
     @State private var remoteError: String?
+    /// The saved server whose Remove is waiting to be confirmed.
+    @State private var pendingRemoval: ServerProfile?
 
     private let probe = LocalServerProbe()
 
@@ -36,6 +38,32 @@ struct WelcomeView: View {
         .padding(40)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task { await refreshLocal() }
+        // Remove revokes a token server-side and deletes a Keychain item —
+        // neither is undoable, and the button sits one row away from Connect.
+        // Pattern: the archive confirmation in MainWindow.
+        .confirmationDialog(
+            L.t("native_welcome_saved_remove_confirm_title", pendingRemoval?.name ?? ""),
+            isPresented: confirmingRemoval,
+            titleVisibility: .visible
+        ) {
+            if let profile = pendingRemoval {
+                Button(L.t("native_welcome_saved_remove_confirm_action"), role: .destructive) {
+                    pendingRemoval = nil
+                    Task { await model.remove(profile) }
+                }
+            }
+            Button(L.t("common_cancel"), role: .cancel) { pendingRemoval = nil }
+        } message: {
+            Text(verbatim: L.t("native_welcome_saved_remove_confirm_body"))
+        }
+    }
+
+    /// Presented while a row is waiting for its answer; dismissing the dialog
+    /// any other way (Esc, clicking away) drops that row again.
+    private var confirmingRemoval: Binding<Bool> {
+        Binding(
+            get: { pendingRemoval != nil },
+            set: { presented in if !presented { pendingRemoval = nil } })
     }
 
     // MARK: - Run on this Mac
@@ -106,7 +134,7 @@ struct WelcomeView: View {
                     // Removal revokes the token and deletes the Keychain item,
                     // which is why it is the secondary affordance here.
                     Button(L.t("native_welcome_saved_remove"), role: .destructive) {
-                        Task { await model.remove(profile) }
+                        pendingRemoval = profile
                     }
                     .buttonStyle(.borderless)
                 }

@@ -75,6 +75,48 @@ final class NewSessionSubmission {
     }
 }
 
+/// The provider picker's value *and* whether it has been settled, in one
+/// object so the two cannot drift.
+///
+/// They used to be two `@State` flags tied together by a `Binding`'s `set` —
+/// and SwiftUI calls `set` only when the value actually changes. Re-selecting
+/// the provider already on screen therefore left the picker "unsettled", and a
+/// `defaultAgentProvider` arriving with a late bootstrap moved it back under
+/// the operator. Every interaction settles it now: `choose(_:)` for a value
+/// the picker wrote, `touch()` for an interaction that did not move it.
+@Observable
+@MainActor
+final class ProviderSelection {
+    private(set) var provider: AgentProvider = .claude
+    /// True once the picker has been settled — seeded from settings, moved by
+    /// the operator, or merely touched by them. Only an unsettled picker may
+    /// still be moved by an arriving default.
+    private(set) var isSettled = false
+
+    /// The picker wrote a value. Settles it whether or not the value moved.
+    func choose(_ next: AgentProvider) {
+        provider = next
+        isSettled = true
+    }
+
+    /// The operator interacted with the picker without moving it.
+    func touch() { isSettled = true }
+
+    /// The seed from `GET /api/settings` on appearance.
+    func seed(_ next: AgentProvider) { choose(next) }
+
+    /// A `defaultAgentProvider` arriving with a late bootstrap: it takes effect
+    /// while the picker is still unsettled, and does nothing otherwise.
+    /// - Returns: whether it was applied.
+    @discardableResult
+    func applyArrivingDefault(_ arriving: AgentProvider?) -> Bool {
+        guard let next = NewSessionSheet.arrivingProviderDefault(arriving, alreadySeeded: isSettled)
+        else { return false }
+        choose(next)
+        return true
+    }
+}
+
 /// Covers exactly the CreateSessionRequest fields the contract marks as the
 /// standard create: repoPath, baseBranch, prompt, agentProvider, model, effort.
 struct NewSessionSheet: View {
@@ -83,14 +125,10 @@ struct NewSessionSheet: View {
     @State private var repoPath = ""
     @State private var baseBranch = ""
     @State private var prompt = ""
-    @State private var provider: AgentProvider = .claude
     @State private var modelName = ""
     @State private var effort: Effort?
     @State private var submission = NewSessionSubmission()
-    /// Whether the provider picker has been settled — by the seed on
-    /// appearance, by a late-arriving default, or by the operator choosing one.
-    /// Only an unsettled picker may still be moved by arriving settings.
-    @State private var didSeedProvider = false
+    @State private var providerSelection = ProviderSelection()
 
     /// A git branch name, not operator-facing copy — it is the same literal the
     /// server falls back to, so it is not a catalog key.
@@ -98,15 +136,10 @@ struct NewSessionSheet: View {
 
     private var repos: [Repo] { (app.store?.repos ?? []).filter { !$0.hidden } }
 
-    /// Choosing a provider by hand settles the picker, so a default that lands
-    /// afterwards cannot move it back under the operator.
-    private var providerSelection: Binding<AgentProvider> {
-        Binding(
-            get: { provider },
-            set: { chosen in
-                provider = chosen
-                didSeedProvider = true
-            })
+    /// Any use of the picker settles it, so a default that lands afterwards
+    /// cannot move it back under the operator.
+    private var providerBinding: Binding<AgentProvider> {
+        Binding(get: { providerSelection.provider }, set: { providerSelection.choose($0) })
     }
 
     /// What an arriving `defaultAgentProvider` should do: take effect while the
@@ -143,10 +176,15 @@ struct NewSessionSheet: View {
                     text: $baseBranch,
                     prompt: Text(verbatim: L.t("newtask_branch_placeholder")))
 
-                Picker(L.t("native_newsession_provider_label"), selection: providerSelection) {
+                Picker(L.t("native_newsession_provider_label"), selection: providerBinding) {
                     Text(verbatim: L.t("agent_provider_claude")).tag(AgentProvider.claude)
                     Text(verbatim: L.t("agent_provider_codex")).tag(AgentProvider.codex)
                 }
+                // The binding's `set` never fires for a re-selection of the
+                // value already shown, so the interaction itself is what
+                // settles the picker. `simultaneousGesture` rather than
+                // `onTapGesture`: the menu must still open.
+                .simultaneousGesture(TapGesture().onEnded { providerSelection.touch() })
 
                 TextField(
                     L.t("newtask_model_label"),
@@ -217,10 +255,7 @@ struct NewSessionSheet: View {
         // it landed, and every session created from a cold-started window went
         // out with the picker's own `.claude`.
         .onChange(of: app.store?.settings?.defaultAgentProvider) { _, arriving in
-            guard let next = Self.arrivingProviderDefault(arriving, alreadySeeded: didSeedProvider)
-            else { return }
-            provider = next
-            didSeedProvider = true
+            providerSelection.applyArrivingDefault(arriving)
         }
         // Mirrors the Cancel button's .disabled: Esc and click-outside must not
         // out-run the in-flight create either. See NewSessionSubmission.
@@ -232,8 +267,7 @@ struct NewSessionSheet: View {
         if repoPath.isEmpty { repoPath = repos.first?.path ?? "" }
         if baseBranch.isEmpty { baseBranch = Self.defaultBaseBranch }
         if let settings = app.store?.settings {
-            provider = settings.defaultAgentProvider
-            didSeedProvider = true
+            providerSelection.seed(settings.defaultAgentProvider)
         }
     }
 
@@ -246,7 +280,7 @@ struct NewSessionSheet: View {
             repoPath: repoPath,
             baseBranch: trimmedBranch.isEmpty ? Self.defaultBaseBranch : trimmedBranch,
             prompt: prompt,
-            agentProvider: provider,
+            agentProvider: providerSelection.provider,
             model: trimmedModel.isEmpty ? nil : trimmedModel,
             effort: effort)
 

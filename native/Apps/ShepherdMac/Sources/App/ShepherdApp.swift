@@ -42,6 +42,11 @@ struct RootView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        // The profile restored from UserDefaults is only a *name* until
+        // something starts a store for it; without this the app came back from
+        // a relaunch with an active profile and nothing behind it. Idempotent,
+        // so a second appearance keeps the store already running.
+        .task { await model.restoreActiveProfile() }
         .sheet(item: $model.sheet) { sheet in
             switch sheet {
             case .login(let profile):

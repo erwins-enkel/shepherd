@@ -1286,6 +1286,58 @@
         }
       }
     },
+    "native_welcome_saved_remove_confirm_action": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entfernen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove"
+          }
+        }
+      }
+    },
+    "native_welcome_saved_remove_confirm_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die gespeicherte Anmeldung für diesen Server wird widerrufen und aus dem Schlüsselbund gelöscht."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The saved sign-in for this server will be revoked and deleted from the Keychain."
+          }
+        }
+      }
+    },
+    "native_welcome_saved_remove_confirm_title": {
+      "comment": "%1$@ = server",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ entfernen?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove %1$@?"
+          }
+        }
+      }
+    },
     "native_welcome_saved_title": {
       "extractionState": "manual",
       "localizations": {

@@ -180,3 +180,56 @@ struct NewSessionProviderSeedTests {
         #expect(NewSessionSheet.arrivingProviderDefault(nil, alreadySeeded: false) == nil)
     }
 }
+
+/// B4 (whole-branch wave): the picker was settled from a `Binding`'s `set`,
+/// which SwiftUI calls only when the value actually *changes* — re-selecting
+/// the provider already on screen left the picker "unsettled", and a default
+/// arriving with a late bootstrap then moved it under the operator. The
+/// picker's value and its settled flag are one object now, and every
+/// interaction settles it.
+@MainActor
+struct ProviderSelectionTests {
+    @Test func aFreshPickerIsUnsettledAndDefaultsToClaude() {
+        let selection = ProviderSelection()
+        #expect(selection.provider == .claude)
+        #expect(!selection.isSettled)
+    }
+
+    @Test func choosingTheProviderAlreadyShownStillSettlesThePicker() {
+        let selection = ProviderSelection()
+        selection.choose(.claude)
+        #expect(selection.isSettled)
+        #expect(selection.applyArrivingDefault(.codex) == false)
+        #expect(selection.provider == .claude)
+    }
+
+    @Test func touchingThePickerWithoutMovingItSettlesIt() {
+        let selection = ProviderSelection()
+        selection.touch()
+        #expect(selection.isSettled)
+        #expect(selection.applyArrivingDefault(.codex) == false)
+        #expect(selection.provider == .claude)
+    }
+
+    @Test func aLateDefaultStillLandsOnAPickerNobodyHasTouched() {
+        let selection = ProviderSelection()
+        #expect(selection.applyArrivingDefault(.codex))
+        #expect(selection.provider == .codex)
+        #expect(selection.isSettled)
+    }
+
+    @Test func settingsArrivingWithoutAProviderChangeNothing() {
+        let selection = ProviderSelection()
+        #expect(selection.applyArrivingDefault(nil) == false)
+        #expect(!selection.isSettled)
+    }
+
+    @Test func seedingFromSettingsSettlesThePicker() {
+        let selection = ProviderSelection()
+        selection.seed(.codex)
+        #expect(selection.provider == .codex)
+        #expect(selection.isSettled)
+        #expect(selection.applyArrivingDefault(.claude) == false)
+        #expect(selection.provider == .codex)
+    }
+}

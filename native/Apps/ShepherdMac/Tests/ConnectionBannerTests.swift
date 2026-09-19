@@ -66,16 +66,28 @@ struct ConnectionBannerTests {
                                   serverVersion: nil, appVersion: "3.41.0") == .offline(server: "Studio"))
     }
 
-    /// Z4a: the same fallback while the socket still reads `.live` — the
-    /// mismatch was itself the health payload that would have named the
-    /// server, so `serverVersion` never landed. Previously this fell all the
-    /// way through to `nil`: no `tooOld`, no `mismatch` (it needs
-    /// `serverVersion`), and `serverUnhealthy` was never set for a decode
-    /// failure. Silence is wrong for a socket that cannot be trusted.
-    @Test func aContractMismatchWhileLiveWithoutAKnownServerVersionFallsBackToOffline() {
+    /// Z4a: the same case while the socket still reads `.live` — the mismatch
+    /// was itself the health payload that would have named the server, so
+    /// `serverVersion` never landed. Silence is wrong for a socket that cannot
+    /// be trusted, but so is `.offline`'s "cannot reach this server": this is
+    /// the *common* mismatch path, and the app has just heard from the server.
+    /// `.unhealthy` is what "answered, but something is wrong with it" reads
+    /// as (B3, whole-branch wave).
+    @Test func aContractMismatchWhileLiveWithoutAKnownServerVersionReadsAsUnhealthy() {
         let error = ShepherdError.contractMismatch(route: "listSessions", underlying: "keyNotFound")
-        #expect(BannerPolicy.kind(for: .live, lastError: error, serverName: "Studio",
-                                  serverVersion: nil, appVersion: "3.41.0") == .offline(server: "Studio"))
+        let kind = BannerPolicy.kind(for: .live, lastError: error, serverName: "Studio",
+                                     serverVersion: nil, appVersion: "3.41.0")
+        #expect(kind == .unhealthy(server: "Studio"))
+        #expect(kind?.message != BannerKind.offline(server: "Studio").message)
+    }
+
+    /// The socket being genuinely down keeps `.offline`: there the app really
+    /// cannot reach the server.
+    @Test func aContractMismatchWhileOfflineWithoutAKnownServerVersionStaysOffline() {
+        let error = ShepherdError.contractMismatch(route: "listSessions", underlying: "keyNotFound")
+        #expect(BannerPolicy.kind(for: .offline(message: "lost"), lastError: error,
+                                  serverName: "Studio", serverVersion: nil,
+                                  appVersion: "3.41.0") == .offline(server: "Studio"))
     }
 
     @Test func aCommandFailureIsNotABanner() {
@@ -637,7 +649,10 @@ struct AppModelHealthTests {
             return Health(ok: true, version: "2.1.0")
         }
         let studio = try model.addRemoteProfile(name: "Studio", address: "http://127.0.0.1:9")
-        let loft = try model.addRemoteProfile(name: "Loft", address: "http://127.0.0.1:9")
+        // A *different* address: `addRemoteProfile` reuses the saved row for an
+        // address that is already stored (B8), and this test needs two profiles.
+        // Both ports are closed, which is all the stubbed health call needs.
+        let loft = try model.addRemoteProfile(name: "Loft", address: "http://127.0.0.1:10")
 
         await model.activate(studio)
         model.retry()

@@ -63,6 +63,10 @@ JEV_API_KEY=… bun run eval:stop-classifier --backend jev --jev-authored --json
 # Reads a file; makes no calls and needs no key.
 bun run scripts/eval-jev.ts <report.json> [questionId] [--all]
 
+# Same file, same no-key property: rank the candidate confidence measures by their AUROC against
+# correctness, instead of taking the vendor's `confidence` scalar as the only candidate (#2379).
+bun run scripts/eval-jev.ts <report.json> kind --all --auroc
+
 # The nightly drift gate over a finished run (#2377). Reads files; makes no calls, needs no key.
 bun run eval:stop-classifier --backend jev --json > report.json
 bun run scripts/eval-drift.ts report.json                      # check (baseline from $JEV_EVAL_BASELINE)
@@ -548,6 +552,56 @@ The abstains come back **confidently abstaining**; the least-confident answers a
 low-confidence→`unknown` rule does not buy caution — it converts correct gates into surfaced sessions.
 If a threshold is ever wanted in production, the evidence says **≤0.6**, and the honest reading is
 that it earns nothing on this fixture set.
+
+### Which confidence measure separates right from wrong (#2379)
+
+The ordering above runs opposite to intuition, and §2.1 of
+[`jev-ecosystem-scan.md`](./research/jev-ecosystem-scan.md) explains why that is not a calibration
+bug: two independent sources report that the vendor's `confidence` field is **opaque and is not the
+top probability**, while every open implementation of this wire format defines `confidence` as
+normalised entropy instead — a different quantity. The scalar whose ordering looked inverted is
+vendor-defined, with no specification behind it.
+
+The reusable diagnostic is to stop treating it as the only candidate. `--auroc` scores four of them
+by their **AUROC against correctness** over a finished report — the vendor scalar, the top
+probability, the margin between the top two, and normalised entropy `1 − H(p)/log K` — since an
+AUROC at or below 0.5 is precisely the signature of _"this measure runs opposite to intuition"_.
+It reads the `trialDetails` a `--json` run already records, so it needs no key and no paid re-run.
+
+**Result: this fixture set cannot rank them, and that is the finding.**
+
+- **Verbatim records no wrong trials at all**, across gating and baseline fixtures alike. An empty
+  negative class leaves nothing for any measure to separate, so all four report
+  `insufficient support` rather than a number. Correct by construction, and uninformative.
+- **Authored does make errors — but every one of them comes from a single fixture**,
+  `ambiguous-unknown`, which is the bucket it was already recorded as failing. All four measures
+  separate on that leg and land within a hair of each other, far closer together than one flipped
+  trial would move them. What the AUROC measures there is one fixture's distinctness, not a general
+  ability to tell a right answer from a wrong one.
+- **Neither leg produces an AUROC at or below 0.5.** The vendor scalar does **not** run opposite to
+  correctness here — and that does not contradict the ordering recorded above, because the two
+  quantify different things. That ordering compares mean confidence **between fixture buckets** (the
+  abstains outrank the correct `gate` calls); an AUROC compares confidence **between the right and
+  wrong trials of one population**. Both can hold at once, and on this data both do.
+
+**What it means for the gates after `classifyStop`.** The two sites the research doc named have
+since shipped — `blocked.ts` (#2375) and the learnings relevance gate (#2376) — and both ask a
+**`noul`**, which carries no distribution and no confidence at all, so nothing here applies to
+them (contract 2 in `src/judge.ts`). For a future gate over a `choice`, the honest conclusion is
+that **this corpus cannot pick the measure for you**: twelve curated fixtures on which the shipped
+framing is errorless contain no signal to rank by. Picking by AUROC remains the right method — it
+needs a corpus with real errors in it, which the nightly leg (#2377) is what accumulates.
+
+Two properties of the implementation are load-bearing rather than incidental, and both come from
+the vendor rounding probabilities to two decimals (§2.2 of the same scan):
+
+- **Ties are the bulk of the data, not an edge case.** The AUROC is the Mann-Whitney statistic over
+  **mid-ranks**, so a tie counts as half. A naive pairwise `score > other` count scores every tied
+  pair as a loss and would depress exactly the measures that saturate.
+- **A recorded vector does not sum to 1**, so every measure normalises before reading it; entropy
+  over an un-normalised vector is simply on the wrong scale. Anything unmeasurable — no recorded
+  distribution, a single option, a malformed entry — is reported as skipped, never coerced to a
+  number that would enter the ranking as if it had been measured.
 
 ### What this run does NOT establish
 

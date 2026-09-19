@@ -453,17 +453,24 @@ export const SPEC: EvalSpec<Fixture> = {
     const declared = (raw as RawVerdict | null)?.kind;
     const unrecognised =
       typeof declared !== "string" || !ALL_KINDS.includes(declared as AutopilotKind);
-    // A trial that produced NO usable verdict (`raw === null`: no tool call, unparseable content,
-    // or a backend that could not read an answer) is NEVER correct — not even on the two fixtures
-    // that expect `unknown`.
+    // An UNRECOGNISED verdict is never correct — not on any fixture, and emphatically not on the
+    // two that expect `unknown`.
     //
-    // `normalize(null)` returns `unknown` by design (bias to surface, which is right in
-    // PRODUCTION), and crediting that here would let a mechanical failure score as a correct
-    // abstain on `ambiguous-unknown` / `de-ambiguous-unknown` — precisely the buckets whose job is
-    // to measure abstention. Nine transport failures would have reported a perfect abstain score.
-    // The `no-tool` / `parse-fail` tallies already name the failure; this stops it also being
-    // counted as a right answer.
-    const correct = raw !== null && kind === fixture.expectedKind;
+    // `normalize` answers `unknown` for everything it cannot read (bias to surface, which is right
+    // in PRODUCTION), and `unknown` is the EXPECTED label on `ambiguous-unknown` /
+    // `de-ambiguous-unknown`. So without this guard the two buckets whose entire job is measuring
+    // abstention score a perfect 9/9 off failures that produced no judgement at all. Both shapes
+    // reach here and both are covered, because `declared` is not a valid kind in either:
+    //
+    //   - NO verdict (`raw === null`) — no tool call, unparseable content, or a backend that could
+    //     not read an answer. Also flagged `no-tool` / `parse-fail`.
+    //   - A verdict that PARSES but whose `kind` is out of enum — e.g. a German-TRANSLATED kind.
+    //     Not hypothetical: `CLASSIFIER_OUTPUT_LANGUAGE_DE` exists precisely because the model
+    //     translates the enum token, and in production `normalize` turning that into `unknown` is
+    //     the documented bug (research doc §3). Here it is the more dangerous of the two, because
+    //     the trial looks mechanically clean — `toolUsed` and `parseOk` are both true — so only
+    //     the `unrecognised` tally names it.
+    const correct = !unrecognised && kind === fixture.expectedKind;
     return { label: kind, correct, unrecognised };
   },
 };

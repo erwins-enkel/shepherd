@@ -437,14 +437,47 @@ test("the report header names the framing, and says what T does NOT measure here
   expect(formatReport(SPEC, [], decide([], 0.8), parseArgs(SPEC, []))).not.toContain("jev framing");
 });
 
-test("a verdict-less trial is never counted correct — not even on the abstain fixtures", () => {
-  // THE TRAP this guards, which is specific to the two `unknown` fixtures: `normalize(null)`
-  // returns `unknown` (bias to surface — right in production), so before this was fixed a trial
-  // that obtained NO verdict scored as a correct abstain on exactly the buckets whose job is
-  // measuring abstention. Nine transport failures reported a perfect 9/9.
+test("an unrecognised verdict is never counted correct — not even on the abstain fixtures", () => {
+  // THE TRAP this guards, which is specific to the two `unknown` fixtures: `normalize` answers
+  // `unknown` for anything it cannot read, and `unknown` is what those two fixtures EXPECT. So
+  // before this was fixed, failures that produced no judgement at all scored a perfect 9/9 on
+  // exactly the buckets whose job is measuring abstention.
   const ambiguous = FIXTURES.find((f) => f.id === "ambiguous-unknown")!;
   const german = FIXTURES.find((f) => f.id === "de-ambiguous-unknown")!;
   const verdictless = { toolUsed: false, content: null, turns: 1 };
+
+  // SHAPE 2, and the more dangerous one: a verdict that parses cleanly but whose `kind` was
+  // TRANSLATED. `CLASSIFIER_OUTPUT_LANGUAGE_DE` exists because the model really does this, and such
+  // a trial looks mechanically perfect — toolUsed and parseOk both true — so nothing but
+  // `unrecognised` names it.
+  const translated = {
+    toolUsed: true,
+    content: '{"kind":"unbekannt","summary":"Kann ich nicht sagen."}',
+    turns: 1,
+  };
+  for (const fixture of [ambiguous, german]) {
+    const o = outcomeFrom(SPEC, fixture, translated);
+    expect(o).toMatchObject({ toolUsed: true, parseOk: true, label: "unknown", correct: false });
+    expect(o.unrecognised).toBe(true);
+  }
+  const translatedAgg = aggregate(
+    german,
+    Array.from({ length: 9 }, () => outcomeFrom(SPEC, german, translated)),
+    SPEC.labels,
+  );
+  expect(translatedAgg.unrecognised).toBe(9);
+  expect(translatedAgg.correct).toBe(0);
+  expect(translatedAgg.majorityCorrect).toBe(false);
+  expect(decide([translatedAgg], 0.8).pass).toBe(false);
+
+  // An out-of-enum kind is not correct on a NON-abstain fixture either.
+  expect(
+    outcomeFrom(
+      SPEC,
+      FIXTURES.find((f) => f.id === "gate-commit-now")!,
+      translated,
+    ).correct,
+  ).toBe(false);
 
   for (const fixture of [ambiguous, german]) {
     const o = outcomeFrom(SPEC, fixture, verdictless);

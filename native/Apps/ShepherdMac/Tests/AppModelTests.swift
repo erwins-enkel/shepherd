@@ -274,13 +274,22 @@ struct AppModelTests {
     /// Before the fix, `remove(_:)` never bumped `activationGeneration` for a
     /// profile that was never active, so the completing sign-in still matched
     /// and `activate(B)` resurrected a row this call had just deleted.
+    /// S2 (fix wave 3): the injected `login` closure now actually saves a
+    /// token into the `InMemoryCredentialStore`, the way `ProfileSetup.login`
+    /// does — before the fix, `signIn`'s guard returned without cleaning that
+    /// token up, orphaning it under a `credentialKey` no row owned any more.
     @Test func aSignInLandingAfterTheProfileWasRemovedDoesNotReviveIt() async throws {
-        let model = makeModel()
+        let credentials = InMemoryCredentialStore()
+        let model = makeModel(credentials: credentials)
         model.logout = { _, _ in }
         let b = try remote(model, "b")
 
         let gate = Gate()
-        model.login = { _, _, _ in await gate.wait() }
+        model.login = { profile, _, credentialStore in
+            await gate.wait()
+            try credentialStore.save(
+                StoredCredential(token: "shp_secret", tokenId: "tok_1"), for: profile.credentialKey)
+        }
 
         let signIn = Task { try await model.signIn(profile: b, password: "hunter2") }
         #expect(await settle(until: { gate.isWaiting }))
@@ -292,6 +301,50 @@ struct AppModelTests {
         #expect(model.profiles.isEmpty)
         #expect(model.activeProfile == nil)
         #expect(model.store == nil)
+        // S2: a login landing after its profile was removed must not leave
+        // the token it just stored behind, orphaned and un-revokable.
+        #expect(try credentials.load(for: b.credentialKey) == nil)
+    }
+
+    /// S1 (fix wave 3): removing an *inactive* profile must not disturb the
+    /// active profile's own connection watcher. The watcher is armed directly
+    /// via the `ConnectionBox` seam, standing in for a real `activate(_:)` of
+    /// `a` without a live server; what matters is that `remove(_:)` of `b`
+    /// leaves `a`'s captured generation untouched.
+    @Test func removingAnInactiveProfileDoesNotKillTheActiveWatcher() async throws {
+        let model = makeModel()
+        model.logout = { _, _ in }
+        let a = try remote(model, "a")
+        let b = try remote(model, "b")
+
+        let box = ConnectionBox()
+        model.watchConnection(
+            ConnectionSource(read: { box.state }, abandon: {}),
+            profile: a,
+            generation: model.activationGeneration)
+
+        await model.remove(b)
+
+        box.state = .needsLogin
+        #expect(await settle(until: { model.sheet == .login(a) }))
+        model.teardown()
+    }
+
+    /// S3 (fix wave 3): removing an inactive profile whose `.login(_)` sheet
+    /// is open must close that sheet — previously only `teardown()` (i.e.
+    /// removing the *active* profile) cleared a profile-bound sheet.
+    @Test func removingAnInactiveProfileWithAnOpenLoginSheetClosesIt() async throws {
+        let model = makeModel()
+        model.logout = { _, _ in }
+        let a = try remote(model, "a")
+        let b = try remote(model, "b")
+        await model.activate(a)
+        model.sheet = .login(b)
+
+        await model.remove(b)
+
+        #expect(model.sheet == nil)
+        model.teardown()
     }
 
     /// Scenario B from the fix-wave-2 brief: B is active, `remove(_:)` tears

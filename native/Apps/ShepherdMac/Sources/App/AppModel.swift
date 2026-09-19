@@ -109,12 +109,16 @@ final class AppModel {
     var sheet: AppSheet?
     var selectedSessionID: String?
 
-    /// Bumped by every `activate(_:)` and every `teardown()`. An async step
-    /// that started under an older generation — a sign-in the operator left
-    /// mid-flight, a sign-out, a connection watcher — must not touch the model
-    /// when it finally completes: by then a different profile may be active, or
-    /// none at all. Profile identity is not enough, because re-activating the
-    /// *same* profile has to invalidate the older completions too.
+    /// Bumped by every `activate(_:)`, every `teardown()`, and every
+    /// `remove(_:)` of the profile that is currently active (via the
+    /// `teardown()` that call makes) — never by removing an *inactive*
+    /// profile, which must leave the active profile's own watcher running.
+    /// An async step that started under an older generation — a sign-in the
+    /// operator left mid-flight, a sign-out, a connection watcher — must not
+    /// touch the model when it finally completes: by then a different profile
+    /// may be active, or none at all. Profile identity is not enough, because
+    /// re-activating the *same* profile has to invalidate the older
+    /// completions too.
     private(set) var activationGeneration = 0
 
     /// Profiles whose `remove(_:)` is currently in flight. `activate(_:)` and
@@ -202,18 +206,30 @@ final class AppModel {
     /// (best effort: a server that refuses it must not strand the local item),
     /// then the local delete, then the row.
     ///
-    /// `removing` is marked before anything else and `activationGeneration` is
-    /// bumped unconditionally — even when `profile` is not the active one — so
-    /// a sign-in already in flight for it cannot land after this call starts
-    /// and re-activate a row this method is in the middle of deleting; a
+    /// `removing` is marked before anything else, so a sign-in already in
+    /// flight for this profile cannot land after this call starts and
+    /// re-activate a row this method is in the middle of deleting, and a
     /// `logout` gated by a test cannot let a re-`activate(_:)` of the still-
-    /// listed row install a replacement store either, since `removing` blocks
-    /// it directly. Nothing here bails out early on a generation mismatch —
-    /// removal always runs to completion once started.
+    /// listed row install a replacement store either — `removing` blocks both
+    /// directly, by membership, not by generation. `activationGeneration` is
+    /// bumped here only when `profile` is the active one, through the
+    /// `teardown()` call below: bumping it for every removal used to also
+    /// invalidate an *unrelated* active profile's own connection watcher,
+    /// which reads the same counter. A `.login(profile)` sheet left open for
+    /// the removed row is cleared explicitly for the same reason —
+    /// `teardown()` only clears the sheet when `profile` was the one active.
+    /// A sign-in that lands after this call has already removed the row gets
+    /// the same best-effort `logout` + `credentials.delete(for:)` cleanup
+    /// below, in its own guard in `signIn(profile:password:)`. Nothing here
+    /// bails out early on a generation mismatch — removal always runs to
+    /// completion once started.
     func remove(_ profile: ServerProfile) async {
         removing.insert(profile.id)
-        activationGeneration &+= 1
-        if activeProfile?.id == profile.id { teardown() }
+        if activeProfile?.id == profile.id {
+            teardown()
+        } else {
+            clearSheet(forRemovedProfile: profile.id)
+        }
         // `logout` revokes and clears the local item; the explicit delete covers
         // the paths where it bailed out before getting there.
         try? await logout(profile, credentials)
@@ -226,10 +242,13 @@ final class AppModel {
 
     // MARK: - Activation
 
+    /// Makes `profile` the active one: tears down any existing store, builds
+    /// a fresh `SessionStore`, and arms the connection watcher for it.
+    ///
+    /// A profile mid-`remove(_:)` — or already gone — is silently ignored: it
+    /// may be about to lose its credential, or already have lost it, so it
+    /// must not be (re-)activated.
     func activate(_ profile: ServerProfile) async {
-        // A profile mid-`remove(_:)` — or already gone — must not be
-        // (re-)activated: it may be about to lose its credential, or already
-        // have lost it.
         guard !removing.contains(profile.id), profiles.contains(where: { $0.id == profile.id })
         else {
             Log.app.debug(
@@ -316,6 +335,11 @@ final class AppModel {
         guard !removing.contains(profile.id), profiles.contains(where: { $0.id == profile.id })
         else {
             Log.connect.debug("ignoring sign-in completion for a profile that was removed")
+            // The token this login just stored must not outlive the row it
+            // was minted for — left behind, it is exactly the orphaned,
+            // un-revokable credential `remove(_:)` exists to prevent.
+            try? await logout(profile, credentials)
+            try? credentials.delete(for: profile.credentialKey)
             return
         }
         await activate(profile)
@@ -411,6 +435,18 @@ final class AppModel {
         switch sheet {
         case .login, .firstRun: sheet = nil
         case .newSession, .none: break
+        }
+    }
+
+    /// Drops a `.login(_)` sheet identified by `profileID` specifically,
+    /// leaving any other sheet alone. `remove(_:)` needs this narrower check
+    /// — rather than `clearProfileBoundSheet()` — for an *inactive* profile:
+    /// `.firstRun` is not tied to a particular profile identity, and a
+    /// `.login` sheet for some other, still-active profile must not close
+    /// just because a different row is being removed.
+    private func clearSheet(forRemovedProfile profileID: ServerProfile.ID) {
+        if case .login(let profile) = sheet, profile.id == profileID {
+            sheet = nil
         }
     }
 

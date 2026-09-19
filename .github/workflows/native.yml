@@ -168,6 +168,49 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      # The same three steps the `shepherdkit` job runs, and for the same
+      # reasons: this job builds the very same app target and ShepherdKit's
+      # three Apple OpenAPI dependencies. Without them a runner with an older
+      # default Xcode fails deep inside a manifest parse instead of at a clear
+      # gate, every run re-resolves and rebuilds the dependencies from scratch,
+      # and — because this job is non-blocking — the confusing failure is one
+      # nobody has to look at.
+      - name: Report the toolchain
+        run: |
+          swift --version
+          xcodebuild -version
+
+      - name: Require Swift 6.1 or newer
+        run: |
+          set -euo pipefail
+          version="$(swift -version 2>&1 | sed -n 's/.*Swift version \([0-9][0-9.]*\).*/\1/p')"
+          if [ -z "$version" ]; then
+            echo "::error::could not parse swift version"
+            exit 1
+          fi
+          echo "detected swift $version"
+          major="${version%%.*}"
+          rest="${version#*.}"
+          minor="${rest%%.*}"
+          if [ "$major" -lt 6 ] || { [ "$major" -eq 6 ] && [ "$minor" -lt 1 ]; }; then
+            echo "::error::Swift $version is too old; ShepherdKit needs 6.1+."
+            echo "Installed Xcodes:"; ls /Applications | grep -i '^Xcode' || true
+            echo "Pin a newer one with: sudo xcode-select -s /Applications/<Xcode>.app"
+            exit 1
+          fi
+
+      # Same key as the `shepherdkit` job, so whichever runs first warms the
+      # other's restore.
+      - name: Cache SwiftPM build state
+        uses: actions/cache@v6
+        with:
+          path: |
+            native/.build
+            native/Apps/ShepherdMac/.build
+          key: ${{ runner.os }}-spm-${{ hashFiles('native/Package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-spm-
+
       - name: Install XcodeGen
         run: brew install xcodegen
 

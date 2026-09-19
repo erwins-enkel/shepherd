@@ -50,8 +50,14 @@ enum HerdStage: String, CaseIterable, Sendable {
     case branchProtectionBlocked, waitingOnReviewer, waitingOnMerger, draftAwaitingSignoff
     case awaitingMerge, ready, merging, merged
 
-    /// `nil` for `active`: the web renders that group headerless.
-    var headingKey: StaticString? {
+    /// The group heading's catalog key, or `nil` for `active`: the web renders that group
+    /// headerless.
+    ///
+    /// `who` is the single person a handoff names (`git.handoff`, stream S2's classifier). The two
+    /// waiting stages have a named and an unnamed heading in both catalogs —
+    /// `herd_waiting_reviewer_group` takes `{who}` and `{count}`, `…_multi` takes `{count}` alone
+    /// — and the web picks between them the same way. Every other stage ignores `who`.
+    func headingKey(who: String? = nil) -> StaticString? {
         switch self {
         case .active: nil
         case .ciRunning: "herd_ci_running_group"
@@ -60,8 +66,10 @@ enum HerdStage: String, CaseIterable, Sendable {
         case .reworkRunning: "herd_rework_running_group"
         case .needsRework: "herd_changes_requested_group"
         case .branchProtectionBlocked: "herd_merge_blocked_group"
-        case .waitingOnReviewer: "herd_waiting_reviewer_group_multi"
-        case .waitingOnMerger: "herd_waiting_merger_group_multi"
+        case .waitingOnReviewer:
+            who == nil ? "herd_waiting_reviewer_group_multi" : "herd_waiting_reviewer_group"
+        case .waitingOnMerger:
+            who == nil ? "herd_waiting_merger_group_multi" : "herd_waiting_merger_group"
         case .draftAwaitingSignoff: "herd_draft_awaiting_signoff_group"
         case .awaitingMerge: "herd_awaiting_merge_group"
         case .ready: "herd_ready_group"
@@ -69,9 +77,37 @@ enum HerdStage: String, CaseIterable, Sendable {
         case .merged: "herd_merged_group"
         }
     }
+
+    /// Where this stage sits in `terminalStage`'s first-match cascade
+    /// (`herd-partition.ts:116-134`), lowest first. This is NOT `allCases`' order: that is the
+    /// render order (`STAGE_ORDER`, active first, merged last), and the two genuinely differ —
+    /// `active` renders first and classifies last. `stageOf` picks the lowest-ranked candidate,
+    /// which reproduces "first match wins" without a cascade of its own.
+    ///
+    /// The four handoff stages are the cascade's single trailing `else` branch
+    /// (`handoffStage`, `:170-176`) and are mutually exclusive, so their ranks are only ever
+    /// compared against the stages above and below them, never against each other.
+    var precedence: Int {
+        switch self {
+        case .merged: 0
+        case .merging: 1
+        case .needsRework: 2
+        case .branchProtectionBlocked: 3
+        case .ready: 4
+        case .reviewerRunning: 5
+        case .reworkRunning: 6
+        case .ciRunning: 7
+        case .ciFailed: 8
+        case .draftAwaitingSignoff: 9
+        case .waitingOnReviewer: 10
+        case .waitingOnMerger: 11
+        case .awaitingMerge: 12
+        case .active: 13
+        }
+    }
 }
 
-struct RepoChip: Identifiable, Equatable, Sendable {
+struct HerdRepoChip: Identifiable, Equatable, Sendable {
     let path: String
     let name: String
     let count: Int
@@ -84,7 +120,7 @@ struct HerdGroup: Identifiable, Equatable, Sendable {
     var id: String { stage.rawValue }
 }
 
-struct Tallies: Equatable, Sendable {
+struct HerdTallies: Equatable, Sendable {
     let active: Int
     let idle: Int
     let blocked: Int
@@ -110,14 +146,19 @@ enum HerdPartition {
     /// `repoChipRows` (`ui/src/lib/components/queue-strip.ts:47-77`). Archived sessions make no
     /// chip; the count is the repo's live session count; sorted by path so the rail does not jump
     /// around.
-    static func repoChips(_ sessions: [Session]) -> [RepoChip] {
+    static func repoChips(_ sessions: [Session]) -> [HerdRepoChip] {
         var counts: [String: Int] = [:]
         for session in sessions where session.status.known != .archived {
             counts[session.repoPath, default: 0] += 1
         }
-        return counts.keys.sorted().map {
-            RepoChip(path: $0, name: ($0 as NSString).lastPathComponent, count: counts[$0] ?? 0)
-        }
+        // `localizedStandardCompare`, not `<`: the web sorts with `localeCompare`, which files
+        // `Ärger` next to `apple` rather than after `z`, and `repo10` after `repo9` rather than
+        // before it. Codepoint order would do neither, and the rail is read by a human.
+        return counts.sorted { $0.key.localizedStandardCompare($1.key) == .orderedAscending }
+            .map {
+                HerdRepoChip(
+                    path: $0.key, name: ($0.key as NSString).lastPathComponent, count: $0.value)
+            }
     }
 
     /// An empty selection means "no repo filter", like the web's `EMPTY_REPO_FILTER`
@@ -133,16 +174,23 @@ enum HerdPartition {
     ]
 
     /// `shownSessions` (`herd-partition.ts:93-111`).
+    ///
+    /// `inReview` is the web's own `inReview(s.id)` — a critic run in flight for this session — and
+    /// the Ready lens tests it SEPARATELY from the stage check (`:96-101`), because
+    /// `reviewerRunning` is deliberately not in `NOT_YOUR_TURN`. Without it a `readyToMerge`
+    /// session whose review is still running would be listed as awaiting the operator when the
+    /// reviewer has it. Stream S2 owns the classifier; until then nothing is under review.
     static func shown(
         _ sessions: [Session], lens: HerdLens, workingBlocked: [String: Bool], now: Int,
-        gitStage: (Session) -> HerdStage?
+        gitStage: (Session) -> HerdStage?, inReview: (Session) -> Bool
     ) -> [Session] {
         switch lens {
         case .next, .owed: return []
         case .all, .done: return sessions
         case .ready:
             return sessions.filter { session in
-                guard displayStatus(session, workingBlocked: workingBlocked).known != .running
+                guard displayStatus(session, workingBlocked: workingBlocked).known != .running,
+                    !inReview(session)
                 else { return false }
                 return !notYourTurn.contains(stageOf(session, now: now, gitStage: gitStage))
             }
@@ -155,16 +203,26 @@ enum HerdPartition {
         return now - since < mergingWindowMs
     }
 
-    /// `gitStage` is stream S2's classifier: it returns the stage for any git-decided case —
-    /// including `ready`, which sits between them in the web's precedence — or `nil` when none
-    /// applies. It is consulted first; the three git-free stages fill in behind it.
+    /// `gitStage` is stream S2's classifier: it returns the stage for any git-decided case, or
+    /// `nil` when none applies.
+    ///
+    /// It is NOT simply consulted first. The web's `terminalStage` (`herd-partition.ts:116-134`)
+    /// is one flat first-match cascade in which the two git-free checks are interleaved with the
+    /// git-decided ones: `merged` then `merging` then the two rework/branch-protection stages then
+    /// `readyToMerge` then `reviewerRunning`, `reworkRunning`, `ciRunning`, `ciFailed`, and the
+    /// handoff stages last. So a `readyToMerge` session with CI still pending belongs under Ready,
+    /// not under CI. Ranking the candidates by `precedence` and taking the lowest reproduces that
+    /// cascade exactly, in whatever order the candidates happen to be produced.
     static func stageOf(
         _ session: Session, now: Int, gitStage: (Session) -> HerdStage?
     ) -> HerdStage {
-        if let stage = gitStage(session) { return stage }
-        if isMerging(session, now: now) { return .merging }
-        if session.readyToMerge { return .ready }
-        return .active
+        var best = HerdStage.active
+        if let stage = gitStage(session), stage.precedence < best.precedence { best = stage }
+        if isMerging(session, now: now), HerdStage.merging.precedence < best.precedence {
+            best = .merging
+        }
+        if session.readyToMerge, HerdStage.ready.precedence < best.precedence { best = .ready }
+        return best
     }
 
     /// Groups in `HerdStage`'s declaration order, which is the web's `STAGE_ORDER`; empties dropped.
@@ -183,7 +241,7 @@ enum HerdPartition {
 
     /// `TopBar.svelte:51, 162-164, 286-289`. Only three of the five statuses get a tally, so the
     /// three never have to add up to `total` — a done session counts only in the total.
-    static func tallies(_ sessions: [Session], workingBlocked: [String: Bool]) -> Tallies {
+    static func tallies(_ sessions: [Session], workingBlocked: [String: Bool]) -> HerdTallies {
         var active = 0
         var idle = 0
         var blocked = 0
@@ -195,16 +253,19 @@ enum HerdPartition {
             default: break
             }
         }
-        return Tallies(active: active, idle: idle, blocked: blocked, total: sessions.count)
+        return HerdTallies(active: active, idle: idle, blocked: blocked, total: sessions.count)
     }
 
     /// The quota chip (`Herd.svelte:270-274`, `unit-row/UnitRowRight.svelte:226`): only a `quota`
-    /// block, and never the `plan` kind, which the plan-gate badge already shows. `shape` and
-    /// `quotaKind` are INLINE open enums, so the known member lives in `value1` rather than behind
-    /// `OpenEnum` — an inline schema has no name to generate a named `…Known` type from
-    /// (`contracts/README.md`, "Open enums").
+    /// block, and never the `plan` kind, which the plan-gate badge already shows.
+    ///
+    /// `shape` and `quotaKind` are INLINE open enums — an inline schema has no name to generate a
+    /// named `…Known` type from, so the generator nests `Value1Payload` instead
+    /// (`contracts/README.md`, "Open enums") — but both still conform to `OpenEnum`
+    /// (`Model/OpenEnum.swift:66-67`), so `known` is the spelling here as everywhere else. A value
+    /// this build has never seen is `nil` and shows no chip, which is the point of the open enum.
     static func quotaKind(_ block: BlockReason?) -> String? {
-        guard let block, block.shape.value1 == .quota, let known = block.quotaKind?.value1,
+        guard let block, block.shape.known == .quota, let known = block.quotaKind?.known,
             known != .plan
         else { return nil }
         return known.rawValue

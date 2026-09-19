@@ -154,14 +154,10 @@ struct MainWindow: View {
                 }
                 Divider()
                 // Both drop back to the welcome screen — that is where a server
-                // is added, and signing out clears the active profile. Adding a
-                // server signs out too, rather than just ending the activation:
-                // the welcome screen does not list stored profiles, so a parked
-                // profile is reachable only from another profile's switcher, and
-                // a token left valid under a row the operator cannot get back to
-                // is exactly the un-revokable credential `remove(_:)` exists to
-                // prevent.
-                Button(L.t("native_toolbar_add_server")) { signOut() }
+                // is added. Only signing out revokes: adding a server parks the
+                // current profile with its token intact, because the welcome
+                // screen lists saved servers and one click brings it back.
+                Button(L.t("native_toolbar_add_server")) { model.deactivate() }
                 Button(L.t("native_toolbar_sign_out")) { signOut() }
             } label: {
                 Label(L.t("native_toolbar_servers"), systemImage: "server.rack")

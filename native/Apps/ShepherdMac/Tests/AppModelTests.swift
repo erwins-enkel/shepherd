@@ -837,4 +837,67 @@ struct AppModelTests {
 
         #expect(model.signOutWarning == nil)
     }
+
+    // MARK: - Parking a profile without revoking its token
+
+    /// X2: "Add server…" used to go through `signOutActive()`, because a stored
+    /// profile was unreachable from the welcome screen and a token left under a
+    /// row nobody could get back to is the orphaned credential `remove(_:)`
+    /// exists to prevent. The welcome screen lists saved servers now, so adding
+    /// another server must *park* the current one — revoking here would make
+    /// every "add a server" a silent sign-out of the one already set up.
+    @Test func deactivatingKeepsTheTokenAndClearsTheActiveProfile() async throws {
+        let credentials = InMemoryCredentialStore()
+        let model = makeModel(credentials: credentials)
+        var revoked = 0
+        model.logout = { _, _ in revoked += 1 }
+        let a = try remote(model, "a")
+        try credentials.save(
+            StoredCredential(token: "shp_secret", tokenId: "tok_1"), for: a.credentialKey)
+        await model.activate(a)
+
+        model.deactivate()
+
+        #expect(revoked == 0)
+        #expect(try credentials.load(for: a.credentialKey)?.token == "shp_secret")
+        #expect(model.activeProfile == nil)
+        #expect(model.store == nil)
+        #expect(model.profiles == [a])
+    }
+
+    @Test func deactivatingForgetsTheActiveProfileAcrossARestart() async throws {
+        let name = UUID().uuidString
+        let defaults = UserDefaults(suiteName: name)!
+        defaults.removePersistentDomain(forName: name)
+        let model = AppModel(defaults: defaults, credentials: InMemoryCredentialStore())
+        let a = try model.addRemoteProfile(name: "a", address: "https://a.example.ts.net")
+        await model.activate(a)
+
+        model.deactivate()
+
+        let restarted = AppModel(defaults: defaults, credentials: InMemoryCredentialStore())
+        #expect(restarted.profiles == [a])
+        #expect(restarted.activeProfile == nil)
+    }
+
+    // MARK: - Saved servers on the welcome screen
+
+    /// The welcome screen's list is data-driven from `profiles`. "Run on this
+    /// Mac" has its own card that probes for a live local server, so the local
+    /// row would be a second, dumber way to start the same thing.
+    @Test func savedServersListsTheRemoteProfilesOnly() throws {
+        let model = makeModel()
+        let local = model.addLocalProfile()
+        let a = try remote(model, "a")
+        let b = try remote(model, "b")
+
+        #expect(model.savedServers == [a, b])
+        #expect(!model.savedServers.contains(local))
+    }
+
+    @Test func savedServersIsEmptyWithoutARemoteProfile() {
+        let model = makeModel()
+        _ = model.addLocalProfile()
+        #expect(model.savedServers.isEmpty)
+    }
 }

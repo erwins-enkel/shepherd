@@ -279,6 +279,15 @@ final class AppModel {
         Log.app.info("removed profile \(profile.name, privacy: .public)")
     }
 
+    /// The stored remote profiles, in the order they were added.
+    ///
+    /// What the welcome screen lists so a profile parked by `deactivate()` — or
+    /// left behind by a sign-out — can be reached again without re-typing its
+    /// address, which used to append a *duplicate* row with a fresh
+    /// `credentialKey`. `.local` is excluded: "Run on this Mac" has its own
+    /// card, which probes for a server actually listening on loopback.
+    var savedServers: [ServerProfile] { profiles.filter { $0.mode == .remote } }
+
     // MARK: - Activation
 
     /// Makes `profile` the active one: tears down any existing store, builds
@@ -434,6 +443,21 @@ final class AppModel {
         guard generation == activationGeneration else { return nil }
         teardown()
         return failure
+    }
+
+    /// Ends the activation and keeps the credential — the non-revoking twin of
+    /// `signOutActive()`.
+    ///
+    /// This is what "Add server…" does. Signing out there (the old behaviour)
+    /// was a workaround for a welcome screen that could not reach a stored
+    /// profile: parking one would have left a live token under a row the
+    /// operator could not get back to. `savedServers` closes that gap, so the
+    /// token stays and the profile is one click from being active again.
+    /// "Sign out" still revokes.
+    func deactivate() {
+        guard let profile = activeProfile else { return }
+        teardown()
+        Log.connect.info("parked \(profile.name, privacy: .public) without revoking its token")
     }
 
     /// `signOutActive()` plus the operator-facing sentence for a revoke the

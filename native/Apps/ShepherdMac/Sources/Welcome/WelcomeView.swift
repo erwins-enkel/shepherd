@@ -29,6 +29,10 @@ struct WelcomeView: View {
                 remoteCard
             }
             .frame(maxWidth: 820)
+
+            if !model.savedServers.isEmpty {
+                savedServers.frame(maxWidth: 820)
+            }
         }
         .padding(40)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -69,6 +73,50 @@ struct WelcomeView: View {
         probing = true
         defer { probing = false }
         localStatus = await probe.probe()
+    }
+
+    // MARK: - Saved servers
+
+    /// The way back to a profile that is already set up. Without it, a stored
+    /// server could only be reached by typing its address again, which appends
+    /// a *duplicate* row with a fresh `credentialKey` — and leaves the original
+    /// row's token live under a row nothing can revoke it from.
+    ///
+    /// Connect does not ask for a password: the token is still in the Keychain,
+    /// and the connection watcher routes to the login sheet by itself if it has
+    /// gone missing or the server no longer honours it.
+    private var savedServers: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(verbatim: L.t("native_welcome_saved_title")).font(.title3.weight(.semibold))
+
+            ForEach(model.savedServers) { profile in
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(verbatim: profile.name).font(.callout.weight(.medium))
+                        Text(verbatim: profile.baseURL.host() ?? profile.baseURL.absoluteString)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 12)
+                    Button(L.t("native_welcome_saved_connect")) {
+                        Task { await model.activate(profile) }
+                    }
+                    .accessibilityIdentifier("welcome-saved-connect-\(profile.id.uuidString)")
+                    // Removal revokes the token and deletes the Keychain item,
+                    // which is why it is the secondary affordance here.
+                    Button(L.t("native_welcome_saved_remove"), role: .destructive) {
+                        Task { await model.remove(profile) }
+                    }
+                    .buttonStyle(.borderless)
+                }
+                .padding(.vertical, 6)
+                .accessibilityIdentifier("welcome-saved-\(profile.id.uuidString)")
+            }
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 12))
+        .accessibilityIdentifier("welcome-saved-servers")
     }
 
     // MARK: - Connect to a remote server

@@ -206,7 +206,10 @@ each other's way by extending the app through seams instead of editing shared fi
   may hold its store strongly. Anything that suspends must capture `app.activationGeneration`
   before the first `await` and drop its result once that value has moved on.
 - **Tabs.** `order` is the sort key (terminal = 0), ties break on `id`, the built-in `"prompt"` tab
-  is `1_000`. Registering `"prompt"` replaces it.
+  is `1_000`. Registering `"prompt"` replaces it. With exactly one tab registered the detail pane
+  renders that tab's content on its own (`DetailTabRegistry.layout == .single`) — a tab bar with
+  nothing to switch to is chrome that reads as a bug — so **your first tab is what brings the bar
+  back**. Both layouts render your view unchanged, accessibility identifiers included.
 - **Copy.** Add keys to `ui/messages/en.json` _and_ `de.json` first, then to your own `KEYS_*`
   array, then run `native/scripts/gen-strings.sh`. A key in two arrays fails the generator.
 - **Events.** Consume them through `SessionStore.events()`: one independent `AsyncStream` per call,
@@ -214,6 +217,17 @@ each other's way by extending the app through seams instead of editing shared fi
   `payload` with the generated schema your own contract block declares — the contract stays the only
   type source. **Never add a case to `EventName` or edit `ServerEvent.swift`:** that switch is
   exhaustive and S0-owned, so every stream that touched it would collide with every other.
+- **Stop reading, drop the stream.** A `break` or a `return` out of `for await` ends the loop but
+  **not** the tap: the stream keeps collecting frames into a 64-slot buffer nobody reads for as long
+  as the store runs. Only cancelling the reading task or releasing the `AsyncStream` value
+  unregisters it. `for await event in store.events() { … }` is safe as written; a stream you keep in
+  a property has to be nil'd out (or its task cancelled) when you are done with it.
+- **Reconcile after a drop.** Events are not a guaranteed-complete log, so **never** keep state that
+  only an unbroken sequence of frames can rebuild. Each tap buffers 64 and drops its own oldest past
+  that; `SessionStore.apply` drops the oldest past 256 while a snapshot load is in flight; and
+  `EventStream` loses frames while a socket is down. Derive what you show from `store.sessions`,
+  `store.settings` and `store.repos` — every reconnect re-reads all three — and treat an event as a
+  prompt to refresh, not as the only copy of a fact.
 - **Kit routes.** Wrap generated operations in your own `ShepherdClient+<Stream>.swift`. The
   `generated` property is `internal` for exactly that, and never `public`.
 - **Contract blocks — three per stream.** You own a marked block in `components.schemas:`, in

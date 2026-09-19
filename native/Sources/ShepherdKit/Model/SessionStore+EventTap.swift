@@ -7,8 +7,29 @@ extension SessionStore {
   /// One independent stream per call — several parallel streams tap the same
   /// store and each sees every frame. Buffered `.bufferingNewest(64)`: a tap
   /// consumer that stalls drops its own oldest frames rather than backing up
-  /// the store's event loop for everybody. Every stream finishes on `stop()`,
-  /// and a consumer that simply stops iterating removes its own tap.
+  /// the store's event loop for everybody. Every stream finishes on `stop()`.
+  ///
+  /// **Breaking out of `for await` does not end the tap — dropping the stream
+  /// does.** Only two things unregister a tap: cancelling the task that is
+  /// reading it, and releasing the `AsyncStream` value itself. Leaving the loop
+  /// any other way — a `break`, a `return`, a `guard else` — drops the iterator
+  /// and nothing else, so a stream kept in a property goes on collecting frames
+  /// into a 64-slot buffer that nobody will ever read, for as long as the store
+  /// runs. A consumer that stops reading must therefore drop the stream: hold
+  /// it in an optional and nil it out, let it go out of scope, or cancel the
+  /// reading task. `for await event in store.events() { … }` needs none of that
+  /// — the temporary dies with the loop.
+  ///
+  /// The removal is not instantaneous: `onTermination` hops back to the main
+  /// actor, so a frame or two may still be yielded into a buffer nobody reads.
+  /// That is harmless — the buffer is bounded and is freed with the stream.
+  ///
+  /// **Reconcile after a gap.** A tap is not a guaranteed-complete log. It
+  /// drops its own oldest frame past 64 buffered, `apply(_:)` drops the oldest
+  /// past 256 while a snapshot load is in flight, and `EventStream` drops
+  /// frames while a socket is down. Anything a stream derives from events must
+  /// therefore be re-derivable from the store's own state, which every
+  /// reconnect re-reads in full.
   ///
   /// This is the seam parallel streams consume events through. A stream matches
   /// the raw name on `.unknown(name:payload:)` and decodes `payload` with the

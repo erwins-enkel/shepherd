@@ -127,6 +127,40 @@ struct SessionStoreEventTapTests {
     #expect(try await eventually { store.eventTaps.isEmpty })
   }
 
+  @Test("breaking out of a for-await keeps the tap; dropping the stream removes it")
+  func aBreakKeepsTheTapUntilTheStreamIsDropped() async throws {
+    let store = try makeStore()
+    // Held in a variable for the whole test, so what follows is about the
+    // `for await`, not about the stream value going out of scope.
+    var tap: AsyncStream<ServerEvent>? = store.events()
+    #expect(store.eventTaps.count == 1)
+
+    store.apply(.unknown(name: "first:frame", payload: nil))
+    var seen = 0
+    for await _ in tap! {
+      seen += 1
+      break
+    }
+    #expect(seen == 1)
+
+    // Leaving the loop drops the ITERATOR, not the stream. Unlike cancelling
+    // the reading task — which the test above covers — this does not terminate
+    // anything: the tap is still registered and still filling its 64-frame
+    // buffer with events nobody is reading.
+    #expect(store.eventTaps.count == 1)
+    store.apply(.unknown(name: "second:frame", payload: nil))
+    for await _ in tap! {
+      seen += 1
+      break
+    }
+    #expect(seen == 2)
+
+    // Releasing the stream value is what runs `onTermination` and removes the
+    // tap. It hops back to the main actor to do it, hence the poll.
+    tap = nil
+    #expect(try await eventually { store.eventTaps.isEmpty })
+  }
+
   @Test("a modeled event, not just .unknown ones, reaches a tap")
   func modeledEventReachesATap() async throws {
     let store = try makeStore()

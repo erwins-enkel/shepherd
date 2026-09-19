@@ -9,8 +9,9 @@ import ShepherdKit
 @MainActor
 @Suite(.serialized)
 struct SlotTests {
+    init() { resetStreamSeams() }
+
     @Test func theSidebarFallsBackWhenUnsetAndPassesTheModelWhenSet() {
-        SidebarSlot.reset()
         #expect(SidebarSlot.resolution == .fallback)
         #expect(SidebarSlot.content == nil)
 
@@ -33,8 +34,6 @@ struct SlotTests {
     }
 
     @Test func theWelcomePanelAndTheActionBarFallBackUntilAStreamFillsThem() {
-        WelcomeSlots.reset()
-        ActionBarSlot.reset()
         #expect(WelcomeSlots.localPanelResolution == .fallback)
         #expect(ActionBarSlot.resolution == .fallback)
 

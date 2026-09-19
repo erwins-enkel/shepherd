@@ -17,17 +17,37 @@ struct SessionDetailView: View {
         if let session, let store = model.store {
             VStack(alignment: .leading, spacing: 16) {
                 header(session)
-                TabView {
-                    ForEach(DetailTabRegistry.tabs, id: \.id) { tab in
-                        tab.makeView(session: session, store: store, app: model)
-                            .tabItem { Label(tab.title, systemImage: tab.systemImage) }
-                    }
-                }
+                tabs(session, store)
             }
             .padding(24)
             .accessibilityIdentifier("session-detail")
         } else {
             ContentUnavailableView(L.t("native_detail_no_selection"), systemImage: "sidebar.left")
+        }
+    }
+
+    /// The registered tabs, or — while the built-in prompt tab is the only one —
+    /// its content on its own. A `TabView` with a single item still draws the
+    /// tab bar, so until a stream registers a tab the pane would carry a row of
+    /// chrome with nothing to switch to.
+    ///
+    /// Both branches render the tab's own view, so `detail-tab-prompt` and every
+    /// other identifier a tab sets survive the switch untouched.
+    @ViewBuilder
+    private func tabs(_ session: Session, _ store: SessionStore) -> some View {
+        let registered = DetailTabRegistry.tabs
+        switch DetailTabRegistry.layout(forTabCount: registered.count) {
+        case .single:
+            if let only = registered.first {
+                only.makeView(session: session, store: store, app: model)
+            }
+        case .tabbed:
+            TabView {
+                ForEach(registered, id: \.id) { tab in
+                    tab.makeView(session: session, store: store, app: model)
+                        .tabItem { Label(tab.title, systemImage: tab.systemImage) }
+                }
+            }
         }
     }
 

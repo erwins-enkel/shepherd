@@ -84,4 +84,21 @@ enum DetailTabRegistry {
 
     /// Tests and previews only.
     static func reset() { registered.removeAll() }
+
+    /// How the detail pane draws `tabs`. Named rather than decided inline at the
+    /// call site, for the same reason `SidebarSlot.Resolution` is: the choice is
+    /// then assertable without hosting a view.
+    enum Layout: Equatable {
+        /// Exactly one tab — its content renders on its own, with no tab bar.
+        case single
+        /// Two or more: a `TabView` with one item each.
+        case tabbed
+    }
+
+    /// A tab bar with a single item is chrome with nothing to switch to, which
+    /// is what the app shows until the first stream registers a tab. Pure, so a
+    /// view can pass the count it already has and get the same answer as `layout`.
+    static func layout(forTabCount count: Int) -> Layout { count == 1 ? .single : .tabbed }
+
+    static var layout: Layout { layout(forTabCount: tabs.count) }
 }

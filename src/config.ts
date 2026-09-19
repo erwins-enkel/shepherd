@@ -459,6 +459,62 @@ export function parseHour(raw: string | undefined, def: number): number {
   return Number.isInteger(n) && n >= 0 && n <= 23 ? n : def;
 }
 
+/**
+ * Parse a numeric env override for a config seed (issue #2362): unset or blank falls back to `def`,
+ * a finite number is taken as-is, and anything else falls back to `def` with a loud warning naming
+ * the key. Never returns `NaN` — a `NaN` cap or interval makes EVERY comparison against it false,
+ * which reads as "the guard is off": `SHEPHERD_PUSH_COOLDOWN_MS=2m` would silently remove the push
+ * cooldown rather than erroring. Blank is guarded for the same reason `parseHour` guards it —
+ * `Number("")` is `0`, and `0` is a meaningful value for several of these knobs ("cooldown
+ * disabled"), so a set-but-empty var must not read as an explicit zero.
+ *
+ * Out-of-range values are NOT this function's business: the callers' floors are already handled
+ * downstream (a `<= 0` cooldown means disabled, a negative sweep cadence means "every tick"), and a
+ * cap that wants snapping into bounds uses `clampCap`.
+ *
+ * `key` is passed separately from `raw` — rather than read from `process.env[key]` here — so the
+ * literal `process.env.KEY` stays at the call site. `bun run check:env-schema` (`varlock audit`)
+ * only scans literal `process.env.KEY`; a key reached through a variable (as `envNum` in
+ * house-rules.ts does) drops out of the `.env.schema` drift gate and has to be catalogued under
+ * `@auditIgnore`. Do not "tidy" this into `parseEnvNumber(key, def)`.
+ *
+ * Exported for tests.
+ */
+export function parseEnvNumber(raw: string | undefined, key: string, def: number): number {
+  if (raw == null || raw.trim() === "") return def;
+  const n = Number(raw);
+  if (Number.isFinite(n)) return n;
+  console.warn(`[config] ${key}='${raw}' is not a number; using the default ${def}`);
+  return def;
+}
+
+/**
+ * Parse a port env: unset or blank falls back to `def`, otherwise the value must be an integer in
+ * [1, 65535] or this THROWS a named, fixable message. Fail-fast (throw), consistent with
+ * `validatePreviewPortRange` / `validateAgentIngressPort` — never a silent fallback, because a HUD
+ * listening somewhere other than where the operator asked is worse than not starting.
+ *
+ * Parsing (rather than validating later) is what fixes the misattribution in issue #2362: a `NaN`
+ * main port propagates into `agentIngressPort`'s `mainPort + 1` default, and
+ * `validateAgentIngressPort` then throws FIRST — naming the derived key instead of the one the
+ * operator actually mistyped. Rejecting at the read makes that unrepresentable, independent of
+ * validator call order at boot. `0` is rejected: unlike the agent-ingress port it is not an
+ * "ephemeral" opt-out here, since the HUD's port is a fixed contract (the deploy health check, the
+ * ingress default, `tailscale serve`).
+ *
+ * Exported for tests.
+ */
+export function parsePort(raw: string | undefined, key: string, def: number): number {
+  if (raw == null || raw.trim() === "") return def;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 1 || n > 65535) {
+    throw new Error(
+      `${key} is invalid: must be an integer in [1, 65535] (got '${raw}'). Fix ${key} or unset it to use ${def}.`,
+    );
+  }
+  return n;
+}
+
 /** Mode for the runaway-orphan reaper (issue #1144). Mirrors `ReapMarkedOptions["mode"]`. */
 type ReapRunawayMode = "armed" | "observe" | "off";
 
@@ -477,7 +533,7 @@ function normalizeReapRunaway(raw: string | undefined): ReapRunawayMode {
 
 // The HUD's main listen port. Extracted so the agent-ingress port can default
 // relative to it (mainPort + 1) — a custom SHEPHERD_PORT shifts both in lockstep.
-const mainPort = Number(process.env.SHEPHERD_PORT ?? 7330);
+const mainPort = parsePort(process.env.SHEPHERD_PORT, "SHEPHERD_PORT", 7330);
 
 // Shepherd Capture (the MV3 Chrome extension in `extension/`) sends its captures with
 // `Origin: chrome-extension://<id>`; the origin guard allowlists by hostname, and for that
@@ -642,7 +698,11 @@ export const config = {
   // https URL; override with SHEPHERD_VAPID_SUBJECT (any valid https:/mailto: URL).
   vapidSubject: process.env.SHEPHERD_VAPID_SUBJECT ?? "https://github.com/erwins-enkel/shepherd",
   // collapse repeat per-session pushes within this window (ms); 0 disables.
-  pushCooldownMs: Number(process.env.SHEPHERD_PUSH_COOLDOWN_MS ?? 120000),
+  pushCooldownMs: parseEnvNumber(
+    process.env.SHEPHERD_PUSH_COOLDOWN_MS,
+    "SHEPHERD_PUSH_COOLDOWN_MS",
+    120000,
+  ),
   // Claude Code Remote Control auto-start for Shepherd-spawned sessions. Injected
   // at spawn via `--settings '{"remoteControlAtStartup":<bool>}'`, which overrides
   // the user's global ~/.claude/settings.json. Default false: suppress the auto-start
@@ -843,11 +903,17 @@ export const config = {
   // stay visible-but-uninjected in the Learnings drawer for the operator to prune. The default
   // lives in house-rules.ts beside the planner it bounds (the reviewer-side injection falls back
   // to it without importing this module); only an unusually large curated set is capped.
-  houseRulesBudgetChars: Number(
-    process.env.SHEPHERD_HOUSE_RULES_BUDGET_CHARS ?? HOUSE_RULES_DEFAULT_BUDGET_CHARS,
+  houseRulesBudgetChars: parseEnvNumber(
+    process.env.SHEPHERD_HOUSE_RULES_BUDGET_CHARS,
+    "SHEPHERD_HOUSE_RULES_BUDGET_CHARS",
+    HOUSE_RULES_DEFAULT_BUDGET_CHARS,
   ),
   // Max auto-steers autopilot spends per session before it pauses for the operator (runaway guard).
-  autopilotStepCap: Number(process.env.SHEPHERD_AUTOPILOT_STEP_CAP ?? 10),
+  autopilotStepCap: parseEnvNumber(
+    process.env.SHEPHERD_AUTOPILOT_STEP_CAP,
+    "SHEPHERD_AUTOPILOT_STEP_CAP",
+    10,
+  ),
   // Per-role ENVIRONMENT (CLI + model + effort) for the transient autopilot stop-classifier spawn (cheap +
   // fast is plenty). Seeded to Claude+haiku — like the namer, a deliberate fixed default for a
   // constant-cadence classifier. Resolved via resolveRoleEnvironment at the call site.
@@ -960,7 +1026,11 @@ export const config = {
     Number(process.env.SHEPHERD_EXTRA_CREDITS_DRAIN_CEILING ?? 0) || 0,
   ),
   // Max consecutive auto-rebase attempts the merge train spends on a PR before pausing for the operator.
-  autoMergeRebaseCap: Number(process.env.SHEPHERD_AUTOMERGE_REBASE_CAP ?? 5),
+  autoMergeRebaseCap: parseEnvNumber(
+    process.env.SHEPHERD_AUTOMERGE_REBASE_CAP,
+    "SHEPHERD_AUTOMERGE_REBASE_CAP",
+    5,
+  ),
   // git host (forge) integration: per-host {type,baseUrl,token,deployWorkflow,mergeMethod}
   forgesPath,
   forges: loadForgeMap(forgesPath),
@@ -972,13 +1042,21 @@ export const config = {
   previewPortBase: Number(process.env.SHEPHERD_PREVIEW_PORT_BASE ?? 8001),
   previewPortCount: Number(process.env.SHEPHERD_PREVIEW_PORT_COUNT ?? 16),
   // Throttle cadence for the preview sweep (ms); mitigates /proc scan cost.
-  previewSweepMs: Number(process.env.SHEPHERD_PREVIEW_SWEEP_MS ?? 4000),
+  previewSweepMs: parseEnvNumber(
+    process.env.SHEPHERD_PREVIEW_SWEEP_MS,
+    "SHEPHERD_PREVIEW_SWEEP_MS",
+    4000,
+  ),
   // How old a probe SNAPSHOT may be and still authorize a preview-stop SIGNAL
   // (issue #1922). Deliberately NOT derived from previewSweepMs — the negative-verdict
   // bound already is (2× cadence + slack), and reusing that would let a tuned sweep
   // interval silently widen the kill window toward two minutes. Only the snapshot
   // backends (darwin) consult it; Linux reads live /proc, whose data has no age.
-  previewKillMaxAgeMs: Number(process.env.SHEPHERD_PREVIEW_KILL_MAX_AGE_MS ?? 10_000),
+  previewKillMaxAgeMs: parseEnvNumber(
+    process.env.SHEPHERD_PREVIEW_KILL_MAX_AGE_MS,
+    "SHEPHERD_PREVIEW_KILL_MAX_AGE_MS",
+    10_000,
+  ),
   // The agent node's own tailnet hostname (e.g. "mynode.ts.net"), resolved ONCE
   // at startup and stored here. When the HUD is fronted on a different host/identity
   // than the agent node (e.g. a Tailscale Service), the preview URL must target THIS

@@ -83,15 +83,16 @@ const REFRESH_TIMEOUT_MS = 3000;
  *  scoped to one pid rather than every process on the host. */
 const VERIFY_TIMEOUT_MS = 2000;
 
-/** Fallback when `config.previewKillMaxAgeMs` is unusable (a typo'd or negative
- *  `SHEPHERD_PREVIEW_KILL_MAX_AGE_MS`).
+/** Fallback when `config.previewKillMaxAgeMs` is unusable — now only a NEGATIVE
+ *  `SHEPHERD_PREVIEW_KILL_MAX_AGE_MS`: since issue #2362 the config seed rejects a
+ *  non-numeric value at the read, warns, and uses the default, so the non-finite case is
+ *  unreachable from `config` (it stays covered here for a direct caller).
  *
- *  Not a safety guard — `signalWindowOpen` compares `age <= bound`, and every
- *  comparison against NaN is false, so an unusable bound already fails CLOSED. It is a
- *  DIAGNOSABILITY guard: without it a single mistyped env var would silently refuse
- *  every preview stop on the host forever, surfacing only as a generic "couldn't
- *  confirm which process holds the port" toast with nothing pointing at the config.
- *  Falling back to the default turns that into ordinary behaviour instead. */
+ *  Not a safety guard — `signalWindowOpen` compares `age <= bound`, so an unusable bound
+ *  already fails CLOSED. It is a DIAGNOSABILITY guard: without it a single bad env value
+ *  would silently refuse every preview stop on the host forever, surfacing only as a
+ *  generic "couldn't confirm which process holds the port" toast with nothing pointing at
+ *  the config. Falling back to the default turns that into ordinary behaviour instead. */
 const DEFAULT_KILL_MAX_AGE_MS = 10_000;
 
 /** Poller tick granularity (StatusPoller's `intervalMs` default), a term in the

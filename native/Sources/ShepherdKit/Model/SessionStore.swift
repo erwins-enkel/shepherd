@@ -52,20 +52,55 @@ public final class SessionStore {
   /// move — a consumer never has to poll.
   public private(set) var connection: ConnectionState = .idle
 
-  private let client: ShepherdClient
+  /// The HTTP client this store drives, so an app that built the store with
+  /// `init(profile:credentials:)` can still reach the one thing only the
+  /// client exposes: `client.needsLogin`, the 401 signal for requests the
+  /// store did not make.
+  ///
+  /// The store deliberately does NOT consume that stream — it is
+  /// single-consumer, and every request the store makes already surfaces a
+  /// 401 as `ShepherdError.unauthenticated` through `lastError` and
+  /// `connection`. The app is the one consumer.
+  public let client: ShepherdClient
+
   private let eventStream: EventStream?
   private let reconnectDelay: Duration
   private let maxReconnectDelay: Duration
-  private var running = false
+  @ObservationIgnored private var running = false
+  /// Set by `stop()`, cleared by `start()`. This, not `running`, is what gates
+  /// `publish(_:)`: `running` is false both after `stop()` *and* after a
+  /// hand-driven `start()` has returned (a store built with `events: nil`
+  /// bootstraps and returns), and in the second case a 401 on a later command
+  /// still has to reach `connection`.
+  @ObservationIgnored private var stopped = false
   /// The delay the *next* bootstrap retry will sleep for. Starts at
   /// `reconnectDelay`, doubles (capped at `maxReconnectDelay`) after every
   /// bootstrap attempt that fails, and resets to `reconnectDelay` once one
   /// succeeds — the same policy `EventStream` uses for its socket reconnects.
-  private var currentReconnectDelay: Duration
+  @ObservationIgnored private var currentReconnectDelay: Duration
   /// The task draining `EventStream.events()`. The store owns it because
   /// `EventStream.stop()` deliberately does NOT finish that stream — cancelling
   /// this task is the only thing that ends the `for await` inside `consume(_:)`.
-  private var consumer: Task<Void, Never>?
+  ///
+  /// `@ObservationIgnored` so `deinit` may read it: an `@Observable` property
+  /// is reached through a main-actor-isolated accessor, which a `deinit` may
+  /// not call.
+  @ObservationIgnored private var consumer: Task<Void, Never>?
+  /// The task following `EventStream.lifecycle()`. Separate from `consumer`
+  /// because the two streams move independently: frames keep arriving on a
+  /// healthy socket while nothing happens on the lifecycle stream, and a
+  /// reconnect produces lifecycle elements and no frames.
+  @ObservationIgnored private var lifecycleWatcher: Task<Void, Never>?
+  /// Bumped at the start of every `refresh()`. A snapshot whose generation is
+  /// no longer the newest is dropped instead of installed: two refreshes can
+  /// overlap (the reconnect watcher and a `resolveFirstRun`, say), and the one
+  /// that started earlier holds the older lists by construction.
+  @ObservationIgnored private var snapshotGeneration = 0
+  /// How many `refresh()` calls are between "fetches issued" and "snapshot
+  /// installed". While it is non-zero, `apply(_:)` buffers instead of mutating.
+  @ObservationIgnored private var loadsInFlight = 0
+  /// Frames that arrived while a snapshot load was in flight, oldest first.
+  @ObservationIgnored private var bufferedEvents: [ServerEvent] = []
 
   /// - Parameters:
   ///   - events: `nil` for a store the caller drives by hand — `start()` then
@@ -128,17 +163,33 @@ public final class SessionStore {
   /// than restart one it just stopped — that is what keeps this soft flag
   /// safe in practice.
   ///
-  /// Every pass of the loop re-bootstraps before it consumes, which is also the
-  /// gap-recovery rule: `EventStream` buffers only the newest 256 frames, so a
-  /// reconnect can have dropped pushes, and re-reading the three lists is what
-  /// makes dropped frames harmless. (The stream reconnects internally without
-  /// telling anyone; when it grows a "reconnected" signal, call `refresh()` from
-  /// there too.)
+  /// The socket is opened and subscribed to **before** the snapshot is read,
+  /// and `apply(_:)` buffers while a load is in flight: a frame that lands
+  /// between the upgrade and the snapshot is replayed on top of the snapshot
+  /// instead of being lost in the gap between the two. Gap recovery after a
+  /// reconnect is the lifecycle watcher's job — `EventStream` buffers only the
+  /// newest 256 frames, so a socket that went away may have missed pushes, and
+  /// re-reading the three lists is what makes that harmless.
   public func start() async {
     guard !running else { return }
     running = true
+    stopped = false
     currentReconnectDelay = reconnectDelay
     defer { running = false }
+
+    publish(.connecting)
+
+    if let eventStream {
+      await eventStream.start()
+      guard running else {
+        // stop() raced in while the socket was opening: close what we just
+        // opened rather than leaving a live connection nothing consumes.
+        await eventStream.stop()
+        return
+      }
+      startConsuming(eventStream)
+      startWatchingLifecycle(eventStream)
+    }
 
     while running {
       publish(.connecting)
@@ -151,7 +202,10 @@ public final class SessionStore {
         case .unauthenticated:
           // Terminal: the middleware already cleared the token, and only a new
           // login can help. The app calls start() again after ProfileSetup.
+          // The socket carries that same dead token, so it goes down with the
+          // loop instead of reconnecting against a server that will refuse it.
           publish(.needsLogin)
+          await teardownEventLoop()
           return
         case .firstRunPending:
           // No bootstrap route documents a 409 today, so this arrives only if
@@ -168,25 +222,19 @@ public final class SessionStore {
         }
       }
 
-      // A stop() that landed while bootstrap() was in flight must not reopen
-      // the socket or park start() on a consumer nobody will cancel.
+      // A stop() that landed while bootstrap() was in flight must not park
+      // start() on a consumer nobody will cancel.
       guard running else { return }
 
       // A store with no socket (init(client:)) has nothing left to do.
-      guard let eventStream else { return }
+      guard eventStream != nil else { return }
 
-      await eventStream.start()
-      guard running else {
-        // stop() raced in while the socket was opening: close what we just
-        // opened rather than leaving a live connection nothing consumes.
-        await eventStream.stop()
-        return
-      }
-      startConsuming(eventStream)
       // Returns when `stop()` cancels the consuming task — the only thing that
       // ends it, since `EventStream.stop()` leaves `events()` unfinished.
       await consumer?.value
       consumer = nil
+      lifecycleWatcher?.cancel()
+      lifecycleWatcher = nil
       if running {
         // Not our doing: the stream finished by itself. That happens only on a
         // store restarted after `stop()` (cancelling an `AsyncStream` consumer
@@ -210,12 +258,43 @@ public final class SessionStore {
   /// `setActive(false)` and keep the socket.
   public func stop() {
     running = false
+    stopped = true
     consumer?.cancel()
     consumer = nil
+    lifecycleWatcher?.cancel()
+    lifecycleWatcher = nil
     if let eventStream {
       Task { await eventStream.stop() }
     }
+    // Assigned rather than published: `stopped` is already true, and `.idle`
+    // is the one state that outranks the gate.
     connection = .idle
+  }
+
+  /// A store that goes out of scope while it is running must not leave a live
+  /// socket behind: `EventStream`'s receive loop holds that actor alive, so a
+  /// dropped reference alone would keep it reconnecting forever.
+  ///
+  /// `eventStream` is read into a local before the task captures it — a
+  /// `deinit` must never let `self` escape into a task that could outlive the
+  /// object being destroyed.
+  deinit {
+    consumer?.cancel()
+    lifecycleWatcher?.cancel()
+    if let stream = eventStream {
+      Task { await stream.stop() }
+    }
+  }
+
+  /// Ends everything `start()` set up, for the terminal paths that return
+  /// without `stop()` having been called. Leaves `connection` alone: the
+  /// caller has already published the state that explains the teardown.
+  private func teardownEventLoop() async {
+    consumer?.cancel()
+    consumer = nil
+    lifecycleWatcher?.cancel()
+    lifecycleWatcher = nil
+    await eventStream?.stop()
   }
 
   /// Report whether the app is in the foreground, so the server can suppress
@@ -236,6 +315,45 @@ public final class SessionStore {
     }
   }
 
+  /// Follows the socket's own state, in a task of its own so a quiet socket
+  /// (no frames) still reports a reconnect promptly.
+  private func startWatchingLifecycle(_ eventStream: EventStream) {
+    guard running, lifecycleWatcher == nil else { return }
+    // `lifecycle()` is single-consumer, like `events()`: read exactly once.
+    let lifecycle = eventStream.lifecycle()
+    lifecycleWatcher = Task { [weak self] in
+      await self?.watchLifecycle(lifecycle)
+    }
+  }
+
+  /// Turns socket lifecycle into connection state and gap recovery. The first
+  /// `.connected` is the socket `start()` just opened, whose snapshot
+  /// `start()` is already reading — only the ones after it mean "we may have
+  /// missed pushes while we were down".
+  private func watchLifecycle(_ lifecycle: AsyncStream<EventStream.LifecycleEvent>) async {
+    var sawFirstConnect = false
+    for await event in lifecycle {
+      switch event {
+      case .connected:
+        guard sawFirstConnect else {
+          sawFirstConnect = true
+          continue
+        }
+        // Re-read the three lists: the stream keeps only the newest 256
+        // frames, so a reconnect can have dropped pushes. A failure here is
+        // not fatal — `start()`'s retry loop owns the offline state.
+        try? await refresh()
+      case .disconnected:
+        // The stream is already reconnecting with backoff, so this is
+        // "connecting", not "offline", and the last snapshot is still the
+        // best thing to render. Only `.live` is repainted: `.needsLogin`,
+        // `.firstRunPending` and `.offline` are facts about the server, not
+        // about the socket, and `.idle` means the operator stopped the store.
+        if connection == .live { publish(.connecting) }
+      }
+    }
+  }
+
   /// `true` when the caller should try again, `false` when `stop()` or task
   /// cancellation happened while waiting. Each call sleeps the current
   /// backoff delay, then doubles it (capped at `maxReconnectDelay`) for the
@@ -247,11 +365,12 @@ public final class SessionStore {
     return running
   }
 
-  /// Publish a state the run loop derived. Gated on `running` so `stop()` has
-  /// the last word: an attempt still in flight when the app stopped must not
-  /// repaint `.offline` over the `.idle` the operator asked for.
+  /// Publish a state the store derived. Gated on `stopped` so `stop()` has the
+  /// last word: an attempt still in flight when the app stopped must not
+  /// repaint `.offline` — or `.needsLogin` — over the `.idle` the operator
+  /// asked for. See `stopped` for why `running` cannot be the gate.
   private func publish(_ state: ConnectionState) {
-    guard running else { return }
+    guard !stopped else { return }
     connection = state
   }
 
@@ -277,7 +396,9 @@ public final class SessionStore {
   /// store did not make should be the one listening to it.
   private func record(_ mapped: ShepherdError) {
     lastError = mapped
-    if mapped == .unauthenticated { connection = .needsLogin }
+    // Through `publish` rather than a direct assignment: a 401 that lands
+    // after `stop()` must not repaint `.needsLogin` over `.idle`.
+    if mapped == .unauthenticated { publish(.needsLogin) }
   }
 
   // MARK: - Loading
@@ -288,7 +409,26 @@ public final class SessionStore {
     try await refresh()
   }
 
+  /// Re-read the bootstrap set and install it as the current snapshot.
+  ///
+  /// Two rules keep a snapshot from undoing newer truth:
+  /// - Frames that arrive while the fetches are in flight are buffered by
+  ///   `apply(_:)` and replayed once the snapshot is installed, so a session
+  ///   archived during the await is not resurrected by the older list, and a
+  ///   status patch is not rolled back.
+  /// - A generation counter taken before the fetches: if a later `refresh()`
+  ///   has installed its snapshot in the meantime, this one's lists are stale
+  ///   by construction and are dropped instead of installed.
   public func refresh() async throws {
+    snapshotGeneration += 1
+    let generation = snapshotGeneration
+    loadsInFlight += 1
+    defer {
+      loadsInFlight -= 1
+      // `@MainActor`, so this runs synchronously right after the snapshot was
+      // installed: the buffered frames land on top of it, never under it.
+      if loadsInFlight == 0 { drainBufferedEvents() }
+    }
     do {
       // Each fetch maps its own failure to the route that actually failed
       // (rather than a blanket "bootstrap"), so a diagnostic names the right
@@ -298,6 +438,9 @@ public final class SessionStore {
       async let settings = fetchOrMap(route: "settings") { try await client.settings() }
       async let repos = fetchOrMap(route: "repos") { try await client.repos() }
       let (loadedSessions, loadedSettings, loadedRepos) = try await (sessions, settings, repos)
+      // A refresh that started later already installed a newer snapshot;
+      // these three lists are the older read of the same server.
+      guard generation == snapshotGeneration else { return }
       self.sessions = loadedSessions
       self.settings = loadedSettings
       self.repos = loadedRepos.repos
@@ -329,7 +472,38 @@ public final class SessionStore {
     for await event in events { apply(event) }
   }
 
+  /// The most frames the store holds while a snapshot load is in flight.
+  /// Matches `EventStream`'s own buffer, and is unreachable in practice: a
+  /// load is three HTTP calls.
+  private static let maxBufferedEvents = 256
+
   public func apply(_ event: ServerEvent) {
+    // A snapshot load is in flight: hold the frame and replay it once the
+    // snapshot lands. Applying it now would let the older lists the server is
+    // about to return overwrite it.
+    if loadsInFlight > 0 {
+      if bufferedEvents.count >= Self.maxBufferedEvents {
+        bufferedEvents.removeFirst()
+        ShepherdLog.store.notice("the event buffer is full; dropped the oldest frame")
+      }
+      bufferedEvents.append(event)
+      return
+    }
+    applyNow(event)
+  }
+
+  /// Replay what arrived during the load, oldest first, now that the snapshot
+  /// is installed.
+  private func drainBufferedEvents() {
+    guard !bufferedEvents.isEmpty else { return }
+    let pending = bufferedEvents
+    bufferedEvents = []
+    ShepherdLog.store.debug(
+      "replaying \(pending.count, privacy: .public) events buffered during a load")
+    for event in pending { applyNow(event) }
+  }
+
+  private func applyNow(_ event: ServerEvent) {
     switch event {
     case .sessionNew(let session):
       addSession(session)

@@ -68,144 +68,173 @@ struct EventStreamTests {
     }
   }
 
-  @Test("the bearer token rides the upgrade request")
-  func sendsBearerOnUpgrade() async throws {
+  /// Runs `body` against a fresh fake server and a stream wired to it, and
+  /// tears both down in the right order — the stream first, so its reconnect
+  /// loop cannot outlive the listener — even when `body` throws.
+  ///
+  /// A `defer` cannot do this: `stop()` is `async`, and a `defer` body may not
+  /// `await`. Without this wrapper a throwing `eventually` (it sleeps, so it
+  /// can be cancelled) would leak a listener and a reconnecting stream into
+  /// the rest of the suite.
+  private func withStream(
+    tokenProvider: @escaping @Sendable () -> String? = { nil },
+    reconnectDelay: Duration = .seconds(1),
+    maxReconnectDelay: Duration = .seconds(30),
+    _ body: (FakeEventServer, EventStream) async throws -> Void
+  ) async throws {
     let server = try FakeEventServer()
-    let stream = EventStream(baseURL: server.url, tokenProvider: { "shp_events" })
-    await stream.start()
-
-    try await awaitConnected(server)
-    #expect(server.upgradeHeaders()["Authorization"] == "Bearer shp_events")
-
-    // Structured teardown: `stop()` is awaited to completion before the
-    // server goes away, rather than racing an unstructured `Task { … }`
-    // against `server.stop()` in unordered `defer`s.
+    let stream = EventStream(
+      baseURL: server.url, tokenProvider: tokenProvider,
+      reconnectDelay: reconnectDelay, maxReconnectDelay: maxReconnectDelay)
+    do {
+      try await body(server, stream)
+    } catch {
+      await stream.stop()
+      server.stop()
+      throw error
+    }
     await stream.stop()
     server.stop()
+  }
+
+  @Test("the bearer token rides the upgrade request")
+  func sendsBearerOnUpgrade() async throws {
+    // `withStream` is the structured teardown: `stop()` is awaited to
+    // completion before the server goes away, rather than racing an
+    // unstructured `Task { … }` against `server.stop()` in unordered
+    // `defer`s — and it runs even when an assertion throws.
+    try await withStream(tokenProvider: { "shp_events" }) { server, stream in
+      await stream.start()
+
+      try await awaitConnected(server)
+      #expect(server.upgradeHeaders()["Authorization"] == "Bearer shp_events")
+    }
   }
 
   @Test("frames arrive as decoded ServerEvents")
   func yieldsDecodedEvents() async throws {
-    let server = try FakeEventServer()
-    let stream = EventStream(baseURL: server.url, tokenProvider: { "shp_events" })
-    let events = stream.events()
-    await stream.start()
+    try await withStream(tokenProvider: { "shp_events" }) { server, stream in
+      let events = stream.events()
+      await stream.start()
 
-    try await awaitConnected(server)
-    server.send(#"{"event":"session:ready","data":{"id":"a","ready":true}}"#)
+      try await awaitConnected(server)
+      server.send(#"{"event":"session:ready","data":{"id":"a","ready":true}}"#)
 
-    let first = try await firstEvent(from: events)
-    #expect(first == .sessionReady(Components.Schemas.SessionReadyEvent(id: "a", ready: true)))
-
-    await stream.stop()
-    server.stop()
+      let first = try await firstEvent(from: events)
+      #expect(first == .sessionReady(Components.Schemas.SessionReadyEvent(id: "a", ready: true)))
+    }
   }
 
   @Test("an unknown event name still reaches the consumer as .unknown")
   func yieldsUnknownEvents() async throws {
-    let server = try FakeEventServer()
-    let stream = EventStream(baseURL: server.url, tokenProvider: { nil })
-    let events = stream.events()
-    await stream.start()
+    try await withStream { server, stream in
+      let events = stream.events()
+      await stream.start()
 
-    try await awaitConnected(server)
-    server.send(#"{"event":"epic:progress","data":{}}"#)
+      try await awaitConnected(server)
+      server.send(#"{"event":"epic:progress","data":{}}"#)
 
-    #expect(try await firstEvent(from: events) == .unknown(name: "epic:progress"))
-
-    await stream.stop()
-    server.stop()
+      #expect(try await firstEvent(from: events) == .unknown(name: "epic:progress"))
+    }
   }
 
   @Test("a malformed frame is dropped and the stream keeps going")
   func dropsMalformedFrames() async throws {
-    let server = try FakeEventServer()
-    let stream = EventStream(baseURL: server.url, tokenProvider: { nil })
-    let events = stream.events()
-    await stream.start()
+    try await withStream { server, stream in
+      let events = stream.events()
+      await stream.start()
 
-    try await awaitConnected(server)
-    server.send("not json at all")
-    server.send(#"{"event":"session:archived","data":{"id":"a"}}"#)
+      try await awaitConnected(server)
+      server.send("not json at all")
+      server.send(#"{"event":"session:archived","data":{"id":"a"}}"#)
 
-    #expect(
-      try await firstEvent(from: events)
-        == .sessionArchived(Components.Schemas.SessionArchivedEvent(id: "a")))
-
-    await stream.stop()
-    server.stop()
+      #expect(
+        try await firstEvent(from: events)
+          == .sessionArchived(Components.Schemas.SessionArchivedEvent(id: "a")))
+    }
   }
 
   @Test("presence starts false and is reported on connect and on every change")
   func reportsPresence() async throws {
-    let server = try FakeEventServer()
-    let stream = EventStream(baseURL: server.url, tokenProvider: { nil })
-    await stream.start()
+    try await withStream { server, stream in
+      await stream.start()
 
-    // `active` starts `false` (see `setActive`'s doc comment): the initial
-    // presence frame reports it before the app has ever called
-    // `setActive(true)`.
-    #expect(try await eventually { server.receivedTexts().count == 1 })
-    #expect(server.receivedTexts().first?.contains("\"presence\"") == true)
-    #expect(server.receivedTexts().first?.contains("\"active\":false") == true)
+      // `active` starts `false` (see `setActive`'s doc comment): the initial
+      // presence frame reports it before the app has ever called
+      // `setActive(true)`, and `awaitConnected` waits for exactly that frame.
+      // (It is also the statement that makes this closure throwing: effect
+      // inference runs before `#expect` expands, so a `try` that only appears
+      // inside the macro's arguments does not count.)
+      try await awaitConnected(server)
+      #expect(server.receivedTexts().count == 1)
+      #expect(server.receivedTexts().first?.contains("\"presence\"") == true)
+      #expect(server.receivedTexts().first?.contains("\"active\":false") == true)
 
-    await stream.setActive(true)
-    #expect(try await eventually { server.receivedTexts().count == 2 })
-    #expect(server.receivedTexts().last?.contains("\"active\":true") == true)
-
-    await stream.stop()
-    server.stop()
+      await stream.setActive(true)
+      #expect(try await eventually { server.receivedTexts().count == 2 })
+      #expect(server.receivedTexts().last?.contains("\"active\":true") == true)
+    }
   }
 
   @Test("a server close reconnects after the delay")
   func reconnectsAfterClose() async throws {
-    let server = try FakeEventServer()
-    let stream = EventStream(
-      baseURL: server.url, tokenProvider: { nil }, reconnectDelay: .milliseconds(50))
-    await stream.start()
+    try await withStream(reconnectDelay: .milliseconds(50)) { server, stream in
+      await stream.start()
 
-    try await awaitConnected(server)
-    server.closeCurrentConnection()
-    #expect(try await eventually { server.connectionCount() == 2 })
+      try await awaitConnected(server)
+      server.closeCurrentConnection()
+      #expect(try await eventually { server.connectionCount() == 2 })
+    }
+  }
 
-    await stream.stop()
-    server.stop()
+  @Test("the lifecycle stream reports the open, the loss and the reopen")
+  func reportsLifecycle() async throws {
+    try await withStream(reconnectDelay: .milliseconds(50)) { server, stream in
+      let lifecycle = stream.lifecycle()
+      await stream.start()
+
+      try await awaitConnected(server)
+      server.closeCurrentConnection()
+      #expect(try await eventually { server.connectionCount() == 2 })
+
+      // Elements are buffered from construction, so the first `.connected` is
+      // still there even though nothing was iterating when it was yielded.
+      var seen: [EventStream.LifecycleEvent] = []
+      for await event in lifecycle {
+        seen.append(event)
+        if seen.count == 3 { break }
+      }
+      #expect(seen == [.connected, .disconnected, .connected])
+    }
   }
 
   @Test("reconnectNow() opens a fresh socket without waiting out the delay")
   func reconnectNowIsImmediate() async throws {
-    let server = try FakeEventServer()
-    let stream = EventStream(
-      baseURL: server.url, tokenProvider: { nil }, reconnectDelay: .seconds(60))
-    await stream.start()
+    try await withStream(reconnectDelay: .seconds(60)) { server, stream in
+      await stream.start()
 
-    try await awaitConnected(server)
-    await stream.reconnectNow()
-    // A 60 s reconnect delay means only `reconnectNow()` can produce this.
-    #expect(try await eventually(timeout: .seconds(5)) { server.connectionCount() == 2 })
-
-    await stream.stop()
-    server.stop()
+      try await awaitConnected(server)
+      await stream.reconnectNow()
+      // A 60 s reconnect delay means only `reconnectNow()` can produce this.
+      #expect(try await eventually(timeout: .seconds(5)) { server.connectionCount() == 2 })
+    }
   }
 
   @Test("the token is re-read on every connect")
   func rereadsTokenOnReconnect() async throws {
-    let server = try FakeEventServer()
     let tokens = TokenSequence(["shp_first", "shp_second"])
-    let stream = EventStream(
-      baseURL: server.url, tokenProvider: { tokens.next() }, reconnectDelay: .milliseconds(50))
-    await stream.start()
+    try await withStream(tokenProvider: { tokens.next() }, reconnectDelay: .milliseconds(50)) {
+      server, stream in
+      await stream.start()
 
-    try await awaitConnected(server)
-    #expect(server.upgradeHeaders()["Authorization"] == "Bearer shp_first")
+      try await awaitConnected(server)
+      #expect(server.upgradeHeaders()["Authorization"] == "Bearer shp_first")
 
-    server.closeCurrentConnection()
-    #expect(try await eventually { server.connectionCount() == 2 })
-    #expect(
-      try await eventually { server.upgradeHeaders()["Authorization"] == "Bearer shp_second" })
-
-    await stream.stop()
-    server.stop()
+      server.closeCurrentConnection()
+      #expect(try await eventually { server.connectionCount() == 2 })
+      #expect(
+        try await eventually { server.upgradeHeaders()["Authorization"] == "Bearer shp_second" })
+    }
   }
 
   /// Hands out one token per `next()`, so a second upgrade proves the stream
@@ -225,55 +254,49 @@ struct EventStreamTests {
 
   @Test("stop() does not reconnect")
   func stopIsFinal() async throws {
-    let server = try FakeEventServer()
-    let stream = EventStream(
-      baseURL: server.url, tokenProvider: { nil }, reconnectDelay: .milliseconds(50))
-    await stream.start()
+    try await withStream(reconnectDelay: .milliseconds(50)) { server, stream in
+      await stream.start()
 
-    try await awaitConnected(server)
-    await stream.stop()
-    server.closeCurrentConnection()
+      try await awaitConnected(server)
+      await stream.stop()
+      server.closeCurrentConnection()
 
-    try await Task.sleep(for: .milliseconds(400))
-    #expect(server.connectionCount() == 1)
-
-    server.stop()
+      try await Task.sleep(for: .milliseconds(400))
+      #expect(server.connectionCount() == 1)
+    }
   }
 
   @Test("a rejected upgrade backs off with a growing delay, then recovers once accepted")
   func backsOffOnRejectedUpgrades() async throws {
-    let server = try FakeEventServer()
-    let stream = EventStream(
-      baseURL: server.url, tokenProvider: { nil },
-      reconnectDelay: .milliseconds(20), maxReconnectDelay: .milliseconds(160))
-    let events = stream.events()
+    try await withStream(
+      reconnectDelay: .milliseconds(20), maxReconnectDelay: .milliseconds(160)
+    ) { server, stream in
+      let events = stream.events()
 
-    server.setRejectUpgrades(true)
-    await stream.start()
+      server.setRejectUpgrades(true)
+      await stream.start()
 
-    // Give the stream a fixed window to retry against the rejecting server.
-    // A flat, non-backing-off 20 ms retry would fit roughly window / 20 ms
-    // attempts in that time (~40 for an 800 ms window); capped exponential
-    // backoff (20, 40, 80, 160, 160, 160, … ms) fits far fewer — about 7.
-    // The upper bound below is comfortably between the two, so only a
-    // growing delay between attempts explains staying under it.
-    try await Task.sleep(for: .milliseconds(800))
-    let attemptsWhileRejecting = server.connectionCount()
-    #expect(attemptsWhileRejecting >= 2)
-    #expect(attemptsWhileRejecting < 20)
+      // Give the stream a fixed window to retry against the rejecting server.
+      // A flat, non-backing-off 20 ms retry would fit roughly window / 20 ms
+      // attempts in that time (~40 for an 800 ms window); capped exponential
+      // backoff (20, 40, 80, 160, 160, 160, … ms) fits far fewer — about 7.
+      // The upper bound below is comfortably between the two, so only a
+      // growing delay between attempts explains staying under it.
+      try await Task.sleep(for: .milliseconds(800))
+      let attemptsWhileRejecting = server.connectionCount()
+      #expect(attemptsWhileRejecting >= 2)
+      #expect(attemptsWhileRejecting < 20)
 
-    server.setRejectUpgrades(false)
-    // The next attempt after un-rejecting succeeds: the presence frame is
-    // proof the upgrade was accepted and the connection adopted.
-    #expect(try await eventually(timeout: .seconds(5)) { server.receivedTexts().count >= 1 })
+      server.setRejectUpgrades(false)
+      // The next attempt after un-rejecting succeeds: the presence frame is
+      // proof the upgrade was accepted and the connection adopted.
+      #expect(try await eventually(timeout: .seconds(5)) { server.receivedTexts().count >= 1 })
 
-    server.send(#"{"event":"session:ready","data":{"id":"a","ready":true}}"#)
-    #expect(
-      try await firstEvent(from: events)
-        == .sessionReady(Components.Schemas.SessionReadyEvent(id: "a", ready: true)))
-
-    await stream.stop()
-    server.stop()
+      server.send(#"{"event":"session:ready","data":{"id":"a","ready":true}}"#)
+      #expect(
+        try await firstEvent(from: events)
+          == .sessionReady(Components.Schemas.SessionReadyEvent(id: "a", ready: true)))
+    }
   }
 
   @Test(

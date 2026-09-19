@@ -273,15 +273,18 @@ struct SessionStoreTests {
     }
   }
 
-  @Test("stop() during a slow bootstrap never opens the events socket")
-  func stopDuringBootstrapNeverOpensSocket() async throws {
+  @Test("stop() during a slow bootstrap leaves no reconnecting socket behind")
+  func stopDuringBootstrapTearsTheSocketDown() async throws {
     let http = FakeShepherdServer()
     defer { http.tearDown() }
     let events = try FakeEventServer()
     defer { events.stop() }
     try stubBootstrap(http)
     // Keep the bootstrap in flight long enough for stop() to land while
-    // start() is still awaiting it, before eventStream.start() ever runs.
+    // start() is still awaiting it. The socket is now opened *before* the
+    // snapshot — that is what closes the subscribe-after-snapshot gap — so the
+    // invariant is no longer "the socket never opened" but "whatever was
+    // opened is closed and does not come back".
     http.on("GET", "/api/sessions") { _ in
       Thread.sleep(forTimeInterval: 0.3)
       return FakeResponse(statusCode: 200, body: try Fixtures.json([Session]()))
@@ -293,12 +296,47 @@ struct SessionStoreTests {
     store.stop()
 
     // The bootstrap's Thread.sleep(0.3s) bounds how long this can take: if
-    // start() wrongly went on to open the socket and park on the consumer,
-    // this await would hang well past that.
+    // start() parked on a consumer nobody cancelled, this await would hang
+    // well past that.
     _ = await runner.value
 
     #expect(store.connection == .idle)
-    #expect(events.connectionCount() == 0)
+    // A stream that was not stopped reconnects every 50 ms, so a count that
+    // stands still across several of those windows is the proof.
+    events.closeCurrentConnection()
+    let afterStop = events.connectionCount()
+    try? await Task.sleep(for: .milliseconds(300))
+    #expect(events.connectionCount() == afterStop)
+  }
+
+  @Test("a store that goes out of scope stops the events socket")
+  func deinitStopsTheEventStream() async throws {
+    let http = FakeShepherdServer()
+    defer { http.tearDown() }
+    let events = try FakeEventServer()
+    defer { events.stop() }
+    try stubBootstrap(http)
+    // The stream is held by the test on purpose: its receive loop keeps the
+    // actor alive whatever the store does, which is exactly why a dropped
+    // store has to stop it rather than rely on ARC.
+    let stream = EventStream(
+      baseURL: events.url, tokenProvider: { "shp_test" }, reconnectDelay: .milliseconds(50))
+    var store: SessionStore? = SessionStore(client: try makeClient(http), events: stream)
+    #expect(store?.connection == .idle)
+    await stream.start()
+    #expect(await eventually { events.connectionCount() == 1 })
+
+    // Releasing the last reference runs `deinit`, which cancels the store's
+    // tasks and stops the stream.
+    store = nil
+    #expect(store == nil)
+    try? await Task.sleep(for: .milliseconds(200))
+
+    events.closeCurrentConnection()
+    let afterRelease = events.connectionCount()
+    #expect(afterRelease == 1)
+    try? await Task.sleep(for: .milliseconds(400))
+    #expect(events.connectionCount() == afterRelease)
   }
 
   @Test("bootstrap retries back off exponentially")
@@ -356,6 +394,97 @@ struct SessionStoreTests {
     #expect(store.connection == .idle)
   }
 
+  @Test("a frame that lands during the bootstrap is applied on top of the snapshot")
+  func frameDuringBootstrapSurvivesTheSnapshot() async throws {
+    let http = FakeShepherdServer()
+    defer { http.tearDown() }
+    let events = try FakeEventServer()
+    defer { events.stop() }
+    try stubBootstrap(http)
+    let ready = try frame(
+      "session:ready", Components.Schemas.SessionReadyEvent(id: "a", ready: true))
+    // The handler emits the frame itself and only then answers, so the frame
+    // is guaranteed to be in flight while the snapshot fetch is. It waits for
+    // the presence frame first: that is the proof the socket is adopted and a
+    // send will actually reach the client.
+    http.on("GET", "/api/sessions") { _ in
+      let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+      while events.receivedTexts().isEmpty, ContinuousClock.now < deadline {
+        Thread.sleep(forTimeInterval: 0.01)
+      }
+      events.send(ready)
+      Thread.sleep(forTimeInterval: 0.3)
+      return FakeResponse(statusCode: 200, body: try Fixtures.json([Fixtures.session(id: "a")]))
+    }
+    let store = try makeLiveStore(http, events: events)
+
+    let runner = Task { await store.start() }
+    #expect(await eventually { store.connection == .live })
+    // The snapshot says `readyToMerge == false`; the frame that raced it says
+    // true. Applied before the snapshot instead of after, it would be lost.
+    #expect(await eventually { store.session(id: "a")?.readyToMerge == true })
+
+    store.stop()
+    _ = await runner.value
+  }
+
+  @Test("a reconnect re-reads the snapshot")
+  func reconnectRefreshesTheSnapshot() async throws {
+    let http = FakeShepherdServer()
+    defer { http.tearDown() }
+    let events = try FakeEventServer()
+    defer { events.stop() }
+    try stubBootstrap(http)
+    let store = try makeLiveStore(http, events: events)
+
+    let runner = Task { await store.start() }
+    #expect(await eventually { store.connection == .live })
+    let afterBootstrap = http.requests().filter { $0.path == "/api/sessions" }.count
+
+    // A socket that went away may have missed pushes — the stream keeps only
+    // the newest 256 frames — so the store must re-read the lists rather than
+    // trust the snapshot it loaded before the gap.
+    try stubBootstrap(http, sessions: [Fixtures.session(id: "late")])
+    events.closeCurrentConnection()
+
+    #expect(await eventually { store.sessions.map(\.id) == ["late"] })
+    #expect(http.requests().filter { $0.path == "/api/sessions" }.count > afterBootstrap)
+
+    store.stop()
+    _ = await runner.value
+  }
+
+  @Test("a lost socket is connecting, not offline, and a reconnect returns to live")
+  func disconnectIsConnectingThenLive() async throws {
+    let http = FakeShepherdServer()
+    defer { http.tearDown() }
+    let events = try FakeEventServer()
+    defer { events.stop() }
+    try stubBootstrap(http)
+    // A 30 s socket backoff makes this deterministic: after the close the
+    // store stays `.connecting` until the test asks for the reconnect itself,
+    // so there is no timing window for a loaded machine to miss.
+    let stream = EventStream(
+      baseURL: events.url, tokenProvider: { "shp_test" }, reconnectDelay: .seconds(30))
+    let store = SessionStore(
+      client: try makeClient(http), events: stream,
+      reconnectDelay: .milliseconds(20), maxReconnectDelay: .milliseconds(200))
+
+    let runner = Task { await store.start() }
+    #expect(await eventually { store.connection == .live })
+
+    events.closeCurrentConnection()
+    // Nothing has failed for good: the stream is already reconnecting, so this
+    // is `.connecting` and never `.offline`.
+    #expect(await eventually { store.connection == .connecting })
+
+    await stream.reconnectNow()
+    #expect(await eventually { store.connection == .live })
+
+    store.stop()
+    _ = await runner.value
+  }
+
   @Test("setActive forwards the app's focus to the socket")
   func setActiveForwardsPresence() async throws {
     let http = FakeShepherdServer()
@@ -401,6 +530,96 @@ struct SessionStoreTests {
 
     try await store.bootstrap()
     #expect(store.firstRunPending == true)
+  }
+
+  @Test("an event that lands during a refresh is not undone by the snapshot")
+  func eventDuringRefreshSurvivesTheSnapshot() async throws {
+    let server = FakeShepherdServer()
+    defer { server.tearDown() }
+    try stubBootstrap(server, sessions: [Fixtures.session(id: "a"), Fixtures.session(id: "b")])
+    let store = try makeStore(server)
+    try await store.bootstrap()
+
+    // The snapshot this refresh installs still lists "a": the archive that
+    // lands while the fetches are in flight has to win anyway.
+    server.on("GET", "/api/sessions") { _ in
+      Thread.sleep(forTimeInterval: 0.3)
+      return FakeResponse(
+        statusCode: 200,
+        body: try Fixtures.json([Fixtures.session(id: "a"), Fixtures.session(id: "b")]))
+    }
+
+    let refreshing = Task { try await store.refresh() }
+    try? await Task.sleep(for: .milliseconds(50))
+    store.apply(.sessionArchived(Components.Schemas.SessionArchivedEvent(id: "a")))
+    try await refreshing.value
+
+    #expect(store.sessions.map(\.id) == ["b"])
+    #expect(store.blocks["a"] == nil)
+  }
+
+  @Test("a superseded refresh does not install its older snapshot")
+  func supersededRefreshIsDropped() async throws {
+    let server = FakeShepherdServer()
+    defer { server.tearDown() }
+    try stubBootstrap(server)
+    let store = try makeStore(server)
+    try await store.bootstrap()
+
+    // The first refresh's list is slow and therefore stale by the time it
+    // arrives; the second one's is immediate.
+    let calls = Box(0)
+    server.on("GET", "/api/sessions") { _ in
+      let call = calls.get()
+      calls.set(call + 1)
+      if call == 0 {
+        Thread.sleep(forTimeInterval: 0.4)
+        return FakeResponse(
+          statusCode: 200, body: try Fixtures.json([Fixtures.session(id: "stale")]))
+      }
+      return FakeResponse(statusCode: 200, body: try Fixtures.json([Fixtures.session(id: "fresh")]))
+    }
+
+    let slow = Task { try await store.refresh() }
+    try? await Task.sleep(for: .milliseconds(50))
+    try await store.refresh()
+    #expect(store.sessions.map(\.id) == ["fresh"])
+
+    try await slow.value
+    // The slow snapshot lands last and is dropped: its generation is stale.
+    #expect(store.sessions.map(\.id) == ["fresh"])
+  }
+
+  @Test("a 401 that lands after stop() leaves the store idle")
+  func unauthorizedAfterStopStaysIdle() async throws {
+    let server = FakeShepherdServer()
+    defer { server.tearDown() }
+    try stubBootstrap(server)
+    server.stub("POST", "/api/sessions", status: 401, json: try Fixtures.errorJSON("unauthorized"))
+    let store = try makeStore(server)
+    await store.start()
+    store.stop()
+    #expect(store.connection == .idle)
+
+    await #expect(throws: ShepherdError.unauthenticated) {
+      _ = try await store.create(
+        CreateSessionRequest(repoPath: "/repos/demo", baseBranch: "main", prompt: "go"))
+    }
+    // The operator asked for idle: a late 401 records the error but must not
+    // repaint the connection.
+    #expect(store.connection == .idle)
+    #expect(store.lastError == .unauthenticated)
+  }
+
+  @Test("the store exposes the client so an app can consume needsLogin")
+  func exposesTheClient() async throws {
+    let server = FakeShepherdServer()
+    defer { server.tearDown() }
+    let store = try makeStore(server)
+    // The store never consumes `needsLogin` itself (that stream has a single
+    // consumer); reaching it through `store.client` is how an app built with
+    // `init(profile:credentials:)` hears about a 401 it did not cause.
+    #expect(store.client.profile.credentialKey == "k")
   }
 
   // MARK: apply

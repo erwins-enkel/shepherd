@@ -13,6 +13,7 @@ public actor EventStream {
   private let reconnectDelay: Duration
   private let maxReconnectDelay: Duration
   private let continuation: AsyncStream<ServerEvent>.Continuation
+  private let lifecycleContinuation: AsyncStream<LifecycleEvent>.Continuation
 
   private var task: URLSessionWebSocketTask?
   private var pump: Task<Void, Never>?
@@ -30,8 +31,27 @@ public actor EventStream {
   private var connectedAt: ContinuousClock.Instant?
   /// Whether any message (decodable or not) arrived on the current socket.
   private var frameReceivedSinceConnect = false
+  /// How many connection attempts in a row ended without becoming healthy.
+  /// Reported in the reconnect log line, so a server that keeps refusing the
+  /// upgrade is diagnosable after the fact. Reset by a healthy socket.
+  private var consecutiveFailures = 0
 
   private nonisolated let eventStream: AsyncStream<ServerEvent>
+  private nonisolated let lifecycleStream: AsyncStream<LifecycleEvent>
+
+  /// What the socket itself is doing, as opposed to what the server said on
+  /// it. `SessionStore` needs both halves: a `.disconnected` means "we are
+  /// reconnecting", not "offline", and a `.connected` after the first one
+  /// means the stream may have missed pushes while it was down, so the
+  /// snapshot has to be read again.
+  public enum LifecycleEvent: Sendable, Equatable {
+    /// A socket was opened. The upgrade may still be refused, in which case
+    /// a `.disconnected` follows right after.
+    case connected
+    /// The socket is gone. The stream is already waiting out its backoff and
+    /// will open another one unless `stop()` was called.
+    case disconnected
+  }
 
   /// Decoded frames, oldest first. Single-consumer: the `SessionStore` owns
   /// it. Calling this twice hands back the same `AsyncStream` — it is not a
@@ -39,6 +59,14 @@ public actor EventStream {
   /// (each element goes to whichever iterator asks for it next) rather than
   /// see its own copy of every event. Don't call it more than once.
   public nonisolated func events() -> AsyncStream<ServerEvent> { eventStream }
+
+  /// Socket lifecycle, oldest first. Single-consumer for the same reason
+  /// `events()` is: calling it twice splits the elements between the two
+  /// iterators instead of broadcasting to both.
+  ///
+  /// Elements are buffered from construction, so a consumer that subscribes
+  /// after `start()` still sees the first `.connected`.
+  public nonisolated func lifecycle() -> AsyncStream<LifecycleEvent> { lifecycleStream }
 
   /// - Parameters:
   ///   - baseURL: the full `ws(s)://…/events` URL.
@@ -68,6 +96,11 @@ public actor EventStream {
       bufferingPolicy: .bufferingNewest(256))
     eventStream = stream
     self.continuation = continuation
+    // Unbounded on purpose: a lifecycle element is one of two enum cases, and
+    // dropping one would cost the store a re-snapshot it must not miss.
+    let (lifecycle, lifecycleContinuation) = AsyncStream<LifecycleEvent>.makeStream()
+    lifecycleStream = lifecycle
+    self.lifecycleContinuation = lifecycleContinuation
   }
 
   /// Convenience for the common case: derive the `/events` URL and the token
@@ -189,6 +222,7 @@ public actor EventStream {
     frameReceivedSinceConnect = false
     socket.resume()
     sendPresence()
+    lifecycleContinuation.yield(.connected)
 
     pump = Task { [weak self] in
       await self?.receiveLoop(socket)
@@ -211,6 +245,10 @@ public actor EventStream {
         break
       }
     }
+    // The socket is gone, whatever ended it. Say so before the backoff sleep,
+    // so a consumer can repaint "reconnecting" immediately rather than after
+    // the delay.
+    lifecycleContinuation.yield(.disconnected)
     await scheduleReconnect(after: socket)
   }
 
@@ -233,15 +271,23 @@ public actor EventStream {
     // `task === socket` keeps a stale pump from racing a socket that
     // `reconnectNow()` has already replaced.
     guard !stopped, task === socket else { return }
-    ShepherdLog.realtime.debug("events socket closed; reconnecting")
 
     let delay: Duration
     if connectionWasHealthy() {
+      consecutiveFailures = 0
       currentReconnectDelay = reconnectDelay
       delay = reconnectDelay
+      ShepherdLog.realtime.debug("events socket closed; reconnecting")
     } else {
       delay = currentReconnectDelay
       currentReconnectDelay = min(currentReconnectDelay * 2, maxReconnectDelay)
+      consecutiveFailures += 1
+      // A refused or instantly dropped upgrade is the one failure nothing
+      // else surfaces — the stream keeps retrying quietly — so it is logged
+      // at `notice` with the run of consecutive failures, which tells one
+      // hiccup from a server that keeps saying no. Never the token.
+      ShepherdLog.realtime.notice(
+        "events upgrade failed (\(self.consecutiveFailures, privacy: .public) in a row); retrying")
     }
 
     do {
@@ -270,5 +316,8 @@ public actor EventStream {
     socket.send(.string(String(decoding: json, as: UTF8.self))) { _ in }
   }
 
-  deinit { continuation.finish() }
+  deinit {
+    continuation.finish()
+    lifecycleContinuation.finish()
+  }
 }

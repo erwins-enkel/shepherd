@@ -166,6 +166,7 @@ import type {
   LinkedPr,
   MergeMethod,
   PrStatus,
+  PullRequest,
   WorkflowRun,
 } from "./forge/types";
 import { DEPENDABOT_REBASE_COMMAND, EmptyDiffError, MergeNotCompletedError } from "./forge/types";
@@ -183,6 +184,12 @@ import {
   normalizeLogin,
   type RepoRoles,
 } from "./repo-roles";
+import {
+  evaluateMergeGate,
+  parseMergeConfirm,
+  validateMergeConfirm,
+  type MergeConfirm,
+} from "./merge-gate";
 import type { PushService } from "./push";
 import type { Presence } from "./presence";
 import type { StatusPoller } from "./poller";
@@ -506,6 +513,10 @@ export interface AppDeps {
   verifyKey?: () => Promise<VerifyKeyResult>;
   /** Backlog counts service; absent in tests that don't exercise it. */
   backlog?: Pick<CountsService, "counts">;
+  /** Read a repo's committed `.shepherd/roles.json` (#2299). Seam over `readRepoRoles` so the
+   *  manual-merge gate is testable without a real repo whose default branch carries the file.
+   *  Absent ⇒ the real reader. */
+  readRoles?: (repoPath: string) => RepoRoles;
   /** Shared per-repo open-PR snapshot cache (read by the PRs tab; warmed by the pr-poller).
    *  `invalidate` is evicted after an interactive merge so the panel's refetch misses the
    *  stale snapshot. It is optional so `get`-only test stubs keep compiling.
@@ -4192,6 +4203,67 @@ async function forgeOpenPr(
   return json(status);
 }
 
+/** The manual-merge responsibility gate (#2299), shared by the session and backlog endpoints.
+ *
+ *  Returns a 409 to hand straight back, or null when the merge may proceed. Every refusal happens
+ *  BEFORE `forge.merge`, and carries the freshly-derived verdict so the dialog can re-state who is
+ *  responsible instead of guessing from an error string.
+ *
+ *  Only these two operator-facing endpoints are gated. The merge train, the drain and epic landing
+ *  call `forge.merge` directly: they are automation the operator switched on deliberately, and
+ *  routing them through a confirmation nobody is present to give would simply wedge them.
+ *
+ *  `pr` is the PR as the server just read it. An unresolved field fails CLOSED — an unknown review
+ *  state reads as "not approved", and an unknown head can never match a confirmed one. */
+function mergeGateRefusal(
+  repoPath: string,
+  me: string | null,
+  pr: Pick<PrStatus, "headSha" | "baseRefName" | "latestReview" | "reviewerStates">,
+  confirm: MergeConfirm | null,
+  deps: AppDeps,
+): Response | null {
+  const roles = (deps.readRoles ?? readRepoRoles)(repoPath);
+  const gate = evaluateMergeGate({
+    roles,
+    me,
+    latestReview: pr.latestReview,
+    reviewerStates: pr.reviewerStates,
+  });
+  const check = validateMergeConfirm(gate, pr, confirm);
+  if (check === "ok") return null;
+  return json(
+    {
+      error:
+        check === "confirm_required"
+          ? "this merge is someone else's responsibility — confirm the takeover to proceed"
+          : "the pull request or its responsibility changed — confirm again",
+      code: check === "confirm_required" ? "merge_confirm_required" : "merge_confirm_stale",
+      gate,
+      headSha: pr.headSha ?? null,
+      baseRefName: pr.baseRefName ?? null,
+    },
+    409,
+  );
+}
+
+/** Map a failed manual merge to its response, or null when the failure is not one the merge paths
+ *  classify (the caller rethrows). Shared by both manual endpoints so a merge that did NOT happen
+ *  cannot be reported differently depending on which button ran it. */
+function manualMergeFailure(err: unknown): Response | null {
+  // #2059: refused (stacked — but both manual paths opt in, so it cannot occur), enqueued, or
+  // still pending. None of them merged, so the caller must skip its post-merge work.
+  if (err instanceof MergeNotCompletedError)
+    return json({ error: err.message, code: err.code }, 502);
+  if (err instanceof MergeConflictError)
+    return json({ error: "merge conflict — resolve manually before merging" }, 409);
+  if (err instanceof BaseCheckoutBusyError)
+    return json(
+      { error: "base branch checkout has uncommitted changes or moved — commit/stash and retry" },
+      409,
+    );
+  return null;
+}
+
 async function forgeMerge(
   forge: GitForge,
   session: Session,
@@ -4202,29 +4274,34 @@ async function forgeMerge(
   const body = (await req.json().catch(() => ({}))) as {
     method?: MergeMethod;
     deleteBranch?: boolean;
+    confirm?: unknown;
   };
   const cur = await forge.prStatus(head);
   if (cur.state !== "open" || !cur.number) {
     return json({ error: "no open PR to merge" }, 409);
   }
+  const confirm = parseMergeConfirm(body.confirm);
+  const refusal = mergeGateRefusal(
+    session.repoPath,
+    (await forge.currentUser?.()) ?? null,
+    cur,
+    confirm,
+    deps,
+  );
+  if (refusal) return refusal;
   try {
     await forge.merge(cur.number, {
       method: body.method ?? forge.mergeMethod,
       deleteBranch: body.deleteBranch ?? true,
       allowStacked: true, // operator-initiated, same as the Backlog Merge button (#2059)
+      // The revision the operator confirmed, not the one we just read: the host refuses the merge
+      // if the head moved since (#2299).
+      expectedHeadSha: confirm?.headSha ?? undefined,
     });
   } catch (err) {
-    // #2059: refused (stacked, but this path opts in so it cannot occur), enqueued, or still
-    // pending — none of which merged, so fall through WITHOUT the settle/teardown below.
-    if (err instanceof MergeNotCompletedError)
-      return json({ error: err.message, code: err.code }, 502);
-    if (err instanceof MergeConflictError)
-      return json({ error: "merge conflict — resolve manually before merging" }, 409);
-    if (err instanceof BaseCheckoutBusyError)
-      return json(
-        { error: "base branch checkout has uncommitted changes or moved — commit/stash and retry" },
-        409,
-      );
+    // A classified failure means nothing merged — return WITHOUT the settle/teardown below.
+    const failure = manualMergeFailure(err);
+    if (failure) return failure;
     throw err;
   }
   // Evict the repo's open-PR snapshot so the backlog PRs panel for this repo can't
@@ -6450,6 +6527,41 @@ function dedupeReposByForge<T extends { path: string; forge: GitForge }>(
   return [...byRepo.values()];
 }
 
+/** Stamp each backlog PR row with the repo's configured responsibility (#2299), so the merge
+ *  confirmation can name whose turn it is without a second round-trip. Display-only: the merge
+ *  endpoint re-derives the verdict itself and is the authority.
+ *
+ *  A repo with no `.shepherd/roles.json` returns the rows untouched — which is also the only case
+ *  that avoids the `currentUser` call. Per-reviewer states ride the snapshot's PrStatus (the rows
+ *  themselves carry only the newest review), so a row without one simply reports no review block. */
+async function annotatePrRoles(
+  prs: PullRequest[],
+  statuses: Map<string, PrStatus> | null,
+  repoPath: string,
+  forge: GitForge,
+  deps: AppDeps,
+): Promise<PullRequest[]> {
+  const roles = (deps.readRoles ?? readRepoRoles)(repoPath);
+  if (!roles.reviewer && !roles.merger) return prs;
+  const me = (await forge.currentUser?.()) ?? null;
+  return prs.map((pr) => {
+    const gate = evaluateMergeGate({
+      roles,
+      me,
+      latestReview: pr.latestReview,
+      reviewerStates: pr.headRefName ? statuses?.get(pr.headRefName)?.reviewerStates : undefined,
+    });
+    if (!gate.requiresConfirm) return pr;
+    return {
+      ...pr,
+      ...(gate.handoff && gate.handoffWho
+        ? { handoff: gate.handoff, handoffWho: gate.handoffWho }
+        : {}),
+      ...(gate.reviewBlockBy ? { reviewBlockBy: gate.reviewBlockBy } : {}),
+    };
+  });
+}
+
 // GET /api/prs?repo= — open PRs for one repo (backlog PRs-tab detail pane).
 async function handlePrsList({ req, parts, url, deps }: Ctx): Promise<Response | null> {
   if (req.method !== "GET" || parts[0] !== "api" || parts[1] !== "prs" || parts[2]) return null;
@@ -6460,7 +6572,11 @@ async function handlePrsList({ req, parts, url, deps }: Ctx): Promise<Response |
   try {
     const snap = deps.openPrSnapshot ? await deps.openPrSnapshot.get(forge) : null;
     const prs = snap ? snap.prs : await forge.listPullRequests();
-    return json({ slug: forge.slug, webUrl: forge.webUrl ?? null, prs });
+    return json({
+      slug: forge.slug,
+      webUrl: forge.webUrl ?? null,
+      prs: await annotatePrRoles(prs, snap?.statuses ?? null, dir, forge, deps),
+    });
   } catch {
     // missing/un-authed CLI or network error → graceful empty (matches issues path)
     return json({ slug: forge.slug, webUrl: forge.webUrl ?? null, prs: [] });
@@ -6634,6 +6750,49 @@ async function handleActionsRunJobs({ req, parts, url, deps }: Ctx): Promise<Res
   }
 }
 
+/** One backlog PR's live status, from the repo's shared open-PR snapshot. Number-keyed because a
+ *  backlog row carries no session branch. Null when there is no snapshot service, the fetch failed,
+ *  or the PR is not in it — all of which the merge gate treats as "nothing known". */
+async function prSnapshotStatus(
+  forge: GitForge,
+  number: number,
+  deps: AppDeps,
+): Promise<PrStatus | null> {
+  const snap = await deps.openPrSnapshot?.get(forge).catch(() => null);
+  if (!snap) return null;
+  for (const status of snap.statuses.values()) if (status.number === number) return status;
+  return null;
+}
+
+/** Resolve + validate a backlog merge request: repo, PR number, forge, and the operator's
+ *  confirmation against the repo's roles (#2299). Returns the refusal to hand back, or the
+ *  resolved handles the merge needs. */
+async function resolveBacklogMerge(
+  body: { repo?: string; number?: number; confirm?: unknown },
+  deps: AppDeps,
+): Promise<
+  | { refusal: Response; ok?: undefined }
+  | { ok: true; dir: string; forge: GitForge; number: number; confirm: MergeConfirm | null }
+> {
+  const dir = safeRepoDir(body.repo ?? "", config.repoRoot);
+  if (!dir) return { refusal: json({ error: "invalid repo" }, 400) };
+  if (typeof body.number !== "number") return { refusal: json({ error: "number required" }, 400) };
+  const forge = deps.resolveForge?.(dir) ?? null;
+  if (!forge) return { refusal: json({ error: "no forge for repo" }, 400) };
+  const confirm = parseMergeConfirm(body.confirm);
+  const refusal = mergeGateRefusal(
+    dir,
+    (await forge.currentUser?.()) ?? null,
+    // Same snapshot the PRs panel rendered the row from, so the operator's confirmation and this
+    // check see one view of the PR. A miss (the snapshot moved on, or the fetch failed) leaves
+    // every field unresolved, which fails closed rather than merging on no information.
+    (await prSnapshotStatus(forge, body.number, deps)) ?? {},
+    confirm,
+    deps,
+  );
+  return refusal ? { refusal } : { ok: true, dir, forge, number: body.number, confirm };
+}
+
 // POST /api/prs/merge — merge a backlog PR by repo + number (no session involved).
 async function handlePrMerge({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (req.method !== "POST" || parts[0] !== "api" || parts[1] !== "prs" || parts[2] !== "merge")
@@ -6643,19 +6802,19 @@ async function handlePrMerge({ req, parts, deps }: Ctx): Promise<Response | null
     number?: number;
     method?: MergeMethod;
     deleteBranch?: boolean;
+    confirm?: unknown;
   };
-  const dir = safeRepoDir(body.repo ?? "", config.repoRoot);
-  if (!dir) return json({ error: "invalid repo" }, 400);
-  if (typeof body.number !== "number") return json({ error: "number required" }, 400);
-  const forge = deps.resolveForge?.(dir) ?? null;
-  if (!forge) return json({ error: "no forge for repo" }, 400);
+  const resolved = await resolveBacklogMerge(body, deps);
+  if (!resolved.ok) return resolved.refusal;
+  const { dir, forge, number, confirm } = resolved;
   try {
-    await forge.merge(body.number, {
+    await forge.merge(number, {
       method: body.method ?? forge.mergeMethod,
       deleteBranch: body.deleteBranch ?? true,
       // Operator-initiated: they clicked Merge on a PR whose stack is visible to them on the
       // host, so a stacked PR is landed (via merge-async) rather than refused (#2059).
       allowStacked: true,
+      expectedHeadSha: confirm?.headSha ?? undefined,
     });
     // Evict the open-PR snapshot for this repo so the panel's silent refetch
     // (GET /api/prs, right after this 200) misses the cache and fetches fresh —
@@ -6669,10 +6828,9 @@ async function handlePrMerge({ req, parts, deps }: Ctx): Promise<Response | null
     void deps.refreshBacklog?.(dir).catch(() => {});
     return json({ ok: true });
   } catch (e) {
-    // #2059: an async merge that is still in flight host-side is not a failure — carry the stable
-    // `code` so the PRs panel can say "still merging" instead of "merge failed".
-    if (e instanceof MergeNotCompletedError) return json({ error: e.message, code: e.code }, 502);
-    return json({ error: e instanceof Error ? e.message : "merge failed" }, 502);
+    return (
+      manualMergeFailure(e) ?? json({ error: e instanceof Error ? e.message : "merge failed" }, 502)
+    );
   }
 }
 

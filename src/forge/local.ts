@@ -403,8 +403,10 @@ export class LocalForge implements GitForge {
       checks: "success",
       mergeable: await this.dryRunMergeable(headBranch, row.base),
       headSha: await this.tipOf(headBranch),
+      baseRefName: row.base,
       createdAt: row.createdAt,
       deployConfigured: false,
+      mergeMethod: this.mergeMethod,
     };
   }
 
@@ -424,11 +426,16 @@ export class LocalForge implements GitForge {
       checks: "success",
       mergeable: await this.dryRunMergeable(o.head, row.base),
       headSha: await this.tipOf(o.head),
+      baseRefName: row.base,
       createdAt: row.createdAt,
       deployConfigured: false,
+      mergeMethod: this.mergeMethod,
     };
   }
 
+  /** No `MergeInput`: a local squash-merge has no host to negotiate a method with, and no
+   *  optimistic-concurrency guard to hand `expectedHeadSha` to — the server-side confirm check
+   *  (`validateMergeConfirm`) is the only binding of a manual merge to its confirmed revision here. */
   async merge(prNumber: number): Promise<void> {
     const row = this.store.getLocalPrByNumber(prNumber);
     if (!row) throw new Error(`no local PR with number ${prNumber}`);

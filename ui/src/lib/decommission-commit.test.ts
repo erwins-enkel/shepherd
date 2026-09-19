@@ -21,6 +21,22 @@ describe("createDecommissionCommit", () => {
     expect(api.archiveSession).toHaveBeenCalledWith("s1", ["vite:5173"]);
   });
 
+  it("forwards the operator's merge confirmation to the gated merge endpoint", async () => {
+    // The decommission dialog IS this merge's confirmation (#2299): without the payload the
+    // server refuses the merge whenever the repo puts someone else on the hook.
+    const api = actions();
+    const mergeConfirm = {
+      headSha: "abc123",
+      baseRefName: "main",
+      handoff: "merger" as const,
+      handoffWho: "scoop",
+      reviewBlockBy: null,
+    };
+    await createDecommissionCommit({ id: "s1", action: "merge", mergeConfirm }, api).run();
+
+    expect(api.mergePr).toHaveBeenCalledWith("s1", mergeConfirm);
+  });
+
   it("retries a failed PR action before attempting the archive", async () => {
     const api = actions();
     api.closePr.mockRejectedValueOnce(new Error("close failed"));

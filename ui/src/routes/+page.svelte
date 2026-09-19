@@ -167,6 +167,11 @@
     type DecommissionPrAction,
     type DecommissionRequest,
   } from "$lib/decommission-commit";
+  import {
+    mergeConfirmFromGit,
+    mergeConfirmPayload,
+    type MergeTrainItem,
+  } from "$lib/components/merge-confirm";
 
   const store = new HerdStore();
 
@@ -347,7 +352,7 @@
   // trigger armed it, so the modal stays uniform across both paths.
   let pendingTrain = $state<{
     repoLabel: string;
-    items: { number: number; title: string }[];
+    items: MergeTrainItem[];
     handpicked: boolean;
     otherRepoCount: number;
     run: () => Promise<void>;
@@ -1125,7 +1130,13 @@
     // surfaced as the modal's warn line, NOT a post-launch toast (no double-surfacing).
     pendingTrain = {
       repoLabel: basename(repoPath),
-      items: prs.map((p) => ({ number: p.number, title: p.title })),
+      items: prs.map((p) => ({
+        number: p.number,
+        title: p.title,
+        handoff: p.handoff,
+        handoffWho: p.handoffWho,
+        reviewBlockBy: p.reviewBlockBy,
+      })),
       handpicked: false,
       otherRepoCount,
       run: async () => {
@@ -1158,7 +1169,13 @@
     // backlog overlay). The launch body runs on confirm; backlog stays open until then.
     pendingTrain = {
       repoLabel: basename(repoPath),
-      items: prs.map((p) => ({ number: p.number, title: p.title })),
+      items: prs.map((p) => ({
+        number: p.number,
+        title: p.title,
+        handoff: p.handoff,
+        handoffWho: p.handoffWho,
+        reviewBlockBy: p.reviewBlockBy,
+      })),
       handpicked: true,
       otherRepoCount: 0,
       run: async () => {
@@ -2317,7 +2334,9 @@
     request: PendingDecommission,
     commit: DecommissionCommit = createDecommissionCommit(request, {
       closePr,
-      mergePr,
+      // The decommission dialog IS this merge's confirmation, so it carries the operator's
+      // confirmed revision + responsibility through to the gated endpoint (#2299).
+      mergePr: (id, confirm) => mergePr(id, { deleteBranch: true, confirm }),
       archiveSession,
     }),
   ) {
@@ -2365,11 +2384,15 @@
     const pending = decommissionPr;
     decommissionPr = null;
     if (!pending) return;
+    // The dialog only offers "merge" on an open PR, so the context resolves; a null here means
+    // the PR moved under the dialog and the server's own gate refuses it.
+    const ctx = action === "merge" ? mergeConfirmFromGit(pending.git) : null;
     deferDecommission({
       id: pending.id,
       name: pending.name,
       reap: pending.reap,
       action,
+      ...(ctx ? { mergeConfirm: mergeConfirmPayload(ctx) } : {}),
     });
   }
 

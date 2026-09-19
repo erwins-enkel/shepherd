@@ -19,6 +19,14 @@ function git(over: Partial<GitState> = {}): GitState {
   };
 }
 
+/** The confirm control inside the open merge dialog. Queried by text rather than role+name so a
+ *  test does not have to know which of the two wordings (neutral / takeover) is showing. */
+function confirmButton(): HTMLButtonElement | null {
+  const labels = [String(m.mergeconfirm_confirm()), String(m.mergeconfirm_confirm_takeover())];
+  const buttons = [...document.querySelectorAll<HTMLButtonElement>("[role='dialog'] button")];
+  return buttons.find((b) => labels.includes(b.textContent?.trim() ?? "")) ?? null;
+}
+
 afterEach(() => {
   document.body.innerHTML = "";
   vi.restoreAllMocks();
@@ -176,7 +184,7 @@ describe("PrBadge", () => {
     }
   });
 
-  it("merges only after a two-tap confirm", async () => {
+  it("merges only after confirming in the merge dialog", async () => {
     const fetch = vi.fn(async () => new Response(JSON.stringify(git({ state: "merged" }))));
     vi.stubGlobal("fetch", fetch);
     render(PrBadge, { props: { git: git(), sessionId: "s1" } });
@@ -184,15 +192,77 @@ describe("PrBadge", () => {
     await page.getByRole("button", { name: m.prbadge_button_title({ label: "PR #12" }) }).click();
     await page.getByRole("menuitem", { name: m.prbadge_merge() }).click();
 
-    // first tap arms only — no request yet, label flips to the confirm prompt
+    // the menu item only opens the confirmation — no request yet
     expect(fetch).not.toHaveBeenCalled();
-    const confirm = page.getByRole("menuitem", { name: m.prbadge_confirm_merge() });
-    await expect.element(confirm).toBeInTheDocument();
+    await expect.element(page.getByRole("dialog")).toBeInTheDocument();
+    await vi.waitFor(() => expect(confirmButton()).toBeEnabled());
 
-    await confirm.click();
+    await confirmButton()!.click();
     expect(fetch).toHaveBeenCalledWith("/api/sessions/s1/git/merge", expect.any(Object));
     expect(fetch).toHaveBeenCalledTimes(1);
-    await vi.waitFor(() => expect(document.querySelector("[role='menu']")).toBeNull());
+    await vi.waitFor(() => expect(document.querySelector("[role='dialog']")).toBeNull());
+  });
+
+  // ── #2299: a double-click must never answer the confirmation it opened ───────────────────
+  //
+  // The two reproducers from the issue, verbatim in intent: a green, otherwise-mergeable PR whose
+  // repo roles put @scoop on the hook. Before the confirmation dialog these double-clicks each
+  // issued a merge request.
+  for (const handoff of ["reviewer", "merger"] as const) {
+    it(`a double click issues no merge while waiting on scoop as ${handoff}`, async () => {
+      const fetch = vi.fn(async () => new Response(JSON.stringify(git({ state: "merged" }))));
+      vi.stubGlobal("fetch", fetch);
+      render(PrBadge, {
+        props: { git: git({ handoff, handoffWho: "scoop" }), sessionId: "s1" },
+      });
+
+      await page.getByRole("button", { name: m.prbadge_button_title({ label: "PR #12" }) }).click();
+      await page.getByRole("menuitem", { name: m.prbadge_merge() }).dblClick();
+
+      expect(fetch).not.toHaveBeenCalled();
+      // …and the dialog that opened names who is responsible, in the escalated wording.
+      await expect
+        .element(page.getByText(m.mergeconfirm_confirm_takeover(), { exact: true }))
+        .toBeInTheDocument();
+    });
+  }
+
+  it("names the responsible person and sends the confirmation back with the merge", async () => {
+    // Typed so the assertion below can read the request body off the recorded call.
+    const fetch = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(
+      async () => new Response(JSON.stringify(git({ state: "merged" }))),
+    );
+    vi.stubGlobal("fetch", fetch);
+    render(PrBadge, {
+      props: {
+        git: git({
+          handoff: "merger",
+          handoffWho: "scoop",
+          headSha: "abc123",
+          baseRefName: "main",
+        }),
+        sessionId: "s1",
+      },
+    });
+
+    await page.getByRole("button", { name: m.prbadge_button_title({ label: "PR #12" }) }).click();
+    await page.getByRole("menuitem", { name: m.prbadge_merge() }).click();
+    await expect
+      .element(page.getByText(m.mergeconfirm_handoff_merger({ who: "scoop" })))
+      .toBeInTheDocument();
+
+    await vi.waitFor(() => expect(confirmButton()).toBeEnabled());
+    await confirmButton()!.click();
+
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+    const body = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body ?? ""));
+    expect(body.confirm).toEqual({
+      headSha: "abc123",
+      baseRefName: "main",
+      handoff: "merger",
+      handoffWho: "scoop",
+      reviewBlockBy: null,
+    });
   });
 
   it("surfaces a merge failure as an alert toast", async () => {
@@ -206,7 +276,8 @@ describe("PrBadge", () => {
 
     await page.getByRole("button", { name: m.prbadge_button_title({ label: "PR #12" }) }).click();
     await page.getByRole("menuitem", { name: m.prbadge_merge() }).click();
-    await page.getByRole("menuitem", { name: m.prbadge_confirm_merge() }).click();
+    await vi.waitFor(() => expect(confirmButton()).toBeEnabled());
+    await confirmButton()!.click();
 
     await vi.waitFor(() =>
       expect(info).toHaveBeenCalledWith(

@@ -210,6 +210,19 @@ function stateForReviewer(
   return null;
 }
 
+/** Active changes requested by the repo's CONFIGURED reviewer, or undefined. Shared by the display
+ *  annotation below and the manual-merge gate (`src/merge-gate.ts`) so the two cannot disagree
+ *  about what an outstanding review block is. Logins are compared folded; the login reported is the
+ *  host's casing, not the configured one. */
+export function reviewBlockFor(
+  roles: RepoRoles,
+  reviewerStates: Record<string, PrReviewerState> | undefined,
+): PrReviewBlock | undefined {
+  const scoped = stateForReviewer(reviewerStates, roles.reviewer);
+  if (scoped?.state.state !== "changes_requested") return undefined;
+  return { reviewer: scoped.login, state: "changes_requested", latestAt: scoped.state.latestAt };
+}
+
 function inferredForkReviewBlock(
   reviewerStates: Record<string, PrReviewerState> | undefined,
 ): PrReviewBlock | undefined {
@@ -258,17 +271,10 @@ export function annotateHandoff(
     base.state === "open" &&
     !(unconfiguredFork && base.isDraft) &&
     checksCleared(base.checks, noCi);
-  const scoped = stateForReviewer(base.reviewerStates, roles.reviewer);
   const reviewBlock =
     unconfiguredFork && handoffEligible
       ? inferredForkReviewBlock(base.reviewerStates)
-      : scoped?.state.state === "changes_requested"
-        ? ({
-            reviewer: scoped.login,
-            state: "changes_requested",
-            latestAt: scoped.state.latestAt,
-          } as const)
-        : undefined;
+      : reviewBlockFor(roles, base.reviewerStates);
   if (reviewBlock) base.reviewBlock = reviewBlock;
   if (!handoffEligible) return base;
   const { handoff, handoffWho, inferred } = computeHandoff(

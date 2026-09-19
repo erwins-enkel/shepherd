@@ -1,9 +1,12 @@
 <script lang="ts">
   import type { GitState } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
-  import { setPrDraftState, mergePr } from "$lib/api";
+  import { setPrDraftState, mergePr, MergeRefusedError } from "$lib/api";
   import { toasts } from "$lib/toasts.svelte";
   import { prBadgeLabel, prBadgeIsDraft, prMergeAvailable } from "./pr-badge";
+  import { mergeConfirmFromGit } from "./merge-confirm";
+  import { MergeConfirmFlow } from "./merge-confirm-flow.svelte";
+  import MergeConfirmHost from "./MergeConfirmHost.svelte";
   import { prBadgeStaleMarker } from "$lib/pr-ready";
   import PrBadgeMenu from "./PrBadgeMenu.svelte";
   import PrReviewRequestPopover from "./PrReviewRequestPopover.svelte";
@@ -67,16 +70,9 @@
     prUrl?: string;
   } | null>(null);
   let busy = $state(false);
-  let mergeArmed = $state(false);
-  let armTimer: ReturnType<typeof setTimeout> | undefined;
-
-  function disarmMerge() {
-    clearTimeout(armTimer);
-    mergeArmed = false;
-  }
+  const mergeFlow = new MergeConfirmFlow();
 
   function closeMenu() {
-    disarmMerge();
     menu = null;
   }
 
@@ -124,32 +120,27 @@
     window.open(git.url, "_blank", "noopener,noreferrer");
   }
 
-  // Two-tap arm (GitRail parity): the first click arms for 3s, the second merges.
-  async function doMerge() {
-    if (!sessionId || !canMerge) return;
-    if (!mergeArmed) {
-      mergeArmed = true;
-      clearTimeout(armTimer);
-      armTimer = setTimeout(() => (mergeArmed = false), 3000);
-      return;
-    }
-    disarmMerge();
-    const number = git?.number ?? 0;
-    busy = true;
-    try {
-      await mergePr(sessionId);
-      closeMenu();
-      toasts.info(m.prbadge_merged_toast({ number }), { key: `pr-merge:${sessionId}` });
-    } catch (err) {
-      toasts.info(
-        m.prbadge_merge_failed({
-          reason: err instanceof Error ? err.message : m.prbadge_unknown_error(),
-        }),
-        { alert: true, key: `pr-merge:${sessionId}` },
-      );
-    } finally {
-      busy = false;
-    }
+  // The merge itself is confirmed in MergeConfirmDialog (#2299) — this only opens it. The menu
+  // closes first, so the second click of a double-click on the item lands on nothing.
+  function doMerge() {
+    const id = sessionId;
+    const ctx = mergeConfirmFromGit(git);
+    if (!id || !canMerge || !ctx) return;
+    closeMenu();
+    mergeFlow.open(ctx, async (confirm) => {
+      try {
+        await mergePr(id, { deleteBranch: true, confirm });
+        toasts.info(m.prbadge_merged_toast({ number: ctx.number }), { key: `pr-merge:${id}` });
+      } catch (err) {
+        if (err instanceof MergeRefusedError) throw err; // the dialog re-states and stays open
+        toasts.info(
+          m.prbadge_merge_failed({
+            reason: err instanceof Error ? err.message : m.prbadge_unknown_error(),
+          }),
+          { alert: true, key: `pr-merge:${id}` },
+        );
+      }
+    });
   }
 
   async function toggleDraftState() {
@@ -224,7 +215,6 @@
     {canToggleDraft}
     showMerge={canMerge}
     showRequestReview={canRequestReview}
-    {mergeArmed}
     autoFocus={menu.autoFocus}
     {busy}
     onopen={openPr}
@@ -234,6 +224,8 @@
     onclose={closeMenu}
   />
 {/if}
+
+<MergeConfirmHost flow={mergeFlow} />
 
 {#if reviewPopover}
   <PrReviewRequestPopover

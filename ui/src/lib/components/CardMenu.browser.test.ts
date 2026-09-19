@@ -96,45 +96,14 @@ describe("CardMenu merge action", () => {
       .toBeInTheDocument();
   });
 
-  it("a single click arms (does NOT fire onmergepr) and a second click fires it once", async () => {
+  it("a single click fires onmergepr once — the confirmation lives in the merge dialog", async () => {
+    // The two-step arm this item used to carry was answerable by one double-click (#2299), so the
+    // item now only OPENS the merge confirmation, where the deliberate answer is given.
     const onmergepr = vi.fn();
     render(CardMenu, { props: base({ onmergepr }) });
 
-    const item = page.getByRole("menuitem", { name: m.prbadge_merge() });
-    await item.click();
-
-    // armed: label switched to the confirm text, callback NOT yet fired
-    expect(onmergepr).not.toHaveBeenCalled();
-    const confirm = page.getByRole("menuitem", { name: m.prbadge_confirm_merge() });
-    await expect.element(confirm).toBeInTheDocument();
-    // merge arms amber (positive), a distinct class from relaunch's red danger wash
-    await expect.element(confirm).toHaveClass(/\bmerge-armed\b/);
-
-    // second click within the window fires it exactly once
-    await confirm.click();
+    await page.getByRole("menuitem", { name: m.prbadge_merge() }).click();
     expect(onmergepr).toHaveBeenCalledTimes(1);
-  });
-
-  it("auto-disarms after the arm window without firing onmergepr", async () => {
-    vi.useFakeTimers();
-    try {
-      const onmergepr = vi.fn();
-      render(CardMenu, { props: base({ onmergepr }) });
-
-      await page.getByRole("menuitem", { name: m.prbadge_merge() }).click();
-      await expect
-        .element(page.getByRole("menuitem", { name: m.prbadge_confirm_merge() }))
-        .toBeInTheDocument();
-
-      // past the ~3s arm window → disarms back to the idle label (and drops the wash), no fire
-      vi.advanceTimersByTime(3500);
-      const idle = page.getByRole("menuitem", { name: m.prbadge_merge() });
-      await expect.element(idle).toBeInTheDocument();
-      await expect.element(idle).not.toHaveClass(/\bmerge-armed\b/);
-      expect(onmergepr).not.toHaveBeenCalled();
-    } finally {
-      vi.useRealTimers();
-    }
   });
 });
 

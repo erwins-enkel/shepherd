@@ -731,34 +731,26 @@ describe("GitRail — controls stay within the cell", () => {
   // distinct GitRail rail state — the component has no git.state === "draining"
   // branch. The widest real label is the armed merge-confirm text; that's the
   // actual overflow stressor the critic named.
-  it("mobile 360px — open, Merge armed → 'confirm ✓' stays one scroll row (key stressor)", async () => {
+  // #2299 moved the merge's confirmation out of the button (its label no longer swaps to a wider
+  // "confirm ✓"), so the stressor these two pin is now the steady-state open-PR rail.
+  it("mobile 360px — open PR rail stays one scroll row (key stressor)", async () => {
     gitStateFn.mockResolvedValue(openPrState);
     await page.viewport(400, 900);
     const h = host(360);
     const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: true } });
     await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
+    await expect.element(screen.getByRole("button", { name: /^Merge$/i })).toBeVisible();
 
-    // Arm the merge button by clicking it once (first click arms, second confirms).
-    const mergeBtn = screen.getByRole("button", { name: /^Merge$/i });
-    await mergeBtn.click();
-
-    // Wait for the armed label to appear.
-    await expect.element(screen.getByRole("button", { name: /confirm/i })).toBeVisible();
-
-    // Assert the now-armed "confirm ✓" button keeps the rail one scrollable row.
     assertControlsWithin(h);
   });
 
-  it("desktop 600px — open, Merge armed → 'confirm ✓' label fits in cell", async () => {
+  it("desktop 600px — open PR rail fits in cell", async () => {
     gitStateFn.mockResolvedValue(openPrState);
     await page.viewport(600, 900);
     const h = host(600);
     const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
     await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
-
-    const mergeBtn = screen.getByRole("button", { name: /^Merge$/i });
-    await mergeBtn.click();
-    await expect.element(screen.getByRole("button", { name: /confirm/i })).toBeVisible();
+    await expect.element(screen.getByRole("button", { name: /^Merge$/i })).toBeVisible();
 
     assertControlsWithin(h);
   });
@@ -1782,7 +1774,8 @@ describe("GitRail — post-merge decommission offer", () => {
     (pullMainAndToast as ReturnType<typeof vi.fn>).mockClear();
   });
 
-  // Helper: arm and confirm the merge button (two-click pattern used across the suite)
+  // Helper: open the merge confirmation and answer it (#2299). The dialog's confirm button is
+  // deliberately inert for a moment after it opens, so this waits for it to arm.
   async function armAndConfirmMerge(h: HTMLElement) {
     const mergeBtn = await vi.waitFor(() => {
       const btn = h.querySelector<HTMLButtonElement>("button.gbtn:not(.auto-pill)");
@@ -1790,11 +1783,13 @@ describe("GitRail — post-merge decommission offer", () => {
       return btn!;
     });
     mergeBtn.click();
-    await vi.waitFor(() => {
-      const btn = h.querySelector<HTMLButtonElement>("button.gbtn:not(.auto-pill)");
-      expect(btn?.textContent?.toLowerCase()).toMatch(/confirm/);
+    const confirm = await vi.waitFor(() => {
+      const btn = h.querySelector<HTMLButtonElement>("[role='dialog'] button.run");
+      expect(btn, "merge confirmation open").not.toBeNull();
+      expect(btn!.disabled, "confirm armed").toBe(false);
+      return btn!;
     });
-    h.querySelector<HTMLButtonElement>("button.gbtn:not(.auto-pill)")!.click();
+    confirm.click();
   }
 
   it("remote-forge merge (non-isolated) shows plain decommission offer with the merged session id", async () => {

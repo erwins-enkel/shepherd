@@ -23,6 +23,11 @@ export interface ReadyPr {
   title: string;
   url: string;
   repoPath: string;
+  /** Repo-configured responsibility when it is not the operator's (#2299) — carried so the
+   *  train's confirmation can say whose PRs it will work through. Display-only. */
+  handoff?: "reviewer" | "merger";
+  handoffWho?: string;
+  reviewBlockBy?: string;
 }
 
 /** Ready-to-merge sessions that currently have an OPEN PR — the merge-train
@@ -50,6 +55,8 @@ export function collectReadyPrs(
       title: g.title ?? "",
       url: g.url ?? "",
       repoPath: s.repoPath,
+      ...(g.handoff && g.handoffWho ? { handoff: g.handoff, handoffWho: g.handoffWho } : {}),
+      ...(g.reviewBlock ? { reviewBlockBy: g.reviewBlock.reviewer } : {}),
     });
   }
   return out;

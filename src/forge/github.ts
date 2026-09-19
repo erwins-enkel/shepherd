@@ -618,6 +618,8 @@ export class GithubForge implements GitForge {
       jobs: [],
       headSha: pr.head?.sha,
       headRefName,
+      baseRefName: pr.base?.ref ?? undefined,
+      mergeMethod: this.mergeMethod,
     };
   }
 
@@ -992,6 +994,8 @@ export class GithubForge implements GitForge {
           : undefined,
       headSha: p.headRefOid,
       headRefName: p.headRefName,
+      baseRefName: p.baseRefName,
+      mergeMethod: this.mergeMethod,
       // Undefined (not false) when not awaiting, matching the "absent ⇒ false"
       // convention the field documents and keeping it out of golden equality checks.
       awaitingWorkflowApproval:
@@ -1269,6 +1273,7 @@ export class GithubForge implements GitForge {
         .map((r) => r.login)
         .filter((l): l is string => !!l),
       deployConfigured,
+      mergeMethod: this.mergeMethod,
     };
   }
 
@@ -1362,6 +1367,7 @@ export class GithubForge implements GitForge {
         .map((r) => r.login ?? undefined)
         .filter((login): login is string => !!login),
       deployConfigured,
+      mergeMethod: this.mergeMethod,
     };
   }
 
@@ -1879,6 +1885,10 @@ export class GithubForge implements GitForge {
       o.method === "rebase" ? "--rebase" : o.method === "merge" ? "--merge" : "--squash";
     const args = ["pr", "merge", String(prNumber), "--repo", this.slug, method];
     if (o.deleteBranch) args.push("--delete-branch");
+    // Optimistic-concurrency guard (#2299): the host refuses the merge when the head moved since
+    // the operator confirmed it, so a push landing between dialog and confirm can never be merged
+    // unreviewed. The stacked path below carries the same guard as merge-async's `sha`.
+    if (o.expectedHeadSha) args.push("--match-head-commit", o.expectedHeadSha);
     await this.run(args);
   }
 
@@ -2065,8 +2075,11 @@ export class GithubForge implements GitForge {
       "-f",
       queued ? "merge_action=merge_queue" : `merge_method=${o.method}`,
     ];
-    // Optimistic-concurrency guard: the host rejects the merge if the head moved under us.
-    if (probe.sha) args.push("-f", `sha=${probe.sha}`);
+    // Optimistic-concurrency guard: the host rejects the merge if the head moved under us. The
+    // operator-confirmed revision (#2299) wins over the freshly probed one — the probe re-reads the
+    // head, so on its own it would happily guard a revision nobody confirmed.
+    const sha = o.expectedHeadSha ?? probe.sha;
+    if (sha) args.push("-f", `sha=${sha}`);
     try {
       return parseMergeAsyncBody(await this.run(args));
     } catch (err) {

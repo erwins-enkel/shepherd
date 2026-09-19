@@ -27,8 +27,13 @@
     retryCi,
     mergePr,
     interruptSession,
+    MergeRefusedError,
   } from "$lib/api";
   import { prMergeAvailable } from "./pr-badge";
+  import { basename } from "./learnings-drawer";
+  import { mergeConfirmFromGit } from "./merge-confirm";
+  import { MergeConfirmFlow } from "./merge-confirm-flow.svelte";
+  import MergeConfirmHost from "./MergeConfirmHost.svelte";
   import CardMenu from "./CardMenu.svelte";
   import TaskIdButton from "./TaskIdButton.svelte";
   import { longPress } from "./longpress";
@@ -723,23 +728,33 @@
       ctaBusy = false;
     }
   }
-  // Confirmed (second-tap) merge from the card menu — mirrors PrBadge.doMerge's API + toast
-  // contract, incl. the shared `pr-merge:${id}` key so a badge merge and a menu merge of the same
-  // session dedupe into one toast. The two-tap arm lives in CardMenu, so this only runs on confirm.
-  async function mergeFromMenu() {
+  // Merge from the card menu — mirrors PrBadge.doMerge's flow + toast contract, incl. the shared
+  // `pr-merge:${id}` key so a badge merge and a menu merge of the same session dedupe into one
+  // toast. One click: it only opens the merge confirmation (#2299).
+  const mergeFlow = new MergeConfirmFlow();
+  function mergeFromMenu() {
     menu = null;
-    const number = git?.number ?? 0;
-    try {
-      await mergePr(session.id);
-      toasts.info(m.prbadge_merged_toast({ number }), { key: `pr-merge:${session.id}` });
-    } catch (err) {
-      toasts.info(
-        m.prbadge_merge_failed({
-          reason: err instanceof Error ? err.message : m.prbadge_unknown_error(),
-        }),
-        { alert: true, key: `pr-merge:${session.id}` },
-      );
-    }
+    const ctx = mergeConfirmFromGit(git, basename(session.repoPath));
+    if (!ctx) return;
+    // Captured at dialog-open time: the confirmation is answered later, and the row's `session`
+    // prop can rebind in between.
+    const id = session.id;
+    mergeFlow.open(ctx, async (confirm) => {
+      try {
+        await mergePr(id, { deleteBranch: true, confirm });
+        toasts.info(m.prbadge_merged_toast({ number: ctx.number }), {
+          key: `pr-merge:${id}`,
+        });
+      } catch (err) {
+        if (err instanceof MergeRefusedError) throw err; // the dialog re-states and stays open
+        toasts.info(
+          m.prbadge_merge_failed({
+            reason: err instanceof Error ? err.message : m.prbadge_unknown_error(),
+          }),
+          { alert: true, key: `pr-merge:${id}` },
+        );
+      }
+    });
   }
   // "Stop agent" — a lone ESC to this session's pane (#1995). One click, no arm: it is exactly what
   // pressing Esc in the terminal does, and it is reversible (the operator can steer again at once).
@@ -1083,6 +1098,8 @@
 {:else}
   {@render row()}
 {/if}
+
+<MergeConfirmHost flow={mergeFlow} />
 
 {#if menu}
   <CardMenu

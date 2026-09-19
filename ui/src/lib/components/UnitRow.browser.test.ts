@@ -591,7 +591,7 @@ describe("UnitRow context menu", () => {
     await expect.element(page.getByText(m.cardmenu_replace_with())).not.toBeInTheDocument();
   });
 
-  it("offers Merge PR for a merge-eligible row; two-tap arm then merges via the session id", async () => {
+  it("offers Merge PR for a merge-eligible row; merges via the session id after confirming", async () => {
     render(UnitRow, {
       session: session({ id: "merge-row", name: "merge row" }),
       selected: false,
@@ -602,12 +602,18 @@ describe("UnitRow context menu", () => {
 
     openMenu("merge row");
 
-    // first click arms (no merge yet), second confirms
+    // the menu item only opens the merge confirmation (#2299)
     await page.getByRole("menuitem", { name: m.prbadge_merge() }).click();
     expect(mergePr).not.toHaveBeenCalled();
-    await page.getByRole("menuitem", { name: m.prbadge_confirm_merge() }).click();
 
-    expect(mergePr).toHaveBeenCalledWith("merge-row");
+    const confirm = page.getByRole("button", { name: m.mergeconfirm_confirm(), exact: true });
+    await expect.element(confirm).toBeEnabled();
+    await confirm.click();
+
+    expect(mergePr).toHaveBeenCalledWith(
+      "merge-row",
+      expect.objectContaining({ deleteBranch: true }),
+    );
     // The toast container isn't mounted in an isolated row render — assert on the store.
     await vi.waitFor(() =>
       expect(toasts.items.some((t) => t.text === m.prbadge_merged_toast({ number: 7 }))).toBe(true),

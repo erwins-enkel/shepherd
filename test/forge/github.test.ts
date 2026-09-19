@@ -724,6 +724,8 @@ test("GithubForge.listPullRequests: maps author, draft, mergeable, checks, jobs,
         author: "bob",
         submittedAt: Date.parse("2024-02-03T00:00:00Z"),
       },
+      // The method Shepherd would land it with — the merge confirmation names it (#2299).
+      mergeMethod: "squash",
     },
   ]);
   // open-only, capped query
@@ -2254,6 +2256,8 @@ const EXPECTED_PRS: PullRequest[] = [
     nonDefaultBase: undefined,
     headSha: "aaa111",
     headRefName: "feat/alpha",
+    baseRefName: "main",
+    mergeMethod: "squash",
   },
   {
     number: 2,
@@ -2271,6 +2275,8 @@ const EXPECTED_PRS: PullRequest[] = [
     nonDefaultBase: undefined,
     headSha: "bbb222",
     headRefName: "fix/beta",
+    baseRefName: "main",
+    mergeMethod: "squash",
   },
 ];
 
@@ -2303,6 +2309,7 @@ const EXPECTED_STATUSES: Map<string, PrStatus> = new Map([
       },
       requestedReviewers: ["carol"],
       deployConfigured: false,
+      mergeMethod: "squash",
     },
   ],
   [
@@ -2326,6 +2333,7 @@ const EXPECTED_STATUSES: Map<string, PrStatus> = new Map([
       reviewerStates: {} as Record<string, PrReviewerState>,
       requestedReviewers: [],
       deployConfigured: false,
+      mergeMethod: "squash",
     },
   ],
 ]);
@@ -2486,6 +2494,10 @@ test("listOpenPrSnapshot: REST fallback during GraphQL backoff maps PRs and avoi
         jobs: [],
         headSha: "sha9",
         headRefName: "feat/rest",
+        // Both must match the GraphQL mapper too, for the same reason as mergeStateStatus: the
+        // merge confirmation names the real target branch and method (#2299).
+        baseRefName: "main",
+        mergeMethod: "squash",
       },
     ]);
     expect(snap.statuses.get("feat/rest")).toMatchObject({

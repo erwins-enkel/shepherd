@@ -125,6 +125,7 @@ const PERSISTED_MERGE_STATES = new Set<unknown>([
   "unstable",
 ]);
 const PERSISTED_REVIEW_STATES = new Set<unknown>(["approved", "changes_requested", "commented"]);
+const PERSISTED_MERGE_METHODS = new Set<unknown>(["merge", "squash", "rebase"]);
 
 type FlatOptionalGitField = Exclude<
   keyof GitState,
@@ -178,6 +179,7 @@ const FLAT_OPTIONAL_GIT_FIELDS = {
   handoffWho: (value: unknown) => typeof value === "string",
   handoffInferred: (value: unknown) => typeof value === "boolean",
   issueUrl: isWebUrl,
+  mergeMethod: (value: unknown) => PERSISTED_MERGE_METHODS.has(value),
 } satisfies Record<FlatOptionalGitField, (value: unknown) => boolean>;
 
 function parsePersistedLatestReview(value: unknown): GitState["latestReview"] | null {

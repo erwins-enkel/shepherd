@@ -458,6 +458,11 @@ export interface PrStatus {
   >;
   /** true = PR is a draft / not ready-for-review. Absent ⇒ treat as false. */
   isDraft?: boolean;
+  /** The PR's actual base (target) branch ref name, e.g. "main" — the branch a merge really
+   *  lands on. Undefined when there is no PR, or on hosts that don't supply it. */
+  baseRefName?: string;
+  /** The method Shepherd would land this PR with (the forge's configured method). Display-only. */
+  mergeMethod?: MergeMethod;
 }
 
 /** Which kind of PR this is — drives the PRs tab type tag (mirrors server `PrKind`). */
@@ -497,6 +502,20 @@ export interface PullRequest {
    *  flavor; deployment-environment `waiting` gates are not detected). Drives the
    *  PRs-tab "needs approval" chip. Display-only. Absent ⇒ false. */
   awaitingWorkflowApproval?: boolean;
+  /** Head commit SHA. The merge confirmation binds the operator's confirmation to it. */
+  headSha?: string;
+  /** The PR's actual base (target) branch — unlike `nonDefaultBase`, always populated when the
+   *  host supplies it. The merge confirmation names it. */
+  baseRefName?: string;
+  /** The method Shepherd would land this PR with. Display-only. */
+  mergeMethod?: MergeMethod;
+  /** Who the repo's roles file puts on the hook for this PR, when it is not the operator
+   *  (server-stamped from `.shepherd/roles.json`; configured roles only, never inferred). */
+  handoff?: "reviewer" | "merger";
+  /** The responsible login (always set alongside `handoff`). */
+  handoffWho?: string;
+  /** The configured reviewer's login when they have active changes requested on this PR. */
+  reviewBlockBy?: string;
 }
 
 /** Result of fast-forwarding a repo's local default-branch checkout after a merge

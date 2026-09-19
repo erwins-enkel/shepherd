@@ -17,9 +17,18 @@ extension SessionStore {
   /// `EventName` or edit `ServerEvent.swift`: that switch is exhaustive and
   /// S0-owned, so every stream that touched it would collide with every other.
   public func events() -> AsyncStream<ServerEvent> {
-    let id = UUID()
     let (stream, continuation) = AsyncStream<ServerEvent>.makeStream(
       bufferingPolicy: .bufferingNewest(64))
+    // `stop()` already finished every continuation it knew about and will
+    // never run again; a tap registered afterward would sit in `eventTaps`
+    // with nothing left to broadcast to it or finish it, hanging the
+    // caller's `for await` forever. Finish it on the spot instead, so the
+    // stream a caller gets back is merely empty, not stuck.
+    guard !stopped else {
+      continuation.finish()
+      return stream
+    }
+    let id = UUID()
     // Runs on whatever executor ended the stream (a cancelled consumer, a
     // dropped iterator), so it hops back before touching main-actor state.
     continuation.onTermination = { [weak self] _ in

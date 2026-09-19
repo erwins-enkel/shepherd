@@ -14,8 +14,24 @@ export interface StreamBlocks {
 }
 
 const CONTRACT_PATH = join(import.meta.dir, "..", "..", "contracts", "openapi.yaml");
-const OPEN = /^#\s*──\s*stream:\s*([a-z]+)\s*──$/;
-const CLOSE = /^#\s*──\s*\/stream:\s*([a-z]+)\s*──$/;
+// A single literal space at each gap, not `\s*`: the grammar is meant to be exact, so a marker
+// with doubled internal whitespace is a mistake to catch, not a variant to tolerate.
+const OPEN = /^# ── stream: ([a-z]+) ──$/;
+const CLOSE = /^# ── \/stream: ([a-z]+) ──$/;
+const STREAM_NAME_SET: ReadonlySet<string> = new Set(STREAM_NAMES);
+
+/**
+ * Loosely matches any `#`-comment that is *trying* to be a marker — the right
+ * words in the right order, modulo case, dash count/character and internal
+ * whitespace — so a near-miss (`# ── STREAM: terminal ──`, a single `─`, a
+ * stray extra space) fails loudly instead of being read as an ordinary
+ * comment and silently dropping the block it was meant to open or close.
+ * Checked only once `OPEN`/`CLOSE` have already failed to match.
+ */
+function looksLikeMarker(trimmed: string): boolean {
+  const collapsed = trimmed.replace(/\s+/g, "").toLowerCase();
+  return /^#[─-]+\/?stream:[a-z]*[─-]+$/.test(collapsed);
+}
 
 /**
  * Parses the `# ── stream: <name> ──` blocks out of an OpenAPI document.
@@ -36,13 +52,20 @@ export function parseStreamBlocks(yaml: string): StreamBlocks {
   let section: "paths" | "schemas" | null = null;
   let open: string | null = null;
 
-  for (const line of yaml.split("\n")) {
+  const lines = yaml.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
     const trimmed = line.trim();
     if (trimmed === "") continue;
+    const lineNo = i + 1;
 
     const opened = OPEN.exec(trimmed);
     if (opened) {
-      open = opened[1]!;
+      const name = opened[1]!;
+      if (!STREAM_NAME_SET.has(name)) {
+        throw new Error(`line ${lineNo}: unknown stream "${name}" — not in STREAM_NAMES`);
+      }
+      open = name;
       continue;
     }
     const closed = CLOSE.exec(trimmed);
@@ -53,12 +76,19 @@ export function parseStreamBlocks(yaml: string): StreamBlocks {
       open = null;
       continue;
     }
-    if (trimmed.startsWith("#")) continue;
+    if (trimmed.startsWith("#")) {
+      if (looksLikeMarker(trimmed)) {
+        throw new Error(`line ${lineNo}: malformed stream marker: ${trimmed}`);
+      }
+      continue;
+    }
 
     // A column-0 key ends whatever section we were in.
     if (/^\S/.test(line)) {
+      if (open) {
+        throw new Error(`line ${lineNo}: stream block ${open} still open at "${trimmed}"`);
+      }
       section = line.startsWith("paths:") ? "paths" : null;
-      open = null;
       continue;
     }
     const twoSpace = /^ {2}([^\s:][^:]*):/.exec(line);
@@ -75,6 +105,10 @@ export function parseStreamBlocks(yaml: string): StreamBlocks {
     }
     const fourSpace = /^ {4}([^\s:][^:]*):/.exec(line);
     if (fourSpace && section === "schemas" && open) schemas.get(open)!.push(fourSpace[1]!);
+  }
+
+  if (open) {
+    throw new Error(`stream block ${open} still open at EOF`);
   }
 
   return { paths, schemas };

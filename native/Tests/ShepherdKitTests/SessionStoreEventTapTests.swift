@@ -97,6 +97,79 @@ struct SessionStoreEventTapTests {
     #expect(await other.value)
   }
 
+  @Test("events() on a stopped store finishes immediately instead of hanging")
+  func eventsOnStoppedStoreFinishImmediately() async throws {
+    let store = try makeStore()
+    store.stop()
+
+    // `stop()` already finished every continuation it knew about and will
+    // never run again, so a tap registered afterward must not sit around
+    // waiting for a broadcast or a finish that will never come.
+    var count = 0
+    for await _ in store.events() { count += 1 }
+    #expect(count == 0)
+  }
+
+  @Test("a tap unregisters once its reader is cancelled")
+  func tapUnregistersOnReaderCancellation() async throws {
+    let store = try makeStore()
+    let tap = store.events()
+    #expect(store.eventTaps.count == 1)
+
+    let reader = Task { @MainActor in
+      for await _ in tap {}
+    }
+    reader.cancel()
+
+    // Cancelling the reading task finishes the underlying `AsyncStream` for
+    // it, which runs `onTermination` and removes this tap's own entry —
+    // without touching any other tap the store may still have open.
+    #expect(try await eventually { store.eventTaps.isEmpty })
+  }
+
+  @Test("a modeled event, not just .unknown ones, reaches a tap")
+  func modeledEventReachesATap() async throws {
+    let store = try makeStore()
+    let tap = store.events()
+    let seen = EventBox()
+    let reader = Task { @MainActor in
+      for await event in tap {
+        seen.set(event)
+        break
+      }
+    }
+    defer { reader.cancel() }
+
+    let event = ServerEvent.sessionStatus(
+      Components.Schemas.SessionStatusEvent(
+        id: "s1", status: SessionStatus(known: .running), hasScratchpadFiles: nil))
+    store.apply(event)
+
+    #expect(try await eventually { seen.get() != nil })
+    #expect(seen.get() == event)
+  }
+
+  @Test("a tap observes state that already includes the event it just received")
+  func tapObservesStateAfterApply() async throws {
+    let store = try makeStore()
+    let tap = store.events()
+    let sawRow = BoolBox()
+    let reader = Task { @MainActor in
+      for await event in tap {
+        if case .sessionNew = event {
+          sawRow.set(store.sessions.contains { $0.id == "new-1" })
+        }
+        break
+      }
+    }
+    defer { reader.cancel() }
+
+    store.apply(.sessionNew(Fixtures.session(id: "new-1")))
+
+    #expect(try await eventually { sawRow.get() != nil })
+    #expect(sawRow.get() == true)
+  }
+
   /// Holds the first element a reader saw. `@unchecked Sendable` is not needed:
   /// the box is only ever touched from the main actor here.
   @MainActor
@@ -104,5 +177,14 @@ struct SessionStoreEventTapTests {
     private var value: ServerEvent?
     func set(_ event: ServerEvent) { if value == nil { value = event } }
     func get() -> ServerEvent? { value }
+  }
+
+  /// Holds one `Bool` a reader observed. Same shape as `EventBox`, for a test
+  /// that checks a fact about the store rather than the event itself.
+  @MainActor
+  private final class BoolBox {
+    private var value: Bool?
+    func set(_ observed: Bool) { if value == nil { value = observed } }
+    func get() -> Bool? { value }
   }
 }

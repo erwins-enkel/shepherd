@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
+  operationsForStream,
   operationTemplate,
   parseStreamBlocks,
   streamBlocks,
@@ -112,6 +113,59 @@ describe("stream-blocks helper", () => {
     expect(() => parseStreamBlocks(mismatched)).toThrow(/closed by actions/);
   });
 
+  test("an opener whose name is not in STREAM_NAMES is a parse error", () => {
+    const bogus = SYNTHETIC.replace(
+      "# ── stream: sidebar ──\n    Backlog:",
+      "# ── stream: nope ──\n    Backlog:",
+    );
+    expect(() => parseStreamBlocks(bogus)).toThrow(/unknown stream "nope"/);
+  });
+
+  test("an opener still open at the next column-0 key is a parse error", () => {
+    // Dedicated fixture, not a SYNTHETIC edit: SYNTHETIC's schema-section (4-space)
+    // and path-section (2-space) close markers for "sidebar" share the same text once
+    // the indent is stripped, so a plain string .replace can't remove just one.
+    const unclosed = `openapi: 3.1.0
+paths:
+  /api/health:
+    get:
+      operationId: getHealth
+  # ── stream: sidebar ──
+  /api/backlog:
+    get:
+      operationId: getBacklog
+x-shepherd-events:
+  description: nope
+`;
+    expect(() => parseStreamBlocks(unclosed)).toThrow(/stream block sidebar still open/);
+  });
+
+  test("an opener still open at EOF is a parse error", () => {
+    const unclosed = `openapi: 3.1.0
+paths:
+  # ── stream: sidebar ──
+  /api/backlog:
+    get:
+      operationId: getBacklog
+`;
+    expect(() => parseStreamBlocks(unclosed)).toThrow(/stream block sidebar still open at EOF/);
+  });
+
+  test("a marker-shaped comment that fails the exact grammar is a parse error, not a comment", () => {
+    // Wrong case.
+    expect(() =>
+      parseStreamBlocks(SYNTHETIC.replace("# ── stream: sidebar ──", "# ── STREAM: sidebar ──")),
+    ).toThrow(/malformed stream marker/);
+    // Wrong dash count (one dash instead of two).
+    expect(() =>
+      parseStreamBlocks(SYNTHETIC.replace("# ── stream: sidebar ──", "# ─ stream: sidebar ──")),
+    ).toThrow(/malformed stream marker/);
+    // Extra internal whitespace before the closing dashes.
+    expect(() =>
+      parseStreamBlocks(SYNTHETIC.replace("# ── stream: sidebar ──", "# ── stream: sidebar  ──")),
+    ).toThrow(/malformed stream marker/);
+  });
+
   test("operationTemplate strips the method and the status", () => {
     expect(operationTemplate("GET /api/sessions/{id} 200")).toBe("/api/sessions/{id}");
   });
@@ -128,5 +182,14 @@ describe("stream-blocks helper", () => {
   test("the real contract's blocks are all still empty on this branch", () => {
     expect(streamOwnedPaths().size).toBe(0);
     expect([...streamBlocks().paths.keys()].sort()).toEqual([...STREAM_NAMES].sort());
+  });
+
+  // Smoke test: operationsForStream runs against the real contract and harness, and — since
+  // every stream's block is still empty on this branch (asserted above) — returns nothing for
+  // any of them yet. A stream that fills its block in a later task will see this go non-empty.
+  test("operationsForStream runs against the real contract for every stream name", () => {
+    for (const stream of STREAM_NAMES) {
+      expect(operationsForStream(stream)).toEqual([]);
+    }
   });
 });

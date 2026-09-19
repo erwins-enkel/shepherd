@@ -74,7 +74,12 @@ public final class SessionStore {
   /// hand-driven `start()` has returned (a store built with `events: nil`
   /// bootstraps and returns), and in the second case a 401 on a later command
   /// still has to reach `connection`.
-  @ObservationIgnored private var stopped = false
+  ///
+  /// Not `private`: `SessionStore+EventTap.swift` reads it too, to refuse a
+  /// tap on a store that already finished every continuation in `stop()` —
+  /// registering one afterward would hand out a stream nothing ever broadcasts
+  /// to or finishes, hanging the caller's `for await` forever.
+  @ObservationIgnored var stopped = false
   /// The delay the *next* bootstrap retry will sleep for. Starts at
   /// `reconnectDelay`, doubles (capped at `maxReconnectDelay`) after every
   /// bootstrap attempt that fails, and resets to `reconnectDelay` once one
@@ -540,11 +545,6 @@ public final class SessionStore {
   }
 
   private func applyNow(_ event: ServerEvent) {
-    // Every frame the store applies, decoded or not, reaches the taps here —
-    // after the snapshot buffer has released it, so a tap consumer that reads
-    // `sessions` sees state that already includes this event.
-    broadcast(event)
-
     switch event {
     case .sessionNew(let session):
       addSession(session)
@@ -575,6 +575,12 @@ public final class SessionStore {
     case .unknown(let name, _):
       ShepherdLog.store.debug("ignoring event \(name, privacy: .public)")
     }
+
+    // Every frame the store applies, decoded or not, reaches the taps here —
+    // AFTER the switch above has mutated state, structurally: a tap consumer
+    // that reads `sessions` (or any other published property) the moment it
+    // receives this event sees state that already includes it.
+    broadcast(event)
   }
 
   /// Append on `session:new`, ignoring a duplicate id — a push can race the

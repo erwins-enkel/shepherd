@@ -82,6 +82,26 @@ actor LocalServerGate {
             workingDirectory: dir, environment: ["PATH": "/usr/bin:/bin"])
     }
 
+    /// Writes a `/bin/sh` script that prints the boot line only after
+    /// `delayMillis` of real sleep, so `act()`'s single post-`start()` read of
+    /// `capturedPassword` reliably misses it (V1) — a real bun boot line
+    /// reaching the pump loses that race in practice too, health being a
+    /// loopback HTTP round trip.
+    private func fakeScriptWithDelayedPassword(in dir: URL, delayMillis: Int) throws -> LocalServerLaunch {
+        let script = dir.appendingPathComponent("fake-late.sh")
+        let body = """
+            #!/bin/sh
+            sleep \(Double(delayMillis) / 1000.0)
+            echo 'Operator password (shown ONCE): late0123456789abcdefghijklmnop'
+            sleep 100
+            """
+        try body.write(to: script, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+        return LocalServerLaunch(
+            executable: URL(fileURLWithPath: "/bin/sh"), arguments: [script.path],
+            workingDirectory: dir, environment: ["PATH": "/usr/bin:/bin"])
+    }
+
     /// Yields until `condition` holds or the budget runs out. Everything under
     /// test here is main-actor work a yield lets run, so there is nothing to
     /// sleep for. Pattern: `settle` in AppModelTests.swift, kept local since
@@ -141,7 +161,7 @@ actor LocalServerGate {
         let app = freshApp()
         let model = LocalServerModel(
             environment: LocalServerEnvironment(home: home), probeExternal: { false })
-        model.capturedPassword = "Zx9_test-password-abcdefgh"
+        model.setCapturedPasswordForTesting("Zx9_test-password-abcdefgh")
 
         model.connect(app)
         #expect(app.sheet == .login(app.addLocalProfile()))
@@ -311,5 +331,81 @@ actor LocalServerGate {
             Issue.record("a stale refresh overwrote the running state with \(model.state)")
             return
         }
+    }
+
+    // MARK: - Task 7 fix wave (see task-7-fix-brief.md)
+
+    /// V1 (high): `act()` used to read `supervisor.capturedPassword` exactly
+    /// once, right after `start()` returned. A boot line that reaches the pump
+    /// *after* that read — plausible any time health resolves before the
+    /// child has flushed its first line — was silently lost forever. Every
+    /// later read that drains the log (`pullLog()`, and therefore `refresh()`
+    /// too) must also pick it up.
+    @Test func aLatePasswordLineStillSurfacesAfterHealthResolves() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let launch = try fakeScriptWithDelayedPassword(in: home, delayMillis: 150)
+        let model = LocalServerModel(
+            environment: LocalServerEnvironment(home: home),
+            probeExternal: { false },
+            health: { true },  // resolves immediately — well before the boot line
+            launch: { launch })
+
+        await model.start()
+        #expect(model.capturedPassword == nil)  // the boot line has not landed yet
+        guard case .running = model.state else {
+            Issue.record("expected .running, got \(model.state)")
+            return
+        }
+
+        var found = false
+        for _ in 0..<40 {
+            await model.refresh()
+            if model.capturedPassword != nil { found = true; break }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(found)
+        #expect(model.capturedPassword?.hasPrefix("late") == true)
+    }
+
+    /// M-1 (medium): `refresh()` used to write `state` unconditionally, so a
+    /// `.task` refresh landing mid-install (e.g. the panel reappearing) could
+    /// resolve to "not a checkout"/"stopped" and stomp `.installing` back
+    /// down while the installer was still genuinely running.
+    @Test func refreshDuringAnInstallCannotOverwriteInstallingState() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let gate = LocalServerGate()
+        let model = LocalServerModel(
+            environment: LocalServerEnvironment(home: home),
+            probeExternal: { false },
+            installer: { _, _ in await gate.wait(); return .success(()) })
+
+        let installTask = Task { await model.install() }
+        #expect(await settle(until: { model.busy }))
+        #expect(model.state == .installing)
+
+        await model.refresh()  // must be a no-op while busy
+        #expect(model.state == .installing)
+
+        await gate.open()
+        await installTask.value
+    }
+
+    /// M-4 (medium): `capturedPassword` is now production-write-only —
+    /// draining the supervisor is the one path allowed to set it. This
+    /// exercises `dismissCapturedPassword()`, the panel's dismiss (X) and its
+    /// one-shot Copy both route through it, using the `#if DEBUG` seam to set
+    /// up the notice without spinning up a real child.
+    @Test func dismissingTheCapturedPasswordClearsItWithoutConsumingIt() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let model = LocalServerModel(
+            environment: LocalServerEnvironment(home: home), probeExternal: { false })
+        model.setCapturedPasswordForTesting("Zx9_test-password-abcdefgh")
+
+        model.dismissCapturedPassword()
+
+        #expect(model.capturedPassword == nil)
+        // Dismissing is not the same as connecting: no pending password is
+        // handed to the login sheet.
+        #expect(model.takePendingPassword() == nil)
     }
 }

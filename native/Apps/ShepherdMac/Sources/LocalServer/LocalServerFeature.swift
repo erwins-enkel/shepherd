@@ -15,10 +15,10 @@ enum LocalServerFeature {
         WelcomeSlots.localPanel = { app in
             AnyView(LocalServerPanel(model: LocalServerModel.shared, app: app))
         }
-        // Lets the panel decide whether to offer "Sign in" for a live local
-        // store — see LocalServerSessionExtension.hasLiveStore. `register` is
-        // idempotent per type and also builds an instance immediately if a
-        // store is already active, exactly like `StreamRegistrations` expects.
+        // Gives a live local session its own per-store lifecycle hook (see
+        // LocalServerSessionExtension). `register` is idempotent per type and
+        // also builds an instance immediately if a store is already active,
+        // exactly like `StreamRegistrations` expects.
         app.register(LocalServerSessionExtension.self)
         guard !installed else { return }
         installed = true

@@ -58,4 +58,46 @@ import ShepherdKit
         #expect(LocalServerPanelState(state: .stopped, busy: false).statusText
                 == LocalServerCopy.label(for: .stopped))
     }
+
+    // MARK: - M-2 (task-7-fix-brief.md): buttons stay put while busy
+
+    /// `install()` sets `state` to `.installing` itself, synchronously, before
+    /// its awaited work even starts — so Install must stay on screen
+    /// (disabled) for that whole stretch rather than vanish because `busy` is
+    /// true.
+    @Test func installStaysVisibleButDisabledWhileInstalling() {
+        let state = LocalServerPanelState(state: .installing, busy: true)
+        #expect(state.showsInstall)
+        #expect(state.canInstall == false)
+    }
+
+    /// `act()` (the shared path behind start/stop/restart) does not update
+    /// `state` until the action finishes, so a `start()` in flight is still
+    /// `.stopped` the whole time it is `busy` — Start must stay visible,
+    /// merely disabled, instead of the row going empty mid-click.
+    @Test func startStaysVisibleButDisabledWhileBusy() {
+        let state = LocalServerPanelState(state: .stopped, busy: true)
+        #expect(state.showsStart)
+        #expect(state.canStart == false)
+    }
+
+    /// Same shape for a running server mid `stop()`/`restart()`: `state` is
+    /// still `.running` throughout, so Stop and Restart stay on screen.
+    @Test func stopAndRestartStayVisibleButDisabledWhileBusy() {
+        let state = LocalServerPanelState(state: .running(pid: 1), busy: true)
+        #expect(state.showsStop)
+        #expect(state.showsRestart)
+        #expect(state.canStop == false)
+        #expect(state.canRestart == false)
+    }
+
+    /// Not busy: visibility and enablement agree, matching every pre-existing
+    /// `canX` assertion above.
+    @Test func visibilityAndEnablementAgreeWhenIdle() {
+        let running = LocalServerPanelState(state: .running(pid: 1), busy: false)
+        #expect(running.showsStop == running.canStop)
+        #expect(running.showsRestart == running.canRestart)
+        let stopped = LocalServerPanelState(state: .stopped, busy: false)
+        #expect(stopped.showsStart == stopped.canStart)
+    }
 }

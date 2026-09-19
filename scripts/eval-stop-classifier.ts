@@ -248,6 +248,11 @@ export const FIXTURES: Fixture[] = [
     // abstract instruction about the model's own confidence into a positive no-ask test — and
     // re-measured 27/27 = 100% across two runs at T=9. The fixture gates again on that evidence,
     // not on the assumption that a fix worked.
+    //
+    // That 27/27 predated the `unrecognised` tally, so a German-TRANSLATED `kind` would have scored
+    // as a correct abstain on this very fixture (see `SPEC.score`). #2368 re-ran the German leg
+    // under the fixed scorer: 27/27 unknown again, pooled over three T=9 runs, `unrecognised` 0.
+    // The gating promotion rests on a measurement that could have failed.
     gating: true,
     trials: 9,
     lang: "de",

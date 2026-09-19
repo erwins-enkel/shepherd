@@ -484,6 +484,36 @@ the same `JEV_API_KEY`, the same model and the same daily ceiling, so its calls 
 | `SHEPHERD_BLOCK_JUDGE` | `off` | `off` \| `shadow` \| `armed`. Inert without `JEV_API_KEY`. Anything unrecognised reads as `off`. Seeds a fresh DB; persisted + UI-configurable (Settings → Session) |
 | `SHEPHERD_BLOCK_JUDGE_LOG_RETENTION_DAYS` | `14` | How many days of backstop decision rows the daily sweep keeps (1–365). Shorter than the spend table's window because these rows carry terminal tails |
 
+### House rules for this task only
+
+A third place the decision model can be pointed at, and also off by default. Shepherd injects
+this repo's **house rules** into every agent's system prompt. Rules that carry a file-scope pattern
+are already filtered against the files the task names; a rule with no pattern is sent to every
+session whether or not it has anything to do with the request. With this on, Shepherd asks the
+decision model — once per session, one request covering every candidate rule at once — which rules
+the request is actually about, and leaves the rest out.
+
+It can only **subtract**. A rule the file-scope filter already gated out stays gated; a rule the
+model is unsure about is sent. On any failure — unarmed, over the daily ceiling, a transport error,
+a timeout — the full set is sent, which is exactly the behaviour without the feature.
+
+What leaves the machine is the same class of thing the stop classifier already sends: the task
+prompt, the attached issue's title and body, the file paths named in them, and each candidate
+rule's one-line text — clipped, and only to the configured `SHEPHERD_JUDGE_BASE_URL`. No file
+contents and no diff.
+
+Start on `shadow`: it asks and records the verdicts without acting on any of them, so the numbers
+that justify turning on `enforce` come from your own sessions. Each rule's running hit rate shows
+up in the **Learnings drawer** beside its help rate, and every verdict's raw probability is stored,
+so the drop threshold can be re-tuned against history rather than guessed again.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `SHEPHERD_HOUSE_RULE_RELEVANCE` | `off` | `off` \| `shadow` (ask + record, change nothing) \| `enforce` (drop the rules judged irrelevant). Needs the judge armed. Seeds a fresh DB; persisted + UI-configurable (Settings → Session) |
+| `SHEPHERD_LEARNINGS_RELEVANCE_DROP_BELOW` | `0.35` | Drop a rule only when the probability the request is about it falls **below** this. Asymmetric on purpose — uncertainty keeps the rule. Clamped to `[0,1]`, so a percent-for-probability typo (`35`) cannot put the threshold above every possible probability and empty the block |
+| `SHEPHERD_LEARNINGS_RELEVANCE_MAX` | `32` | Most candidate rules one call may ask about. Overflow is injected unjudged, never dropped |
+| `SHEPHERD_LEARNINGS_RELEVANCE_RETENTION_DAYS` | `90` | How many days of relevance verdicts the daily sweep keeps (1–3650). They deliberately outlive their session, so this sweep is the only thing that removes one |
+
 ## Maintain loop (self-health bands)
 
 Opt-in, default-off, and fully inert when off. Once per local day Shepherd scores four

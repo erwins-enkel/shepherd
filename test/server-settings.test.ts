@@ -1262,3 +1262,40 @@ test("PUT blockJudgeMode rejects anything off-enum rather than coercing", async 
     config.blockJudgeMode = prev;
   }
 });
+
+test("PUT houseRuleRelevance accepts the three modes and persists", async () => {
+  const { app, store } = harness();
+  const prev = config.houseRuleRelevance;
+  try {
+    for (const mode of ["shadow", "enforce", "off"] as const) {
+      expect(await (await put(app, { houseRuleRelevance: mode })).json()).toEqual({
+        houseRuleRelevance: mode,
+      });
+      expect(config.houseRuleRelevance).toBe(mode);
+      expect(store.getSetting("houseRuleRelevance")).toBe(mode);
+    }
+  } finally {
+    config.houseRuleRelevance = prev;
+  }
+});
+
+test("PUT houseRuleRelevance rejects anything off-enum", async () => {
+  const { app } = harness();
+  const prev = config.houseRuleRelevance;
+  try {
+    // Case matters: the value is compared literally, and a stored "Enforce" would silently read as
+    // "off" on the next boot while looking armed in the settings row.
+    for (const bad of ["Enforce", "on", true, 1, "", null]) {
+      expect((await put(app, { houseRuleRelevance: bad })).status).toBe(400);
+    }
+    expect(config.houseRuleRelevance).toBe(prev);
+  } finally {
+    config.houseRuleRelevance = prev;
+  }
+});
+
+test("GET /api/settings reports the relevance mode", async () => {
+  const { app } = harness();
+  const body = await (await app.fetch(new Request("http://x/api/settings"))).json();
+  expect(body.houseRuleRelevance).toBe(config.houseRuleRelevance);
+});

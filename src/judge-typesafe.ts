@@ -77,7 +77,12 @@ function attemptTimeoutMs(deadlineMs: number): number {
 }
 
 function toSdkQuestion(q: JudgeQuestion): SdkQuestion {
-  return q.type === "choice" ? sdkChoice(q.instructions, q.criteria) : sdkNoul(q.instructions);
+  // A noul's `criteria` is optional at the seam and optional in the SDK, so an absent one rides as
+  // `undefined` and JSON-drops — a caller shipping a verbatim prompt gets the byte-identical
+  // request it got before the field existed.
+  return q.type === "choice"
+    ? sdkChoice(q.instructions, q.criteria)
+    : sdkNoul(q.instructions, q.criteria);
 }
 
 function fromSdkAnswer(name: string, answer: ChoiceResponse | NoulResponse): JudgeAnswer {

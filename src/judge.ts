@@ -36,10 +36,18 @@ export interface JudgeChoiceQuestion<L extends string = string> {
   criteria: Readonly<Record<L, string | null>>;
 }
 
-/** A yes/no judgement. Answered as a probability, never as a boolean — see contract 2 above. */
+/** A yes/no judgement. Answered as a probability, never as a boolean — see contract 2 above.
+ *
+ *  `criteria` describes the two outcomes. It is OPTIONAL because a question with an incumbent,
+ *  already-tuned prompt behind it should carry that prompt verbatim instead (#2364 measured
+ *  verbatim beating a purpose-authored framing for the stop classifier). Where no incumbent exists
+ *  the described form is the better starting point, and `criteria.false` in particular is the
+ *  anti-overreach slot for the vendor's documented "literal reading" failure mode — it says what
+ *  the question is NOT asking, which a one-line `instructions` string has no room to. */
 export interface JudgeNoulQuestion {
   type: "noul";
   instructions: string;
+  criteria?: { true?: string; false?: string };
 }
 
 export type JudgeQuestion = JudgeChoiceQuestion | JudgeNoulQuestion;

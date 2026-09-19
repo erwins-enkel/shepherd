@@ -40,6 +40,9 @@ describe("the Session section's searchable rows mirror the panel", () => {
     // once however many of its strings hit, so carrying both keeps it findable either way.
     expect(matchCount(rows, "frees subscription quota")).toBe(1);
     expect(matchCount(rows, "keeps using a Claude agent spawn")).toBe(1);
+    // THREE key-gated rows now point at the same credential file — the judge toggle, the
+    // blocked-pane backstop and the house-rule relevance gate — and each must be findable by it.
+    expect(matchCount(rows, "~/.shepherd/env")).toBe(3);
   });
 
   it("finds the blocked-pane backstop row by title and by either hint", () => {
@@ -47,7 +50,13 @@ describe("the Session section's searchable rows mirror the panel", () => {
     expect(matchCount(rows, "Blocked-pane double check")).toBe(1);
     expect(matchCount(rows, "just text the agent printed")).toBe(1);
     expect(matchCount(rows, "panes are announced exactly as they are today")).toBe(1);
-    // Both key-gated rows point at the same credential file, so this finds two.
-    expect(matchCount(rows, "~/.shepherd/env")).toBe(2);
+  });
+
+  it("finds the house-rule relevance row by title and by either hint", () => {
+    const rows = sessionRows();
+    expect(matchCount(rows, "House rules for this task only")).toBe(1);
+    // Same dual-hint contract as the judge toggle: the row renders whichever matches the key state.
+    expect(matchCount(rows, "leave the rest out of the agent")).toBe(1);
+    expect(matchCount(rows, "Needs the fast stop classifier turned on")).toBe(1);
   });
 });

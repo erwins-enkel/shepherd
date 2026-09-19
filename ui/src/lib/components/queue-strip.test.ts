@@ -19,7 +19,14 @@ import {
 } from "./queue-strip";
 import type { RepoChip } from "./queue-strip";
 import type { BlockState } from "../triage";
-import type { AutoMergeStatus, DrainStatus, Learning, RepoInjectable, Session } from "../types";
+import type {
+  AutoMergeStatus,
+  DrainStatus,
+  InjectableRule,
+  Learning,
+  RepoInjectable,
+  Session,
+} from "../types";
 
 function drain(over: Partial<DrainStatus>): DrainStatus {
   return {
@@ -60,11 +67,8 @@ function learning(over: Partial<Learning>): Learning {
   };
 }
 
-function rule(
-  injected: boolean,
-  scoped = false,
-): Learning & { injected: boolean; scoped: boolean } {
-  return { ...learning({}), injected, scoped };
+function rule(injected: boolean, scoped = false): InjectableRule {
+  return { ...learning({}), injected, scoped, relevanceJudged: 0, relevanceRelevant: 0 };
 }
 
 function injectable(over: Partial<RepoInjectable>): RepoInjectable {

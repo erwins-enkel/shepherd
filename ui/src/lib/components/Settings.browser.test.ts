@@ -138,6 +138,7 @@ function settings(over: Partial<SettingsPayload> = {}): SettingsPayload {
     judgeHasKey: false,
     judgeDailyUsd: 1,
     blockJudgeMode: "off" as const,
+    houseRuleRelevance: "off",
     docAgentAct: true,
     ...over,
   };

@@ -1,6 +1,7 @@
 import type {
   Session,
   CreateInput,
+  HouseRuleRelevanceMode,
   HeldTask,
   HeldResult,
   RepoEntry,
@@ -403,6 +404,13 @@ export const putBlockJudgeMode = (
   mode: "off" | "shadow" | "armed",
 ): Promise<{ blockJudgeMode: "off" | "shadow" | "armed" }> =>
   patchSettings({ blockJudgeMode: mode });
+
+// Arm the house-rule relevance gate (#2376). Takes effect on the next spawn; `shadow` records what
+// the judge would have dropped without dropping it.
+export const putHouseRuleRelevance = (
+  mode: HouseRuleRelevanceMode,
+): Promise<{ houseRuleRelevance: HouseRuleRelevanceMode }> =>
+  patchSettings({ houseRuleRelevance: mode });
 
 // Toggle the global reduced-notifications mode (only ready-after-5s + cost alerts when on).
 export const putReducedPushMode = (enabled: boolean): Promise<{ reducedPushMode: boolean }> =>

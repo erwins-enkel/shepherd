@@ -99,6 +99,36 @@ test("the pinned model and configured base URL are what actually go on the wire"
   });
 });
 
+test("a noul's optional criteria reach the wire, and an absent one leaves the payload untouched", async () => {
+  const bodies: Record<string, unknown>[] = [];
+  const j = judge(async (_url, init) => {
+    bodies.push(JSON.parse(String(init?.body)));
+    return jsonResponse({
+      model: MODEL,
+      answers: { q: { type: "noul", noul: 0.5 } },
+      usage: { input_tokens: 1, output_tokens: 0 },
+    });
+  });
+
+  await j.ask("s", {
+    q: { type: "noul", instructions: "about billing?", criteria: { true: "YES", false: "NO" } },
+  });
+  expect((bodies[0] as { questions: unknown }).questions).toEqual({
+    q: { type: "noul", instructions: "about billing?", criteria: { true: "YES", false: "NO" } },
+  });
+
+  // Without criteria the request must be byte-identical to what it was before the field existed:
+  // the incumbent-prompt callers (#2364) ship their prompt verbatim and must not gain a key.
+  await j.ask("s", { q: { type: "noul", instructions: "about billing?" } });
+  expect((bodies[1] as { questions: unknown }).questions).toEqual({
+    q: { type: "noul", instructions: "about billing?" },
+  });
+  expect(Object.keys((bodies[1] as { questions: Record<string, object> }).questions.q!)).toEqual([
+    "type",
+    "instructions",
+  ]);
+});
+
 test("a noul answers to a probability and nothing else", async () => {
   const result = await judge(async () =>
     jsonResponse({

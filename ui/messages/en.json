@@ -4149,5 +4149,15 @@
   "native_banner_unhealthy": "{server} answered but reports a problem. Retrying.",
   "native_welcome_saved_remove_confirm_title": "Remove {server}?",
   "native_welcome_saved_remove_confirm_body": "The saved sign-in for this server will be revoked and deleted from the Keychain.",
-  "native_welcome_saved_remove_confirm_action": "Remove"
+  "native_welcome_saved_remove_confirm_action": "Remove",
+  "settings_house_rule_relevance_label": "House rules for this task only",
+  "settings_house_rule_relevance_hint": "Before a session starts, ask the decision model which of this repo's house rules the request is actually about, and leave the rest out of the agent's prompt. Today only rules with a file-scope pattern are filtered, and rules without one are sent every time. Costs one metered call per session, counted against the daily limit above. Start on Record only: it asks and records, changes nothing, and gives you the numbers to decide with. On any error the full set is sent, so nothing is lost.",
+  "settings_house_rule_relevance_no_key_hint": "Needs the fast stop classifier turned on, which needs a decision-model API key in ~/.shepherd/env. Until then every house rule is sent to every session, as before.",
+  "settings_house_rule_relevance_off": "Off",
+  "settings_house_rule_relevance_shadow": "Record only",
+  "settings_house_rule_relevance_enforce": "Filter rules",
+  "settings_house_rule_relevance_save_failed": "Couldn't change the house-rule relevance setting. Retry.",
+  "feat_house_rule_relevance_title": "Send an agent only the house rules its task is about",
+  "feat_house_rule_relevance_body": "Every session used to receive every house rule that had no file-scope pattern, whether or not it had anything to do with the task. Settings → Session → \"House rules for this task only\" now asks the decision model, once per session, which rules the request is actually about, and leaves the rest out of the prompt. Start on \"Record only\": it asks and logs what it would have dropped without dropping anything, and each rule's hit rate shows up in the Learnings drawer so you can decide from your own sessions. Off by default; on any error the full set is sent.",
+  "learnings_relevance_rate": "relevant {relevant}/{judged}"
 }

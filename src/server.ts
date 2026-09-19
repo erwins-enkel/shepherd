@@ -22,6 +22,7 @@ import {
   releaseSpawn,
 } from "./spawn-progress";
 import { LearningsService } from "./learnings-service";
+import { isRelevanceMode } from "./house-rules-relevance";
 import { RepoConfigService } from "./repo-config-service";
 import {
   BLOCK_JUDGE_MODES,
@@ -5617,6 +5618,9 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       // #2375: the blocked-pane backstop's own mode. Shares `judgeHasKey` above — it rides the same
       // client and the same ceiling — but is armed separately.
       blockJudgeMode: config.blockJudgeMode,
+      // house-rule relevance (#2376): off | shadow | enforce. Inert unless the judge is armed, which
+      // `judgeEnabled` + `judgeHasKey` above let the client say out loud.
+      houseRuleRelevance: config.houseRuleRelevance,
       ...telemetrySettings(deps.telemetry),
     });
   }
@@ -5690,6 +5694,7 @@ const SETTING_PATCHES: [string, (value: unknown, deps: Ctx["deps"]) => Response]
   ["judgeEnabled", putJudgeEnabled],
   ["judgeDailyUsd", putJudgeDailyUsd],
   ["blockJudgeMode", putBlockJudgeMode],
+  ["houseRuleRelevance", putHouseRuleRelevance],
   ["tuiFullscreen", putTuiFullscreen],
   ["tuiDisableMouse", putTuiDisableMouse],
   ["telemetryConsent", putTelemetryConsent],
@@ -6003,6 +6008,17 @@ function putBlockJudgeMode(value: unknown, deps: Ctx["deps"]): Response {
   config.blockJudgeMode = value;
   deps.store.setSetting("blockJudgeMode", value);
   return json({ blockJudgeMode: config.blockJudgeMode });
+}
+
+/** Arm the house-rule relevance gate (#2376). Takes effect on the next spawn: `recordInjectedHouseRules`
+ *  reads the live config value, so a change never touches a session already running. */
+function putHouseRuleRelevance(value: unknown, deps: Ctx["deps"]): Response {
+  if (!isRelevanceMode(value)) {
+    return json({ error: "houseRuleRelevance must be one of off, shadow, enforce" }, 400);
+  }
+  config.houseRuleRelevance = value;
+  deps.store.setSetting("houseRuleRelevance", value);
+  return json({ houseRuleRelevance: config.houseRuleRelevance });
 }
 
 function putUsageHoldPct(value: unknown, deps: Ctx["deps"]): Response {

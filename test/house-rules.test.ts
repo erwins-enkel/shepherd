@@ -11,6 +11,7 @@ import {
   normalizeExtractedPath,
   normalizeGlob,
   learningMatchesScope,
+  candidateRules,
 } from "../src/house-rules";
 import type { Learning } from "../src/types";
 
@@ -442,4 +443,59 @@ test("planHouseRulesInjection: Always-rules are packed before matched-scoped (ne
   expect(injectedIds).toEqual(["a1", "a2"]);
   expect(plan.dropped.every((r) => r.id.startsWith("s"))).toBe(true);
   expect(plan.dropped.length).toBe(6);
+});
+
+// ── relevance gate (#2376) ─────────────────────────────────────────────────────
+
+test("candidateRules is the planner's own split, so the two can't disagree about a rule", () => {
+  const always = rule({ id: "always", scopeGlobs: [] });
+  const match = rule({ id: "m", scopeGlobs: ["src/**"] });
+  const nomatch = rule({ id: "n", scopeGlobs: ["ui/**"] });
+  const paths = ["src/foo.ts"];
+
+  const split = candidateRules([always, match, nomatch], paths);
+  expect(split.candidates.map((r) => r.id)).toEqual(["always", "m"]);
+  expect(split.gated.map((r) => r.id)).toEqual(["n"]);
+
+  // The planner's own buckets must be exactly that split (order aside — it prioritizes).
+  const plan = planHouseRulesInjection([always, match, nomatch], 10_000, undefined, paths);
+  expect([...plan.injected, ...plan.dropped, ...plan.judgedOut].map((r) => r.id).sort()).toEqual(
+    split.candidates.map((r) => r.id).sort(),
+  );
+  expect(plan.scoped.map((r) => r.id)).toEqual(split.gated.map((r) => r.id));
+});
+
+test("judgedOut rules never inject and never cost budget", () => {
+  const a = rule({ id: "a", rule: "AAAA", scopeGlobs: [] });
+  const b = rule({ id: "b", rule: "BBBB", scopeGlobs: [] });
+  const bare = planHouseRulesInjection([a, b], 10_000);
+  const gated = planHouseRulesInjection([a, b], 10_000, undefined, undefined, {
+    judgedOutIds: new Set(["b"]),
+  });
+
+  expect(gated.injected.map((r) => r.id)).toEqual(["a"]);
+  expect(gated.judgedOut.map((r) => r.id)).toEqual(["b"]);
+  // Not over-budget — it is gated, exactly like a scope-gated rule.
+  expect(gated.dropped).toEqual([]);
+  // usedChars falls by exactly that rule's rendered cost.
+  expect(bare.usedChars - gated.usedChars).toBe(("- " + b.rule + "\n").length);
+});
+
+test("the judge can only subtract: a scope-gated rule never reappears via judgedOutIds", () => {
+  const nomatch = rule({ id: "n", scopeGlobs: ["ui/**"] });
+  // An id the judge never saw (it is not a candidate) must not move it out of `scoped`.
+  const plan = planHouseRulesInjection([nomatch], 10_000, undefined, ["src/foo.ts"], {
+    judgedOutIds: new Set(["n"]),
+  });
+  expect(plan.scoped.map((r) => r.id)).toEqual(["n"]);
+  expect(plan.judgedOut).toEqual([]);
+});
+
+test("an empty/absent judgedOutIds plans exactly as it did before the gate existed", () => {
+  const rules = [rule({ id: "a", scopeGlobs: [] }), rule({ id: "b", scopeGlobs: ["src/**"] })];
+  const before = planHouseRulesInjection(rules, 10_000, 0, ["src/x.ts"]);
+  const empty = planHouseRulesInjection(rules, 10_000, 0, ["src/x.ts"], {
+    judgedOutIds: new Set(),
+  });
+  expect(empty).toEqual({ ...before, judgedOut: [] });
 });

@@ -36,6 +36,38 @@ test case matters: it is what actually pins the narrow behavior down.
 that exercises every declared status. Run `bun run test:contract` and `bun run gen:contract-swift`,
 and commit the regenerated `openapi.swift.yaml` alongside your change.
 
+## Stream blocks — three per stream
+
+Milestone 2 is built by four parallel streams (`terminal`, `detail`, `sidebar`, `actions`), and
+each owns a marked block in **all three** extensible sections of `openapi.yaml`:
+
+| Section               | What goes in the block         |
+| --------------------- | ------------------------------ |
+| `components.schemas:` | the stream's component schemas |
+| `paths:`              | the stream's path templates    |
+| `x-shepherd-events:`  | the stream's `/events` frames  |
+
+```yaml
+# ── stream: sidebar ──
+# ── /stream: sidebar ──
+```
+
+One grammar for all three: a single literal space at each gap, the four streams always in the
+order above, the blocks last in their section. Appending inside your own block turns two branches
+that both add surface into an insertion conflict resolved by keeping both blocks, rather than a
+fight over the same trailing lines. `test/contract/stream-blocks.ts` parses them out of the raw
+text (a YAML parse drops comments) and `test/contract/stream-blocks.test.ts` guards the markers:
+they must be balanced, never nested, and every one of the twelve pairs must be present and in
+order. **Never edit another stream's block, and never add surface outside one if you are a
+stream.**
+
+Coverage is split along the same line. The gate at the end of `openapi.test.ts` polices only what
+sits **outside** the markers — `streamOwnedPaths()` and `streamOwnedEvents()` are subtracted from
+it — because Bun runs test files in filesystem order and this file may run before a stream's own.
+A stream covers its own block from its own `test/contract/<stream>.test.ts`, ending it with a gate
+over `operationsForStream("<stream>")` and `eventsForStream("<stream>")`, and exercising every
+status it declares — 401 included — from that same file.
+
 ## Generator compatibility
 
 There are two files here and they are not interchangeable:

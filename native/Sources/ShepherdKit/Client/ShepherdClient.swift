@@ -19,7 +19,13 @@ public final class ShepherdClient: Sendable {
   /// pending coalesce into a single buffered element rather than piling up.
   public let needsLogin: AsyncStream<Void>
 
-  private let generated: Client
+  /// The generated client, `internal` on purpose: the per-stream wrappers
+  /// (`ShepherdClient+Terminal.swift`, `+Detail.swift`, `+Backlog.swift`,
+  /// `+Actions.swift`) live in other files of THIS module and could not reach a
+  /// `private` property. Never `public` — the whole point of this type is that
+  /// callers outside the kit never see generated `Output` cases. The guard that
+  /// it stays exactly here is `GeneratedClientVisibilityTests`.
+  let generated: Client
   private let credentials: any CredentialStore
   private let needsLoginContinuation: AsyncStream<Void>.Continuation
 

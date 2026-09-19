@@ -1,4 +1,5 @@
 import Foundation
+import OpenAPIRuntime
 
 /// One decoded `/events` frame.
 ///
@@ -22,7 +23,13 @@ public enum ServerEvent: Decodable, Equatable, Sendable {
   /// not list, or a listed name whose payload would not decode. Ignored by
   /// the store, never an error: the server emits many events the native
   /// client does not use yet, and one bad frame must not kill the stream.
-  case unknown(name: String)
+  ///
+  /// `payload` is the frame's `data` re-encoded as JSON, or `nil` when the
+  /// frame carried none. It is how a parallel stream reads an event its own
+  /// contract block declares — match the raw `name`, then decode `payload`
+  /// into the generated schema — without adding a case to `EventName` and the
+  /// exhaustive switch below, which every stream would then have to edit.
+  case unknown(name: String, payload: Data?)
 
   private enum CodingKeys: String, CodingKey {
     case event, data
@@ -38,32 +45,43 @@ public enum ServerEvent: Decodable, Equatable, Sendable {
       try? container.decode(type, forKey: .data)
     }
 
+    /// The `data` member as JSON bytes. Decoded through
+    /// `OpenAPIValueContainer` — the runtime's any-JSON box — because a keyed
+    /// container hands out decoded values, never the original bytes.
+    func rawPayload() -> Data? {
+      guard let value = try? container.decode(OpenAPIValueContainer.self, forKey: .data)
+      else { return nil }
+      return try? JSONEncoder().encode(value)
+    }
+
     switch name.known {
     case .session_colon_new:
-      self = payload(Session.self).map(ServerEvent.sessionNew) ?? .unknown(name: name.rawValue)
+      self =
+        payload(Session.self).map(ServerEvent.sessionNew)
+        ?? .unknown(name: name.rawValue, payload: rawPayload())
     case .session_colon_status:
       self = payload(Components.Schemas.SessionStatusEvent.self).map(ServerEvent.sessionStatus)
-        ?? .unknown(name: name.rawValue)
+        ?? .unknown(name: name.rawValue, payload: rawPayload())
     case .session_colon_renamed:
       self = payload(Components.Schemas.SessionRenamedEvent.self).map(ServerEvent.sessionRenamed)
-        ?? .unknown(name: name.rawValue)
+        ?? .unknown(name: name.rawValue, payload: rawPayload())
     case .session_colon_archived:
       self = payload(Components.Schemas.SessionArchivedEvent.self).map(ServerEvent.sessionArchived)
-        ?? .unknown(name: name.rawValue)
+        ?? .unknown(name: name.rawValue, payload: rawPayload())
     case .session_colon_block:
       self = payload(Components.Schemas.SessionBlockEvent.self).map(ServerEvent.sessionBlock)
-        ?? .unknown(name: name.rawValue)
+        ?? .unknown(name: name.rawValue, payload: rawPayload())
     case .session_colon_ready:
       self = payload(Components.Schemas.SessionReadyEvent.self).map(ServerEvent.sessionReady)
-        ?? .unknown(name: name.rawValue)
+        ?? .unknown(name: name.rawValue, payload: rawPayload())
     case .automerge_colon_status:
       self = payload(Components.Schemas.AutoMergeStatus.self).map(ServerEvent.automergeStatus)
-        ?? .unknown(name: name.rawValue)
+        ?? .unknown(name: name.rawValue, payload: rawPayload())
     case .usage_colon_limits:
       self = payload(Components.Schemas.UsageLimits.self).map(ServerEvent.usageLimits)
-        ?? .unknown(name: name.rawValue)
+        ?? .unknown(name: name.rawValue, payload: rawPayload())
     case nil:
-      self = .unknown(name: name.rawValue)
+      self = .unknown(name: name.rawValue, payload: rawPayload())
     }
   }
 }

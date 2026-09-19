@@ -114,6 +114,20 @@ struct MainWindow: View {
     }
 
     private var sidebar: some View {
+        Group {
+            if let content = SidebarSlot.content {
+                content(model)
+            } else {
+                builtInSessionList
+            }
+        }
+        .navigationTitle(L.t("native_sidebar_title"))
+        .accessibilityIdentifier("session-sidebar")
+    }
+
+    /// The flat list Gate 2 shipped. S3 replaces it through `SidebarSlot`; it
+    /// stays as the fallback so the app works on a branch without that stream.
+    private var builtInSessionList: some View {
         @Bindable var model = model
 
         return Group {
@@ -125,8 +139,6 @@ struct MainWindow: View {
                 }
             }
         }
-        .navigationTitle(L.t("native_sidebar_title"))
-        .accessibilityIdentifier("session-sidebar")
     }
 
     /// The connection-level banner, or `nil` when there is nothing to say.
@@ -157,6 +169,13 @@ struct MainWindow: View {
                 NoticeBar(message: message) { command.clear() }
             }
             SessionDetailView(session: selectedSession)
+            // Only for a selected session against a live store — a quick action
+            // has nothing to act on otherwise.
+            if let session = selectedSession,
+               let store = model.store,
+               let actions = ActionBarSlot.content {
+                actions(session, store, model)
+            }
         }
     }
 

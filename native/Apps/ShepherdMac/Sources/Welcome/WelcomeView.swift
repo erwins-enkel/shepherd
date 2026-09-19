@@ -74,28 +74,40 @@ struct WelcomeView: View {
         // the moment the row is created, so a later language switch would
         // otherwise leave this card showing the old language forever.
         WelcomeCard(title: L.t("native_welcome_local_title"), body: L.t("native_welcome_local_body")) {
-            switch localStatus {
-            case nil:
-                Label(L.t("native_welcome_local_detecting"), systemImage: "hourglass")
-                    .foregroundStyle(.secondary)
-            case .found(let version):
-                Label(L.t("native_welcome_local_found", version), systemImage: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
-                // Routed through `model.sheet`, the app's one sheet channel:
-                // a sheet this view presented itself would still be on screen
-                // when a successful login swaps this screen for the main
-                // window, and the `.firstRun` routed behind it would never be
-                // presented.
-                Button(L.t("native_welcome_connect")) { model.beginLocalLogin() }
-                    .buttonStyle(.borderedProminent)
-            case .absent:
-                Label(L.t("native_welcome_local_missing"), systemImage: "exclamationmark.triangle")
-                    .foregroundStyle(.secondary)
-                Button(L.t("native_welcome_local_recheck")) { Task { await refreshLocal() } }
-                    .disabled(probing)
+            if let panel = WelcomeSlots.localPanel {
+                panel(model)
+            } else {
+                builtInLocalControls
             }
         }
         .accessibilityIdentifier("welcome-local-card")
+    }
+
+    /// The probe-only controls Gate 2 shipped. S5 replaces them with real
+    /// install/start controls through `WelcomeSlots.localPanel`. `@ViewBuilder`
+    /// because a `switch` with several cases is not one `some View`.
+    @ViewBuilder
+    private var builtInLocalControls: some View {
+        switch localStatus {
+        case nil:
+            Label(L.t("native_welcome_local_detecting"), systemImage: "hourglass")
+                .foregroundStyle(.secondary)
+        case .found(let version):
+            Label(L.t("native_welcome_local_found", version), systemImage: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+            // Routed through `model.sheet`, the app's one sheet channel:
+            // a sheet this view presented itself would still be on screen
+            // when a successful login swaps this screen for the main
+            // window, and the `.firstRun` routed behind it would never be
+            // presented.
+            Button(L.t("native_welcome_connect")) { model.beginLocalLogin() }
+                .buttonStyle(.borderedProminent)
+        case .absent:
+            Label(L.t("native_welcome_local_missing"), systemImage: "exclamationmark.triangle")
+                .foregroundStyle(.secondary)
+            Button(L.t("native_welcome_local_recheck")) { Task { await refreshLocal() } }
+                .disabled(probing)
+        }
     }
 
     private func refreshLocal() async {

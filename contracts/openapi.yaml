@@ -505,6 +505,14 @@ components:
       properties:
         id: { type: string }
         ready: { type: boolean }
+    # ── stream: terminal ──
+    # ── /stream: terminal ──
+    # ── stream: detail ──
+    # ── /stream: detail ──
+    # ── stream: sidebar ──
+    # ── /stream: sidebar ──
+    # ── stream: actions ──
+    # ── /stream: actions ──
   responses:
     Unauthorized:
       description: Missing or invalid credential.
@@ -840,6 +848,14 @@ paths:
                 $ref: "#/components/schemas/RepoList"
         "401":
           $ref: "#/components/responses/Unauthorized"
+  # ── stream: terminal ──
+  # ── /stream: terminal ──
+  # ── stream: detail ──
+  # ── /stream: detail ──
+  # ── stream: sidebar ──
+  # ── /stream: sidebar ──
+  # ── stream: actions ──
+  # ── /stream: actions ──
 x-shepherd-events:
   description: 'WebSocket /events. Same auth gate as HTTP (send Authorization on the upgrade). Every frame is an EventEnvelope: {"event": string, "data": object}. Client may send {"type":"presence","active":boolean}; the server never replies to it.'
   envelope:
@@ -871,6 +887,14 @@ x-shepherd-events:
   usage:limits:
     schema:
       $ref: "#/components/schemas/UsageLimits"
+  # ── stream: terminal ──
+  # ── /stream: terminal ──
+  # ── stream: detail ──
+  # ── /stream: detail ──
+  # ── stream: sidebar ──
+  # ── /stream: sidebar ──
+  # ── stream: actions ──
+  # ── /stream: actions ──
 x-shepherd-pty:
   description: WebSocket /pty/{id}?cols=&rows=. Same auth gate as HTTP. Server→client frames are raw terminal bytes (binary or text). Client→server text frames are keystrokes, except frames starting with resizePrefix which carry "<cols>:<rows>\n". One owner per terminal id; a new attach closes the previous socket with closeCodes.superseded. closeCodes.gone means the session no longer has a live agent.
   path: /pty/{id}

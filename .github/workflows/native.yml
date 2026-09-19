@@ -125,6 +125,14 @@ jobs:
           security default-keychain -s ci.keychain-db
 
       - name: Test
+        # The `SecItem*` tests are opt-in: locally they would make macOS ask
+        # the operator to approve a freshly signed test runner's access to the
+        # login keychain, which stalls an unattended run. CI is the one place
+        # that always has a throwaway keychain (the step above), so it is the
+        # one place that switches them on. Dropping this variable makes
+        # `keychainIsUsableOnCI` fail rather than silently skipping the suite.
+        env:
+          SHEPHERD_KEYCHAIN_TESTS: "1"
         run: swift test --package-path native
 
       # ── Shepherd for Mac (sub-project 4a) ───────────────────────────────

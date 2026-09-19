@@ -138,7 +138,11 @@ struct EventStreamTests {
       try await awaitConnected(server)
       server.send(#"{"event":"epic:progress","data":{}}"#)
 
-      #expect(try await firstEvent(from: events) == .unknown(name: "epic:progress"))
+      guard case .unknown(let name, _) = try #require(try await firstEvent(from: events)) else {
+        Issue.record("expected an .unknown event")
+        return
+      }
+      #expect(name == "epic:progress")
     }
   }
 

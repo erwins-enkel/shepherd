@@ -46,7 +46,12 @@ struct RootView: View {
         // something starts a store for it; without this the app came back from
         // a relaunch with an active profile and nothing behind it. Idempotent,
         // so a second appearance keeps the store already running.
-        .task { await model.restoreActiveProfile() }
+        // Registration runs first and synchronously: an extension registered
+        // after the restored activation would miss it.
+        .task {
+            StreamRegistrations.installAll(into: model)
+            await model.restoreActiveProfile()
+        }
         .sheet(item: $model.sheet) { sheet in
             switch sheet {
             case .login(let profile):

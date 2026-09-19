@@ -2,18 +2,42 @@ import Foundation
 import Security
 @testable import ShepherdKit
 
-/// Whether this environment can actually exercise `SecItem*` calls.
+/// Whether this test run may touch a real Keychain at all, and whether doing so
+/// would actually work.
 ///
-/// CI runners (and some sandboxes) have no unlocked keychain to write to;
-/// `SecItemAdd` then fails with `errSecInteractionNotAllowed` or
-/// `errSecNotAvailable` instead of succeeding. Tests that touch
-/// `KeychainCredentialStore` gate on this via `@Test(.enabled(if:))` so they
-/// skip cleanly there instead of failing, while still running — and still
-/// failing on a real regression — everywhere a keychain is usable.
+/// Touching the *login* keychain from a test is not free: each freshly built
+/// test runner is a different signer, so macOS asks the operator to approve
+/// access to items an earlier run created. That is a modal dialog in the middle
+/// of what is supposed to be an unattended `swift test`, so these tests are
+/// opt-in rather than opt-out:
+///
+///   SHEPHERD_KEYCHAIN_TESTS=1 swift test --package-path native
+///
+/// CI sets it, because the workflow prepares a throwaway keychain first (see
+/// the "Prepare a test keychain" step in `.github/workflows/native.yml`).
+/// Without the variable the `SecItem*` tests skip and nothing in the suite
+/// reaches the Keychain — not even the probe below, which is itself a write.
 enum KeychainAvailability {
-  /// Computed once per test run: a real probe save+delete against a
-  /// service name unique to this process.
-  static let isUsable: Bool = probe()
+  /// The opt-in switch. `xcodebuild` forwards a test runner's environment under
+  /// a `TEST_RUNNER_` prefix, so both spellings count.
+  static let isEnabled: Bool = {
+    let environment = ProcessInfo.processInfo.environment
+    for name in ["SHEPHERD_KEYCHAIN_TESTS", "TEST_RUNNER_SHEPHERD_KEYCHAIN_TESTS"] {
+      guard let raw = environment[name] else { continue }
+      switch raw.trimmingCharacters(in: .whitespaces).lowercased() {
+      case "1", "true", "yes": return true
+      default: continue
+      }
+    }
+    return false
+  }()
+
+  /// Computed once per test run: opted in *and* a real probe save+delete
+  /// against a service name unique to this process succeeded.
+  ///
+  /// The `&&` short-circuits, so with the switch off no `SecItem*` call is
+  /// ever made.
+  static let isUsable: Bool = isEnabled && probe()
 
   private static func probe() -> Bool {
     let service = "run.shepherd.kit.test.probe.\(UUID().uuidString)"

@@ -3,18 +3,35 @@ import Testing
 import ShepherdKit
 @testable import Shepherd
 
-/// The two environment variables that arm `LiveServerTests`. Outside the
+/// The environment variables that arm `LiveServerTests`. Outside the
 /// main-actor suite because `@Test(.enabled(if:))` evaluates its trait from a
 /// `Sendable` closure with no actor to hop to.
 enum LiveServerEnvironment {
     static var baseURL: String? { value("SHEPHERD_LIVE_BASE_URL") }
     static var password: String? { value("SHEPHERD_LIVE_PASSWORD") }
+    /// A pre-minted token, for the smoke test that skips the login round-trip
+    /// entirely — `liveSignInAndRestore` still needs a real password.
+    static var token: String? { value("SHEPHERD_LIVE_TOKEN") }
     /// Both set and non-empty. An unset pair skips the suite; CI never sets them.
     static var configured: Bool { baseURL != nil && password != nil }
+    /// `baseURL` plus a pre-minted token: the gate for
+    /// `theSessionListRendersAgainstTheLiveServer`, which never logs in.
+    static var tokenConfigured: Bool { baseURL != nil && token != nil }
 
+    /// `xcodebuild` does not reliably forward the invoking shell's environment
+    /// into a hosted unit-test bundle; the documented way in is the
+    /// `TEST_RUNNER_` prefix, which the runner strips before the process sees
+    /// the variable. Reading both spellings means nobody has to remember which
+    /// one this toolchain honours.
     private static func value(_ name: String) -> String? {
-        guard let raw = ProcessInfo.processInfo.environment[name], !raw.isEmpty else { return nil }
-        return raw
+        let env = ProcessInfo.processInfo.environment
+        for candidate in [name, "TEST_RUNNER_\(name)"] {
+            if let raw = env[candidate] {
+                let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty { return trimmed }
+            }
+        }
+        return nil
     }
 }
 
@@ -144,5 +161,53 @@ struct LiveServerTests {
             throw error
         }
         await revoke()
+    }
+
+    /// The other half of the live smoke coverage: a pre-minted token dropped
+    /// straight into an in-memory credential store, with no `ProfileSetup.login`
+    /// round-trip at all. Gated separately from `liveSignInAndRestore` so an
+    /// operator who only has a token — not the operator password — can still
+    /// exercise the session list against a real server.
+    ///
+    /// This never mints anything, so it never revokes anything either: the
+    /// token is the caller's, and it is never written to the Keychain, only to
+    /// an `InMemoryCredentialStore` that goes away with the test.
+    @Test(
+        "the session list renders using a pre-minted token, with no login round-trip",
+        .enabled(if: LiveServerEnvironment.tokenConfigured))
+    func theSessionListRendersAgainstTheLiveServer() async throws {
+        let address = try #require(LiveServerEnvironment.baseURL)
+        let token = try #require(LiveServerEnvironment.token)
+
+        let suite = "run.shepherd.mac.livetest.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        let credentials = InMemoryCredentialStore()
+        let model = makeModel(defaults: defaults, credentials: credentials)
+        defer {
+            model.teardown()
+            defaults.removePersistentDomain(forName: suite)
+            UserDefaults.standard.removeSuite(named: suite)
+        }
+
+        let profile = try model.addRemoteProfile(name: "live", address: address)
+        try credentials.save(
+            StoredCredential(token: token, tokenId: "live-smoke"), for: profile.credentialKey)
+
+        await model.activate(profile)
+        let store = try #require(model.store, "activation produced no store")
+
+        // start() bootstraps on its own task, so poll rather than assume. 30 s:
+        // a cold tailnet hop plus a bootstrap is slow, and a flake here would
+        // be read as a broken app.
+        let live = await wait(seconds: 30) { store.connection == .live }
+        #expect(
+            live,
+            "connection is \(store.connection); lastError \(String(describing: store.lastError))")
+        #expect(store.settings != nil, "the bootstrap delivered no settings")
+        // "The list renders": every row the sidebar would draw carries the two
+        // fields it draws with. A live server may legitimately hold zero
+        // sessions, so emptiness is reported, not asserted.
+        #expect(store.sessions.allSatisfy { !$0.id.isEmpty && !$0.desig.isEmpty })
+        print("live smoke: \(store.sessions.count) session(s) from \(address)")
     }
 }

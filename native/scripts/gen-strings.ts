@@ -18,8 +18,16 @@ const EN = join(ROOT, "ui", "messages", "en.json");
 const DE = join(ROOT, "ui", "messages", "de.json");
 const OUT = join(ROOT, "native", "Apps", "ShepherdMac", "Resources", "Localizable.xcstrings");
 
-/** Every catalog key the macOS app is allowed to use. Keep alphabetical. */
-export const KEYS: readonly string[] = [
+/**
+ * Every catalog key the macOS app is allowed to use, split by the parallel
+ * stream that owns it. A stream edits ONLY its own array, so two branches
+ * appending keys produce insertion conflicts a rebase resolves rather than a
+ * fight over one list. Keep each array alphabetical.
+ *
+ * Core: the shell — window, welcome, login, first run, session list, detail
+ * header, shared status and effort labels.
+ */
+export const KEYS_CORE: readonly string[] = [
   "agent_provider_claude",
   "agent_provider_codex",
   "common_cancel",
@@ -120,6 +128,54 @@ export const KEYS: readonly string[] = [
   "status_working",
 ];
 
+/** S1 — terminal view, PTY status, takeover and reconnect copy. */
+export const KEYS_TERMINAL: readonly string[] = [];
+
+/** S2 — detail tabs: activity, diff, files, PR status and PR actions. */
+export const KEYS_DETAIL: readonly string[] = [];
+
+/** S3 — sidebar triage sections, filters, search, header counters, usage meter. */
+export const KEYS_SIDEBAR: readonly string[] = [];
+
+/** S4 — the quick-action bar and the "Handlungsbedarf" recap line. */
+export const KEYS_ACTIONS: readonly string[] = [];
+
+/** S5 — local server detection, install, start/stop/restart and the log tail. */
+export const KEYS_LOCALSERVER: readonly string[] = [];
+
+/** S6 — notification titles and bodies. */
+export const KEYS_NOTIFICATIONS: readonly string[] = [];
+
+/**
+ * The manifest the catalog is generated from. Order here does not reach the
+ * output — `build()` sorts before emitting — but is fixed so the concatenation
+ * is easy to assert.
+ */
+export const KEYS: readonly string[] = [
+  ...KEYS_CORE,
+  ...KEYS_TERMINAL,
+  ...KEYS_DETAIL,
+  ...KEYS_SIDEBAR,
+  ...KEYS_ACTIONS,
+  ...KEYS_LOCALSERVER,
+  ...KEYS_NOTIFICATIONS,
+];
+
+/**
+ * Keys appearing more than once, sorted. Two streams claiming the same key is an
+ * authoring mistake the sorted, de-duplicating emit would otherwise hide: the
+ * catalog would be right and `KEYS.length` would be a lie.
+ */
+export function duplicateKeys(keys: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const dupes = new Set<string>();
+  for (const key of keys) {
+    if (seen.has(key)) dupes.add(key);
+    else seen.add(key);
+  }
+  return [...dupes].sort();
+}
+
 type Catalog = Record<string, string>;
 
 function load(path: string): Catalog {
@@ -160,6 +216,11 @@ export function placeholderOrder(en: string): Map<string, number> {
 function build(): string {
   const en = load(EN);
   const de = load(DE);
+
+  const dupes = duplicateKeys(KEYS);
+  if (dupes.length > 0) {
+    throw new Error(`keys claimed by more than one stream manifest: ${dupes.join(", ")}`);
+  }
 
   const missing: string[] = [];
   for (const key of KEYS) {

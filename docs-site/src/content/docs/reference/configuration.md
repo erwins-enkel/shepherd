@@ -7,6 +7,14 @@ Shepherd is configured entirely through environment variables (read in
 `src/config.ts`). Per-deployment overrides go in `~/.shepherd/env` (`KEY=value`
 lines), read by the systemd unit if present.
 
+A numeric variable expects a bare number — `120000`, not `2m`. For most numeric knobs,
+setting one to something non-numeric makes Shepherd log a warning naming the variable
+and fall back to the documented default, rather than silently treating the limit as
+absent; leaving such a variable empty is the same as leaving it unset. Ports are
+stricter: a `SHEPHERD_PORT` that is not an integer in `[1, 65535]` aborts startup with a
+message naming that variable. A few variables have their own clamping or fallback rules
+— those are noted in the variable's own row below.
+
 ## Core
 
 | Variable | Default | Purpose |

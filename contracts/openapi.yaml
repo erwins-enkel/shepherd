@@ -506,6 +506,14 @@ components:
         id: { type: string }
         ready: { type: boolean }
     # ── stream: terminal ──
+    ReplyRequest:
+      type: object
+      additionalProperties: false
+      required: [text]
+      properties:
+        text:
+          type: string
+          description: Operator free text, delivered verbatim to the agent pane.
     # ── /stream: terminal ──
     # ── stream: detail ──
     # ── /stream: detail ──
@@ -849,6 +857,48 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
   # ── stream: terminal ──
+  /api/sessions/{id}/reply:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      operationId: replySession
+      description: Steer a running session with operator free text. The text is delivered to the session's live agent pane. An unknown id, an unreachable herdr, or a dead pane is 404 — a normal outcome for a caller whose session list is a tick stale.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReplyRequest"
+      responses:
+        "200":
+          description: The text was delivered to the agent.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Ok"
+        "400":
+          description: "The body was not {text: string}."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Unknown id, or the session has no live agent pane.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "415":
+          description: Content-Type was not application/json.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   # ── /stream: terminal ──
   # ── stream: detail ──
   # ── /stream: detail ──
@@ -896,7 +946,7 @@ x-shepherd-events:
   # ── stream: actions ──
   # ── /stream: actions ──
 x-shepherd-pty:
-  description: WebSocket /pty/{id}?cols=&rows=. Same auth gate as HTTP. Server→client frames are raw terminal bytes (binary or text). Client→server text frames are keystrokes, except frames starting with resizePrefix which carry "<cols>:<rows>\n". One owner per terminal id; a new attach closes the previous socket with closeCodes.superseded. closeCodes.gone means the session no longer has a live agent.
+  description: WebSocket /pty/{id}?cols=&rows=. Same auth gate and origin check as HTTP; the bearer goes on the upgrade request. An unknown session id is answered 404 before the upgrade. cols/rows set the attach size so the first paint matches the client's viewport. On attach the server replays the pane's scrollback, so a client must clear its own buffer on every (re)attach rather than appending. Server→client frames are raw terminal bytes (binary or text). Client→server text frames are keystrokes, except frames starting with resizePrefix which carry "<cols>:<rows>\n". One owner per terminal id; a new attach closes the previous socket with closeCodes.superseded and the loser must NOT reconnect (both would bump each other forever). closeCodes.gone means the session no longer has a live agent and no reattach can succeed. Any other close is transient; clients retry with backoff.
   path: /pty/{id}
   query: [cols, rows]
   resizePrefix: "\u0000resize:"

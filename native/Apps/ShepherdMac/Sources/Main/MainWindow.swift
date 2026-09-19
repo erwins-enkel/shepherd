@@ -98,6 +98,12 @@ struct MainWindow: View {
         } message: {
             Text(verbatim: L.t("native_archive_confirm_body"))
         }
+        // A session archived anywhere else arrives as an event that removes the
+        // row; the selection has to follow it out, or the toolbar keeps offering
+        // commands for a session that is gone.
+        .onChange(of: sessions.map(\.id)) { _, ids in model.reconcileSelection(against: ids) }
+        // The notice names a command against the profile being left.
+        .onChange(of: model.activeProfile?.id) { _, _ in command.clear() }
     }
 
     private var sessions: [Session] { model.store?.sessions ?? [] }
@@ -217,15 +223,10 @@ struct MainWindow: View {
 
     /// The revoke may fail while the local sign-out still goes through, and the
     /// operator has to hear about it — a token they believe is dead but the
-    /// server still honours is worse than no sign-out at all. The notice goes
-    /// on the model rather than in this view because this view is gone by the
-    /// time the call returns.
+    /// server still honours is worse than no sign-out at all. Both the notice
+    /// and the copy for it live on the model rather than in this view, because
+    /// this view is gone by the time the call returns.
     private func signOut() {
-        Task {
-            if let error = await model.signOutActive() {
-                model.signOutWarning = L.t(
-                    "native_signout_failed", ShepherdErrorCopy.message(error))
-            }
-        }
+        Task { await model.signOutActiveReporting() }
     }
 }

@@ -87,12 +87,37 @@ struct NewSessionSheet: View {
     @State private var modelName = ""
     @State private var effort: Effort?
     @State private var submission = NewSessionSubmission()
+    /// Whether the provider picker has been settled — by the seed on
+    /// appearance, by a late-arriving default, or by the operator choosing one.
+    /// Only an unsettled picker may still be moved by arriving settings.
+    @State private var didSeedProvider = false
 
     /// A git branch name, not operator-facing copy — it is the same literal the
     /// server falls back to, so it is not a catalog key.
     private static let defaultBaseBranch = "main"
 
     private var repos: [Repo] { (app.store?.repos ?? []).filter { !$0.hidden } }
+
+    /// Choosing a provider by hand settles the picker, so a default that lands
+    /// afterwards cannot move it back under the operator.
+    private var providerSelection: Binding<AgentProvider> {
+        Binding(
+            get: { provider },
+            set: { chosen in
+                provider = chosen
+                didSeedProvider = true
+            })
+    }
+
+    /// What an arriving `defaultAgentProvider` should do: take effect while the
+    /// picker is still unsettled, and nothing otherwise. Static and internal so
+    /// the rule is unit-testable without hosting the sheet.
+    static func arrivingProviderDefault(
+        _ arriving: AgentProvider?, alreadySeeded: Bool
+    ) -> AgentProvider? {
+        guard !alreadySeeded, let arriving else { return nil }
+        return arriving
+    }
 
     private var canSubmit: Bool {
         !submission.busy
@@ -118,7 +143,7 @@ struct NewSessionSheet: View {
                     text: $baseBranch,
                     prompt: Text(verbatim: L.t("newtask_branch_placeholder")))
 
-                Picker(L.t("native_newsession_provider_label"), selection: $provider) {
+                Picker(L.t("native_newsession_provider_label"), selection: providerSelection) {
                     Text(verbatim: L.t("agent_provider_claude")).tag(AgentProvider.claude)
                     Text(verbatim: L.t("agent_provider_codex")).tag(AgentProvider.codex)
                 }
@@ -187,6 +212,16 @@ struct NewSessionSheet: View {
         .onChange(of: repos.first?.path) { _, first in
             if repoPath.isEmpty, let first { repoPath = first }
         }
+        // Settings arrive with the same bootstrap. Seeded only on appearance,
+        // the operator's configured default never reached a sheet opened before
+        // it landed, and every session created from a cold-started window went
+        // out with the picker's own `.claude`.
+        .onChange(of: app.store?.settings?.defaultAgentProvider) { _, arriving in
+            guard let next = Self.arrivingProviderDefault(arriving, alreadySeeded: didSeedProvider)
+            else { return }
+            provider = next
+            didSeedProvider = true
+        }
         // Mirrors the Cancel button's .disabled: Esc and click-outside must not
         // out-run the in-flight create either. See NewSessionSubmission.
         .interactiveDismissDisabled(!submission.canDismiss)
@@ -196,7 +231,10 @@ struct NewSessionSheet: View {
     private func seedDefaults() {
         if repoPath.isEmpty { repoPath = repos.first?.path ?? "" }
         if baseBranch.isEmpty { baseBranch = Self.defaultBaseBranch }
-        if let settings = app.store?.settings { provider = settings.defaultAgentProvider }
+        if let settings = app.store?.settings {
+            provider = settings.defaultAgentProvider
+            didSeedProvider = true
+        }
     }
 
     private func submit() {

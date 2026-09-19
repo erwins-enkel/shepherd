@@ -106,7 +106,32 @@ final class AppModel {
     private(set) var profiles: [ServerProfile] = []
     private(set) var activeProfile: ServerProfile?
     private(set) var store: SessionStore?
-    var sheet: AppSheet?
+    /// The one sheet over everything, written by the views and by routing.
+    ///
+    /// Hand-written accessors — the `@Observable` "manually track changes"
+    /// pattern — because *closing* a sheet has to re-run routing. `.newSession`
+    /// is window-bound and outlives any connection change, and while it is up
+    /// `routeSheet(for:profile:)` refuses to replace it; the watcher, which
+    /// only wakes on a *change*, will not fire again for a state that has not
+    /// moved. A token expiring mid-sheet therefore left `.needsLogin` routed by
+    /// nobody: Create failed, Cancel cleared the sheet, and the operator sat on
+    /// a dead main window with no way to sign back in.
+    var sheet: AppSheet? {
+        get {
+            access(keyPath: \.sheet)
+            return storedSheet
+        }
+        set {
+            let previous = storedSheet
+            withMutation(keyPath: \.sheet) { storedSheet = newValue }
+            // Only a *window-bound* sheet closing re-routes. Dismissing
+            // `.login` or `.firstRun` must not: the state they were routed for
+            // is still current, so re-routing would put the same sheet straight
+            // back up and the operator could never close it.
+            if newValue == nil, previous == .newSession { routeAfterSheetClose() }
+        }
+    }
+    @ObservationIgnored private var storedSheet: AppSheet?
     var selectedSessionID: String?
     /// A sign-out whose server-side revoke failed, in operator-facing words.
     ///
@@ -155,6 +180,12 @@ final class AppModel {
     @ObservationIgnored private var storeRunner: Task<Void, Never>?
     /// Watches `SessionStore.connection` and routes sheets off it.
     @ObservationIgnored private var connectionWatcher: Task<Void, Never>?
+    /// The live activation's connection source and the profile it belongs to,
+    /// kept so a sheet closing can re-route against the *current* state rather
+    /// than waiting for the next change. Cleared whenever the activation ends,
+    /// so a sheet dismissed over the welcome screen routes nothing.
+    @ObservationIgnored private var connectionSource: ConnectionSource?
+    @ObservationIgnored private var watchedProfile: ServerProfile?
 
     init(
         defaults: UserDefaults = .standard,
@@ -269,6 +300,10 @@ final class AppModel {
 
         connectionWatcher?.cancel()
         connectionWatcher = nil
+        // Dropped before the sheet below is cleared: a sheet closing must never
+        // re-route against the connection of the profile being left.
+        connectionSource = nil
+        watchedProfile = nil
         storeRunner?.cancel()
         storeRunner = nil
         // A stopped SessionStore cannot be restarted — the kit is explicit that
@@ -277,6 +312,10 @@ final class AppModel {
 
         activeProfile = profile
         selectedSessionID = nil
+        // The warning names the profile being left; carried over, it would tell
+        // the operator that the server they are now signed in to failed to sign
+        // them out.
+        signOutWarning = nil
         // A sheet that belongs to the profile we are leaving must not hang over
         // the one we are entering: submitting it would authenticate the old
         // server and switch back, and while it is up routing cannot open the new
@@ -397,6 +436,19 @@ final class AppModel {
         return failure
     }
 
+    /// `signOutActive()` plus the operator-facing sentence for a revoke the
+    /// server refused. The mapping lives here rather than in `MainWindow`
+    /// because that window is unmounted by the time the call returns — a view
+    /// that is gone is also a view no test can reach, which is how the wiring
+    /// stayed uncovered.
+    ///
+    /// Writes `signOutWarning` *after* the teardown inside `signOutActive()`,
+    /// which clears it.
+    func signOutActiveReporting() async {
+        guard let error = await signOutActive() else { return }
+        signOutWarning = L.t("native_signout_failed", ShepherdErrorCopy.message(error))
+    }
+
     // MARK: - Internals
 
     /// Turns the store's connection state into sheet routing.
@@ -413,6 +465,8 @@ final class AppModel {
     ) {
         guard let initial = source.read() else { return }
 
+        connectionSource = source
+        watchedProfile = profile
         connectionWatcher = Task { @MainActor [weak self] in
             var current = initial
             var routedInitial = false
@@ -496,6 +550,27 @@ final class AppModel {
         }
     }
 
+    /// Re-runs routing for the state the live activation is *already* in, after
+    /// a sheet that was holding the floor closed. Nothing happens once the
+    /// activation has ended: there is no connection left to route.
+    private func routeAfterSheetClose() {
+        guard let profile = watchedProfile, let state = connectionSource?.read() else { return }
+        routeSheet(for: state, profile: profile)
+    }
+
+    /// Drops a selection whose session is no longer listed.
+    ///
+    /// Archiving from this window clears its own selection, but a session
+    /// archived anywhere else arrives as an event that simply removes the row:
+    /// the selection then pointed at nothing while the toolbar's session
+    /// commands stayed enabled for it. Internal, and driven from the window's
+    /// `onChange` over the session ids.
+    func reconcileSelection(against ids: [String]) {
+        guard let id = selectedSessionID, !ids.contains(id) else { return }
+        selectedSessionID = nil
+        Log.ui.debug("cleared a selection whose session is no longer listed")
+    }
+
     /// A 401 opens the login sheet; a pending first run opens the folder picker.
     /// An already-open sheet is never replaced — the operator is mid-task in it.
     func routeSheet(for state: ConnectionState, profile: ServerProfile) {
@@ -514,6 +589,9 @@ final class AppModel {
         activationGeneration &+= 1
         connectionWatcher?.cancel()
         connectionWatcher = nil
+        // Before `sheet = nil` below, so closing it routes nothing.
+        connectionSource = nil
+        watchedProfile = nil
         storeRunner?.cancel()
         storeRunner = nil
         // stop() also publishes `connection = .idle`, which releases the
@@ -523,6 +601,8 @@ final class AppModel {
         activeProfile = nil
         sheet = nil
         selectedSessionID = nil
+        // A notice about the activation that is ending must not outlive it.
+        signOutWarning = nil
         persist()
     }
 

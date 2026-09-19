@@ -159,3 +159,24 @@ struct NewSessionSubmissionTests {
         #expect(submission.message == nil)
     }
 }
+
+/// X4: the provider picker is seeded from `GET /api/settings` on appearance,
+/// but the store's bootstrap may land *after* the sheet is already up — the
+/// operator's configured default then never reached the picker and every
+/// session created from a cold-started window silently used `.claude`. The
+/// decision an arriving default has to make is a pure function so it can be
+/// tested without hosting the sheet.
+@MainActor
+struct NewSessionProviderSeedTests {
+    @Test func aLateDefaultIsAppliedWhileTheProviderIsUnedited() {
+        #expect(NewSessionSheet.arrivingProviderDefault(.codex, alreadySeeded: false) == .codex)
+    }
+
+    @Test func aLateDefaultIsIgnoredOnceTheProviderWasSeededOrEdited() {
+        #expect(NewSessionSheet.arrivingProviderDefault(.codex, alreadySeeded: true) == nil)
+    }
+
+    @Test func settingsArrivingWithoutAProviderChangeNothing() {
+        #expect(NewSessionSheet.arrivingProviderDefault(nil, alreadySeeded: false) == nil)
+    }
+}

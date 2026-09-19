@@ -662,4 +662,179 @@ struct AppModelTests {
         model.routeSheet(for: .needsLogin, profile: profile)
         #expect(model.sheet == .newSession)
     }
+
+    // MARK: - Re-routing when a window-bound sheet closes
+
+    /// X1: `.newSession` is window-bound, so it survives everything the
+    /// connection does — and while it is up `routeSheet` refuses to replace it.
+    /// A token that expires mid-sheet therefore lands `.needsLogin` on a state
+    /// nobody routes: the watcher has already fired for it and will not fire
+    /// again for a state that has not changed, and Cancel only clears the
+    /// sheet. The operator was left on a main window with no way back in.
+    @Test func closingAWindowBoundSheetRoutesTheCurrentConnectionState() async throws {
+        let model = makeModel()
+        let profile = try remote(model, "studio")
+        let box = ConnectionBox()
+        model.watchConnection(
+            ConnectionSource(read: { box.state }, abandon: {}),
+            profile: profile,
+            generation: model.activationGeneration)
+
+        model.sheet = .newSession
+        box.state = .needsLogin
+        // The create sheet holds the floor: routing must not replace it.
+        _ = await settle(until: { model.sheet != .newSession }, yields: 50)
+        #expect(model.sheet == .newSession)
+
+        // Cancel.
+        model.sheet = nil
+
+        #expect(model.sheet == .login(profile))
+        model.teardown()
+    }
+
+    /// The other half of the rule: a profile-bound sheet is routed *for* the
+    /// state it is showing, so re-routing when it closes would put it straight
+    /// back up and the operator could never dismiss the login sheet.
+    @Test func closingTheLoginSheetOnAnUnchangedStateDoesNotReopenIt() async throws {
+        let model = makeModel()
+        let profile = try remote(model, "studio")
+        let box = ConnectionBox()
+        box.state = .needsLogin
+        model.watchConnection(
+            ConnectionSource(read: { box.state }, abandon: {}),
+            profile: profile,
+            generation: model.activationGeneration)
+        #expect(await settle(until: { model.sheet == .login(profile) }))
+
+        model.sheet = nil
+
+        #expect(model.sheet == nil)
+        model.teardown()
+    }
+
+    @Test func closingASheetOnAHealthyConnectionOpensNothing() async throws {
+        let model = makeModel()
+        let profile = try remote(model, "studio")
+        let box = ConnectionBox()
+        box.state = .live
+        model.watchConnection(
+            ConnectionSource(read: { box.state }, abandon: {}),
+            profile: profile,
+            generation: model.activationGeneration)
+
+        model.sheet = .newSession
+        model.sheet = nil
+
+        #expect(model.sheet == nil)
+        model.teardown()
+    }
+
+    /// The re-route reads the activation's own connection source, so an
+    /// activation that has ended has nothing to re-route from: a sheet closing
+    /// over the welcome screen must not resurrect a login sheet for a profile
+    /// the operator has left.
+    @Test func closingASheetAfterTeardownOpensNothing() async throws {
+        let model = makeModel()
+        let profile = try remote(model, "studio")
+        let box = ConnectionBox()
+        box.state = .needsLogin
+        model.watchConnection(
+            ConnectionSource(read: { box.state }, abandon: {}),
+            profile: profile,
+            generation: model.activationGeneration)
+        model.teardown()
+
+        model.sheet = .newSession
+        model.sheet = nil
+
+        #expect(model.sheet == nil)
+    }
+
+    // MARK: - Selection reconciliation
+
+    /// X3: the selection was cleared only when *this* window's archive
+    /// succeeded, so a session archived elsewhere — the row arrives gone over
+    /// the event stream — left `selectedSessionID` pointing at nothing, with
+    /// the toolbar's session commands still enabled for it.
+    @Test func aSelectionWhoseSessionIsGoneIsCleared() {
+        let model = makeModel()
+        model.selectedSessionID = "s-1"
+        model.reconcileSelection(against: ["s-2", "s-3"])
+        #expect(model.selectedSessionID == nil)
+    }
+
+    @Test func aSelectionThatIsStillListedSurvives() {
+        let model = makeModel()
+        model.selectedSessionID = "s-1"
+        model.reconcileSelection(against: ["s-1", "s-2"])
+        #expect(model.selectedSessionID == "s-1")
+    }
+
+    @Test func reconcilingWithNoSelectionDoesNothing() {
+        let model = makeModel()
+        model.reconcileSelection(against: [])
+        #expect(model.selectedSessionID == nil)
+    }
+
+    // MARK: - Sign-out reporting lives in the model
+
+    /// X5: the mapping from a failed revoke to operator-facing copy used to sit
+    /// inline in `MainWindow`, where no unit test could reach it.
+    @Test func aFailedRevokeWritesTheSignOutWarning() async throws {
+        struct RevokeRefused: Error {}
+        let model = makeModel()
+        let a = try remote(model, "a")
+        await model.activate(a)
+        model.logout = { _, _ in throw RevokeRefused() }
+
+        await model.signOutActiveReporting()
+
+        #expect(
+            model.signOutWarning
+                == L.t("native_signout_failed", ShepherdErrorCopy.message(RevokeRefused())))
+        #expect(model.activeProfile == nil)
+        #expect(model.store == nil)
+    }
+
+    @Test func aCleanRevokeWritesNoWarning() async throws {
+        let model = makeModel()
+        let a = try remote(model, "a")
+        await model.activate(a)
+        model.logout = { _, _ in }
+
+        await model.signOutActiveReporting()
+
+        #expect(model.signOutWarning == nil)
+        #expect(model.activeProfile == nil)
+    }
+
+    // MARK: - Notices do not survive a profile switch
+
+    /// X6: the warning names the profile the operator just left. Carrying it
+    /// over the next activation tells them a server they are now signed in to
+    /// failed to sign them out.
+    @Test func activatingAnotherProfileClearsTheSignOutWarning() async throws {
+        let model = makeModel()
+        let a = try remote(model, "a")
+        let b = try remote(model, "b")
+        await model.activate(a)
+        model.signOutWarning = "stale"
+
+        await model.activate(b)
+
+        #expect(model.signOutWarning == nil)
+        model.teardown()
+    }
+
+    @Test func tearingDownClearsTheSignOutWarning() async throws {
+        let model = makeModel()
+        let a = try remote(model, "a")
+        await model.activate(a)
+        model.signOutWarning = "stale"
+
+        model.teardown()
+
+        #expect(model.signOutWarning == nil)
+    }
 }

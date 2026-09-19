@@ -20,6 +20,18 @@ grow untested surface. Events that only a live herdr would emit are fed through 
 type where one exists (`BlockReason`, `AutoMergeStatus`, `UsageLimits`, `SessionStatus`) and
 structurally otherwise — so a type change breaks `bun run typecheck` before it can drift.
 
+An operation's `security` block is part of that truth: `DELETE /api/access-tokens/{id}` lists both
+`cookieAuth` and `bearerAuth` because a bearer token may revoke **itself** (and only itself) without
+an operator session, and the contract test exercises that self-revoke alongside the 403 a bearer
+gets for any other id. That self-revoke case is a hand-written addition to the contract test, not
+something the coverage gate enforces on its own — the gate only checks that every declared route,
+status and event was exercised, not that a `security` block's actual meaning was. OpenAPI's
+`security` list is an **either-of**: naming `cookieAuth` and `bearerAuth` says "either credential is
+accepted here", which is looser than the real rule ("a bearer may act only on the id it authenticated
+as"). The narrower rule has no field to live in — it lives in the operation's `description` and in
+`revokesItself`/`scopeAllows` (src/server.ts, src/token-scopes.ts), which is why the hand-written
+test case matters: it is what actually pins the narrow behavior down.
+
 **How to extend it.** Add the schema under `components.schemas`, the path or event, then the test
 that exercises every declared status. Run `bun run test:contract` and `bun run gen:contract-swift`,
 and commit the regenerated `openapi.swift.yaml` alongside your change.

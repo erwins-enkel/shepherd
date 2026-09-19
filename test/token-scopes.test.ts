@@ -11,8 +11,15 @@ import {
 // the integration side (that checkAuth actually consults this, on both entry points) lives in
 // test/server-auth.test.ts.
 
-/** Every route the policy names, with the scopes that may reach it. */
-const MATRIX: readonly { method: string; path: string; allowed: readonly TokenScope[] }[] = [
+/** Every route the policy names, with the scopes that may reach it. `selfTokenId`, when given, is
+ *  the id `scopeAllows` is told the caller authenticated as — only the self-revoke rows below need
+ *  it, since every other row's outcome does not depend on it. */
+const MATRIX: readonly {
+  method: string;
+  path: string;
+  allowed: readonly TokenScope[];
+  selfTokenId?: string;
+}[] = [
   // read surfaces
   { method: "GET", path: "/api/sessions", allowed: ["read", "submit", "full"] },
   { method: "GET", path: "/api/holds", allowed: ["read", "submit", "full"] },
@@ -38,15 +45,33 @@ const MATRIX: readonly { method: string; path: string; allowed: readonly TokenSc
   { method: "GET", path: "/api/diagnostics", allowed: ["full"] },
   { method: "POST", path: "/api/prs/merge", allowed: ["full"] },
   { method: "GET", path: "/api/access-tokens", allowed: ["full"] },
+  // The one exception, and it grants nothing on its own: the route still proves the presented
+  // bearer IS the token named by the id before it revokes anything (`revokesItself`, server.ts).
+  // Own id: every scope's seam-level check passes.
+  {
+    method: "DELETE",
+    path: "/api/access-tokens/t1",
+    selfTokenId: "t1",
+    allowed: ["read", "submit", "full"],
+  },
+  // Someone ELSE's id at the very same route: the carve-out is bound to the caller's own id, so a
+  // read/submit token reaches nothing here — `full`'s blanket allow is the only reason this passes.
+  {
+    method: "DELETE",
+    path: "/api/access-tokens/t1",
+    selfTokenId: "another-token-id",
+    allowed: ["full"],
+  },
 ];
 
 test("the full matrix: every scope against every named route", () => {
-  for (const { method, path, allowed } of MATRIX) {
+  for (const { method, path, allowed, selfTokenId } of MATRIX) {
     for (const scope of TOKEN_SCOPES) {
       const want = allowed.includes(scope);
+      const label = `${scope} ${method} ${path} (self=${selfTokenId ?? "-"})`;
       // One assertion string per cell, so a failure names the exact cell rather than "false ≠ true".
-      expect(`${scope} ${method} ${path} → ${scopeAllows(scope, method, path)}`).toBe(
-        `${scope} ${method} ${path} → ${want}`,
+      expect(`${label} → ${scopeAllows(scope, method, path, selfTokenId)}`).toBe(
+        `${label} → ${want}`,
       );
     }
   }
@@ -112,6 +137,31 @@ test("one trailing slash is tolerated, because the dispatcher tolerates it", () 
   expect(scopeAllows("submit", "POST", "/api/held/h1/spawn/")).toBe(true);
   // Two slashes is not a route the dispatcher normalizes to the same place — stays full-only.
   expect(scopeAllows("read", "GET", "/api/sessions//")).toBe(false);
+});
+
+test("self-revoke is the ONLY access-token shape a non-full scope reaches, and only for its OWN id", () => {
+  // Exactly one id segment, DELETE only, matching the caller's own id, and never the collection —
+  // everything else about the token routes stays full-only (and, at the route,
+  // operator-session-only).
+  for (const scope of ["read", "submit"] as const) {
+    expect(scopeAllows(scope, "DELETE", "/api/access-tokens/t1", "t1")).toBe(true);
+    // Someone else's id at the very same route: the carve-out does not open.
+    expect(scopeAllows(scope, "DELETE", "/api/access-tokens/t1", "another-token-id")).toBe(false);
+    expect(scopeAllows(scope, "DELETE", "/api/access-tokens", "t1")).toBe(false);
+    expect(scopeAllows(scope, "DELETE", "/api/access-tokens/t1/extra", "t1")).toBe(false);
+    expect(scopeAllows(scope, "GET", "/api/access-tokens/t1", "t1")).toBe(false);
+    expect(scopeAllows(scope, "POST", "/api/access-tokens/t1", "t1")).toBe(false);
+  }
+  // An unrecognized scope does not get it either.
+  expect(scopeAllows("admin", "DELETE", "/api/access-tokens/t1", "t1")).toBe(false);
+});
+
+test("omitting selfTokenId never opens the carve-out, even on the token's own id path", () => {
+  // `checkAuth` is the only call site that ever passes `selfTokenId` (`verified.id`). Every other
+  // caller of `scopeAllows` omits it, and must never accidentally reach the self-revoke route.
+  for (const scope of ["read", "submit"] as const) {
+    expect(scopeAllows(scope, "DELETE", "/api/access-tokens/t1")).toBe(false);
+  }
 });
 
 test("an unrecognized stored scope grants nothing — not read, not full", () => {

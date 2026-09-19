@@ -12,6 +12,7 @@ import {
 } from "../scripts/eval-jev";
 import type { Judge, JudgeResult } from "../src/judge";
 import {
+  DETAIL_MODEL_KEY,
   emptySpend,
   isCannotRun,
   isPermanent,
@@ -126,7 +127,39 @@ test("the full distribution and confidence are recorded per trial — the offlin
   const { judgeFor } = stubJudge({ answers: { kind: answer() } as never });
   const backend = jevBackend(judgeFor, { ...ASK, verdict: () => ({ kind: "a" }) });
   const capture = await backend.trial(FIXTURE, "p", RUN, emptySpend());
-  expect(capture.detail).toEqual({ kind: answer() as unknown as Record<string, unknown> });
+  expect(capture.detail).toEqual({
+    kind: answer() as unknown as Record<string, unknown>,
+    [DETAIL_MODEL_KEY]: "jev-1.13.0",
+  });
+});
+
+test("the model that ANSWERED is recorded, so a silent re-point is catchable (#2377)", async () => {
+  // The vendor is asked for the pin and reports back something else. Nothing about the ANSWER
+  // changes — which is exactly why an accuracy check alone would never notice.
+  const { judgeFor } = stubJudge({ answers: { kind: answer() } as never, model: "jev-1.14.0" });
+  const backend = jevBackend(judgeFor, { ...ASK, verdict: () => ({ kind: "a" }) });
+  const capture = await backend.trial(FIXTURE, "p", RUN, emptySpend());
+  expect(capture.detail?.[DETAIL_MODEL_KEY]).toBe("jev-1.14.0");
+  expect(capture.toolUsed).toBe(true);
+});
+
+test("the reserved model key cannot collide with a question id, and the sweep ignores it", () => {
+  // `detail` is otherwise keyed by question id; `sweepTrialsFrom` indexes it by one.
+  expect(DETAIL_MODEL_KEY.startsWith("__")).toBe(true);
+  const trials = sweepTrialsFrom(
+    {
+      results: [
+        {
+          id: "f1",
+          expected: "a",
+          gating: true,
+          trialDetails: [{ kind: answer(), [DETAIL_MODEL_KEY]: "jev-1.13.0" }],
+        },
+      ],
+    },
+    DETAIL_MODEL_KEY,
+  );
+  expect(trials).toEqual([]);
 });
 
 test("an unreadable answer produces no verdict at all", async () => {

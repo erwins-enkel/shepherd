@@ -7,7 +7,9 @@ import {
   buildRequestBody,
   emptySpend,
   captureFrom,
+  covered,
   decide,
+  estimateSpendUsd,
   formatReport,
   formatSpend,
   isCannotRun,
@@ -1720,4 +1722,102 @@ test("spend is priced by the BACKEND, not by the Claude table", () => {
   // (sonnet-like) weights and report a number that is simply wrong.
   expect(spendUsd(spend, "stub-1.0.0")).toBeCloseTo(3, 5);
   expect(formatSpend(spend, "stub-1.0.0", (s) => s.input * 0.000042)).toContain("$42.0000");
+});
+
+// ---------------------------------------------------------------------------
+// Coverage tallies + the pre-flight budget refusal (#2377)
+// ---------------------------------------------------------------------------
+
+test("covered() is false for every way a trial fails to answer on its first attempt", () => {
+  expect(covered(outcome("ok", true))).toBe(true);
+  // A retry rescued it — production would have escalated to the spawn instead.
+  expect(covered({ ...outcome("ok", true), firstAttemptFailed: true })).toBe(false);
+  expect(covered(outcome("no-verdict", false, false, false))).toBe(false);
+  expect(covered(outcome("no-verdict", false, true, false))).toBe(false);
+  expect(covered(outcome("ok", false, true, true, true))).toBe(false);
+});
+
+test("aggregate tallies retried and uncovered trials", () => {
+  const r = aggregate(
+    FIXTURE,
+    [
+      outcome("ok", true),
+      { ...outcome("ok", true), firstAttemptFailed: true },
+      outcome("no-verdict", false, false, false),
+    ],
+    ["ok", "no-verdict"],
+  );
+  expect(r.retried).toBe(1);
+  // The rescued trial AND the verdict-less one; the clean one is covered.
+  expect(r.uncovered).toBe(2);
+});
+
+test("a rescued trial is recorded as such, and reaches the JSON report", async () => {
+  // First call throws, the retry succeeds: the verdict is fine and the trial is still uncovered.
+  let calls = 0;
+  const send: Send = async () => {
+    calls++;
+    if (calls === 1) throw new Error("529 overloaded_error");
+    return {
+      content: [
+        {
+          type: "tool_use",
+          id: "w",
+          name: "Write",
+          input: { file_path: "verdict.json", content: '{"label":"ok"}' },
+        },
+      ],
+    };
+  };
+  const lines: string[] = [];
+  const log = console.log;
+  console.log = (text: string) => void lines.push(text);
+  try {
+    expect(await runEval(testSpec(), ["--trials", "1", "--json"], send)).toBe(EXIT.PASS);
+  } finally {
+    console.log = log;
+  }
+  const report = JSON.parse(lines.join("\n")) as {
+    results: { retried: number; uncovered: number }[];
+  };
+  expect(report.results[0]).toMatchObject({ retried: 1, uncovered: 1 });
+});
+
+test("estimateSpendUsd counts input tokens only, so it can only UNDER-state", () => {
+  const spec = testSpec({ tools: [], system: undefined });
+  const cheap = estimateSpendUsd(spec, ["a"], "claude-sonnet-5", spendUsd);
+  const dearer = estimateSpendUsd(spec, ["a".repeat(40_000)], "claude-sonnet-5", spendUsd);
+  expect(dearer).toBeGreaterThan(cheap);
+  // Output tokens are the larger half of a real trial's bill and are deliberately not counted.
+  expect(dearer).toBeLessThan(
+    spendUsd({ ...emptySpend(), input: 10_000, output: 10_000 }, "claude-sonnet-5"),
+  );
+});
+
+test("a run whose prompts alone cannot fit the ceiling is REFUSED before the first call", async () => {
+  let calls = 0;
+  const send: Send = async () => {
+    calls++;
+    return { content: [] };
+  };
+  const spec = testSpec({ buildPrompt: () => "x".repeat(400_000) });
+  expect(
+    await runEval(spec, ["--trials", "50", "--model", "claude-sonnet-5", "--max-spend", "1"], send),
+  ).toBe(EXIT.CANNOT_RUN);
+  // The whole point: nothing was spent discovering this.
+  expect(calls).toBe(0);
+});
+
+test("a normal run is not refused by the pre-flight estimate", async () => {
+  const send: Send = async () => ({
+    content: [
+      {
+        type: "tool_use",
+        id: "w",
+        name: "Write",
+        input: { file_path: "verdict.json", content: '{"label":"ok"}' },
+      },
+    ],
+  });
+  expect(await runEval(testSpec(), ["--trials", "2", "--threshold", "1"], send)).toBe(EXIT.PASS);
 });

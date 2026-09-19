@@ -179,7 +179,7 @@ each other's way by extending the app through seams instead of editing shared fi
 | A kit route wrapper              | your own `ShepherdClient+<Stream>.swift`, over the internal `generated` client        | `ShepherdClient.swift`           |
 | Handling a server event          | `store.events()` — match the raw name on `.unknown(name:payload:)`                    | `ServerEvent.swift`, `EventName` |
 | Copy                             | your stream's own `KEYS_*` array in `native/scripts/gen-strings.ts`                   | `KEYS_CORE`                      |
-| Routes and schemas               | your `# ── stream: <name> ──` block in `contracts/openapi.yaml`                       | anything outside it              |
+| Schemas, routes and events       | your three `# ── stream: <name> ──` blocks in `contracts/openapi.yaml`                | anything outside them            |
 | Contract fixtures                | your own `test/contract/<stream>.test.ts`, gated on `operationsForStream("<stream>")` | the gate in `openapi.test.ts`    |
 
 - **One call site.** Everything is wired up from `Sources/App/StreamRegistrations.swift`, owned by
@@ -200,10 +200,15 @@ each other's way by extending the app through seams instead of editing shared fi
   exhaustive and S0-owned, so every stream that touched it would collide with every other.
 - **Kit routes.** Wrap generated operations in your own `ShepherdClient+<Stream>.swift`. The
   `generated` property is `internal` for exactly that, and never `public`.
-- **Contract fixtures.** The gate in `openapi.test.ts` only polices paths _outside_ the markers.
-  Your block is yours to cover: end your own `test/contract/<stream>.test.ts` with a gate over
-  `operationsForStream("<stream>")`, and exercise every status you declare — 401 included — from
-  that same file, because Bun's file order does not guarantee the global sweep ran first.
+- **Contract blocks — three per stream.** You own a marked block in `components.schemas:`, in
+  `paths:` _and_ in `x-shepherd-events:`, so a stream declares its own event frames next to its
+  own routes. Same grammar in all three, same four streams in the same order, blocks last in
+  their section. See `contracts/README.md`.
+- **Contract fixtures.** The gate in `openapi.test.ts` only polices paths and events _outside_ the
+  markers. Your blocks are yours to cover: end your own `test/contract/<stream>.test.ts` with a
+  gate over `operationsForStream("<stream>")` and `eventsForStream("<stream>")`, and exercise every
+  status you declare — 401 included — from that same file, because Bun's file order does not
+  guarantee the global sweep ran first.
 - **Live smoke.** `ShepherdTests/LiveServerTests` connects to a real server and asserts the session
   list renders. It is skipped unless `SHEPHERD_LIVE_BASE_URL` is set alongside either
   `SHEPHERD_LIVE_PASSWORD` (a real sign-in, then a relaunch-restore check) or `SHEPHERD_LIVE_TOKEN`

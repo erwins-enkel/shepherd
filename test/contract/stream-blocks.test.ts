@@ -6,6 +6,7 @@ import {
   operationTemplate,
   parseStreamBlocks,
   streamBlocks,
+  streamOwnedEvents,
   streamOwnedPaths,
   STREAM_NAMES,
 } from "./stream-blocks";
@@ -13,10 +14,12 @@ import {
 /**
  * The per-stream insertion points in the contract.
  *
- * Every parallel stream appends its paths and schemas INSIDE its own marked
- * block, so two branches adding routes collide as insertion conflicts resolved
- * by keeping both blocks — not as a fight over the same trailing lines. This
- * guards the markers; openapi.test.ts still guards what goes between them.
+ * Every parallel stream appends its schemas, paths and events INSIDE its own
+ * marked block — three blocks per stream, one in each of `components.schemas:`,
+ * `paths:` and `x-shepherd-events:` — so two branches adding routes collide as
+ * insertion conflicts resolved by keeping both blocks, not as a fight over the
+ * same trailing lines. This guards the markers; openapi.test.ts still guards
+ * what goes between them.
  */
 const CONTRACT = readFileSync(
   join(import.meta.dir, "..", "..", "contracts", "openapi.yaml"),
@@ -27,13 +30,20 @@ const STREAMS = ["terminal", "detail", "sidebar", "actions"] as const;
 
 const first = (needle: string) => LINES.indexOf(needle);
 const last = (needle: string) => LINES.lastIndexOf(needle);
+const nth = (needle: string, n: number) => {
+  let seen = 0;
+  for (let i = 0; i < LINES.length; i++) {
+    if (LINES[i] === needle && ++seen === n) return i;
+  }
+  return -1;
+};
 const count = (needle: string) => LINES.filter((line) => line === needle).length;
 
 describe("contract stream blocks", () => {
   test("every stream has one open and one close marker per section", () => {
     for (const stream of STREAMS) {
-      expect(count(`# ── stream: ${stream} ──`)).toBe(2);
-      expect(count(`# ── /stream: ${stream} ──`)).toBe(2);
+      expect(count(`# ── stream: ${stream} ──`)).toBe(3);
+      expect(count(`# ── /stream: ${stream} ──`)).toBe(3);
     }
   });
 
@@ -53,22 +63,33 @@ describe("contract stream blocks", () => {
     const events = first("x-shepherd-events:");
     expect(events).toBeGreaterThan(paths);
     for (const stream of STREAMS) {
-      expect(last(`# ── stream: ${stream} ──`)).toBeGreaterThan(paths);
-      expect(last(`# ── /stream: ${stream} ──`)).toBeLessThan(events);
+      expect(nth(`# ── stream: ${stream} ──`, 2)).toBeGreaterThan(paths);
+      expect(nth(`# ── /stream: ${stream} ──`, 2)).toBeLessThan(events);
     }
   });
 
-  test("the streams appear in the agreed order in both sections", () => {
+  test("the event blocks sit at the end of x-shepherd-events, before x-shepherd-pty", () => {
+    const events = first("x-shepherd-events:");
+    const pty = first("x-shepherd-pty:");
+    expect(pty).toBeGreaterThan(events);
+    for (const stream of STREAMS) {
+      expect(last(`# ── stream: ${stream} ──`)).toBeGreaterThan(events);
+      expect(last(`# ── /stream: ${stream} ──`)).toBeLessThan(pty);
+    }
+  });
+
+  test("the streams appear in the agreed order in all three sections", () => {
     const opens = LINES.filter((line) => line.startsWith("# ── stream: ")).map((line) =>
       line.replace("# ── stream: ", "").replace(" ──", ""),
     );
-    expect(opens).toEqual([...STREAMS, ...STREAMS]);
+    expect(opens).toEqual([...STREAMS, ...STREAMS, ...STREAMS]);
   });
 });
 
-// A miniature contract: one route and one schema outside the markers, one of
-// each inside the sidebar block. Parsing a fixture rather than the real file is
-// what lets this test exist before any stream has filled a block.
+// A miniature contract: one schema, one route and one event outside the
+// markers, one of each inside the sidebar block. Parsing a fixture rather than
+// the real file is what lets this test exist before any stream has filled a
+// block.
 const SYNTHETIC = `openapi: 3.1.0
 components:
   schemas:
@@ -91,21 +112,49 @@ paths:
       operationId: getBacklog
   # ── /stream: sidebar ──
 x-shepherd-events:
+  description: 'Frames look like: {"event": string}'
+  envelope:
+    $ref: "#/components/schemas/EventEnvelope"
+  session:new:
+    schema:
+      $ref: "#/components/schemas/Session"
+  # ── stream: sidebar ──
+  backlog:changed:
+    schema:
+      $ref: "#/components/schemas/Backlog"
+  # ── /stream: sidebar ──
+x-shepherd-pty:
   description: nope
 `;
 
 describe("stream-blocks helper", () => {
-  test("paths and schemas inside a block are attributed to that stream", () => {
+  test("schemas, paths and events inside a block are attributed to that stream", () => {
     const blocks = parseStreamBlocks(SYNTHETIC);
     expect(blocks.paths.get("sidebar")).toEqual(["/api/backlog"]);
     expect(blocks.schemas.get("sidebar")).toEqual(["Backlog"]);
+    expect(blocks.events.get("sidebar")).toEqual(["backlog:changed"]);
     // Everything outside the markers stays unowned — including the `responses:`
-    // sibling of `schemas:` and the top-level keys after `paths:`.
+    // sibling of `schemas:`, the top-level keys after `paths:`, and the
+    // socket-level `description`/`envelope` keys plus the core `session:new`
+    // event that sit above the events block.
     for (const stream of STREAM_NAMES) {
       if (stream === "sidebar") continue;
       expect(blocks.paths.get(stream)).toEqual([]);
       expect(blocks.schemas.get(stream)).toEqual([]);
+      expect(blocks.events.get(stream)).toEqual([]);
     }
+  });
+
+  test("a second opener while a block is open is a parse error", () => {
+    // Nesting is never the intent: it silently attributes one stream's routes
+    // to another and leaves an unbalanced marker behind on the next rebase.
+    const nested = SYNTHETIC.replace(
+      "  # ── stream: sidebar ──\n  /api/backlog:",
+      "  # ── stream: sidebar ──\n  # ── stream: actions ──\n  /api/backlog:",
+    );
+    expect(() => parseStreamBlocks(nested)).toThrow(
+      /stream actions opened while sidebar is still open/,
+    );
   });
 
   test("a close marker for the wrong stream is a parse error", () => {
@@ -179,9 +228,18 @@ paths:
     ]);
   });
 
+  test("the event gate's filter drops events inside a block and keeps the rest", () => {
+    const owned = new Set([...parseStreamBlocks(SYNTHETIC).events.values()].flat());
+    const declared = ["session:new", "backlog:changed"];
+    // This is exactly the expression the event coverage gate in openapi.test.ts uses.
+    expect(declared.filter((e) => !owned.has(e))).toEqual(["session:new"]);
+  });
+
   test("the real contract's blocks are all still empty on this branch", () => {
     expect(streamOwnedPaths().size).toBe(0);
+    expect(streamOwnedEvents().size).toBe(0);
     expect([...streamBlocks().paths.keys()].sort()).toEqual([...STREAM_NAMES].sort());
+    expect([...streamBlocks().events.keys()].sort()).toEqual([...STREAM_NAMES].sort());
   });
 
   // Smoke test: operationsForStream runs against the real contract and harness, and — since

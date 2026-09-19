@@ -31,7 +31,7 @@ import {
   type Operation,
   type ResponseDecl,
 } from "./harness";
-import { operationTemplate, streamOwnedPaths } from "./stream-blocks";
+import { operationTemplate, streamOwnedEvents, streamOwnedPaths } from "./stream-blocks";
 
 let s: ContractServer;
 let cookie: string;
@@ -579,12 +579,13 @@ describe("coverage gate", () => {
     expect(missingOps).toEqual([]);
   });
 
-  // `x-shepherd-events` carries no marked blocks, so every declared event is still this
-  // gate's business. A stream that adds an event will hit exactly the ordering problem
-  // this task fixed for paths — flag it to the orchestrator rather than pre-building a
-  // second marker scheme nobody needs yet.
-  test("every declared event was exercised", () => {
+  // Block-aware for the same reason, and with the same split: `x-shepherd-events` carries
+  // a third marked block per stream, and an event declared inside one is covered by that
+  // stream's own test/contract/<stream>.test.ts — which ends with a gate over
+  // eventsForStream(<name>) — not here, because Bun's file order may put this file first.
+  test("every declared event outside a stream block was exercised", () => {
     const { events } = coverage();
-    expect(declaredEvents().filter((e) => !events.has(e))).toEqual([]);
+    const owned = streamOwnedEvents();
+    expect(declaredEvents().filter((e) => !owned.has(e) && !events.has(e))).toEqual([]);
   });
 });

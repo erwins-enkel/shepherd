@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { declaredOperations } from "./harness";
+import { declaredEvents, declaredOperations } from "./harness";
 
 /** The streams that own a marked block, in the order S0-prep placed them. */
 export const STREAM_NAMES = ["terminal", "detail", "sidebar", "actions"] as const;
@@ -11,6 +11,8 @@ export interface StreamBlocks {
   paths: Map<string, string[]>;
   /** Component schema names inside each stream's block in `components.schemas:`. */
   schemas: Map<string, string[]>;
+  /** Event names inside each stream's block in `x-shepherd-events:`. */
+  events: Map<string, string[]>;
 }
 
 const CONTRACT_PATH = join(import.meta.dir, "..", "..", "contracts", "openapi.yaml");
@@ -36,82 +38,142 @@ function looksLikeMarker(trimmed: string): boolean {
 /**
  * Parses the `# ── stream: <name> ──` blocks out of an OpenAPI document.
  *
- * Raw text, not `Bun.YAML.parse`: the markers are comments and a YAML parse
- * drops them. Indentation is the section discriminator — a top-level key sits at
- * column 0, a path template two spaces under `paths:`, a schema name four spaces
- * under `components:` → `schemas:`.
+ * Three sections carry blocks, one grammar for all of them: `components.schemas:`,
+ * `paths:` and `x-shepherd-events:`. Raw text, not `Bun.YAML.parse`: the markers
+ * are comments and a YAML parse drops them. Indentation is the section
+ * discriminator — a top-level key sits at column 0, a path template and an event
+ * name two spaces under `paths:` / `x-shepherd-events:`, a schema name four
+ * spaces under `components:` → `schemas:`.
  */
 export function parseStreamBlocks(yaml: string): StreamBlocks {
-  const paths = new Map<string, string[]>();
-  const schemas = new Map<string, string[]>();
-  for (const name of STREAM_NAMES) {
-    paths.set(name, []);
-    schemas.set(name, []);
-  }
-
-  let section: "paths" | "schemas" | null = null;
-  let open: string | null = null;
-
+  const state = emptyState();
   const lines = yaml.split("\n");
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]!;
-    const trimmed = line.trim();
-    if (trimmed === "") continue;
-    const lineNo = i + 1;
+  for (let i = 0; i < lines.length; i++) consumeLine(state, lines[i]!, i + 1);
 
-    const opened = OPEN.exec(trimmed);
-    if (opened) {
-      const name = opened[1]!;
-      if (!STREAM_NAME_SET.has(name)) {
-        throw new Error(`line ${lineNo}: unknown stream "${name}" — not in STREAM_NAMES`);
-      }
-      open = name;
-      continue;
-    }
-    const closed = CLOSE.exec(trimmed);
-    if (closed) {
-      if (closed[1] !== open) {
-        throw new Error(`stream block ${open ?? "(none)"} closed by ${closed[1]}`);
-      }
-      open = null;
-      continue;
-    }
-    if (trimmed.startsWith("#")) {
-      if (looksLikeMarker(trimmed)) {
-        throw new Error(`line ${lineNo}: malformed stream marker: ${trimmed}`);
-      }
-      continue;
-    }
-
-    // A column-0 key ends whatever section we were in.
-    if (/^\S/.test(line)) {
-      if (open) {
-        throw new Error(`line ${lineNo}: stream block ${open} still open at "${trimmed}"`);
-      }
-      section = line.startsWith("paths:") ? "paths" : null;
-      continue;
-    }
-    const twoSpace = /^ {2}([^\s:][^:]*):/.exec(line);
-    if (twoSpace) {
-      if (section === "paths") {
-        if (open && twoSpace[1]!.startsWith("/")) paths.get(open)!.push(twoSpace[1]!);
-      } else {
-        // Under `components:`. `schemas:` opens the schema section; any other
-        // two-space key (`responses:`, `securitySchemes:`) closes it.
-        section = twoSpace[1] === "schemas" ? "schemas" : null;
-        open = null;
-      }
-      continue;
-    }
-    const fourSpace = /^ {4}([^\s:][^:]*):/.exec(line);
-    if (fourSpace && section === "schemas" && open) schemas.get(open)!.push(fourSpace[1]!);
+  if (state.open) {
+    throw new Error(`stream block ${state.open} still open at EOF`);
   }
+  return state.blocks;
+}
 
-  if (open) {
-    throw new Error(`stream block ${open} still open at EOF`);
+/** Which of the three marked sections the walk is inside, if any. */
+type Section = "paths" | "schemas" | "events" | null;
+
+/** The parser's whole world: where it is, and what it has collected so far. */
+interface ParseState {
+  section: Section;
+  /** The stream whose block is open, or null between blocks. */
+  open: string | null;
+  blocks: StreamBlocks;
+}
+
+function emptyState(): ParseState {
+  const blocks: StreamBlocks = { paths: new Map(), schemas: new Map(), events: new Map() };
+  for (const name of STREAM_NAMES) {
+    blocks.paths.set(name, []);
+    blocks.schemas.set(name, []);
+    blocks.events.set(name, []);
   }
+  return { section: null, open: null, blocks };
+}
 
-  return { paths, schemas };
+function consumeLine(state: ParseState, line: string, lineNo: number): void {
+  const trimmed = line.trim();
+  if (trimmed === "") return;
+  if (consumeComment(state, trimmed, lineNo)) return;
+  if (/^\S/.test(line)) {
+    enterTopLevel(state, line, trimmed, lineNo);
+    return;
+  }
+  attachKey(state, line);
+}
+
+/**
+ * Handles every `#`-comment, marker or not, and answers whether the line was
+ * one. A near-miss marker throws here rather than passing as a comment.
+ */
+function consumeComment(state: ParseState, trimmed: string, lineNo: number): boolean {
+  const opened = OPEN.exec(trimmed);
+  if (opened) {
+    openBlock(state, opened[1]!, lineNo);
+    return true;
+  }
+  const closed = CLOSE.exec(trimmed);
+  if (closed) {
+    closeBlock(state, closed[1]!);
+    return true;
+  }
+  if (!trimmed.startsWith("#")) return false;
+  if (looksLikeMarker(trimmed)) {
+    throw new Error(`line ${lineNo}: malformed stream marker: ${trimmed}`);
+  }
+  return true;
+}
+
+function openBlock(state: ParseState, name: string, lineNo: number): void {
+  if (!STREAM_NAME_SET.has(name)) {
+    throw new Error(`line ${lineNo}: unknown stream "${name}" — not in STREAM_NAMES`);
+  }
+  // Blocks never nest: an opener inside an open block would attribute one
+  // stream's surface to another and leave the markers unbalanced.
+  if (state.open) {
+    throw new Error(`line ${lineNo}: stream ${name} opened while ${state.open} is still open`);
+  }
+  state.open = name;
+}
+
+function closeBlock(state: ParseState, name: string): void {
+  if (name !== state.open) {
+    throw new Error(`stream block ${state.open ?? "(none)"} closed by ${name}`);
+  }
+  state.open = null;
+}
+
+/** A column-0 key ends whatever section we were in, and may open another. */
+function enterTopLevel(state: ParseState, line: string, trimmed: string, lineNo: number): void {
+  if (state.open) {
+    throw new Error(`line ${lineNo}: stream block ${state.open} still open at "${trimmed}"`);
+  }
+  if (line.startsWith("paths:")) state.section = "paths";
+  else if (line.startsWith("x-shepherd-events:")) state.section = "events";
+  else state.section = null;
+}
+
+function attachKey(state: ParseState, line: string): void {
+  if (state.section === "events") {
+    attachEvent(state, line);
+    return;
+  }
+  const twoSpace = /^ {2}([^\s:][^:]*):/.exec(line);
+  if (twoSpace) {
+    attachTwoSpaceKey(state, twoSpace[1]!);
+    return;
+  }
+  const fourSpace = /^ {4}([^\s:][^:]*):/.exec(line);
+  if (fourSpace && state.section === "schemas" && state.open) {
+    state.blocks.schemas.get(state.open)!.push(fourSpace[1]!);
+  }
+}
+
+/**
+ * An event name carries colons of its own (`session:new`), so it is matched as
+ * the whole whitespace-free key of a nested mapping — which also skips the
+ * socket-level `description: …` scalar, whose key is followed by a space.
+ */
+function attachEvent(state: ParseState, line: string): void {
+  const key = /^ {2}(\S+):$/.exec(line);
+  if (key && state.open) state.blocks.events.get(state.open)!.push(key[1]!);
+}
+
+function attachTwoSpaceKey(state: ParseState, key: string): void {
+  if (state.section === "paths") {
+    if (state.open && key.startsWith("/")) state.blocks.paths.get(state.open)!.push(key);
+    return;
+  }
+  // Under `components:`. `schemas:` opens the schema section; any other
+  // two-space key (`responses:`, `securitySchemes:`) closes it.
+  state.section = key === "schemas" ? "schemas" : null;
+  state.open = null;
 }
 
 let cached: StreamBlocks | null = null;
@@ -125,6 +187,13 @@ export function streamBlocks(): StreamBlocks {
 export function streamOwnedPaths(): Set<string> {
   const out = new Set<string>();
   for (const templates of streamBlocks().paths.values()) for (const t of templates) out.add(t);
+  return out;
+}
+
+/** Every `/events` frame name any stream owns. */
+export function streamOwnedEvents(): Set<string> {
+  const out = new Set<string>();
+  for (const names of streamBlocks().events.values()) for (const n of names) out.add(n);
   return out;
 }
 
@@ -147,4 +216,16 @@ export function operationTemplate(operation: string): string {
 export function operationsForStream(stream: StreamName): string[] {
   const owned = new Set(streamBlocks().paths.get(stream) ?? []);
   return declaredOperations().filter((o) => owned.has(operationTemplate(o)));
+}
+
+/**
+ * Every `/events` frame name the contract declares inside `stream`'s block —
+ * the event half of `operationsForStream`, and what that stream's own
+ * `test/contract/<stream>.test.ts` gates on. The global gate in
+ * `openapi.test.ts` skips these for the same file-order reason it skips the
+ * stream's paths.
+ */
+export function eventsForStream(stream: StreamName): string[] {
+  const owned = new Set(streamBlocks().events.get(stream) ?? []);
+  return declaredEvents().filter((e) => owned.has(e));
 }

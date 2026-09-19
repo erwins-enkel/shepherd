@@ -887,6 +887,14 @@ x-shepherd-events:
   usage:limits:
     schema:
       $ref: "#/components/schemas/UsageLimits"
+  # ── stream: terminal ──
+  # ── /stream: terminal ──
+  # ── stream: detail ──
+  # ── /stream: detail ──
+  # ── stream: sidebar ──
+  # ── /stream: sidebar ──
+  # ── stream: actions ──
+  # ── /stream: actions ──
 x-shepherd-pty:
   description: WebSocket /pty/{id}?cols=&rows=. Same auth gate as HTTP. Server→client frames are raw terminal bytes (binary or text). Client→server text frames are keystrokes, except frames starting with resizePrefix which carry "<cols>:<rows>\n". One owner per terminal id; a new attach closes the previous socket with closeCodes.superseded. closeCodes.gone means the session no longer has a live agent.
   path: /pty/{id}

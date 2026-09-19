@@ -148,3 +148,47 @@ S3 `/api/backlog`, `/api/up-next*`, `/api/holds`, `/api/blocks`, `/api/usage/lim
 `/recommend-prompt`, `/recap/regenerate`, `/go`, `/answer-plan-questions`, `/clear-merged`;
 S6 none (events only). Events to add: `session:git`, `session:activity`, `session:recap`,
 `session:amendments`, `held:changed`, `queue:update`, `upnext:snapshot`.
+
+---
+
+## Appendix B — Seam contract (S0-prep delivers these; stream plans code against them)
+
+```swift
+// native/Apps/ShepherdMac/Sources/App/DetailTabs.swift
+/// A pluggable tab in the session detail pane. Streams register one each.
+protocol DetailTab: Identifiable, Sendable where ID == String {
+    var id: String { get }             // "terminal", "activity", "diff", "files", "git"
+    var title: String { get }          // L.t(...) at render time
+    var systemImage: String { get }
+    var order: Int { get }             // sort key; terminal = 0
+    @MainActor func makeView(session: Session, store: SessionStore, app: AppModel) -> AnyView
+}
+@MainActor enum DetailTabRegistry { static func register(_ tab: any DetailTab); static var tabs: [any DetailTab] }
+// SessionDetailView renders DetailTabRegistry.tabs in a TabView; "prompt" is the built-in fallback tab.
+
+// native/Apps/ShepherdMac/Sources/App/SidebarSlot.swift
+/// S3 replaces the flat list: MainWindow renders `SidebarSlot.content(app)` if set, else SessionRow list.
+@MainActor enum SidebarSlot { static var content: ((AppModel) -> AnyView)? }
+
+// native/Apps/ShepherdMac/Sources/App/AppModel+Extensions.swift
+/// Per-stream sub-models owned by AppModel: created in activate(_:) after the store exists,
+/// torn down in teardown(); a sub-model never outlives its store.
+@MainActor protocol AppExtension: AnyObject { init(store: SessionStore, app: AppModel); func teardown() }
+extension AppModel { func register<E: AppExtension>(_ type: E.Type); func extension<E: AppExtension>(_ type: E.Type) -> E? }
+
+// native/Apps/ShepherdMac/Sources/App/WelcomeSlots.swift
+/// S5 fills the local card body (status, install/start controls) without editing WelcomeView.
+@MainActor enum WelcomeSlots { static var localPanel: ((AppModel) -> AnyView)? }
+
+// native/Apps/ShepherdMac/Sources/App/ActionBarSlot.swift
+/// S4 fills the quick-action bar under the detail pane.
+@MainActor enum ActionBarSlot { static var content: ((Session, SessionStore, AppModel) -> AnyView)? }
+```
+
+String keys: `native/scripts/gen-strings.ts` exports `KEYS_CORE`, `KEYS_TERMINAL`, `KEYS_DETAIL`,
+`KEYS_SIDEBAR`, `KEYS_ACTIONS`, `KEYS_LOCALSERVER`, `KEYS_NOTIFICATIONS` (each an array of key names),
+concatenated into the manifest; a stream edits only its own array.
+
+Contract blocks: in `contracts/openapi.yaml`, streams append under `paths:` and `components.schemas:`
+between `# ── stream: <name> ──` and `# ── /stream: <name> ──` markers placed by S0-prep (empty
+blocks for every stream, in the order terminal, detail, sidebar, actions).

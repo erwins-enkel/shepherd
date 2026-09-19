@@ -52,6 +52,7 @@ export const KEYS: readonly string[] = [
   "native_detail_status_label",
   "native_error_first_run",
   "native_error_forbidden",
+  "native_error_keychain",
   "native_error_mismatch",
   "native_error_not_found",
   "native_error_offline",

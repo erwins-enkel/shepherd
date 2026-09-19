@@ -547,6 +547,23 @@
         }
       }
     },
+    "native_error_keychain": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Token konnte nicht im Schlüsselbund gespeichert werden. Entsperre den Schlüsselbund und versuche es erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The token could not be saved to the Keychain. Unlock the Keychain and try again."
+          }
+        }
+      }
+    },
     "native_error_mismatch": {
       "extractionState": "manual",
       "localizations": {

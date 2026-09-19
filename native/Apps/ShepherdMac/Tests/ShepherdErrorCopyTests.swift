@@ -1,12 +1,15 @@
 import Foundation
+import Security
 import Testing
 import ShepherdKit
 @testable import Shepherd
 
 @MainActor
 struct ShepherdErrorCopyTests {
-    /// Every case ShepherdKit declares, so a new case upstream shows up here as a
-    /// compile error in the array literal rather than as a silent Swift dump on screen.
+    /// Every case ShepherdKit declares. This array does not itself catch a new
+    /// case upstream — the exhaustive switches in ShepherdErrorCopy do that,
+    /// failing to compile when a case is missing an arm. This array only
+    /// exercises every case that already exists.
     private let all: [ShepherdError] = [
         .unauthenticated,
         .forbidden,
@@ -74,5 +77,17 @@ struct ShepherdErrorCopyTests {
 
     @Test func aNonKitErrorStillGetsCopy() {
         #expect(!ShepherdErrorCopy.message(URLError(.timedOut)).isEmpty)
+    }
+
+    /// A locked or otherwise refusing Keychain is not a network failure and
+    /// must not fall through to the generic "cannot reach the server" copy.
+    @Test func keychainFailuresGetTheirOwnCopyAndAreNotAuthFailures() {
+        let unexpectedStatus = KeychainError.unexpectedStatus(errSecInteractionNotAllowed)
+        let malformedItem = KeychainError.malformedItem
+
+        #expect(ShepherdErrorCopy.message(unexpectedStatus) == L.t("native_error_keychain"))
+        #expect(ShepherdErrorCopy.message(malformedItem) == L.t("native_error_keychain"))
+        #expect(!ShepherdErrorCopy.isAuthFailure(unexpectedStatus))
+        #expect(!ShepherdErrorCopy.isAuthFailure(malformedItem))
     }
 }

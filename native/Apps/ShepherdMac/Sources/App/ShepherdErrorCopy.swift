@@ -25,6 +25,15 @@ enum ShepherdErrorCopy {
             case .missingHost: return L.t("native_url_error_malformed")
             }
         }
+        // ProfileSetup.login rethrows this bare when the minted token cannot be
+        // stored: a locked or otherwise refusing Keychain is not a network
+        // failure, so it must not read as "cannot reach the server".
+        if let keychain = error as? KeychainError {
+            switch keychain {
+            case .unexpectedStatus: return L.t("native_error_keychain")
+            case .malformedItem: return L.t("native_error_keychain")
+            }
+        }
         guard let shepherd = error as? ShepherdError else {
             // Anything not from the kit — a URLError from the local probe, say.
             return L.t("native_error_offline")

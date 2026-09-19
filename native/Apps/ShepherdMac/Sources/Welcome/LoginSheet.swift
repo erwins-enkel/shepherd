@@ -1,6 +1,19 @@
 import SwiftUI
 import ShepherdKit
 
+/// The sheet's busy/dismiss gate, pulled out of the view so it is unit-testable
+/// without hosting SwiftUI (see LoginSheetStateTests).
+struct LoginSheetState: Equatable {
+    var busy = false
+    var error: String?
+    /// While a sign-in request is in flight, Cancel and the sheet's own
+    /// interactive dismissal must both be blocked: dismissing does not cancel
+    /// the untracked `Task` in `submit()`, so a stale success would later
+    /// activate the wrong profile and fire a dismissal closure that now
+    /// belongs to a different sheet.
+    var canDismiss: Bool { !busy }
+}
+
 /// Password → token mint → Keychain, via ProfileSetup. The password is never
 /// persisted. Also used as the re-login sheet when the store reports .needsLogin.
 struct LoginSheet: View {
@@ -9,8 +22,7 @@ struct LoginSheet: View {
 
     @Environment(AppModel.self) private var model
     @State private var password = ""
-    @State private var busy = false
-    @State private var error: String?
+    @State private var state = LoginSheetState()
     @FocusState private var passwordFocused: Bool
 
     var body: some View {
@@ -32,31 +44,36 @@ struct LoginSheet: View {
             .onSubmit { submit() }
             .accessibilityIdentifier("login-password")
 
-            if let error {
+            if let error = state.error {
                 Text(verbatim: error).font(.caption).foregroundStyle(.red)
             }
 
             HStack {
                 Button(L.t("common_cancel")) { onDismiss() }
                     .keyboardShortcut(.cancelAction)
+                    .disabled(state.busy)
                 Spacer()
-                Button(busy ? L.t("login_busy") : L.t("login_submit")) { submit() }
+                Button(state.busy ? L.t("login_busy") : L.t("login_submit")) { submit() }
                     .buttonStyle(.borderedProminent)
                     .keyboardShortcut(.defaultAction)
-                    .disabled(busy || password.isEmpty)
+                    .disabled(state.busy || password.isEmpty)
             }
         }
         .padding(24)
         .frame(width: 420)
         .onAppear { passwordFocused = true }
+        // Mirrors the Cancel button's .disabled(state.busy): the sheet's own
+        // close affordance (Esc, click-outside) must not out-run the in-flight
+        // request either. See LoginSheetState.canDismiss.
+        .interactiveDismissDisabled(!state.canDismiss)
     }
 
     private func submit() {
-        guard !busy, !password.isEmpty else { return }
-        busy = true
-        error = nil
+        guard !state.busy, !password.isEmpty else { return }
+        state.busy = true
+        state.error = nil
         Task {
-            defer { busy = false }
+            defer { state.busy = false }
             do {
                 try await model.signIn(profile: profile, password: password)
                 password = ""
@@ -65,7 +82,7 @@ struct LoginSheet: View {
                 // ShepherdErrorCopy is exhaustive over ShepherdError, so a wrong
                 // password reads "wrong password" and every other failure reads as
                 // itself instead of as a Swift dump.
-                self.error = ShepherdErrorCopy.message(error)
+                state.error = ShepherdErrorCopy.message(error)
             }
         }
     }

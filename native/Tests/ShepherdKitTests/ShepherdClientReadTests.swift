@@ -24,11 +24,12 @@ struct ShepherdClientReadTests {
     let server = FakeShepherdServer()
     defer { server.tearDown() }
     server.stub("GET", "/api/health", status: 200, json: try Fixtures.json(Fixtures.health()))
-    let (client, _) = try makeClient(server)
+    let (client, _) = try makeClient(server, token: nil)
 
     let health = try await client.health()
     #expect(health.ok == true)
     #expect(health.version == "1.47.0")
+    #expect(server.requests().last?.headers["Authorization"] == nil)
   }
 
   @Test("the stored token reaches the wire")
@@ -134,7 +135,8 @@ struct ShepherdClientReadTests {
     let (client, _) = try makeClient(server)
 
     await #expect(
-      throws: ShepherdError.contractMismatch(route: "listRepos", underlying: "undocumented status 418")
+      throws: ShepherdError.contractMismatch(
+        route: "listRepos", underlying: "undocumented status 418")
     ) { _ = try await client.repos() }
   }
 

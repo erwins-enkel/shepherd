@@ -10,8 +10,13 @@ import OpenAPIURLSession
 public final class ShepherdClient: Sendable {
   public let profile: ServerProfile
 
-  /// Fires once each time a request comes back 401. The stored token has
-  /// already been cleared by then; the app should present a login sheet.
+  /// Fires when a request that carried a credential comes back 401 — an
+  /// anonymous request answered with 401 fires nothing, since it says
+  /// nothing about the stored token. The stored token has already been
+  /// cleared by then; the app should present a login sheet.
+  ///
+  /// There is only one consumer. Repeated 401s while that signal is still
+  /// pending coalesce into a single buffered element rather than piling up.
   public let needsLogin: AsyncStream<Void>
 
   private let generated: Client
@@ -29,7 +34,8 @@ public final class ShepherdClient: Sendable {
     self.profile = validated
     self.credentials = credentials
 
-    let (stream, continuation) = AsyncStream<Void>.makeStream()
+    let (stream, continuation) = AsyncStream<Void>.makeStream(
+      bufferingPolicy: .bufferingNewest(1))
     needsLogin = stream
     needsLoginContinuation = continuation
 
@@ -41,9 +47,13 @@ public final class ShepherdClient: Sendable {
     generated = Client(
       serverURL: validated.baseURL,
       transport: URLSessionTransport(configuration: .init(session: urlSession)),
-      // The first middleware is the outermost one. Auth runs there so it sees
-      // the status the caller will actually be handed: a 401 clears the token
-      // and publishes `needsLogin` exactly once, not once per retried attempt.
+      // The first middleware is the outermost one. Auth signs the request
+      // once, outside the retry loop, and observes the final response the
+      // caller is handed — not an intermediate retried attempt. This still
+      // clears the token and publishes `needsLogin` exactly once per 401
+      // because retry never retries a 401 in the first place: it only
+      // retries transient failures, so ordering the two this way costs
+      // nothing.
       middlewares: [auth, RetryingMiddleware()]
     )
   }
@@ -53,7 +63,17 @@ public final class ShepherdClient: Sendable {
   /// The token currently in the store, for callers that have to build their
   /// own request — `EventStream` needs it for the WebSocket upgrade.
   public func currentToken() -> String? {
-    (try? credentials.load(for: profile.credentialKey))?.token
+    do {
+      return try credentials.load(for: profile.credentialKey)?.token
+    } catch {
+      // A locked or unreadable Keychain is not "no token": say so and report
+      // nil anyway, since this call has no way to surface the failure.
+      // Never log the credential itself — only the failure that reading it
+      // produced.
+      ShepherdLog.credentials.error(
+        "could not read the credential: \(String(describing: error), privacy: .public)")
+      return nil
+    }
   }
 
   // MARK: - Reads

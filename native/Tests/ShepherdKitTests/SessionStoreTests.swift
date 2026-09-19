@@ -811,7 +811,7 @@ struct SessionStoreTests {
     let store = try makeStore(server)
     try await store.bootstrap()
 
-    store.apply(.unknown(name: "epic:progress"))
+    store.apply(.unknown(name: "epic:progress", payload: nil))
     #expect(store.sessions.map(\.id) == ["a"])
   }
 

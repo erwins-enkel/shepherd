@@ -142,14 +142,22 @@ struct ServerEventTests {
   @Test("an event the contract does not list becomes .unknown, not an error")
   func unknownEvent() throws {
     let event = try decode(#"{"event":"epic:progress","data":{"anything":1}}"#)
-    #expect(event == .unknown(name: "epic:progress"))
+    guard case .unknown(let name, _) = event else {
+      Issue.record("expected an .unknown event")
+      return
+    }
+    #expect(name == "epic:progress")
   }
 
   @Test("a known event name with an undecodable payload becomes .unknown, not a throw")
   func knownNameBadPayload() throws {
     // A frame the client cannot make sense of must not kill the stream.
     let event = try decode(#"{"event":"session:ready","data":{"id":"a"}}"#)
-    #expect(event == .unknown(name: "session:ready"))
+    guard case .unknown(let name, _) = event else {
+      Issue.record("expected an .unknown event")
+      return
+    }
+    #expect(name == "session:ready")
   }
 
   @Test("a frame with no event key fails to decode")

@@ -88,6 +88,14 @@ public final class SessionStore {
   /// is reached through a main-actor-isolated accessor, which a `deinit` may
   /// not call.
   @ObservationIgnored private var consumer: Task<Void, Never>?
+  /// Live event taps, keyed by the id `events()` handed out.
+  ///
+  /// Not `private`: `SessionStore+EventTap.swift` is a different file and owns
+  /// every write to this. One continuation per `events()` call, so several
+  /// streams can each consume every frame without competing for elements the
+  /// way a single shared `AsyncStream` would.
+  @ObservationIgnored
+  var eventTaps: [UUID: AsyncStream<ServerEvent>.Continuation] = [:]
   /// The task following `EventStream.lifecycle()`. Separate from `consumer`
   /// because the two streams move independently: frames keep arriving on a
   /// healthy socket while nothing happens on the lifecycle stream, and a
@@ -277,6 +285,9 @@ public final class SessionStore {
     // Assigned rather than published: `stopped` is already true, and `.idle`
     // is the one state that outranks the gate.
     connection = .idle
+    // A tap must not outlive the store it reads from: finishing the
+    // continuations ends every consumer's `for await`.
+    finishEventTaps()
   }
 
   /// A store that goes out of scope while it is running must not leave a live
@@ -529,6 +540,11 @@ public final class SessionStore {
   }
 
   private func applyNow(_ event: ServerEvent) {
+    // Every frame the store applies, decoded or not, reaches the taps here —
+    // after the snapshot buffer has released it, so a tap consumer that reads
+    // `sessions` sees state that already includes this event.
+    broadcast(event)
+
     switch event {
     case .sessionNew(let session):
       addSession(session)
@@ -556,7 +572,7 @@ public final class SessionStore {
       autoMerge[status.repoPath] = status
     case .usageLimits(let limits):
       usageLimits = limits
-    case .unknown(let name):
+    case .unknown(let name, _):
       ShepherdLog.store.debug("ignoring event \(name, privacy: .public)")
     }
   }

@@ -63,6 +63,12 @@ JEV_API_KEY=… bun run eval:stop-classifier --backend jev --jev-authored --json
 # Reads a file; makes no calls and needs no key.
 bun run scripts/eval-jev.ts <report.json> [questionId] [--all]
 
+# The nightly drift gate over a finished run (#2377). Reads files; makes no calls, needs no key.
+bun run eval:stop-classifier --backend jev --json > report.json
+bun run scripts/eval-drift.ts report.json                      # check (baseline from $JEV_EVAL_BASELINE)
+bun run scripts/eval-drift.ts report.json --baseline b.json    # check against a file
+bun run scripts/eval-drift.ts report.json --capture            # print a new baseline blob
+
 # The German leg alone (#2368 re-validation). Pool >=3 runs in ONE session; read the `unrecognised`
 # tally in the JSON, never the `unknown` count, to tell a genuine abstain from a malformed verdict.
 ANTHROPIC_API_KEY=… bun run eval:stop-classifier --filter de- --trials 9 --json
@@ -557,6 +563,83 @@ that it earns nothing on this fixture set.
   prompt, which that framing replaces. Its German results are not comparable to #1627's A/B.
 - **One vendor snapshot, once.** Pinned to `jev-1.13.0`, never `jev-latest`, so a re-point cannot be
   read as a prompt change.
+
+### The nightly drift leg (#2377)
+
+`.github/workflows/eval-stop-classifier.yml` runs this leg on the same nightly cron as the Haiku
+one, in its own job so the two vendors fail independently. Its cost is a rounding error beside the
+Haiku leg's.
+
+**"Did accuracy fall?" is not a sufficient drift gate**, so `scripts/eval-drift.ts` checks the shape
+[`jev-ecosystem-scan.md`](./research/jev-ecosystem-scan.md) §2.2 records from `abhixhek/jevcal`,
+plus a flip rate:
+
+| Condition                                        | Tolerance | Where it lives                                     |
+| ------------------------------------------------ | --------- | -------------------------------------------------- |
+| 1. accepted accuracy below target                | strict    | `decide()` in `eval-core.ts` — the eval's own gate |
+| 2. accuracy fell against the locked baseline     | 0.02      | `eval-drift.ts`                                    |
+| 3. **coverage** fell against the locked baseline | 0.10      | `eval-drift.ts`                                    |
+| 4. the answering model ≠ the pinned one          | exact     | `eval-drift.ts`                                    |
+| + flip rate against the baseline's predictions   | 0.10      | `eval-drift.ts`                                    |
+
+Condition 1 already exists and is _stricter_ than jevcal's — every gating fixture majority-correct
+AND gating accuracy clearing the pinned floor, no tolerance — so the drift script restates its
+verdict rather than reimplementing it.
+
+**Coverage** is the fraction of trials that produced a usable verdict on their FIRST attempt. A
+trial the harness rescued by retrying counts as uncovered, because production does not retry:
+`classifyViaJudge` falls back to the spawn on the first failure, so a rescued trial is traffic
+production would have escalated. That is the condition a pure accuracy gate misses entirely.
+
+**Flip rate** is the total-variation distance between the baseline and current label distributions,
+normalised to proportions and weighted by trials — exactly "the fraction of answers that changed".
+Trials are unordered identical requests, so pairing them one-to-one would measure nothing, and
+normalising means changing `--trials` is not read as drift.
+
+**The tolerances are non-zero on purpose.** The API rounds probabilities to two decimals and
+identical requests can return different answers; near-determinism is not determinism. A
+zero-tolerance gate would flake nightly and then be ignored.
+
+#### The baseline is a secret, not a file in this tree
+
+`--capture` distils a run into a small blob — per-fixture label counts, correctness and coverage,
+plus the answering model — which is stored as the **`JEV_EVAL_BASELINE` repo secret**. It is not
+committed: the `expected` labels are already here, so per-fixture answers published beside them
+would make accuracy derivable, which is what §2.3(f) forbids (#2371).
+
+To refresh it after a deliberate change:
+
+```bash
+JEV_API_KEY=… bun run eval:stop-classifier --backend jev --json > report.json
+bun run scripts/eval-drift.ts report.json --capture | gh secret set JEV_EVAL_BASELINE
+```
+
+Three states, deliberately different:
+
+- **unset** — bootstrapping. Conditions 2, 3 and the flip rate are skipped _loudly_; condition 4 and
+  the eval's own floor gate still run. Green.
+- **present** — everything runs.
+- **stale** (its fixture set no longer matches the run's) — **fails**, naming what moved. A warning
+  here would silently retire the gate the first time someone adds a fixture.
+
+#### What reaches the log
+
+Nothing absolute. The eval's own report states accuracy as a percentage and a fraction, so the CI
+job writes both its streams to files that are never echoed and uploads no artifact (public-repo
+artifacts are world-downloadable). `eval-drift.ts` is the only thing that writes to the log, and the
+rule it follows is worth stating because it is easy to get backwards:
+
+- a delta against the **secret** baseline discloses nothing, so deltas and affected fixture ids are
+  printed;
+- anything measured against an **in-tree constant** — the floor — is printed as pass/fail only,
+  because "0.03 below the floor" is an absolute figure in relative clothing.
+
+Re-run locally for the absolutes.
+
+**Not checked here:** which confidence measure separates right answers from wrong ones. The vendor's
+`confidence` scalar is opaque and is not the top probability, so #2379 computes the AUROC of each
+candidate — that scalar, the top probability, the top-two margin, normalised entropy — offline over
+a saved report. No gate today wants a threshold (#2369), so nothing here depends on the answer.
 
 ## Fidelity caveats
 

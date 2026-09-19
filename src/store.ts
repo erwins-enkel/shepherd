@@ -1378,6 +1378,14 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // small key/value store for runtime-configurable settings (e.g. repoRoot)
     this.db.run(`CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY, value TEXT NOT NULL)`);
+    // Judge (decision-model) spend, one row per local day (issue #2369). Persisted rather than
+    // counted in memory because an in-memory ceiling resets on restart, which makes it escapable by
+    // exactly the crash-loop it exists to bound. `noticeAt` is the once-per-day latch for the
+    // ceiling-reached notification, in the DB for the same reason. Pruned by age in the daily sweep
+    // — a day-keyed table has no parent to cascade from, so nothing else would ever remove a row.
+    this.db.run(`CREATE TABLE IF NOT EXISTS judge_spend (
+      day TEXT PRIMARY KEY, calls INTEGER NOT NULL DEFAULT 0,
+      usd REAL NOT NULL DEFAULT 0, noticeAt INTEGER)`);
     this.db.run(`CREATE TABLE IF NOT EXISTS repo_config (
       repoPath TEXT PRIMARY KEY, criticEnabled INTEGER NOT NULL DEFAULT 1,
       criticAllPrs INTEGER NOT NULL DEFAULT 0,
@@ -4613,6 +4621,46 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         .get(beforeTs) as { c: number }
     ).c;
     this.db.run(`DELETE FROM delivery_facts WHERE createdAt < ?`, [beforeTs]);
+    return n;
+  }
+
+  // ── judge spend (issue #2369) ────────────────────────────────────────────────
+  /** Today's (or any day's) judge spend, or null when nothing was spent that day. */
+  getJudgeSpend(day: string): { calls: number; usd: number } | null {
+    const row = this.db.query(`SELECT calls, usd FROM judge_spend WHERE day = ?`).get(day) as
+      { calls: number; usd: number } | undefined;
+    return row ?? null;
+  }
+
+  /** Book one completed judge call against `day`. */
+  addJudgeSpend(day: string, usd: number): void {
+    this.db.run(
+      `INSERT INTO judge_spend (day, calls, usd) VALUES (?, 1, ?)
+       ON CONFLICT(day) DO UPDATE SET calls = calls + 1, usd = usd + excluded.usd`,
+      [day, usd],
+    );
+  }
+
+  /** Claim the day's single ceiling-reached notice. True exactly once per day, for the caller that
+   *  won it — the UPDATE's own WHERE is the latch, so concurrent callers cannot both notify. */
+  claimJudgeCeilingNotice(day: string, at: number): boolean {
+    this.db.run(`INSERT OR IGNORE INTO judge_spend (day) VALUES (?)`, [day]);
+    return (
+      this.db.run(`UPDATE judge_spend SET noticeAt = ? WHERE day = ? AND noticeAt IS NULL`, [
+        at,
+        day,
+      ]).changes > 0
+    );
+  }
+
+  /** Drop day rows older than `beforeDay` (a `YYYY-MM-DD` key, which sorts lexicographically). */
+  pruneJudgeSpend(beforeDay: string): number {
+    const n = (
+      this.db.query(`SELECT COUNT(*) AS c FROM judge_spend WHERE day < ?`).get(beforeDay) as {
+        c: number;
+      }
+    ).c;
+    this.db.run(`DELETE FROM judge_spend WHERE day < ?`, [beforeDay]);
     return n;
   }
 

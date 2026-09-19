@@ -23,7 +23,12 @@ import {
 } from "./spawn-progress";
 import { LearningsService } from "./learnings-service";
 import { RepoConfigService } from "./repo-config-service";
-import { EFFORTS, type MaintainBlock, type StandardCreateInput } from "./types";
+import {
+  EFFORTS,
+  type MaintainBlock,
+  type StandardCreateInput,
+  type UsageJudgeSpend,
+} from "./types";
 import type { EventHub } from "./events";
 import { PtyBridge } from "./pty-bridge";
 import { SocketPtyBridge } from "./socket-pty-bridge";
@@ -342,6 +347,8 @@ export interface AppDeps {
    *  actually returned a usable frame this run; absent in tests that don't wire the live
    *  calibrator (the route then falls back to the current snapshot, treated as scraped). */
   refreshUsage?: () => Promise<{ limits: UsageLimits; scraped: boolean }>;
+  /** Today's judge spend for the usage lens (#2369); absent when the judge was never armed. */
+  judgeSpend?: { today: () => UsageJudgeSpend };
   /** Incremental per-session rollup; absent in tests → breakdown falls back to re-parsing JSONL. */
   usageRollup?: SessionUsageRollup;
   /** Range-filtered Codex raw tokens by model; absent in tests → empty Codex model block. */
@@ -4709,6 +4716,19 @@ async function handleUsageLimits({ req, parts, deps }: Ctx): Promise<Response | 
   return null;
 }
 
+/**
+ * Today's judge figures for the usage lens, or null to omit the block entirely.
+ *
+ * Shown while the judge is armed, and also while it is off but has already spent something today —
+ * an operator who disarms it mid-day should still be able to see what it cost. Omitted rather than
+ * rendered as a row of zeroes for the far commoner case of never having used it at all.
+ */
+function judgeSpendForLens(deps: Ctx["deps"]): UsageJudgeSpend | null {
+  const today = deps.judgeSpend?.today();
+  if (!today) return null;
+  return config.judgeEnabled || today.calls > 0 ? today : null;
+}
+
 async function handleUsageBreakdown({ req, parts, url, deps }: Ctx): Promise<Response | null> {
   if (!(
     req.method === "GET" &&
@@ -4727,6 +4747,7 @@ async function handleUsageBreakdown({ req, parts, url, deps }: Ctx): Promise<Res
     apiKey: isApiKeyMode(),
     usageRollup: deps.usageRollup,
     codexModelUsage: deps.codexModelUsage,
+    judge: judgeSpendForLens(deps),
   });
   return json(breakdown);
 }
@@ -5585,6 +5606,12 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       // doc-agent soak flags (read-only; env-driven; no PUT patch).
       docAgentEnabled: config.docAgentEnabled,
       docAgentAct: config.docAgentAct,
+      // judge (#2369): the enable flag and daily ceiling are operator-editable; `judgeHasKey` says
+      // whether a credential is present WITHOUT exposing it, because the toggle is inert without
+      // one and an operator needs to be able to tell those two states apart.
+      judgeEnabled: config.judgeEnabled,
+      judgeHasKey: config.judgeApiKey !== null,
+      judgeDailyUsd: config.judgeDailyUsd,
       ...telemetrySettings(deps.telemetry),
     });
   }
@@ -5655,6 +5682,8 @@ const SETTING_PATCHES: [string, (value: unknown, deps: Ctx["deps"]) => Response]
   ["usageDowngradePct", putUsageDowngradePct],
   ["usageDowngradeModel", putUsageDowngradeModel],
   ["fableAvailable", putFableAvailable],
+  ["judgeEnabled", putJudgeEnabled],
+  ["judgeDailyUsd", putJudgeDailyUsd],
   ["tuiFullscreen", putTuiFullscreen],
   ["tuiDisableMouse", putTuiDisableMouse],
   ["telemetryConsent", putTelemetryConsent],
@@ -5935,6 +5964,27 @@ function putUpnextSkipCliPicker(value: unknown, deps: Ctx["deps"]): Response {
   config.upnextSkipCliPicker = value;
   deps.store.setSetting("upnextSkipCliPicker", value ? "1" : "0");
   return json({ upnextSkipCliPicker: config.upnextSkipCliPicker });
+}
+
+/** Arm/disarm the judge. Takes effect on the next classify — the client and ledger are built at
+ *  boot, so turning it off here stops `classifyStop` consulting them rather than tearing them down. */
+function putJudgeEnabled(value: unknown, deps: Ctx["deps"]): Response {
+  if (typeof value !== "boolean") return json({ error: "judgeEnabled must be a boolean" }, 400);
+  config.judgeEnabled = value;
+  deps.store.setSetting("judgeEnabled", value ? "1" : "0");
+  return json({ judgeEnabled: config.judgeEnabled });
+}
+
+/** The daily USD ceiling. Floored at 0 (which disarms by spending nothing) and capped well above
+ *  any plausible legitimate day, since this is a runaway guard rather than a budget. */
+function putJudgeDailyUsd(value: unknown, deps: Ctx["deps"]): Response {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return json({ error: "judgeDailyUsd must be a number" }, 400);
+  }
+  const n = Math.min(1000, Math.max(0, value));
+  config.judgeDailyUsd = n;
+  deps.store.setSetting("judgeDailyUsd", String(n));
+  return json({ judgeDailyUsd: config.judgeDailyUsd });
 }
 
 function putUsageHoldPct(value: unknown, deps: Ctx["deps"]): Response {

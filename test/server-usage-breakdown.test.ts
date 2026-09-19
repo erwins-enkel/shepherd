@@ -15,6 +15,7 @@ import {
 } from "../src/types";
 import type { SessionUsageSnapshot } from "../src/types";
 import { SessionUsageRollup } from "../src/usage";
+import { config } from "../src/config";
 
 function harness(overrides: Partial<AppDeps> = {}): {
   app: ReturnType<typeof makeApp>;
@@ -385,5 +386,62 @@ test("GET /api/usage/breakdown with usageRollup: active session's units appear i
     expect(task!.tokens.output).toBe(80);
   } finally {
     rmSync(rollupDir, { recursive: true, force: true });
+  }
+});
+
+// ── judge spend block (#2369) ─────────────────────────────────────────────────
+
+test("the judge block is omitted when no judge is wired at all", async () => {
+  const { app, store } = harness();
+  seedSnapshot(store);
+  const body = await (await app.fetch(new Request("http://x/api/usage/breakdown?range=7d"))).json();
+  // Null rather than a row of zeroes: most operators never arm the judge, and the lens should not
+  // grow a permanent empty section for a feature they do not use.
+  expect(body.judge).toBeNull();
+});
+
+test("the judge block carries today's calls, spend and ceiling while the judge is armed", async () => {
+  const prev = config.judgeEnabled;
+  config.judgeEnabled = true;
+  try {
+    const { app, store } = harness({
+      judgeSpend: { today: () => ({ day: "2026-09-19", calls: 7, usd: 0.00056, ceilingUsd: 1 }) },
+    });
+    seedSnapshot(store);
+    const body = await (
+      await app.fetch(new Request("http://x/api/usage/breakdown?range=7d"))
+    ).json();
+    expect(body.judge).toEqual({ day: "2026-09-19", calls: 7, usd: 0.00056, ceilingUsd: 1 });
+    // And it stays OUT of the weighted-unit totals: those price subscription work at Anthropic list
+    // rates, this is metered money billed by another vendor. Summing them would mean nothing.
+    expect(body.totalUnits).toBe(body.authoringUnits + body.satelliteUnits);
+    expect(body.satelliteByKind.some((k: { kind: string }) => k.kind === "judge")).toBe(false);
+  } finally {
+    config.judgeEnabled = prev;
+  }
+});
+
+test("disarmed mid-day, the block survives while there is spend to account for", async () => {
+  const prev = config.judgeEnabled;
+  config.judgeEnabled = false;
+  try {
+    const spent = { today: () => ({ day: "2026-09-19", calls: 3, usd: 0.0002, ceilingUsd: 1 }) };
+    const clean = { today: () => ({ day: "2026-09-19", calls: 0, usd: 0, ceilingUsd: 1 }) };
+
+    const a = harness({ judgeSpend: spent });
+    seedSnapshot(a.store);
+    const withSpend = await (
+      await a.app.fetch(new Request("http://x/api/usage/breakdown?range=7d"))
+    ).json();
+    expect(withSpend.judge).toMatchObject({ calls: 3 });
+
+    const b = harness({ judgeSpend: clean });
+    seedSnapshot(b.store);
+    const noSpend = await (
+      await b.app.fetch(new Request("http://x/api/usage/breakdown?range=7d"))
+    ).json();
+    expect(noSpend.judge).toBeNull();
+  } finally {
+    config.judgeEnabled = prev;
   }
 });

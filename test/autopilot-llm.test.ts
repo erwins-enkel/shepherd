@@ -622,3 +622,201 @@ test("classifierPrompt without amendments is byte-identical to before", () => {
   const bare = classifierPrompt(["tail"], "task");
   expect(strip(classifierPrompt(["tail"], "task", "en", []))).toBe(strip(bare));
 });
+
+// ── the judge leg (#2369) ───────────────────────────────────────────────────────
+//
+// The contract this section exists to pin: arming the judge can never cost a capability. Every
+// judge failure falls back to the spawn that ships today, and an unarmed judge changes nothing at
+// all. `judge` is an injected dep, so none of this needs a key or a network.
+
+function stubJudge(impl: () => Promise<unknown>): { judge: any; asks: unknown[][] } {
+  const asks: unknown[][] = [];
+  return {
+    asks,
+    judge: {
+      ask: async (state: unknown, questions: unknown) => {
+        asks.push([state, questions]);
+        return impl();
+      },
+    },
+  };
+}
+
+function judgeAnswer(kind: string, costUsd = 0.00008) {
+  return {
+    answers: {
+      kind: { type: "choice", choice: kind, probabilities: { [kind]: 1 }, vendorConfidence: 0.6 },
+    },
+    model: "jev-1.13.0",
+    usage: { inputTokens: 1_900, outputTokens: 0 },
+    costUsd,
+  };
+}
+
+const TAIL = ["ran the tests", "Shall I commit now?"];
+
+test("no judge wired → the spawn path runs exactly as it always has", async () => {
+  const { deps, calls } = makeDeps({
+    readVerdict: () => ({ kind: "gate", summary: "from the spawn" }),
+  });
+  const v = await classifyStop(TAIL, "task", deps, "c1");
+  expect(v).toEqual({ kind: "gate", summary: "from the spawn" });
+  expect(calls.started).not.toBeNull();
+});
+
+test("an armed judge answers, and no classifier agent is spawned at all", async () => {
+  const { judge, asks } = stubJudge(async () => judgeAnswer("gate"));
+  const { deps, calls } = makeDeps({
+    judge,
+    readVerdict: () => ({ kind: "question", summary: "the spawn should not have run" }),
+  });
+
+  const v = await classifyStop(TAIL, "task", deps, "c1");
+
+  // kind from the judge; summary from the agent's own last words rather than a model paraphrase.
+  expect(v).toEqual({ kind: "gate", summary: "ran the tests Shall I commit now?" });
+  expect(calls.started).toBeNull();
+  expect(calls.order).toEqual([]);
+  // The state is the production prompt VERBATIM — the framing the measurement picked.
+  expect(String(asks[0]![0])).toContain("Shall I commit now?");
+  expect(Object.keys(asks[0]![1] as object)).toEqual(["kind"]);
+});
+
+test("every judge failure mode falls back to the spawn", async () => {
+  const failures: [string, () => Promise<unknown>][] = [
+    ["transport error", async () => Promise.reject(new Error("judge: 500 boom"))],
+    ["rate limited", async () => Promise.reject(new Error("judge: 429 rate limited"))],
+    ["deadline", async () => Promise.reject(new Error("judge: aborted at the 8000ms deadline"))],
+    ["off-enum answer", async () => judgeAnswer("GATE")],
+    [
+      "missing answer",
+      async () => ({ ...judgeAnswer("gate"), answers: {} as Record<string, never> }),
+    ],
+  ];
+
+  for (const [name, impl] of failures) {
+    const { judge } = stubJudge(impl);
+    const { deps, calls } = makeDeps({
+      judge,
+      readVerdict: () => ({ kind: "finished", summary: `spawn answered after ${name}` }),
+    });
+    const v = await classifyStop(TAIL, "task", deps, "c1");
+    expect(v).toEqual({ kind: "finished", summary: `spawn answered after ${name}` });
+    expect(calls.started).not.toBeNull();
+  }
+});
+
+test("a breached spend ceiling skips the judge entirely and falls back", async () => {
+  let asked = 0;
+  const { judge } = stubJudge(async () => {
+    asked++;
+    return judgeAnswer("gate");
+  });
+  const { deps, calls } = makeDeps({
+    judge,
+    judgeSpend: { allow: () => false, record: () => {} } as any,
+    readVerdict: () => ({ kind: "question", summary: "spawn" }),
+  });
+
+  const v = await classifyStop(TAIL, "task", deps, "c1");
+  expect(v).toEqual({ kind: "question", summary: "spawn" });
+  expect(asked).toBe(0); // refused BEFORE the call, so a breach costs nothing
+  expect(calls.started).not.toBeNull();
+});
+
+test("spend is booked even when the answer turns out to be unusable — we were billed either way", async () => {
+  const recorded: number[] = [];
+  const { judge } = stubJudge(async () => judgeAnswer("GATE", 0.00042));
+  const { deps } = makeDeps({
+    judge,
+    judgeSpend: { allow: () => true, record: (usd: number) => recorded.push(usd) } as any,
+    readVerdict: () => ({ kind: "gate", summary: "spawn" }),
+  });
+
+  await classifyStop(TAIL, "task", deps, "c1");
+  expect(recorded).toEqual([0.00042]);
+});
+
+test("a ledger write that throws does not lose the verdict already paid for", async () => {
+  const { judge } = stubJudge(async () => judgeAnswer("complete"));
+  const { deps, calls } = makeDeps({
+    judge,
+    judgeSpend: {
+      allow: () => true,
+      record: () => {
+        throw new Error("db locked");
+      },
+    } as any,
+  });
+
+  const v = await classifyStop(TAIL, "task", deps, "c1");
+  expect(v.kind).toBe("complete");
+  expect(calls.started).toBeNull();
+});
+
+test("a ledger whose allow() throws degrades to the spawn rather than escaping classifyStop", async () => {
+  const { judge } = stubJudge(async () => judgeAnswer("gate"));
+  const { deps, calls } = makeDeps({
+    judge,
+    judgeSpend: {
+      allow: () => {
+        throw new Error("database is locked");
+      },
+      record: () => {},
+    } as any,
+    readVerdict: () => ({ kind: "question", summary: "spawn" }),
+  });
+
+  const v = await classifyStop(TAIL, "task", deps, "c1");
+  expect(v).toEqual({ kind: "question", summary: "spawn" });
+  expect(calls.started).not.toBeNull();
+});
+
+test("an empty tail still short-circuits before the judge — it costs nothing to surface", async () => {
+  let asked = 0;
+  const { judge } = stubJudge(async () => {
+    asked++;
+    return judgeAnswer("gate");
+  });
+  const { deps } = makeDeps({ judge });
+
+  expect(await classifyStop(["", "   "], "task", deps, "c1")).toEqual({
+    kind: "unknown",
+    summary: "",
+  });
+  expect(asked).toBe(0);
+});
+
+test("api-key mode without a key bars the SPAWN, not the judge — it bills its own vendor", async () => {
+  const { judge } = stubJudge(async () => judgeAnswer("gate"));
+  const { deps, calls } = makeDeps({
+    judge,
+    readVerdict: () => ({ kind: "question", summary: "the spawn must not run" }),
+  });
+
+  const v = await withAuth("api-key", null, () => classifyStop(TAIL, "task", deps, "c1"));
+
+  expect(v.kind).toBe("gate");
+  expect(calls.started).toBeNull();
+});
+
+test("api-key mode without a key AND a failing judge surfaces rather than spawning", async () => {
+  const { judge } = stubJudge(async () => Promise.reject(new Error("judge: 500 boom")));
+  const { deps, calls } = makeDeps({
+    judge,
+    readVerdict: () => ({ kind: "gate", summary: "the spawn must not run" }),
+  });
+
+  const v = await withAuth("api-key", null, () => classifyStop(TAIL, "task", deps, "c1"));
+
+  // The fail-closed rule is unchanged: a Claude spawn must never silently bill the subscription.
+  expect(v).toEqual({ kind: "unknown", summary: "" });
+  expect(calls.started).toBeNull();
+});
+
+test("a chrome-only tail leaves the summary empty, so the caller's constant still applies", async () => {
+  const { judge } = stubJudge(async () => judgeAnswer("question"));
+  const { deps } = makeDeps({ judge });
+  const v = await classifyStop(["╭─────╮", "╰─────╯"], "task", deps, "c1");
+  expect(v).toEqual({ kind: "question", summary: "" });
+});

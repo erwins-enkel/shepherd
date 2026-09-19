@@ -6,6 +6,7 @@ import type {
   UsageByRole,
   UsageRange,
   UsageBreakdown,
+  UsageJudgeSpend,
   UsageKindUnits,
   UsageRepoBreakdown,
   UsageTaskBreakdown,
@@ -501,6 +502,10 @@ export async function buildUsageBreakdown(opts: {
   apiKey: boolean;
   usageRollup?: SessionUsageRollup;
   codexModelUsage?: (cutoff: number) => CodexModelUsage;
+  /** Today's judge spend (#2369). Injected rather than read here: it is a live snapshot owned by
+   *  the ledger, is not range-scoped like everything else in this builder, and must never be mixed
+   *  into the weighted-unit totals. Absent ⇒ the judge has never been armed. */
+  judge?: UsageJudgeSpend | null;
 }): Promise<UsageBreakdown> {
   const { store, range, now, apiKey } = opts;
 
@@ -573,5 +578,6 @@ export async function buildUsageBreakdown(opts: {
       codex: modelBreakdown(codexByModel, codexByRole),
     },
     repos,
+    judge: opts.judge ?? null,
   };
 }

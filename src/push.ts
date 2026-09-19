@@ -27,7 +27,8 @@ export interface PushPayload {
     | "ready"
     | "backup_stale"
     | "onboarding_stale"
-    | "landing_conflict";
+    | "landing_conflict"
+    | "judge_ceiling";
   tag: string;
 }
 
@@ -56,6 +57,8 @@ const KIND_CATEGORY: Record<PushPayload["kind"], PushCategory> = {
   onboarding_stale: "agent",
   // Epic-global merge/land attention; ride the "ci" toggle like merge_attention/manual_steps.
   landing_conflict: "ci",
+  // Host-global spend alert (#2369); rides the "agent" toggle like usage_limit/extra_credits.
+  judge_ceiling: "agent",
 };
 
 /** A notification described by intent, not text — localized per device at send time. */
@@ -77,7 +80,8 @@ export interface NotifyInput {
     | "ready"
     | "backup_stale"
     | "onboarding_stale"
-    | "landing_conflict";
+    | "landing_conflict"
+    | "judge_ceiling";
   sessionId: string;
   tag: string;
   name: string;
@@ -115,6 +119,9 @@ export interface NotifyInput {
   epicNumber?: number;
   /** For kind "landing_conflict": the epic's landing PR number (subject of the body). */
   landingPr?: number;
+  /** For kind "judge_ceiling": USD spent today, and the ceiling that stopped further calls. */
+  judgeSpentUsd?: number;
+  judgeCeilingUsd?: number;
   /** Overrides the cooldown key (default `${kind}:${sessionId}`). */
   cooldownKey?: string;
 }
@@ -194,6 +201,9 @@ const NOTIFY_TEXT = {
       pr !== null
         ? `Epic #${epic}'s landing PR #${pr} has a conflict with the default branch — over to you.`
         : `Epic #${epic}'s landing PR has a conflict with the default branch — over to you.`,
+    judgeCeilingTitle: "Judge daily limit reached",
+    judgeCeilingBody: (spent: string, ceiling: string) =>
+      `The stop classifier spent ${spent} of its ${ceiling} daily limit and is back on the agent spawn. Nothing is blocked.`,
   },
   de: {
     doneTitle: (name: string) => `${name} — wartet`,
@@ -251,6 +261,9 @@ const NOTIFY_TEXT = {
       pr !== null
         ? `Der Landing-PR #${pr} von Epic #${epic} hat einen Konflikt mit dem Standard-Branch — du bist dran.`
         : `Der Landing-PR von Epic #${epic} hat einen Konflikt mit dem Standard-Branch — du bist dran.`,
+    judgeCeilingTitle: "Judge-Tageslimit erreicht",
+    judgeCeilingBody: (spent: string, ceiling: string) =>
+      `Der Stop-Klassifikator hat ${spent} von ${ceiling} Tagesbudget verbraucht und läuft wieder über den Agent-Spawn. Es ist nichts blockiert.`,
   },
 } as const;
 
@@ -318,6 +331,16 @@ function landingConflictParts(t: NotifyText, input: NotifyInput): { title: strin
   };
 }
 
+/** Judge daily-ceiling title/body. Four decimals: the amounts are fractions of a cent, and
+ *  `toFixed(2)` would render both the spend and a small ceiling as "$0.00". */
+function judgeCeilingParts(t: NotifyText, input: NotifyInput): { title: string; body: string } {
+  const usd = (n: number): string => `$${n.toFixed(4)}`;
+  return {
+    title: t.judgeCeilingTitle,
+    body: t.judgeCeilingBody(usd(input.judgeSpentUsd ?? 0), usd(input.judgeCeilingUsd ?? 0)),
+  };
+}
+
 /** Extra-credits body: the spent/cap amount formatted with the optional currency prefix. */
 function extraCreditsBody(t: NotifyText, input: NotifyInput): string {
   const cur = input.currency ?? "";
@@ -334,10 +357,33 @@ function resetTimeLabel(resetAt: number | undefined, locale: NotifyLocale): stri
   }).format(new Date(resetAt));
 }
 
+/**
+ * Kinds whose whole payload is `{title, body}` built from the input by one helper. Collected into a
+ * lookup rather than left as seven identical `case` arms — the arms carried no information beyond
+ * "call this function", and each new one pushed {@link buildPayload} further past the complexity
+ * gate. A kind belongs here as soon as its arm is exactly `{...base, ...somethingParts(t, input)}`.
+ */
+const PARTS_BY_KIND: Partial<
+  Record<
+    NotifyInput["kind"],
+    (t: NotifyText, input: NotifyInput) => { title: string; body: string }
+  >
+> = {
+  merge_attention: mergeAttentionParts,
+  learnings_retired: learningsParts,
+  learnings_trialed: learningsParts,
+  backup_stale: stalenessParts,
+  onboarding_stale: stalenessParts,
+  landing_conflict: landingConflictParts,
+  judge_ceiling: judgeCeilingParts,
+};
+
 /** Build the device-facing payload for a notification in the subscriber's locale. */
 export function buildPayload(input: NotifyInput, locale: string): PushPayload {
   const t = NOTIFY_TEXT[asLocale(locale)];
   const base = { sessionId: input.sessionId, kind: input.kind, tag: input.tag };
+  const parts = PARTS_BY_KIND[input.kind];
+  if (parts) return { ...base, ...parts(t, input) };
   switch (input.kind) {
     case "done":
       return { ...base, title: t.doneTitle(input.name), body: t.doneBody };
@@ -367,8 +413,6 @@ export function buildPayload(input: NotifyInput, locale: string): PushPayload {
         title: t.autopilotDoneTitle(input.name),
         body: autopilotBody(input.summary, t.autopilotDoneFallback),
       };
-    case "merge_attention":
-      return { ...base, ...mergeAttentionParts(t, input) };
     case "usage_limit":
       return {
         ...base,
@@ -377,18 +421,10 @@ export function buildPayload(input: NotifyInput, locale: string): PushPayload {
       };
     case "extra_credits":
       return { ...base, title: t.extraCreditsTitle, body: extraCreditsBody(t, input) };
-    case "learnings_retired":
-    case "learnings_trialed":
-      return { ...base, ...learningsParts(t, input) };
     case "ready":
       return { ...base, title: t.readyTitle(input.name), body: t.readyBody };
     case "manual_steps":
       return { ...base, title: t.manualStepsTitle(input.name), body: t.manualStepsBody };
-    case "backup_stale":
-    case "onboarding_stale":
-      return { ...base, ...stalenessParts(t, input) };
-    case "landing_conflict":
-      return { ...base, ...landingConflictParts(t, input) };
     default:
       return {
         ...base,

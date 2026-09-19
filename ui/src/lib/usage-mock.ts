@@ -475,6 +475,9 @@ const docsSatAll = docsTasksAll.reduce((a, t) => a + t.satelliteUnits, 0);
 // Fixtures
 // ---------------------------------------------------------------------------
 
+/** Fixed so the mock never drifts with the clock. */
+const MOCK_JUDGE_DAY = "2026-09-19";
+
 /** Returns a realistic per-range fixture for the /usage breakdown. */
 export function mockBreakdown(range: UsageRange): UsageBreakdown {
   switch (range) {
@@ -492,6 +495,9 @@ export function mockBreakdown(range: UsageRange): UsageBreakdown {
         generationUnits: Math.round(total * 0.25),
         satelliteByKind: byKind(totalS),
         dollars: total,
+        // The judge block is per-DAY, not per-range: it is a live snapshot of today, so it reads
+        // the same whichever range the lens is showing.
+        judge: { day: MOCK_JUDGE_DAY, calls: 214, usd: 0.0172, ceilingUsd: 1 },
         models: modelsFor(range),
         repos: [
           {
@@ -536,6 +542,9 @@ export function mockBreakdown(range: UsageRange): UsageBreakdown {
         generationUnits: Math.round(total * 0.24),
         satelliteByKind: byKind(totalS),
         dollars: total,
+        // The judge block is per-DAY, not per-range: it is a live snapshot of today, so it reads
+        // the same whichever range the lens is showing.
+        judge: { day: MOCK_JUDGE_DAY, calls: 214, usd: 0.0172, ceilingUsd: 1 },
         models: modelsFor(range),
         repos: [
           {
@@ -580,6 +589,9 @@ export function mockBreakdown(range: UsageRange): UsageBreakdown {
         generationUnits: Math.round(total * 0.23),
         satelliteByKind: byKind(totalS),
         dollars: total,
+        // The judge block is per-DAY, not per-range: it is a live snapshot of today, so it reads
+        // the same whichever range the lens is showing.
+        judge: { day: MOCK_JUDGE_DAY, calls: 214, usd: 0.0172, ceilingUsd: 1 },
         models: modelsFor(range),
         repos: [
           {
@@ -632,6 +644,9 @@ export function mockBreakdown(range: UsageRange): UsageBreakdown {
         generationUnits: Math.round(total * 0.22),
         satelliteByKind: byKind(totalS),
         dollars: total,
+        // The judge block is per-DAY, not per-range: it is a live snapshot of today, so it reads
+        // the same whichever range the lens is showing.
+        judge: { day: MOCK_JUDGE_DAY, calls: 214, usd: 0.0172, ceilingUsd: 1 },
         models: modelsFor(range),
         repos: [
           {

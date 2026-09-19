@@ -113,6 +113,8 @@ import { AutoMergeService } from "./automerge";
 import { DraftReconcileService } from "./draft-reconcile";
 import { isFullAuto } from "./full-auto";
 import { classifyStop } from "./autopilot-llm";
+import { createTypeSafeJudge } from "./judge-typesafe";
+import { JudgeSpendLedger, dayKeyBefore } from "./judge-spend";
 import { tailLines } from "./blocked";
 import { recommendPrompt, RECOMMEND_LABEL } from "./prompt-recommend";
 import { shapeTask, SHAPE_LABEL } from "./task-shape";
@@ -417,6 +419,17 @@ const savedTuiFs = store.getSetting("tuiFullscreen");
 if (savedTuiFs !== null) config.tuiFullscreen = savedTuiFs === "1";
 const savedTuiMouse = store.getSetting("tuiDisableMouse");
 if (savedTuiMouse !== null) config.tuiDisableMouse = savedTuiMouse === "1";
+// Judge (#2369): a UI-set enable flag and daily ceiling (persisted) override the env seed. The env
+// var seeds a FRESH DB only, matching every other persisted role knob — so flipping the toggle off
+// in Settings stays off across restarts even with SHEPHERD_JUDGE=1 still exported.
+const savedJudge = store.getSetting("judgeEnabled");
+if (savedJudge !== null) config.judgeEnabled = savedJudge === "1";
+const savedJudgeUsd = store.getSetting("judgeDailyUsd");
+// Blank is guarded explicitly: `Number("")` is 0, and 0 is a meaningful ceiling here ("spend
+// nothing"), so a set-but-empty row must not read as a deliberate disarm. Bounds mirror the PUT
+// handler's, so a hand-edited row cannot widen the runaway guard past what the UI allows.
+if (savedJudgeUsd !== null && savedJudgeUsd.trim() !== "" && Number.isFinite(Number(savedJudgeUsd)))
+  config.judgeDailyUsd = Math.min(1000, Math.max(0, Number(savedJudgeUsd)));
 // a UI-chosen auth mode (persisted) overrides the env seed; absent or unrecognised → keep default.
 const savedAm = store.getSetting("authMode");
 if (savedAm !== null) {
@@ -2081,6 +2094,57 @@ function readVisibleBuffer(id: string): string | null {
   }
 }
 
+// Judge (#2369): the decision-model seam behind the stop classifier. Armed only when the operator
+// BOTH turns the setting on and supplies a key — the key alone is also the eval harness's
+// credential, so its presence must not arm a billed production path.
+//
+// The client is built whenever a KEY exists, and the SETTING is read per classify (see
+// `armedJudge`). A client is pure configuration — it opens nothing — so building one the operator
+// has switched off costs nothing, and it is what lets the Settings toggle take effect on the next
+// classification instead of at the next restart.
+const judgeClient = config.judgeApiKey
+  ? createTypeSafeJudge({
+      apiKey: config.judgeApiKey,
+      baseUrl: config.judgeBaseUrl,
+      model: config.judgeModel,
+      deadlineMs: config.judgeDeadlineMs,
+    })
+  : null;
+/** The judge to use right now, or null when the operator has it switched off. */
+const armedJudge = () => (config.judgeEnabled ? judgeClient : null);
+const judgeSpend = judgeClient
+  ? new JudgeSpendLedger({
+      store,
+      // Read live: the operator can move the ceiling from Settings without a restart.
+      ceilingUsd: () => config.judgeDailyUsd,
+      onCeilingReached: (spentUsd, ceilingUsd) => {
+        console.warn(
+          `[judge] daily ceiling reached ($${spentUsd.toFixed(4)} of $${ceilingUsd.toFixed(4)}) — ` +
+            `falling back to the classifier spawn for the rest of the day.`,
+        );
+        void push
+          .notify({
+            kind: "judge_ceiling",
+            sessionId: "",
+            tag: "judge-ceiling",
+            name: "judge",
+            judgeSpentUsd: spentUsd,
+            judgeCeilingUsd: ceilingUsd,
+            cooldownKey: "judge_ceiling",
+          })
+          .catch((err) => console.warn("[push] judge_ceiling notify failed:", err));
+      },
+    })
+  : null;
+if (judgeClient) {
+  console.log(
+    `[judge] key present, setting ${config.judgeEnabled ? "ON" : "OFF"} — model ${config.judgeModel}, ` +
+      `daily ceiling $${config.judgeDailyUsd.toFixed(2)}, deadline ${config.judgeDeadlineMs}ms`,
+  );
+} else if (config.judgeEnabled) {
+  console.warn("[judge] SHEPHERD_JUDGE is on but no JEV_API_KEY is set — the judge stays unarmed.");
+}
+
 // Autopilot: the pre-PR twin of the critic's auto-address loop. When an autopilot-enabled
 // session (per-repo default + per-session override) stalls on a procedural gate with no PR
 // yet, a transient classifier decides gate (auto-proceed) / question (surface) / finished
@@ -2103,6 +2167,11 @@ const autopilot = new AutopilotService({
         operatorLanguage: config.operatorLanguage,
         // #2225: an amendment can change what "on task" and "finished" mean for this session.
         amendments: store.listActiveTaskAmendments(taskSessionId),
+        // #2369: null unless the operator armed the judge; read per call so the Settings toggle
+        // takes effect on the next classification. On any judge failure classifyStop falls back to
+        // the spawn configured above.
+        judge: armedJudge(),
+        judgeSpend,
       },
       label,
     );
@@ -2697,6 +2766,9 @@ const runDailySweep = (opts?: { skipTmpSweep?: boolean }) => {
   store.pruneMaintainRuns(Date.now() - REVIEWER_SPAWN_RETENTION_MS);
   // Scrape timeline history; pruned on a 90-day window matching the caps/credit tables.
   store.pruneUsageHistory(Date.now() - USAGE_HISTORY_RETENTION_MS);
+  // Judge spend (#2369): day-keyed rows have no parent to cascade from, so this is the only thing
+  // that ever removes one.
+  store.pruneJudgeSpend(dayKeyBefore(Date.now(), config.judgeSpendRetentionDays));
   // #1794: permanently prune stale proposed learnings (3-day default retention). Runs
   // synchronously here — before any async distillation/merge-suggestion/auto-trial work — so
   // the retention rule has unconditional, deterministic precedence over promotion.
@@ -3105,6 +3177,9 @@ const appDeps: AppDeps = {
   usageLimits,
   usageRollup,
   codexModelUsage: (cutoff) => readCodexModelUsage(latestCodexStateDb(), cutoff),
+  // #2369: present whenever a key is configured; the server decides whether the lens shows the
+  // block (see judgeSpendForLens).
+  ...(judgeSpend ? { judgeSpend } : {}),
   refreshUsage,
   // Live GitHub REST + GraphQL buckets for the usage view. `gh api rate_limit`
   // is quota-exempt, so it works even when the GraphQL bucket is at zero.

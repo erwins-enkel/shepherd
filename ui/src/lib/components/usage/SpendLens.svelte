@@ -53,6 +53,12 @@
     return [...repo.tasks].sort((a, b) => taskTotal(b) - taskTotal(a)).slice(0, 3);
   }
 
+  /** Judge amounts are fractions of a cent, so `formatDollars`' two decimals would render both
+   *  the spend and a small ceiling as "$0.00". Four decimals below a cent, two above. */
+  function formatJudgeUsd(n: number): string {
+    return n > 0 && n < 0.01 ? `$${n.toFixed(4)}` : formatDollars(n);
+  }
+
   /** Remaining task count beyond the top 3. */
   function remainingTaskCount(repo: UsageRepoBreakdown): number {
     return Math.max(0, repo.tasks.length - 3);
@@ -140,6 +146,40 @@
       </div>
     {/each}
   </div>
+
+  {#if breakdown.judge}
+    {@const judge = breakdown.judge}
+    {@const atCeiling = judge.ceilingUsd > 0 && judge.usd >= judge.ceilingUsd}
+    <!-- Deliberately OUTSIDE the repo list and never summed into the totals above: those are
+         weighted units at Anthropic list prices measuring subscription work, this is metered money
+         billed by a different vendor. See UsageJudgeSpend. -->
+    <section class="judge" aria-label={m.usage_judge_heading()}>
+      <div class="judge-header">
+        <h3 class="judge-heading">{m.usage_judge_heading()}</h3>
+        <InfoTip
+          text={m.usage_judge_explainer()}
+          label={m.newtask_info_aria({ topic: m.usage_judge_heading() })}
+        />
+      </div>
+      <dl class="judge-stats">
+        <div class="judge-stat">
+          <dt>{m.usage_judge_calls()}</dt>
+          <dd>{judge.calls}</dd>
+        </div>
+        <div class="judge-stat">
+          <dt>{m.usage_judge_spent()}</dt>
+          <dd>{formatJudgeUsd(judge.usd)}</dd>
+        </div>
+        <div class="judge-stat">
+          <dt>{m.usage_judge_ceiling()}</dt>
+          <dd>{formatJudgeUsd(judge.ceilingUsd)}</dd>
+        </div>
+      </dl>
+      {#if atCeiling}
+        <p class="judge-ceiling-note">{m.usage_judge_at_ceiling()}</p>
+      {/if}
+    </section>
+  {/if}
 </div>
 
 <style>
@@ -318,6 +358,49 @@
     color: var(--color-faint);
     padding: 0.2rem 0.5rem;
     font-style: italic;
+  }
+
+  .judge {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    padding-top: 0.6rem;
+    border-top: 1px solid var(--border);
+  }
+  .judge-header {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+  .judge-heading {
+    margin: 0;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--fg-dim);
+  }
+  .judge-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 1.5rem;
+    margin: 0;
+  }
+  .judge-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+  }
+  .judge-stat dt {
+    font-size: 0.7rem;
+    color: var(--fg-dim);
+  }
+  .judge-stat dd {
+    margin: 0;
+    font-variant-numeric: tabular-nums;
+  }
+  .judge-ceiling-note {
+    margin: 0;
+    font-size: 0.75rem;
+    color: var(--fg-dim);
   }
 
   @media (max-width: 480px) {

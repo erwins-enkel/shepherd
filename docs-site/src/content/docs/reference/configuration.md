@@ -419,6 +419,43 @@ one (a per-repo in-flight guard means at most one run per repo at a time):
 | `SHEPHERD_DOC_AGENT_EFFORT` | `low` | Reasoning-effort tier for the doc-agent spawn: `default` follows the CLI's own effort, or pin a tier (`low` / `medium` / `high` / `xhigh` / `max` / `ultra` — `ultra` is Codex-only). Seeds a fresh DB; persisted + UI-configurable |
 | `SHEPHERD_DOC_AGENT_NIGHTLY_HOUR` | `3` | Local hour (0–23) at/after which the nightly sweep evaluates each repo; invalid values fall back to `3` |
 
+## Fast stop classifier (the judge)
+
+Every time an agent's turn ends, autopilot has to decide **why** it stopped — a procedural gate it
+can wave through, a real question for you, finished work to drive to a PR, a completed non-PR task,
+or something it cannot tell. By default that decision costs a whole transient `claude` agent: a
+spawn, a terminal pane and a polled result file under a two-minute budget.
+
+The **judge** answers the same five-way question with a single request to a "System One" decision
+model instead. It is typically an order of magnitude faster, costs a small fraction of a cent, and
+spends no subscription quota — which is quota your real agents get to keep.
+
+**Arming it needs two things: `SHEPHERD_JUDGE=1` and `JEV_API_KEY`.** Both, deliberately. That key
+is also the eval harness's credential, so having it in the server's environment must not silently
+arm a billed production path, and you have to be able to turn the judge off without deleting the
+key the eval leg needs.
+
+**There is no capability to lose by trying it.** On any failure — transport error, rate limit, the
+wall-clock deadline, a spend ceiling breach — the classifier falls back to the `claude` spawn it
+uses today. The one visible difference is the one-line gloss on a paused session: the judge cannot
+write prose, so the gloss becomes an excerpt of the agent's own last terminal lines rather than a
+model's paraphrase of them.
+
+Spend is metered per local day and shown in **Usage → Spend**, kept separate from the weighted-unit
+figures above it — those price subscription work at Anthropic list rates, this is money actually
+billed by another vendor. Past the daily ceiling the classifier falls back to the spawn and you get
+one notification.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `SHEPHERD_JUDGE` | `0` (off) | Set `1` to route the autopilot stop classifier through the decision model. Inert without `JEV_API_KEY`. Seeds a fresh DB; persisted + UI-configurable (Settings → Session) |
+| `JEV_API_KEY` | _(unset)_ | TypeSafe AI (JEV) credential. Read by the server when `SHEPHERD_JUDGE` is on, and by the eval harness's `--backend jev` leg. Absent ⇒ the judge stays unarmed whatever the flag says |
+| `SHEPHERD_JUDGE_MODEL` | `jev-1.13.0` | Decision model, pinned to a **snapshot**. The vendor SDK's own default is a floating alias, under which a re-point would arrive as a silent accuracy change rather than a version bump |
+| `SHEPHERD_JUDGE_BASE_URL` | `https://api.typesafe.ai` | API root. Configurable so a self-hosted implementation of the same wire format can be pointed at without a code change |
+| `SHEPHERD_JUDGE_DAILY_USD` | `1` | Daily USD ceiling. A runaway guard, not a budget — past it the classifier falls back to the spawn for the rest of the day and you get one notification. Persisted + UI-configurable |
+| `SHEPHERD_JUDGE_TIMEOUT_MS` | `8000` | **Total** wall-clock budget for one judge call, retries included (1000–60000). The vendor SDK times out per *attempt* with no total budget, so without this a rate-limited call honouring `Retry-After` could outlast the spawn the judge exists to be faster than |
+| `SHEPHERD_JUDGE_SPEND_RETENTION_DAYS` | `90` | How many days of judge spend rows the daily sweep keeps (1–3650) |
+
 ## Maintain loop (self-health bands)
 
 Opt-in, default-off, and fully inert when off. Once per local day Shepherd scores four

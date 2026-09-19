@@ -247,6 +247,14 @@ export interface Settings {
   docAgentEnabled: boolean;
   /** Whether the doc agent runs in observe-only mode (no PR opened). */
   docAgentAct: boolean;
+  /** Judge (#2369): whether the stop classifier is routed through the decision model. Inert unless
+   *  `judgeHasKey` is also true — the flag and the credential are separate on purpose. */
+  judgeEnabled: boolean;
+  /** Whether a judge credential is configured. Never the key itself; the toggle is inert without
+   *  one, and an operator has to be able to tell "off" from "no key" apart. */
+  judgeHasKey: boolean;
+  /** Daily USD ceiling for judge calls. On breach the classifier falls back to the agent spawn. */
+  judgeDailyUsd: number;
 }
 
 export interface DirEntry {
@@ -1527,6 +1535,28 @@ export interface UsageBreakdown {
     codex: UsageModelBreakdown;
   };
   repos: UsageRepoBreakdown[];
+  /** Today's judge spend, or null when the judge has never been armed. See {@link UsageJudgeSpend}. */
+  judge: UsageJudgeSpend | null;
+}
+
+/**
+ * Judge (decision-model) spend for TODAY (#2369).
+ *
+ * DELIBERATELY NOT part of `totalUnits` / `satelliteByKind`, and never priced through
+ * `src/pricing.ts`. Those are weighted units denominated in Anthropic list prices, measuring
+ * subscription work; this is real metered money paid to a different vendor. Summing the two would
+ * mis-denominate the lens, and `pricing.ts` has no row for the model — left to fall through it
+ * would price at default sonnet-like weights and overstate by nearly two orders of magnitude.
+ *
+ * Absent when the judge has never been armed, so the block stays out of the lens entirely rather
+ * than rendering a zero row for a feature the operator does not use.
+ */
+export interface UsageJudgeSpend {
+  /** Local calendar day the figures cover, `YYYY-MM-DD`. */
+  day: string;
+  calls: number;
+  usd: number;
+  ceilingUsd: number;
 }
 
 // ── Spawn-prompt budget (issue #1999) — mirrors src/types.ts, keep in sync ────

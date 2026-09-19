@@ -2,6 +2,7 @@ import type { AutopilotVerdict, AutopilotKind } from "./types";
 import { UNTRUSTED_CONTENT_DIRECTIVE, fenceUntrusted } from "./untrusted";
 import type { OperatorLanguage } from "./operator-language";
 import { amendmentBlock, type TaskAmendment } from "./task-amendments";
+import type { JudgeChoiceAnswer, JudgeChoiceQuestion } from "./judge";
 
 /**
  * Pure classifier core for the autopilot stop-classifier — the prompt + verdict
@@ -150,4 +151,92 @@ export function normalize(raw: RawVerdict | null): AutopilotVerdict {
   }
   const summary = typeof raw.summary === "string" ? raw.summary.slice(0, 280) : "";
   return { kind: raw.kind as AutopilotKind, summary };
+}
+
+// ── judge path (issue #2369) ────────────────────────────────────────────────────
+
+/** The question id the classifier asks under. */
+export const JUDGE_QUESTION_ID = "kind";
+
+/**
+ * The classifier as a single `choice` over the same five kinds, for the {@link JudgeChoiceQuestion}
+ * seam. Asked against {@link classifierPrompt}'s output VERBATIM as the state — the measurement in
+ * `docs/eval-stop-classifier.md` compared that against a purpose-authored structured state with
+ * per-kind criteria distilled from the enum block, and the authored shape lost, failing the
+ * ambiguous-tail bucket toward `gate` — the direction that types `1` into a live PTY.
+ *
+ * `criteria` are therefore the bare option names: the state already carries each kind's definition,
+ * and repeating it here would say the same thing twice. Feeding the real prompt also inherits
+ * drift-prevented-by-import for free — the definitions cannot go stale relative to the spawn path,
+ * because they ARE the spawn path's.
+ */
+export function judgeClassifierQuestion(): JudgeChoiceQuestion<AutopilotKind> {
+  return {
+    type: "choice",
+    instructions:
+      "A coding agent's turn has ended and it is now waiting. Classify WHY it stopped, judging by " +
+      "its task and the tail of its terminal.",
+    criteria: Object.fromEntries(KINDS.map((k) => [k, null])) as Record<AutopilotKind, null>,
+  };
+}
+
+/**
+ * A judge answer as the {@link RawVerdict} {@link normalize} already reads, so both classifier
+ * paths converge on one interpretation.
+ *
+ * `summary` is filled from the tail rather than by the model: a decision model cannot generate
+ * prose. See {@link summaryFromTail}.
+ *
+ * NO CONFIDENCE GATE, and that is a measured conclusion rather than an omission. The threshold
+ * sweep found the abstains coming back MORE confident than the correct `gate` calls, so a
+ * low-confidence-to-`unknown` rule does not buy caution — it converts correct gates into surfaced
+ * sessions. The model picks the abstain option on its own when it should.
+ *
+ * Returns null for a choice outside the enum. A conforming decoder cannot produce one — that is
+ * half the point of asking a typed question — but the seam's base URL is configurable, so the guard
+ * covers a non-conforming backend. Null means FALL BACK to the spawn, which is different from
+ * `normalize`'s off-enum handling: `normalize(null)` surfaces because a Haiku that wrote nonsense
+ * has already been paid for and retrying costs another spawn, whereas here the spawn is still
+ * available and is the better answer.
+ */
+export function judgeVerdict(
+  answer: JudgeChoiceAnswer | undefined,
+  tail: string[],
+): RawVerdict | null {
+  const kind = answer?.choice;
+  if (!KINDS.includes(kind as AutopilotKind)) return null;
+  return { kind, summary: summaryFromTail(tail) };
+}
+
+/** Lines that are pure box-drawing or punctuation carry no meaning once the surrounding frame is
+ *  gone, so they are dropped before the excerpt is taken. */
+const CHROME_ONLY_RE = /^[^\p{L}\p{N}]*$/u;
+
+/** How many substantive lines the excerpt keeps. Enough for a question plus its lead-in; short
+ *  enough that the 280-char clip rarely truncates mid-thought. */
+const SUMMARY_TAIL_LINES = 3;
+
+/**
+ * The operator-facing gloss, taken from the agent's own last words instead of from a model.
+ *
+ * WHY NOT A MODEL SUMMARY. Today's `summary` is a one-to-two sentence paraphrase written by the
+ * classifier agent — of this exact tail, which is that agent's only input. A paraphrase of a text
+ * can only lose information relative to the text, so for the question an operator actually has at
+ * this moment ("what is it asking me?") the source beats the summary of the source. It is also
+ * free, deterministic, language-agnostic without a prompt directive, and cannot hallucinate.
+ *
+ * Returns "" when there is nothing substantive to show, which leaves the caller's existing constant
+ * (`SURFACE_MESSAGE` / `COMPLETE_MESSAGE`) in place — so autopilot's control flow is unchanged
+ * whichever classifier answered.
+ *
+ * The result is untrusted PTY text and is rendered and pushed verbatim, exactly as the model prose
+ * derived from it is today: same exposure, not a new one. Clipped to the same 280 chars
+ * {@link normalize} applies to a model summary.
+ */
+export function summaryFromTail(tail: string[]): string {
+  const lines = tail
+    .map((l) => l.trim())
+    .filter((l) => l !== "" && !CHROME_ONLY_RE.test(l))
+    .slice(-SUMMARY_TAIL_LINES);
+  return lines.join(" ").slice(0, 280);
 }

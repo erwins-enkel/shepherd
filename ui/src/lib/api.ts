@@ -387,6 +387,16 @@ export const putUsageDowngradeModel = (model: string): Promise<{ usageDowngradeM
 export const putFableAvailable = (value: boolean): Promise<{ fableAvailable: boolean }> =>
   patchSettings<{ fableAvailable: boolean }>({ fableAvailable: value });
 
+// Arm/disarm the judge (#2369). Inert without a configured credential; takes effect on the next
+// stop classification, and turning it off puts the classifier back on the agent spawn.
+export const putJudgeEnabled = (enabled: boolean): Promise<{ judgeEnabled: boolean }> =>
+  patchSettings({ judgeEnabled: enabled });
+
+// Persist the judge's daily USD ceiling. A runaway guard, not a budget — on breach the classifier
+// silently falls back to the agent spawn for the rest of the day.
+export const putJudgeDailyUsd = (usd: number): Promise<{ judgeDailyUsd: number }> =>
+  patchSettings({ judgeDailyUsd: usd });
+
 // Toggle the global reduced-notifications mode (only ready-after-5s + cost alerts when on).
 export const putReducedPushMode = (enabled: boolean): Promise<{ reducedPushMode: boolean }> =>
   patchSettings({ reducedPushMode: enabled });

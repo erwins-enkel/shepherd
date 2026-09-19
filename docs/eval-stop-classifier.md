@@ -31,15 +31,17 @@ threshold that tolerates the classifier's nondeterminism.
   `tool_use.input.content`**, not `tool_use.input` itself.
 - **Three facts are tracked per trial**: `toolUsed`, `parseOk`, and the normalized `kind`. Because
   `normalize` collapses a missing/garbage verdict **and** a genuine model `unknown` into the same
-  `{kind:"unknown"}`, the report keeps distinct `no-tool` and `parse-fail` tallies so a mechanical
-  failure never masquerades as a genuine abstain.
+  `{kind:"unknown"}`, the report keeps distinct `no-tool`, `parse-fail` and `unrecognised` tallies so
+  a mechanical failure never masquerades as a genuine abstain.
 - **A verdict-less trial is never scored correct.** This is the sharp edge of the point above, and it
   is specific to the two `unknown` fixtures: `normalize(null)` returns `unknown` (bias to surface —
   correct in production), so crediting it would score a transport failure as a _correct abstain_ on
   exactly the buckets that exist to measure abstention. Nine failed trials on `ambiguous-unknown`
   would have reported a flawless 9/9. The trial still carries `label: unknown` in the distribution —
-  that is what `normalize` returned — so **read the `no-tool` tally, not the `unknown` count**, to
-  tell a failure from an abstain.
+  that is what `normalize` returned — so **read the `no-tool` / `parse-fail` / `unrecognised` tallies,
+  not the `unknown` count**, to tell a failure from an abstain. `unrecognised` covers the nastier
+  shape (#2364): a verdict that parses cleanly but whose `kind` is out of enum — a German-translated
+  token — where `toolUsed` and `parseOk` are both true and only that tally names it.
 
 ## How to run
 
@@ -60,6 +62,10 @@ JEV_API_KEY=… bun run eval:stop-classifier --backend jev --jev-authored --json
 # Replay a completed run's recorded distributions against candidate abstain thresholds.
 # Reads a file; makes no calls and needs no key.
 bun run scripts/eval-jev.ts <report.json> [questionId] [--all]
+
+# The German leg alone (#2368 re-validation). Pool >=3 runs in ONE session; read the `unrecognised`
+# tally in the JSON, never the `unknown` count, to tell a genuine abstain from a malformed verdict.
+ANTHROPIC_API_KEY=… bun run eval:stop-classifier --filter de- --trials 9 --json
 ```
 
 The two A/B legs (#1627) — run on the same branch/commit for a clean before/after:
@@ -134,26 +140,39 @@ exhaustive over real-world tails — it is a stable measuring stick for #1627, n
 ## Baseline numbers
 
 **First run** — `claude-haiku-4-5`, temperature `1.0`, `bun run eval:stop-classifier --json` (2026-07-11;
-throwaway key). No mechanical failures anywhere (`no-tool` / `parse-fail` all 0), so every `unknown` below
-is a genuine verdict, not a masked miss. `gate-spec-first` is shown at the bottom (demoted — see Known gaps).
+throwaway key). No mechanical failures anywhere (`no-tool` / `parse-fail` all 0). `gate-spec-first` is
+shown at the bottom (demoted — see Known gaps).
 
-| id                       | seg      | expected | T   | kind distribution | majority | correct |
-| ------------------------ | -------- | -------- | --- | ----------------- | -------- | ------- |
-| `gate-commit-now`        | gating   | gate     | 5   | gate:4 finished:1 | gate     | 4/5     |
-| `question-jwt-vs-cookie` | gating   | question | 5   | question:5        | question | 5/5     |
-| `finished-pr-pending`    | gating   | finished | 5   | finished:5        | finished | 5/5     |
-| `complete-investigation` | gating   | complete | 5   | complete:5        | complete | 5/5     |
-| `complete-issue-created` | gating   | complete | 5   | complete:5        | complete | 5/5     |
-| `ambiguous-unknown`      | gating   | unknown  | 9   | **unknown:9**     | unknown  | **9/9** |
-| `de-gate-spec`           | baseline | gate     | 5   | gate:4 question:1 | gate     | 4/5     |
-| `de-question-approach`   | baseline | question | 5   | question:5        | question | 5/5     |
-| `de-finished-pr`         | baseline | finished | 5   | finished:5        | finished | 5/5     |
-| `gate-spec-first`        | baseline | gate     | 5   | question:3 gate:2 | question | 2/5     |
+| id                       | seg      | expected | T   | kind distribution | majority | correct | unrec. |
+| ------------------------ | -------- | -------- | --- | ----------------- | -------- | ------- | ------ |
+| `gate-commit-now`        | gating   | gate     | 5   | gate:4 finished:1 | gate     | 4/5     | —      |
+| `question-jwt-vs-cookie` | gating   | question | 5   | question:5        | question | 5/5     | —      |
+| `finished-pr-pending`    | gating   | finished | 5   | finished:5        | finished | 5/5     | —      |
+| `complete-investigation` | gating   | complete | 5   | complete:5        | complete | 5/5     | —      |
+| `complete-issue-created` | gating   | complete | 5   | complete:5        | complete | 5/5     | —      |
+| `ambiguous-unknown`      | gating   | unknown  | 9   | **unknown:9**     | unknown  | **9/9** | —      |
+| `de-gate-spec`           | baseline | gate     | 5   | gate:4 question:1 | gate     | 4/5     | —      |
+| `de-question-approach`   | baseline | question | 5   | question:5        | question | 5/5     | —      |
+| `de-finished-pr`         | baseline | finished | 5   | finished:5        | finished | 5/5     | —      |
+| `gate-spec-first`        | baseline | gate     | 5   | question:3 gate:2 | question | 2/5     | —      |
+
+> **`unrec.` = `—` means NOT MEASURED, never zero.** The `unrecognised`
+> tally — a verdict that parses but whose `kind` is absent or outside the enum — was added by #2156
+> (`ee30cab92`, 2026-09-09) and only made to block `correct` by #2364. Every run in this table
+> predates it, so an out-of-enum `kind` (a German-translated enum token is the live case) produced no
+> flag at all and `normalize` collapsed it to `unknown`. **`no-tool` / `parse-fail` being 0 does not
+> cover that case** — such a trial is mechanically clean. These rows cannot be back-filled, because
+> the per-trial evidence was never recorded, so they are left unknown rather than assumed clean. The
+> German rows were re-measured under the fixed scorer in
+> [Re-validation under the fixed scorer (#2368)](#re-validation-under-the-fixed-scorer-2368).
 
 - **Gating accuracy (after demotion): `33/34 = 97.1%`** → `GATING_ACCURACY_FLOOR` pinned at **0.80**
   (`round_down(0.971 − 0.15)`). `RESULT: PASS`.
-- **`ambiguous-unknown`: 9/9 `unknown`** — the conservative abstain bucket #1627 most risks eroding is
-  currently rock-solid. This is the headline before/after datum: #1627 must not regress it.
+- **`ambiguous-unknown`: 9/9 `unknown`** — the conservative abstain bucket #1627 most risks eroding
+  looked rock-solid. This is the headline before/after datum: #1627 must not regress it. Read it with
+  the `unrec.` caveat above: on an abstain fixture, `unknown` is also what an unreadable verdict scored
+  as, and this run could not tell the two apart. It has not been re-measured (#2368 re-ran the German
+  leg only).
 - **German baseline is strong today:** `de-question` 5/5 and `de-finished` 5/5, `de-gate` 4/5 (one
   `question`) — mirroring the English `gate` softness rather than a German-specific failure. #1627's
   output-language / robustness change has a real before/after here.
@@ -176,7 +195,10 @@ is a genuine verdict, not a masked miss. `gate-spec-first` is shown at the botto
   was NOT lowered. That demotion is what surfaced **#2169**; **#2177** then rewrote the directive —
   the closing clause was an abstract instruction about the model's own confidence, now a positive
   no-ask test — and re-measured **27/27 = 100%** across two runs at `T=9`. It gates again on that
-  measurement, not on the assumption that the fix worked.
+  measurement, not on the assumption that the fix worked. That `27/27` was itself measured before the
+  scorer could see an out-of-enum verdict and was **re-validated under the fixed scorer by #2368** —
+  27/27 again, `unrecognised` 0. See
+  [Re-validation under the fixed scorer (#2368)](#re-validation-under-the-fixed-scorer-2368).
 
 > The contingency rule (applied above): (1) revise a fixture only if genuinely under-specified/mislabeled;
 > (2) else demote to non-gating baseline + record here; (3) never silently lower the floor to paper over a
@@ -248,8 +270,14 @@ to baseline **only** with an explicit justification recorded as a known gap — 
 
 `de-ambiguous-unknown` lost its `unknown` majority (`unknown:9` → `gate:2 unknown:7` →
 `gate:5 unknown:4`) while its English twin held 9/9, and was filed as #2169. All numbers below are
-`claude-haiku-4-5`, temperature `1.0`, 2026-09-02, with **zero** `no-tool` / `parse-fail` anywhere —
-every `unknown` is a genuine verdict, never a masked mechanical miss.
+`claude-haiku-4-5`, temperature `1.0`, 2026-09-02, with **zero** `no-tool` / `parse-fail` anywhere.
+
+> **Read every number in this section with the `unrec.` caveat from
+> [Baseline numbers](#baseline-numbers).** These runs predate the `unrecognised` tally, so "zero
+> `no-tool` / `parse-fail`" does not establish that every `unknown` was a genuine verdict — an
+> out-of-enum `kind` was mechanically clean and scored as a correct abstain. That is precisely why
+> #2368 re-ran the German leg; see
+> [Re-validation under the fixed scorer (#2368)](#re-validation-under-the-fixed-scorer-2368).
 
 ### The prompt had already drifted under the baseline
 
@@ -309,20 +337,22 @@ screen, the remaining candidates (anchor-move-only, and removing the line entire
 
 Validation — the full German set, twice, `--filter de- --trials 5`:
 
-| id                     | seg      | expected | T   | run A              | run B                     |
-| ---------------------- | -------- | -------- | --- | ------------------ | ------------------------- |
-| `de-gate-commit`       | gating   | gate     | 9   | `gate:9` — 9/9     | `gate:9` — 9/9            |
-| `de-question-approach` | gating   | question | 9   | `question:9` — 9/9 | `question:9` — 9/9        |
-| `de-ambiguous-unknown` | gating   | unknown  | 9   | `unknown:9` — 9/9  | `unknown:9` — 9/9         |
-| `de-gate-spec`         | baseline | gate     | 5   | `gate:5` — 5/5     | `gate:2 question:3` — 2/5 |
-| `de-finished-pr`       | baseline | finished | 5   | `finished:5` — 5/5 | `finished:5` — 5/5        |
+| id                     | seg      | expected | T   | run A              | run B                     | unrec. |
+| ---------------------- | -------- | -------- | --- | ------------------ | ------------------------- | ------ |
+| `de-gate-commit`       | gating   | gate     | 9   | `gate:9` — 9/9     | `gate:9` — 9/9            | —      |
+| `de-question-approach` | gating   | question | 9   | `question:9` — 9/9 | `question:9` — 9/9        | —      |
+| `de-ambiguous-unknown` | gating   | unknown  | 9   | `unknown:9` — 9/9  | `unknown:9` — 9/9         | —      |
+| `de-gate-spec`         | baseline | gate     | 5   | `gate:5` — 5/5     | `gate:2 question:3` — 2/5 | —      |
+| `de-finished-pr`       | baseline | finished | 5   | `finished:5` — 5/5 | `finished:5` — 5/5        | —      |
 
-- **Gating accuracy `27/27 = 100%` in both runs; `RESULT: PASS`.** `GATING_ACCURACY_FLOOR` is
+- **Gating accuracy `27/27 = 100%` in both runs; `RESULT: PASS`** — re-validated by #2368 under the
+  fixed scorer (27/27, `unrecognised` 0). `GATING_ACCURACY_FLOOR` is
   unchanged at `0.80` — the adjustment rule (`round_down(observed − 0.15)` to 0.05) would allow
   `0.85`, but one fixture set measured twice is a thin basis for tightening a catastrophe-catcher,
   and raising it buys nothing this PR needs.
 - **`de-ambiguous-unknown`: 45/45 `unknown`** across screen + both validation runs, against 22/27
-  for the shipped directive. This is the datum the issue asked for.
+  for the shipped directive. This is the datum the issue asked for — measured under the old scorer,
+  and since confirmed by a further 27/27 with `unrecognised` 0 (#2368).
 - **No bucket trading.** `de-finished-pr` held `finished:5` in both runs — the specific risk the
   scoping clause exists to prevent did not materialize.
 - **`de-gate-spec` is unchanged, not regressed.** Four runs under the new wording: 5/5, 2/5, 4/5,
@@ -342,6 +372,79 @@ Validation — the full German set, twice, `--filter de- --trials 5`:
   both identical. `test/autopilot-llm.test.ts` pins it going forward.
 - **Only `kind` is measured.** As elsewhere in this doc, nothing here verifies that `summary`
   actually renders in German.
+
+## Re-validation under the fixed scorer (#2368)
+
+The `27/27` above re-promoted `de-ambiguous-unknown` to a **gating** fixture. It was measured on
+2026-09-02 — and the harness could not, on that date, see the one failure mode that matters most on
+that fixture.
+
+**Why that number was suspect.** `normalize` collapses an UNRECOGNISED verdict — one whose `kind` is
+absent or outside the enum — to `unknown`, and `unknown` is the EXPECTED label on
+`de-ambiguous-unknown`. So an unrecognised verdict scored as a **correct abstain**. The failure mode
+that produces an out-of-enum `kind` is a **German-translated enum token** — not hypothetical, it is
+the entire reason `CLASSIFIER_OUTPUT_LANGUAGE_DE` exists, and `docs/research/jev-system-one-models.md`
+§3 records `normalize` swallowing it as a live bug. A classifier that translated `kind` on every
+German trial would have scored `27/27 = 100%` `unknown` and been declared repaired.
+
+The tally that would have named it (`unrecognised`) arrived with #2156 (`ee30cab92`, 2026-09-09) and
+only started blocking `correct` with #2364 — both **after** the certifying run. `no-tool` /
+`parse-fail` were 0, which is true and does not cover this case: such a trial is mechanically clean.
+The claim was never that the German numbers were wrong, only that they could not be shown to be
+right from the record — on the one fixture where this failure mode and this bug intersect, and which
+gates.
+
+**The prompt under test has not drifted**, so this is a re-measurement of the same condition rather
+than a new one: `src/autopilot-classify-core.ts` changed once since the certifying commit (#2233,
+`360cca67d`), and that change only appends an `amendmentBlock` when `amendments` is non-empty. This
+eval calls `classifierPrompt(tail, taskPrompt, lang)` with three arguments, so the rendered prompt is
+byte-identical to the one the `27/27` measured.
+
+### Results — `claude-haiku-4-5`, temperature `1.0`, 2026-09-19
+
+Three runs of `--filter de- --trials 9`, pooled, **in one session** (model-side drift between
+sessions is not controlled for — see the noise-band amendment above). 135 trials, $0.47 list price.
+`--trials 9` lifts the two baseline German fixtures from their default 5; the three gating fixtures
+already pin `trials: 9`.
+
+| id                     | seg      | expected | T (pooled) | kind distribution     | correct   | no-tool | parse-fail | unrec. |
+| ---------------------- | -------- | -------- | ---------- | --------------------- | --------- | ------- | ---------- | ------ |
+| `de-gate-commit`       | gating   | gate     | 27         | `gate:27`             | **27/27** | 0       | 0          | **0**  |
+| `de-question-approach` | gating   | question | 27         | `question:27`         | **27/27** | 0       | 0          | **0**  |
+| `de-ambiguous-unknown` | gating   | unknown  | 27         | `unknown:27`          | **27/27** | 0       | 0          | **0**  |
+| `de-gate-spec`         | baseline | gate     | 27         | `gate:15 question:12` | 15/27     | 0       | 0          | **0**  |
+| `de-finished-pr`       | baseline | finished | 27         | `finished:27`         | **27/27** | 0       | 0          | **0**  |
+
+Per-run gating accuracy was `27/27 = 100%` in all three runs; `RESULT: PASS` each time. Pooled
+gating accuracy **`81/81 = 100%`**. `GATING_ACCURACY_FLOOR` is unchanged at `0.80`.
+
+- **Verified.** `unrecognised` is **0 across all 135 trials**, read from the `unrecognised` field of
+  each `--json` report rather than from the absence of a ⚠ flag. `de-ambiguous-unknown`'s gating
+  promotion now rests on a measurement that **could** have failed and did not. #2368 closes as
+  verified; #2169 stays closed.
+- **All three verdict-malformation tallies are 0**, not just `unrecognised`. That matters because a
+  reported `no-tool` or `parse-fail` here would have been the same finding in a different shape —
+  the directive failing to produce a well-formed verdict. (A run whose trials do not _execute_ never
+  reaches a report at all: `runEval` aborts with `CANNOT_RUN` and discards partial results, so a
+  transport failure cannot masquerade as a model-side miss.)
+- **`de-gate-spec` is better characterised than before, and unchanged.** It posted exactly `5/9` in
+  each of the three runs — `15/27`, a stable ~56% `gate` rate. Its prior record (5/5, 2/5, 4/5, 2/5
+  at `T=5` = 13/20) read as wild instability; pooled at `T=9` it is an ordinary split, straddling the
+  2/5 its English twin `gate-spec-first` posts. Still the recorded known gap, still non-gating, and
+  still no claim that any change moved it.
+
+### What this does NOT establish
+
+- **A rare malformation is not excluded.** 27 trials per fixture exclude the every-trial and
+  majority-rate versions of the translated-enum failure; they cannot exclude a low-rate one. The
+  claim is "no malformed verdict in 135 trials", not "translation never happens".
+- **The 2026-09-02 runs are not retroactively certified.** A measurement today cannot separate "that
+  number was sound" from "the model changed since" — `claude-haiku-4-5` is an alias-shaped id
+  (caveat D). Those rows stay marked `—`: unknown, not clean.
+- **English was not re-measured.** #2368 re-ran the German leg only, because the failure mode is a
+  translated enum token. The English tables keep the `—` caveat.
+- **Only `kind` is measured**, as everywhere else in this doc. Nothing here verifies that `summary`
+  renders in German.
 
 ## JEV backend — the go/no-go
 
@@ -364,8 +467,9 @@ holds**, **German buckets pass**.
 > fixtures and bar are all still here, so nothing about reproducing or re-deciding this is lost.
 
 The Haiku baseline, unchanged and stated in full: **33/34 = 97.1%** gating accuracy,
-`ambiguous-unknown` 9/9 `unknown`, `de-ambiguous-unknown` 27/27 (after #2177), German buckets pass,
-run cost ~$2.
+`ambiguous-unknown` 9/9 `unknown`, `de-ambiguous-unknown` 27/27 (after #2177; re-validated under the
+fixed scorer by [#2368](#re-validation-under-the-fixed-scorer-2368)), German buckets pass, run cost
+~$2.
 
 **Verdict: GO**, on the verbatim framing, with no confidence threshold.
 

@@ -13,6 +13,11 @@ struct DiffTabView: View {
     let session: Session
     let model: DetailModel
     @State private var selectedPath: String?
+    /// Where every note renders and every file's patch parses to — recomputed explicitly (on
+    /// first appearance and whenever `result.head` moves), never inline in `body`, so a 15 s poll
+    /// tick that repaints an UNCHANGED diff does not reparse every file's patch or re-bucket
+    /// every note on every render pass.
+    @State private var layout = DiffAnnotationLayout()
 
     private var state: Loaded<DetailModel.DiffPayload> { model.diff[session.id] ?? .loading }
     private var files: [DiffFile] { state.value?.result.files ?? [] }
@@ -25,9 +30,10 @@ struct DiffTabView: View {
                 fileList.frame(minWidth: 200, idealWidth: 260, maxWidth: 380)
                 VStack(alignment: .leading, spacing: 0) {
                     header
-                    // Panel-level review findings: a verdict that belongs to no single file
-                    // arrives with an empty path, exactly as the web panel reads it.
-                    noteList(notes.filter { $0.kind.known == .review && $0.path.isEmpty })
+                    // Panel-level findings: a verdict that belongs to no single file arrives with
+                    // an empty path, exactly as the web panel reads it — plus any note whose path
+                    // names a file this diff no longer carries, grouped here rather than dropped.
+                    noteList(layout.panel)
                         .padding(.horizontal, 12)
                     Divider()
                     ScrollView { fileBody(for: selected).padding(.horizontal, 12) }
@@ -47,8 +53,18 @@ struct DiffTabView: View {
         }
         .task(id: DetailTaskKey(session: session.id, model: model)) {
             selectedPath = nil
+            recomputeLayout()
             await model.poll(.diff, session: session.id)
         }
+        .onChange(of: state.value?.result.head) { _, _ in recomputeLayout() }
+    }
+
+    /// The one place `DiffAnnotationLayout.partition` (and, inside it, `UnifiedPatch.parse`) is
+    /// called: on first appearance for whatever the model already has cached, and again whenever
+    /// `result.head` moves — never from `body`, which a poll tick re-evaluates every 15 s whether
+    /// or not the diff actually changed.
+    private func recomputeLayout() {
+        layout = DiffAnnotationLayout.partition(notes: notes, files: files)
     }
 
     /// The row the operator picked, or the first file — a diff with no selection still shows
@@ -64,7 +80,10 @@ struct DiffTabView: View {
         if let failure = state.failure { return .failed(failure) }
         guard let payload = state.value else { return .loading }
         return payload.result.files.isEmpty
-            ? .empty(L.t("diff_empty", payload.result.base))
+            // `diff_empty` names the ref the branch is compared against (`baseRef`, e.g.
+            // "origin/main"); `diff_stale` below names the plain branch (`base`) — the same
+            // split the web panel makes.
+            ? .empty(L.t("diff_empty", payload.result.baseRef))
             : .content
     }
 
@@ -132,7 +151,7 @@ struct DiffTabView: View {
                         .foregroundStyle(.secondary)
                 }
                 // File-level findings first, then the hunks with their per-line notes.
-                noteList(notes.filter { $0.path == file.path && $0.lineNumber == nil })
+                noteList(layout.fileLevel[file.path] ?? [])
                 if file.binary {
                     note(L.t("diff_note_binary"))
                 } else if file.truncated == true {
@@ -146,15 +165,18 @@ struct DiffTabView: View {
         }
     }
 
-    /// Parsed per body pass rather than cached: `DiffFile.patch` is capped server-side, and a
-    /// cache here would have to be invalidated on every poll tick that moves the diff anyway.
+    /// Reads `layout.hunks` — parsed once in `recomputeLayout()`, not on every body pass — and
+    /// realises hunks lazily: a large file can carry thousands of lines, and eagerly building
+    /// every row for a file the operator has scrolled past wastes both time and memory.
     @ViewBuilder
     private func hunks(of file: DiffFile) -> some View {
-        let parsed = UnifiedPatch.parse(file.patch ?? "")
+        let parsed = layout.hunks[file.path] ?? UnifiedPatch.parse(file.patch ?? "")
         if !parsed.hunks.isEmpty {
-            ForEach(Array(parsed.hunks.enumerated()), id: \.offset) { index, hunk in
-                hunkView(hunk, file: file)
-                    .accessibilityIdentifier("detail-diff-hunk-\(index)")
+            LazyVStack(alignment: .leading, spacing: 12) {
+                ForEach(Array(parsed.hunks.enumerated()), id: \.offset) { index, hunk in
+                    hunkView(hunk, file: file)
+                        .accessibilityIdentifier("detail-diff-hunk-\(index)")
+                }
             }
         } else if !parsed.raw.isEmpty {
             // Nothing parsed but there was text: show it verbatim rather than claim the file is
@@ -178,25 +200,28 @@ struct DiffTabView: View {
                 .font(.caption.monospaced())
                 .foregroundStyle(.secondary)
                 .padding(.vertical, 4)
-            ForEach(Array(hunk.lines.enumerated()), id: \.offset) { _, line in
-                lineView(line)
-                // An agent annotation sits under the line it is anchored to, the way the web
-                // panel renders it inline rather than in a side list.
-                noteList(anchored(line, file: file)).padding(.leading, 24)
+            LazyVStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(hunk.lines.enumerated()), id: \.offset) { _, line in
+                    lineView(line)
+                    // An agent annotation sits under the line it is anchored to, the way the web
+                    // panel renders it inline rather than in a side list.
+                    noteList(perLineNotes(line, file: file)).padding(.leading, 24)
+                }
             }
         }
     }
 
-    /// Notes anchored to this exact line. `side` decides which number to match: an `additions`
-    /// note counts the new side, a `deletions` note the old one.
-    private func anchored(_ line: UnifiedPatch.Line, file: DiffFile) -> [DiffNote] {
-        notes.filter { note in
-            guard note.path == file.path, let number = note.lineNumber else { return false }
-            return switch note.side?.known {
-            case .deletions: line.oldNumber == number
-            default: line.newNumber == number
-            }
+    /// `layout.perLine` lookups, not a scan of every note per line: a context line carries both
+    /// an old and a new number, so both keys are checked.
+    private func perLineNotes(_ line: UnifiedPatch.Line, file: DiffFile) -> [DiffNote] {
+        var result: [DiffNote] = []
+        if let old = line.oldNumber {
+            result += layout.perLine[.init(path: file.path, side: .old, number: old)] ?? []
         }
+        if let new = line.newNumber {
+            result += layout.perLine[.init(path: file.path, side: .new, number: new)] ?? []
+        }
+        return result
     }
 
     private func lineView(_ line: UnifiedPatch.Line) -> some View {

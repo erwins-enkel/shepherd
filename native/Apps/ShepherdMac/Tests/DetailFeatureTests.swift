@@ -118,9 +118,10 @@ struct DetailFeatureTests {
         let empty = DiffResult(
             base: "main", baseRef: "origin/main", head: nil, fetchFailed: false, truncated: false,
             files: [])
+        // `diff_empty` names `baseRef` (the ref actually compared against), not `base`.
         #expect(
             DiffTabView.phase(for: .ready(.init(result: empty, notes: [])))
-                == .empty(L.t("diff_empty", "main")))
+                == .empty(L.t("diff_empty", "origin/main")))
 
         var withFile = empty
         withFile.files = [

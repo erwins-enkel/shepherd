@@ -82,6 +82,13 @@ struct UnifiedPatch: Equatable, Sendable {
         /// Whether anything at all has been seen for the file being assembled. Without it a
         /// leading preamble would emit an empty `File` before the first real one.
         var started = false
+        /// Set once `+++ ` has been read for the file being assembled; reset by `closeFile()`.
+        /// Distinguishes the `--- `/`+++ ` pair that immediately follows a `diff --git` header
+        /// (already `started`, must NOT close) from the next file's boundary in a plain `diff -u`
+        /// stream (must close) — a distinction `!hunks.isEmpty` got wrong for a file with no
+        /// hunks at all (binary, or a mode-only change): that file's own section was never
+        /// closed, and the next file's `--- ` silently overwrote it instead of starting anew.
+        var fileHeaderComplete = false
         var oldNo = 0
         var newNo = 0
         /// What the hunk header said is left to read on each side. Only ever consulted to tell a
@@ -106,6 +113,7 @@ struct UnifiedPatch: Equatable, Sendable {
             oldPath = nil
             isBinary = false
             started = false
+            fileHeaderComplete = false
         }
 
         for line in lines {
@@ -192,8 +200,11 @@ struct UnifiedPatch: Equatable, Sendable {
                 started = true
             } else if line.hasPrefix("--- ") {
                 // A plain `diff -u` stream has no `diff --git` header, so this pair is the only
-                // file boundary there is — but only once the current section has content.
-                if !hunks.isEmpty { closeFile() }
+                // file boundary there is — but only once the PRIOR file's own `--- `/`+++ ` pair
+                // has already been read in full, not merely once it has any hunks: a hunk-less
+                // file (binary, or a mode-only change) still needs closing before the next one
+                // starts.
+                if fileHeaderComplete { closeFile() }
                 oldPath = strippedPath(String(line.dropFirst(4)))
                 started = true
             } else if line.hasPrefix("+++ ") {
@@ -201,6 +212,7 @@ struct UnifiedPatch: Equatable, Sendable {
                 // has something to be called, mirroring `DiffFile.path`.
                 path = strippedPath(String(line.dropFirst(4))) ?? oldPath
                 started = true
+                fileHeaderComplete = true
             } else if line.hasPrefix("Binary files ") || line == "GIT binary patch" {
                 isBinary = true
                 started = true

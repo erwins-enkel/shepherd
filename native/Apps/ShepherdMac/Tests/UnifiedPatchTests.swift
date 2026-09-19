@@ -1,3 +1,4 @@
+import ShepherdKit
 import Testing
 
 @testable import Shepherd
@@ -102,6 +103,18 @@ struct UnifiedPatchTests {
             "--- a/one\n+++ b/one\n@@ -1 +1 @@\n-a\n+A\n--- a/two\n+++ b/two\n@@ -1 +1 @@\n-b\n+B")
         #expect(parsed.files.map(\.path) == ["one", "two"])
         #expect(parsed.files.allSatisfy { $0.hunks.count == 1 })
+    }
+
+    /// A hunk-less section (a binary file, or a mode-only change with no textual hunks) in a
+    /// plain `diff -u` stream must still close before the next file's `--- ` starts a new one.
+    /// `!hunks.isEmpty` got this wrong — it only closed a file that happened to have a hunk —
+    /// and silently merged the first file's headers into the second's.
+    @Test func aHunklessFileBoundaryInAPlainStreamStillStartsANewFile() {
+        let parsed = UnifiedPatch.parse(
+            "--- a/one\n+++ b/one\n--- a/two\n+++ b/two\n@@ -1 +1 @@\n-b\n+B")
+        #expect(parsed.files.map(\.path) == ["one", "two"])
+        #expect(parsed.files[0].hunks.isEmpty)
+        #expect(parsed.files[1].hunks.count == 1)
     }
 
     // MARK: - Renames
@@ -219,5 +232,91 @@ struct UnifiedPatchTests {
         let parsed = UnifiedPatch.parse("@@ -1 +1,5000 @@\n" + body)
         #expect(parsed.hunks[0].lines.count == 5_000)
         #expect(parsed.hunks[0].lines.last?.newNumber == 5_000)
+    }
+}
+
+/// `DiffAnnotationLayout.partition` is what the diff tab reads instead of scanning `[DiffNote]`
+/// itself — see its own doc comment for why. Never discards a note: the three previously-silent
+/// drops (an anchored-looking `review` note, an unanchorable `agent` note, an orphaned `path`)
+/// each land somewhere real here.
+struct DiffAnnotationLayoutTests {
+    private func file(_ path: String, patch: String = "", binary: Bool = false) -> DiffFile {
+        DiffFile(
+            path: path, status: .init(known: .modified), additions: 1, deletions: 0,
+            binary: binary, patch: patch)
+    }
+
+    private let onePatch = "@@ -1 +1 @@\n-old\n+new"
+
+    @Test func aPanelNoteWithNoPathIsAlwaysPanelLevel() {
+        let note = DiffNote(path: "", kind: .init(known: .review), text: "verdict")
+        let layout = DiffAnnotationLayout.partition(notes: [note], files: [])
+        #expect(layout.panel == [note])
+        #expect(layout.fileLevel.isEmpty)
+        #expect(layout.perLine.isEmpty)
+    }
+
+    /// The web's own reading of this contract (`DiffFileStack.svelte`'s `reviewFindings`) keys a
+    /// review finding by path only — a `lineNumber` it happens to carry is never a per-line
+    /// anchor. The previous file-level filter (`lineNumber == nil`) silently dropped exactly this
+    /// note when nothing anchored it, since it also failed the per-line scan.
+    @Test func aReviewNoteWithALineNumberIsStillAFileBanner() {
+        let files = [file("a.swift", patch: onePatch)]
+        let note = DiffNote(
+            path: "a.swift", kind: .init(known: .review), text: "looks risky",
+            side: .init(known: .additions), lineNumber: 1)
+        let layout = DiffAnnotationLayout.partition(notes: [note], files: files)
+        #expect(layout.fileLevel["a.swift"] == [note])
+        #expect(layout.perLine.isEmpty)
+    }
+
+    @Test func anAgentNoteAnchorsToTheLineItNames() {
+        let files = [file("a.swift", patch: onePatch)]
+        let note = DiffNote(
+            path: "a.swift", kind: .init(known: .agent), text: "flipped the guard",
+            side: .init(known: .additions), lineNumber: 1, tool: "Edit")
+        let layout = DiffAnnotationLayout.partition(notes: [note], files: files)
+        #expect(layout.perLine[.init(path: "a.swift", side: .new, number: 1)] == [note])
+        #expect(layout.fileLevel["a.swift"] == nil)
+    }
+
+    /// A line the parsed patch never rendered — a stale annotation, or a file too large to send
+    /// its patch — must still surface the note, just not anchored to a specific line.
+    @Test func anAgentNoteOnAnUnrenderedLineFallsBackToTheFileBanner() {
+        let files = [file("a.swift", patch: onePatch)]
+        let note = DiffNote(
+            path: "a.swift", kind: .init(known: .agent), text: "orphaned",
+            side: .init(known: .additions), lineNumber: 999, tool: "Edit")
+        let layout = DiffAnnotationLayout.partition(notes: [note], files: files)
+        #expect(layout.fileLevel["a.swift"] == [note])
+        #expect(layout.perLine.isEmpty)
+    }
+
+    /// A binary or truncated file renders no hunks at all, so every one of its notes — even a
+    /// well-formed `agent` note with a real line number — falls back to the file banner.
+    @Test func anAgentNoteOnABinaryFileFallsBackToTheFileBanner() {
+        let files = [file("logo.png", binary: true)]
+        let note = DiffNote(
+            path: "logo.png", kind: .init(known: .agent), text: "check the palette",
+            side: .init(known: .additions), lineNumber: 1, tool: "Edit")
+        let layout = DiffAnnotationLayout.partition(notes: [note], files: files)
+        #expect(layout.fileLevel["logo.png"] == [note])
+    }
+
+    /// A note whose `path` names a file this diff no longer carries (renamed away, or a stale
+    /// read) used to vanish outright — neither the panel filter nor the file filter matched it.
+    @Test func aNoteForAPathNotInTheDiffLandsInPanel() {
+        let note = DiffNote(path: "gone.swift", kind: .init(known: .agent), text: "orphaned")
+        let layout = DiffAnnotationLayout.partition(notes: [note], files: [file("a.swift")])
+        #expect(layout.panel == [note])
+    }
+
+    /// The parsed hunks `partition` builds are the diff tab's only source — never reparsed for
+    /// rendering — so the layout has to carry them even for a file with no notes at all.
+    @Test func everyFilesPatchIsParsedIntoTheLayoutRegardlessOfNotes() {
+        let files = [file("a.swift", patch: onePatch), file("logo.png", binary: true)]
+        let layout = DiffAnnotationLayout.partition(notes: [], files: files)
+        #expect(layout.hunks["a.swift"]?.hunks.count == 1)
+        #expect(layout.hunks["logo.png"]?.hunks.isEmpty == true)
     }
 }

@@ -396,6 +396,55 @@ struct DetailModelTests {
         #expect(calls == 201)
     }
 
+    /// Regression for the earlier `runPushLoad`, which drained a burst of queued follow-ups by
+    /// calling itself once per round instead of looping: 200 rounds (above) passes either way,
+    /// but a run 25x longer makes a genuinely recursive implementation's linear frame growth show
+    /// up as a slow/failing run instead of the flat, fast drain the iterative version gives.
+    @Test func aVeryLongRunOfQueuedPushesStillDrainsFlat() async {
+        let box = ModelBox()
+        var calls = 0
+        let target = 5_000
+        var loaders = DetailModel.Loaders.stubbed()
+        loaders.activity = { _ in
+            calls += 1
+            if calls < target + 1 { box.model?.schedulePushLoad(.activity, session: "s1") }
+            return []
+        }
+        let model = DetailModel(loaders: loaders)
+        box.model = model
+
+        await model.load(.activity, session: "s1")  // call 1, and queues the first push
+        #expect(await settleDetail(until: { calls == target + 1 }, yields: 30_000))
+        _ = await settleDetail(until: { false }, yields: 50)
+        #expect(calls == target + 1)
+    }
+
+    /// A burst of pushes for the same feed+session must never start a SECOND overlapping read:
+    /// `pushPending` (a `Set`) coalesces the whole burst to at most one follow-up, and the
+    /// iterative runner picks it up once the read already in flight returns. Tracking the
+    /// loader's own re-entrancy depth is the direct check — it never exceeds one.
+    @Test func aBurstOfQueuedPushesNeverRunsTwoReadsForTheSameKeyAtOnce() async {
+        var depth = 0
+        var maxDepth = 0
+        var loaders = DetailModel.Loaders.stubbed()
+        loaders.activity = { _ in
+            depth += 1
+            maxDepth = max(maxDepth, depth)
+            defer { depth -= 1 }
+            await Task.yield()
+            return []
+        }
+        let model = DetailModel(loaders: loaders)
+        await model.load(.activity, session: "s1")  // seeds the cache entry, depth back to 0
+
+        // A tight loop, no `await` between calls: the first schedules the one read that runs,
+        // every later call in the same burst finds `pushInFlight` already marked and only queues.
+        for _ in 0..<20 { model.schedulePushLoad(.activity, session: "s1") }
+        #expect(await settleDetail(until: { depth == 0 && maxDepth > 0 }, yields: 5_000))
+        _ = await settleDetail(until: { false }, yields: 100)
+        #expect(maxDepth == 1)
+    }
+
     // MARK: - A cancelled browse never strands the files tab on a spinner
 
     @Test func aCancelledBrowseRestoresTheListingItWasShowing() async {

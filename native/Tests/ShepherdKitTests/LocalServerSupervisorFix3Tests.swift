@@ -31,7 +31,11 @@ actor ProbeGate {
 /// Regression tests for the coordinator's third review pass: a crash-loop
 /// relaunch that spawned into a world its own child no longer belonged to, a
 /// quit that an in-flight `restart()` spawned straight past, output chunks the
-/// buffering policy dropped without a trace, and the pump's final flush.
+/// buffering policy dropped without a trace, and the pump's final flush. Plus
+/// two items from the review of that pass's own fix: a quit landing in the
+/// couple of instructions between `spawn()`'s `child.run()` and publishing
+/// `livePID`, and `start()`'s widened guard ending a crash-loop backoff early
+/// instead of leaving it be.
 @Suite(.serialized) struct LocalServerSupervisorFix3Tests {
   private func supervisor(
     _ launch: LocalServerLaunch, health: @escaping @Sendable () async -> Bool,
@@ -180,6 +184,77 @@ actor ProbeGate {
     }
     child.waitUntilExit()
     #expect(lines.withLock { $0 } == ["ready", "no trailing newline"])
+  }
+
+  /// H (review of 5f7fc108). `startChild` reads `terminationEpoch` once,
+  /// before `spawn()` — but `spawn()`'s own body has no suspension point
+  /// between `child.run()` and publishing `livePID`, so that one check does
+  /// not protect the window in between. `terminateNow()` is `nonisolated` and
+  /// can run on a genuinely different thread at the same real time; landing
+  /// there, it reads `livePID` while it is still `nil`, does nothing, and the
+  /// child `spawn()` just started would otherwise outlive the app that asked
+  /// it to quit. That window is a couple of instructions wide, too narrow to
+  /// land in reliably by racing real threads, so a test-only hook calls
+  /// `terminateNow()` synchronously from exactly that point instead.
+  @Test func aQuitBetweenRunAndThePidPublishStandsDownTheNewChild() async throws {
+    let (launch, cleanup) = try fakeScript("sleep 30\n")
+    defer { cleanup() }
+    let sut = supervisor(launch, health: { true })
+    await sut.setTestSeamAfterChildRun { sut.terminateNow(gracePeriod: 0.5) }
+
+    await sut.start()
+
+    #expect(await sut.state == .stopped)
+    #expect(processCommandCount(containing: launch.arguments[0]) == 0)
+  }
+
+  /// M1 (review of 5f7fc108). `startChild`'s guard was widened from "no-op
+  /// whenever `.starting`" to "no-op only when `.starting` with a live
+  /// `process`" so a `relaunch()` queued behind an operator's own `restart()`
+  /// is not silently dropped (see the BL test above). The same widening means
+  /// `start()` is no longer a true no-op during the crash loop's own backoff
+  /// (`.starting`, no `process` yet): it ends the backoff early and spawns
+  /// right away, exactly as `restart()` would. This pins that as the intended
+  /// rule — see the updated doc comment on `start()` — rather than a silent
+  /// regression.
+  @Test func startDuringACrashBackoffEndsItEarlyInsteadOfWaiting() async throws {
+    let (launch, cleanup) = try fakeScript(
+      """
+      if [ -f ran ]; then
+        sleep 30
+      else
+        : > ran
+        exit 1
+      fi
+      """)
+    defer { cleanup() }
+    let healthy = Mutex(false)
+    let clock = GatedTestClock(gating: 1)
+    let sut = supervisor(launch, health: { healthy.withLock { $0 } }, clock: clock)
+
+    await sut.start()
+    // The first child crashed; its backoff is parked in the clock, with the
+    // supervisor sitting in `.starting` and no live process.
+    try await waitUntil { await clock.slept.contains(1) }
+    #expect(await sut.state == .starting)
+    #expect(await sut.state.pid == nil)
+
+    // A second `start()`, landing in that exact window, without ever
+    // releasing the backoff's clock.
+    healthy.withLock { $0 = true }
+    await sut.start()
+
+    #expect(await sut.state.isRunning)
+    #expect(processCommandCount(containing: launch.arguments[0]) == 1)
+
+    // The stale backoff is still due behind it; let it resolve and prove it
+    // does not spawn a second child once it does.
+    await clock.release()
+    try await Task.sleep(for: .milliseconds(200))
+    #expect(processCommandCount(containing: launch.arguments[0]) == 1)
+
+    await sut.stop(gracePeriod: 0.3)
+    #expect(processCommandCount(containing: launch.arguments[0]) == 0)
   }
 }
 #endif

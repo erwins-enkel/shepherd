@@ -79,6 +79,13 @@ public actor LocalServerSupervisor {
 
   private var process: Process?
   private var pump: Task<Void, Never>?
+  /// The crash loop's pending backoff-then-relaunch. `stopChild()` is its
+  /// only canceller — every deliberate teardown path reaches it either
+  /// directly (`stop()`) or by routing through it (`restart()`) — which is
+  /// what lets `relaunch()` tell a deliberately cancelled backoff apart from
+  /// a merely stale one with a bare `Task.isCancelled` check. A future
+  /// teardown path must keep that invariant rather than cancelling this task
+  /// itself.
   private var supervision: Task<Void, Never>?
   private var crashTimes: [Date] = []
 
@@ -211,7 +218,14 @@ public actor LocalServerSupervisor {
   public func logLines() async -> [String] { await log.lines }
   public func clearCapturedPassword() { capturedPassword = nil }
 
-  /// Spawns the child and waits until it answers `/api/health`. Idempotent.
+  /// Spawns the child and waits until it answers `/api/health`. A no-op only
+  /// while already `.running`, or while a spawn is already in flight
+  /// (`.starting` with a live `process`) — not "idempotent" in general.
+  /// Called during the crash loop's own backoff window (`.starting`, no
+  /// `process` yet) this ends the backoff early and spawns right away,
+  /// exactly as `restart()` would; it is `relaunch()`'s own `scheduled ==
+  /// spawnGeneration` check, not this call, that keeps the stale backoff
+  /// from also spawning once it elapses.
   public func start() async {
     // Read before the gate, not after it: a quit that lands while this call is
     // still queued must reach `startChild()` too.
@@ -274,6 +288,18 @@ public actor LocalServerSupervisor {
     do { generation = try spawn(launch) } catch {
       Self.logger.error("spawn failed: \(String(describing: error), privacy: .public)")
       state = .failed(.bunMissing)
+      return
+    }
+    // Re-checked synchronously, before any suspension: the guard above only
+    // protects the way *into* `spawn()`, and `spawn()`'s own body has no
+    // `await` between `child.run()` and publishing `livePID`. `terminateNow()`
+    // is `nonisolated` and can run on a genuinely different thread at the
+    // same real time, so it can execute its whole body in that couple-of-
+    // instructions window — including reading `livePID` while it is still
+    // `nil` — and return having done nothing. Without this, the child
+    // `spawn()` just started would outlive the app that asked it to quit.
+    guard terminationEpoch.withLock({ $0 }) == epoch else {
+      await stopChild(gracePeriod: 2)
       return
     }
     await waitForHealth(generation: generation)
@@ -381,6 +407,22 @@ public actor LocalServerSupervisor {
   /// so memory stays bounded instead of the operator's log.
   private static let chunkBufferCapacity = 4096
 
+  /// Test-only seam: called synchronously inside `spawn()`, right after
+  /// `child.run()` and before `livePID` is published. That gap is the exact
+  /// window a concurrent, `nonisolated` `terminateNow()` can land in and find
+  /// no pid yet to kill (see the re-check right after `spawn()` returns in
+  /// `startChild(epoch:)`). Production never sets this — it exists so a test
+  /// can reproduce that window deterministically instead of racing real
+  /// threads for a gap a couple of instructions wide.
+  var testSeamAfterChildRun: (@Sendable () -> Void)?
+
+  /// Actor-isolated setter for `testSeamAfterChildRun`: mutating actor state
+  /// from outside the actor needs an isolated method even under
+  /// `@testable import`.
+  func setTestSeamAfterChildRun(_ hook: @escaping @Sendable () -> Void) {
+    testSeamAfterChildRun = hook
+  }
+
   /// Returns the new child's generation, so its caller can carry that identity
   /// through every suspension point that follows.
   private func spawn(_ launch: LocalServerLaunch) throws -> Int {
@@ -406,6 +448,7 @@ public actor LocalServerSupervisor {
       }
     }
     try child.run()
+    testSeamAfterChildRun?()
 
     process = child
     let pid = child.processIdentifier

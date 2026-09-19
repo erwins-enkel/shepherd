@@ -548,7 +548,13 @@ describe("CommandBar — Commands group", () => {
     await expect.element(page.getByText(m.commandbar_group_commands())).toBeVisible();
     const opts = page.getByRole("option");
     await expect.element(opts.first()).toMatchTextContent("Learnings");
-    expect(opts.elements()).toHaveLength(1);
+    // Exactly one COMMAND row — docs rows are excluded rather than counted, because the
+    // Configuration page's "Learnings lifecycle" section legitimately matches "learn" too
+    // and a raw option count would re-break on the next docs heading that does.
+    const commandRows = opts
+      .elements()
+      .filter((el) => !el.textContent?.includes(m.commandbar_docs_affordance()));
+    expect(commandRows).toHaveLength(1);
 
     await page.getByRole("option", { name: /Learnings/ }).click();
     expect(run).toHaveBeenCalledTimes(1);

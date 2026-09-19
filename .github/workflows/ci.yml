@@ -128,6 +128,12 @@ jobs:
       - name: Env schema drift (.env.schema ⇔ code)
         run: bun run check:env-schema
 
+      # Docs parity (#2361): every gated SHEPHERD_* key in .env.schema must also have a row on
+      # the Configuration page, so a new operator knob cannot ship undocumented. A key that is
+      # genuinely contributor-only carries @docsExempt in the schema instead.
+      - name: Env schema docs parity (.env.schema ⇒ configuration.md)
+        run: bun run check:env-schema-docs
+
       # Prompt fingerprints (#2156): a prompt-builder edit must regenerate
       # scripts/eval-fingerprints.json, which is what eval-prompts.yml compares against the PR base
       # to decide which live evals to run. Without this gate a prompt change could ship with a

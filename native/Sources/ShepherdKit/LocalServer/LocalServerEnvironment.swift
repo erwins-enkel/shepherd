@@ -9,6 +9,10 @@ public enum LocalServerFailure: Error, Equatable, Sendable {
   case installFailed(exitCode: Int32)
   case exited(code: Int32)
   case crashLoop(restarts: Int)
+  /// The child never answered `/api/health` within the startup window. Distinct
+  /// from `.exited`: the process itself may still be running (hung, not dead),
+  /// so callers must not assume the pid is gone just because this is reported.
+  case healthTimeout
 }
 
 /// The two filesystem reads this type needs, as a `Sendable` seam.

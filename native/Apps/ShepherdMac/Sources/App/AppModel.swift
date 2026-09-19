@@ -323,15 +323,17 @@ final class AppModel {
         let generation = activationGeneration
         try await login(profile, password, credentials)
         Log.connect.info("signed in to \(profile.name, privacy: .public)")
-        // The token is stored either way, but a login that finished after the
-        // operator moved on must not yank the app back to the old profile.
-        guard generation == activationGeneration else {
-            Log.connect.info("a newer activation won; not switching back")
-            return
-        }
         // A profile that `remove(_:)` took mid-flight, or has already
         // finished taking, must not be resurrected by a sign-in that outlived
         // it — the credential this login just stored may already be revoked.
+        // Checked before the generation guard below: this cleanup is
+        // generation-independent, since `remove(_:)` only bumps
+        // `activationGeneration` when the removed profile was the active one
+        // (through the `teardown()` it calls) — removing an inactive profile
+        // never moves it. Ordered after the generation guard, the common case
+        // where the operator also activated a different profile in the
+        // meantime would hit that guard's mismatch and return before this
+        // cleanup ever ran, orphaning the token `login` just stored.
         guard !removing.contains(profile.id), profiles.contains(where: { $0.id == profile.id })
         else {
             Log.connect.debug("ignoring sign-in completion for a profile that was removed")
@@ -340,6 +342,12 @@ final class AppModel {
             // un-revokable credential `remove(_:)` exists to prevent.
             try? await logout(profile, credentials)
             try? credentials.delete(for: profile.credentialKey)
+            return
+        }
+        // The token is stored either way, but a login that finished after the
+        // operator moved on must not yank the app back to the old profile.
+        guard generation == activationGeneration else {
+            Log.connect.info("a newer activation won; not switching back")
             return
         }
         await activate(profile)
@@ -443,7 +451,11 @@ final class AppModel {
     /// — rather than `clearProfileBoundSheet()` — for an *inactive* profile:
     /// `.firstRun` is not tied to a particular profile identity, and a
     /// `.login` sheet for some other, still-active profile must not close
-    /// just because a different row is being removed.
+    /// just because a different row is being removed. Skipping `.firstRun`
+    /// here is safe only because `.firstRun` is set solely by `routeSheet`
+    /// for the *active* profile's own watcher, and `activate(_:)` /
+    /// `teardown()` always clear it — so a `.firstRun` sheet can never belong
+    /// to the inactive profile this method is removing.
     private func clearSheet(forRemovedProfile profileID: ServerProfile.ID) {
         if case .login(let profile) = sheet, profile.id == profileID {
             sheet = nil

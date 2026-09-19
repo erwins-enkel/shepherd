@@ -306,6 +306,83 @@ struct AppModelTests {
         #expect(try credentials.load(for: b.credentialKey) == nil)
     }
 
+    /// U1 (fix wave 4), variant 1: the common ordering the generation guard
+    /// used to hide the removed-profile cleanup behind. `signIn(b)` parks in
+    /// `login`, the operator activates `a` (bumping `activationGeneration`
+    /// past what `signIn(b)` captured), then removes the still-inactive `b`
+    /// (no bump — `b` was never active). Before the fix, `signIn`'s
+    /// generation guard returned first on the mismatch and the removed-
+    /// profile cleanup below it never ran, orphaning `b`'s freshly-stored
+    /// token. The cleanup must run regardless of the generation mismatch,
+    /// and `a`'s activation must be left alone.
+    @Test func aSignInLandingAfterTheProfileWasRemovedDoesNotReviveItWhileAnotherProfileActivatedMeanwhile()
+        async throws
+    {
+        let credentials = InMemoryCredentialStore()
+        let model = makeModel(credentials: credentials)
+        let a = try remote(model, "a")
+        let b = try remote(model, "b")
+
+        var loggedOut: [ServerProfile.ID] = []
+        model.logout = { profile, _ in loggedOut.append(profile.id) }
+
+        let gate = Gate()
+        model.login = { profile, _, credentialStore in
+            await gate.wait()
+            try credentialStore.save(
+                StoredCredential(token: "shp_secret", tokenId: "tok_1"), for: profile.credentialKey)
+        }
+
+        let signIn = Task { try await model.signIn(profile: b, password: "hunter2") }
+        #expect(await settle(until: { gate.isWaiting }))
+
+        await model.activate(a)
+        await model.remove(b)
+        gate.open()
+        try await signIn.value
+
+        #expect(model.activeProfile == a)
+        #expect(try credentials.load(for: b.credentialKey) == nil)
+        #expect(loggedOut.contains(b.id))
+        model.teardown()
+    }
+
+    /// U1 (fix wave 4), variant 2: `b` is itself the *active* profile when
+    /// `signIn(b)` is launched, so `remove(b)` tears it down through
+    /// `teardown()` — which *does* bump `activationGeneration`. Before the
+    /// fix this also hit the generation guard first and returned without
+    /// cleanup; the fix must clean up regardless of whether the generation
+    /// happened to move too.
+    @Test func aSignInLandingAfterItsOwnActiveProfileWasRemovedDoesNotReviveIt() async throws {
+        let credentials = InMemoryCredentialStore()
+        let model = makeModel(credentials: credentials)
+        let b = try remote(model, "b")
+        await model.activate(b)
+        #expect(model.activeProfile == b)
+
+        var loggedOut: [ServerProfile.ID] = []
+        model.logout = { profile, _ in loggedOut.append(profile.id) }
+
+        let gate = Gate()
+        model.login = { profile, _, credentialStore in
+            await gate.wait()
+            try credentialStore.save(
+                StoredCredential(token: "shp_secret", tokenId: "tok_1"), for: profile.credentialKey)
+        }
+
+        let signIn = Task { try await model.signIn(profile: b, password: "hunter2") }
+        #expect(await settle(until: { gate.isWaiting }))
+
+        await model.remove(b)
+        gate.open()
+        try await signIn.value
+
+        #expect(model.activeProfile == nil)
+        #expect(model.store == nil)
+        #expect(try credentials.load(for: b.credentialKey) == nil)
+        #expect(loggedOut.contains(b.id))
+    }
+
     /// S1 (fix wave 3): removing an *inactive* profile must not disturb the
     /// active profile's own connection watcher. The watcher is armed directly
     /// via the `ConnectionBox` seam, standing in for a real `activate(_:)` of
@@ -333,6 +410,12 @@ struct AppModelTests {
     /// S3 (fix wave 3): removing an inactive profile whose `.login(_)` sheet
     /// is open must close that sheet — previously only `teardown()` (i.e.
     /// removing the *active* profile) cleared a profile-bound sheet.
+    ///
+    /// U3 (fix wave 4): `a` is a real, activated `SessionStore`, not a
+    /// hand-driven `ConnectionBox`, so its watcher could legitimately route a
+    /// fresh `.login(a)` while `remove(b)`'s awaited `logout` is in flight.
+    /// Asserting `sheet == nil` would then flake on that race; the invariant
+    /// this test actually cares about is only that `.login(b)` is gone.
     @Test func removingAnInactiveProfileWithAnOpenLoginSheetClosesIt() async throws {
         let model = makeModel()
         model.logout = { _, _ in }
@@ -343,7 +426,7 @@ struct AppModelTests {
 
         await model.remove(b)
 
-        #expect(model.sheet == nil)
+        #expect(model.sheet != .login(b))
         model.teardown()
     }
 

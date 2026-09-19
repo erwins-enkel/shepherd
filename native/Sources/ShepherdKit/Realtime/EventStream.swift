@@ -20,6 +20,14 @@ public actor EventStream {
   private var stopped = true
   private var active = false
 
+  /// Bumped by every `connect()`. `scheduleReconnect` captures it before its
+  /// backoff sleep and compares after: `task == nil` alone cannot tell *this*
+  /// backoff window from a later one that also ended with `task == nil` (a
+  /// replacement socket opened by a later `scheduleReconnect`'s own `connect()`
+  /// and was then lost while this continuation was still queued), so the
+  /// generation check is what actually pins the guard to this window.
+  private var connectionGeneration = 0
+
   /// The delay the *next* reconnect will sleep for. Starts at
   /// `reconnectDelay`, doubles (capped at `maxReconnectDelay`) after every
   /// connection attempt that never became "healthy", and resets to
@@ -211,7 +219,9 @@ public actor EventStream {
     pump?.cancel()
     pump = nil
     // Say the old socket is gone before opening the new one, so a consumer
-    // always sees `.disconnected` → `.connected` in that order. Without this,
+    // always sees `.disconnected` → `.connected` in that order when a live
+    // socket was actually dropped — mid-backoff there is no old socket to
+    // report, so the consumer sees `.connected` alone. Without this,
     // the stale pump's own `.disconnected` (once its cancelled `receive()`
     // finally throws) can land *after* `connect()` below has already yielded
     // `.connected` for the replacement socket — see `scheduleReconnect`'s
@@ -231,6 +241,7 @@ public actor EventStream {
     }
     let socket = urlSession.webSocketTask(with: request)
     task = socket
+    connectionGeneration += 1
     connectedAt = .now
     frameReceivedSinceConnect = false
     socket.resume()
@@ -290,6 +301,9 @@ public actor EventStream {
     // `.disconnected` that `reconnectNow()`/`stop()` already yielded
     // themselves for that same replacement.
     guard !stopped, task === socket else { return }
+    // Captured now, before the backoff sleep, so the guard after it can tell
+    // this window apart from a later one that also ends with `task == nil`.
+    let capturedGeneration = connectionGeneration
     // Say so before the backoff sleep, so a consumer can repaint
     // "reconnecting" immediately rather than after the delay.
     lifecycleContinuation.yield(.disconnected)
@@ -323,15 +337,22 @@ public actor EventStream {
       return  // cancelled while waiting
     }
     // `task === socket` no longer applies: `task` was cleared to nil above.
-    // `task == nil` is its replacement — it is nil unless `reconnectNow()`
-    // already opened a replacement during the sleep (the only thing that
-    // sets `task` while this function is waiting), in which case that
-    // replacement's own pump owns the next lifecycle events and this call
-    // must not open a second socket on top of it. `stopped` still covers
-    // `stop()`. Ordinarily either call also cancels `pump` — this task —
-    // which throws out of the sleep above before reaching here at all; this
-    // guard is the fallback for a `task` mutation that outraces that.
-    guard !stopped, task == nil else { return }
+    // `task == nil` is its replacement — it is nil unless `reconnectNow()`,
+    // `start()` (after a `stop()`), or another `scheduleReconnect`'s own
+    // `connect()` already opened a replacement during the sleep, in which
+    // case that replacement's own pump owns the next lifecycle events and
+    // this call must not open a second socket on top of it. `stopped` still
+    // covers `stop()`. Ordinarily either call also cancels `pump` — this
+    // task — which throws out of the sleep above before reaching here at
+    // all; this guard is the fallback for a `task` mutation that outraces
+    // that.
+    //
+    // `task == nil` alone cannot tell *this* backoff window apart from a
+    // later one that also opened a replacement and then lost it while this
+    // continuation was still queued — that later window would leave `task`
+    // nil too. `connectionGeneration == capturedGeneration` closes that gap:
+    // it only matches the window this call actually belongs to.
+    guard !stopped, task == nil, connectionGeneration == capturedGeneration else { return }
     connect()
   }
 

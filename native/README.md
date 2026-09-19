@@ -182,9 +182,9 @@ event consumer finishes `EventStream.events()`, so calling `start()` again
 afterwards will not reopen the socket. A store that is simply released does the
 same tidying from `deinit`, so a dropped store cannot leave a socket
 reconnecting behind it. Build a fresh `SessionStore` (and the `EventStream` it
-owns) per activation rather than restarting one that was stopped; that per-activation contract is also what keeps `start()`'s internal
-`running` flag safe against a `start()`/`stop()` race, as its own doc comment
-explains.
+owns) per activation rather than restarting one that was stopped; that
+per-activation contract is also what keeps `start()`'s internal `running` flag
+safe against a `start()`/`stop()` race, as its own doc comment explains.
 
 ## CI
 

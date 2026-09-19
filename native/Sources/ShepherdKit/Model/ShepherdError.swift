@@ -52,6 +52,7 @@ public enum ShepherdError: Error, Equatable, Sendable {
     if let shepherd = error as? ShepherdError { return shepherd }
     if let profile = error as? ServerProfileError { return .insecureProfile(profile) }
     if error is CancellationError { return .cancelled }
+    if let urlError = error as? URLError, isCancellation(urlError) { return .cancelled }
 
     guard let clientError = error as? ClientError else {
       // A bare coding error — thrown by our own encoding of `PresenceFrame`,
@@ -77,6 +78,13 @@ public enum ShepherdError: Error, Equatable, Sendable {
     // middleware's backoff sleep throws it, and the runtime wraps it — but it
     // means the caller walked away, not that the request could not be made.
     if underlying is CancellationError { return .cancelled }
+    // `URLSession` reports a task it cancelled (e.g. a POST or DELETE whose
+    // caller walked away) as `URLError(.cancelled)`, not `CancellationError` —
+    // that error never travels through Swift's structured-concurrency
+    // cancellation at all. Left unmapped, it would surface as `.transport`,
+    // which reads as "the server could not be reached" rather than "nobody is
+    // waiting for this anymore".
+    if let urlError = underlying as? URLError, isCancellation(urlError) { return .cancelled }
 
     if underlying is DecodingError || underlying is EncodingError {
       return .contractMismatch(
@@ -131,5 +139,16 @@ public enum ShepherdError: Error, Equatable, Sendable {
 
   private static func capped(_ text: String) -> String {
     text.count <= diagnosticLimit ? text : String(text.prefix(diagnosticLimit)) + "…"
+  }
+
+  /// `URLError.Code.cancelled` and its raw value, `NSURLErrorCancelled`
+  /// (-999), are the same code under two names — `URLSession` uses this one
+  /// code both for a task the caller cancelled and for a redirect it declined
+  /// to follow, but the caller-cancelled case is the only one this client's
+  /// requests can hit. Checked by raw value as well as by the typed `.code`
+  /// so a `URLError` built directly from the NSURLError domain constant (as a
+  /// test, or an older API, might) still matches.
+  private static func isCancellation(_ error: URLError) -> Bool {
+    error.code == .cancelled || error.errorCode == NSURLErrorCancelled
   }
 }

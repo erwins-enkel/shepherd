@@ -78,6 +78,22 @@ struct ShepherdErrorTests {
     #expect(text.contains("\(urlError.errorCode)"))
   }
 
+  @Test("a cancelled URLError is .cancelled, not .transport")
+  func cancelledURLErrorIsCancelled() {
+    // A cancelled POST or DELETE — the caller walked away — surfaces from
+    // `URLSession` as `URLError(.cancelled)`, never `CancellationError`. Left
+    // unmapped this reads as "the server could not be reached" instead of
+    // "nobody is waiting for this anymore".
+    let error = clientError(
+      causeDescription: "Transport threw an error.",
+      underlyingError: URLError(.cancelled))
+
+    #expect(ShepherdError.from(error, route: "createSession") == .cancelled)
+    // Bare, unwrapped by a `ClientError` — the shape `EventStream`'s own
+    // `URLSession` calls would produce.
+    #expect(ShepherdError.from(URLError(.cancelled), route: "createSession") == .cancelled)
+  }
+
   @Test("a POSIX error becomes a transport failure")
   func posixErrorIsTransport() {
     let error = clientError(

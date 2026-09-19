@@ -220,6 +220,28 @@ struct EventStreamTests {
     }
   }
 
+  @Test("reconnectNow() on a live socket reports disconnected before connected")
+  func reconnectNowOrdersLifecycleEvents() async throws {
+    try await withStream(reconnectDelay: .seconds(60)) { server, stream in
+      let lifecycle = stream.lifecycle()
+      await stream.start()
+
+      try await awaitConnected(server)
+      await stream.reconnectNow()
+      #expect(try await eventually(timeout: .seconds(5)) { server.connectionCount() == 2 })
+
+      // Exactly disconnected-then-connected: never connected-then-disconnected,
+      // which is what a stale pump's own late `.disconnected` racing the new
+      // socket's `.connected` used to produce.
+      var seen: [EventStream.LifecycleEvent] = []
+      for await event in lifecycle {
+        seen.append(event)
+        if seen.count == 3 { break }
+      }
+      #expect(seen == [.connected, .disconnected, .connected])
+    }
+  }
+
   @Test("the token is re-read on every connect")
   func rereadsTokenOnReconnect() async throws {
     let tokens = TokenSequence(["shp_first", "shp_second"])

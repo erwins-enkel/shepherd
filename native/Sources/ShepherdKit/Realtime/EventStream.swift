@@ -96,9 +96,14 @@ public actor EventStream {
       bufferingPolicy: .bufferingNewest(256))
     eventStream = stream
     self.continuation = continuation
-    // Unbounded on purpose: a lifecycle element is one of two enum cases, and
-    // dropping one would cost the store a re-snapshot it must not miss.
-    let (lifecycle, lifecycleContinuation) = AsyncStream<LifecycleEvent>.makeStream()
+    // `bufferingNewest(8)`, not unbounded: only the newest transitions matter
+    // to a consumer that subscribes late or falls behind — an old `.connected`
+    // sitting behind a dozen reconnect cycles is not worth replaying, and a
+    // bound keeps a consumer that never reads `lifecycle()` from leaking
+    // elements for the life of the stream. 8 is comfortably above what a
+    // reconnect storm produces between reads.
+    let (lifecycle, lifecycleContinuation) = AsyncStream<LifecycleEvent>.makeStream(
+      bufferingPolicy: .bufferingNewest(8))
     lifecycleStream = lifecycle
     self.lifecycleContinuation = lifecycleContinuation
   }
@@ -175,6 +180,7 @@ public actor EventStream {
     stopped = true
     pump?.cancel()
     pump = nil
+    if task != nil { lifecycleContinuation.yield(.disconnected) }
     task?.cancel(with: .goingAway, reason: nil)
     task = nil
   }
@@ -204,6 +210,13 @@ public actor EventStream {
     guard !stopped else { return }
     pump?.cancel()
     pump = nil
+    // Say the old socket is gone before opening the new one, so a consumer
+    // always sees `.disconnected` → `.connected` in that order. Without this,
+    // the stale pump's own `.disconnected` (once its cancelled `receive()`
+    // finally throws) can land *after* `connect()` below has already yielded
+    // `.connected` for the replacement socket — see `scheduleReconnect`'s
+    // `task === socket` guard, which suppresses that stale yield entirely.
+    if task != nil { lifecycleContinuation.yield(.disconnected) }
     task?.cancel(with: .goingAway, reason: nil)
     currentReconnectDelay = reconnectDelay
     connect()
@@ -245,10 +258,11 @@ public actor EventStream {
         break
       }
     }
-    // The socket is gone, whatever ended it. Say so before the backoff sleep,
-    // so a consumer can repaint "reconnecting" immediately rather than after
-    // the delay.
-    lifecycleContinuation.yield(.disconnected)
+    // The socket is gone, whatever ended it. `scheduleReconnect` is what
+    // yields `.disconnected` — gated on `task === socket` — so a pump left
+    // running after `reconnectNow()`/`stop()` already replaced or closed the
+    // socket does not emit a second, stale `.disconnected` behind the
+    // `.connected` those callers already reported.
     await scheduleReconnect(after: socket)
   }
 
@@ -269,8 +283,13 @@ public actor EventStream {
 
   private func scheduleReconnect(after socket: URLSessionWebSocketTask) async {
     // `task === socket` keeps a stale pump from racing a socket that
-    // `reconnectNow()` has already replaced.
+    // `reconnectNow()` has already replaced — and from double-reporting a
+    // `.disconnected` that `reconnectNow()`/`stop()` already yielded
+    // themselves for that same replacement.
     guard !stopped, task === socket else { return }
+    // Say so before the backoff sleep, so a consumer can repaint
+    // "reconnecting" immediately rather than after the delay.
+    lifecycleContinuation.yield(.disconnected)
 
     let delay: Duration
     if connectionWasHealthy() {

@@ -197,6 +197,33 @@ struct MiddlewareTests {
     #expect(seen.get()?.headerFields[.authorization] == nil)
   }
 
+  @Test("a 401 after a credential was sent, but the re-read throws, leaves the item alone")
+  func unauthorizedWithFailingRereadIsNotALogout() async throws {
+    let store = FlakyRereadCredentialStore(
+      first: StoredCredential(token: "shp_x", tokenId: "t"))
+    let fired = Box(false)
+    let middleware = AuthenticationMiddleware(
+      store: store, credentialKey: "k", onUnauthorized: { fired.set(true) })
+
+    let seen = Box<HTTPRequest?>(nil)
+    _ = try await middleware.intercept(
+      HTTPRequest(method: .get, scheme: nil, authority: nil, path: "/api/sessions"),
+      body: nil, baseURL: baseURL, operationID: "listSessions"
+    ) { request, _, _ in
+      seen.set(request)
+      return (HTTPResponse(status: .unauthorized), nil)
+    }
+
+    // The credential rode the request (the first, successful load), but the
+    // re-read after the 401 — needed to confirm it is still the credential
+    // that was rejected — threw, so nothing here can prove what is stored.
+    // Deleting on that basis could destroy a credential the server never
+    // rejected.
+    #expect(seen.get()?.headerFields[.authorization] == "Bearer shp_x")
+    #expect(store.deleteCallCount == 0)
+    #expect(fired.get() == false)
+  }
+
   @Test("a 401 on a request that carried no credential clears nothing")
   func unauthorizedWithoutCredentialIsNotALogout() async throws {
     let store = FailingCredentialStore()
@@ -266,6 +293,30 @@ final class FailingCredentialStore: CredentialStore, @unchecked Sendable {
   func delete(for key: String) throws { deleted.set(true) }
 
   var wasDeleted: Bool { deleted.get() }
+}
+
+/// Succeeds on its first `load(for:)` — so a request can carry a credential —
+/// and throws on every one after, standing in for a Keychain that goes
+/// unreadable between the request and the 401 handling's re-read.
+final class FlakyRereadCredentialStore: CredentialStore, @unchecked Sendable {
+  struct ReadFailure: Error {}
+
+  private let first: StoredCredential
+  private let calls = Box(0)
+  private let deletes = Box(0)
+
+  init(first: StoredCredential) { self.first = first }
+
+  func load(for key: String) throws -> StoredCredential? {
+    let call = calls.get()
+    calls.set(call + 1)
+    if call == 0 { return first }
+    throw ReadFailure()
+  }
+  func save(_ credential: StoredCredential, for key: String) throws {}
+  func delete(for key: String) throws { deletes.set(deletes.get() + 1) }
+
+  var deleteCallCount: Int { deletes.get() }
 }
 
 /// Minimal lock box so test closures can mutate state under Swift 6 strict

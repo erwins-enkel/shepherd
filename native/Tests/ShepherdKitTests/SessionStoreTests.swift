@@ -485,6 +485,36 @@ struct SessionStoreTests {
     _ = await runner.value
   }
 
+  @Test("reconnectNow() on a live store ends live again, without parking at connecting")
+  func reconnectNowReturnsToLive() async throws {
+    let http = FakeShepherdServer()
+    defer { http.tearDown() }
+    let events = try FakeEventServer()
+    defer { events.stop() }
+    try stubBootstrap(http)
+    // A 30 s socket backoff means only `reconnectNow()` — never the socket's
+    // own retry timer — can produce the second connection this test awaits.
+    let stream = EventStream(
+      baseURL: events.url, tokenProvider: { "shp_test" }, reconnectDelay: .seconds(30))
+    let store = SessionStore(
+      client: try makeClient(http), events: stream,
+      reconnectDelay: .milliseconds(20), maxReconnectDelay: .milliseconds(200))
+
+    let runner = Task { await store.start() }
+    #expect(await eventually { store.connection == .live })
+
+    // Fixes the bug where `reconnectNow()` on a *live* socket yielded the new
+    // socket's `.connected` before the stale pump's own `.disconnected`,
+    // which left the store parked at `.connecting` forever: nothing ever told
+    // it the reconnect it already saw as "done" had, in this order, not yet
+    // started.
+    await stream.reconnectNow()
+    #expect(await eventually(timeout: .seconds(2)) { store.connection == .live })
+
+    store.stop()
+    _ = await runner.value
+  }
+
   @Test("setActive forwards the app's focus to the socket")
   func setActiveForwardsPresence() async throws {
     let http = FakeShepherdServer()

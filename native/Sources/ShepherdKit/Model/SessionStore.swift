@@ -13,7 +13,9 @@ public enum ConnectionState: Sendable, Equatable {
   /// Bootstrapped; events are flowing.
   case live
   /// The server rejected the token. The app must present a login sheet; the
-  /// stored credential has already been cleared by the auth middleware.
+  /// stored credential has already been cleared by the auth middleware. The
+  /// app is expected to build a fresh `SessionStore` after the operator logs
+  /// back in — this state is not one `start()` recovers from in place.
   case needsLogin
   /// The server has no workspace root yet. `resolveFirstRun(path:)` clears it.
   case firstRunPending
@@ -219,11 +221,11 @@ public final class SessionStore {
           publish(.firstRunPending)
         case .transport(let message):
           publish(.offline(message: message))
-          guard await waitBeforeRetry() else { return }
+          guard await waitThenContinue() else { return }
           continue
         case let other:
           publish(.offline(message: String(describing: other)))
-          guard await waitBeforeRetry() else { return }
+          guard await waitThenContinue() else { return }
           continue
         }
       }
@@ -369,6 +371,20 @@ public final class SessionStore {
     currentReconnectDelay = min(currentReconnectDelay * 2, maxReconnectDelay)
     do { try await Task.sleep(for: delay) } catch { return false }
     return running
+  }
+
+  /// Wraps `waitBeforeRetry()` with the teardown its `false` return needs.
+  /// `false` there means one of two things: `stop()` was called, which has
+  /// already cancelled the consumer and the lifecycle watcher and stopped the
+  /// socket itself — nothing left to do — or the task running `start()` was
+  /// cancelled out from under it (its own caller walked away without ever
+  /// calling `stop()`), which `stop()` never touches and which would
+  /// otherwise leave the socket, its consumer and the lifecycle watcher
+  /// running forever. `stopped` tells the two apart.
+  private func waitThenContinue() async -> Bool {
+    if await waitBeforeRetry() { return true }
+    if !stopped { await teardownEventLoop() }
+    return false
   }
 
   /// Publish a state the store derived. Gated on `stopped` so `stop()` has the

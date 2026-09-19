@@ -37,6 +37,10 @@ on:
         description: "#1627 A/B: 'true' forces operator-language OFF everywhere (the *before* leg ≡ #1626 baseline); default 'false' runs the *after* leg (German directive live for de fixtures)"
         required: false
         default: "false"
+      jev_framing:
+        description: "JEV leg only: 'verbatim' (default, what production asks) or 'authored' (structured state + per-kind criteria)"
+        required: false
+        default: "verbatim"
 
 permissions:
   contents: read
@@ -72,3 +76,88 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: bun run eval:stop-classifier --trials "${{ github.event.inputs.trials || '5' }}" --model "${{ github.event.inputs.model || 'claude-haiku-4-5' }}" ${{ github.event.inputs.operator_language_off == 'true' && '--operator-language-off' || '' }} --json
+
+  # The JEV leg (#2377). Same fixtures, same nightly cron, a different decision model — and a drift
+  # gate shaped for one: coverage, flip rate and the pinned model version, not just accuracy.
+  #
+  # A SEPARATE JOB, not a step on the one above: the two legs measure different vendors and must be
+  # able to fail independently. It costs a rounding error next to the Haiku leg.
+  #
+  # NOTHING FROM THIS RUN IS PRINTED. TypeSafe's MCA §2.3(f) forbids publishing figures about the
+  # Services and this repository — including this log — is public, so the eval's own report (which
+  # states absolute accuracy) goes to a file that is never echoed and never uploaded as an artifact;
+  # public-repo artifacts are world-downloadable. `scripts/eval-drift.ts` is the only thing that
+  # writes to this log, and it is relative by construction. See #2371.
+  jev:
+    name: eval-jev
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: latest
+
+      - name: Install deps
+        run: bun install --frozen-lockfile
+
+      - name: Run the JEV leg and check for drift
+        env:
+          JEV_API_KEY: ${{ secrets.JEV_API_KEY }}
+          # The LOCKED baseline, as a secret rather than a committed file: the expected labels are
+          # already in the tree, so per-fixture answers published beside them would make accuracy
+          # derivable. Unset is the bootstrapping state — the drift check then skips the
+          # baseline-relative conditions loudly instead of inventing them.
+          JEV_EVAL_BASELINE: ${{ secrets.JEV_EVAL_BASELINE }}
+          TRIALS: ${{ github.event.inputs.trials }}
+          FRAMING: ${{ github.event.inputs.jev_framing }}
+        run: |
+          set -uo pipefail
+          if [ -z "${JEV_API_KEY:-}" ]; then
+            echo "::warning title=JEV eval skipped::No JEV_API_KEY available." \
+                 "The JEV leg measured nothing. A maintainer must add the secret."
+            exit 0
+          fi
+
+          flags=""
+          if [ -n "${TRIALS:-}" ]; then
+            case "$TRIALS" in
+              '' | *[!0-9]*) echo "::error title=Bad trials input::'$TRIALS' is not a positive integer."; exit 1 ;;
+              *) flags="$flags --trials $TRIALS" ;;
+            esac
+          fi
+          # VERBATIM is what production asks (#2364 measured the authored framing losing, in the
+          # dangerous direction). The switch exists to re-measure that, not to change the nightly.
+          case "${FRAMING:-verbatim}" in
+            '' | verbatim) ;;
+            authored) flags="$flags --jev-authored" ;;
+            *) echo "::error title=Bad framing input::'$FRAMING' is not verbatim or authored."; exit 1 ;;
+          esac
+
+          # Both streams to files. `|| code=$?` because GitHub runs the step under `bash -e`, so a
+          # non-zero exit would kill the shell before the case below can read it.
+          code=0
+          bun run eval:stop-classifier --backend jev --json $flags > report.json 2> eval.log || code=$?
+
+          # Exit codes (EXIT in scripts/eval-core.ts): 0 pass · 1 the eval ran and missed ·
+          # 2 it could not run · 3 the harness broke.
+          case $code in
+            0 | 1) ;;
+            2)
+              echo "::warning title=JEV eval NOT run::The account could not make calls (usage" \
+                   "limit, auth, rate limiting) so NOTHING was measured. Not a regression signal."
+              exit 0 ;;
+            *)
+              # The harness broke. The diagnosis is in eval.log, which cannot be echoed here — it is
+              # the file the absolute report is written to.
+              echo "::error title=JEV eval harness failure::The harness exited $code and measured" \
+                   "nothing. Re-run \`bun run eval:stop-classifier --backend jev --json\` locally" \
+                   "to read the diagnosis."
+              exit 1 ;;
+          esac
+
+          # The only output. Relative by construction, and it restates the eval's own verdict, so a
+          # floor miss is still named here (by fixture id) without a figure reaching the log.
+          bun run scripts/eval-drift.ts report.json || exit 1

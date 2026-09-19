@@ -34,6 +34,9 @@ ANTHROPIC_API_KEY=… bun run eval:critic --json
 #                         --filter <id-substring>  --gating-only  --concurrency N
 #                         --max-spend <usd>  --json
 
+# Drift-check a finished run against the locked baseline (#2377). No calls, no key.
+bun run scripts/eval-drift.ts <report.json> [--baseline <file>] [--capture]
+
 # The cheap probe: ONE fixture, ONE trial — a few cents, and enough to prove the harness
 # obtains a verdict at all before committing to a full run.
 ANTHROPIC_API_KEY=… bun run eval:critic --filter bug-off-by-one --trials 1 --json
@@ -141,8 +144,21 @@ fixture in the set and does not generalise; quote the full-set number when estim
 `spend: calls=… in=… out=… ≈ $…`on every run, and puts it in the`--json`block. A run **stops** at`--max-spend` (default **$5**) and discards its partial results, because an incomplete run is not a
 measurement. Raise the ceiling deliberately when a bigger run is actually intended.
 
+A run whose prompts ALONE cannot fit the ceiling is **refused before the first call** (#2377),
+rather than spending half a run's money to discover it and then discarding the partial results. The
+estimate counts input tokens only — no output, no multi-turn growth — so it is a floor: it can fail
+to refuse a run that would have fit, never refuse one that does. For a vendor that bills input alone
+(JEV) it is the whole cost.
+
 Probe before you commit: `--filter <one-fixture> --trials 1` costs a few cents and answers the
 question that has failed twice — does the harness obtain a verdict at all?
+
+**Coverage is tracked, because a rescued trial is not a free one.** Each trial records whether its
+FIRST attempt failed, and `aggregate` tallies `retried` and `uncovered` per fixture (both land in
+the `--json` block). Production does not retry — `classifyViaJudge` falls back to the spawn on the
+first failure — so a trial the harness rescued is traffic production would have escalated. The
+nightly JEV drift gate (`scripts/eval-drift.ts`) is what reads this; see
+[`eval-stop-classifier.md`](./eval-stop-classifier.md#the-nightly-drift-leg-2377).
 
 **A trial that cannot execute is never a data point.** Each trial gets three attempts with backoff;
 a failure that survives them invalidates the whole run (`CANNOT_RUN`) rather than being scored as a

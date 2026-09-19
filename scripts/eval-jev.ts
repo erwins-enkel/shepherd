@@ -21,6 +21,7 @@
 
 import {
   addUsage,
+  DETAIL_MODEL_KEY,
   type Backend,
   type BackendSpec,
   type EvalFixtureBase,
@@ -141,7 +142,7 @@ export function jevBackend<F extends EvalFixtureBase>(
         content: raw === null ? null : JSON.stringify(raw),
         turns: 1,
         ...(raw === null ? { stopReason: "jev-no-answer", text: JSON.stringify(answers) } : {}),
-        detail: answers,
+        detail: { ...answers, [DETAIL_MODEL_KEY]: result.model },
       };
     },
   };

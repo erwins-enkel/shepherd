@@ -257,6 +257,33 @@ export interface TrialOutcome {
   /** Backend-specific per-trial evidence, carried verbatim into the JSON report — see
    *  {@link TrialCapture.detail}. Absent on a backend that records none. */
   detail?: Record<string, unknown>;
+  /**
+   * The trial's FIRST attempt threw and a retry rescued it (issue #2377).
+   *
+   * Stamped by the RUNNER, which owns the retry loop — never by {@link outcomeFrom}, because a
+   * capture carries no memory of what it took to obtain. Recorded because production does not
+   * retry: `classifyViaJudge` falls back to the spawn on the first failure, so a trial the eval
+   * rescued is traffic production would have escalated, and a rising count is drift even when the
+   * verdicts are unchanged.
+   */
+  firstAttemptFailed?: boolean;
+}
+
+/**
+ * Did this trial produce a usable verdict WITHOUT the harness papering over anything? The
+ * complement of production's escalation to the fallback, and the quantity the nightly drift gate's
+ * coverage condition is computed from (`scripts/eval-drift.ts`). PURE.
+ *
+ * `unrecognised` counts as uncovered alongside the mechanical misses: a verdict carrying no
+ * decision the contract admits is not an answer, whatever else it parsed as.
+ */
+export function covered(outcome: TrialOutcome): boolean {
+  return (
+    outcome.firstAttemptFailed !== true &&
+    outcome.toolUsed &&
+    outcome.parseOk &&
+    outcome.unrecognised !== true
+  );
 }
 
 /** A scorer's reading of one verdict: the display label plus whether the fixture's predicates hold.
@@ -570,9 +597,26 @@ export interface TrialCapture {
    * recording those is that a low-confidence -> abstain threshold can then be swept OFFLINE over a
    * completed run instead of being pinned before a paid one. Absent on the Anthropic backend, which
    * has nothing of the kind to report — so its JSON report is unchanged.
+   *
+   * Keyed by QUESTION ID, with `__`-prefixed keys reserved for the backend's own per-trial facts —
+   * see {@link DETAIL_MODEL_KEY}.
    */
   detail?: Record<string, unknown>;
 }
+
+/**
+ * Reserved {@link TrialCapture.detail} key carrying the model that ANSWERED, as the backend
+ * reported it — not the one we asked for. The nightly drift gate's pinned-version condition
+ * (`scripts/eval-drift.ts`, #2377) compares the two: a snapshot is pinned precisely so a vendor
+ * re-point cannot arrive disguised as an accuracy change, and that pin is worth nothing unless
+ * something checks it.
+ *
+ * Double-underscored because `detail` is otherwise keyed by QUESTION ID — the shape
+ * `sweepTrialsFrom` indexes — so it cannot collide with one, and reports predating it simply carry
+ * no such key. Declared HERE rather than in the JEV backend so the drift script can read it without
+ * importing a vendor SDK.
+ */
+export const DETAIL_MODEL_KEY = "__model";
 
 /** The capture a SINGLE response yields, for a prompt whose verdict arrives in one turn. Used by
  *  the unit tests and by any eval whose loop cannot need a second turn. */
@@ -623,6 +667,25 @@ export function prefixIsCacheable<F extends EvalFixtureBase>(
     estimateTokens(spec.system ?? "") +
     estimateTokens(prompt);
   return prefix >= minCacheableTokens(model);
+}
+
+/**
+ * A FLOOR on what a run will cost, from its prompts alone, before a single call is made (#2377).
+ *
+ * Input tokens only: output is not counted, and neither is a multi-turn trial's growing
+ * conversation. That is deliberate — an underestimate can only fail to refuse a run that would
+ * have fit, whereas an overestimate would refuse one that fits. For a vendor that bills input
+ * alone (JEV) it is the whole cost; for Anthropic it is a lower bound. PURE.
+ */
+export function estimateSpendUsd<F extends EvalFixtureBase>(
+  spec: EvalSpec<F>,
+  prompts: string[],
+  model: string,
+  price: PriceUsd,
+): number {
+  const perCall = estimateTokens(JSON.stringify(spec.tools)) + estimateTokens(spec.system ?? "");
+  const input = prompts.reduce((n, prompt) => n + perCall + estimateTokens(prompt), 0);
+  return price({ ...emptySpend(), calls: prompts.length, input }, model);
 }
 
 const EPHEMERAL = { type: "ephemeral" } as const;
@@ -818,6 +881,14 @@ export function outcomeFrom<F extends EvalFixtureBase>(
   };
 }
 
+/** Record on a scored outcome that the runner's retry loop had to rescue it — the one fact
+ *  {@link outcomeFrom} cannot know, because a capture carries no memory of what it took to obtain.
+ *  OMITTED rather than set false on a clean trial, so a run that needed no retry reports exactly
+ *  the shape it did before. PURE. */
+function stamp(outcome: TrialOutcome, firstAttemptFailed: boolean): TrialOutcome {
+  return firstAttemptFailed ? { ...outcome, firstAttemptFailed: true } : outcome;
+}
+
 // ---------------------------------------------------------------------------
 // Aggregation + decision (pure)
 // ---------------------------------------------------------------------------
@@ -831,6 +902,11 @@ export interface FixtureResult<F extends EvalFixtureBase> {
   parseFail: number;
   /** Trials whose verdict parsed but carried no recognisable decision. */
   unrecognised: number;
+  /** Trials whose first attempt threw and were rescued by a retry — see
+   *  {@link TrialOutcome.firstAttemptFailed}. */
+  retried: number;
+  /** Trials that did NOT produce a usable verdict on the first attempt — see {@link covered}. */
+  uncovered: number;
   majorityLabel: string | null;
   correct: number;
   majorityCorrect: boolean;
@@ -854,9 +930,13 @@ export function aggregate<F extends EvalFixtureBase>(
   let noTool = 0;
   let parseFail = 0;
   let unrecognised = 0;
+  let retried = 0;
+  let uncovered = 0;
   let correct = 0;
   for (const o of outcomes) {
     if (o.unrecognised) unrecognised++;
+    if (o.firstAttemptFailed === true) retried++;
+    if (!covered(o)) uncovered++;
     // An unknown label still counts — a scorer that emits an unlisted label must not vanish from
     // the distribution.
     counts[o.label] = (counts[o.label] ?? 0) + 1;
@@ -873,6 +953,8 @@ export function aggregate<F extends EvalFixtureBase>(
     noTool,
     parseFail,
     unrecognised,
+    retried,
+    uncovered,
     majorityLabel: majority(counts, trials),
     correct,
     majorityCorrect: correct > trials / 2,
@@ -1064,6 +1146,9 @@ export function jsonReport<F extends EvalFixtureBase>(
       noTool: r.noTool,
       parseFail: r.parseFail,
       unrecognised: r.unrecognised,
+      // The nightly drift gate's coverage condition reads these (#2377).
+      retried: r.retried,
+      uncovered: r.uncovered,
       // Carried per fixture so a CI run holds its own diagnosis — the point of #2326.
       mechanicalSamples: mechanicalSamples(r),
       majorityLabel: r.majorityLabel,
@@ -1414,6 +1499,28 @@ async function runEvalInner<F extends EvalFixtureBase>(
     for (let trial = 0; trial < n; trial++) tasks.push({ fixture, index, prompt, trial });
   }
 
+  // PRE-FLIGHT BUDGET (#2377). The mid-run ceiling below stops a run that has already spent, and
+  // then DISCARDS its partial results — money spent to measure nothing. A run whose prompts alone
+  // cannot fit the ceiling is knowable before the first call, so refuse it there instead of
+  // degrading halfway through.
+  const estimate = estimateSpendUsd(
+    spec,
+    tasks.map((t) => t.prompt),
+    run.model,
+    price,
+  );
+  if (estimate >= run.maxSpend) {
+    console.error(
+      `${tag} REFUSED before the first call — ${tasks.length} trials are estimated at ` +
+        `$${estimate.toFixed(4)} from their prompts alone, at or above the $${run.maxSpend.toFixed(2)} ` +
+        `ceiling (the real cost is higher: this counts input tokens only). Raise it deliberately ` +
+        `with --max-spend, or run fewer trials.`,
+    );
+    // CANNOT_RUN, matching the mid-run ceiling stop: it is the same condition caught earlier, and
+    // nothing was measured either way.
+    return EXIT.CANNOT_RUN;
+  }
+
   const outcomes: TrialOutcome[][] = fixtures.map(() => []);
   const attemptTrial = (task: Task): Promise<TrialCapture> =>
     backend.trial(task.fixture, task.prompt, run, spend);
@@ -1428,6 +1535,7 @@ async function runEvalInner<F extends EvalFixtureBase>(
   const first = tasks[0];
   if (first) {
     const captures: TrialCapture[] = [];
+    let firstAttemptFailed = false;
     // TWO loops, deliberately. The inner one is the SAME retry policy every pooled trial gets —
     // without it a single transient 529 on the very first call returned CANNOT_RUN and the
     // workflow green-skipped the entire gate, which is a worse outcome than a slow start.
@@ -1440,6 +1548,7 @@ async function runEvalInner<F extends EvalFixtureBase>(
           capture = await attemptTrial(first);
         } catch (err) {
           lastError = err instanceof Error ? err.message : String(err);
+          if (look === 1 && attempt === 1) firstAttemptFailed = true;
           if (isPermanent(lastError)) break;
           if (attempt < ATTEMPTS_PER_TRIAL) {
             console.error(`${tag} preflight attempt ${attempt} failed (retrying): ${lastError}`);
@@ -1476,7 +1585,9 @@ async function runEvalInner<F extends EvalFixtureBase>(
       // The diagnosis above is still printed in full, and the workflow still surfaces it.
       return observationalPass(spec, tag, "its harness obtained no verdict") ?? EXIT.HARNESS_FAIL;
     }
-    outcomes[first.index]!.push(outcomeFrom(spec, first.fixture, preflight));
+    outcomes[first.index]!.push(
+      stamp(outcomeFrom(spec, first.fixture, preflight), firstAttemptFailed),
+    );
   }
 
   let next = 1;
@@ -1493,11 +1604,13 @@ async function runEvalInner<F extends EvalFixtureBase>(
       if (!task) return;
       let capture: TrialCapture | null = null;
       let lastError = "";
+      let firstAttemptFailed = false;
       for (let attempt = 1; attempt <= ATTEMPTS_PER_TRIAL && capture === null; attempt++) {
         try {
           capture = await attemptTrial(task);
         } catch (err) {
           lastError = err instanceof Error ? err.message : String(err);
+          if (attempt === 1) firstAttemptFailed = true;
           // A PERMANENT condition will not recover, so retrying it just burns the backoff once per
           // trial across the pool. A 429 is explicitly not permanent — backoff is what it is for.
           if (isPermanent(lastError)) break;
@@ -1517,7 +1630,9 @@ async function runEvalInner<F extends EvalFixtureBase>(
         cannotRun = lastError;
         return;
       }
-      outcomes[task.index]!.push(outcomeFrom(spec, task.fixture, capture));
+      outcomes[task.index]!.push(
+        stamp(outcomeFrom(spec, task.fixture, capture), firstAttemptFailed),
+      );
     }
   };
   await Promise.all(

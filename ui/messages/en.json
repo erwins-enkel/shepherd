@@ -4135,5 +4135,6 @@
   "native_signout_failed": "Signed out on this Mac, but the server did not confirm the token was revoked: {reason}",
   "native_welcome_saved_title": "Saved servers",
   "native_welcome_saved_connect": "Connect",
-  "native_welcome_saved_remove": "Remove"
+  "native_welcome_saved_remove": "Remove",
+  "native_banner_client_too_old": "This server needs app version {minimum} or newer — you have {app}. Update Shepherd for Mac."
 }

@@ -44,6 +44,7 @@ export const KEYS: readonly string[] = [
   "native_archive_confirm_body",
   "native_archive_confirm_title",
   "native_archive_failed",
+  "native_banner_client_too_old",
   "native_banner_mismatch",
   "native_banner_needs_login",
   "native_banner_offline",

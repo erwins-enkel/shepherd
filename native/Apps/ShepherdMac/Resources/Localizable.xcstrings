@@ -410,6 +410,24 @@
         }
       }
     },
+    "native_banner_client_too_old": {
+      "comment": "%1$@ = minimum, %2$@ = app",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Server benötigt App-Version %1$@ oder neuer — du hast %2$@. Aktualisiere Shepherd für Mac."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This server needs app version %1$@ or newer — you have %2$@. Update Shepherd for Mac."
+          }
+        }
+      }
+    },
     "native_banner_mismatch": {
       "comment": "%1$@ = serverVersion, %2$@ = appVersion",
       "extractionState": "manual",

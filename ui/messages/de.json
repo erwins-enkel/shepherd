@@ -4135,5 +4135,6 @@
   "native_signout_failed": "Auf diesem Mac abgemeldet, aber der Server hat den Widerruf des Tokens nicht bestätigt: {reason}",
   "native_welcome_saved_title": "Gespeicherte Server",
   "native_welcome_saved_connect": "Verbinden",
-  "native_welcome_saved_remove": "Entfernen"
+  "native_welcome_saved_remove": "Entfernen",
+  "native_banner_client_too_old": "Dieser Server benötigt App-Version {minimum} oder neuer — du hast {app}. Aktualisiere Shepherd für Mac."
 }

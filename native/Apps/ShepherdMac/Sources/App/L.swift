@@ -9,6 +9,6 @@ enum L {
     }
 
     static func t(_ key: StaticString, _ args: any CVarArg...) -> String {
-        String(format: t(key), arguments: args)
+        String(format: t(key), locale: .current, arguments: args)
     }
 }

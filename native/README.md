@@ -9,6 +9,7 @@ gitignored.
 
 - Xcode 26.6 or newer (`xcodebuild -version`)
 - `brew install xcodegen`
+- [`bun`](https://bun.sh) (generates the string catalog and runs the sync/contract scripts)
 
 ## Build
 
@@ -30,9 +31,16 @@ open native/Apps/ShepherdMac/.build/Build/Products/Release/Shepherd.app
 native/scripts/test-app.sh
 ```
 
-Runs the Swift Testing unit bundle (`ShepherdTests`) and the XCUITest smoke
-bundle (`ShepherdUITests`). Add `-only-testing:ShepherdTests` to skip the UI
-test, which needs a logged-in GUI session.
+Runs the Swift Testing unit bundle (`ShepherdTests`). The scheme also builds
+and runs the `ShepherdUITests` XCUITest bundle, but that bundle has no source
+files until Task 11 adds a smoke test, so xcodebuild cannot find its compiled
+executable and the bare invocation above currently fails at the test step
+(the build itself succeeds). Pass `-only-testing:ShepherdTests` to scope the
+run to the unit bundle, which is what CI does:
+
+```
+native/scripts/test-app.sh -only-testing:ShepherdTests
+```
 
 ## Localisation
 
@@ -43,8 +51,8 @@ EN and DE only, mirrored from the web catalogs. Add or change copy in
 native/scripts/gen-strings.sh
 ```
 
-`native/scripts/gen-strings.sh --check` fails if the committed catalog is stale;
-CI runs exactly that.
+`bun native/scripts/gen-strings.ts --check` fails if the committed catalog is
+stale; CI runs that via `bun run check:strings`.
 
 ## Signing
 

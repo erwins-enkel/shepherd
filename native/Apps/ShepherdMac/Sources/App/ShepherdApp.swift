@@ -1,5 +1,4 @@
 import SwiftUI
-import ShepherdKit
 
 @main
 struct ShepherdApp: App {

@@ -10,6 +10,8 @@
     "test:contract": "bun test ./test/contract",
     "gen:contract-swift": "bun run scripts/gen-contract-swift.ts",
     "check:contract-swift": "bun run gen:contract-swift && git diff --exit-code -- contracts/openapi.swift.yaml",
+    "gen:strings": "bun run native/scripts/gen-strings.ts",
+    "check:strings": "bun run native/scripts/gen-strings.ts --check",
     "delivery-report": "bun run scripts/delivery-report.ts",
     "lint": "eslint --cache --cache-strategy content --cache-location .cache/eslint --no-error-on-unmatched-pattern src test examples ui/src ci/onboarding-harness deploy 'scripts/**/*.ts'",
     "typecheck": "tsc --noEmit",

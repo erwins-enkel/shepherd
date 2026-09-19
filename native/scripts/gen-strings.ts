@@ -117,16 +117,26 @@ function load(path: string): Catalog {
   return out;
 }
 
-/** {name} -> %N$@, numbered by first appearance in `order`. */
-function convert(value: string, order: Map<string, number>): string {
-  return value.replace(/%/g, "%%").replace(/\{(\w+)\}/g, (_m, name: string) => {
+/**
+ * {name} -> %N$@, numbered by first appearance in `order`.
+ *
+ * `%` is only escaped to `%%` when the string carries at least one placeholder
+ * (`order.size > 0`): those strings go through `String(format:)` at runtime
+ * (`L.t(key, args...)`), where a bare `%` would be misread as a conversion.
+ * A string with no placeholders is read via `L.t(key)`, which returns
+ * `String(localized:)` verbatim with no format pass — escaping `%` there
+ * would print a literal `%%` in the UI.
+ */
+export function convert(value: string, order: Map<string, number>): string {
+  const escaped = order.size === 0 ? value : value.replace(/%/g, "%%");
+  return escaped.replace(/\{(\w+)\}/g, (_m, name: string) => {
     const index = order.get(name);
     if (index === undefined) throw new Error(`unknown placeholder {${name}}`);
     return `%${index}$@`;
   });
 }
 
-function placeholderOrder(en: string): Map<string, number> {
+export function placeholderOrder(en: string): Map<string, number> {
   const order = new Map<string, number>();
   for (const m of en.matchAll(/\{(\w+)\}/g)) {
     const name = m[1]!;
@@ -166,24 +176,29 @@ function build(): string {
   return `${JSON.stringify({ sourceLanguage: "en", strings, version: "1.0" }, null, 2)}\n`;
 }
 
-const check = process.argv.includes("--check");
-const next = build();
+// Guarded so the test suite can import `convert`/`placeholderOrder`/`KEYS`
+// above without this CLI running the (real) --check/write logic as a side
+// effect of the import.
+if (import.meta.main) {
+  const check = process.argv.includes("--check");
+  const next = build();
 
-if (check) {
-  let current = "";
-  try {
-    current = readFileSync(OUT, "utf8");
-  } catch {
-    /* a missing file is a mismatch */
+  if (check) {
+    let current = "";
+    try {
+      current = readFileSync(OUT, "utf8");
+    } catch {
+      /* a missing file is a mismatch */
+    }
+    if (current !== next) {
+      console.error(
+        "Localizable.xcstrings is stale. Run native/scripts/gen-strings.sh and commit the result.",
+      );
+      process.exit(1);
+    }
+    console.log(`Localizable.xcstrings is up to date (${KEYS.length} keys).`);
+  } else {
+    writeFileSync(OUT, next, "utf8");
+    console.log(`Wrote ${OUT} (${KEYS.length} keys, en + de).`);
   }
-  if (current !== next) {
-    console.error(
-      "Localizable.xcstrings is stale. Run native/scripts/gen-strings.sh and commit the result.",
-    );
-    process.exit(1);
-  }
-  console.log(`Localizable.xcstrings is up to date (${KEYS.length} keys).`);
-} else {
-  writeFileSync(OUT, next, "utf8");
-  console.log(`Wrote ${OUT} (${KEYS.length} keys, en + de).`);
 }

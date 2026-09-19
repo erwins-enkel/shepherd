@@ -66,6 +66,18 @@ struct ConnectionBannerTests {
                                   serverVersion: nil, appVersion: "3.41.0") == .offline(server: "Studio"))
     }
 
+    /// Z4a: the same fallback while the socket still reads `.live` — the
+    /// mismatch was itself the health payload that would have named the
+    /// server, so `serverVersion` never landed. Previously this fell all the
+    /// way through to `nil`: no `tooOld`, no `mismatch` (it needs
+    /// `serverVersion`), and `serverUnhealthy` was never set for a decode
+    /// failure. Silence is wrong for a socket that cannot be trusted.
+    @Test func aContractMismatchWhileLiveWithoutAKnownServerVersionFallsBackToOffline() {
+        let error = ShepherdError.contractMismatch(route: "listSessions", underlying: "keyNotFound")
+        #expect(BannerPolicy.kind(for: .live, lastError: error, serverName: "Studio",
+                                  serverVersion: nil, appVersion: "3.41.0") == .offline(server: "Studio"))
+    }
+
     @Test func aCommandFailureIsNotABanner() {
         // A rejected create is reported inline by the sheet, not by the banner.
         #expect(BannerPolicy.kind(for: .live, lastError: .badRequest("bad input"), serverName: "Studio",
@@ -74,7 +86,8 @@ struct ConnectionBannerTests {
 
     @Test func everyKindHasCopyAndAnIcon() {
         for kind: BannerKind in [.offline(server: "S"), .contractMismatch(server: "1", app: "2"),
-                                 .clientTooOld(minimum: "1", app: "2"), .needsLogin] {
+                                 .clientTooOld(minimum: "1", app: "2"), .unhealthy(server: "S"),
+                                 .needsLogin] {
             #expect(!kind.message.isEmpty)
             #expect(!kind.systemImage.isEmpty)
         }
@@ -85,10 +98,19 @@ struct ConnectionBannerTests {
     /// `GET /api/health` answering `ok: false` is a server saying it is not well.
     /// The socket may still read `.live`, so without this the window would show
     /// nothing at all.
-    @Test func aServerThatReportsNotOkReadsAsOffline() {
+    @Test func aServerThatReportsNotOkShowsItsOwnBanner() {
         #expect(BannerPolicy.kind(for: .live, lastError: nil, serverName: "Studio",
                                   serverVersion: nil, appVersion: "3.41.0",
-                                  serverUnhealthy: true) == .offline(server: "Studio"))
+                                  serverUnhealthy: true) == .unhealthy(server: "Studio"))
+    }
+
+    /// Z4b: `.unhealthy` carries its own copy — "answered but reports a
+    /// problem" — rather than `.offline`'s "cannot reach", which is the wrong
+    /// sentence for a server that just answered.
+    @Test func anUnhealthyBannerNamesTheServerWithItsOwnCopy() {
+        let kind = BannerKind.unhealthy(server: "Studio")
+        #expect(kind.message.contains("Studio"))
+        #expect(kind.message != BannerKind.offline(server: "Studio").message)
     }
 
     @Test func anUnhealthyServerStillYieldsToNeedsLogin() {
@@ -174,8 +196,8 @@ struct ConnectionBannerTests {
         #expect(AppVersion.isOlder("3.9.0", than: "3.41.0") == true)
         #expect(AppVersion.isOlder("3.41.0", than: "3.9.0") == false)
         #expect(AppVersion.isOlder("3.41.0", than: "3.41.0") == false)
-        #expect(AppVersion.isOlder("3.41", than: "3.41.1") == true)
-        #expect(AppVersion.isOlder("3.41.0", than: "3.41") == false)
+        #expect(AppVersion.isOlder("3.41.0", than: "3.41.1") == true)
+        #expect(AppVersion.isOlder("3.41.1", than: "3.41.0") == false)
         #expect(AppVersion.isOlder("3.41.0-rc.1", than: "3.42.0") == true)
     }
 
@@ -217,6 +239,28 @@ struct ConnectionBannerTests {
         #expect(AppVersion.isOlder("1.0.x", than: "1.0.1") == nil)
         #expect(AppVersion.isOlder("1.0.0.1", than: "1.0.1") == nil)
         #expect(AppVersion.isOlder("1.0.0+", than: "1.0.1") == nil)
+    }
+
+    /// Z1: SemVer 2.0's grammar in full, one assertion per rule the old parser
+    /// let through. `01.0.0` and `1.0.0-01` are leading-zero numeric
+    /// identifiers (core and prerelease respectively) — both forbidden
+    /// outright, not a licence to read them as text. `1.0` is a core shorter
+    /// than three components; `1.0.0.1` one longer. `v1.0.0` is not a version
+    /// at all. `1.0.0-` is a prerelease marker with nothing after it. The
+    /// empty string is not a version. None of these may compare as older,
+    /// newer or equal — only `nil`, so a caller never turns an unreadable
+    /// version into a banner (or, worse, into silence) by accident.
+    @Test func strictSemVerRejectsEveryNonCompliantForm() {
+        for malformed in ["01.0.0", "1.0.0-01", "1.0", "1.0.0.1", "v1.0.0", "1.0.0-", ""] {
+            #expect(AppVersion.isOlder(malformed, than: "1.0.0") == nil, "\(malformed) should be unknown")
+            #expect(AppVersion.isOlder("1.0.0", than: malformed) == nil, "\(malformed) should be unknown")
+        }
+        // A minimum this strict is exactly what makes `02.0.0` refuse to raise
+        // a too-old banner for the release `2.0.0` — the version pair the
+        // fix report's finding used.
+        #expect(BannerPolicy.kind(for: .live, lastError: nil, serverName: "Studio",
+                                  serverVersion: "2.0.0", appVersion: "1.0.0",
+                                  minClient: "02.0.0") == nil)
     }
 }
 
@@ -339,7 +383,10 @@ struct AppModelHealthTests {
 
     /// The contract types `ok` as a plain boolean, not `const: true`, so
     /// `{"ok":false}` decodes cleanly and the *app* has to decide what it means.
-    @Test func aServerReportingNotOkRecordsNoVersionAndReadsAsOffline() async throws {
+    ///
+    /// Z4b: the banner it decides on is `.unhealthy`, not `.offline` — the
+    /// server just answered, so "cannot reach" would be the wrong sentence.
+    @Test func aServerReportingNotOkRecordsNoVersionAndShowsTheUnhealthyBanner() async throws {
         let model = makeModel()
         let client = try stubClient(json(#"{"ok":false,"version":"3.42.0","minClient":"3.99.0"}"#))
         model.health = { _ in try await client.health() }
@@ -353,7 +400,7 @@ struct AppModelHealthTests {
                                   serverVersion: model.serverVersion, appVersion: model.appVersion,
                                   minClient: model.serverMinClient,
                                   serverUnhealthy: model.serverUnhealthy)
-            == .offline(server: "Studio"))
+            == .unhealthy(server: "Studio"))
     }
 
     /// The deferred Gate-1 case: a health call that never answers must leave the
@@ -532,10 +579,163 @@ struct AppModelHealthTests {
         #expect(calls.value == 2)
     }
 
+    /// Z2b: `retry()` used to check `retrying` but only set it inside the
+    /// task body, so two clicks in the same run-loop turn both passed the
+    /// guard before either task ran — `retryTask` ended up pointing at the
+    /// second (a no-op) while the first ran untracked. `retrying` must now be
+    /// true the instant both synchronous calls return, before either task has
+    /// had a chance to run, and only one health request must ever be made.
+    @Test func twoSynchronousRetryCallsMakeOnlyOneHealthRequest() async throws {
+        let model = makeModel()
+        let gate = Gate()
+        let calls = Box(0)
+        model.health = { _ in
+            calls.value += 1
+            if calls.value == 2 { await gate.wait() }
+            return Health(ok: true, version: "3.42.0")
+        }
+        // Loopback with nothing listening: `SessionStore.refresh()` fails fast
+        // instead of waiting out a DNS lookup.
+        let profile = try model.addRemoteProfile(name: "Studio", address: "http://127.0.0.1:9")
+
+        await model.activate(profile)
+        #expect(await settle(until: { model.serverVersion == "3.42.0" }))
+
+        model.retry()
+        model.retry()
+        #expect(model.retrying)
+
+        #expect(await settle(until: { gate.isWaiting }))
+        #expect(model.retrying)
+
+        gate.open()
+        #expect(await settle(until: { !model.retrying }))
+        #expect(calls.value == 2)
+    }
+
+    /// Z2: a cancelled Retry must not clear a *newer* activation's `retrying`
+    /// flag. Retry A (Studio) parks on health; switching to Loft cancels A's
+    /// task and resets `retrying` for the activation being left; Retry B
+    /// (Loft) then starts. A's task is not structurally cancelled by that —
+    /// only marked — so it keeps running and, once unblocked, still runs its
+    /// deferred cleanup. That cleanup must skip resetting `retrying` because
+    /// its own generation (Studio's) no longer matches the current one,
+    /// or it would clear the flag B is relying on while B is still in flight.
+    @Test func aCancelledRetryDoesNotClearANewerActivationsRetryingFlag() async throws {
+        let model = makeModel()
+        let gateA = Gate()
+        let gateB = Gate()
+        let loftCalls = Box(0)
+        model.health = { client in
+            if client.profile.name == "Studio" {
+                await gateA.wait()
+                return Health(ok: true, version: "1.0.0")
+            }
+            loftCalls.value += 1
+            guard loftCalls.value == 2 else { return Health(ok: true, version: "2.0.0") }
+            await gateB.wait()
+            return Health(ok: true, version: "2.1.0")
+        }
+        let studio = try model.addRemoteProfile(name: "Studio", address: "http://127.0.0.1:9")
+        let loft = try model.addRemoteProfile(name: "Loft", address: "http://127.0.0.1:9")
+
+        await model.activate(studio)
+        model.retry()
+        #expect(await settle(until: { gateA.isWaiting }))
+        #expect(model.retrying)
+
+        await model.activate(loft)
+        #expect(await settle(until: { model.serverVersion == "2.0.0" }))
+        #expect(!model.retrying)
+
+        model.retry()
+        #expect(await settle(until: { gateB.isWaiting }))
+        #expect(model.retrying)
+
+        // Unblock Studio's stale Retry. Its deferred cleanup must see that
+        // `activationGeneration` has moved on and leave `retrying` alone.
+        gateA.open()
+        await letStaleWorkLand()
+        #expect(model.retrying)
+
+        gateB.open()
+        #expect(await settle(until: { !model.retrying }))
+        #expect(model.serverVersion == "2.1.0")
+    }
+
     @Test func retryingWithNoActiveStoreDoesNothing() async {
         let model = makeModel()
         await model.retryActive()
         #expect(model.serverVersion == nil)
         #expect(!model.retrying)
+    }
+
+    /// Z3 (Y3 lifecycle coverage): a teardown during a Retry-triggered health
+    /// refresh cancels the model-owned health task — not just the retry's
+    /// own — and a result the stub returns anyway is dropped rather than
+    /// resurrecting state for a profile the operator has already left.
+    @Test func teardownDuringARetryTriggeredHealthRefreshCancelsTheModelOwnedTask() async throws {
+        let model = makeModel()
+        let gate = Gate()
+        let calls = Box(0)
+        let observedCancellation = Box(false)
+        model.health = { _ in
+            calls.value += 1
+            guard calls.value == 2 else { return Health(ok: true, version: "3.42.0") }
+            await gate.wait()
+            observedCancellation.value = Task.isCancelled
+            return Health(ok: true, version: "9.9.9")
+        }
+        let profile = try model.addRemoteProfile(name: "Studio", address: "http://127.0.0.1:9")
+
+        await model.activate(profile)
+        #expect(await settle(until: { model.serverVersion != nil }))
+
+        model.retry()
+        #expect(await settle(until: { gate.isWaiting }))
+        #expect(model.retrying)
+
+        model.teardown()
+        #expect(!model.retrying)
+
+        gate.open()
+        await letStaleWorkLand()
+        #expect(observedCancellation.value)
+        #expect(model.serverVersion == nil)
+        #expect(model.serverMinClient == nil)
+    }
+
+    /// `deactivate()` is `teardown()`'s non-revoking twin and shares the same
+    /// cancellation path — the health task started by a Retry must not
+    /// outlive it either.
+    @Test func deactivateDuringARetryTriggeredHealthRefreshCancelsTheModelOwnedTask() async throws {
+        let model = makeModel()
+        let gate = Gate()
+        let calls = Box(0)
+        let observedCancellation = Box(false)
+        model.health = { _ in
+            calls.value += 1
+            guard calls.value == 2 else { return Health(ok: true, version: "3.42.0") }
+            await gate.wait()
+            observedCancellation.value = Task.isCancelled
+            return Health(ok: true, version: "9.9.9")
+        }
+        let profile = try model.addRemoteProfile(name: "Studio", address: "http://127.0.0.1:9")
+
+        await model.activate(profile)
+        #expect(await settle(until: { model.serverVersion != nil }))
+
+        model.retry()
+        #expect(await settle(until: { gate.isWaiting }))
+        #expect(model.retrying)
+
+        model.deactivate()
+        #expect(!model.retrying)
+
+        gate.open()
+        await letStaleWorkLand()
+        #expect(observedCancellation.value)
+        #expect(model.serverVersion == nil)
+        #expect(model.serverMinClient == nil)
     }
 }

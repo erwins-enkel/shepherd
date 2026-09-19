@@ -4136,5 +4136,6 @@
   "native_welcome_saved_title": "Gespeicherte Server",
   "native_welcome_saved_connect": "Verbinden",
   "native_welcome_saved_remove": "Entfernen",
-  "native_banner_client_too_old": "Dieser Server benötigt App-Version {minimum} oder neuer — du hast {app}. Aktualisiere Shepherd für Mac."
+  "native_banner_client_too_old": "Dieser Server benötigt App-Version {minimum} oder neuer — du hast {app}. Aktualisiere Shepherd für Mac.",
+  "native_banner_unhealthy": "{server} antwortet, meldet aber ein Problem. Neuer Versuch."
 }

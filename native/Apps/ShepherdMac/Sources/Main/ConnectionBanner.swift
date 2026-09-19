@@ -14,6 +14,11 @@ enum BannerKind: Equatable, Sendable {
     /// server has said outright that this app is too old, and the only fix is
     /// an update.
     case clientTooOld(minimum: String, app: String)
+    /// `GET /api/health` answered `ok: false`: the server is up and reachable
+    /// but says it is not well. Distinct from `.offline` — the socket is
+    /// live, and "cannot reach this server" would be the wrong sentence for a
+    /// server the app just heard from.
+    case unhealthy(server: String)
     case needsLogin
 
     var message: String {
@@ -21,6 +26,7 @@ enum BannerKind: Equatable, Sendable {
         case .offline(let server): L.t("native_banner_offline", server)
         case .contractMismatch(let server, let app): L.t("native_banner_mismatch", server, app)
         case .clientTooOld(let minimum, let app): L.t("native_banner_client_too_old", minimum, app)
+        case .unhealthy(let server): L.t("native_banner_unhealthy", server)
         case .needsLogin: L.t("native_banner_needs_login")
         }
     }
@@ -30,6 +36,7 @@ enum BannerKind: Equatable, Sendable {
         case .offline: "wifi.exclamationmark"
         case .contractMismatch: "exclamationmark.triangle"
         case .clientTooOld: "arrow.down.circle"
+        case .unhealthy: "exclamationmark.triangle"
         case .needsLogin: "lock"
         }
     }
@@ -40,11 +47,12 @@ enum BannerKind: Equatable, Sendable {
 ///
 /// Anything that is not a version this build can read parses to `nil` rather
 /// than to a guess: an unreadable version must never be the reason a banner
-/// appears — or, worse, silently stays away. Two deliberate reliefs from the
-/// strict grammar: a core may be shorter than three components (`3.41` reads as
-/// `3.41.0`, which is what every hand-written minimum looks like), and leading
-/// zeros are tolerated. Build metadata is parsed only far enough to reject the
-/// malformed; it never affects precedence.
+/// appears — or, worse, silently stays away. The grammar is enforced in full:
+/// exactly three numeric core identifiers, no leading zeros anywhere (core or
+/// numeric prerelease identifier) except a bare `0`, and every dot-separated
+/// identifier non-empty. `3.41` and `01.0.0` are therefore not versions this
+/// build reads, same as `1.0.0-01`. Build metadata is parsed only far enough
+/// to reject the malformed; it never affects precedence.
 struct SemanticVersion: Comparable, Sendable {
     /// A dot-separated prerelease identifier. Numeric identifiers rank below
     /// alphanumeric ones and compare as numbers, not as text.
@@ -84,21 +92,25 @@ struct SemanticVersion: Comparable, Sendable {
         if let hyphen = rest.firstIndex(of: "-") {
             let tail = rest[rest.index(after: hyphen)...]
             guard isValidDotSeparated(tail) else { return nil }
-            prerelease = tail.split(separator: ".").map { part in
-                if part.allSatisfy(\.isNumber), let number = Int(part) {
-                    return .numeric(number)
+            for part in tail.split(separator: ".", omittingEmptySubsequences: false) {
+                if part.allSatisfy(\.isNumber) {
+                    // An all-digit identifier is a numeric one, and SemVer
+                    // 2.0 §9 forbids a leading zero on those outright — it is
+                    // not a licence to fall back to reading it as text.
+                    guard isValidNumericIdentifier(part), let number = Int(part) else { return nil }
+                    prerelease.append(.numeric(number))
+                } else {
+                    prerelease.append(.alphanumeric(String(part)))
                 }
-                return .alphanumeric(String(part))
             }
             rest = rest[..<hyphen]
         }
 
         let parts = rest.split(separator: ".", omittingEmptySubsequences: false)
-        guard (1...3).contains(parts.count) else { return nil }
+        guard parts.count == 3 else { return nil }
         var core = [0, 0, 0]
         for (index, part) in parts.enumerated() {
-            guard part.allSatisfy(\.isASCII), part.allSatisfy(\.isNumber), let number = Int(part)
-            else { return nil }
+            guard isValidNumericIdentifier(part), let number = Int(part) else { return nil }
             core[index] = number
         }
         return SemanticVersion(major: core[0], minor: core[1], patch: core[2],
@@ -114,6 +126,14 @@ struct SemanticVersion: Comparable, Sendable {
         return parts.allSatisfy { part in
             !part.isEmpty && part.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") }
         }
+    }
+
+    /// ASCII digits only, non-empty, and no leading zero unless the
+    /// identifier is exactly `0` — the grammar the core and a numeric
+    /// prerelease identifier share (SemVer 2.0 §2, §9).
+    private static func isValidNumericIdentifier(_ value: Substring) -> Bool {
+        guard !value.isEmpty, value.allSatisfy({ $0.isASCII && $0.isNumber }) else { return false }
+        return value == "0" || value.first != "0"
     }
 
     static func < (lhs: SemanticVersion, rhs: SemanticVersion) -> Bool {
@@ -190,6 +210,16 @@ enum BannerPolicy {
             return .contractMismatch(server: serverVersion, app: appVersion)
         }()
 
+        // True whenever `lastError` itself is a contract mismatch, whether or
+        // not `mismatch` above could turn it into its own banner. A mismatch
+        // discovered *by* the health call that would have named the server
+        // (`serverVersion == nil`) leaves `mismatch` `nil` too — this still
+        // says the socket is not to be trusted, same as `.offline`.
+        let hasMismatchError: Bool = {
+            guard let lastError, case .contractMismatch = lastError else { return false }
+            return true
+        }()
+
         switch state {
         case .idle, .connecting, .firstRunPending:
             return nil
@@ -198,9 +228,13 @@ enum BannerPolicy {
         case .live:
             if let tooOld { return tooOld }
             if let mismatch { return mismatch }
-            // The socket is up but the server says it is not well. Nothing else
-            // in the window would say so.
-            return serverUnhealthy ? .offline(server: serverName) : nil
+            // The mismatch was the health payload itself, so there is no
+            // server version to show — fall back to offline, like the
+            // `.offline` branch does below.
+            if hasMismatchError { return .offline(server: serverName) }
+            // The socket is up but the server says it is not well. Nothing
+            // else in the window would say so.
+            return serverUnhealthy ? .unhealthy(server: serverName) : nil
         case .offline:
             // A decode failure against a server we can name a version for is a
             // version problem, not a network problem — say the useful thing.
@@ -245,6 +279,7 @@ struct ConnectionBanner: View {
         ConnectionBanner(kind: .offline(server: "Studio")) {}
         ConnectionBanner(kind: .contractMismatch(server: "1.47.0", app: "0.1.0")) {}
         ConnectionBanner(kind: .clientTooOld(minimum: "3.42.0", app: "3.41.0")) {}
+        ConnectionBanner(kind: .unhealthy(server: "Studio")) {}
         ConnectionBanner(kind: .needsLogin, isRetrying: true) {}
     }
     .frame(width: 640)

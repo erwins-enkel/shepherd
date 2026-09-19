@@ -501,12 +501,21 @@ final class AppModel {
     /// Banner "Retry", as the button calls it: the task belongs to the model, so
     /// a teardown, a deactivate or a profile switch cancels it. A view starting
     /// its own task would leave a request running against a store that is gone.
+    ///
+    /// `retrying` is set here, synchronously, rather than inside the task body:
+    /// two clicks in the same run-loop turn both reach this guard before either
+    /// task starts running, and setting the flag only inside the task body let
+    /// both pass, leaving `retryTask` pointing at the second (a no-op) while
+    /// the first ran untracked.
     func retry() {
         guard !retrying else {
             Log.connect.debug("ignoring a retry while one is already running")
             return
         }
-        retryTask = Task { @MainActor [weak self] in await self?.retryActive() }
+        retrying = true
+        let generation = activationGeneration
+        retryTask?.cancel()
+        retryTask = Task { @MainActor [weak self] in await self?.performRetry(generation: generation) }
     }
 
     /// Reload the store and re-check health. `refresh()` throws, and its failure
@@ -517,9 +526,28 @@ final class AppModel {
     /// task in between. `retrying` makes the double-click a no-op here too, not
     /// only in `retry()`.
     func retryActive() async {
-        guard !retrying, let store else { return }
+        guard !retrying else { return }
         retrying = true
-        defer { retrying = false }
+        await performRetry(generation: activationGeneration)
+    }
+
+    /// The body shared by `retry()` (which already set `retrying = true`
+    /// synchronously, before spawning the task this runs in) and `retryActive()`
+    /// (which just set it itself, for a caller driving a retry with no task in
+    /// between).
+    ///
+    /// `generation` is the activation this Retry started under, read before any
+    /// suspension. A profile switch or a teardown bumps `activationGeneration`
+    /// and already resets `retrying` for the activation it is ending — so this
+    /// only clears the flag when it still describes the *current* activation.
+    /// Resetting it unconditionally let a Retry that a profile switch left
+    /// running finish later and clear a *newer* activation's Retry flag out
+    /// from under it, even though nothing about that newer Retry had failed.
+    private func performRetry(generation: Int) async {
+        defer {
+            if activationGeneration == generation { retrying = false }
+        }
+        guard let store else { return }
         try? await store.refresh()
         guard store === self.store else { return }
         await refreshHealth()

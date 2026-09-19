@@ -481,6 +481,24 @@
         }
       }
     },
+    "native_banner_unhealthy": {
+      "comment": "%1$@ = server",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ antwortet, meldet aber ein Problem. Neuer Versuch."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ answered but reports a problem. Retrying."
+          }
+        }
+      }
+    },
     "native_detail_no_selection": {
       "extractionState": "manual",
       "localizations": {

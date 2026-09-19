@@ -48,6 +48,7 @@ export const KEYS: readonly string[] = [
   "native_banner_mismatch",
   "native_banner_needs_login",
   "native_banner_offline",
+  "native_banner_unhealthy",
   "native_detail_no_selection",
   "native_detail_placeholder_body",
   "native_detail_placeholder_title",

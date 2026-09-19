@@ -114,6 +114,22 @@ line. `SHEPHERD_CODESIGN_IDENTITY=…` still overrides the choice; with nothing 
 fall back to `project.yml`'s ad-hoc default, which is exactly what CI does — `native.yml` still
 asserts an ad-hoc, hardened-runtime, sandbox-off bundle.
 
+**A locked keychain stops the build.** If — and only if — the dedicated identity is the one
+chosen and its keychain cannot be unlocked (the password file is gone, or `security` refuses it),
+`build-app.sh`/`test-app.sh` exit non-zero **before** `xcodebuild` starts, naming both ways out:
+re-run `dev-signing-identity.sh --remove` then `dev-signing-identity.sh`, or build this once with
+`SHEPHERD_CODESIGN_IDENTITY="-"`. Carrying on would hand the build to `codesign`, which opens the
+password dialog the dedicated keychain exists to prevent — and an unattended run just hangs on it.
+The other three modes need no key of ours, so they never fail here.
+
+**The password never leaves the file.** Every use of a keychain password goes through
+`shepherd_security_with_pass` in `native/scripts/keychain-secret.sh`, which feeds the command to
+`security -i` on **stdin** and turns `set -x` off around the value. `security unlock-keychain -p
+"$(cat …)"` would put the password in argv, where `ps` shows it to every user on the machine
+(`security`'s own help says "Use of the -p option is insecure"), and would echo it from any build
+run with `bash -x`. The throwaway PKCS#12 password inside `dev-signing-identity.sh` goes the same
+way, through a file in its own `0700` temp directory.
+
 Hardened Runtime stays on in every mode. The
 `com.apple.security.cs.disable-library-validation` entitlement already in `project.yml` is what
 lets a hardened bundle load code signed by a team-less identity, so the dev-identity path needs

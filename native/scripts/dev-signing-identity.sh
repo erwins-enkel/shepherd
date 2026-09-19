@@ -34,6 +34,12 @@
 # test-app.sh keep signing ad-hoc exactly as before.
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Every use of a password goes through shepherd_security_with_pass, which keeps
+# it out of argv (visible in `ps`) and out of any xtrace log.
+# shellcheck source=native/scripts/keychain-secret.sh
+. "$SCRIPT_DIR/keychain-secret.sh"
+
 IDENTITY_NAME="Shepherd Local Dev"
 VALID_DAYS=3650
 
@@ -95,13 +101,6 @@ keychain_exists() {
   [ -f "$KEYCHAIN_PATH" ]
 }
 
-# Reads the password into the *caller's* variable rather than printing it, so
-# it never lands in a pipeline, a log or `set -x` output.
-read_pass() {
-  # shellcheck disable=SC2034  # assigned for the caller
-  KEYCHAIN_PASS="$(cat "$PASS_FILE")"
-}
-
 usage() {
   sed -n '2,34p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
@@ -124,20 +123,17 @@ ensure_pass_file() {
 }
 
 ensure_keychain() {
-  local KEYCHAIN_PASS
-  read_pass
-
   if ! keychain_exists; then
     # Braces are load-bearing: under a non-UTF-8 locale bash would otherwise
     # swallow the first byte of the "…" into the variable name.
     echo "Creating ${KEYCHAIN_PATH}…"
-    security create-keychain -p "$KEYCHAIN_PASS" "$KEYCHAIN_PATH"
+    shepherd_security_with_pass "$PASS_FILE" create-keychain -p %PASS% "$KEYCHAIN_PATH"
   fi
 
   # No arguments at all = no lock timeout and no lock-on-sleep. A keychain that
   # relocks mid-build is exactly the thing that puts a dialog on screen.
   security set-keychain-settings "$KEYCHAIN_PATH"
-  security unlock-keychain -p "$KEYCHAIN_PASS" "$KEYCHAIN_PATH"
+  shepherd_security_with_pass "$PASS_FILE" unlock-keychain -p %PASS% "$KEYCHAIN_PATH"
 }
 
 ensure_in_search_list() {
@@ -183,8 +179,7 @@ migrate_from_login() {
 }
 
 create_identity() {
-  local KEYCHAIN_PASS tmp sha1
-  read_pass
+  local tmp sha1
 
   tmp="$(mktemp -d)"
   TMPDIRS+=("$tmp")
@@ -214,9 +209,15 @@ CNF
     -keyout "$tmp/key.pem" -out "$tmp/cert.pem" >/dev/null 2>&1
 
   # `security import` needs a password-protected PKCS#12; a throwaway one is
-  # enough because the bundle never leaves this temp directory.
-  local p12_pass
-  p12_pass="$(openssl rand -hex 16)"
+  # enough because the bundle never leaves this temp directory. It goes into a
+  # file inside that 0700 directory rather than into a variable: `openssl
+  # -passout pass:…` and `security import -P …` would both put it in argv, where
+  # `ps` shows it to every user on the machine.
+  local p12_pass_file="$tmp/p12.pass"
+  (
+    umask 077
+    openssl rand -hex 16 >"$p12_pass_file"
+  )
 
   # OpenSSL 3 defaults to AES-256-CBC/PBES2 for PKCS#12, which older Security
   # framework importers reject. Ask for the SHA1/3DES encoding macOS has always
@@ -224,15 +225,16 @@ CNF
   openssl pkcs12 -export \
     -keypbe PBE-SHA1-3DES -certpbe PBE-SHA1-3DES -macalg sha1 \
     -inkey "$tmp/key.pem" -in "$tmp/cert.pem" -name "$IDENTITY_NAME" \
-    -out "$tmp/identity.p12" -passout "pass:$p12_pass" >/dev/null 2>&1 ||
+    -out "$tmp/identity.p12" -passout "file:$p12_pass_file" >/dev/null 2>&1 ||
     openssl pkcs12 -export \
       -inkey "$tmp/key.pem" -in "$tmp/cert.pem" -name "$IDENTITY_NAME" \
-      -out "$tmp/identity.p12" -passout "pass:$p12_pass" >/dev/null
+      -out "$tmp/identity.p12" -passout "file:$p12_pass_file" >/dev/null
 
   # -T pre-authorises those tools in the key's ACL; the partition list below is
   # the other half, and the one that actually silences the dialog.
   echo "Importing it into the signing keychain…"
-  security import "$tmp/identity.p12" -k "$KEYCHAIN_PATH" -P "$p12_pass" -f pkcs12 \
+  shepherd_security_with_pass "$p12_pass_file" \
+    import "$tmp/identity.p12" -k "$KEYCHAIN_PATH" -P %PASS% -f pkcs12 \
     -T /usr/bin/codesign -T /usr/bin/security -T /usr/bin/productsign >/dev/null
 
   # No `security add-trusted-cert` here on purpose — see identity_line().
@@ -250,10 +252,8 @@ CNF
 # signing key in our keychain, so codesign is pre-authorised. It needs the
 # keychain password, which is why the identity had to leave the login keychain.
 apply_partition_list() {
-  local KEYCHAIN_PASS
-  read_pass
-  security set-key-partition-list \
-    -S "$PARTITIONS" -s -k "$KEYCHAIN_PASS" "$KEYCHAIN_PATH" >/dev/null 2>&1
+  shepherd_security_with_pass "$PASS_FILE" \
+    set-key-partition-list -S "$PARTITIONS" -s -k %PASS% "$KEYCHAIN_PATH" >/dev/null 2>&1
 }
 
 # ── commands ─────────────────────────────────────────────────────────────────

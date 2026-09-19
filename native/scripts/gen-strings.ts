@@ -144,8 +144,58 @@ export const KEYS_TERMINAL: readonly string[] = [
   "native_terminal_unreachable_title",
 ];
 
-/** S2 — detail tabs: activity, diff, files, PR status and PR actions. */
-export const KEYS_DETAIL: readonly string[] = [];
+/**
+ * S2 — detail tabs: activity, diff, files, PR status and PR actions. Only this
+ * stream edits this array. Keep alphabetical. Everything without the
+ * `native_detail_` prefix is an existing web key reused verbatim, which is what
+ * the i18n rule prefers.
+ */
+export const KEYS_DETAIL: readonly string[] = [
+  "activity_empty",
+  "diff_empty",
+  "diff_note_binary",
+  "diff_note_no_changes",
+  "diff_note_truncated",
+  "diff_refresh",
+  "diff_stale",
+  "files_created_unknown",
+  "files_empty",
+  "files_link_outside_title",
+  "files_load_error",
+  "files_source_scratchpad",
+  "files_source_worktree",
+  "files_worktree_empty",
+  "files_worktree_load_error",
+  "gitrail_ci_failing",
+  "gitrail_ci_none",
+  "gitrail_ci_passing",
+  "gitrail_ci_pending",
+  "gitrail_create_pr",
+  "gitrail_merge",
+  "gitrail_status_failed",
+  "native_detail_action_failed",
+  "native_detail_annotation_agent",
+  "native_detail_close_confirm_action",
+  "native_detail_close_confirm_body",
+  "native_detail_close_confirm_title",
+  "native_detail_git_none",
+  "native_detail_merge_confirm_action",
+  "native_detail_merge_confirm_body",
+  "native_detail_merge_confirm_title",
+  "native_detail_refresh",
+  "native_detail_reviewer_label",
+  "native_detail_tab_activity",
+  "native_detail_tab_diff",
+  "native_detail_tab_files",
+  "native_detail_tab_git",
+  "prbadge_mark_draft",
+  "prbadge_mark_ready",
+  "prreview_load_failed",
+  "prreview_loading",
+  "prreview_no_candidates",
+  "prreview_title",
+  "viewport_diff_annotation_review",
+];
 
 /** S3 — sidebar triage sections, filters, search, header counters, usage meter. */
 export const KEYS_SIDEBAR: readonly string[] = [];

@@ -4171,5 +4171,20 @@
   "native_terminal_superseded_title": "Another device has this terminal",
   "native_terminal_tab_title": "Terminal",
   "native_terminal_unreachable_body": "The agent runner is not answering. Check that the Shepherd server and herdr are running.",
-  "native_terminal_unreachable_title": "Cannot reach the agent"
+  "native_terminal_unreachable_title": "Cannot reach the agent",
+  "native_detail_tab_activity": "Activity",
+  "native_detail_tab_diff": "Diff",
+  "native_detail_tab_files": "Files",
+  "native_detail_tab_git": "PR",
+  "native_detail_refresh": "Refresh",
+  "native_detail_annotation_agent": "Agent",
+  "native_detail_git_none": "No pull request for this session.",
+  "native_detail_action_failed": "The action failed: {reason}",
+  "native_detail_reviewer_label": "Reviewer",
+  "native_detail_merge_confirm_title": "Merge this pull request?",
+  "native_detail_merge_confirm_body": "The branch is merged on the host and deleted afterwards.",
+  "native_detail_merge_confirm_action": "Merge",
+  "native_detail_close_confirm_title": "Close this pull request?",
+  "native_detail_close_confirm_body": "The pull request is closed without merging. The branch stays.",
+  "native_detail_close_confirm_action": "Close pull request"
 }

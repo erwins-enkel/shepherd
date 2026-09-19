@@ -4171,5 +4171,20 @@
   "native_terminal_superseded_title": "Ein anderes Gerät hat dieses Terminal",
   "native_terminal_tab_title": "Terminal",
   "native_terminal_unreachable_body": "Der Agent-Runner antwortet nicht. Prüfe, ob der Shepherd-Server und herdr laufen.",
-  "native_terminal_unreachable_title": "Agent nicht erreichbar"
+  "native_terminal_unreachable_title": "Agent nicht erreichbar",
+  "native_detail_tab_activity": "Aktivität",
+  "native_detail_tab_diff": "Diff",
+  "native_detail_tab_files": "Dateien",
+  "native_detail_tab_git": "PR",
+  "native_detail_refresh": "Aktualisieren",
+  "native_detail_annotation_agent": "Agent",
+  "native_detail_git_none": "Kein Pull Request für diese Session.",
+  "native_detail_action_failed": "Die Aktion ist fehlgeschlagen: {reason}",
+  "native_detail_reviewer_label": "Reviewer",
+  "native_detail_merge_confirm_title": "Diesen Pull Request mergen?",
+  "native_detail_merge_confirm_body": "Der Branch wird auf dem Host gemergt und danach gelöscht.",
+  "native_detail_merge_confirm_action": "Mergen",
+  "native_detail_close_confirm_title": "Diesen Pull Request schließen?",
+  "native_detail_close_confirm_body": "Der Pull Request wird ohne Merge geschlossen. Der Branch bleibt.",
+  "native_detail_close_confirm_action": "Pull Request schließen"
 }

@@ -126,6 +126,63 @@ Builds go back to ad-hoc immediately — no edit to `project.yml` or the scripts
 app's Keychain item survives, but its ACL now points at a certificate that is gone, so the next
 build prompts again. Nothing about CI changes either way.
 
+## Parallel streams: seams and rules
+
+Milestone 2 is built by several streams running at once in separate worktrees. They stay out of
+each other's way by extending the app through seams instead of editing shared files.
+
+| Want to add                      | Use                                                                                   | Never edit                       |
+| -------------------------------- | ------------------------------------------------------------------------------------- | -------------------------------- |
+| A tab in the session detail pane | `DetailTabRegistry.register(_:)` with your own `DetailTab`                            | `SessionDetailView.swift`        |
+| A replacement sidebar            | `SidebarSlot.content`                                                                 | `MainWindow.swift`               |
+| The "Run on this Mac" card body  | `WelcomeSlots.localPanel`                                                             | `WelcomeView.swift`              |
+| A quick-action bar               | `ActionBarSlot.content`                                                               | `MainWindow.swift`               |
+| A long-lived sub-model           | `AppModel.register(MyExtension.self)` with `AppExtension`                             | `AppModel.swift`                 |
+| A kit route wrapper              | your own `ShepherdClient+<Stream>.swift`, over the internal `generated` client        | `ShepherdClient.swift`           |
+| Handling a server event          | `store.events()` — match the raw name on `.unknown(name:payload:)`                    | `ServerEvent.swift`, `EventName` |
+| Copy                             | your stream's own `KEYS_*` array in `native/scripts/gen-strings.ts`                   | `KEYS_CORE`                      |
+| Routes and schemas               | your `# ── stream: <name> ──` block in `contracts/openapi.yaml`                       | anything outside it              |
+| Contract fixtures                | your own `test/contract/<stream>.test.ts`, gated on `operationsForStream("<stream>")` | the gate in `openapi.test.ts`    |
+
+- **One call site.** Everything is wired up from `Sources/App/StreamRegistrations.swift`, owned by
+  the integration lane: a merged stream adds exactly one line there. Your own `install(_:)`
+  function lives in your own directory.
+- **Lifecycle.** An `AppExtension` is built in `AppModel.activate(_:)` right after the
+  `SessionStore` exists and torn down right before that store stops, in reverse creation order. It
+  may hold its store strongly. Anything that suspends must capture `app.activationGeneration`
+  before the first `await` and drop its result once that value has moved on.
+- **Tabs.** `order` is the sort key (terminal = 0), ties break on `id`, the built-in `"prompt"` tab
+  is `1_000`. Registering `"prompt"` replaces it.
+- **Copy.** Add keys to `ui/messages/en.json` _and_ `de.json` first, then to your own `KEYS_*`
+  array, then run `native/scripts/gen-strings.sh`. A key in two arrays fails the generator.
+- **Events.** Consume them through `SessionStore.events()`: one independent `AsyncStream` per call,
+  every frame, finished on `stop()`. Match the raw name on `.unknown(name:payload:)` and decode
+  `payload` with the generated schema your own contract block declares — the contract stays the only
+  type source. **Never add a case to `EventName` or edit `ServerEvent.swift`:** that switch is
+  exhaustive and S0-owned, so every stream that touched it would collide with every other.
+- **Kit routes.** Wrap generated operations in your own `ShepherdClient+<Stream>.swift`. The
+  `generated` property is `internal` for exactly that, and never `public`.
+- **Contract fixtures.** The gate in `openapi.test.ts` only polices paths _outside_ the markers.
+  Your block is yours to cover: end your own `test/contract/<stream>.test.ts` with a gate over
+  `operationsForStream("<stream>")`, and exercise every status you declare — 401 included — from
+  that same file, because Bun's file order does not guarantee the global sweep ran first.
+- **Live smoke.** `ShepherdTests/LiveServerTests` connects to a real server and asserts the session
+  list renders. It is skipped unless `SHEPHERD_LIVE_BASE_URL` is set alongside either
+  `SHEPHERD_LIVE_PASSWORD` (a real sign-in, then a relaunch-restore check) or `SHEPHERD_LIVE_TOKEN`
+  (a pre-minted token, no login round-trip), and it never runs in CI:
+
+```
+TEST_RUNNER_SHEPHERD_LIVE_BASE_URL=https://your-server.example.ts.net:7330/ \
+TEST_RUNNER_SHEPHERD_LIVE_PASSWORD=shepherd \
+native/scripts/test-app.sh -only-testing:ShepherdTests/LiveServerTests
+```
+
+The plain `SHEPHERD_LIVE_BASE_URL` / `SHEPHERD_LIVE_PASSWORD` / `SHEPHERD_LIVE_TOKEN` spelling
+works too, where `xcodebuild` forwards the shell environment; `LiveServerEnvironment` reads
+either. The password-gated test signs in for real through `ProfileSetup.login` and revokes the
+token it mints on the way out; the token-gated test drops a pre-minted token straight into an
+in-memory credential store and never revokes anything, because it never signs in.
+
 # ShepherdKit
 
 The Swift client for Shepherd's HTTP/WS API, and the package the app above is built on.

@@ -954,7 +954,8 @@ function handleMe({ req, parts }: Ctx): Response | null {
 
 // ── access tokens (issue #2082) ────────────────────────────────────────────
 // Named machine bearer tokens: minted here, verified in checkAuth. All three routes additionally
-// require an INTERACTIVE operator session, so a bearer cannot manage the token set it belongs to.
+// require an INTERACTIVE operator session, so a bearer cannot manage the token set it belongs to —
+// with exactly one exception, SELF-revocation (`revokesItself` below).
 // There is deliberately no update route: a token's scope (#2083) is fixed at mint, because a scope
 // that can be widened after the fact cannot answer "what could this credential do last Tuesday".
 
@@ -973,6 +974,33 @@ async function mintAccessToken(req: Request, deps: AppDeps): Promise<Response> {
   return json(accessTokens(deps).mint(parsed.name, parsed.expiresInDays, parsed.scope), 201);
 }
 
+/**
+ * The one token-management call a bearer may make without an operator session: destroying ITSELF.
+ *
+ * True only when the request's `Authorization` header verifies to a minted token whose id IS `id`.
+ * A different id, an unknown/expired/revoked token, a cookie-only request and the env-provisioned
+ * `SHEPHERD_TOKEN` (which is not a minted row and therefore has no id to match) are all false, so
+ * the caller falls back to the 403. Because a mismatch answers the same 403 whether or not `id`
+ * names a real token, this is not an existence oracle either.
+ *
+ * Why this is safe to allow: the authority granted is strictly "delete the credential you already
+ * hold" — it cannot read the token list, cannot mint a successor, and cannot touch another row. A
+ * client that can present the token can already do everything the token reaches, so handing it
+ * back subtracts privilege and never adds any. Without it a logged-out (or lost) machine has no
+ * way to invalidate its own credential; it stays live until an operator opens the web UI.
+ *
+ * Deliberately SCOPE-BLIND: a token of any scope may kill itself. Scope answers "how far does this
+ * credential reach", and self-destruction reaches nothing. (The seam's scope gate agrees — see
+ * SELF_REVOKE_PATTERN in src/token-scopes.ts.) Nothing about the token is logged here.
+ */
+function revokesItself(req: Request, deps: AppDeps, id: string): boolean {
+  const authHeader = req.headers.get("Authorization");
+  // Same cheap public-prefix shape check checkAuth uses, so a cookie-only or env-token request
+  // never even builds the service.
+  if (!looksLikeAccessToken(authHeader)) return false;
+  return accessTokens(deps).verify(authHeader)?.id === id;
+}
+
 async function handleAccessTokens({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (parts[0] !== "api" || parts[1] !== "access-tokens" || parts[3]) return null;
   const id = parts[2];
@@ -984,7 +1012,9 @@ async function handleAccessTokens({ req, parts, deps }: Ctx): Promise<Response |
   if (!matched) return null;
 
   const sessErr = requireOperatorSession(req);
-  if (sessErr) return sessErr;
+  // Listing, minting and revoking ANY OTHER id keep the operator-session requirement. The single
+  // exception is a bearer handing its own token back — see `revokesItself`.
+  if (sessErr && !(method === "DELETE" && id && revokesItself(req, deps, id))) return sessErr;
 
   if (method === "GET") return json({ tokens: accessTokens(deps).list() });
   if (method === "POST") return mintAccessToken(req, deps);

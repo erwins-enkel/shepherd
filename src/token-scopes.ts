@@ -81,6 +81,17 @@ const SUBMIT_PATTERNS: readonly (readonly [string, RegExp])[] = [
   ["DELETE", /^\/api\/held\/[^/]+$/],
 ];
 
+/**
+ * The one route EVERY scope reaches: `DELETE /api/access-tokens/{id}`, revoking a single token.
+ *
+ * This is not a hole in the deny-by-default rule, because passing here grants no authority: the
+ * route itself (`handleAccessTokens`, src/server.ts) still refuses unless the presented bearer IS
+ * the token named by `{id}`, so all a `read`/`submit` credential gets out of this line is the
+ * ability to destroy itself. Listing and minting stay operator-session-only at the same route.
+ * It lives here rather than in `READ_ROUTES` so that nothing about it reads as a read surface.
+ */
+const SELF_REVOKE_PATTERN = /^\/api\/access-tokens\/[^/]+$/;
+
 /** Strip ONE trailing slash. The dispatcher routes on `pathname.split("/").filter(Boolean)`, so
  *  `/api/sessions/` and `/api/sessions` reach the same handler and must score the same here — an
  *  exact-match table would otherwise 403 the slashed form. `/` itself is left alone. */
@@ -106,6 +117,8 @@ export function scopeAllows(scope: string, method: string, pathname: string): bo
   // another's routes would be a scope nobody could reason about.
   if (scope !== "read" && scope !== "submit") return false;
   const path = normalizePath(pathname);
+  // Below the unrecognized-scope guard on purpose: a scope nobody recognizes still reaches nothing.
+  if (method === "DELETE" && SELF_REVOKE_PATTERN.test(path)) return true;
   const key = `${method} ${path}`;
   if (READ_ROUTES.has(key)) return true;
   if (scope === "read") return false;

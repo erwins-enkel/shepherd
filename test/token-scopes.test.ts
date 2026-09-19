@@ -38,6 +38,9 @@ const MATRIX: readonly { method: string; path: string; allowed: readonly TokenSc
   { method: "GET", path: "/api/diagnostics", allowed: ["full"] },
   { method: "POST", path: "/api/prs/merge", allowed: ["full"] },
   { method: "GET", path: "/api/access-tokens", allowed: ["full"] },
+  // The one exception, and it grants nothing on its own: the route still proves the presented
+  // bearer IS the token named by the id before it revokes anything (`revokesItself`, server.ts).
+  { method: "DELETE", path: "/api/access-tokens/t1", allowed: ["read", "submit", "full"] },
 ];
 
 test("the full matrix: every scope against every named route", () => {
@@ -112,6 +115,20 @@ test("one trailing slash is tolerated, because the dispatcher tolerates it", () 
   expect(scopeAllows("submit", "POST", "/api/held/h1/spawn/")).toBe(true);
   // Two slashes is not a route the dispatcher normalizes to the same place — stays full-only.
   expect(scopeAllows("read", "GET", "/api/sessions//")).toBe(false);
+});
+
+test("self-revoke is the ONLY access-token shape a non-full scope reaches", () => {
+  // Exactly one id segment, DELETE only, and never the collection — everything else about the
+  // token routes stays full-only (and, at the route, operator-session-only).
+  for (const scope of ["read", "submit"] as const) {
+    expect(scopeAllows(scope, "DELETE", "/api/access-tokens/t1")).toBe(true);
+    expect(scopeAllows(scope, "DELETE", "/api/access-tokens")).toBe(false);
+    expect(scopeAllows(scope, "DELETE", "/api/access-tokens/t1/extra")).toBe(false);
+    expect(scopeAllows(scope, "GET", "/api/access-tokens/t1")).toBe(false);
+    expect(scopeAllows(scope, "POST", "/api/access-tokens/t1")).toBe(false);
+  }
+  // An unrecognized scope does not get it either.
+  expect(scopeAllows("admin", "DELETE", "/api/access-tokens/t1")).toBe(false);
 });
 
 test("an unrecognized stored scope grants nothing — not read, not full", () => {

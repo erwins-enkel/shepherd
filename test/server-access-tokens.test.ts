@@ -146,10 +146,13 @@ test("mint: expiresInDays may be omitted entirely (never expires)", async () => 
 
 // ── the operator-session guard ─────────────────────────────────────────────
 
-test("guard: a minted bearer cannot list, mint or revoke — 403 on all three", async () => {
+test("guard: a minted bearer cannot list, mint, or revoke ANOTHER token — 403 on all three", async () => {
   const app = makeApp(makeDeps());
   const minted = (await (await app.fetch(post({ name: "Asyar", expiresInDays: null }))).json()) as {
     token: string;
+    entry: { id: string };
+  };
+  const other = (await (await app.fetch(post({ name: "someone else" }))).json()) as {
     entry: { id: string };
   };
   const asBearer = { "content-type": "application/json", Authorization: `Bearer ${minted.token}` };
@@ -162,12 +165,144 @@ test("guard: a minted bearer cannot list, mint or revoke — 403 on all three", 
   expect(mint.status).toBe(403);
 
   const revoke = await app.fetch(
-    new Request(`http://x/api/access-tokens/${minted.entry.id}`, {
+    new Request(`http://x/api/access-tokens/${other.entry.id}`, {
       method: "DELETE",
       headers: asBearer,
     }),
   );
   expect(revoke.status).toBe(403);
+  expect(await revoke.json()).toEqual({ error: "operator_session_required" });
+  // …and the token it tried to revoke is still there.
+  const listed = (await (
+    await app.fetch(new Request("http://x/api/access-tokens", { headers: asOperator() }))
+  ).json()) as Listed;
+  expect(listed.tokens.map((t) => t.id).sort()).toEqual([minted.entry.id, other.entry.id].sort());
+});
+
+// ── self-revocation: the one exception to the operator-session rule ────────
+
+test("self-revoke: a bearer may revoke ITSELF, and the token dies immediately", async () => {
+  // How a native client logs out: it holds only the token, never a cookie. Without this the
+  // credential on a logged-out (or lost) machine stays live until an operator opens the web UI.
+  const app = makeApp(makeDeps());
+  const minted = (await (await app.fetch(post({ name: "Asyar — MacBook" }))).json()) as {
+    token: string;
+    entry: { id: string };
+  };
+  const asBearer = { Authorization: `Bearer ${minted.token}` };
+  expect((await app.fetch(new Request("http://x/api/me", { headers: asBearer }))).status).toBe(200);
+
+  const res = await app.fetch(
+    new Request(`http://x/api/access-tokens/${minted.entry.id}`, {
+      method: "DELETE",
+      headers: asBearer,
+    }),
+  );
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ ok: true });
+
+  // Same app object, same process: the token no longer verifies.
+  const after = await app.fetch(new Request("http://x/api/me", { headers: asBearer }));
+  expect(after.status).toBe(401);
+  expect(await after.json()).toEqual({ error: "unauthorized" });
+  const listed = (await (
+    await app.fetch(new Request("http://x/api/access-tokens", { headers: asOperator() }))
+  ).json()) as Listed;
+  expect(listed.tokens).toHaveLength(0);
+});
+
+test("self-revoke: allowed for every scope — a token may always kill itself", async () => {
+  // Scope answers "how far does this credential reach"; self-destruction reaches nothing. A `read`
+  // token would otherwise be stopped one layer earlier by the seam's scope gate (403
+  // insufficient_scope), so this also pins the SELF_REVOKE_PATTERN carve-out in token-scopes.ts.
+  for (const scope of TOKEN_SCOPES) {
+    const app = makeApp(makeDeps());
+    const minted = (await (await app.fetch(post({ name: `client-${scope}`, scope }))).json()) as {
+      token: string;
+      entry: { id: string };
+    };
+    const res = await app.fetch(
+      new Request(`http://x/api/access-tokens/${minted.entry.id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${minted.token}` },
+      }),
+    );
+    expect(`${scope} → ${res.status}`).toBe(`${scope} → 200`);
+  }
+});
+
+test("self-revoke: an unknown, tampered or already-revoked bearer gets 403, not 404", async () => {
+  // The mismatch answer must not depend on whether the id exists, or it becomes an enumeration
+  // oracle for the token list a bearer is deliberately not allowed to read.
+  const app = makeApp(makeDeps());
+  const minted = (await (await app.fetch(post({ name: "Asyar" }))).json()) as {
+    token: string;
+    entry: { id: string };
+  };
+  for (const auth of [
+    `Bearer ${minted.token}x`,
+    `Bearer ${ACCESS_TOKEN_PREFIX}nope`,
+    "Bearer xyz",
+  ]) {
+    for (const id of [minted.entry.id, "no-such-id"]) {
+      const res = await app.fetch(
+        new Request(`http://x/api/access-tokens/${id}`, {
+          method: "DELETE",
+          headers: { Authorization: auth },
+        }),
+      );
+      // checkAuth stops these at the gate first — a dead credential is 401, never a hint that the
+      // route exists. What matters is that none of them is a 200 or a 404.
+      expect(`${auth} ${id} → ${res.status}`).toBe(`${auth} ${id} → 401`);
+    }
+  }
+  // And the token is untouched.
+  expect(
+    (
+      (await (
+        await app.fetch(new Request("http://x/api/access-tokens", { headers: asOperator() }))
+      ).json()) as Listed
+    ).tokens,
+  ).toHaveLength(1);
+});
+
+test("self-revoke: SHEPHERD_TOKEN has no id of its own, so it revokes nothing", async () => {
+  // The legacy env credential is not a minted row — there is no id it could ever match, including
+  // the id of a token it can otherwise authenticate as.
+  config.token = "operator-bearer";
+  const app = makeApp(makeDeps());
+  const minted = (await (await app.fetch(post({ name: "Asyar" }))).json()) as {
+    entry: { id: string };
+  };
+  for (const id of [minted.entry.id, "operator-bearer", "no-such-id"]) {
+    const res = await app.fetch(
+      new Request(`http://x/api/access-tokens/${id}`, {
+        method: "DELETE",
+        headers: { Authorization: "Bearer operator-bearer" },
+      }),
+    );
+    expect(`${id} → ${res.status}`).toBe(`${id} → 403`);
+    expect(await res.json()).toEqual({ error: "operator_session_required" });
+  }
+  expect(
+    (
+      (await (
+        await app.fetch(new Request("http://x/api/access-tokens", { headers: asOperator() }))
+      ).json()) as Listed
+    ).tokens,
+  ).toHaveLength(1);
+});
+
+test("self-revoke: a bearer still cannot LIST, even though it may revoke itself", async () => {
+  const app = makeApp(makeDeps());
+  const minted = (await (await app.fetch(post({ name: "Asyar" }))).json()) as { token: string };
+  const res = await app.fetch(
+    new Request("http://x/api/access-tokens", {
+      headers: { Authorization: `Bearer ${minted.token}` },
+    }),
+  );
+  expect(res.status).toBe(403);
+  expect(await res.json()).toEqual({ error: "operator_session_required" });
 });
 
 test("guard: SHEPHERD_TOKEN is no more privileged here than a minted one", async () => {

@@ -3,7 +3,13 @@
 # Usage: native/scripts/test-app.sh [-only-testing:ShepherdTests]
 set -euo pipefail
 
-APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../Apps/ShepherdMac" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+APP_DIR="$(cd "$SCRIPT_DIR/../Apps/ShepherdMac" && pwd)"
+
+# Fills CODESIGN_ARGS and prints which signing mode this machine uses.
+# shellcheck source=native/scripts/codesign-mode.sh
+. "$SCRIPT_DIR/codesign-mode.sh"
+shepherd_codesign_args
 
 command -v xcodegen >/dev/null 2>&1 || {
   echo "xcodegen not found. Install it with: brew install xcodegen" >&2
@@ -22,5 +28,6 @@ xcodebuild \
   -destination 'platform=macOS' \
   -derivedDataPath .build \
   -skipPackagePluginValidation \
+  "${CODESIGN_ARGS[@]+"${CODESIGN_ARGS[@]}"}" \
   "$@" \
   test

@@ -143,4 +143,73 @@ public final class ShepherdClient: Sendable {
       }
     } catch { throw ShepherdError.from(error, route: "listRepos") }
   }
+
+  // MARK: - Writes
+
+  /// `POST /api/sessions` either spawns the session or queues it behind the
+  /// usage hold. Both are success; the caller decides what to show.
+  public func createSession(
+    _ request: CreateSessionRequest
+  ) async throws -> CreateOutcome {
+    do {
+      switch try await generated.createSession(.init(body: .json(request))) {
+      case .created(let created): return .created(try created.body.json)
+      case .ok(let ok): return .held(try ok.body.json)
+      case .badRequest(let bad): throw ShepherdError.badRequest(try bad.body.json.error)
+      case .unauthorized: throw ShepherdError.unauthenticated
+      case .conflict(let conflict): throw ShepherdError.fromConflict(try conflict.body.json)
+      case .unprocessableContent(let bad):
+        throw ShepherdError.unprocessable(try bad.body.json.error)
+      case .badGateway(let bad): throw ShepherdError.upstreamFailure(try bad.body.json.error)
+      case .undocumented(let statusCode, _):
+        throw ShepherdError.fromUndocumented(statusCode: statusCode, route: "createSession")
+      }
+    } catch { throw ShepherdError.from(error, route: "createSession") }
+  }
+
+  /// `DELETE /api/sessions/{id}`. The contract documents 200 and 401 only —
+  /// archiving an unknown id is a no-op server-side.
+  public func archiveSession(id: String) async throws {
+    do {
+      switch try await generated.archiveSession(.init(path: .init(id: id))) {
+      case .ok: return
+      case .unauthorized: throw ShepherdError.unauthenticated
+      case .undocumented(let statusCode, _):
+        throw ShepherdError.fromUndocumented(statusCode: statusCode, route: "archiveSession")
+      }
+    } catch { throw ShepherdError.from(error, route: "archiveSession") }
+  }
+
+  public func interruptSession(id: String) async throws {
+    do {
+      switch try await generated.interruptSession(.init(path: .init(id: id))) {
+      case .ok: return
+      case .unauthorized: throw ShepherdError.unauthenticated
+      case .notFound: throw ShepherdError.notFound
+      case .undocumented(let statusCode, _):
+        throw ShepherdError.fromUndocumented(statusCode: statusCode, route: "interruptSession")
+      }
+    } catch { throw ShepherdError.from(error, route: "interruptSession") }
+  }
+
+  /// `PUT /api/settings` with the repoRoot form. This is also what resolves a
+  /// pending first run.
+  public func putRepoRoot(_ path: String) async throws -> Components.Schemas.RepoRootResponse {
+    do {
+      switch try await generated.putRepoRoot(.init(body: .json(.init(repoRoot: path)))) {
+      case .ok(let ok): return try ok.body.json
+      case .badRequest(let bad): throw ShepherdError.badRequest(try bad.body.json.error)
+      case .unauthorized: throw ShepherdError.unauthenticated
+      case .undocumented(let statusCode, _):
+        throw ShepherdError.fromUndocumented(statusCode: statusCode, route: "putRepoRoot")
+      }
+    } catch { throw ShepherdError.from(error, route: "putRepoRoot") }
+  }
+}
+
+/// What `POST /api/sessions` did. The contract documents both 201 (spawned)
+/// and 200 (queued behind the usage hold) as success.
+public enum CreateOutcome: Equatable, Sendable {
+  case created(Session)
+  case held(HeldTask)
 }

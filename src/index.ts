@@ -2863,9 +2863,23 @@ const runDailySweep = (opts?: { skipTmpSweep?: boolean }) => {
   // Both capped per sweep. Returns drive the client nudge + push. Stale-proposal retention is
   // handled earlier by runProposedPrune (#1794), which emits its own pending update.
   const trialed = runAutoTrial({ store });
-  const reaped = runReapStaleTrials({ store });
+  // #2382: the relevance branch acts only while the gate that produces its verdicts is armed —
+  // turning the judge off withdraws the signal and stops acting on it. Off ⇒ no verdicts accrue
+  // anyway, so this is belt-and-braces, and it also skips the per-repo stats read.
+  const reaped = runReapStaleTrials({
+    store,
+    relevanceArmed: config.houseRuleRelevance !== "off",
+  });
   if (trialed.length + reaped.length > 0) {
     learningsSvc.emitPending();
+  }
+  if (reaped.length > 0) {
+    // The only visibility into an autonomous retirement — and the relevance branch acts on a
+    // freshly-armed, never-calibrated signal, so say which branch fired.
+    const byReason = new Map<string, number>();
+    for (const r of reaped) byReason.set(r.reason, (byReason.get(r.reason) ?? 0) + 1);
+    const summary = [...byReason].map(([reason, n]) => `${n} ${reason}`).join(", ");
+    console.log(`[learnings] reaped ${reaped.length} trial(s): ${summary}`);
   }
   if (trialed.length > 0) {
     // Best-effort push so operators learn of background trials without opening the drawer.

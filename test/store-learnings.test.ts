@@ -1224,6 +1224,20 @@ test("#925: reapStaleTrial retires a trial with reason trial-expired, clears tri
   expect(reaped.trialedAt).toBeNull();
 });
 
+test("#2382: reapStaleTrial records the caller's reason, and still restores", () => {
+  const s = new SessionStore(":memory:");
+  const l = s.addLearning({ repoPath: "/r", rule: "r", rationale: "", evidence: [] });
+  s.trialLearning(l.id);
+  const reaped = s.reapStaleTrial(l.id, "trial-irrelevant")!;
+  expect(reaped.status).toBe("retired");
+  expect(reaped.retiredReason).toBe("trial-irrelevant");
+  expect(reaped.trialedAt).toBeNull();
+  // The branch that fired must not change the retirement's reversibility.
+  const restored = s.restoreLearning(l.id)!;
+  expect(restored.status).toBe("active");
+  expect(restored.retiredReason).toBeNull();
+});
+
 test("#925: reapStaleTrial returns null for non-trialed active (no trialedAt)", () => {
   const s = new SessionStore(":memory:");
   const l = s.addLearning({ repoPath: "/r", rule: "r", rationale: "", evidence: [] });

@@ -6185,16 +6185,21 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   }
 
   /** Retire a stale trialed rule. Guards that the rule is active and was auto-trialed
-   *  (trialedAt != null). Sets status='retired' with retiredReason='trial-expired' and clears
-   *  trialedAt. Retires (not dismisses) so it shows in the retired drawer and stays restorable. */
-  reapStaleTrial(id: string): Learning | null {
+   *  (trialedAt != null). Sets status='retired' with the caller's reason and clears trialedAt.
+   *  Retires (not dismisses) so it shows in the retired drawer and stays restorable.
+   *
+   *  `reason` names which reaper branch fired — 'trial-expired' (age/exposure) or
+   *  'trial-irrelevant' (#2382, the judge never found it relevant). Defaulted rather than required
+   *  so the age branch and existing callers read exactly as before; the canonical constants live
+   *  in learnings-lifecycle.ts, which this leaf must not import. */
+  reapStaleTrial(id: string, reason: string = "trial-expired"): Learning | null {
     const cur = this.getLearning(id);
     if (!cur || cur.trialedAt == null || cur.status !== "active") return null;
     const now = Date.now();
     this.db.run(
-      `UPDATE learnings SET status = 'retired', retiredAt = ?, retiredReason = 'trial-expired',
+      `UPDATE learnings SET status = 'retired', retiredAt = ?, retiredReason = ?,
          retiredFromStatus = 'active', trialedAt = NULL, updatedAt = ? WHERE id = ?`,
-      [now, now, id],
+      [now, reason, now, id],
     );
     return this.getLearning(id);
   }

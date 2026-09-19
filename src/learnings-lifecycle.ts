@@ -28,6 +28,31 @@ export const TRIAL_REAP_DAYS = Number(process.env.SHEPHERD_LEARNINGS_TRIAL_REAP_
 export const TRIAL_REAP_MAX_DAYS = Number(process.env.SHEPHERD_LEARNINGS_TRIAL_REAP_MAX_DAYS ?? 60);
 export const MAX_REAP_PER_SWEEP = Number(process.env.SHEPHERD_LEARNINGS_MAX_REAP_PER_SWEEP ?? 5);
 
+/**
+ * Relevance branch (#2382): how many times the judge must have ruled on a trial — finding it
+ * relevant in NONE of them — before that counts as a trial failed.
+ *
+ * Mirrors {@link TRIAL_REAP_NMIN} so "enough exposure to judge a trial" stays one number. Clamped
+ * to >= 1 because the floor is what makes the branch fail closed on an unarmed gate: a floor of 0
+ * would let a rule nobody has ever judged (`judged === 0`, `relevant === 0`) satisfy it, turning
+ * "no signal" into "never relevant" — the one inversion {@link isJudgedIrrelevant} promises cannot
+ * happen. The predicate rejects `judged <= 0` on its own too, so neither guard is load-bearing
+ * alone.
+ *
+ * A non-finite override falls back to 8 rather than clamping: `Math.max(1, NaN)` is NaN, and every
+ * comparison against NaN is false — which would skip the floor check entirely instead of raising
+ * it. The other reaper constants can afford a bare `Number()` because a NaN there fails closed
+ * (nothing is reaped); here it would fail open.
+ */
+export const TRIAL_RELEVANCE_MIN_JUDGED = Math.max(
+  1,
+  finiteOr(Number(process.env.SHEPHERD_LEARNINGS_TRIAL_RELEVANCE_MIN_JUDGED ?? TRIAL_REAP_NMIN), 8),
+);
+
+function finiteOr(value: number, fallback: number): number {
+  return Number.isFinite(value) ? value : fallback;
+}
+
 // proposed retention (#1794): permanently prune proposed learnings whose latest evidence is
 // older than this many days. Applied in full each sweep (no cap, no exemption).
 export const PRUNE_DAYS = resolveProposedRetentionDays(
@@ -37,6 +62,11 @@ export const PRUNE_DAYS = resolveProposedRetentionDays(
 
 /** Informational reason stored when a stale trial is reaped; reapStaleTrial sets it in-store. */
 export const TRIAL_EXPIRED_REASON = "trial-expired";
+
+/** Reason stored when the relevance branch (#2382) fails a trial the judge never found relevant —
+ *  distinct from {@link TRIAL_EXPIRED_REASON} so a retirement names its actual cause. Server-side
+ *  legibility only: nothing in `ui/` reads `retiredReason`. */
+export const TRIAL_IRRELEVANT_REASON = "trial-irrelevant";
 
 export const WILSON_Z = Number(process.env.SHEPHERD_LEARNINGS_WILSON_Z ?? 1.96);
 export const RETIRE_N_MIN = Number(process.env.SHEPHERD_LEARNINGS_RETIRE_NMIN ?? 8);
@@ -64,6 +94,9 @@ export interface ReapedRecord {
   id: string;
   rule: string;
   injectedCount: number;
+  /** Which branch fired — {@link TRIAL_EXPIRED_REASON} or {@link TRIAL_IRRELEVANT_REASON}. Also the
+   *  value written to `retiredReason`. */
+  reason: string;
 }
 
 export interface RetiredRecord {
@@ -271,28 +304,98 @@ export function shouldReapTrial(
   return injectionBranch || timeBranch;
 }
 
+// ── isJudgedIrrelevant (#2382) ────────────────────────────────────────────────
+
+/** One rule's relevance history, as `SessionStore.learningRelevanceStats` tallies it: how many
+ *  sessions the judge was asked about the rule, and in how many it answered relevant. */
+export interface TrialRelevance {
+  judged: number;
+  relevant: number;
+}
+
+/**
+ * The relevance branch of the trial reaper: a trial the judge has ruled on enough times and found
+ * relevant in NONE of them has failed, whatever its age or injection count.
+ *
+ * WHAT THIS ADDS THAT {@link shouldReapTrial} CANNOT. Both of that function's branches measure
+ * EXPOSURE — injections accrued, days elapsed. Under `enforce`, a rule the judge rules out is not
+ * injected at all, so `injectedCount` never grows and its evidence branch can never fire; the rule
+ * survives to the 60-day `reapMaxDays` fallback. This branch is the only one that reaches it. Under
+ * `shadow` the rule IS injected, so the evidence branch would reach it at 21 days and this merely
+ * accelerates — and only where two independent signals agree: never judged relevant, never marked
+ * helpful.
+ *
+ * FAILS CLOSED ON NO SIGNAL, twice over. `judged <= 0` is rejected here, independent of
+ * {@link TRIAL_RELEVANCE_MIN_JUDGED}'s own >= 1 clamp, because the whole feature rests on zero
+ * verdicts meaning "nobody asked" and never "never relevant" — and callers may pass their own
+ * floor. A corpus whose operator has never armed the gate reads `judged === 0` for every rule and
+ * is therefore untouched by construction, not by configuration.
+ *
+ * Scope and exemptions are {@link shouldReapTrial}'s, deliberately: active auto-trials only
+ * (`trialedAt != null`), and a trial that was ever marked helpful is never reaped, whatever the
+ * judge thinks of it.
+ */
+export function isJudgedIrrelevant(
+  rule: Learning,
+  relevance: TrialRelevance | undefined,
+  minJudged = TRIAL_RELEVANCE_MIN_JUDGED,
+): boolean {
+  if (rule.trialedAt == null || rule.status !== "active") return false;
+  if (rule.helpfulCount > 0) return false; // graduated (proven) — leave it
+  if (!relevance || relevance.judged <= 0) return false; // no verdicts ⇒ no signal
+  if (relevance.judged < minJudged) return false;
+  return relevance.relevant === 0;
+}
+
 export interface ReapTrialDeps {
-  store: Pick<SessionStore, "listTrialLearnings" | "getRepoConfig" | "reapStaleTrial">;
+  store: Pick<
+    SessionStore,
+    "listTrialLearnings" | "getRepoConfig" | "reapStaleTrial" | "learningRelevanceStats"
+  >;
   now?: number;
   maxPerSweep?: number;
   reap?: { reapNmin?: number; reapDays?: number; reapMaxDays?: number };
+  /** Whether the relevance gate is armed (`config.houseRuleRelevance !== "off"`), passed in so this
+   *  module stays config-free. Default false: the relevance branch is skipped entirely — including
+   *  its store read — unless the operator has armed the capability that produces its signal. */
+  relevanceArmed?: boolean;
+  minJudged?: number;
 }
 
 export function runReapStaleTrials(deps: ReapTrialDeps): ReapedRecord[] {
   const now = deps.now ?? Date.now();
   const cap = deps.maxPerSweep ?? MAX_REAP_PER_SWEEP;
   const out: ReapedRecord[] = [];
+  // listTrialLearnings is cross-repo but learningRelevanceStats is per-repo, so memoize: one query
+  // per distinct repoPath per sweep, not one per rule.
+  const statsByRepo = new Map<string, Map<string, TrialRelevance>>();
+  const relevanceFor = (repoPath: string, id: string): TrialRelevance | undefined => {
+    let stats = statsByRepo.get(repoPath);
+    if (!stats) {
+      stats = deps.store.learningRelevanceStats(repoPath);
+      statsByRepo.set(repoPath, stats);
+    }
+    return stats.get(id);
+  };
+
   for (const rule of deps.store.listTrialLearnings()) {
     // oldest-trial first
     if (out.length >= cap) break;
     if (!deps.store.getRepoConfig(rule.repoPath).learningsEnabled) continue;
-    if (!shouldReapTrial(rule, now, deps.reap)) continue;
-    if (deps.store.reapStaleTrial(rule.id))
+    // Relevance first: a rule qualifying on both branches is retired under the reason that names
+    // its actual cause.
+    const irrelevant =
+      deps.relevanceArmed === true &&
+      isJudgedIrrelevant(rule, relevanceFor(rule.repoPath, rule.id), deps.minJudged);
+    if (!irrelevant && !shouldReapTrial(rule, now, deps.reap)) continue;
+    const reason = irrelevant ? TRIAL_IRRELEVANT_REASON : TRIAL_EXPIRED_REASON;
+    if (deps.store.reapStaleTrial(rule.id, reason))
       out.push({
         repoPath: rule.repoPath,
         id: rule.id,
         rule: rule.rule,
         injectedCount: rule.injectedCount,
+        reason,
       });
   }
   return out;

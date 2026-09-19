@@ -142,6 +142,24 @@ describe("auth", () => {
     expect(again.status).toBe(404);
   });
 
+  test("DELETE /api/access-tokens/{id}: a bearer may revoke ITSELF", async () => {
+    // The native client's logout: it holds the token and no cookie. Minted through the cookie
+    // route, then destroyed by its own bearer — the one token-management call a bearer may make.
+    const throwaway = await mintToken(s, cookie, "self-revoking client");
+    const res = await fetch(`${s.baseUrl}/api/access-tokens/${throwaway.id}`, {
+      method: "DELETE",
+      headers: bearer(throwaway.token),
+    });
+    const body = (await validateResponse("DELETE", "/api/access-tokens/{id}", res)) as {
+      ok: boolean;
+    };
+    expect(res.status).toBe(200);
+    expect(body.ok).toBe(true);
+    // The credential is dead on the very next request — no restart.
+    const after = await fetch(`${s.baseUrl}/api/me`, { headers: bearer(throwaway.token) });
+    expect(after.status).toBe(401);
+  });
+
   test("POST /api/logout clears the cookie session", async () => {
     const throwaway = await login(s);
     const res = await fetch(`${s.baseUrl}/api/logout`, {

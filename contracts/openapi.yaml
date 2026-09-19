@@ -631,8 +631,13 @@ paths:
         schema: { type: string }
     delete:
       operationId: revokeAccessToken
+      description: >-
+        Revokes one token. An operator session may revoke any token; a bearer access token may
+        revoke ITSELF and nothing else, which is how a native client invalidates its own
+        credential on logout. Self-revocation is allowed whatever the token's scope.
       security:
         - cookieAuth: []
+        - bearerAuth: []
       responses:
         "200":
           description: Revoked.
@@ -643,7 +648,8 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          description: Caller is not an operator session (a bearer token cannot manage tokens).
+          description: >-
+            Only an operator session may revoke other tokens; a bearer token may revoke itself.
           content:
             application/json:
               schema:

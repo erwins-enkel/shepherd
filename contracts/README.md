@@ -20,6 +20,11 @@ grow untested surface. Events that only a live herdr would emit are fed through 
 type where one exists (`BlockReason`, `AutoMergeStatus`, `UsageLimits`, `SessionStatus`) and
 structurally otherwise — so a type change breaks `bun run typecheck` before it can drift.
 
+An operation's `security` block is part of that truth: `DELETE /api/access-tokens/{id}` lists both
+`cookieAuth` and `bearerAuth` because a bearer token may revoke **itself** (and only itself) without
+an operator session, and the contract test exercises that self-revoke alongside the 403 a bearer
+gets for any other id.
+
 **How to extend it.** Add the schema under `components.schemas`, the path or event, then the test
 that exercises every declared status. Run `bun run test:contract` and `bun run gen:contract-swift`,
 and commit the regenerated `openapi.swift.yaml` alongside your change.

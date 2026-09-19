@@ -12,8 +12,12 @@ Claude Code release.
 
 > Research task, **2026-09-18**, against TypeSafe AI's published docs for **`jev-1.13.0`** and the
 > Shepherd tree at `d40b7338`. A capability map and a recommendation, not a committed plan.
-> **No key exists on the host and JEV is waitlist-only early access** — nothing here has been run
-> against the live API. Read-only research task: this document is the entire diff.
+>
+> **Updated 2026-09-19: a key now exists and §9 step 2 has been run — the go/no-go is GO.** Read §9
+> first; it carries the measured numbers and three findings that supersede design choices argued for
+> below (notably §3b's abstain mechanism and §5's question shape). Everything from the original
+> 2026-09-18 pass is otherwise unedited, including the parts the measurement contradicts — the
+> reasoning is worth keeping next to the result.
 
 ---
 
@@ -311,10 +315,32 @@ recommended now; this is the shortlist to revisit once the two targets are measu
 
 ## 9. What happens next
 
-1. Join the waitlist; nothing below is actionable without a key.
-2. On key: add a JEV backend to `scripts/eval-core.ts` and run the existing stop-classifier fixture
-   set. **This is the go/no-go.** Bar: ≥97.1% gating accuracy, `ambiguous-unknown` holds, German
-   buckets pass.
+1. ~~Join the waitlist; nothing below is actionable without a key.~~ **Done** — key obtained
+   2026-09-19.
+2. ~~On key: add a JEV backend to `scripts/eval-core.ts` and run the existing stop-classifier fixture
+   set.~~ **DONE 2026-09-19 — the go/no-go is GO.** `--backend jev` scored **61/61 = 100%** gating
+   accuracy against the Haiku baseline's 33/34 = 97.1%; `ambiguous-unknown` **9/9 `unknown`**,
+   `de-ambiguous-unknown` **9/9**, both German gating buckets 9/9. It also closes the recorded known
+   gap — `gate-spec-first`, the prompt's own `gate` exemplar that Haiku splits toward `question`,
+   comes back 5/5 `gate`. Full run cost **$0.0037**. Numbers, the framing comparison and the
+   threshold sweep: `docs/eval-stop-classifier.md` → "JEV backend — the go/no-go".
+
+   Three findings that change the design below:
+
+   - **§3b is answered.** Low-confidence-as-abstain works, but is **not needed**: JEV chooses
+     `unknown` on its own. The confidence ordering runs opposite to the intuition — abstains come back
+     at 0.78 mean confidence while the _correct_ `gate` calls sit at 0.64, so any threshold above 0.6
+     converts correct gates into surfaced sessions rather than buying caution. Recommendation for
+     step 3: **no threshold**, or ≤0.6 if one is wanted for other reasons.
+   - **Feed the production prompt as `state`.** A purpose-authored structured state with distilled
+     per-kind `criteria` — the shape §5 implies — measured **91.8%** and failed `ambiguous-unknown` in
+     the dangerous direction (`gate`, 5/9). Passing `classifierPrompt()` through verbatim wins and
+     keeps drift-prevented-by-import for free.
+   - **Wire notes from the live probe.** `state` accepts an object as well as a string. A bad key is
+     `401` carrying `authentication_error` (which the harness's `isPermanent` already matches); a
+     malformed request is **`400 api_usage_error`**, not the documented `422`. `noul` answers carry a
+     probability but **no `confidence` field** — relevant to target 2 below, whose design assumes one.
+
 3. If it clears: build the `Judge` seam and route `classifyStop`, off by default, low-confidence
    falling back to the existing spawn.
 4. Then `blocked.ts` with buffer-change dedupe and confidence gating, shadow-mode first against the

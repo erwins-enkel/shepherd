@@ -39,6 +39,7 @@ import {
   type RunOptions,
   type TrialOutcome,
 } from "./eval-core";
+import { jevBackendSpec, type JevChoiceAnswer, type JevChoiceQuestion } from "./eval-jev";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -297,9 +298,111 @@ export function outcomeFor(fixture: Fixture, response: AnthropicResponse): Trial
   return outcomeFrom(SPEC, fixture, captureFrom(response, SPEC.verdictFile));
 }
 
+// ---------------------------------------------------------------------------
+// JEV backend (`--backend jev`) — the go/no-go from docs/research/jev-system-one-models.md
+// ---------------------------------------------------------------------------
+
+/** The `--backend` value this leg registers under. */
+const JEV_BACKEND = "jev";
+
+/** Pinned SNAPSHOT, never the `jev-latest` alias: under an alias a vendor re-point would land as a
+ *  silent accuracy change in a re-run and read as a prompt regression. */
+const JEV_MODEL = "jev-1.13.0";
+
+/** The one question the classifier is: pick one of five kinds. */
+const JEV_QUESTION_ID = "kind";
+
+/**
+ * TWO FRAMINGS, because which one to ship is an empirical question and this eval exists to answer
+ * empirical questions.
+ *
+ *   VERBATIM (default) — `state` is the REAL production prompt, `criteria` are bare option names.
+ *     JEV reads the same words the Claude classifier reads, so the two legs differ only in the
+ *     model. Inherits the harness's drift-prevented-by-import property for free: the prompt comes
+ *     from `src/autopilot-classify-core.ts` and cannot go stale.
+ *
+ *   AUTHORED (`--jev-authored`) — `state` is structured data and `criteria` carry the per-kind
+ *     descriptions. This is the shape a `Judge` seam would plausibly ship, and it is the one a
+ *     reasonable person would expect to win.
+ *
+ * On a 16-call pre-implementation probe it did not win: verbatim 8/8, authored 6/8, and authored
+ * missed in the dangerous direction — it called the ambiguous tail `gate` (p=0.46) where verbatim
+ * abstained to `unknown` (p=0.83). That probe is far too small to settle anything, which is exactly
+ * why both framings are runnable rather than one being chosen up front.
+ */
+function jevAuthored(run: RunOptions): boolean {
+  return run.argv.includes("--jev-authored");
+}
+
+/** Per-kind descriptions for the authored framing, distilled from the enum block of
+ *  `classifierPrompt`. Kept adjacent to the fixtures rather than in `eval-jev.ts`: this is what is
+ *  being MEASURED, not transport. */
+const JEV_CRITERIA: Record<AutopilotKind, string> = {
+  gate: 'A procedural/workflow stop the agent could resolve itself and the answer is obviously "yes, keep going" — e.g. "shall I write the spec first?", "ready to start implementing?", "want me to commit now?". Only when proceeding is clearly correct.',
+  question:
+    "A real decision that needs a human — a product/requirements fork, ambiguous intent, a choice between materially different approaches, or anything the agent should not decide unilaterally.",
+  finished:
+    "The agent has done code/implementation work whose deliverable is a pull request, believes it is done, but has not opened the PR yet. It still needs to be driven to a PR.",
+  complete:
+    "The agent has fully delivered a task whose deliverable is NOT a pull request — research/investigation/analysis, creating a GitHub issue, or a one-off answer. Judge by the TASK: if it never asked for code changes, a finished agent is complete, not finished.",
+  unknown:
+    "You cannot confidently tell why the agent stopped. When in doubt choose this — never guess.",
+};
+
+const JEV_INSTRUCTIONS =
+  "A coding agent's turn has ended and it is now waiting. Classify WHY it stopped, judging by " +
+  "its task and the tail of its terminal.";
+
+/** The option set with no descriptions — the verbatim framing's `state` already carries the
+ *  definitions, so repeating them in `criteria` would say the same thing twice. */
+const JEV_BARE_CRITERIA: Record<string, null> = Object.fromEntries(
+  ALL_KINDS.map((kind) => [kind, null]),
+);
+
+export function jevQuestion(run: RunOptions): JevChoiceQuestion {
+  return {
+    type: "choice",
+    instructions: JEV_INSTRUCTIONS,
+    criteria: jevAuthored(run) ? JEV_CRITERIA : JEV_BARE_CRITERIA,
+  };
+}
+
+/** The authored framing's state. Clipped exactly as `classifierPrompt` clips, so the two framings
+ *  see the same number of characters of the same inputs and differ only in FRAMING. */
+export function jevAuthoredState(fixture: Fixture): { task: string; terminal_tail: string } {
+  return {
+    task: fixture.taskPrompt.slice(0, 1500),
+    terminal_tail: fixture.tail.slice(-20).join("\n").slice(0, 3000),
+  };
+}
+
+/** JEV's answer as the raw verdict object `SPEC.score` reads. `summary` is empty by construction —
+ *  JEV cannot generate prose, and this eval scores `kind` only, so nothing is lost HERE. (In
+ *  production the summary is operator-facing; see the research doc §3a.) An answer that is missing
+ *  or outside the enum returns null, which the harness records as a MECHANICAL miss rather than
+ *  silently collapsing to `unknown` the way `normalize` must. */
+export function jevVerdict(
+  answers: Record<string, JevChoiceAnswer>,
+): Record<string, unknown> | null {
+  const answer = answers[JEV_QUESTION_ID];
+  if (typeof answer?.choice !== "string") return null;
+  if (!ALL_KINDS.includes(answer.choice as AutopilotKind)) return null;
+  return { kind: answer.choice, summary: "" };
+}
+
 export const SPEC: EvalSpec<Fixture> = {
   name: "stop-classifier",
   defaultModel: DEFAULT_MODEL,
+  backends: {
+    [JEV_BACKEND]: jevBackendSpec<Fixture>({
+      defaultModel: JEV_MODEL,
+      ask: (fixture, prompt, run) => ({
+        state: jevAuthored(run) ? jevAuthoredState(fixture) : prompt,
+        questions: { [JEV_QUESTION_ID]: jevQuestion(run) },
+      }),
+      verdict: jevVerdict,
+    }),
+  },
   defaultTrials: DEFAULT_TRIALS,
   defaultTemperature: DEFAULT_TEMPERATURE,
   floor: GATING_ACCURACY_FLOOR,
@@ -315,6 +418,15 @@ export const SPEC: EvalSpec<Fixture> = {
     operatorLanguageOff(run)
       ? "operator-language: OFF (before leg — forced en everywhere, ≡ #1626 baseline)"
       : "operator-language: per-fixture lang (after leg — German directive live for `de` fixtures)",
+    ...(run.backend === JEV_BACKEND
+      ? [
+          jevAuthored(run)
+            ? "jev framing: AUTHORED (structured state + per-kind criteria). NOTE: the operator-language " +
+              "directives live in the PROMPT, so this framing does not exercise them at all."
+            : "jev framing: VERBATIM (the production prompt IS the state; criteria are bare option names)",
+          "jev is near-deterministic — T repeats measure far less variance here than on Claude.",
+        ]
+      : []),
   ],
   // #1627 A/B: `--operator-language-off` forces "en" everywhere (the *before* leg); otherwise each
   // fixture uses its own `lang`, so `de` fixtures exercise the real German directive (*after*).

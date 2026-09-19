@@ -74,7 +74,12 @@ export function spendUsd(spend: Spend, model: string): number {
   );
 }
 
-export function formatSpend(spend: Spend, model: string): string {
+/** Prices a run's consumption. Defaults to {@link spendUsd} (Claude list prices); a backend whose
+ *  vendor is not Anthropic supplies its own, because `src/pricing.ts` knows only Claude models and
+ *  would otherwise fall through to default weights and report a number that is simply wrong. */
+export type PriceUsd = (spend: Spend, model: string) => number;
+
+export function formatSpend(spend: Spend, model: string, price: PriceUsd = spendUsd): string {
   // cacheRead is the number the Anthropic usage email is about: if it stays 0 while a run repeats
   // the same prefix, a breakpoint is missing or the prefix is under the model's minimum.
   const cached = spend.cacheRead + spend.input;
@@ -82,7 +87,7 @@ export function formatSpend(spend: Spend, model: string): string {
   return (
     `calls=${spend.calls} in=${spend.input.toLocaleString()} out=${spend.output.toLocaleString()} ` +
     `cache(read=${spend.cacheRead.toLocaleString()} write=${spend.cacheWrite.toLocaleString()} ` +
-    `hit=${hitRate}%) ≈ $${spendUsd(spend, model).toFixed(2)}`
+    `hit=${hitRate}%) ≈ $${price(spend, model).toFixed(4)}`
   );
 }
 
@@ -249,6 +254,9 @@ export interface TrialOutcome {
   /** What this trial produced INSTEAD of a usable verdict, bounded and escaped — see
    *  {@link mechanicalSample}. Absent on a trial that produced one. */
   mechanicalSample?: string;
+  /** Backend-specific per-trial evidence, carried verbatim into the JSON report — see
+   *  {@link TrialCapture.detail}. Absent on a backend that records none. */
+  detail?: Record<string, unknown>;
 }
 
 /** A scorer's reading of one verdict: the display label plus whether the fixture's predicates hold.
@@ -273,6 +281,12 @@ export interface EvalSpec<F extends EvalFixtureBase> {
   name: string;
   /** API snapshot id, pinned to the model the prompt actually runs on in production. */
   defaultModel: string;
+  /**
+   * Additional backends this eval can be run on, keyed by the `--backend` value that selects them.
+   * The built-in `anthropic` backend never appears here. Declared by the eval rather than known to
+   * the harness, so `eval-core.ts` carries no vendor knowledge.
+   */
+  backends?: Record<string, BackendSpec<F>>;
   defaultTrials: number;
   defaultTemperature: number;
   /** PINNED overall-accuracy floor for the gating set — a literal, never computed at runtime. */
@@ -548,6 +562,16 @@ export interface TrialCapture {
    *  interpret once already. */
   stopReason?: string | null;
   text?: string;
+  /**
+   * Backend-specific per-trial evidence, carried verbatim into the JSON report's `trialDetails`.
+   *
+   * Exists because a backend can return MORE than a verdict: JEV answers a `choice` question with
+   * the full probability distribution and a calibrated confidence number, and the whole point of
+   * recording those is that a low-confidence -> abstain threshold can then be swept OFFLINE over a
+   * completed run instead of being pinned before a paid one. Absent on the Anthropic backend, which
+   * has nothing of the kind to report — so its JSON report is unchanged.
+   */
+  detail?: Record<string, unknown>;
 }
 
 /** The capture a SINGLE response yields, for a prompt whose verdict arrives in one turn. Used by
@@ -790,6 +814,7 @@ export function outcomeFrom<F extends EvalFixtureBase>(
     correct,
     unrecognised: noDecision,
     ...(sample === undefined ? {} : { mechanicalSample: sample }),
+    ...(capture.detail === undefined ? {} : { detail: capture.detail }),
   };
 }
 
@@ -941,7 +966,7 @@ export function formatReport<F extends EvalFixtureBase>(
   run: RunOptions,
 ): string {
   const lines: string[] = [];
-  lines.push(`${spec.name} eval — model=${run.model}`);
+  lines.push(`${spec.name} eval — model=${run.model} backend=${run.backend}`);
   if (run.smoke) {
     lines.push(
       "SMOKE — gates on WELL-FORMEDNESS only: every trial must obtain a parseable verdict.",
@@ -1022,6 +1047,7 @@ export function jsonReport<F extends EvalFixtureBase>(
 ): Record<string, unknown> {
   return {
     model: run.model,
+    backend: run.backend,
     temperature: run.temperature,
     gatingOnly: run.gatingOnly,
     flags: run.argv,
@@ -1043,8 +1069,20 @@ export function jsonReport<F extends EvalFixtureBase>(
       majorityLabel: r.majorityLabel,
       correct: r.correct,
       majorityCorrect: r.majorityCorrect,
+      // Emitted ONLY when a backend recorded any — so the Anthropic leg's report keeps the exact
+      // shape the docs' baseline tables are transcribed from.
+      ...trialDetails(r),
     })),
   };
+}
+
+/** The per-trial `detail` objects a backend recorded, as a report fragment that is ABSENT (not an
+ *  empty array) when it recorded none. PURE. */
+function trialDetails<F extends EvalFixtureBase>(
+  result: FixtureResult<F>,
+): { trialDetails?: Record<string, unknown>[] } {
+  const details = result.outcomes.flatMap((o) => (o.detail === undefined ? [] : [o.detail]));
+  return details.length === 0 ? {} : { trialDetails: details };
 }
 
 // ---------------------------------------------------------------------------
@@ -1077,6 +1115,8 @@ export interface RunOptions {
    * harness failure so far. Accuracy is still computed and reported; it just does not decide.
    */
   smoke: boolean;
+  /** Which backend obtains the verdicts — `anthropic`, or a key of {@link EvalSpec.backends}. */
+  backend: string;
   /** The raw flags, so an eval can read its own switches without re-parsing argv. */
   argv: string[];
 }
@@ -1097,8 +1137,12 @@ export function parseArgs<F extends EvalFixtureBase>(
     const parsed = Number(get(flag) ?? fallback);
     return Number.isFinite(parsed) ? parsed : fallback;
   };
+  const backend = get("--backend") ?? ANTHROPIC_BACKEND;
   return {
-    model: get("--model") ?? spec.defaultModel,
+    // Each backend pins its OWN model: `--backend jev` must not silently inherit the Claude
+    // snapshot the prompt is baselined on. An unknown backend falls back to the spec's default and
+    // is rejected by name in `runEvalInner`, so a typo cannot quietly run the wrong thing.
+    model: get("--model") ?? backendSpecFor(spec, backend)?.defaultModel ?? spec.defaultModel,
     temperature: num("--temperature", spec.defaultTemperature),
     trials: num("--trials", spec.defaultTrials),
     threshold: num("--threshold", spec.floor),
@@ -1108,6 +1152,7 @@ export function parseArgs<F extends EvalFixtureBase>(
     concurrency: Math.max(1, num("--concurrency", DEFAULT_CONCURRENCY)),
     maxSpend: Math.max(0, num("--max-spend", DEFAULT_MAX_SPEND_USD)),
     smoke: argv.includes("--smoke"),
+    backend,
     argv,
   };
 }
@@ -1159,6 +1204,85 @@ export function anthropicSend(apiKey: string): Send {
     }
     return (await res.json()) as AnthropicResponse;
   };
+}
+
+// ---------------------------------------------------------------------------
+// Backends
+// ---------------------------------------------------------------------------
+
+/**
+ * How a run OBTAINS one trial's verdict. Everything else this file does — fixture selection, the
+ * retry policy, the preflight, the worker pool, the spend ceiling, aggregation, the decision, both
+ * reports and the exit codes — is already backend-agnostic in substance; it was Anthropic-wired in
+ * code at exactly two points, {@link runTrial} and {@link spendUsd}, and this interface is those two
+ * points widened.
+ *
+ * A non-Anthropic backend therefore does not reimplement the harness: it returns the same
+ * {@link TrialCapture} (a verdict as a JSON string, wherever it came from), and every downstream
+ * function is reached unchanged.
+ */
+export interface Backend<F extends EvalFixtureBase> {
+  /** Obtain one trial's verdict. Throws on a transport failure — the pool's retry policy owns it. */
+  trial: (fixture: F, prompt: string, run: RunOptions, spend: Spend) => Promise<TrialCapture>;
+}
+
+/**
+ * A backend KIND, registered under the `--backend` value that selects it. Split from
+ * {@link Backend} because two of its members must be readable WITHOUT constructing anything:
+ * `defaultModel` is needed while parsing argv, and `priceUsd` is needed in the `finally` that
+ * reports spend even for a run that aborted before a backend existed.
+ */
+export interface BackendSpec<F extends EvalFixtureBase> {
+  /** Model id when `--model` is absent. Pin a snapshot, never a floating alias. */
+  defaultModel: string;
+  /** List-price USD for what this backend has consumed. */
+  priceUsd: (spend: Spend, model: string) => number;
+  /**
+   * Build the backend, or return a string saying why the eval CANNOT RUN (e.g. a missing key).
+   *
+   * `send` is the CLI's injected ANTHROPIC transport (the harness's testing seam) and is therefore
+   * meaningful only to the built-in backend; another vendor's backend ignores it and builds its own
+   * transport from its own key. Inject a different vendor's transport by constructing its backend
+   * directly in a unit test, not through this.
+   */
+  create: (send?: Send) => Backend<F> | string;
+}
+
+export const ANTHROPIC_BACKEND = "anthropic";
+
+/** The built-in backend: the Messages API tool loop this harness started as. */
+function anthropicBackendSpec<F extends EvalFixtureBase>(spec: EvalSpec<F>): BackendSpec<F> {
+  return {
+    defaultModel: spec.defaultModel,
+    priceUsd: spendUsd,
+    create: (send) => {
+      const transport = send ?? anthropicTransport();
+      if (typeof transport === "string") return transport;
+      return {
+        trial: (fixture, prompt, run, spend) =>
+          runTrial(transport, spec, fixture, prompt, run.model, run.temperature, spend),
+      };
+    },
+  };
+}
+
+function anthropicTransport(): Send | string {
+  const apiKey = process.env.ANTHROPIC_API_KEY ?? "";
+  if (!apiKey) {
+    return (
+      "no ANTHROPIC_API_KEY — cannot run the live eval. Set the key (or dispatch " +
+      ".github/workflows/eval-prompts.yml) and retry."
+    );
+  }
+  return anthropicSend(apiKey);
+}
+
+/** The backend kind `--backend <name>` selects, or undefined when the spec does not offer it. */
+export function backendSpecFor<F extends EvalFixtureBase>(
+  spec: EvalSpec<F>,
+  name: string,
+): BackendSpec<F> | undefined {
+  return name === ANTHROPIC_BACKEND ? anthropicBackendSpec(spec) : spec.backends?.[name];
 }
 
 /**
@@ -1237,10 +1361,13 @@ export async function runEval<F extends EvalFixtureBase>(
   // Declared out here and printed in the `finally` below: a run that ABORTS still spent money, and
   // the first probe of this harness reported none because every abort returned before the report.
   const spend = emptySpend();
+  // Resolved from the backend KIND, not from a constructed backend: this must price correctly even
+  // for a run that aborted before any backend existed.
+  const price = backendSpecFor(spec, run.backend)?.priceUsd ?? spendUsd;
   try {
-    return await runEvalInner(spec, run, tag, spend, send);
+    return await runEvalInner(spec, run, tag, spend, price, send);
   } finally {
-    console.error(`${tag} spend: ${formatSpend(spend, run.model)}`);
+    console.error(`${tag} spend: ${formatSpend(spend, run.model, price)}`);
   }
 }
 
@@ -1249,19 +1376,23 @@ async function runEvalInner<F extends EvalFixtureBase>(
   run: RunOptions,
   tag: string,
   spend: Spend,
+  price: PriceUsd,
   send?: Send,
 ): Promise<number> {
-  let transport = send;
-  if (!transport) {
-    const apiKey = process.env.ANTHROPIC_API_KEY ?? "";
-    if (!apiKey) {
-      console.error(
-        `${tag} no ANTHROPIC_API_KEY — cannot run the live eval. Set the key (or dispatch ` +
-          `.github/workflows/eval-prompts.yml) and retry.`,
-      );
-      return EXIT.CANNOT_RUN;
-    }
-    transport = anthropicSend(apiKey);
+  const backendSpec = backendSpecFor(spec, run.backend);
+  if (!backendSpec) {
+    // CLI misuse, and our bug if a workflow passes it: name what IS available rather than run the
+    // default backend under a flag asking for another one.
+    console.error(
+      `${tag} unknown backend "${run.backend}" — this eval offers: ` +
+        `${[ANTHROPIC_BACKEND, ...Object.keys(spec.backends ?? {})].join(", ")}`,
+    );
+    return EXIT.HARNESS_FAIL;
+  }
+  const backend = backendSpec.create(send);
+  if (typeof backend === "string") {
+    console.error(`${tag} ${backend}`);
+    return EXIT.CANNOT_RUN;
   }
 
   const fixtures = selectFixtures(spec, run);
@@ -1285,8 +1416,8 @@ async function runEvalInner<F extends EvalFixtureBase>(
 
   const outcomes: TrialOutcome[][] = fixtures.map(() => []);
   const attemptTrial = (task: Task): Promise<TrialCapture> =>
-    runTrial(transport, spec, task.fixture, task.prompt, run.model, run.temperature, spend);
-  const overBudget = (): boolean => spendUsd(spend, run.model) >= run.maxSpend;
+    backend.trial(task.fixture, task.prompt, run, spend);
+  const overBudget = (): boolean => price(spend, run.model) >= run.maxSpend;
 
   // PREFLIGHT, deliberately alone and before the pool. It guards TWO failures, both of which
   // otherwise cost a whole paid run to discover:
@@ -1398,7 +1529,7 @@ async function runEvalInner<F extends EvalFixtureBase>(
     // partial results are discarded rather than reported as a measurement.
     console.error(
       `${tag} STOPPED at the spend ceiling — the run is incomplete and its partial results are ` +
-        `discarded. ${formatSpend(spend, run.model)} (ceiling $${run.maxSpend.toFixed(2)}). ` +
+        `discarded. ${formatSpend(spend, run.model, price)} (ceiling $${run.maxSpend.toFixed(2)}). ` +
         `Re-run with --max-spend to raise it deliberately.`,
     );
     return EXIT.CANNOT_RUN;
@@ -1430,7 +1561,7 @@ async function runEvalInner<F extends EvalFixtureBase>(
       ? JSON.stringify(
           jsonReport(spec, results, decision, run, {
             ...spend,
-            usd: Number(spendUsd(spend, run.model).toFixed(4)),
+            usd: Number(price(spend, run.model).toFixed(4)),
           }),
           null,
           2,

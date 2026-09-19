@@ -34,6 +34,7 @@ import {
   spendUsd,
   trialsFor,
   type AnthropicResponse,
+  type BackendSpec,
   type EvalFixtureBase,
   type EvalSpec,
   type Send,
@@ -1626,4 +1627,97 @@ test("the doc's fixture tables agree with the fixtures' actual gating flags", ()
   }
   expect(checked).toBeGreaterThan(15);
   expect(wrong).toEqual([]);
+});
+
+// ---------------------------------------------------------------------------
+// Backends (#jev go/no-go) — the seam that lets a second vendor be measured on
+// the same fixtures. HERMETIC: the extra backend below makes no calls.
+// ---------------------------------------------------------------------------
+
+/** A backend that answers every trial from a canned verdict, recording per-trial `detail`. */
+function stubBackendSpec(
+  label: string,
+  detail?: Record<string, unknown>,
+): BackendSpec<TestFixture> {
+  return {
+    defaultModel: "stub-1.0.0",
+    priceUsd: (spend) => spend.input * 0.000_001,
+    create: () => ({
+      trial: async (_fixture, _prompt, _run, spend) => {
+        addUsage(spend, { usage: { input_tokens: 10 } });
+        return {
+          toolUsed: true,
+          content: JSON.stringify({ label }),
+          turns: 1,
+          ...(detail === undefined ? {} : { detail }),
+        };
+      },
+    }),
+  };
+}
+
+test("each backend pins its OWN default model — a second vendor must not inherit the first's", () => {
+  const spec = testSpec({ backends: { stub: stubBackendSpec("ok") } });
+  expect(parseArgs(spec, []).backend).toBe("anthropic");
+  expect(parseArgs(spec, []).model).toBe("m");
+  expect(parseArgs(spec, ["--backend", "stub"]).model).toBe("stub-1.0.0");
+  // An explicit --model still wins, so a run can probe a different snapshot.
+  expect(parseArgs(spec, ["--backend", "stub", "--model", "other"]).model).toBe("other");
+});
+
+test("an unknown --backend fails as a HARNESS error rather than silently running the default", async () => {
+  const spec = testSpec({ backends: { stub: stubBackendSpec("ok") } });
+  // The default backend would PASS this spec, so a silent fallback would look like a green run
+  // against a vendor that was never called.
+  expect(await runEval(spec, ["--backend", "typo"], scriptedSend([]))).toBe(EXIT.HARNESS_FAIL);
+});
+
+test("a backend that cannot be constructed reports CANNOT_RUN, not a pile of misses", async () => {
+  const spec = testSpec({
+    backends: { stub: { ...stubBackendSpec("ok"), create: () => "no STUB_API_KEY" } },
+  });
+  expect(await runEval(spec, ["--backend", "stub"])).toBe(EXIT.CANNOT_RUN);
+});
+
+test("a non-Anthropic backend runs the whole harness and is scored by the spec's own scorer", async () => {
+  const spec = testSpec({ backends: { stub: stubBackendSpec("ok") } });
+  expect(await runEval(spec, ["--backend", "stub", "--trials", "3"])).toBe(EXIT.PASS);
+  // ...and a wrong verdict from the same backend still fails the gate.
+  const wrong = testSpec({ backends: { stub: stubBackendSpec("bad") } });
+  expect(await runEval(wrong, ["--backend", "stub", "--trials", "3"])).toBe(EXIT.GATE_FAIL);
+});
+
+test("per-trial detail reaches the JSON report, and is ABSENT when a backend records none", () => {
+  const withDetail = outcomeFrom(testSpec(), FIXTURE, {
+    toolUsed: true,
+    content: '{"label":"ok"}',
+    turns: 1,
+    detail: { kind: { choice: "ok", confidence: 0.9 } },
+  });
+  expect(withDetail.detail).toEqual({ kind: { choice: "ok", confidence: 0.9 } });
+
+  const spec = testSpec();
+  const detailed = jsonReport(
+    spec,
+    [aggregate(FIXTURE, [withDetail], spec.labels)],
+    decide([], 0.5),
+    run,
+  );
+  expect((detailed.results as Record<string, unknown>[])[0]!.trialDetails).toEqual([
+    { kind: { choice: "ok", confidence: 0.9 } },
+  ]);
+
+  // The Anthropic leg records no detail, so its report keeps the exact shape the docs' baseline
+  // tables are transcribed from — an empty array here would be a silent schema change.
+  const plain = outcomeFrom(spec, FIXTURE, { toolUsed: true, content: '{"label":"ok"}', turns: 1 });
+  const bare = jsonReport(spec, [aggregate(FIXTURE, [plain], spec.labels)], decide([], 0.5), run);
+  expect((bare.results as Record<string, unknown>[])[0]!).not.toHaveProperty("trialDetails");
+});
+
+test("spend is priced by the BACKEND, not by the Claude table", () => {
+  const spend = { ...emptySpend(), input: 1_000_000 };
+  // `src/pricing.ts` knows only Claude models; a vendor model would fall through to default
+  // (sonnet-like) weights and report a number that is simply wrong.
+  expect(spendUsd(spend, "stub-1.0.0")).toBeCloseTo(3, 5);
+  expect(formatSpend(spend, "stub-1.0.0", (s) => s.input * 0.000042)).toContain("$42.0000");
 });

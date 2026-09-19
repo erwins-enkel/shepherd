@@ -140,7 +140,8 @@ struct MainWindow: View {
             serverName: profile.name,
             serverVersion: model.serverVersion,
             appVersion: model.appVersion,
-            minClient: model.serverMinClient)
+            minClient: model.serverMinClient,
+            serverUnhealthy: model.serverUnhealthy)
     }
 
     private var detail: some View {
@@ -148,7 +149,9 @@ struct MainWindow: View {
             // Above the command notice: the banner is about the connection the
             // whole window depends on, the notice about one command that failed.
             if let kind = bannerKind {
-                ConnectionBanner(kind: kind) { Task { await model.retryActive() } }
+                // The retry task belongs to the model, not to this view: a
+                // profile switch or a teardown has to be able to cancel it.
+                ConnectionBanner(kind: kind, isRetrying: model.retrying) { model.retry() }
             }
             if let message = command.message {
                 NoticeBar(message: message) { command.clear() }

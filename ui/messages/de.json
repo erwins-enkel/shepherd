@@ -4091,7 +4091,7 @@
   "native_toolbar_add_server": "Server hinzufügen…",
   "native_toolbar_sign_out": "Abmelden",
   "native_banner_offline": "{server} nicht erreichbar. Neuer Versuch läuft.",
-  "native_banner_mismatch": "Server- und App-Version unterscheiden sich — Server {serverVersion}, App {appVersion}. Manches funktioniert möglicherweise nicht.",
+  "native_banner_mismatch": "Der Server spricht eine andere API-Version als diese App — Server {serverVersion}, App {appVersion}. Aktualisiere eines von beiden.",
   "native_banner_needs_login": "Deine Sitzung ist abgelaufen. Melde dich erneut an.",
   "native_newsession_provider_label": "Agent",
   "native_newsession_held": "Nutzungs-Stopp ist aktiv — die Aufgabe wurde eingereiht statt gestartet.",

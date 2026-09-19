@@ -76,7 +76,8 @@ struct StringCatalogTests {
         #expect(catalog.strings["native_welcome_remote_title"]?.localizations["de"]?.stringUnit.value
             == "Mit einem entfernten Server verbinden")
         #expect(catalog.strings["native_banner_mismatch"]?.localizations["en"]?.stringUnit.value
-            == "Server and app versions differ — server %1$@, app %2$@. Some things may not work.")
+            == "The server speaks a different API version than this app — "
+                + "server %1$@, app %2$@. Update one of them.")
     }
 
     /// Set of positional indices used by %N$@ placeholders.

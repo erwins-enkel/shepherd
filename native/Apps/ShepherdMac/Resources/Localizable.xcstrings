@@ -435,13 +435,13 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Server- und App-Version unterscheiden sich — Server %1$@, App %2$@. Manches funktioniert möglicherweise nicht."
+            "value": "Der Server spricht eine andere API-Version als diese App — Server %1$@, App %2$@. Aktualisiere eines von beiden."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Server and app versions differ — server %1$@, app %2$@. Some things may not work."
+            "value": "The server speaks a different API version than this app — server %1$@, app %2$@. Update one of them."
           }
         }
       }

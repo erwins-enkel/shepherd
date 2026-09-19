@@ -4091,7 +4091,7 @@
   "native_toolbar_add_server": "Add server…",
   "native_toolbar_sign_out": "Sign out",
   "native_banner_offline": "Cannot reach {server}. Retrying.",
-  "native_banner_mismatch": "Server and app versions differ — server {serverVersion}, app {appVersion}. Some things may not work.",
+  "native_banner_mismatch": "The server speaks a different API version than this app — server {serverVersion}, app {appVersion}. Update one of them.",
   "native_banner_needs_login": "Your session expired. Sign in again.",
   "native_newsession_provider_label": "Agent",
   "native_newsession_held": "Usage hold is on — the task was queued instead of started.",

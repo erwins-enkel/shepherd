@@ -4129,5 +4129,8 @@
   "feat_merge_confirm_body": "Every manual merge now opens a confirmation naming the pull request, its real target branch and the merge method — a double-click on the button can no longer answer it. When your repo's .shepherd/roles.json puts someone else on the hook as reviewer or merger, the dialog says so and asks you to take the merge over deliberately; the server refuses the merge without that confirmation, and binds it to the revision you saw.",
   "decommission_pr_merge_takeover": "Merge it myself & decommission",
   "toast_decommission_merge_refused": "{name}: the merge needs a fresh confirmation — decide again.",
-  "native_error_keychain": "The token could not be saved to the Keychain. Unlock the Keychain and try again."
+  "native_error_keychain": "The token could not be saved to the Keychain. Unlock the Keychain and try again.",
+  "native_archive_failed": "Could not archive the session: {reason}",
+  "native_interrupt_failed": "Could not interrupt the session: {reason}",
+  "native_signout_failed": "Signed out on this Mac, but the server did not confirm the token was revoked: {reason}"
 }

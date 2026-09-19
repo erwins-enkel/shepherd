@@ -392,6 +392,24 @@
         }
       }
     },
+    "native_archive_failed": {
+      "comment": "%1$@ = reason",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session konnte nicht archiviert werden: %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not archive the session: %1$@"
+          }
+        }
+      }
+    },
     "native_banner_mismatch": {
       "comment": "%1$@ = serverVersion, %2$@ = appVersion",
       "extractionState": "manual",
@@ -701,6 +719,24 @@
         }
       }
     },
+    "native_interrupt_failed": {
+      "comment": "%1$@ = reason",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session konnte nicht unterbrochen werden: %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not interrupt the session: %1$@"
+          }
+        }
+      }
+    },
     "native_login_sheet_title": {
       "comment": "%1$@ = server",
       "extractionState": "manual",
@@ -783,6 +819,24 @@
           "stringUnit": {
             "state": "translated",
             "value": "Sessions"
+          }
+        }
+      }
+    },
+    "native_signout_failed": {
+      "comment": "%1$@ = reason",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf diesem Mac abgemeldet, aber der Server hat den Widerruf des Tokens nicht bestätigt: %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Signed out on this Mac, but the server did not confirm the token was revoked: %1$@"
           }
         }
       }

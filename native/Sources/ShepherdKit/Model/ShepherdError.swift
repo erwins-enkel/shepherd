@@ -32,6 +32,11 @@ public enum ShepherdError: Error, Equatable, Sendable {
   /// *and* the underlying error's description, so connection refused, a
   /// timeout and a TLS rejection stay distinguishable in a bug report.
   case transport(String)
+  /// The task making the request was cancelled. Not a failure of the server,
+  /// the network or the contract: the caller walked away. A long-running
+  /// consumer treats it as a no-op — nothing to show the operator, nothing to
+  /// retry — which is why it is its own case and not a `.transport`.
+  case cancelled
 
   /// Maps a thrown error from the generated client. The generated client only
   /// throws for transport failures and body decoding failures — documented
@@ -46,6 +51,7 @@ public enum ShepherdError: Error, Equatable, Sendable {
   public static func from(_ error: any Error, route: String) -> ShepherdError {
     if let shepherd = error as? ShepherdError { return shepherd }
     if let profile = error as? ServerProfileError { return .insecureProfile(profile) }
+    if error is CancellationError { return .cancelled }
 
     guard let clientError = error as? ClientError else {
       // A bare coding error — thrown by our own encoding of `PresenceFrame`,
@@ -67,15 +73,19 @@ public enum ShepherdError: Error, Equatable, Sendable {
     if let shepherd = underlying as? ShepherdError { return shepherd }
     if let profile = underlying as? ServerProfileError { return .insecureProfile(profile) }
 
+    // Cancellation travels the same route as a transport failure — a
+    // middleware's backoff sleep throws it, and the runtime wraps it — but it
+    // means the caller walked away, not that the request could not be made.
+    if underlying is CancellationError { return .cancelled }
+
     if underlying is DecodingError || underlying is EncodingError {
       return .contractMismatch(
         route: operationRoute, underlying: capped(String(describing: underlying)))
     }
 
-    // The network layer's own vocabulary: URLSession, the BSD socket layer,
-    // and structured-concurrency cancellation. None of these ever means the
-    // server disagreed with the contract.
-    if underlying is URLError || underlying is POSIXError || underlying is CancellationError {
+    // The network layer's own vocabulary: URLSession and the BSD socket layer.
+    // Neither of these ever means the server disagreed with the contract.
+    if underlying is URLError || underlying is POSIXError {
       return .transport(capped("\(clientError.causeDescription): \(underlying)"))
     }
 

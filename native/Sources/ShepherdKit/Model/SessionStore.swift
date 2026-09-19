@@ -199,6 +199,12 @@ public final class SessionStore {
         currentReconnectDelay = reconnectDelay
       } catch {
         switch ShepherdError.from(error, route: "bootstrap") {
+        case .cancelled:
+          // The task running start() was cancelled. Nothing failed, so nothing
+          // is published: `connection` stays where the operator last saw it,
+          // and the socket goes down with the loop.
+          await teardownEventLoop()
+          return
         case .unauthenticated:
           // Terminal: the middleware already cleared the token, and only a new
           // login can help. The app calls start() again after ProfileSetup.
@@ -395,6 +401,9 @@ public final class SessionStore {
   /// consumer, and an app that wants to hear about a 401 from a request the
   /// store did not make should be the one listening to it.
   private func record(_ mapped: ShepherdError) {
+    // A cancelled request is not a failure to show: the caller walked away, so
+    // the last error the operator saw stays the current one.
+    guard mapped != .cancelled else { return }
     lastError = mapped
     // Through `publish` rather than a direct assignment: a 401 that lands
     // after `stop()` must not repaint `.needsLogin` over `.idle`.

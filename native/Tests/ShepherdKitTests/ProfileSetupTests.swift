@@ -163,10 +163,9 @@ struct ProfileSetupTests {
     #expect(try credentials.load(for: "k") == nil)
   }
 
-  // A 200 here is the future server path — self-revocation for a full-scope
-  // bearer token isn't live yet, but the stub exercises the success branch
-  // for whenever the server-side change lands.
-  @Test("logout attempts to revoke the token then clears the Keychain entry")
+  // A 200 is what current servers answer: a full-scope token may revoke
+  // itself, so logout really does kill the token server-side.
+  @Test("logout revokes the token then clears the Keychain entry")
   func logoutAttemptsRevokeThenClears() async throws {
     let server = FakeShepherdServer()
     defer { server.tearDown() }
@@ -183,10 +182,12 @@ struct ProfileSetupTests {
     #expect(try credentials.load(for: "k") == nil)
   }
 
-  @Test(
-    "logout tolerates today's 403 operator_session_required and still clears the Keychain entry"
-  )
-  func logoutTolerates403WhenServerRequiresAnOperatorSession() async throws {
+  // Servers from before token self-revocation answer 403
+  // `operator_session_required`, because only an operator cookie could manage
+  // tokens. The token then outlives the logout server-side; the local entry
+  // must go regardless.
+  @Test("logout tolerates a 403 from an older server and still clears the Keychain entry")
+  func logoutTolerates403FromAnOlderServer() async throws {
     let server = FakeShepherdServer()
     defer { server.tearDown() }
     server.stub(
@@ -236,6 +237,48 @@ struct ProfileSetupTests {
     #expect(try credentials.load(for: "k") == nil)
   }
 
+  @Test("logout clears the local entry even when the Keychain read fails")
+  func logoutClearsWhenTheKeychainReadFails() async throws {
+    let server = FakeShepherdServer()
+    defer { server.tearDown() }
+    // A locked Keychain hides the token id, so there is nothing to revoke —
+    // but a logout that cannot read must still delete, or the app is stuck
+    // holding a credential it can neither use nor get rid of.
+    let credentials = FailingCredentialStore()
+
+    try await ProfileSetup.logout(
+      profile: profile(server), credentials: credentials, urlSession: server.urlSession())
+
+    #expect(credentials.wasDeleted)
+    #expect(server.requests().isEmpty)
+  }
+
+  @Test("a Keychain failure after the mint revokes the token instead of orphaning it")
+  func mintRevokesWhenTheKeychainSaveFails() async throws {
+    let server = FakeShepherdServer()
+    defer { server.tearDown() }
+    try stubLogin(server)
+    server.stub("POST", "/api/access-tokens", status: 201, json: try mintedJSON())
+    server.stub(
+      "DELETE", "/api/access-tokens/tok_1", status: 200,
+      json: try Fixtures.json(Components.Schemas.Ok(ok: true)))
+    let credentials = SaveFailingCredentialStore()
+
+    await #expect(throws: SaveFailingCredentialStore.SaveFailure.self) {
+      _ = try await ProfileSetup.login(
+        profile: profile(server), password: "hunter2", credentials: credentials,
+        urlSessionFactory: { _ in server.urlSession() })
+    }
+
+    // A token the app cannot remember is a token nothing will ever use: it is
+    // revoked with the cookie session that is still authenticated here, rather
+    // than left in the operator's list for a manual cleanup.
+    #expect(
+      server.requests().contains {
+        $0.method == "DELETE" && $0.path == "/api/access-tokens/tok_1"
+      })
+  }
+
   @Test("logout with nothing stored is a no-op")
   func logoutWithoutCredential() async throws {
     let server = FakeShepherdServer()
@@ -247,6 +290,16 @@ struct ProfileSetupTests {
 
     #expect(server.requests().isEmpty)
   }
+}
+
+/// A store that reads back empty and refuses every write, standing in for a
+/// Keychain that rejects `SecItemAdd` (no unlocked keychain, a denied ACL).
+private final class SaveFailingCredentialStore: CredentialStore, @unchecked Sendable {
+  struct SaveFailure: Error {}
+
+  func load(for key: String) throws -> StoredCredential? { nil }
+  func save(_ credential: StoredCredential, for key: String) throws { throw SaveFailure() }
+  func delete(for key: String) throws {}
 }
 
 /// The factory closure is `@Sendable`, so the captured configuration needs a

@@ -91,6 +91,20 @@ struct ShepherdErrorTests {
     #expect(text.contains("Transport threw an error."))
   }
 
+  @Test("cancellation is its own case, bare or wrapped by the runtime")
+  func cancellationIsItsOwnCase() {
+    // A middleware's backoff sleep throws this and the runtime wraps it, so it
+    // arrives looking exactly like a transport failure — but it means the
+    // caller walked away, which a long-running consumer must not paint as
+    // "the server could not be reached".
+    let wrapped = clientError(
+      causeDescription: "Middleware of type 'RetryingMiddleware' threw an error.",
+      underlyingError: CancellationError())
+
+    #expect(ShepherdError.from(wrapped, route: "listSessions") == .cancelled)
+    #expect(ShepherdError.from(CancellationError(), route: "listSessions") == .cancelled)
+  }
+
   @Test("an opaque failure with a response attached is a contract mismatch")
   func opaqueFailureWithResponseIsContractMismatch() {
     struct Opaque: Error {}

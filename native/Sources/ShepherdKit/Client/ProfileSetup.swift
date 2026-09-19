@@ -92,7 +92,19 @@ public enum ProfileSetup {
     } catch { throw ShepherdError.from(error, route: "mintAccessToken") }
 
     let credential = StoredCredential(token: minted.token, tokenId: minted.entry.id)
-    try credentials.save(credential, for: validated.credentialKey)
+    do {
+      try credentials.save(credential, for: validated.credentialKey)
+    } catch {
+      // The token exists on the server but the app cannot remember it: revoke
+      // it rather than leave an orphan in the operator's token list, which
+      // nothing would ever use and only a manual revocation could clean up.
+      // Best effort, and it has to happen here — the cookie session that is
+      // allowed to manage tokens dies with the `defer` above.
+      ShepherdLog.client.notice(
+        "could not store the minted token; revoking it instead of leaving it orphaned")
+      _ = try? await client.revokeAccessToken(.init(path: .init(id: minted.entry.id)))
+      throw error
+    }
     ShepherdLog.client.notice(
       "minted an access token for \(validated.name, privacy: .public)")
     return credential
@@ -109,24 +121,41 @@ public enum ProfileSetup {
     credentials: any CredentialStore,
     urlSession: URLSession = .shared
   ) async throws {
-    guard let credential = try credentials.load(for: profile.credentialKey) else { return }
+    // A read that fails must not abort the logout: without the token id there
+    // is nothing to revoke, but the local entry is still deleted below. This
+    // is the one place where "I could not read the Keychain" and "there is
+    // nothing stored" may be treated alike.
+    let stored: StoredCredential?
+    do {
+      stored = try credentials.load(for: profile.credentialKey)
+    } catch {
+      // Never the item, only the failure that reading it produced.
+      ShepherdLog.credentials.error(
+        """
+        could not read the credential to revoke it: \
+        \(String(describing: error), privacy: .public) — clearing locally anyway
+        """)
+      stored = nil
+    }
     // The revocation carries the token in an Authorization header, so it is a
     // request the remote-URL policy governs. A profile that fails it is still
     // logged out locally — it just never gets the token put on the wire.
-    guard (try? profile.validated()) != nil else {
-      ShepherdLog.client.notice("profile is not safe to reach; skipping the revocation")
+    guard let credential = stored, (try? profile.validated()) != nil else {
+      if stored != nil {
+        ShepherdLog.client.notice("profile is not safe to reach; skipping the revocation")
+      }
       try credentials.delete(for: profile.credentialKey)
       return
     }
 
     // The revoke is attempted with the bearer token that authenticates this
-    // client. Today's server declines `DELETE /api/access-tokens/{id}` for
-    // bearer callers — it answers 403 `operator_session_required`, because
-    // only an operator cookie may manage tokens — so on that response the
-    // token stays valid server-side until it expires or an operator revokes
-    // it in the web UI. A server that adds self-revocation for a full-scope
-    // token will let this same call succeed instead. Either way, the local
-    // credential is always cleared below.
+    // client. Current servers let a token revoke itself — `DELETE
+    // /api/access-tokens/{id}` accepts the bearer caller when the id is its
+    // own — so this call succeeds and the token is dead server-side too. A
+    // server from before that change answers 403 `operator_session_required`,
+    // because only an operator cookie could manage tokens; the token then
+    // stays valid until it expires or an operator revokes it in the web UI.
+    // Either way, the local credential is always cleared below.
     let client = Client(
       serverURL: profile.baseURL,
       transport: URLSessionTransport(configuration: .init(session: urlSession)),

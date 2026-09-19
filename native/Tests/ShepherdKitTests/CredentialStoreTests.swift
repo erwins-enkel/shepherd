@@ -78,4 +78,13 @@ struct CredentialStoreTests {
 
     #expect(try store.load(for: key) == StoredCredential(token: "shp_second", tokenId: "tok_2"))
   }
+
+  // The two tests above skip themselves where no keychain is usable, which is
+  // exactly how a regressed CI keychain step would hide: the job would stay
+  // green with nothing exercising `SecItem*`. This test never skips, so on CI
+  // a keychain that cannot be written to fails loudly instead.
+  @Test("CI has a usable keychain")
+  func keychainIsUsableOnCI() {
+    #expect(ProcessInfo.processInfo.environment["CI"] == nil || KeychainAvailability.isUsable)
+  }
 }

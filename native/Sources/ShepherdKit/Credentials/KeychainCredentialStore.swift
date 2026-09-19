@@ -41,9 +41,25 @@ public struct KeychainCredentialStore: CredentialStore, Sendable {
     // Add first, so a failing write never leaves a window with no stored
     // credential (delete-then-add would). `kSecAttrAccessible` is only
     // settable on add, so it is part of this query and not the update below.
+    //
+    // `…ThisDeviceOnly` states the intent: this token authenticates *this*
+    // Mac to one server and has no business travelling. Nothing here sets
+    // `kSecAttrSynchronizable`, so the item was never an iCloud Keychain
+    // candidate either way — the suffix is what says so out loud, and what
+    // keeps it out of an encrypted backup restored onto another machine.
+    //
+    // No `kSecUseDataProtectionKeychain`: that would need a keychain-sharing
+    // entitlement the ad-hoc-signed development build does not have, so the
+    // item lands in the legacy (file-based) keychain. That is a deliberate
+    // trade, not an oversight; revisit it when the app ships signed with a
+    // real team id.
+    //
+    // An item an earlier build already wrote keeps the accessibility it was
+    // added with — the update path below only replaces the data. Logging out
+    // deletes the item, so the next login re-adds it with this attribute.
     var attributes = baseQuery(for: key)
     attributes[kSecValueData as String] = data
-    attributes[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+    attributes[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
 
     let addStatus = SecItemAdd(attributes as CFDictionary, nil)
     if addStatus == errSecSuccess {

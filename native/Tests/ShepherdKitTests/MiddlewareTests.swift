@@ -57,6 +57,30 @@ struct MiddlewareTests {
     #expect(fired.get() == true)
   }
 
+  @Test("a 401 for a credential the store has since replaced clears nothing")
+  func unauthorizedForAReplacedCredentialIsNotALogout() async throws {
+    let store = InMemoryCredentialStore(
+      seed: ["k": StoredCredential(token: "shp_old", tokenId: "t1")])
+    let fired = Box(false)
+    let middleware = AuthenticationMiddleware(
+      store: store, credentialKey: "k", onUnauthorized: { fired.set(true) })
+    let fresh = StoredCredential(token: "shp_new", tokenId: "t2")
+
+    _ = try await middleware.intercept(
+      HTTPRequest(method: .get, scheme: nil, authority: nil, path: "/api/sessions"),
+      body: nil, baseURL: baseURL, operationID: "listSessions"
+    ) { request, _, _ in
+      #expect(request.headerFields[.authorization] == "Bearer shp_old")
+      // A login that finished while this request was in flight: the store now
+      // holds a credential the server has never seen, let alone rejected.
+      try store.save(fresh, for: "k")
+      return (HTTPResponse(status: .unauthorized), nil)
+    }
+
+    #expect(try store.load(for: "k") == fresh)
+    #expect(fired.get() == false)
+  }
+
   @Test("a 200 leaves the credential alone")
   func okKeepsCredential() async throws {
     let store = InMemoryCredentialStore(seed: ["k": StoredCredential(token: "shp_x", tokenId: "t")])

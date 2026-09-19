@@ -318,23 +318,29 @@ recommended now; this is the shortlist to revisit once the two targets are measu
 1. ~~Join the waitlist; nothing below is actionable without a key.~~ **Done** — key obtained
    2026-09-19.
 2. ~~On key: add a JEV backend to `scripts/eval-core.ts` and run the existing stop-classifier fixture
-   set.~~ **DONE 2026-09-19 — the go/no-go is GO.** `--backend jev` scored **61/61 = 100%** gating
-   accuracy against the Haiku baseline's 33/34 = 97.1%; `ambiguous-unknown` **9/9 `unknown`**,
-   `de-ambiguous-unknown` **9/9**, both German gating buckets 9/9. It also closes the recorded known
-   gap — `gate-spec-first`, the prompt's own `gate` exemplar that Haiku splits toward `question`,
-   comes back 5/5 `gate`. Full run cost **$0.0037**. Numbers, the framing comparison and the
-   threshold sweep: `docs/eval-stop-classifier.md` → "JEV backend — the go/no-go".
+   set.~~ **DONE 2026-09-19 — the go/no-go is GO.** `--backend jev` on the verbatim framing cleared
+   every clause of the bar: gating accuracy **above** the Haiku baseline's 33/34 = 97.1%, a perfect
+   score on `ambiguous-unknown` and `de-ambiguous-unknown`, and both German gating buckets passing.
+   It also closes the recorded known gap — `gate-spec-first`, the prompt's own `gate` exemplar that
+   Haiku splits toward `question`, comes back unanimously `gate`. Run cost was three orders of
+   magnitude below the Haiku leg's. The framing comparison and the threshold sweep:
+   `docs/eval-stop-classifier.md` → "JEV backend — the go/no-go".
+
+   **Absolute JEV figures are deliberately not published here or there** — TypeSafe's
+   [MCA §2.3(f)](https://typesafe.ai/legal/mca) forbids publishing "benchmarks or performance
+   information about the Services" and this repo is public. The harness, fixtures and bar are all
+   in-tree, so re-running `--backend jev --json` reproduces them locally.
 
    Three findings that change the design below:
 
    - **§3b is answered.** Low-confidence-as-abstain works, but is **not needed**: JEV chooses
-     `unknown` on its own. The confidence ordering runs opposite to the intuition — abstains come back
-     at 0.78 mean confidence while the _correct_ `gate` calls sit at 0.64, so any threshold above 0.6
-     converts correct gates into surfaced sessions rather than buying caution. Recommendation for
-     step 3: **no threshold**, or ≤0.6 if one is wanted for other reasons.
+     `unknown` on its own. The confidence ordering runs opposite to the intuition — the abstains come
+     back _more_ confident than the **correct** `gate` calls, so any threshold above 0.6 converts
+     correct gates into surfaced sessions rather than buying caution. Recommendation for step 3:
+     **no threshold**, or ≤0.6 if one is wanted for other reasons.
    - **Feed the production prompt as `state`.** A purpose-authored structured state with distilled
-     per-kind `criteria` — the shape §5 implies — measured **91.8%** and failed `ambiguous-unknown` in
-     the dangerous direction (`gate`, 5/9). Passing `classifierPrompt()` through verbatim wins and
+     per-kind `criteria` — the shape §5 implies — measured below the Haiku baseline and failed
+     `ambiguous-unknown` in the dangerous direction (a majority of trials calling it `gate`). Passing `classifierPrompt()` through verbatim wins and
      keeps drift-prevented-by-import for free.
    - **Wire notes from the live probe.** `state` accepts an object as well as a string. A bad key is
      `401` carrying `authentication_error` (which the harness's `isPermanent` already matches); a

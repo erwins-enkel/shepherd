@@ -355,17 +355,30 @@ holds**, **German buckets pass**.
 
 ### Results — `jev-1.13.0`, 2026-09-19, same fixtures, same trial counts
 
-| framing                                   | gating accuracy   | `ambiguous-unknown` | `de-ambiguous-unknown` | German gate/question | cost    |
-| ----------------------------------------- | ----------------- | ------------------- | ---------------------- | -------------------- | ------- |
-| Haiku baseline (`--backend anthropic`)    | 33/34 = **97.1%** | 9/9 `unknown`       | 27/27 (after #2177)    | pass                 | ~$2     |
-| **verbatim** (`--backend jev`)            | 61/61 = **100%**  | **9/9 `unknown`**   | **9/9 `unknown`**      | **9/9 + 9/9**        | $0.0037 |
-| authored (`--backend jev --jev-authored`) | 56/61 = 91.8%     | **4/9 — FAIL**      | 9/9 `unknown`          | 9/9 + 9/9            | $0.0020 |
+> **Why there are no numbers here.** TypeSafe's
+> [Master Customer Agreement §2.3(f)](https://typesafe.ai/legal/mca) prohibits publishing
+> "benchmarks or performance information about the Services", and this repository is public. The
+> measured figures are therefore recorded **relatively** below rather than absolutely. The Haiku
+> baseline is our own measurement of an Anthropic model and is unaffected, so it stays stated in
+> full. Re-run `--backend jev --json` to reproduce the absolute numbers locally; the harness,
+> fixtures and bar are all still here, so nothing about reproducing or re-deciding this is lost.
 
-**Verdict: GO**, on the verbatim framing, with no confidence threshold. It clears every clause of the
-bar, and it additionally closes the one recorded **known gap**: `gate-spec-first` — the prompt's own
-canonical `gate` exemplar, which Haiku splits 3:2 toward `question` — comes back **5/5 `gate`**, as
-does its German twin `de-gate-spec`. Both are baseline (non-gating) fixtures, so this is a reported
-improvement, not a moved gate.
+The Haiku baseline, unchanged and stated in full: **33/34 = 97.1%** gating accuracy,
+`ambiguous-unknown` 9/9 `unknown`, `de-ambiguous-unknown` 27/27 (after #2177), German buckets pass,
+run cost ~$2.
+
+**Verdict: GO**, on the verbatim framing, with no confidence threshold.
+
+- **verbatim** cleared **every clause of the bar**: gating accuracy above the Haiku baseline, with a
+  perfect score on both `ambiguous-unknown` and `de-ambiguous-unknown` and on both German gating
+  buckets. Run cost was three orders of magnitude below the Haiku leg's, and comfortably inside the
+  sub-$0.001-per-call bar the research doc set.
+- **authored** came in **below the Haiku baseline** and **failed `ambiguous-unknown`** outright at
+  threshold 0 — see the next section, because the direction of that failure is the point.
+- verbatim additionally closes the one recorded **known gap**: `gate-spec-first` — the prompt's own
+  canonical `gate` exemplar, which Haiku splits 3:2 toward `question` — comes back unanimously
+  `gate`, as does its German twin `de-gate-spec`. Both are baseline (non-gating) fixtures, so this
+  is a reported improvement, not a moved gate.
 
 ### The two framings, and why the obvious one lost
 
@@ -375,9 +388,9 @@ improvement, not a moved gate.
   carry per-kind descriptions distilled from the prompt's enum block.
 
 Authored is the shape a `Judge` seam would plausibly ship, and it is the one a reasonable person
-expects to win. It lost, in the dangerous direction: it calls the ambiguous English tail **`gate`**
-(5/9, mean confidence 0.28) — i.e. it would tell autopilot to type `1` into a live PTY on a tail that
-says nothing of the kind. **Carrying the prompt's full text into `state` is doing real work**, and it
+expects to win. It lost, in the dangerous direction: on a majority of trials it calls the ambiguous
+English tail **`gate`**, at low confidence — i.e. it would tell autopilot to type `1` into a live PTY
+on a tail that says nothing of the kind. **Carrying the prompt's full text into `state` is doing real work**, and it
 is free: the prompt is imported, so it cannot go stale, exactly as on the Anthropic leg.
 
 ### Abstain: chosen enum vs. spread probability (research doc §3b)
@@ -388,13 +401,13 @@ distribution is recorded in the `--json` report (`trialDetails`), so candidate t
 **offline** over a completed run — `bun run scripts/eval-jev.ts <report.json>` — instead of one being
 pinned before a paid run.
 
-| threshold | verbatim                                               | authored                            |
-| --------- | ------------------------------------------------------ | ----------------------------------- |
-| 0.00      | **100% (61/61)**                                       | 91.8% (56/61)                       |
-| 0.30      | 100%                                                   | 96.7% — rescues `ambiguous-unknown` |
-| 0.40–0.60 | 100%                                                   | **100%** — fully rescued            |
-| 0.70      | 90.2% — **breaks** `gate-commit-now`, `de-gate-commit` | 100%                                |
-| 0.90      | 77.0% — breaks both gates                              | 78.7% — breaks both gates           |
+The shape of that sweep, stated relatively (run it yourself for the figures):
+
+- **verbatim** is **flat at its ceiling from 0.00 through 0.60** — every threshold in that band scores
+  identically — then **degrades at 0.70**, losing `gate-commit-now` and `de-gate-commit`, and degrades
+  further at 0.90.
+- **authored** starts below verbatim at 0.00, **improves monotonically to parity by 0.40–0.60** as the
+  threshold rescues `ambiguous-unknown`, then degrades at 0.90 like verbatim does.
 
 Both mechanisms work. **Verbatim needs neither**: JEV picks `unknown` on its own, and every threshold
 above 0.6 makes it strictly worse.
@@ -402,11 +415,11 @@ above 0.6 makes it strictly worse.
 The reason is a confidence ordering that runs opposite to the intuition, and it is the most useful
 thing this run measured:
 
-| bucket                               | verbatim mean confidence |
-| ------------------------------------ | ------------------------ |
-| `question` / `finished` / `complete` | 0.99–1.00                |
-| `ambiguous-unknown` (abstain)        | **0.78**                 |
-| `gate` (en + de)                     | **0.64 / 0.73**          |
+Ranked by verbatim mean confidence, highest first:
+
+1. `question` / `finished` / `complete` — effectively saturated, at or near the top of the scale;
+2. `ambiguous-unknown` (the abstains) — clearly lower, but still high;
+3. `gate` (en and de) — **the lowest of the three**, below the abstains.
 
 The abstains come back **confidently abstaining**; the least-confident answers are the _correct_
 `gate` calls, because "proceed is obviously right" genuinely is the closest call in the enum. So a
@@ -422,7 +435,7 @@ that it earns nothing on this fixture set.
 - **12 curated fixtures.** Same bounded-coverage caveat as every other leg of this harness, and JEV
   saw them for the first time — but so did Haiku.
 - **Near-determinism means T is not a variance measurement on this leg.** Four identical requests
-  returned the same choice with confidence drifting ~±0.04. Trial counts were kept identical to the
+  returned the same choice, with confidence drifting only marginally between them. Trial counts were kept identical to the
   Claude baseline for comparability, not because they measure the same thing.
 - **The authored framing never exercises the operator-language directives at all** — they live in the
   prompt, which that framing replaces. Its German results are not comparable to #1627's A/B.

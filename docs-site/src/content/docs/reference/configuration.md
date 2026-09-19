@@ -138,7 +138,7 @@ maintain loop's own triples live with their features, further down this page.
 | `SHEPHERD_DISTILLER_CLI` | `inherit` | **Distiller** — turns captured session learnings into proposed house rules |
 | `SHEPHERD_DISTILLER_MODEL` | `default` | Model the distiller runs on |
 | `SHEPHERD_DISTILLER_EFFORT` | `default` | Effort tier for the distiller |
-| `SHEPHERD_DISTILLER_INTERVAL_DAYS` | `1` | Per-repository throttle on **automatic** distiller runs; a manual run ignores it. Clamped to `1`–`14`, and an out-of-range or unparseable value falls back to `1` (the historic daily cadence) rather than disabling the throttle |
+| `SHEPHERD_DISTILLER_INTERVAL_DAYS` | `1` | Per-repository throttle on **automatic** distiller runs; a manual run ignores it. Clamped to `1`–`14`: an out-of-range number snaps to the nearest bound (`30` gives you `14`, not the default), and only a non-numeric value falls back to `1` — the throttle cannot be turned off by setting a silly value |
 | `SHEPHERD_OPTIMIZER_CLI` | `inherit` | **Optimizer** — the one-click improvement pass over a repo's own agent instructions |
 | `SHEPHERD_OPTIMIZER_MODEL` | `default` | Model the optimizer runs on |
 | `SHEPHERD_OPTIMIZER_EFFORT` | `default` | Effort tier for the optimizer |
@@ -154,7 +154,7 @@ human. Both are clamped, UI-configurable and persisted, with the env seeding a f
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `SHEPHERD_REVIEW_CYCLES_CAP` | `3` | Critic → fix rounds a PR gets before the session escalates to the operator instead of re-reviewing. Clamped `1`–`8`; an out-of-range or unparseable value falls back to the default |
+| `SHEPHERD_REVIEW_CYCLES_CAP` | `3` | Critic → fix rounds a PR gets before the session escalates to the operator instead of re-reviewing. Clamped `1`–`8`: an out-of-range number snaps to the nearest bound (`20` gives you `8`, not the default `3`), and only a non-numeric value falls back to the default |
 | `SHEPHERD_PLAN_REVIEW_CYCLES_CAP` | `5` | The same for plan-gate adversarial-review rounds, before the plan is escalated to the operator. Clamped `1`–`12`, and independent of the PR cap above |
 | `SHEPHERD_AUTOMERGE_REBASE_CAP` | `5` | Consecutive auto-rebases the merge train spends on one PR whose base keeps moving under it, before it pauses that PR for the operator. It bounds a rebase loop against a busy `main`, not rebase failures |
 | `SHEPHERD_EXTRA_CREDITS_DRAIN_CEILING` | `0` | Account-wide **extra-credit** (pay-as-you-go overage) ceiling, in account currency units, that autonomous drain and autopilot may run past; they pause once measured spend strictly exceeds it. The default `0` means pause on *any* overage spend, which is the conservative reading — raise it deliberately. Negative and unparseable values clamp to `0`. Persisted + UI-configurable |

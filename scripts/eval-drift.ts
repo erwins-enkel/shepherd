@@ -88,6 +88,25 @@ export interface Report {
   results: ReportFixture[];
 }
 
+/**
+ * A tally the measures divide by or sum: a finite, non-negative number.
+ *
+ * Checked rather than assumed because of how the arithmetic FAILS. An absent or non-numeric tally
+ * reduces a delta to `NaN`, and `NaN < -TOLERANCE` and `NaN > CEILING` are BOTH false — so every
+ * condition reading it reports PASS off no data at all, and the nightly goes green on a gate that
+ * measured nothing. There is no value to fall back to: a missing tally is a broken input, not a
+ * zero.
+ */
+function validTally(value: unknown, min = 0): boolean {
+  return typeof value === "number" && Number.isFinite(value) && value >= min;
+}
+
+/** Every count must be a finite number for the same reason — `fixtureFlip` divides by them. */
+function validCounts(counts: unknown): boolean {
+  if (typeof counts !== "object" || counts === null) return false;
+  return Object.values(counts as Record<string, unknown>).every((n) => validTally(n));
+}
+
 /** Read a `--json` report, rejecting anything whose shape the conditions below cannot trust.
  *  Throws rather than degrading: a silently half-read report would gate on half a measurement. */
 export function parseReport(raw: unknown): Report {
@@ -108,12 +127,12 @@ export function parseReport(raw: unknown): Report {
     }
     if (
       typeof fixture.gating !== "boolean" ||
-      typeof fixture.correct !== "number" ||
-      typeof fixture.counts !== "object" ||
-      fixture.counts === null
+      !validTally(fixture.correct) ||
+      !validTally(fixture.trials, 1) ||
+      !validCounts(fixture.counts)
     ) {
       throw new Error(
-        `not an eval --json report: fixture "${fixture.id}" has no gating/correct/counts`,
+        `not an eval --json report: fixture "${fixture.id}" has no usable gating/trials/correct/counts`,
       );
     }
     if (typeof fixture.uncovered !== "number") {
@@ -184,6 +203,26 @@ export function parseBaseline(raw: unknown): DriftBaseline {
   }
   if (!baseline.fixtures || typeof baseline.fixtures !== "object") {
     throw new Error("not a drift baseline: no fixtures");
+  }
+  // Validated ENTRY BY ENTRY, as strictly as `parseReport` validates a report — stricter, if
+  // anything, because this is the one input on this path a human pastes by hand (the
+  // `JEV_EVAL_BASELINE` secret) rather than one the harness generated. An entry missing a tally
+  // does not weaken the gate, it SILENTLY RETIRES three of its conditions; see `validTally`.
+  for (const [id, entry] of Object.entries(baseline.fixtures)) {
+    const fixture = entry as Partial<DriftBaseline["fixtures"][string]> | null;
+    if (
+      !fixture ||
+      typeof fixture.gating !== "boolean" ||
+      !validTally(fixture.trials, 1) ||
+      !validTally(fixture.correct) ||
+      !validTally(fixture.uncovered) ||
+      !validCounts(fixture.counts)
+    ) {
+      throw new Error(
+        `drift baseline is malformed: fixture "${id}" has no usable gating/trials/correct/` +
+          "uncovered/counts. Recapture it with `--capture` and update the JEV_EVAL_BASELINE secret.",
+      );
+    }
   }
   return baseline as DriftBaseline;
 }

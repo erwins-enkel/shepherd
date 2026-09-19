@@ -422,5 +422,65 @@ test("a fixture PROMOTED to gating is staleness, not a silent change of what is 
 test("parseReport rejects a result missing the fields the conditions read", () => {
   const broken = report();
   delete (broken.results[0] as Partial<ReportFixture>).counts;
-  expect(() => parseReport(broken)).toThrow(/gating\/correct\/counts/);
+  expect(() => parseReport(broken)).toThrow(/gating\/trials\/correct\/counts/);
+});
+
+// ---------------------------------------------------------------------------
+// The baseline is the one hand-pasted input on this path, and a malformed one does not
+// WEAKEN the gate — it silently retires three of its conditions. See `validTally`.
+// ---------------------------------------------------------------------------
+
+test("a baseline entry missing a tally reduces every delta to NaN, which compares as PASS", () => {
+  // The bug this guards, stated as arithmetic: both comparisons the conditions make are FALSE for
+  // NaN, so a gate reading a broken baseline reports no drift off no data. Written through a
+  // parameter because that is the real shape — a delta computed from a missing tally, not a
+  // literal.
+  const fellPastTolerance = (delta: number): boolean => delta < -ACCURACY_TOLERANCE;
+  const churnedPastCeiling = (rate: number): boolean => rate > FLIP_RATE_CEILING;
+  const noData = 0 / 0;
+  expect(fellPastTolerance(noData)).toBe(false);
+  expect(churnedPastCeiling(noData)).toBe(false);
+  // …which is why the baseline is refused before any of that arithmetic runs.
+  const broken = captureBaseline(report());
+  delete (broken.fixtures["gate-commit-now"] as Partial<DriftBaseline["fixtures"][string]>)
+    .uncovered;
+  expect(() => parseBaseline(broken)).toThrow(/malformed/);
+});
+
+test("parseBaseline rejects an entry missing any tally the measures read", () => {
+  const good = captureBaseline(report());
+  for (const field of ["trials", "correct", "uncovered", "counts", "gating"] as const) {
+    const broken = JSON.parse(JSON.stringify(good)) as DriftBaseline;
+    delete (broken.fixtures["gate-commit-now"] as Partial<DriftBaseline["fixtures"][string]>)[
+      field
+    ];
+    expect(() => parseBaseline(broken)).toThrow(/malformed: fixture "gate-commit-now"/);
+  }
+});
+
+test("parseBaseline rejects tallies that are present but unusable", () => {
+  const good = captureBaseline(report());
+  const cases: Partial<DriftBaseline["fixtures"][string]>[] = [
+    { trials: 0 }, // would make accuracyOf/coverageOf divide by zero trials
+    { trials: Number.NaN },
+    { correct: -1 },
+    { uncovered: "3" as unknown as number },
+    { counts: { gate: "5" } as unknown as Record<string, number> },
+  ];
+  for (const over of cases) {
+    const broken = JSON.parse(JSON.stringify(good)) as DriftBaseline;
+    Object.assign(broken.fixtures["gate-commit-now"]!, over);
+    expect(() => parseBaseline(broken)).toThrow(/malformed/);
+  }
+});
+
+test("parseBaseline accepts what --capture produces, round-tripped through JSON", () => {
+  const blob = JSON.stringify(captureBaseline(report()));
+  expect(() => parseBaseline(JSON.parse(blob))).not.toThrow();
+});
+
+test("parseReport rejects a non-numeric count value, for the same NaN reason", () => {
+  const broken = report();
+  broken.results[0]!.counts = { gate: "5" as unknown as number };
+  expect(() => parseReport(broken)).toThrow(/gating\/trials\/correct\/counts/);
 });

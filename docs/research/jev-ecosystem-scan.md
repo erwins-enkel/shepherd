@@ -449,9 +449,15 @@ recalibrated against outcomes later. The only cost claim with a method attached 
 full-frontier over a 7-day, 237-turn backtest on the author's own setup — one user, so anecdote.
 
 Related, from the tool-permissions work: **prune N candidates in exactly one round trip** by making
-each candidate its own boolean question against one shared state. That is a real answer to per-spawn
-plugin and skill trimming (`SHEPHERD_DISABLED_PLUGINS`, `agent-skills.ts`), and it is the same
-primitive as §5.4.
+each candidate its own boolean question against one shared state — the same primitive as §5.4.
+
+The per-spawn surface that exists today is **skills**, not plugins: `agent-skills.ts` reaches a
+session through `--add-dir`, so what a spawn loads is decided per spawn. Plugins are not a
+per-spawn surface at all — `SHEPHERD_PLUGINS_DIR` (`src/config.ts:40`) picks the load directory and
+a manifest's `enabled: false` (`src/plugins/types.ts:22`) is a soft off-switch applied at load, both
+boot-time and server-wide. So the one-round-trip prune applies to skill selection now, and would
+apply to plugins only if a per-spawn switch were built first — which is a separate piece of work,
+not a knob waiting to be turned.
 
 ---
 

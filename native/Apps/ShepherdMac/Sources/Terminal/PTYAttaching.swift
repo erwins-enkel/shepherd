@@ -64,6 +64,20 @@ final class PTYCommandQueue {
     }
 }
 
+/// Drains `source` into `sink`, oldest first, finishing `sink` once `source`
+/// finishes. Extracted from the output/lifecycle wiring below so the "never
+/// drop" guarantee is directly testable: hand it a hand-fed source and an
+/// `.unbounded` sink, and a burst that outruns a slow consumer still arrives
+/// complete and in order — which is exactly the contract `LivePTYAttachment`'s
+/// output relay now relies on.
+@MainActor
+func pump<Element: Sendable>(
+    from source: AsyncStream<Element>, into sink: AsyncStream<Element>.Continuation
+) async {
+    for await element in source { sink.yield(element) }
+    sink.finish()
+}
+
 /// `PTYAttaching` over a real `PTYConnection`.
 ///
 /// The kit's `output()` / `lifecycle()` are actor-isolated factories, so their
@@ -89,11 +103,13 @@ final class LivePTYAttachment: PTYAttaching {
         let connection = PTYConnection(
             client: client, sessionID: sessionID, cols: cols, rows: rows)
         self.connection = connection
-        // Same buffering policies the kit's own taps use: terminal output is
-        // bursty, and a stalled consumer drops its own oldest chunks rather
-        // than holding the socket's reader back.
-        let (output, outputSink) = AsyncStream<Data>.makeStream(
-            bufferingPolicy: .bufferingNewest(4096))
+        // `output` is `.unbounded`, unlike the kit's own tap: terminal bytes
+        // must never drop once they have left the kit's tap — a lost chunk
+        // mid-escape garbles the emulator — and the main actor that owns this
+        // relay always drains it, so there is nothing here for a bounded
+        // buffer to protect. `lifecycle` keeps the kit's own bursty-consumer
+        // policy: a handful of status events, not a data stream.
+        let (output, outputSink) = AsyncStream<Data>.makeStream(bufferingPolicy: .unbounded)
         let (lifecycle, lifecycleSink) = AsyncStream<PTYConnection.LifecycleEvent>.makeStream(
             bufferingPolicy: .bufferingNewest(16))
         self.output = output
@@ -105,14 +121,8 @@ final class LivePTYAttachment: PTYAttaching {
         }
         self.taps = taps
         let pumps = [
-            Task {
-                for await bytes in await taps.value.output { outputSink.yield(bytes) }
-                outputSink.finish()
-            },
-            Task {
-                for await event in await taps.value.lifecycle { lifecycleSink.yield(event) }
-                lifecycleSink.finish()
-            },
+            Task { await pump(from: taps.value.output, into: outputSink) },
+            Task { await pump(from: taps.value.lifecycle, into: lifecycleSink) },
         ]
         self.pumps = pumps
         // The kit finishes every tap it handed out on `stop()`, which ends both

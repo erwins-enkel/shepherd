@@ -929,18 +929,19 @@
       }
     },
     "native_terminal_prompt_failed": {
+      "comment": "%1$@ = reason",
       "extractionState": "manual",
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Der Agent hat die Nachricht nicht angenommen."
+            "value": "Der Agent hat die Nachricht nicht angenommen: %1$@"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The agent did not take the message."
+            "value": "The agent did not take the message: %1$@"
           }
         }
       }

@@ -48,10 +48,14 @@ jobs:
           swift --version
           xcodebuild -version
 
-      # The three Apple OpenAPI packages all ship swift-tools-version:6.1, so
-      # an older default Xcode on the runner would fail with a confusing
-      # manifest error instead of a clear one.
-      - name: Require Swift 6.1 or newer
+      # The three Apple OpenAPI packages all ship swift-tools-version:6.1. This
+      # job also builds Shepherd.app below, and Terminal/TerminalHostView.swift
+      # spells its SwiftTerm delegate conformance as an SE-0470 isolated
+      # conformance (`NSObject, @MainActor TerminalViewDelegate`) — a plain
+      # conformance is a hard error under strict concurrency, and SE-0470 needs
+      # Swift 6.2. An older default Xcode on the runner would otherwise fail
+      # with a confusing manifest or conformance error instead of a clear one.
+      - name: Require Swift 6.2 or newer
         run: |
           set -euo pipefail
           version="$(swift -version 2>&1 | sed -n 's/.*Swift version \([0-9][0-9.]*\).*/\1/p')"
@@ -63,8 +67,8 @@ jobs:
           major="${version%%.*}"
           rest="${version#*.}"
           minor="${rest%%.*}"
-          if [ "$major" -lt 6 ] || { [ "$major" -eq 6 ] && [ "$minor" -lt 1 ]; }; then
-            echo "::error::Swift $version is too old; ShepherdKit needs 6.1+."
+          if [ "$major" -lt 6 ] || { [ "$major" -eq 6 ] && [ "$minor" -lt 2 ]; }; then
+            echo "::error::Swift $version is too old; Shepherd.app needs 6.2+."
             echo "Installed Xcodes:"; ls /Applications | grep -i '^Xcode' || true
             echo "Pin a newer one with: sudo xcode-select -s /Applications/<Xcode>.app"
             exit 1
@@ -188,7 +192,7 @@ jobs:
           swift --version
           xcodebuild -version
 
-      - name: Require Swift 6.1 or newer
+      - name: Require Swift 6.2 or newer
         run: |
           set -euo pipefail
           version="$(swift -version 2>&1 | sed -n 's/.*Swift version \([0-9][0-9.]*\).*/\1/p')"
@@ -200,8 +204,8 @@ jobs:
           major="${version%%.*}"
           rest="${version#*.}"
           minor="${rest%%.*}"
-          if [ "$major" -lt 6 ] || { [ "$major" -eq 6 ] && [ "$minor" -lt 1 ]; }; then
-            echo "::error::Swift $version is too old; ShepherdKit needs 6.1+."
+          if [ "$major" -lt 6 ] || { [ "$major" -eq 6 ] && [ "$minor" -lt 2 ]; }; then
+            echo "::error::Swift $version is too old; Shepherd.app needs 6.2+."
             echo "Installed Xcodes:"; ls /Applications | grep -i '^Xcode' || true
             echo "Pin a newer one with: sudo xcode-select -s /Applications/<Xcode>.app"
             exit 1

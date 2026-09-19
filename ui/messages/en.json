@@ -4163,7 +4163,7 @@
   "native_terminal_connecting": "Connecting to the agent…",
   "native_terminal_ended_body": "This session no longer has a running agent. Its output is frozen.",
   "native_terminal_ended_title": "Session ended",
-  "native_terminal_prompt_failed": "The agent did not take the message.",
+  "native_terminal_prompt_failed": "The agent did not take the message: {reason}",
   "native_terminal_prompt_placeholder": "Send a message to the agent",
   "native_terminal_prompt_send": "Send",
   "native_terminal_superseded_action": "Take over",

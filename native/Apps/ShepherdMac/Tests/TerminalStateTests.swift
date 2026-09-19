@@ -178,7 +178,11 @@ struct TerminalStateTests {
 
         #expect(model.promptBusy == false)
         #expect(model.promptText == "go ahead")
-        #expect(model.promptError == L.t("native_terminal_prompt_failed"))
+        #expect(
+            model.promptError
+                == L.t(
+                    "native_terminal_prompt_failed",
+                    ShepherdErrorCopy.message(ShepherdError.notFound)))
     }
 
     @Test func blankPromptsAreNotSent() async {
@@ -386,5 +390,184 @@ struct PTYCommandQueueTests {
         // A take-over that outran a stop would reopen the socket with no taps
         // on it, and the view would sit in "connecting" for ever.
         #expect(await log.entries == ["stop"])
+    }
+}
+
+/// R2: `pump(from:into:)` is the exact drain `LivePTYAttachment` uses for its
+/// output relay, and `.unbounded` is the exact policy it now uses for that
+/// relay's sink. Exercised directly — without a live `PTYConnection` — with a
+/// hand-fed source, so the "never drop" guarantee is provable without a
+/// socket.
+@MainActor
+struct PTYOutputRelayTests {
+    private func chunk(_ i: Int) -> Data { Data([UInt8(i % 256), UInt8((i / 256) % 256)]) }
+
+    /// Fires the whole burst into the source before anything drains the sink
+    /// — the ordering a real socket can produce: `start()` can hand bytes to
+    /// the kit's tap faster than the main actor gets a turn to relay them.
+    private func drain(
+        bufferingPolicy: AsyncStream<Data>.Continuation.BufferingPolicy, burstSize: Int
+    ) async -> [Data] {
+        let (source, sourceContinuation) = AsyncStream<Data>.makeStream()
+        let (sink, sinkContinuation) = AsyncStream<Data>.makeStream(
+            bufferingPolicy: bufferingPolicy)
+
+        let pumpTask = Task { await pump(from: source, into: sinkContinuation) }
+        for i in 0..<burstSize { sourceContinuation.yield(chunk(i)) }
+        sourceContinuation.finish()
+        await pumpTask.value
+
+        var received: [Data] = []
+        for await bytes in sink { received.append(bytes) }
+        return received
+    }
+
+    @Test func aBurstThatOutrunsTheConsumerArrivesCompleteAndInOrderWhenUnbounded() async {
+        let count = 5000
+        let received = await drain(bufferingPolicy: .unbounded, burstSize: count)
+
+        #expect(received.count == count)
+        #expect(received == (0..<count).map(chunk))
+    }
+
+    /// The bug R2 fixes, proven directly: the pre-fix `.bufferingNewest(4096)`
+    /// policy silently drops the oldest chunks of a burst larger than its
+    /// buffer — a lost chunk mid-escape garbles the emulator.
+    @Test func theOldBoundedPolicyDroppedTheOldestChunksOfABurst() async {
+        let count = 5000
+        let capacity = 4096
+        let received = await drain(bufferingPolicy: .bufferingNewest(capacity), burstSize: count)
+
+        #expect(received.count == capacity)
+        #expect(received == ((count - capacity)..<count).map(chunk))
+    }
+}
+
+/// R3: `TerminalController` must not keep a model — and its socket, prompt
+/// draft or parked verdict — alive forever for a session that no longer
+/// exists.
+@MainActor
+struct TerminalControllerPruneTests {
+    /// A store the test drives by hand: `events: nil` so `apply(_:)` is the
+    /// only thing that ever touches `sessions`, and nothing here opens a
+    /// socket.
+    private func makeStore() -> SessionStore {
+        let profile = ServerProfile(
+            name: "test", baseURL: URL(string: "http://127.0.0.1:1")!, mode: .local)
+        let client = try! ShepherdClient(profile: profile, credentials: InMemoryCredentialStore())
+        return SessionStore(client: client)
+    }
+
+    private func makeApp() -> AppModel {
+        let name = UUID().uuidString
+        let defaults = UserDefaults(suiteName: name)!
+        defaults.removePersistentDomain(forName: name)
+        return AppModel(defaults: defaults, credentials: InMemoryCredentialStore())
+    }
+
+    /// Every argument is a *required* property of `#/components/schemas/Session`
+    /// (mirrors `ShepherdKitTests.Fixtures.session`, which this target cannot
+    /// import); optionals are left at their defaults.
+    private func makeSession(id: String) -> Session {
+        Session(
+            id: id, desig: "TASK-01", name: "session", prompt: "do the thing",
+            repoPath: "/repos/demo", baseBranch: "main", branch: nil,
+            worktreePath: "/repos/demo-\(id)", isolated: false,
+            herdrSession: "herdr-\(id)", herdrAgentId: "agent-\(id)",
+            claudeSessionId: "claude-\(id)", model: nil, effort: nil,
+            readyToMerge: false, mergingSince: nil, autopilotEnabled: nil,
+            autopilotPaused: false, autopilotComplete: false, planGateEnabled: nil,
+            planPhase: nil, autoMergeEnabled: nil, auto: false, issueNumber: nil,
+            sandboxApplied: nil, status: SessionStatus(known: .running),
+            lastState: Components.Schemas.HerdrState(known: .working),
+            createdAt: 1_700_000_000, updatedAt: 1_700_000_001, archivedAt: nil,
+            archiveReason: nil, haltReason: nil, haltedAt: nil, manualSteps: [])
+    }
+
+    @Test func pruneDropsModelsForSessionsNotInTheKeptSet() {
+        let controller = TerminalController(store: makeStore(), app: makeApp())
+        _ = controller.model(for: "keep")
+        let dropped = controller.model(for: "drop")
+
+        controller.prune(keeping: ["keep"])
+
+        // A pruned session gets a fresh model on the next lookup, not the one
+        // that was torn down.
+        #expect(controller.model(for: "drop") !== dropped)
+    }
+
+    @Test func pruneKeepsModelsStillInTheKeptSet() {
+        let controller = TerminalController(store: makeStore(), app: makeApp())
+        let kept = controller.model(for: "keep")
+
+        controller.prune(keeping: ["keep", "other"])
+
+        #expect(controller.model(for: "keep") === kept)
+    }
+
+    /// End to end: a `store.sessions` mutation — not a direct `prune(keeping:)`
+    /// call — is what drives the teardown.
+    @Test func aSessionLeavingTheStoreIsPrunedWithoutAnExplicitCall() async {
+        let store = makeStore()
+        store.apply(.sessionNew(makeSession(id: "keep")))
+        let controller = TerminalController(store: store, app: makeApp())
+        _ = controller.model(for: "keep")
+        let dropped = controller.model(for: "drop")
+
+        // Let the watcher's task reach its first `withObservationTracking`
+        // registration before the mutation below, so the change is not one
+        // this specific timing races.
+        for _ in 0..<20 { await Task.yield() }
+        store.apply(.sessionNew(makeSession(id: "another")))
+
+        #expect(await settle(until: { controller.model(for: "drop") !== dropped }))
+        #expect(controller.model(for: "keep") === controller.model(for: "keep"))
+    }
+}
+
+/// R6: the `.connecting` overlay must not flash for a reattach that resolves
+/// within the debounce window.
+@MainActor
+struct ConnectingOverlayDebouncerTests {
+    @Test func staysHiddenWhileConnectingHasNotPersistedPastTheDelay() async {
+        let debouncer = ConnectingOverlayDebouncer(delay: .milliseconds(200))
+
+        debouncer.phaseChanged(toConnecting: true)
+
+        #expect(debouncer.isVisible == false)
+    }
+
+    @Test func hidesAgainIfConnectingEndsBeforeTheDelayElapses() async {
+        let debouncer = ConnectingOverlayDebouncer(delay: .milliseconds(60))
+
+        debouncer.phaseChanged(toConnecting: true)
+        debouncer.phaseChanged(toConnecting: false)
+        try? await Task.sleep(for: .milliseconds(120))
+
+        // The overlay must never have shown at all — this is the flash R6
+        // exists to prevent, not a show-then-hide.
+        #expect(debouncer.isVisible == false)
+    }
+
+    @Test func showsOnceConnectingPersistsPastTheDelay() async {
+        let debouncer = ConnectingOverlayDebouncer(delay: .milliseconds(20))
+
+        debouncer.phaseChanged(toConnecting: true)
+        // `settle`'s yield loop cannot wait out real time — `Task.sleep` needs
+        // the clock to actually move, not just a chance to run.
+        try? await Task.sleep(for: .milliseconds(80))
+
+        #expect(debouncer.isVisible)
+    }
+
+    @Test func hidesImmediatelyOnceConnectingEndsAfterShowing() async {
+        let debouncer = ConnectingOverlayDebouncer(delay: .milliseconds(10))
+        debouncer.phaseChanged(toConnecting: true)
+        try? await Task.sleep(for: .milliseconds(60))
+        #expect(debouncer.isVisible)
+
+        debouncer.phaseChanged(toConnecting: false)
+
+        #expect(debouncer.isVisible == false)
     }
 }

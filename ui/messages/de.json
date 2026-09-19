@@ -4163,7 +4163,7 @@
   "native_terminal_connecting": "Verbinde mit dem Agenten…",
   "native_terminal_ended_body": "Diese Sitzung hat keinen laufenden Agenten mehr. Die Ausgabe ist eingefroren.",
   "native_terminal_ended_title": "Sitzung beendet",
-  "native_terminal_prompt_failed": "Der Agent hat die Nachricht nicht angenommen.",
+  "native_terminal_prompt_failed": "Der Agent hat die Nachricht nicht angenommen: {reason}",
   "native_terminal_prompt_placeholder": "Nachricht an den Agenten",
   "native_terminal_prompt_send": "Senden",
   "native_terminal_superseded_action": "Übernehmen",

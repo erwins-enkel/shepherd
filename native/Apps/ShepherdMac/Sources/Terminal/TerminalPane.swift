@@ -5,6 +5,8 @@ import SwiftUI
 struct TerminalPane: View {
     @Bindable var model: TerminalSessionModel
     @FocusState private var promptFocused: Bool
+    /// Debounces the `.connecting` card; see its own doc comment.
+    @State private var connectingOverlay = ConnectingOverlayDebouncer()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -17,6 +19,12 @@ struct TerminalPane: View {
             promptBar
         }
         .onDisappear { model.detach() }
+        // Autofocus the prompt when the tab appears — the operator switching
+        // to (or back to) a session almost always wants to type immediately.
+        .onAppear { promptFocused = true }
+        .onChange(of: model.phase, initial: true) { _, phase in
+            connectingOverlay.phaseChanged(toConnecting: phase == .connecting)
+        }
     }
 
     @ViewBuilder
@@ -25,9 +33,13 @@ struct TerminalPane: View {
         case .idle, .live:
             EmptyView()
         case .connecting:
-            statusCard(
-                title: L.t("native_terminal_connecting"), body: nil, action: nil,
-                systemImage: nil)
+            if connectingOverlay.isVisible {
+                statusCard(
+                    title: L.t("native_terminal_connecting"), body: nil, action: nil,
+                    systemImage: nil)
+            } else {
+                EmptyView()
+            }
         case .superseded:
             statusCard(
                 title: L.t("native_terminal_superseded_title"),
@@ -35,14 +47,29 @@ struct TerminalPane: View {
                 action: (L.t("native_terminal_superseded_action"), { model.takeOver() }),
                 systemImage: "display.2"
             )
-        case .ended(.gone), .ended(.stopped):
+        case .ended(let closure):
+            endedCard(for: closure)
+        }
+    }
+
+    /// `TerminalSessionModel.apply(_:)` routes `.closed(.superseded)` to
+    /// `.superseded` and `.closed(.stopped)` to `.idle` before a `.closed`
+    /// event ever reaches the generic `.ended(closure)` phase — so only
+    /// `.gone` and `.unreachable` are actually reachable here. `default`
+    /// (rather than naming `.superseded`/`.stopped` again) keeps this switch
+    /// exhaustive over `PTYConnection.Closure` without implying either one can
+    /// happen.
+    @ViewBuilder
+    private func endedCard(for closure: PTYConnection.Closure) -> some View {
+        switch closure {
+        case .gone:
             statusCard(
                 title: L.t("native_terminal_ended_title"),
                 body: L.t("native_terminal_ended_body"),
                 action: nil,
                 systemImage: "moon.zzz"
             )
-        case .ended(.unreachable), .ended(.superseded):
+        default:
             statusCard(
                 title: L.t("native_terminal_unreachable_title"),
                 body: L.t("native_terminal_unreachable_body"),

@@ -203,7 +203,7 @@ final class TerminalSessionModel {
             guard self.generation == generation else { return }
             promptBusy = false
             promptText = text
-            promptError = L.t("native_terminal_prompt_failed")
+            promptError = L.t("native_terminal_prompt_failed", ShepherdErrorCopy.message(error))
         }
     }
 

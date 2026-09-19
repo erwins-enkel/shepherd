@@ -429,6 +429,7 @@ function buildLanes(
         cwd: repoRoot,
       },
       { label: "herdr types", cmd: "bun", args: ["run", "check:herdr-types"], cwd: repoRoot },
+      { label: "env schema", cmd: "bun", args: ["run", "check:env-schema"], cwd: repoRoot },
     ],
   });
 

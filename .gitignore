@@ -5,6 +5,10 @@ build-demo/
 dist/
 .env
 .env.*
+# ...except the varlock schema (#2347): key names, types and descriptions only, never
+# values. The negation stays narrow — `!.env.*` would un-ignore `.env.local`, which Bun
+# DOES autoload into process.env, so a secret dropped there would become committable.
+!.env.schema
 *.db
 *.db-shm
 *.db-wal

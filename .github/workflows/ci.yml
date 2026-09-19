@@ -121,6 +121,13 @@ jobs:
       - name: herdr protocol types freshness (schema ⇒ regenerated types)
         run: bun run check:herdr-types
 
+      # Env-schema drift (#2347): every env var src/, scripts/ and deploy/ read must be
+      # declared in .env.schema, and every declared key must still be read. Both directions
+      # exit 1 with file:line. The scanner cannot see shell scripts or indirect reads, so
+      # those keys are declared @auditIgnore and are NOT covered here.
+      - name: Env schema drift (.env.schema ⇔ code)
+        run: bun run check:env-schema
+
       # Prompt fingerprints (#2156): a prompt-builder edit must regenerate
       # scripts/eval-fingerprints.json, which is what eval-prompts.yml compares against the PR base
       # to decide which live evals to run. Without this gate a prompt change could ship with a

@@ -8,14 +8,20 @@ import Testing
 struct SessionStoreTests {
   /// A store with no event socket: `start()` bootstraps and returns, which is
   /// what makes the connection-state transitions testable without a listener.
+  ///
+  /// `maxReconnectDelay` defaults far below the production 30 s ceiling so a
+  /// test that lets the bootstrap retry loop back off a few times does not
+  /// itself slow down.
   private func makeStore(
     _ server: FakeShepherdServer,
-    reconnectDelay: Duration = .milliseconds(20)
+    reconnectDelay: Duration = .milliseconds(20),
+    maxReconnectDelay: Duration = .milliseconds(200)
   ) throws -> SessionStore {
     SessionStore(
       client: try makeClient(server),
       events: nil,
-      reconnectDelay: reconnectDelay)
+      reconnectDelay: reconnectDelay,
+      maxReconnectDelay: maxReconnectDelay)
   }
 
   /// A store wired to a real `/events` socket, for the lifecycle tests that
@@ -23,7 +29,8 @@ struct SessionStoreTests {
   private func makeLiveStore(
     _ server: FakeShepherdServer,
     events: FakeEventServer,
-    reconnectDelay: Duration = .milliseconds(20)
+    reconnectDelay: Duration = .milliseconds(20),
+    maxReconnectDelay: Duration = .milliseconds(200)
   ) throws -> SessionStore {
     SessionStore(
       client: try makeClient(server),
@@ -31,7 +38,8 @@ struct SessionStoreTests {
         baseURL: events.url,
         tokenProvider: { "shp_test" },
         reconnectDelay: .milliseconds(50)),
-      reconnectDelay: reconnectDelay)
+      reconnectDelay: reconnectDelay,
+      maxReconnectDelay: maxReconnectDelay)
   }
 
   private func makeClient(_ server: FakeShepherdServer) throws -> ShepherdClient {
@@ -263,6 +271,63 @@ struct SessionStoreTests {
     #expect(throws: ServerProfileError.insecureRemoteURL("box.example.com")) {
       _ = try SessionStore(profile: profile, credentials: InMemoryCredentialStore())
     }
+  }
+
+  @Test("stop() during a slow bootstrap never opens the events socket")
+  func stopDuringBootstrapNeverOpensSocket() async throws {
+    let http = FakeShepherdServer()
+    defer { http.tearDown() }
+    let events = try FakeEventServer()
+    defer { events.stop() }
+    try stubBootstrap(http)
+    // Keep the bootstrap in flight long enough for stop() to land while
+    // start() is still awaiting it, before eventStream.start() ever runs.
+    http.on("GET", "/api/sessions") { _ in
+      Thread.sleep(forTimeInterval: 0.3)
+      return FakeResponse(statusCode: 200, body: try Fixtures.json([Session]()))
+    }
+    let store = try makeLiveStore(http, events: events)
+
+    let runner = Task { await store.start() }
+    #expect(await eventually { store.connection == .connecting })
+    store.stop()
+
+    // The bootstrap's Thread.sleep(0.3s) bounds how long this can take: if
+    // start() wrongly went on to open the socket and park on the consumer,
+    // this await would hang well past that.
+    _ = await runner.value
+
+    #expect(store.connection == .idle)
+    #expect(events.connectionCount() == 0)
+  }
+
+  @Test("bootstrap retries back off exponentially")
+  func bootstrapRetryBacksOff() async throws {
+    let server = FakeShepherdServer()
+    defer { server.tearDown() }
+    // Every bootstrap request fails until the test stubs it, so start()
+    // must retry with growing (capped) delays rather than a fixed one.
+    let store = try makeStore(
+      server, reconnectDelay: .milliseconds(20), maxReconnectDelay: .milliseconds(200))
+
+    let runner = Task { await store.start() }
+    #expect(
+      await eventually {
+        if case .offline = store.connection { return true }
+        return false
+      })
+
+    // Give the retry loop several backoff cycles to run (20, 40, 80, 160,
+    // capped at 200ms...) while every attempt still fails, then confirm more
+    // than one retry actually happened.
+    try? await Task.sleep(for: .milliseconds(400))
+    let attemptsWhileFailing = server.requests().count
+    #expect(attemptsWhileFailing >= 2)
+
+    try stubBootstrap(server, sessions: [Fixtures.session(id: "a")])
+    #expect(await eventually { store.connection == .live })
+    _ = await runner.value
+    #expect(store.sessions.map(\.id) == ["a"])
   }
 
   // MARK: live socket

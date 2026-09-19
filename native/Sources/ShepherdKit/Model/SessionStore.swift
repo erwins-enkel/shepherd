@@ -55,7 +55,13 @@ public final class SessionStore {
   private let client: ShepherdClient
   private let eventStream: EventStream?
   private let reconnectDelay: Duration
+  private let maxReconnectDelay: Duration
   private var running = false
+  /// The delay the *next* bootstrap retry will sleep for. Starts at
+  /// `reconnectDelay`, doubles (capped at `maxReconnectDelay`) after every
+  /// bootstrap attempt that fails, and resets to `reconnectDelay` once one
+  /// succeeds — the same policy `EventStream` uses for its socket reconnects.
+  private var currentReconnectDelay: Duration
   /// The task draining `EventStream.events()`. The store owns it because
   /// `EventStream.stop()` deliberately does NOT finish that stream — cancelling
   /// this task is the only thing that ends the `for await` inside `consume(_:)`.
@@ -64,16 +70,24 @@ public final class SessionStore {
   /// - Parameters:
   ///   - events: `nil` for a store the caller drives by hand — `start()` then
   ///     bootstraps once and returns instead of running an event loop.
-  ///   - reconnectDelay: how long `start()` waits before re-bootstrapping after
-  ///     a failure. The design spec fixes 1 s; tests shorten it.
+  ///   - reconnectDelay: how long `start()` waits before the *first*
+  ///     re-bootstrap after a failure. The design spec fixes 1 s; tests
+  ///     shorten it. Doubles on each further consecutive failure, up to
+  ///     `maxReconnectDelay`, and resets after a successful bootstrap.
+  ///   - maxReconnectDelay: the ceiling the doubling delay never exceeds.
+  ///     Defaults to 30 s, mirroring `EventStream`, without making the
+  ///     initializer source-breaking for existing callers.
   public init(
     client: ShepherdClient,
     events: EventStream? = nil,
-    reconnectDelay: Duration = .seconds(1)
+    reconnectDelay: Duration = .seconds(1),
+    maxReconnectDelay: Duration = .seconds(30)
   ) {
     self.client = client
     self.eventStream = events
     self.reconnectDelay = reconnectDelay
+    self.maxReconnectDelay = maxReconnectDelay
+    self.currentReconnectDelay = reconnectDelay
   }
 
   /// The self-driving store: builds the client and the `/events` socket from a
@@ -102,6 +116,18 @@ public final class SessionStore {
   /// exception — the app renders `connection` rather than catching something.
   /// Calling it twice is a no-op while the first call is still running.
   ///
+  /// `running` is a soft flag, not a lock: it stops a *second* call from
+  /// starting a competing loop, but it gives no mutual exclusion against a
+  /// `start()` issued while a previous loop is still unwinding after `stop()`
+  /// — `stop()` flips `running` to `false` synchronously, so a caller that
+  /// invokes `start()` again before the old task has actually returned from
+  /// its current `await` can end up with two passes of this method live at
+  /// once, each free to mutate `consumer` and `connection`. Nothing here
+  /// detects that. The app is expected to build a fresh `SessionStore` (and
+  /// `EventStream`) per activation, as `stop()`'s doc already directs, rather
+  /// than restart one it just stopped — that is what keeps this soft flag
+  /// safe in practice.
+  ///
   /// Every pass of the loop re-bootstraps before it consumes, which is also the
   /// gap-recovery rule: `EventStream` buffers only the newest 256 frames, so a
   /// reconnect can have dropped pushes, and re-reading the three lists is what
@@ -111,6 +137,7 @@ public final class SessionStore {
   public func start() async {
     guard !running else { return }
     running = true
+    currentReconnectDelay = reconnectDelay
     defer { running = false }
 
     while running {
@@ -118,6 +145,7 @@ public final class SessionStore {
 
       do {
         try await bootstrap()
+        currentReconnectDelay = reconnectDelay
       } catch {
         switch ShepherdError.from(error, route: "bootstrap") {
         case .unauthenticated:
@@ -140,10 +168,20 @@ public final class SessionStore {
         }
       }
 
+      // A stop() that landed while bootstrap() was in flight must not reopen
+      // the socket or park start() on a consumer nobody will cancel.
+      guard running else { return }
+
       // A store with no socket (init(client:)) has nothing left to do.
       guard let eventStream else { return }
 
       await eventStream.start()
+      guard running else {
+        // stop() raced in while the socket was opening: close what we just
+        // opened rather than leaving a live connection nothing consumes.
+        await eventStream.stop()
+        return
+      }
       startConsuming(eventStream)
       // Returns when `stop()` cancels the consuming task — the only thing that
       // ends it, since `EventStream.stop()` leaves `events()` unfinished.
@@ -188,7 +226,9 @@ public final class SessionStore {
   }
 
   private func startConsuming(_ eventStream: EventStream) {
-    guard consumer == nil else { return }
+    // A stop() that raced in between eventStream.start() and here must not
+    // spin up a consumer nobody will ever cancel.
+    guard running, consumer == nil else { return }
     // `events()` is single-consumer, so it is read exactly once per socket.
     let events = eventStream.events()
     consumer = Task { [weak self] in
@@ -197,9 +237,13 @@ public final class SessionStore {
   }
 
   /// `true` when the caller should try again, `false` when `stop()` or task
-  /// cancellation happened while waiting.
+  /// cancellation happened while waiting. Each call sleeps the current
+  /// backoff delay, then doubles it (capped at `maxReconnectDelay`) for the
+  /// next failure; a successful bootstrap resets it in `start()`.
   private func waitBeforeRetry() async -> Bool {
-    do { try await Task.sleep(for: reconnectDelay) } catch { return false }
+    let delay = currentReconnectDelay
+    currentReconnectDelay = min(currentReconnectDelay * 2, maxReconnectDelay)
+    do { try await Task.sleep(for: delay) } catch { return false }
     return running
   }
 
@@ -246,9 +290,13 @@ public final class SessionStore {
 
   public func refresh() async throws {
     do {
-      async let sessions = client.sessions()
-      async let settings = client.settings()
-      async let repos = client.repos()
+      // Each fetch maps its own failure to the route that actually failed
+      // (rather than a blanket "bootstrap"), so a diagnostic names the right
+      // call. `ShepherdError.from` is idempotent on an already-mapped error,
+      // so the outer catch below just passes it through.
+      async let sessions = fetchOrMap(route: "sessions") { try await client.sessions() }
+      async let settings = fetchOrMap(route: "settings") { try await client.settings() }
+      async let repos = fetchOrMap(route: "repos") { try await client.repos() }
       let (loadedSessions, loadedSettings, loadedRepos) = try await (sessions, settings, repos)
       self.sessions = loadedSessions
       self.settings = loadedSettings
@@ -256,9 +304,20 @@ public final class SessionStore {
       lastError = nil
       publishLoadedState()
     } catch {
-      let mapped = ShepherdError.from(error, route: "bootstrap")
+      let mapped = ShepherdError.from(error, route: "refresh")
       record(mapped)
       throw mapped
+    }
+  }
+
+  /// Runs `operation`, remapping any failure with the route that actually
+  /// failed. `refresh()` fires its three fetches concurrently via `async
+  /// let`, so the outer `catch` alone cannot tell which one threw.
+  private func fetchOrMap<T>(route: String, _ operation: () async throws -> T) async throws -> T {
+    do {
+      return try await operation()
+    } catch {
+      throw ShepherdError.from(error, route: route)
     }
   }
 

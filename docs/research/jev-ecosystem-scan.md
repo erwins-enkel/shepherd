@@ -126,8 +126,16 @@ This is an operator decision, not a research finding, and it is cheap while #236
 options are: record the **decision** ("GO; the verbatim framing beat the authored one") and keep the
 tables in a local eval artefact; keep relative statements only ("clears the 0.80 floor, holds the
 German buckets"); or publish knowingly. The same clause will constrain how the eventual nightly
-drift eval reports, so it is worth settling once rather than per-PR. **Nothing in this document
-publishes a measured JEV number of our own.**
+drift eval reports, so it is worth settling once rather than per-PR.
+
+**This file takes the second option for itself, so that merging it does not pre-empt the decision.**
+Where our own measurements matter to an argument here — §2.1, §5.3 — they appear as relative
+statements ("abstains came back more confident than the correct calls", "reaches parity at
+0.40–0.60") and the figures are left in `docs/eval-stop-classifier.md`, whose fate the decision
+governs. Third-party numbers published by other people about their own runs are cited as-is and
+attributed; they are not measurements from this account, and they are the evidence the scan exists to
+report. If the decision comes out the other way, this file needs no edit — only #2364's three
+locations do.
 
 ---
 
@@ -135,13 +143,15 @@ publishes a measured JEV number of our own.**
 
 ### 2.1 Why confidence ran backwards
 
-PR #2364 recorded a genuinely surprising result — abstains came back at 0.78 mean confidence while
-_correct_ `gate` calls sat at 0.64 — and, to its credit, did not guess at a threshold: it records
-every trial's distribution as `trialDetails` and replays candidate thresholds **offline** over a
-finished run (`bun run scripts/eval-jev.ts <report.json>`), so one paid run settles the sweep. The
-verbatim framing comes out flat at 100% for every threshold from 0.00 to 0.60 and breaks at 0.70 by
-losing `gate-commit-now` and `de-gate-commit`. **No threshold** is therefore a measured conclusion,
-not a default, and this section does not disturb it.
+PR #2364 recorded a genuinely surprising result — **abstains came back _more_ confident than the
+correct `gate` calls**, so raising the bar surfaced sessions that should have proceeded — and, to
+its credit, did not then guess at a threshold: it records every trial's distribution as
+`trialDetails` and replays candidate thresholds **offline** over a finished run
+(`bun run scripts/eval-jev.ts <report.json>`), so one paid run settles the whole sweep. On the
+verbatim framing, accuracy is **unchanged across every threshold up to 0.60** and degrades above it,
+losing two gating fixtures. **No threshold** is therefore a measured conclusion, not a default, and
+this section does not disturb it. The figures themselves are in
+[`eval-stop-classifier.md`](../eval-stop-classifier.md) — see §1.4 for why they are not repeated here.
 
 What the ecosystem adds is the _explanation_, which matters for the sites that come after
 `classifyStop`. Two independent sources report that the `confidence` field is **opaque and is not
@@ -210,28 +220,28 @@ cost of keeping the fallback door open, and §7's top risk is the reason to pay 
 Verdicts are against Shepherd specifically. "Copy" means a pattern worth lifting, not code worth
 vendoring — **nothing here is depend-able**, for the reasons in §4.
 
-| Project                                                                   | What it really is                                                  | Maps to                                       | Verdict                                        |
-| ------------------------------------------------------------------------- | ------------------------------------------------------------------ | --------------------------------------------- | ---------------------------------------------- |
-| `@typesafe-ai/sdk` (official)                                             | Zero-dep TS client, retries + `retry-after`                        | the `Judge` seam transport                    | **Depend**                                     |
-| [TypeSafe cookbooks + jaggedness page](https://docs.typesafe.ai/llms.txt) | 19 worked cookbooks, 9 named failure modes                         | everything below                              | **Read first**                                 |
-| `dbreunig/building-with-jev-skill`                                        | 15 KB authoring manual; confidence bands, symptom→fix table        | authoring every `instructions` string         | **Read** (no licence — learn, don't vendor)    |
-| `uezo/aiavatarkit` #428                                                   | Merged turn-end gate in a real project                             | `blocked.ts`, `turn-end-backstop.ts`          | **Copy** — §1.3                                |
-| `AshutoshVJTI/progressgate`                                               | Stagnation detector; honest, self-incriminating evals              | `stall.ts`, `critic-stuck.ts`                 | **Copy** policy shape — §5.1                   |
-| `leepokai/jev-guard`                                                      | Multi-host tool-call gate, 22 KB of tests                          | `untrusted.ts`, `tool-guard-hook.ts`          | **Copy** — §5.2                                |
-| `Nyarlathoteppppp/pi-heed`                                                | Constraint extraction + per-call enforcement; 32 KB of experiments | `tool-guard-hook.ts`                          | **Copy** state-ordering + criteria form — §5.3 |
-| `EliaAlberti/jev-rules`                                                   | Per-prompt rule relevance as a Claude Code hook                    | `learnings-service.ts`, `learning-rule.ts`    | **Copy** — §5.4                                |
-| `vayungodara/jev-lint`                                                    | Markdown KB contradiction + staleness linter                       | `learnings-lifecycle.ts`, `learning-sweep.ts` | **Copy** — §5.5                                |
-| `abhixhek/jevcal`                                                         | Calibrate → threshold → drift-check pipeline                       | `scripts/eval-core.ts` nightly                | **Copy** — §2.1, §2.2                          |
-| `reachjalil/jev-tree`                                                     | Bucket-partitioned walk past the 255-option cap                    | `critic-core.ts attributeFinding`             | **Copy** algorithm — §5.6                      |
-| `baggiiiie/pi-stuff` `approve-for-me`                                     | Announce → pre-warm → reuse-if-unchanged                           | `tool-guard-hook.ts`                          | **Copy** latency pattern                       |
-| `Dicklesworthstone/skillranker`                                           | Two-stage wide/rerank over agent skills                            | `agent-skills.ts`, plugin trim                | **Copy** shadow mode + two-stage               |
-| `nitoba/questions`                                                        | The only serious vendor-neutral abstraction                        | validates the seam's shape                    | **Cite** — RC, Zod 4 peer, Node ≥ 22           |
-| `razorback16/openjev`                                                     | Apache-2.0 self-hosted `/v1/systemone`                             | vendor-risk fallback                          | **Watch** — §2.3                               |
-| `iammrduncan/typesafe-ai-benchmark`                                       | Fastify `/v1/systemone` + in-process stub harness                  | hermetic tests, shadow mode                   | **Copy** the contract                          |
-| `gargpratyush/jev-router`, `0xNatoshi/jev-codex-router`                   | Per-turn model routing                                             | `default-model.ts`, `default-effort.ts`       | **Cite** the cadence rule — §5.7               |
-| `tamaratran/fast-jev-compaction`                                          | 3.5k★, and it does not work                                        | `prompt-budget.ts`, `prompt-fit.ts`           | **Cautionary** — §6.1                          |
-| `Hoyant-Su/JevSpawn`                                                      | Misfiled; an inference-systems prototype                           | —                                             | **Ignore** — §6.2                              |
-| `Ayush0054/metis`                                                         | Near-stub; README says it was never built                          | `backlog.ts`                                  | **Ignore**                                     |
+| Project                                                                   | What it really is                                                  | Maps to                                               | Verdict                                        |
+| ------------------------------------------------------------------------- | ------------------------------------------------------------------ | ----------------------------------------------------- | ---------------------------------------------- |
+| `@typesafe-ai/sdk` (official)                                             | Zero-dep TS client, retries + `retry-after`                        | the `Judge` seam transport                            | **Depend**                                     |
+| [TypeSafe cookbooks + jaggedness page](https://docs.typesafe.ai/llms.txt) | 19 worked cookbooks, 9 named failure modes                         | everything below                                      | **Read first**                                 |
+| `dbreunig/building-with-jev-skill`                                        | 15 KB authoring manual; confidence bands, symptom→fix table        | authoring every `instructions` string                 | **Read** (no licence — learn, don't vendor)    |
+| `uezo/aiavatarkit` #428                                                   | Merged turn-end gate in a real project                             | `blocked.ts`, `turn-end-backstop.ts`                  | **Copy** — §1.3                                |
+| `AshutoshVJTI/progressgate`                                               | Stagnation detector; honest, self-incriminating evals              | `stall.ts`, `critic-stuck.ts`                         | **Copy** policy shape — §5.1                   |
+| `leepokai/jev-guard`                                                      | Multi-host tool-call gate, 22 KB of tests                          | `untrusted.ts`, `tool-guard-hook.ts`                  | **Copy** — §5.2                                |
+| `Nyarlathoteppppp/pi-heed`                                                | Constraint extraction + per-call enforcement; 32 KB of experiments | `tool-guard-hook.ts`                                  | **Copy** state-ordering + criteria form — §5.3 |
+| `EliaAlberti/jev-rules`                                                   | Per-prompt rule relevance as a Claude Code hook                    | `house-rules.ts` scope gate, `learnings-lifecycle.ts` | **Copy** — §5.4                                |
+| `vayungodara/jev-lint`                                                    | Markdown KB contradiction + staleness linter                       | `learnings-lifecycle.ts`, `learning-sweep.ts`         | **Copy** — §5.5                                |
+| `abhixhek/jevcal`                                                         | Calibrate → threshold → drift-check pipeline                       | `scripts/eval-core.ts` nightly                        | **Copy** — §2.1, §2.2                          |
+| `reachjalil/jev-tree`                                                     | Bucket-partitioned walk past the 255-option cap                    | `critic-core.ts attributeFinding`                     | **Copy** algorithm — §5.6                      |
+| `baggiiiie/pi-stuff` `approve-for-me`                                     | Announce → pre-warm → reuse-if-unchanged                           | `tool-guard-hook.ts`                                  | **Copy** latency pattern                       |
+| `Dicklesworthstone/skillranker`                                           | Two-stage wide/rerank over agent skills                            | `agent-skills.ts`, plugin trim                        | **Copy** shadow mode + two-stage               |
+| `nitoba/questions`                                                        | The only serious vendor-neutral abstraction                        | validates the seam's shape                            | **Cite** — RC, Zod 4 peer, Node ≥ 22           |
+| `razorback16/openjev`                                                     | Apache-2.0 self-hosted `/v1/systemone`                             | vendor-risk fallback                                  | **Watch** — §2.3                               |
+| `iammrduncan/typesafe-ai-benchmark`                                       | Fastify `/v1/systemone` + in-process stub harness                  | hermetic tests, shadow mode                           | **Copy** the contract                          |
+| `gargpratyush/jev-router`, `0xNatoshi/jev-codex-router`                   | Per-turn model routing                                             | `default-model.ts`, `default-effort.ts`               | **Cite** the cadence rule — §5.7               |
+| `tamaratran/fast-jev-compaction`                                          | 3.5k★, and it does not work                                        | `prompt-budget.ts`, `prompt-fit.ts`                   | **Cautionary** — §6.1                          |
+| `Hoyant-Su/JevSpawn`                                                      | Misfiled; an inference-systems prototype                           | —                                                     | **Ignore** — §6.2                              |
+| `Ayush0054/metis`                                                         | Near-stub; README says it was never built                          | `backlog.ts`                                          | **Ignore**                                     |
 
 Trading, games, drones, video, browser-use, Mario — the bulk of the 136 — have no bearing on
 Shepherd and are not discussed.
@@ -315,11 +325,12 @@ problem in different clothing: separating an enforceable rule from general guida
 a real instruction from a discussion _about_ one ("write a git hook that blocks pushes to main").
 
 **This appears to contradict #2364, and mostly doesn't.** That PR measured a purpose-authored
-structured state with distilled per-kind criteria at 91.8% against the verbatim production prompt's
-100%, and concluded that carrying the prompt's full text is doing real work. Both are true, because
-they are not the same comparison. Read the threshold sweep rather than the headline: the authored
-framing reaches **100% at thresholds 0.40–0.60** — it was not worse at the judgement, it needed a
-gate that verbatim did not. And verbatim's advantage has a specific source that does not generalise:
+structured state with distilled per-kind criteria _below_ the verbatim production prompt at
+threshold 0, and concluded that carrying the prompt's full text is doing real work. Both are true,
+because they are not the same comparison. Read the threshold sweep rather than the headline: the
+authored framing **reaches parity with verbatim at thresholds 0.40–0.60** — it was not worse at the
+judgement, it needed a gate that verbatim did not. And verbatim's advantage has a specific source
+that does not generalise:
 `classifierPrompt()` is an incumbent prompt already tuned over many iterations against these exact
 fixtures, including #1627's German directive. Authored was competing with that head start while
 changing two things at once (state shape _and_ criteria).
@@ -333,8 +344,26 @@ the right starting point. In both cases it is a thing to measure on the fixtures
 ### 5.4 Learnings relevance: one batched call, delivered once
 
 This is the clearest win in the scan and it is not on either of the two targets the earlier doc
-picked. Shepherd's learnings bottleneck is relevance: every active learning is injected regardless
-of whether it applies. `jev-rules` is a working, measured answer:
+picked. It is also **not a missing feature — it is a better signal for a gate that already exists**,
+and the distinction matters for sizing the work.
+
+Shepherd already scope-gates injection. `planHouseRulesInjection` (`src/house-rules.ts:204`) splits
+active rules three ways against the session's target paths: always-rules (no globs), matched-scoped
+(a glob hits a path), and scope-gated (globs, no match) — and the third group is **never injected and
+never counted against the char budget** (#842). `learningMatchesScope` (`:178`) is that test.
+
+So the real gap is narrower and more specific than "everything gets injected":
+
+1. **the gate only covers rules that carry globs.** `isAlwaysRule` (`:79`) is `scopeGlobs.length === 0`,
+   and an always-rule is injected unconditionally — it is ungated by construction, not by accident;
+2. **the globs are hand-authored**, so scoping quality is a function of whoever wrote the rule, and a
+   rule nobody scoped is an always-rule;
+3. **path globs are a proxy for aboutness.** They answer "does this rule touch a file this session
+   touches", which is a good signal and not the same question as "is this rule about what the
+   operator just asked for".
+
+`jev-rules` is a working, measured answer to all three at once — semantic relevance from a one-line
+description, no globs to author, and it applies to always-rules too:
 
 - **one call per prompt, regardless of rule count** — every rule becomes a parallel `noul` keyed by
   position, the question literally being `"The user's request is about: " + description`, where
@@ -343,7 +372,9 @@ of whether it applies. `jev-rules` is a working, measured answer:
 - **a file-path second pass**: on a file edit, state is the _path alone_ — "judging by its path, a
   change to this file is about: …". Their source notes this separated rules "far more cleanly in
   live runs" than the same question without the path. A vague prompt still pulls the right rule the
-  moment the agent touches the relevant file.
+  moment the agent touches the relevant file. Note this is **the same signal
+  `learningMatchesScope` already uses** — the session's target paths — asked semantically instead of
+  by glob, which is precisely why it also works on always-rules that carry no globs to match.
 - **fingerprinted once-per-session delivery**: `sha1(name + body)`; an already-injected rule is
   neither re-sent nor re-judged, so **cost decays to zero over a session** and editing a rule makes
   it deliverable again.
@@ -353,9 +384,20 @@ Reported: a focused 8-prompt session went 1,390 → ~330 injected tokens; a broa
 broke even. ~$0.00002/prompt, 260–520 ms. The break-even case is the honest part — this wins on
 focused sessions and does nothing on broad ones.
 
-The same mechanism is a plausible answer to the **proposed→active admission gate** that the
-learnings-lifecycle work left 100% manual: auto-trial a proposed learning by measuring whether JEV
-fires it on real prompts, before a human ever sees it.
+The same mechanism also bears on the **proposed→active admission gate**, and here too the framing is
+_better signal_, not _missing automation_. That gate is automated today and on by default:
+`AUTO_TRIAL_ENABLED` (`src/learnings-lifecycle.ts:16`) unless `SHEPHERD_LEARNINGS_AUTO_TRIAL=0`,
+promoting through `shouldTrial` (`:168`) on an accumulated-evidence test — `TRIAL_NMIN`,
+`TRIAL_SESSION_FLOOR`, `TRIAL_MIN_KINDS`, `TRIAL_MIN_SESSIONS` (`:19-22`) — swept under
+`MAX_TRIAL_PER_SWEEP` (`:196-204`) into `store.trialLearning`.
+
+What that gate measures is **how much evidence a rule accumulated**: how often it was proposed,
+across how many distinct sessions and kinds. What it cannot measure is whether the rule would ever
+have _fired_ — a rule can clear the evidence bar and still be irrelevant to every session it would
+be injected into. A relevance signal is the complement: trial a proposed rule by measuring how often
+JEV judges it applicable to real prompts, and let a rule that never fires fail its trial on that
+basis rather than waiting out `TRIAL_REAP_DAYS`. Strictly additive to the existing gate, and it
+reuses whatever §5.4's injection-time call already computes.
 
 ### 5.5 Contradiction detection for the learnings store
 
@@ -481,10 +523,14 @@ Nothing here is a new commitment; it is a revision of the plan already in
    gate measure by AUROC (§2.1) rather than inheriting `confidence` — and note it will be a `noul`,
    which has no `confidence` field to inherit anyway (§1.2).
 5. **Then reconsider the priority order.** §5.4 (learnings relevance) is a stronger candidate than
-   several entries in the earlier doc's appendix: the bottleneck is real and acknowledged, the
-   mechanism is proven by a working implementation with numbers, cost decays to zero within a
-   session, and the fallback is literally today's behaviour. It deserves a place in the ranking that
-   the earlier inventory, which only looked at existing judgement _sites_, had no way to give it.
+   several entries in the earlier doc's appendix: the mechanism is proven by a working
+   implementation with numbers, cost decays to zero within a session, and the fallback is literally
+   today's behaviour. Note it is an _upgrade to an existing gate_, not a new capability —
+   `house-rules.ts` already scope-gates glob-carrying rules and `learnings-lifecycle.ts` already
+   auto-trials on accumulated evidence — which cuts both ways: the work is smaller than a greenfield
+   feature, and the baseline to beat is a real gate rather than nothing. It deserves a place in the
+   ranking that the earlier inventory, which only looked at existing judgement _sites_, had no way
+   to give it.
 6. **Adopt the §2.2 drift conditions** — coverage drop and flip rate especially — when the nightly
    eval gains a JEV leg, and keep the tolerances non-zero: the API rounds probabilities to two
    decimals and identical requests can return different answers.

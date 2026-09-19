@@ -197,8 +197,55 @@ export const KEYS_DETAIL: readonly string[] = [
   "viewport_diff_annotation_review",
 ];
 
-/** S3 — sidebar triage sections, filters, search, header counters, usage meter. */
-export const KEYS_SIDEBAR: readonly string[] = [];
+/** Keys the Herd sidebar and header strip use. Owned by stream S3 — keep alphabetical. */
+export const KEYS_SIDEBAR: readonly string[] = [
+  "herd_all_title",
+  "herd_awaiting_merge_group",
+  "herd_changes_requested_group",
+  "herd_ci_failed_group",
+  "herd_ci_running_group",
+  "herd_done_empty",
+  "herd_done_title",
+  "herd_draft_awaiting_signoff_group",
+  "herd_lenses_label",
+  "herd_merge_blocked_group",
+  "herd_merged_group",
+  "herd_merging_group",
+  "herd_next_title",
+  "herd_owed_title",
+  "herd_ready_empty",
+  "herd_ready_group",
+  "herd_ready_title",
+  "herd_repo_filter_empty",
+  "herd_reviewer_running_group",
+  "herd_rework_running_group",
+  "herd_seg_all",
+  "herd_seg_done",
+  "herd_seg_next",
+  "herd_seg_owed",
+  "herd_seg_ready",
+  "herd_stage_name_active",
+  "herd_waiting_merger_group_multi",
+  "herd_waiting_reviewer_group_multi",
+  "native_herd_counter_active",
+  "native_herd_counter_blocked",
+  "native_herd_counter_idle",
+  "native_herd_counter_total",
+  "repo_filter_active_aria",
+  "repo_filter_apply_aria",
+  "repo_switcher_label",
+  "research_badge_label",
+  "session_autopilot_paused_label",
+  "terminal_badge_label",
+  "unitrow_manual_steps",
+  "unitrow_quota_error",
+  "unitrow_quota_review",
+  "unitrow_quota_rework",
+  "usage_limits_no_data",
+  "usage_limits_window_5h",
+  "usage_limits_window_week",
+  "usage_subscription_only",
+];
 
 /** S4 — the quick-action bar and the "Handlungsbedarf" recap line. */
 export const KEYS_ACTIONS: readonly string[] = [];

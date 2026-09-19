@@ -1,12 +1,23 @@
 import { test, expect } from "bun:test";
 import {
+  CONFIDENCE_MEASURES,
   DEFAULT_THRESHOLDS,
   JEV_INPUT_USD_PER_MTOK,
+  MIN_CLASS_SUPPORT,
+  auroc,
+  formatMeasureRanking,
   formatSweep,
   jevBackend,
   jevPriceUsd,
+  marginMeasure,
+  measureVerdict,
+  normalisedEntropyMeasure,
+  rankMeasures,
   sweepThreshold,
   sweepTrialsFrom,
+  topProbabilityMeasure,
+  vendorMeasure,
+  type AurocSample,
   type JevChoiceAnswer,
   type SweepTrial,
 } from "../scripts/eval-jev";
@@ -273,7 +284,14 @@ test("sweepTrialsFrom reads a --json report, and skips what it cannot score", ()
     ],
   };
   expect(sweepTrialsFrom(report, "kind")).toEqual([
-    { choice: "gate", confidence: 0.9, expected: "gate", fixture: "gating-with-details" },
+    {
+      choice: "gate",
+      confidence: 0.9,
+      expected: "gate",
+      fixture: "gating-with-details",
+      // Carried since #2379 — the measure ranking's raw material. The sweep ignores it.
+      probabilities: { a: 0.88, b: 0.12 },
+    },
   ]);
   expect(sweepTrialsFrom(report, "kind", false).map((t) => t.fixture)).toEqual([
     "gating-with-details",
@@ -282,9 +300,189 @@ test("sweepTrialsFrom reads a --json report, and skips what it cannot score", ()
   expect(sweepTrialsFrom({}, "kind")).toEqual([]);
 });
 
+test("the run's model rides in the same detail object and is not mistaken for an answer", () => {
+  // #2377 put DETAIL_MODEL_KEY beside the answers so a re-point is visible per trial. Extraction is
+  // BY QUESTION ID, so that key is ignored by construction — pinned here so it stays that way.
+  const report = {
+    results: [
+      {
+        id: "f",
+        expected: "gate",
+        gating: true,
+        trialDetails: [{ kind: answer({ choice: "gate" }), [DETAIL_MODEL_KEY]: "jev-1.13.0" }],
+      },
+    ],
+  };
+  expect(sweepTrialsFrom(report, "kind").map((t) => t.choice)).toEqual(["gate"]);
+  expect(sweepTrialsFrom(report, DETAIL_MODEL_KEY)).toEqual([]);
+});
+
 test("the sweep renders every candidate threshold with its effect", () => {
   const rendered = formatSweep(sweepThreshold(TRIALS, "unknown", DEFAULT_THRESHOLDS), "unknown");
   expect(rendered).toContain("0.00");
   expect(rendered).toContain("rescued: ambiguous");
   expect(rendered).toContain("BROKE: finished-pr");
+});
+
+// --- confidence measures (#2379) --------------------------------------------
+
+test("each measure reads the quantity it names", () => {
+  const distribution = { probabilities: { a: 0.6, b: 0.3, c: 0.1 }, vendorConfidence: 0.84 };
+  expect(vendorMeasure.of(distribution)).toBe(0.84);
+  expect(topProbabilityMeasure.of(distribution)).toBeCloseTo(0.6, 9);
+  expect(marginMeasure.of(distribution)).toBeCloseTo(0.3, 9);
+});
+
+test("normalised entropy is 0 on a uniform distribution and 1 on a one-hot one", () => {
+  expect(
+    normalisedEntropyMeasure.of({ probabilities: { a: 0.25, b: 0.25, c: 0.25, d: 0.25 } }),
+  ).toBeCloseTo(0, 9);
+  expect(normalisedEntropyMeasure.of({ probabilities: { a: 1, b: 0, c: 0 } })).toBeCloseTo(1, 9);
+});
+
+test("a vector that does not sum to 1 is normalised, not rejected", () => {
+  // The vendor rounds to two decimals, so this is the ORDINARY case, not a malformed one: an
+  // un-normalised vector would put entropy on the wrong scale entirely.
+  const rounded = { probabilities: { a: 0.5, b: 0.49 } };
+  expect(topProbabilityMeasure.of(rounded)).toBeCloseTo(0.5 / 0.99, 9);
+  expect(normalisedEntropyMeasure.of(rounded)).toBeCloseTo(
+    normalisedEntropyMeasure.of({ probabilities: { a: 0.5 / 0.99, b: 0.49 / 0.99 } })!,
+    9,
+  );
+});
+
+test("an unmeasurable answer yields null, never a fallback number", () => {
+  // A single option: no runner-up to be ahead of, and log 1 = 0.
+  expect(marginMeasure.of({ probabilities: { a: 1 } })).toBeNull();
+  expect(normalisedEntropyMeasure.of({ probabilities: { a: 1 } })).toBeNull();
+  expect(topProbabilityMeasure.of({ probabilities: { a: 1 } })).toBeCloseTo(1, 9);
+  // No distribution at all, and no vendor scalar at all.
+  for (const measure of CONFIDENCE_MEASURES) {
+    expect(measure.of({})).toBeNull();
+  }
+  // One broken entry invalidates the WHOLE vector — dropping it would change K silently.
+  const broken = { probabilities: { a: 0.5, b: Number.NaN } };
+  expect(topProbabilityMeasure.of(broken)).toBeNull();
+  expect(normalisedEntropyMeasure.of(broken)).toBeNull();
+  expect(topProbabilityMeasure.of({ probabilities: { a: 0, b: 0 } })).toBeNull();
+});
+
+// --- AUROC -------------------------------------------------------------------
+
+function samples(...rows: [score: number, correct: boolean][]): AurocSample[] {
+  return rows.map(([score, correct]) => ({ score, correct }));
+}
+
+/** MIN_CLASS_SUPPORT trials of each class, so support never masks the arithmetic under test. */
+function balanced(correctScore: number, wrongScore: number): AurocSample[] {
+  return [
+    ...Array.from({ length: MIN_CLASS_SUPPORT }, () => ({ score: correctScore, correct: true })),
+    ...Array.from({ length: MIN_CLASS_SUPPORT }, () => ({ score: wrongScore, correct: false })),
+  ];
+}
+
+test("perfect separation is 1, the inversion is 0, and no separation at all is 0.5", () => {
+  expect(auroc(balanced(0.9, 0.1)).auroc).toBe(1);
+  // The #2364 signature: the WRONG trials are the confident ones.
+  expect(auroc(balanced(0.1, 0.9)).auroc).toBe(0);
+  // Every score identical — all ties, which mid-ranks must score as chance rather than as a loss.
+  expect(auroc(balanced(0.5, 0.5)).auroc).toBe(0.5);
+});
+
+test("a tie between a correct and a wrong trial counts as half, not as a loss", () => {
+  // 3 correct / 3 wrong so the hand-computed value is checkable: one tied pair (0.5), the rest
+  // strictly ordered in the correct trials' favour.
+  const rows = auroc(
+    samples([0.9, true], [0.8, true], [0.5, true], [0.5, false], [0.4, false], [0.3, false]),
+    3,
+  );
+  expect(rows.positives).toBe(3);
+  expect(rows.negatives).toBe(3);
+  // 9 pairs: 8 won outright, 1 tied → (8 + 0.5) / 9.
+  expect(rows.auroc).toBeCloseTo(8.5 / 9, 9);
+});
+
+test("a class too thin to measure reports its support instead of a number", () => {
+  const thin = [
+    ...Array.from({ length: 20 }, () => ({ score: 0.9, correct: true })),
+    { score: 0.1, correct: false },
+  ];
+  const result = auroc(thin);
+  expect(result.auroc).toBeNull();
+  expect(result.positives).toBe(20);
+  expect(result.negatives).toBe(1);
+  // An empty class is the degenerate case of the same rule.
+  expect(auroc([]).auroc).toBeNull();
+});
+
+// --- the ranking -------------------------------------------------------------
+
+function trial(over: Partial<SweepTrial> = {}): SweepTrial {
+  return {
+    choice: "gate",
+    expected: "gate",
+    fixture: "f",
+    confidence: 0.9,
+    probabilities: { gate: 0.9, unknown: 0.1 },
+    ...over,
+  };
+}
+
+test("the ranking puts the measure that separates best first and the unrankable last", () => {
+  // topProbability separates perfectly; vendorConfidence is inverted; the trials carry two options
+  // so margin and normalised entropy are measurable and move WITH topProbability.
+  const trials = [
+    ...Array.from({ length: MIN_CLASS_SUPPORT }, () =>
+      trial({ confidence: 0.1, probabilities: { gate: 0.99, unknown: 0.01 } }),
+    ),
+    ...Array.from({ length: MIN_CLASS_SUPPORT }, () =>
+      trial({
+        choice: "question",
+        confidence: 0.99,
+        probabilities: { question: 0.51, gate: 0.49 },
+      }),
+    ),
+  ];
+  const rows = rankMeasures(trials);
+  expect(rows.map((r) => r.name)[0]).toBe("topProbability");
+  expect(rows[0]!.auroc).toBe(1);
+  expect(rows[0]!.positives).toBe(MIN_CLASS_SUPPORT);
+  expect(rows[0]!.negatives).toBe(MIN_CLASS_SUPPORT);
+  // The vendor scalar runs opposite here — the exact shape #2364 observed by hand, and the whole
+  // reason the reading is spelled out in words rather than left as a bare number.
+  const vendor = rows.find((r) => r.name === "vendorConfidence")!;
+  expect(vendor.auroc).toBe(0);
+  expect(measureVerdict(vendor)).toBe("runs opposite");
+  expect(measureVerdict(rows[0]!)).toBe("separates");
+  expect(rows.at(-1)!.name).toBe("vendorConfidence");
+});
+
+test("a measure sitting on chance is not reported as separating", () => {
+  const onChance = { name: "x", auroc: 0.5, positives: 9, negatives: 9, skipped: 0 };
+  expect(measureVerdict(onChance)).toBe("at chance");
+  expect(measureVerdict({ ...onChance, auroc: 0.52 })).toBe("at chance");
+  expect(measureVerdict({ ...onChance, auroc: null })).toBe("insufficient support");
+});
+
+test("disabling the support floor still cannot divide by an empty class", () => {
+  // `minSupport: 0` is a legitimate ask (rank whatever there is); an empty class is still NaN.
+  expect(auroc([{ score: 1, correct: true }], 0).auroc).toBeNull();
+});
+
+test("a report with no distributions ranks nothing and says how many trials it skipped", () => {
+  const trials = Array.from({ length: MIN_CLASS_SUPPORT * 2 }, (_, i) =>
+    trial({ probabilities: undefined, choice: i % 2 === 0 ? "gate" : "question" }),
+  );
+  const rows = rankMeasures(trials);
+  const top = rows.find((r) => r.name === "topProbability")!;
+  expect(top.auroc).toBeNull();
+  expect(top.skipped).toBe(trials.length);
+  // The vendor scalar is still there, so it alone stays measurable.
+  expect(rows.find((r) => r.name === "vendorConfidence")!.skipped).toBe(0);
+});
+
+test("the ranking renders every measure with its support", () => {
+  const rendered = formatMeasureRanking(rankMeasures([trial()]));
+  for (const measure of CONFIDENCE_MEASURES) expect(rendered).toContain(measure.name);
+  expect(rendered).toContain("insufficient support");
 });

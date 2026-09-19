@@ -218,7 +218,7 @@ private final class FakeURLProtocol: URLProtocol {
       path: url.path(percentEncoded: false),
       query: components?.query,
       headers: headers,
-      body: request.httpBody ?? request.httpBodyStream.map(Self.drain)
+      body: request.httpBody ?? request.httpBodyStream.map { drainRequestBody($0) }
     )
 
     guard let handler = FakeServerRegistry.shared.take(recorded, host: host) else {
@@ -244,20 +244,53 @@ private final class FakeURLProtocol: URLProtocol {
   }
 
   override func stopLoading() {}
+}
 
-  /// `URLSession` converts a `httpBody` into a stream before the protocol
-  /// sees it, so read it back for the handler.
-  private static func drain(_ stream: InputStream) -> Data {
-    stream.open()
-    defer { stream.close() }
-    var data = Data()
-    let size = 4096
-    var buffer = [UInt8](repeating: 0, count: size)
-    while stream.hasBytesAvailable {
-      let read = stream.read(&buffer, maxLength: size)
-      if read <= 0 { break }
+/// Reads an HTTP request body stream to its end and returns every byte.
+///
+/// `URLSession` turns a `URLRequest.httpBody` into a stream before a custom
+/// `URLProtocol` ever sees the request, so this is the only place the fake can
+/// recover what the client actually sent. Two details make the obvious loop
+/// lose bytes, and both showed up only under CI's parallel load:
+///
+/// * **`hasBytesAvailable` is a hint, not a state.** It is `false` whenever the
+///   producer has not put anything in the buffer *yet*, which on a loaded
+///   machine includes the moment right after `open()`. A loop gated on it stops
+///   before the first byte arrives and records an empty body — the "Unexpected
+///   end of file" the write and login suites were seeing. The end of a stream
+///   is `read(_:maxLength:)` returning `0`, and nothing else, so that is what
+///   this loop watches.
+/// * **A `0` from `read` is only EOF once the stream says so.** While the
+///   producer is still filling the buffer, a read can come back empty without
+///   the stream being finished, so `0` ends the loop only at `.atEnd`.
+///   Otherwise the reader yields the CPU and retries until `timeout`, which
+///   bounds a genuinely wedged stream to a failing test rather than a hung job.
+///
+/// The wait is a short sleep rather than a nested `RunLoop.run`: this runs on
+/// CFNetwork's `com.apple.CFNetwork.CustomProtocols` thread inside
+/// `startLoading()`, and spinning that thread's run loop would re-enter the
+/// URL loading system mid-request. The producer writes from another thread and
+/// needs no scheduling from this one.
+func drainRequestBody(_ stream: InputStream, timeout: TimeInterval = 2) -> Data {
+  if stream.streamStatus == .notOpen { stream.open() }
+  defer { stream.close() }
+
+  var data = Data()
+  var buffer = [UInt8](repeating: 0, count: 64 * 1024)
+  let deadline = Date().addingTimeInterval(timeout)
+
+  while true {
+    let read = stream.read(&buffer, maxLength: buffer.count)
+    if read > 0 {
       data.append(contentsOf: buffer[0..<read])
+      continue
     }
-    return data
+    // A negative result is a stream error: keep whatever did arrive and let
+    // the assertion on the recorded body report the shortfall.
+    if read < 0 { break }
+    if stream.streamStatus == .atEnd { break }
+    if Date() >= deadline { break }
+    Thread.sleep(forTimeInterval: 0.001)
   }
+  return data
 }

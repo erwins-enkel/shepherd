@@ -2,9 +2,21 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **Amended 2026-09-19 (S0-prep seams):** Activity and git no longer poll on a timer — `DetailModel`
+> taps `SessionStore.events()` and reloads on `session:activity`/`session:git`, matching the raw name
+> on `ServerEvent.unknown(name:payload:)` (now two associated values) and decoding `payload` into the
+> generated `SessionActivityEvent`/`SessionGitEvent` with `JSONDecoder`; diff keeps its 15 s poll,
+> since the contract declares no diff push. `ShepherdClient.generated` is confirmed `internal` —
+> already delivered, not a Task-3 blocker. The old "S0 handoff" section (widen `generated`, add
+> `EventName` cases, edit `ServerEvent.swift`, add `SessionStore.addEventTap`) and its "Open question"
+> are removed: every one of those seams is delivered already, as `events()`. Coverage for this
+> stream's routes and events lives entirely in its own `test/contract/detail.test.ts`, gated on
+> `operationsForStream`/`streamOwnedEvents` from `test/contract/stream-blocks.ts`; nothing here edits
+> `openapi.test.ts` or `harness.ts`.
+
 **Goal:** Give Shepherd for Mac the four session-detail tabs the web UI has — activity, diff (with inline annotations), files (scratchpad + worktree, read-only) and git/PR — contract-first, without touching a file another parallel stream owns.
 
-**Architecture:** Nine routes and two events go into `contracts/openapi.yaml` inside the `# ── stream: detail ──` markers, exercised by a self-contained `test/contract/detail.test.ts`, derived into `contracts/openapi.swift.yaml` and generated into ShepherdKit. The kit gains one file, `ShepherdClient+Detail.swift`, mapping generated `Output` enums onto values or `ShepherdError` like every existing method. The app gains `native/Apps/ShepherdMac/Sources/Detail/**`: an `@Observable` `DetailModel` (an `AppExtension`, so it is born with the `SessionStore` and dies with it), four `DetailTab` registrations and four views. Tabs refresh by polling while visible, exactly as the web UI does (`pollWhileVisible`: activity 5 s, diff 15 s, git 15 s).
+**Architecture:** Nine routes and two events go into `contracts/openapi.yaml` inside the `# ── stream: detail ──` markers, exercised by a self-contained `test/contract/detail.test.ts`, derived into `contracts/openapi.swift.yaml` and generated into ShepherdKit. The kit gains one file, `ShepherdClient+Detail.swift`, mapping generated `Output` enums onto values or `ShepherdError` like every existing method. The app gains `native/Apps/ShepherdMac/Sources/Detail/**`: an `@Observable` `DetailModel` (an `AppExtension`, so it is born with the `SessionStore` and dies with it), four `DetailTab` registrations and four views. Activity and git refresh by tapping `SessionStore.events()` for the `session:activity`/`session:git` pushes this stream declares; diff keeps a light 15 s poll, since the contract carries no diff push and the web UI polls it unconditionally too.
 
 **Tech Stack:** Bun + ajv, `scripts/gen-contract-swift.ts`, swift-openapi-generator 1.13.1, Swift 6 language mode with `SWIFT_STRICT_CONCURRENCY: complete`, SwiftUI (macOS 15), Swift Testing, XcodeGen 2.46.
 
@@ -22,7 +34,7 @@
 
 ### File ownership (hard rule)
 
-May create/modify **only**: the `detail` blocks of `contracts/openapi.yaml`; the regenerated `contracts/openapi.swift.yaml` and `native/Sources/ShepherdKit/openapi.yaml`; `test/contract/detail.test.ts` + `detail-fixtures.ts`; `test/contract/harness.ts` and `openapi.test.ts` (**Task 1 Step 2 only**, only if the stream-scoped gate is not already on main); `native/Sources/ShepherdKit/Client/ShepherdClient+Detail.swift`; `native/Tests/ShepherdKitTests/{ShepherdClientDetailTests,DetailFixtures}.swift`; `native/Apps/ShepherdMac/Sources/Detail/**`; `native/Apps/ShepherdMac/Tests/{DetailModelTests,UnifiedPatchTests,GitPanelTests}.swift`; the `KEYS_DETAIL` array in `native/scripts/gen-strings.ts`; `ui/messages/{en,de}.json`; the regenerated `Localizable.xcstrings`; **one line** at the S0 stream-install point.
+May create/modify **only**: the `detail` blocks of `contracts/openapi.yaml`; the regenerated `contracts/openapi.swift.yaml` and `native/Sources/ShepherdKit/openapi.yaml`; `test/contract/detail.test.ts` + `detail-fixtures.ts`; `native/Sources/ShepherdKit/Client/ShepherdClient+Detail.swift`; `native/Tests/ShepherdKitTests/{ShepherdClientDetailTests,DetailFixtures}.swift`; `native/Apps/ShepherdMac/Sources/Detail/**`; `native/Apps/ShepherdMac/Tests/{DetailModelTests,UnifiedPatchTests,GitPanelTests}.swift`; the `KEYS_DETAIL` array in `native/scripts/gen-strings.ts`; `ui/messages/{en,de}.json`; the regenerated `Localizable.xcstrings`; **one line** at the S0 stream-install point. `test/contract/harness.ts` and `openapi.test.ts` are never touched: S0-prep already scopes coverage per stream block via `test/contract/stream-blocks.ts`.
 
 **Never touch:** `AppModel.swift`, `MainWindow.swift`, `SessionDetailView.swift`, `WelcomeView.swift`, `ShepherdApp.swift`, `SessionStore.swift`, `ServerEvent.swift`, `EventStream.swift`, `OpenEnum.swift`, `PublicTypes.swift`, `Fixtures.swift`, `test/contract/deps.ts`, `project.yml`, `native.yml`, `src/**`, `ui/src/**`.
 
@@ -41,12 +53,14 @@ protocol DetailTab: Identifiable, Sendable where ID == String {
 @MainActor enum DetailTabRegistry { static func register(_ tab: any DetailTab); static var tabs: [any DetailTab] }
 @MainActor protocol AppExtension: AnyObject { init(store: SessionStore, app: AppModel); func teardown() }
 extension AppModel { func register<E: AppExtension>(_ type: E.Type); func extension<E: AppExtension>(_ type: E.Type) -> E? }
+extension SessionStore { func events() -> AsyncStream<ServerEvent> }
 ```
 
 ```bash
 grep -rn "enum DetailTabRegistry" native/Apps/ShepherdMac/Sources/App/
 grep -rn "protocol AppExtension" native/Apps/ShepherdMac/Sources/App/
 grep -rn "StreamBootstrap\|installAll\|stream install" native/Apps/ShepherdMac/Sources/App/
+grep -rn "func events() -> AsyncStream<ServerEvent>" native/Sources/ShepherdKit/Model/
 ```
 
 The third grep names the **stream install point** — the one place every stream adds a single line. This stream's line, added in Task 6: `DetailFeature.install(app)`.
@@ -55,7 +69,7 @@ The third grep names the **stream install point** — the one place every stream
 
 1. **No `hunks` in the contract.** `GET /diff` runs its result through `toSessionDiff` (`src/diff.ts:217`), which strips `files[].hunks` and sends `files[].patch` — the raw patch block — instead. Task 7 parses it, as the web UI does.
 2. **One `GitState` schema for all five git responses.** `GET /git` and ready/draft/close answer the full object; `POST /git/pr|merge` answer the bare PR status with **no `kind`** (the web UI re-attaches it locally, `GitRail.svelte:281`). So `kind` is optional; `state`, `checks`, `deployConfigured` are required everywhere.
-3. **Events declared, not dispatched.** Adding `session:git`/`session:activity` to `EventName` adds cases to the generated `EventNameKnown`, which makes the exhaustive `switch name.known` in `ServerEvent.swift:43` non-exhaustive — an S0-owned file. So the contract declares both under `x-shepherd-events` with full payload schemas (the drift test pins them), `EventName` is left alone, and the typed dispatch is an S0 handoff (end of this plan). Until then the tabs poll, which is what the web UI does today.
+3. **Events declared and consumed, never added to `EventName`.** `session:git`/`session:activity` are declared under this stream's own `x-shepherd-events` block (Task 1) with full payload schemas (the drift test pins them), but never as members of `EventName` — that enum is `x-shepherd-open-enum`, so an undeclared name still decodes, as `ServerEvent.unknown(name:payload:)`, and adding a case would make the exhaustive `switch name.known` in `ServerEvent.swift` non-exhaustive for every other stream too. `DetailModel` taps `SessionStore.events()` (S0-prep's fan-out seam), matches the raw name, and decodes `payload` into `SessionActivityEvent`/`SessionGitEvent` with `JSONDecoder`, reloading exactly the session id the frame names. No S0 handoff is needed for this.
 4. **Downloads out of scope.** `/scratchpad/download` and `/worktree/download` are not in the contract.
 5. **`GET /git` 404 is not an error.** It answers 404 both for an unknown session and for a repo with no forge, so the kit maps 404 → `nil` and the panel renders "no PR", mirroring `gitState()` (`ui/src/lib/api.ts:1460`).
 
@@ -79,11 +93,10 @@ The third grep names the **stream install point** — the one place every stream
 
 **Files:**
 - Modify: `contracts/openapi.yaml` (the `detail` markers under `components.schemas:`, `paths:` and `x-shepherd-events:`)
-- Modify (conditionally): `test/contract/harness.ts`, `test/contract/openapi.test.ts`
 - Create: `test/contract/detail-fixtures.ts`, `test/contract/detail.test.ts`
 
 **Interfaces:**
-- Consumes: `harness.ts` — `startContractServer`, `withAuth`, `restoreAuth`, `login`, `mintToken`, `bearer`, `validateResponse`, `validateEvent`, `collectEvents`, `coverage`, `declaredOperations`, `loadContract`, `HTTP_METHODS`.
+- Consumes: `harness.ts` — `startContractServer`, `withAuth`, `restoreAuth`, `login`, `mintToken`, `bearer`, `validateResponse`, `validateEvent`, `collectEvents`, `coverage`, `loadContract`, `HTTP_METHODS`; `stream-blocks.ts` — `operationsForStream`, `streamOwnedEvents`, `streamBlocks` (S0-prep; the per-stream coverage seam — `openapi.test.ts`'s own gate is never touched).
 - Produces: schemas `ActivityEntry`, `ActivityList`, `SessionActivitySignal`, `SessionActivityEvent`, `DiffFile`, `DiffResult`, `DiffNote`, `DiffAnnotations`, `BrowseEntry`, `BrowseListing`, `PrReview`, `GitState`, `SessionGitEvent`, `PrReviewerOptions`, `ReviewRequestAck`, `ReviewRequestBody`, `OpenPrBody`, `MergePrBody`, `CodeError`; open enums `ActivityStatus`, `DiffFileStatus`, `DiffNoteKind`, `DiffNoteSide`, `BrowseEntryType`, `ForgeKind`, `PrState`, `ChecksState`, `MergeStateStatus`, `PrReviewState`; closed `MergeMethod`. Operation ids `getSessionActivity`, `getSessionDiff`, `getSessionDiffAnnotations`, `getSessionScratchpad`, `getSessionWorktree`, `getSessionGit`, `openPullRequest`, `mergePullRequest`, `setPullRequestReady`, `setPullRequestDraft`, `closePullRequest`, `requestPullRequestReview`, `getPullRequestReviewers`.
 
 - [ ] **Step 1: Cut the branch, confirm the markers**
@@ -93,76 +106,23 @@ git fetch origin && git switch -c feat/native-detail-tabs origin/main
 grep -n "stream: detail" contracts/openapi.yaml
 ```
 
-Expected: two marker pairs (`# ── stream: detail ──` / `# ── /stream: detail ──`), one under `components.schemas:` and one under `paths:`. No hits ⇒ S0-prep has not merged; stop.
+Expected: three marker pairs (`# ── stream: detail ──` / `# ── /stream: detail ──`), one each under
+`components.schemas:`, `paths:` and `x-shepherd-events:`. Fewer than three, or no hits ⇒ S0-prep has
+not merged, or merged without the `x-shepherd-events` marker; stop and tell the orchestrator.
 
-- [ ] **Step 2: Make the base coverage gate stream-aware (skip if already done)**
-
-`bun test` gives every test file its **own module registry** — verified: a `Set` exported from a shared module is empty in the second file. So coverage recorded in `detail.test.ts` is invisible to the gate in `openapi.test.ts`, which would fail on every route declared here.
+- [ ] **Step 2: Confirm the coverage seam (no edit needed)**
 
 ```bash
-grep -n "streamBlockSurface" test/contract/harness.ts
+grep -n "operationsForStream\|streamOwnedEvents" test/contract/stream-blocks.ts
 ```
 
-A hit ⇒ another stream already landed this; skip to Step 3. Otherwise append to `test/contract/harness.ts`:
-
-```ts
-/** Path templates and event names declared inside a `# ── stream: <name> ──` block, per stream.
- *  Each stream owns one contract-test file and asserts its own coverage there, so the base gate
- *  skips what a block claims. Read off the raw YAML because `Bun.YAML.parse` drops comments. */
-export function streamBlockSurface(): Record<string, { templates: string[]; events: string[] }> {
-  const out: Record<string, { templates: string[]; events: string[] }> = {};
-  let section = "";
-  let stream: string | null = null;
-  for (const line of readFileSync(CONTRACT_PATH, "utf8").split("\n")) {
-    const top = /^([A-Za-z][\w-]*):/.exec(line);
-    if (top) section = top[1]!;
-    const open = /^\s*# ── stream: (\S+) ──/.exec(line);
-    if (open) {
-      stream = open[1]!;
-      out[stream] ??= { templates: [], events: [] };
-      continue;
-    }
-    if (/^\s*# ── \/stream: \S+ ──/.test(line)) {
-      stream = null;
-      continue;
-    }
-    if (stream === null) continue;
-    const key = /^ {2}(\S+?):\s*$/.exec(line);
-    if (!key) continue;
-    if (section === "paths" && key[1]!.startsWith("/")) out[stream]!.templates.push(key[1]!);
-    if (section === "x-shepherd-events") out[stream]!.events.push(key[1]!);
-  }
-  return out;
-}
-
-/** The union of every stream block's claim — what the base coverage gate skips. */
-export function claimedSurface(): { templates: Set<string>; events: Set<string> } {
-  const templates = new Set<string>();
-  const events = new Set<string>();
-  for (const claim of Object.values(streamBlockSurface())) {
-    for (const t of claim.templates) templates.add(t);
-    for (const e of claim.events) events.add(e);
-  }
-  return { templates, events };
-}
-```
-
-Then replace the body of the last test in `test/contract/openapi.test.ts` and add `claimedSurface` to its `./harness` imports:
-
-```ts
-  test("every declared operation and event was exercised", () => {
-    const { operations, events } = coverage();
-    // Surface inside a `# ── stream: … ──` block belongs to that stream's own contract-test
-    // file, which runs in its own module registry and gates its own coverage there.
-    const claimed = claimedSurface();
-    const missingOps = declaredOperations().filter(
-      (o) => !operations.has(o) && !claimed.templates.has(o.split(" ")[1]!),
-    );
-    const missingEvents = declaredEvents().filter((e) => !events.has(e) && !claimed.events.has(e));
-    expect(missingOps).toEqual([]);
-    expect(missingEvents).toEqual([]);
-  });
-```
+Expected: both hit. S0-prep already scopes coverage per stream block — `openapi.test.ts`'s own gate
+polices only what falls *outside* every `# ── stream: … ──` block, so a route or event this task adds
+inside the `detail` block never turns it red, and it is never edited here. `detail.test.ts`'s own
+coverage gate (Step 7) reads its claimed surface straight off the contract through
+`operationsForStream("detail")` and `streamOwnedEvents("detail")`, so it can never disagree with what
+the markers actually declare. No hit ⇒ S0-prep has not merged this seam; stop and tell the orchestrator
+rather than re-adding a stream's own copy of it.
 
 - [ ] **Step 3: Write the schemas**
 
@@ -682,10 +642,11 @@ Between the `detail` markers under `paths:`. Every operation is secured (no `sec
 Between the `detail` markers under the top-level `x-shepherd-events:`:
 
 ```yaml
-  # NOT added to the EventName enum on this branch: a new member adds a case to the generated
-  # EventNameKnown, which makes the exhaustive `switch name.known` in ServerEvent.swift
-  # non-exhaustive — an S0-owned file. See this plan's S0 handoff. Until it lands these names
-  # decode as ServerEvent.unknown and are ignored by the client.
+  # Never added to the EventName enum: a new member adds a case to the generated EventNameKnown,
+  # which makes the exhaustive `switch name.known` in ServerEvent.swift non-exhaustive for every
+  # stream — an S0-owned file this stream does not touch. EventName is `x-shepherd-open-enum`, so
+  # these two names decode as ServerEvent.unknown(name:payload:) and DetailModel matches the raw
+  # name itself, decoding `payload` into the schema below through SessionStore.events() (Task 5).
   session:git:
     description: PR/forge state for one session changed (poller push, or a PR action).
     schema:
@@ -802,10 +763,11 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import * as fx from "./detail-fixtures";
 import {
-  bearer, collectEvents, coverage, declaredOperations, HTTP_METHODS, loadContract, login,
-  mintToken, restoreAuth, startContractServer, streamBlockSurface, validateEvent, validateResponse,
+  bearer, collectEvents, coverage, HTTP_METHODS, loadContract, login,
+  mintToken, restoreAuth, startContractServer, validateEvent, validateResponse,
   withAuth, type ContractServer, type Operation,
 } from "./harness";
+import { operationsForStream, streamBlocks, streamOwnedEvents } from "./stream-blocks";
 
 const STREAM = "detail";
 let s: ContractServer;
@@ -1068,7 +1030,7 @@ describe("detail: events", () => {
 
 describe("detail: unauthenticated sweep", () => {
   test("every detail route rejects a credential-less request with 401", async () => {
-    for (const template of streamBlockSurface()[STREAM]!.templates) {
+    for (const template of streamBlocks().paths.get(STREAM)!) {
       for (const [method, op] of Object.entries(loadContract().paths[template]!)) {
         if (!HTTP_METHODS.includes(method as never)) continue;
         if (!(op as Operation).responses["401"]) continue;
@@ -1085,16 +1047,14 @@ describe("detail: unauthenticated sweep", () => {
   });
 });
 
-// Stays the LAST describe in this file: it gates everything above it.
+// Stays the LAST describe in this file: it gates everything above it, and only its own block —
+// `openapi.test.ts`'s gate covers everything outside every stream's markers, so the two never
+// double-count and neither is ever edited by this stream.
 describe("detail: coverage gate", () => {
   test("every operation and event in the detail block was exercised", () => {
     const { operations, events } = coverage();
-    const claim = streamBlockSurface()[STREAM]!;
-    const templates = new Set(claim.templates);
-    expect(
-      declaredOperations().filter((o) => templates.has(o.split(" ")[1]!) && !operations.has(o)),
-    ).toEqual([]);
-    expect(claim.events.filter((e) => !events.has(e))).toEqual([]);
+    expect(operationsForStream(STREAM).filter((o) => !operations.has(o))).toEqual([]);
+    expect(streamOwnedEvents(STREAM).filter((e) => !events.has(e))).toEqual([]);
   });
 });
 ```
@@ -1293,16 +1253,19 @@ public func git(sessionID: String) async throws -> GitState?
 public func reviewers(sessionID: String) async throws -> PrReviewerOptions
 ```
 
-plus the typealiases `ActivityEntry`, `DiffResult`, `DiffFile`, `DiffNote`, `BrowseListing`, `BrowseEntry`, `GitState`, `PrReview`, `PrReviewerOptions`, `MergeMethod`, `PrStateKnown`, `ChecksStateKnown`, `MergeStateStatusKnown`, `ForgeKindKnown`, and the `OpenEnum` conformances for the ten new open enums.
+plus the typealiases `ActivityEntry`, `DiffResult`, `DiffFile`, `DiffNote`, `BrowseListing`, `BrowseEntry`, `GitState`, `PrReview`, `PrReviewerOptions`, `MergeMethod`, `PrStateKnown`, `ChecksStateKnown`, `MergeStateStatusKnown`, `ForgeKindKnown`, `SessionActivityEvent`, `SessionGitEvent` (the two event payloads `DetailModel.subscribe(_:)` decodes from `ServerEvent.unknown(name:payload:)` in Task 5), and the `OpenEnum` conformances for the ten new open enums.
 
-- [ ] **Step 1: Check the one thing this file needs from an S0-owned file**
+- [ ] **Step 1: Confirm `generated` is reachable — delivered by S0-prep (internal)**
 
 ```bash
 grep -n "let generated" native/Sources/ShepherdKit/Client/ShepherdClient.swift
 ```
 
-- `let generated: Client` (module-internal) ⇒ proceed; the extension reaches it directly.
-- `private let generated: Client` ⇒ **stop and request the S0 handoff edit** (`private let generated` → `let generated`, one word, listed at the end of this plan). Do **not** build a second `Client`: two clients mean two middleware chains and two `needsLogin` signals for one profile.
+Expected: `let generated: Client` (module-internal, no `private`) — S0-prep already widened it for
+exactly this, so every stream's extension reaches it directly. A `private let generated: Client`
+hit means the checkout predates S0-prep; stop and tell the orchestrator rather than building a
+second `Client`, which would mean two middleware chains and two `needsLogin` signals for one
+profile.
 
 - [ ] **Step 2: Write the failing tests**
 
@@ -1457,6 +1420,11 @@ public typealias GitState = Components.Schemas.GitState
 public typealias PrReview = Components.Schemas.PrReview
 public typealias PrReviewerOptions = Components.Schemas.PrReviewerOptions
 public typealias MergeMethod = Components.Schemas.MergeMethod
+// Decoded from `ServerEvent.unknown(name:payload:)`'s `payload` in `DetailModel.subscribe(_:)` —
+// `session:activity`/`session:git` are declared under this stream's own `x-shepherd-events`
+// block but never added to `EventName`, so the app decodes them itself through these two.
+public typealias SessionActivityEvent = Components.Schemas.SessionActivityEvent
+public typealias SessionGitEvent = Components.Schemas.SessionGitEvent
 
 // The closed enum each detail open enum splits off (see OpenEnum.swift for the mechanism).
 public typealias ActivityStatusKnown = Components.Schemas.ActivityStatusKnown
@@ -1909,8 +1877,10 @@ git commit -m "feat(kit): pull-request actions over the generated client"
 - Create: `native/Apps/ShepherdMac/Sources/Detail/DetailModel.swift`, `native/Apps/ShepherdMac/Tests/DetailModelTests.swift`
 
 **Interfaces:**
-- Consumes: Tasks 3–4's client methods; `AppExtension` (Gate S0); `ShepherdErrorCopy.message(_:)`; `Log.ui`.
-- Produces: `enum Loaded<Value>`, `enum DetailFeed`, and `@Observable @MainActor final class DetailModel: AppExtension` with `activity/diff/files/git` caches keyed by session id, `load(_:session:)`, `browse(session:source:path:)`, `poll(_:session:)`, `refreshGit(session:)`, `teardown()`, the `Loaders` seam and the `sleep` seam.
+- Consumes: Tasks 3–4's client methods; `AppExtension` (Gate S0); `SessionStore.events()` (Gate S0 —
+  `AsyncStream<ServerEvent>`, one independent tap per call, finished on `stop()`); the
+  `SessionActivityEvent`/`SessionGitEvent` typealiases (Task 3); `ShepherdErrorCopy.message(_:)`; `Log.ui`.
+- Produces: `enum Loaded<Value>`, `enum DetailFeed`, and `@Observable @MainActor final class DetailModel: AppExtension` with `activity/diff/files/git` caches keyed by session id, `load(_:session:)`, `browse(session:source:path:)`, `poll(_:session:)`, `refreshGit(session:)`, `subscribe(_:)` (the `session:activity`/`session:git` tap), `teardown()`, the `Loaders` seam and the `sleep` seam.
 
 - [ ] **Step 1: Add the new copy to both catalogs**
 
@@ -2202,19 +2172,20 @@ enum Loaded<Value: Equatable & Sendable>: Equatable, Sendable {
     }
 }
 
-/// The four detail tabs, and how often a visible one re-reads.
+/// The four detail tabs, and how often a visible one re-reads on a timer.
 ///
-/// The intervals mirror the web UI's `pollWhileVisible` (ActivityFeed 5 s, DiffPanel 15 s,
-/// GitRail 15 s). Files are not polled — neither does the web panel; it reloads when the
-/// operator navigates or presses Refresh.
+/// Only `diff` polls: the contract declares no push for it, and the web UI polls it
+/// unconditionally too (`DiffPanel` 15 s). `activity` and `git` instead refresh from
+/// `session:activity`/`session:git` pushes — see `DetailModel.subscribe(_:)` — so they carry no
+/// interval here; `poll(_:session:)` degrades to a single load for them, same as `files`, which
+/// neither polls nor pushes and reloads only when the operator navigates or presses Refresh.
 enum DetailFeed: String, CaseIterable, Sendable {
     case activity, diff, files, git
 
     var interval: Duration? {
         switch self {
-        case .activity: .seconds(5)
-        case .diff, .git: .seconds(15)
-        case .files: nil
+        case .diff: .seconds(15)
+        case .activity, .files, .git: nil
         }
     }
 }
@@ -2295,13 +2266,24 @@ final class DetailModel: AppExtension {
     /// longer the newest is dropped: a poll tick and a manual Refresh overlap routinely, and the
     /// earlier one holds the older answer by construction.
     @ObservationIgnored private var stamps: [String: Int] = [:]
+    /// The `session:activity`/`session:git` tap. Ended by `teardown()`; also ends on its own once
+    /// `store.events()` finishes, which happens when the store's `stop()` runs.
+    @ObservationIgnored private var watcher: Task<Void, Never>?
 
-    init(store: SessionStore, app: AppModel) { self.loaders = .live(store.client) }
+    init(store: SessionStore, app: AppModel) {
+        self.loaders = .live(store.client)
+        subscribe(store)
+    }
 
-    /// Test initialiser: the same model with hand-driven reads.
+    /// Test initialiser: the same model with hand-driven reads and no event tap — tests drive
+    /// `load`/`poll` directly instead of pushing frames through a store.
     init(loaders: Loaders) { self.loaders = loaders }
 
-    func teardown() { alive = false }
+    func teardown() {
+        alive = false
+        watcher?.cancel()
+        watcher = nil
+    }
 
     /// Reads one feed for one session. Safe to call while a read is already in flight.
     func load(_ feed: DetailFeed, session id: String) async {
@@ -2371,6 +2353,39 @@ final class DetailModel: AppExtension {
     /// Re-reads git after an action, so the panel shows what the server now believes rather than
     /// what the action returned.
     func refreshGit(session id: String) async { await load(.git, session: id) }
+
+    /// Keeps `activity`/`git` current without a timer. `session:activity`/`session:git` are
+    /// declared under this stream's own `x-shepherd-events` block but never added to `EventName`
+    /// (Decision 3), so they arrive through `store.events()` as
+    /// `ServerEvent.unknown(name:payload:)`: match the raw name, decode `payload` into the schema
+    /// this stream's own contract block names, and reload exactly the session id the frame
+    /// carries — never every open tab. `load(_:session:)`'s own `commit(_:_:_:_:)` already drops a
+    /// write once `alive` is false, so this loop needs no liveness check beyond `weak self`, and
+    /// it ends on its own once `store.events()` finishes on `stop()`, or sooner if `teardown()`
+    /// cancels it directly.
+    private func subscribe(_ store: SessionStore) {
+        watcher = Task { @MainActor [weak self] in
+            for await event in store.events() {
+                guard let self else { return }
+                guard case .unknown(let name, let payload) = event, let payload else { continue }
+                switch name {
+                case "session:activity":
+                    guard
+                        let decoded = try? JSONDecoder().decode(
+                            SessionActivityEvent.self, from: payload)
+                    else { continue }
+                    await self.load(.activity, session: decoded.id)
+                case "session:git":
+                    guard
+                        let decoded = try? JSONDecoder().decode(SessionGitEvent.self, from: payload)
+                    else { continue }
+                    await self.load(.git, session: decoded.id)
+                default:
+                    continue
+                }
+            }
+        }
+    }
 
     // MARK: - Internals
 
@@ -2535,8 +2550,10 @@ import ShepherdKit
 
 /// The agent's recent tool use, newest first — the native reading of ActivityFeed.svelte.
 ///
-/// `.task(id:)` is keyed on the session id, so SwiftUI cancels the 5 s poll when the operator
-/// selects another row, and the model drops whatever read was still in flight.
+/// `.task(id:)` loads once per session; after that, `DetailModel.subscribe(_:)` reloads on every
+/// `session:activity` push, whether or not this tab is the one visible. Keying on the session id
+/// still matters: SwiftUI cancels the initial load when the operator selects another row, and the
+/// model drops whatever read was still in flight.
 struct ActivityTabView: View {
     let session: Session
     let model: DetailModel
@@ -3691,7 +3708,7 @@ Then drive the four tabs by hand against the same server and record the result i
 open native/Apps/ShepherdMac/.build/Build/Products/Debug/Shepherd.app
 ```
 
-1. Activity — a running session shows tool lines that grow within about 5 s.
+1. Activity — a running session shows tool lines that grow within a second or two of each `session:activity` push (no fixed cadence now — it is event-driven, not a 5 s poll).
 2. Diff — a session with commits lists files and renders hunks; one without shows "No changes vs …".
 3. Files — both sources list; entering a directory updates the breadcrumbs; the worktree hides `.git`.
 4. PR — a session with an open PR shows its number, CI chip and actions; a repo with no forge shows "No pull request for this session." rather than an error.
@@ -3707,57 +3724,8 @@ git push -u origin feat/native-detail-tabs
 gh pr create --fill --title "feat(mac): session detail tabs — activity, diff, files, PR"
 ```
 
-The PR body must carry the route and event list, the live-check results from Step 6, and the S0 handoff below verbatim, so the integration lane can act on it without reading this plan.
-
----
-
-## S0 handoff — the shared edits this stream deliberately did not make
-
-Hand these to the integration lane (`chore/native-integrate-detail`) after this branch merges. None is needed for the stream to work; each removes a documented compromise.
-
-1. **`native/Sources/ShepherdKit/Client/ShepherdClient.swift`** — if `generated` is still `private`, widen it so `ShepherdClient+Detail.swift` (and every later stream's extension) can reach it. Task 3 Step 1 stops and asks for this rather than building a second `Client`.
-
-   ```diff
-   -  private let generated: Client
-   +  let generated: Client
-   ```
-
-2. **`contracts/openapi.yaml`** — add the two names to the `EventName` enum:
-
-   ```diff
-        - "usage:limits"
-   +    - "session:git"
-   +    - "session:activity"
-   ```
-
-3. **`native/Sources/ShepherdKit/Realtime/ServerEvent.swift`** — the two cases those members make mandatory (the `switch name.known` is exhaustive, which is why this cannot be an additive file):
-
-   ```diff
-      case usageLimits(Components.Schemas.UsageLimits)
-   +  case sessionGit(Components.Schemas.SessionGitEvent)
-   +  case sessionActivity(Components.Schemas.SessionActivityEvent)
-   ```
-   ```diff
-   +  case .session_colon_git:
-   +    self = payload(Components.Schemas.SessionGitEvent.self).map(ServerEvent.sessionGit)
-   +      ?? .unknown(name: name.rawValue)
-   +  case .session_colon_activity:
-   +    self = payload(Components.Schemas.SessionActivityEvent.self).map(ServerEvent.sessionActivity)
-   +      ?? .unknown(name: name.rawValue)
-   ```
-
-   `SessionStore.applyNow` also switches exhaustively over `ServerEvent`, so it needs two arms — ignoring both is correct, since these caches live in `DetailModel`, not in the store.
-
-4. **A fan-out seam on `SessionStore`** (optional, the real prize). The store owns the single consumer of `EventStream.events()` and exposes no way for an `AppExtension` to see a frame, which is why the tabs poll. A tap would let `DetailModel` patch `git[id]` straight from a `session:git` frame and drop the 15 s poll:
-
-   ```swift
-   /// Frames reach every tap AFTER the store has applied them. Taps are dropped by `stop()`, so
-   /// a tap never outlives the store it was installed on.
-   public func addEventTap(_ tap: @escaping @MainActor (ServerEvent) -> Void)
-   ```
-
-5. **`test/contract/harness.ts` / `openapi.test.ts`** — `streamBlockSurface()`, `claimedSurface()` and the stream-aware coverage gate (Task 1 Step 2) belong in S0-prep's own PR. If another stream landed them first this stream skipped the step; if this stream added them, fold them into the shared harness review.
-
-## Open question
-
-Whether the integration lane would rather land handoff item 4 (a `SessionStore` event tap) **before** this branch merges, so the detail tabs ship event-driven instead of polling — the tabs would then need one more commit here and the 15 s poll plus its test would come out.
+The PR body must carry the route and event list and the live-check results from Step 6, so the
+integration lane can act on it without reading this plan. There is no S0 handoff: `SessionStore.events()`,
+`AppExtension` and `ShepherdClient.generated`'s visibility are all delivered by S0-prep already, and
+`session:git`/`session:activity` are consumed as `ServerEvent.unknown(name:payload:)` without ever
+touching `EventName` or `ServerEvent.swift` — see Decision 3.

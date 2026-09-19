@@ -2,6 +2,14 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **Amended 2026-09-19 (S0-prep seams):** `SidebarModel` no longer opens a second `EventStream` —
+> it taps the one authenticated socket through `SessionStore.events()`, which S0-prep delivered as
+> the fan-out seam this plan's original draft anticipated only as "S0-int's job once it exists".
+> `.unknown(let name)` is now `.unknown(let name, _)`, matching `ServerEvent.unknown(name:payload:)`'s
+> two associated values. `ShepherdClient.generated` is confirmed `internal` — already delivered, not
+> a Task-2 blocker. Coverage for this stream's routes and events lives entirely in its own
+> `test/contract/sidebar.test.ts`; nothing here edits `openapi.test.ts`'s gate.
+
 **Goal:** Give Shepherd for Mac the web UI's Herd sidebar and header strip — repo chip rail, lens
 strip, collapsible lifecycle groups, rows with badges, and a header with the Aktiv/Inaktiv/Blockiert
 tallies and the 5H/WK usage meter — contract-first, without touching `AppModel`, `MainWindow` or
@@ -11,7 +19,7 @@ tallies and the 5H/WK usage meter — contract-first, without touching `AppModel
 stream's marked block; Swift is regenerated from the derived file; one kit extension
 (`ShepherdClient+Backlog.swift`) exposes them. The app side is a pure, UI-free derivation module
 (`HerdPartition`) that every list decision goes through, one `AppExtension` (`SidebarModel`) owning
-the snapshots and its own `/events` subscription, and views under `Sources/Sidebar/**` and
+the snapshots and a tap on `SessionStore.events()`, and views under `Sources/Sidebar/**` and
 `Sources/Header/**`, installed by assigning `SidebarSlot.content`.
 
 **Tech Stack:** Bun + ajv (contract drift test), OpenAPI 3.1, swift-openapi-generator 1.13.1,
@@ -78,17 +86,17 @@ Expected: `OK`. Three parts of that deserve spelling out.
 1. **Three markers** must exist in `contracts/openapi.yaml`: one in `components.schemas`, one in
    `paths`, one in `x-shepherd-events`. Without the third, appending events guarantees a rebase
    conflict with S2 and S4.
-2. **`ShepherdClient.generated` must not be `private`.** Today it is `private let generated: Client`
-   (`native/Sources/ShepherdKit/Client/ShepherdClient.swift:24`). Swift's `private` is file-scoped,
-   so an extension in another file cannot see it — Task 2 cannot compile until S0 widens that one
-   declaration to `internal`. Do not work around it by building a second `Client`.
-3. **The global coverage gate must be scoped to the core block.** `test/contract/openapi.test.ts`
-   ends with a gate asserting every operation and event the *whole* contract declares was exercised,
-   using module-level sets in `harness.ts`. Bun runs test files in filesystem order in one process,
-   and `openapi.test.ts` runs **before** `sidebar.test.ts` (verified on this checkout with the three
-   filenames present: `openapi`, `swift-derivation`, `sidebar`). A sidebar route declared in the
-   contract but exercised in another file therefore turns that gate red. If it does, **do not edit
-   `openapi.test.ts`** — hand it to S0-int, which owns the scoping change.
+2. **`ShepherdClient.generated` is `internal`.** Delivered by S0-prep
+   (`native/Sources/ShepherdKit/Client/ShepherdClient.swift:28`) precisely so a same-module
+   extension like `ShepherdClient+Backlog.swift` can reach it. The grep above only confirms the
+   seam is still there; do not work around it by building a second `Client`.
+3. **Coverage is scoped per stream block, not by editing the global gate.** `test/contract/
+   openapi.test.ts`'s gate only polices paths and events *outside* the markers — never touch it.
+   Add this stream's operations and events inside its own `# ── stream: sidebar ──` blocks in
+   `paths` and `x-shepherd-events`; coverage for them lives in this stream's own
+   `test/contract/sidebar.test.ts`, gated on its own `OPERATIONS`/`EVENTS` lists (Step 1 below) —
+   the same surface `test/contract/stream-blocks.ts`'s `operationsForStream("sidebar")` derives
+   from the markers, so the two never disagree.
 
 ### Deliberate deviations from the stream brief
 
@@ -1221,7 +1229,7 @@ git commit -m "feat(mac): herd partition rules ported from the web sidebar"
 
 **Interfaces:**
 - Consumes: `AppExtension`, `AppModel.register(_:)` / `app.extension(_:)` (S0-prep), `SessionStore`,
-  `EventStream`, Task 2's four reads, Task 4's `HerdPartition`, `Log.ui`.
+  `SessionStore.events()`, Task 2's four reads, Task 4's `HerdPartition`, `Log.ui`.
 - Produces: `SidebarReads` (with `.live(_:)`) and
   ```swift
   @Observable @MainActor final class SidebarModel: AppExtension {
@@ -1377,7 +1385,6 @@ final class SidebarModel: AppExtension {
     /// rather than installed — the rule `SessionStore.refresh()` already uses.
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var staleOnce = false
-    @ObservationIgnored private var events: EventStream?
     @ObservationIgnored private var watcher: Task<Void, Never>?
 
     var isSubscribed: Bool { watcher != nil }
@@ -1387,14 +1394,12 @@ final class SidebarModel: AppExtension {
         self.store = store
         self.reads = .live(store.client)
         self.now = { Int(Date().timeIntervalSince1970 * 1_000) }
-        // A second `/events` subscription, deliberately: `EventStream.events()` is single-consumer
-        // and `SessionStore` already owns the app's one. The sidebar needs two frames the store
-        // drops (`held:changed`, `session:working-blocked`) and needs them only as signals to
-        // re-read. This stream never calls `setActive`, so it sends no presence frame and cannot
-        // fight the store's. Collapsing the two is S0-int's job once a fan-out seam exists.
-        let stream = EventStream(client: store.client)
-        self.events = stream
-        subscribe(stream)
+        // One authenticated socket, owned by `SessionStore` — `store.events()` is the fan-out seam
+        // S0-prep delivered for exactly this: several independent taps on the one connection, each
+        // seeing every frame. The sidebar needs two frames the store's own `applyNow` does not model
+        // (`held:changed`, `session:working-blocked`) only as signals to re-read; it never calls
+        // `setActive`, so it sends no presence frame and cannot fight the store's.
+        subscribe(store)
         Task { [weak self] in await self?.refresh() }
     }
 
@@ -1490,21 +1495,20 @@ final class SidebarModel: AppExtension {
     func teardown() {
         watcher?.cancel()
         watcher = nil
-        let stream = events
-        events = nil
-        Task { await stream?.stop() }
     }
 
-    /// Both frames arrive as `ServerEvent.unknown(name:)`: the contract declares them under
-    /// `x-shepherd-events` but deliberately not in `EventName`, so the payload is dropped and only
-    /// the name survives. That is all the sidebar needs — re-read the snapshots.
-    private func subscribe(_ stream: EventStream) {
-        let frames = stream.events()
+    /// Both frames arrive as `ServerEvent.unknown(name:payload:)`: the contract declares them under
+    /// this stream's `x-shepherd-events` block but deliberately not in `EventName`, so the store
+    /// hands them back as the raw name plus the undecoded `data` bytes. The sidebar only needs the
+    /// name — a re-read is cheap and both frames exist solely to trigger one — so `payload` is
+    /// discarded here rather than decoded through `HeldChangedEvent`/`SessionWorkingBlockedEvent`.
+    /// `store.events()` finishes its stream on `stop()`, so this `for await` ends with the store and
+    /// needs no separate `start()`/`stop()` of its own.
+    private func subscribe(_ store: SessionStore) {
         watcher = Task { @MainActor [weak self] in
-            await stream.start()
-            for await event in frames {
+            for await event in store.events() {
                 guard let self else { return }
-                guard case .unknown(let name) = event,
+                guard case .unknown(let name, _) = event,
                     name == "held:changed" || name == "session:working-blocked"
                 else { continue }
                 await self.refresh()
@@ -2258,8 +2262,8 @@ Stream S3. Brings the Herd sidebar and the header strip to Shepherd for Mac.
   per-block coverage gate.
 - **Kit:** `ShepherdClient+Backlog.swift` — four typed reads over the generated client.
 - **App:** `HerdPartition` (pure, unit-tested against the web's own rules), `SidebarModel`
-  (`AppExtension`, generation-guarded refresh, its own `/events` subscription), the sidebar views and
-  the header strip. `SidebarSlot.content` is assigned in `SidebarInstall`; `AppModel`, `MainWindow`
+  (`AppExtension`, generation-guarded refresh, a tap on `SessionStore.events()`), the sidebar views
+  and the header strip. `SidebarSlot.content` is assigned in `SidebarInstall`; `AppModel`, `MainWindow`
   and `SessionRow` are untouched.
 
 ## Deliberate deviations from the stream brief
@@ -2281,7 +2285,7 @@ Stream S3. Brings the Herd sidebar and the header strip to Shepherd for Mac.
 
 ## Integration lane
 `ShepherdApp` must call `SidebarInstall.run(app)` once at start-up — one line, S0-int's commit.
-`ShepherdClient.generated` had to be `internal` rather than `private` for the kit extension.
+`ShepherdClient.generated` needed no widening: delivered by S0-prep as `internal` already.
 
 ## Verification
 `bun run test:contract` · `bun run check:contract-swift` · `native/scripts/sync-contract.sh --check`

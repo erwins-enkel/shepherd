@@ -24,7 +24,9 @@ import {
 import { LearningsService } from "./learnings-service";
 import { RepoConfigService } from "./repo-config-service";
 import {
+  BLOCK_JUDGE_MODES,
   EFFORTS,
+  isBlockJudgeMode,
   type MaintainBlock,
   type StandardCreateInput,
   type UsageJudgeSpend,
@@ -5612,6 +5614,9 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       judgeEnabled: config.judgeEnabled,
       judgeHasKey: config.judgeApiKey !== null,
       judgeDailyUsd: config.judgeDailyUsd,
+      // #2375: the blocked-pane backstop's own mode. Shares `judgeHasKey` above — it rides the same
+      // client and the same ceiling — but is armed separately.
+      blockJudgeMode: config.blockJudgeMode,
       ...telemetrySettings(deps.telemetry),
     });
   }
@@ -5684,6 +5689,7 @@ const SETTING_PATCHES: [string, (value: unknown, deps: Ctx["deps"]) => Response]
   ["fableAvailable", putFableAvailable],
   ["judgeEnabled", putJudgeEnabled],
   ["judgeDailyUsd", putJudgeDailyUsd],
+  ["blockJudgeMode", putBlockJudgeMode],
   ["tuiFullscreen", putTuiFullscreen],
   ["tuiDisableMouse", putTuiDisableMouse],
   ["telemetryConsent", putTelemetryConsent],
@@ -5985,6 +5991,18 @@ function putJudgeDailyUsd(value: unknown, deps: Ctx["deps"]): Response {
   config.judgeDailyUsd = n;
   deps.store.setSetting("judgeDailyUsd", String(n));
   return json({ judgeDailyUsd: config.judgeDailyUsd });
+}
+
+/** Arm the blocked-pane backstop (#2375). Takes effect on the next block — the mode is read live
+ *  per decision, not captured at boot. Rejects anything off-enum rather than coercing: `armed` is
+ *  the mode that can delay an operator-facing card, and a typo must never land there by accident. */
+function putBlockJudgeMode(value: unknown, deps: Ctx["deps"]): Response {
+  if (!isBlockJudgeMode(value)) {
+    return json({ error: `blockJudgeMode must be one of ${BLOCK_JUDGE_MODES.join(", ")}` }, 400);
+  }
+  config.blockJudgeMode = value;
+  deps.store.setSetting("blockJudgeMode", value);
+  return json({ blockJudgeMode: config.blockJudgeMode });
 }
 
 function putUsageHoldPct(value: unknown, deps: Ctx["deps"]): Response {

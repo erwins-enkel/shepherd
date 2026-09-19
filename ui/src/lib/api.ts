@@ -397,6 +397,13 @@ export const putJudgeEnabled = (enabled: boolean): Promise<{ judgeEnabled: boole
 export const putJudgeDailyUsd = (usd: number): Promise<{ judgeDailyUsd: number }> =>
   patchSettings({ judgeDailyUsd: usd });
 
+// Arm the blocked-pane backstop: the judge behind the block regexes. Takes effect on the next
+// block, not the next restart.
+export const putBlockJudgeMode = (
+  mode: "off" | "shadow" | "armed",
+): Promise<{ blockJudgeMode: "off" | "shadow" | "armed" }> =>
+  patchSettings({ blockJudgeMode: mode });
+
 // Toggle the global reduced-notifications mode (only ready-after-5s + cost alerts when on).
 export const putReducedPushMode = (enabled: boolean): Promise<{ reducedPushMode: boolean }> =>
   patchSettings({ reducedPushMode: enabled });

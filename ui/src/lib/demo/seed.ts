@@ -1233,6 +1233,7 @@ function buildSettings(): Settings {
     judgeEnabled: false,
     judgeHasKey: false,
     judgeDailyUsd: 1,
+    blockJudgeMode: "off",
   };
 }
 

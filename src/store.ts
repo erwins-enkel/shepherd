@@ -1,6 +1,7 @@
 import { Database, type SQLQueryBindings } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
 import type {
+  BlockJudgeLogRow,
   Session,
   SessionArchiveReason,
   SessionStatus,
@@ -1302,8 +1303,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // BUSY_TIMEOUT_MS in scripts/backup.ts.
     this.db.run("PRAGMA busy_timeout = 5000");
     // Everything below is ONE transaction. A fresh open fires 153 write statements: 44
-    // CREATE TABLE IF NOT EXISTS (42 here, REVIEWER_SPAWNS_DDL, and terminal_claims inside
-    // migrateSessionColumns), 13 index creations (12 here plus that method's partial unique
+    // CREATE TABLE IF NOT EXISTS (43 here, REVIEWER_SPAWNS_DDL, and terminal_claims inside
+    // migrateSessionColumns), 14 index creations (13 here plus that method's partial unique
     // index), 89 ALTER TABLE column adds behind PRAGMA table_info probes, and 3 seed INSERTs.
     // Each one left to autocommit pays SQLite's full rollback-journal fsync cycle — 310ms per open
     // on a fast NVMe, seconds on CI's disk, which is what times out the disk-backed migration
@@ -1386,6 +1387,16 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     this.db.run(`CREATE TABLE IF NOT EXISTS judge_spend (
       day TEXT PRIMARY KEY, calls INTEGER NOT NULL DEFAULT 0,
       usd REAL NOT NULL DEFAULT 0, noticeAt INTEGER)`);
+    // Blocked-pane backstop (#2375). One row per decided episode: what the regexes flagged, the
+    // tail they flagged it on, and what the judge said about it. This is the SHADOW LOG the arming
+    // decision reads — it must therefore record agreements as well as disagreements, or there is no
+    // negative class to measure against. Pruned by age in the daily sweep (no parent to cascade
+    // from), and the tail is clipped at the call site since these rows are bulky.
+    this.db.run(`CREATE TABLE IF NOT EXISTS block_judge_log (
+      id TEXT PRIMARY KEY, sessionId TEXT NOT NULL, shape TEXT NOT NULL, tail TEXT NOT NULL,
+      p REAL, delayMs INTEGER NOT NULL, reason TEXT NOT NULL, mode TEXT NOT NULL,
+      model TEXT, costUsd REAL NOT NULL DEFAULT 0, ts INTEGER NOT NULL)`);
+    this.db.run(`CREATE INDEX IF NOT EXISTS block_judge_log_ts ON block_judge_log (ts)`);
     this.db.run(`CREATE TABLE IF NOT EXISTS repo_config (
       repoPath TEXT PRIMARY KEY, criticEnabled INTEGER NOT NULL DEFAULT 1,
       criticAllPrs INTEGER NOT NULL DEFAULT 0,
@@ -4661,6 +4672,52 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       }
     ).c;
     this.db.run(`DELETE FROM judge_spend WHERE day < ?`, [beforeDay]);
+    return n;
+  }
+
+  // ── blocked-pane backstop log (issue #2375) ──────────────────────────────────
+  /** Record one decided backstop episode. Best-effort by contract — the caller swallows a throw
+   *  rather than lose a block emit over a log write. */
+  addBlockJudgeLog(row: BlockJudgeLogRow): void {
+    this.db.run(
+      `INSERT INTO block_judge_log
+         (id, sessionId, shape, tail, p, delayMs, reason, mode, model, costUsd, ts)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        randomUUID(),
+        row.sessionId,
+        row.shape,
+        row.tail,
+        row.p,
+        row.delayMs,
+        row.reason,
+        row.mode,
+        row.model,
+        row.costUsd,
+        row.ts,
+      ],
+    );
+  }
+
+  /** Every logged episode since `sinceTs`, newest first. The offline read the arming gate uses. */
+  listBlockJudgeLog(sinceTs: number): BlockJudgeLogRow[] {
+    return this.db
+      .query(
+        `SELECT sessionId, shape, tail, p, delayMs, reason, mode, model, costUsd, ts
+           FROM block_judge_log WHERE ts >= ? ORDER BY ts DESC`,
+      )
+      .all(sinceTs) as BlockJudgeLogRow[];
+  }
+
+  /** Drop rows older than `beforeTs`. These carry terminal tails, so retention is shorter than the
+   *  spend table's — nothing else ever removes one. */
+  pruneBlockJudgeLog(beforeTs: number): number {
+    const n = (
+      this.db.query(`SELECT COUNT(*) AS c FROM block_judge_log WHERE ts < ?`).get(beforeTs) as {
+        c: number;
+      }
+    ).c;
+    this.db.run(`DELETE FROM block_judge_log WHERE ts < ?`, [beforeTs]);
     return n;
   }
 

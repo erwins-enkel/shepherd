@@ -39,6 +39,15 @@ describe("the Session section's searchable rows mirror the panel", () => {
     // The row swaps its description depending on whether a credential is configured. A row counts
     // once however many of its strings hit, so carrying both keeps it findable either way.
     expect(matchCount(rows, "frees subscription quota")).toBe(1);
-    expect(matchCount(rows, "~/.shepherd/env")).toBe(1);
+    expect(matchCount(rows, "keeps using a Claude agent spawn")).toBe(1);
+  });
+
+  it("finds the blocked-pane backstop row by title and by either hint", () => {
+    const rows = sessionRows();
+    expect(matchCount(rows, "Blocked-pane double check")).toBe(1);
+    expect(matchCount(rows, "just text the agent printed")).toBe(1);
+    expect(matchCount(rows, "panes are announced exactly as they are today")).toBe(1);
+    // Both key-gated rows point at the same credential file, so this finds two.
+    expect(matchCount(rows, "~/.shepherd/env")).toBe(2);
   });
 });

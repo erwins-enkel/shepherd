@@ -137,6 +137,7 @@ function settings(over: Partial<SettingsPayload> = {}): SettingsPayload {
     judgeEnabled: false,
     judgeHasKey: false,
     judgeDailyUsd: 1,
+    blockJudgeMode: "off" as const,
     docAgentAct: true,
     ...over,
   };

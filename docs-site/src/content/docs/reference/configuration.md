@@ -456,6 +456,34 @@ one notification.
 | `SHEPHERD_JUDGE_TIMEOUT_MS` | `8000` | **Total** wall-clock budget for one judge call, retries included (1000–60000). The vendor SDK times out per *attempt* with no total budget, so without this a rate-limited call honouring `Retry-After` could outlast the spawn the judge exists to be faster than |
 | `SHEPHERD_JUDGE_SPEND_RETENTION_DAYS` | `90` | How many days of judge spend rows the daily sweep keeps (1–3650) |
 
+### Blocked-pane backstop
+
+The same decision model can also sit **behind** the pattern matcher that decides a pane is showing a
+dialog waiting for you. The patterns stay the trigger and stay the fallback: a call is made only on
+a pane they have already flagged as a `menu` or a `yes-no` prompt, and it asks one question — is
+this really a rendered dialog, or prose the agent printed that happens to look like one?
+
+The answer **buys patience, never a decision**. It can never promote a pane, pick an option or type
+anything; a confident "this is prose" simply holds the card back for a few seconds, during which the
+pane usually corrects itself — a printing agent scrolls its numbered list out of view, a
+half-painted dialog finishes painting. Every failure path — HTTP error, deadline, malformed answer,
+ceiling breach — announces the card immediately.
+
+Three modes. **`off`** is the default and the feature does not exist. **`shadow`** pays for answers
+and records them, but nothing is ever delayed — this is the measurement that has to justify arming
+it, and it means an outage can never look like a signal. **`armed`** lets the probability hold a
+card for up to 15 seconds. Armed mode also costs the honest path up to one classify cadence (~3s)
+while the request is in flight.
+
+It is armed **independently of `SHEPHERD_JUDGE`** — the two are separate features — but it shares
+the same `JEV_API_KEY`, the same model and the same daily ceiling, so its calls count toward
+`SHEPHERD_JUDGE_DAILY_USD` and show in the same **Usage → Spend** block.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `SHEPHERD_BLOCK_JUDGE` | `off` | `off` \| `shadow` \| `armed`. Inert without `JEV_API_KEY`. Anything unrecognised reads as `off`. Seeds a fresh DB; persisted + UI-configurable (Settings → Session) |
+| `SHEPHERD_BLOCK_JUDGE_LOG_RETENTION_DAYS` | `14` | How many days of backstop decision rows the daily sweep keeps (1–365). Shorter than the spend table's window because these rows carry terminal tails |
+
 ## Maintain loop (self-health bands)
 
 Opt-in, default-off, and fully inert when off. Once per local day Shepherd scores four

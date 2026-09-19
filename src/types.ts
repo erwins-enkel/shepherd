@@ -1713,6 +1713,46 @@ export interface UsageJudgeSpend {
   ceilingUsd: number;
 }
 
+// ── Blocked-pane backstop (issue #2375) ──────────────────────────────────────
+
+/**
+ * How far the judge behind `src/blocked.ts`'s regexes is armed.
+ *
+ * `shadow` PAYS for answers and logs them but can never delay a block — it is the measurement that
+ * has to justify `armed`, and an outage must not be able to look like a signal.
+ */
+export type BlockJudgeMode = "off" | "shadow" | "armed";
+
+export const BLOCK_JUDGE_MODES: readonly BlockJudgeMode[] = ["off", "shadow", "armed"];
+
+/** Fail-closed mode parse: anything unrecognised (absent, blank, a typo, a hand-edited settings
+ *  row) is NOT a mode, and every caller falls back to `off`. */
+export function isBlockJudgeMode(value: unknown): value is BlockJudgeMode {
+  return typeof value === "string" && (BLOCK_JUDGE_MODES as readonly string[]).includes(value);
+}
+
+/** One decided backstop episode. The arming gate reads these against the captured tail corpus; `p`
+ *  is stored RAW so a different gate measure can be evaluated without paying for a new run. */
+export interface BlockJudgeLogRow {
+  sessionId: string;
+  /** The shape `classifyBlocked` assigned — always one of the gated two. */
+  shape: string;
+  /** The tail that was judged, clipped. The entire input to the decision; a row without it cannot
+   *  be labelled. */
+  tail: string;
+  /** Raw probability of the FORGERY reading, or null when no usable answer came back. */
+  p: number | null;
+  /** The hold the answer bought, in ms. 0 ⇒ announced immediately. */
+  delayMs: number;
+  /** Why. Everything but `hold` means the block was announced now. */
+  reason: string;
+  mode: BlockJudgeMode;
+  /** The model as the backend reported it, so a silent vendor re-point is visible after the fact. */
+  model: string | null;
+  costUsd: number;
+  ts: number;
+}
+
 // ── Spawn-prompt budget (issue #1999) ────────────────────────────────────────
 // Mirror of the PromptBudgetRecord contract in ui/src/lib/types.ts — keep in sync.
 

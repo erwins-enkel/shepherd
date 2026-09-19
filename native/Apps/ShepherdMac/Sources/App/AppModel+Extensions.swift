@@ -30,6 +30,12 @@ extension AppModel {
     /// `StreamRegistrations.installAll(into:)` runs from a view task, which can
     /// land after a restored profile has already activated — without it that
     /// launch would silently have no extensions.
+    ///
+    /// A type registered this way is built against a store that may already
+    /// have published events the extension never saw — it must reconcile from
+    /// the store's current state rather than assume it starts at the
+    /// beginning, exactly as `makeExtensions(store:)`'s own instances would
+    /// after a relaunch.
     func register<E: AppExtension>(_ type: E.Type) {
         let key = ObjectIdentifier(type)
         guard !extensionFactories.contains(where: { $0.key == key }) else { return }
@@ -43,12 +49,24 @@ extension AppModel {
     /// because `extension` is a keyword — Appendix B's spelling is kept.
     func `extension`<E: AppExtension>(_ type: E.Type) -> E? {
         let key = ObjectIdentifier(type)
-        return liveExtensions.first { $0.key == key }?.value as? E
+        guard let entry = liveExtensions.first(where: { $0.key == key }) else { return nil }
+        // The key is `type`'s own `ObjectIdentifier`, and every entry with
+        // that key was built as exactly `E` by `register`/`makeExtensions` —
+        // a mismatch here means the registry itself is corrupted, which is
+        // worth crashing on rather than silently returning `nil`.
+        return (entry.value as! E)
     }
 
     /// One instance per registered type, in registration order. Called by
-    /// `activate(_:)` right after `self.store` is set.
+    /// `activate(_:)` right after `self.store` is set — always onto an empty
+    /// registry, since `tearDownExtensions()` runs before every store change.
+    /// A build that finds a live instance already there means a `tearDownExtensions()`
+    /// call was skipped somewhere along the way, which would let an extension
+    /// bound to the outgoing store leak into the next activation.
     func makeExtensions(store: SessionStore) {
+        precondition(
+            liveExtensions.isEmpty,
+            "extensions must be torn down before a new store")
         for factory in extensionFactories {
             liveExtensions.append((factory.key, factory.make(store, self)))
         }

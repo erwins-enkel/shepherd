@@ -39,6 +39,26 @@ final class FakeExtension: AppExtension {
 }
 
 
+/// Records creation/teardown order across two distinct `AppExtension` types, so
+/// a test can see how they interleave rather than each type's own count.
+@MainActor
+final class OrderLedger {
+    static var shared = OrderLedger()
+    var events: [String] = []
+}
+
+@MainActor
+final class FirstFakeExtension: AppExtension {
+    init(store: SessionStore, app: AppModel) { OrderLedger.shared.events.append("first.created") }
+    func teardown() { OrderLedger.shared.events.append("first.torn") }
+}
+
+@MainActor
+final class SecondFakeExtension: AppExtension {
+    init(store: SessionStore, app: AppModel) { OrderLedger.shared.events.append("second.created") }
+    func teardown() { OrderLedger.shared.events.append("second.torn") }
+}
+
 /// Yields until `condition` holds or the budget runs out, and reports whether it
 /// held. Everything under test is main-actor work a yield lets run, so there is
 /// nothing here to sleep for. A file-local twin of `AppModelTests`' own helper,
@@ -220,5 +240,24 @@ struct AppExtensionTests {
         #expect(FakeExtension.ledger.created == 2)
         #expect(FakeExtension.ledger.tornDown == 1)
         model.teardown()
+    }
+
+    /// Two extension types sharing one ledger: creation follows registration
+    /// order, teardown reverses it — the later-built extension, which may
+    /// depend on the earlier one, goes first.
+    @Test func twoExtensionsAreBuiltInRegistrationOrderAndTornDownInReverse() async throws {
+        let model = makeModel()
+        OrderLedger.shared = OrderLedger()
+        model.register(FirstFakeExtension.self)
+        model.register(SecondFakeExtension.self)
+
+        await model.activate(try remote(model, "twelve"))
+        #expect(OrderLedger.shared.events == ["first.created", "second.created"])
+
+        model.teardown()
+        #expect(
+            OrderLedger.shared.events == [
+                "first.created", "second.created", "second.torn", "first.torn",
+            ])
     }
 }

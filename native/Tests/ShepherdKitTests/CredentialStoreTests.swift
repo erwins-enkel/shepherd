@@ -36,8 +36,8 @@ struct CredentialStoreTests {
     #expect(try store.load(for: "k")?.tokenId == "i")
   }
 
-  // Writes to the login keychain, so it uses a service name unique to this
-  // run and cleans up after itself.
+  // Writes to a real keychain, so it is opt-in (SHEPHERD_KEYCHAIN_TESTS=1),
+  // uses a service name unique to this run, and cleans up after itself.
   @Test(
     "keychain store round-trips, replaces and deletes",
     .enabled(if: KeychainAvailability.isUsable)
@@ -81,10 +81,18 @@ struct CredentialStoreTests {
 
   // The two tests above skip themselves where no keychain is usable, which is
   // exactly how a regressed CI keychain step would hide: the job would stay
-  // green with nothing exercising `SecItem*`. This test never skips, so on CI
-  // a keychain that cannot be written to fails loudly instead.
-  @Test("CI has a usable keychain")
+  // green with nothing exercising `SecItem*`. This test never skips, and it
+  // guards both halves of that — without ever touching the Keychain itself
+  // when the opt-in switch is off:
+  //
+  //   * CI must set SHEPHERD_KEYCHAIN_TESTS=1, so dropping it from the
+  //     workflow turns the whole `SecItem*` suite silent — and red here.
+  //   * having set it, the keychain must really be writable, so a broken
+  //     "Prepare a test keychain" step fails loudly instead of skipping.
+  @Test("CI opts in to the keychain tests, and the keychain then works")
   func keychainIsUsableOnCI() {
-    #expect(ProcessInfo.processInfo.environment["CI"] == nil || KeychainAvailability.isUsable)
+    let isCI = ProcessInfo.processInfo.environment["CI"] != nil
+    #expect(!isCI || KeychainAvailability.isEnabled)
+    #expect(!KeychainAvailability.isEnabled || KeychainAvailability.isUsable)
   }
 }

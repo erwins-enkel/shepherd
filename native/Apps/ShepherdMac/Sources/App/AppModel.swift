@@ -76,6 +76,22 @@ enum RemoteServerForm {
     }
 }
 
+/// Where the connection watcher reads `ConnectionState` from.
+///
+/// Production hands it a **weak** view of the active `SessionStore`, so the
+/// watcher can never be the reason a dropped model's store — and the socket
+/// behind it — stays alive. The unit tests hand it an `@Observable` box they
+/// flip by hand, which is the only way the watcher's re-arm contract can be
+/// exercised without a live server.
+@MainActor
+struct ConnectionSource {
+    /// The current state, or `nil` once the store behind it is gone.
+    let read: () -> ConnectionState?
+    /// Called when the watcher finds its model released without a `teardown()`:
+    /// ends the store's loop rather than leaving it reconnecting forever.
+    let abandon: () -> Void
+}
+
 /// Owns the profile list, the active SessionStore and sheet routing. Holds no
 /// networking of its own — everything server-facing goes through ShepherdKit.
 @Observable
@@ -86,6 +102,26 @@ final class AppModel {
     private(set) var store: SessionStore?
     var sheet: AppSheet?
     var selectedSessionID: String?
+
+    /// Bumped by every `activate(_:)` and every `teardown()`. An async step
+    /// that started under an older generation — a sign-in the operator left
+    /// mid-flight, a sign-out, a connection watcher — must not touch the model
+    /// when it finally completes: by then a different profile may be active, or
+    /// none at all. Profile identity is not enough, because re-activating the
+    /// *same* profile has to invalidate the older completions too.
+    private(set) var activationGeneration = 0
+
+    /// The two server-facing setup steps, behind stored closures so a test can
+    /// hold a sign-in mid-flight or remove a profile without touching the
+    /// network. Internal, not private, and replaced only by the unit tests.
+    @ObservationIgnored
+    var login: @MainActor (ServerProfile, String, any CredentialStore) async throws -> Void = {
+        try await ProfileSetup.login(profile: $0, password: $1, credentials: $2)
+    }
+    @ObservationIgnored
+    var logout: @MainActor (ServerProfile, any CredentialStore) async throws -> Void = {
+        try await ProfileSetup.logout(profile: $0, credentials: $1)
+    }
 
     @ObservationIgnored private let persistence: ProfileStore
     @ObservationIgnored private let credentials: any CredentialStore
@@ -142,18 +178,32 @@ final class AppModel {
         return profile
     }
 
-    func remove(_ profile: ServerProfile) {
+    /// Drops a profile *and its credential*. Removing a row the operator has
+    /// signed in to used to strand the minted token: the random `credentialKey`
+    /// went with the row, so the Keychain item survived un-revokable and the
+    /// server-side token stayed valid forever.
+    ///
+    /// Order matters. The active store goes first — it must not keep using a
+    /// credential that is about to be revoked — then the server-side revocation
+    /// (best effort: a server that refuses it must not strand the local item),
+    /// then the local delete, then the row.
+    func remove(_ profile: ServerProfile) async {
+        if activeProfile?.id == profile.id { teardown() }
+        // `logout` revokes and clears the local item; the explicit delete covers
+        // the paths where it bailed out before getting there.
+        try? await logout(profile, credentials)
+        try? credentials.delete(for: profile.credentialKey)
         profiles.removeAll { $0.id == profile.id }
-        if activeProfile?.id == profile.id {
-            teardown()
-        } else {
-            persist()
-        }
+        persist()
+        Log.app.info("removed profile \(profile.name, privacy: .public)")
     }
 
     // MARK: - Activation
 
     func activate(_ profile: ServerProfile) async {
+        activationGeneration &+= 1
+        let generation = activationGeneration
+
         connectionWatcher?.cancel()
         connectionWatcher = nil
         storeRunner?.cancel()
@@ -164,6 +214,11 @@ final class AppModel {
 
         activeProfile = profile
         selectedSessionID = nil
+        // A sheet that belongs to the profile we are leaving must not hang over
+        // the one we are entering: submitting it would authenticate the old
+        // server and switch back, and while it is up routing cannot open the new
+        // profile's own login sheet.
+        clearProfileBoundSheet()
         persist()
 
         let store: SessionStore
@@ -182,26 +237,53 @@ final class AppModel {
                 """)
             self.store = nil
             activeProfile = nil
+            // Nothing is active now, so no profile-bound sheet may be left
+            // floating over the welcome screen.
+            clearProfileBoundSheet()
             persist()
             return
         }
 
         self.store = store
-        watchConnection(store, profile: profile)
+        watchConnection(
+            ConnectionSource(
+                read: { [weak store] in store?.connection },
+                abandon: { [weak store] in store?.stop() }),
+            profile: profile,
+            generation: generation)
         // start() bootstraps, publishes `connection`, then consumes the event
         // stream until stop(). It never throws — failures land in `connection`.
-        storeRunner = Task { await store.start() }
+        //
+        // Both captures are weak. There is no isolated `deinit` on the macOS 15
+        // floor to cancel these tasks from, so a model released without a
+        // `teardown()` — a window closing, a test scope ending — can only let go
+        // of its store if the tasks it spawned never held it strongly.
+        storeRunner = Task { @MainActor [weak self, weak store] in
+            guard self != nil, let store else { return }
+            await store.start()
+        }
     }
 
     func signIn(profile: ServerProfile, password: String) async throws {
-        try await ProfileSetup.login(profile: profile, password: password, credentials: credentials)
+        let generation = activationGeneration
+        try await login(profile, password, credentials)
         Log.connect.info("signed in to \(profile.name, privacy: .public)")
+        // The token is stored either way, but a login that finished after the
+        // operator moved on must not yank the app back to the old profile.
+        guard generation == activationGeneration else {
+            Log.connect.info("a newer activation won; not switching back")
+            return
+        }
         await activate(profile)
     }
 
     func signOutActive() async {
         guard let profile = activeProfile else { return }
-        try? await ProfileSetup.logout(profile: profile, credentials: credentials)
+        let generation = activationGeneration
+        try? await logout(profile, credentials)
+        // Tearing down here after a switch would take the *new* profile's store
+        // down with it.
+        guard generation == activationGeneration else { return }
         teardown()
     }
 
@@ -213,29 +295,67 @@ final class AppModel {
     /// `withObservationTracking` and wakes on the next mutation — no timer, no
     /// missed transition. `withObservationTracking` fires `onChange` exactly once,
     /// which is why the loop re-registers on every pass.
-    private func watchConnection(_ store: SessionStore, profile: ServerProfile) {
-        routeSheet(for: store.connection, profile: profile)
+    ///
+    /// Internal, not private: the unit tests drive it with their own
+    /// `ConnectionSource` so the re-arm contract is covered without a server.
+    func watchConnection(
+        _ source: ConnectionSource, profile: ServerProfile, generation: Int
+    ) {
+        guard let initial = source.read() else { return }
+        routeSheet(for: initial, profile: profile)
 
         connectionWatcher = Task { @MainActor [weak self] in
-            var current = store.connection
+            var current = initial
             while !Task.isCancelled {
+                // Read and route *before* arming, in its own scope. Before:
+                // because a state that moved between the initial read and this
+                // task's first run — `start()` publishing `.connecting` is
+                // exactly that — would otherwise be waited out forever, since
+                // observation only reports the *next* write. In its own scope:
+                // because a `self` still bound across the suspension below would
+                // make this watcher the reason a dropped model never deinits.
+                var routed = false
+                do {
+                    guard let self else {
+                        // The model went away without a teardown. Stop the store
+                        // so a closed window cannot leave a socket reconnecting.
+                        source.abandon()
+                        return
+                    }
+                    // A watcher from an older activation may still be unwinding;
+                    // what it reads belongs to a store the app has moved on from.
+                    guard self.activationGeneration == generation else { return }
+                    // Registering an observation on a store that is gone would
+                    // park this task on a continuation no write can resume.
+                    guard let latest = source.read() else { return }
+                    if latest != current {
+                        current = latest
+                        routed = true
+                        self.routeSheet(for: latest, profile: profile)
+                    }
+                }
+                if routed { continue }
+
                 await withCheckedContinuation { continuation in
                     withObservationTracking {
-                        _ = store.connection
+                        _ = source.read()
                     } onChange: {
                         continuation.resume()
                     }
                 }
                 // `onChange` runs just before the property is written, so yield
-                // once to let the writer finish before reading the new value.
+                // once to let the writer finish before the next pass reads it.
                 await Task.yield()
-                guard let self, !Task.isCancelled else { return }
-
-                let next = store.connection
-                guard next != current else { continue }
-                current = next
-                self.routeSheet(for: next, profile: profile)
             }
+        }
+    }
+
+    /// Drops a sheet that only makes sense for the profile being left. A
+    /// `.newSession` sheet is window-bound, not profile-bound, and stays.
+    private func clearProfileBoundSheet() {
+        switch sheet {
+        case .login, .firstRun: sheet = nil
+        case .newSession, .none: break
         }
     }
 
@@ -252,7 +372,9 @@ final class AppModel {
         }
     }
 
-    private func teardown() {
+    /// Internal, not private: the unit tests end an activation directly.
+    func teardown() {
+        activationGeneration &+= 1
         connectionWatcher?.cancel()
         connectionWatcher = nil
         storeRunner?.cancel()

@@ -26,6 +26,9 @@ final class FakeEventServer: @unchecked Sendable {
     // are handed to this callback — that is how the bearer assertion works.
     options.setClientRequestHandler(queue) { _, headers in
       state.recordUpgrade(headers)
+      if state.shouldRejectUpgrades() {
+        return NWProtocolWebSocket.Response(status: .reject, subprotocol: nil)
+      }
       return NWProtocolWebSocket.Response(status: .accept, subprotocol: nil)
     }
     parameters.defaultProtocolStack.applicationProtocols.insert(options, at: 0)
@@ -39,6 +42,21 @@ final class FakeEventServer: @unchecked Sendable {
     listener.stateUpdateHandler = { if case .ready = $0 { ready.signal() } }
     listener.newConnectionHandler = { [state, queue] connection in
       state.adopt(connection)
+      // A rejected upgrade still lets the raw `NWConnection` reach `.ready`
+      // — Network.framework's WebSocket layer only refuses the protocol
+      // handshake, it does not tear down the connection on our behalf — and
+      // `URLSessionWebSocketTask` never learns the upgrade failed until the
+      // connection actually closes. So a reject that the caller does not
+      // follow with a close would leave the client hanging in `receive()`
+      // forever instead of failing over to the next reconnect attempt.
+      // Cancelling here, right after `.ready`, if this connection was
+      // rejected is what turns "the handshake was refused" into "the socket
+      // closed", which is the only failure `URLSessionWebSocketTask`
+      // surfaces.
+      connection.stateUpdateHandler = { [weak connection] connectionState in
+        guard case .ready = connectionState, state.shouldRejectUpgrades() else { return }
+        connection?.cancel()
+      }
       connection.start(queue: queue)
       FakeEventServer.receiveLoop(connection, state: state)
     }
@@ -74,7 +92,26 @@ final class FakeEventServer: @unchecked Sendable {
 
   func receivedTexts() -> [String] { state.texts() }
   func upgradeHeaders() -> [String: String] { state.headers() }
+
+  /// The number of upgrade *attempts* the client-request handler has seen —
+  /// incremented on every call to it, whether the response was `.accept` or
+  /// `.reject`. Not "successful connections": a run with
+  /// `rejectNextUpgrade()`/`setRejectUpgrades(true)` active still bumps this
+  /// on each rejected attempt, which is exactly what the backoff test needs
+  /// to count.
   func connectionCount() -> Int { state.connections() }
+
+  /// Makes every upgrade from now on fail with `NWProtocolWebSocket.Response
+  /// .reject` until called again with `false`. Network.framework's WebSocket
+  /// upgrade path only exposes a fixed `.reject` status — there is no way to
+  /// plumb a caller-chosen HTTP status code (401, 403, …) through
+  /// `setClientRequestHandler`'s return value — so this toggles the
+  /// rejection itself rather than which status accompanies it; the client
+  /// only ever observes "the upgrade failed", which is what its reconnect
+  /// logic reacts to either way.
+  func setRejectUpgrades(_ reject: Bool) {
+    state.setRejectUpgrades(reject)
+  }
 
   func stop() {
     state.cancelAll()
@@ -99,6 +136,7 @@ final class FakeEventServer: @unchecked Sendable {
     private var receivedTexts: [String] = []
     private var lastHeaders: [String: String] = [:]
     private var upgrades = 0
+    private var rejectUpgrades = false
 
     func adopt(_ connection: NWConnection) {
       lock.lock()
@@ -141,6 +179,18 @@ final class FakeEventServer: @unchecked Sendable {
       lock.lock()
       defer { lock.unlock() }
       return upgrades
+    }
+
+    func setRejectUpgrades(_ reject: Bool) {
+      lock.lock()
+      defer { lock.unlock() }
+      rejectUpgrades = reject
+    }
+
+    func shouldRejectUpgrades() -> Bool {
+      lock.lock()
+      defer { lock.unlock() }
+      return rejectUpgrades
     }
 
     func cancelAll() {

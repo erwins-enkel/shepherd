@@ -4,42 +4,66 @@ import Foundation
 ///
 /// Opens `baseURL` with `Authorization: Bearer` on the upgrade, yields
 /// decoded frames on `events()`, reports presence so the server can suppress
-/// push while the app is focused, and reconnects after `reconnectDelay` on
-/// any close that `stop()` did not cause.
+/// push while the app is focused, and reconnects with capped exponential
+/// backoff on any close that `stop()` did not cause.
 public actor EventStream {
   private let baseURL: URL
   private let tokenProvider: @Sendable () -> String?
   private let urlSession: URLSession
   private let reconnectDelay: Duration
+  private let maxReconnectDelay: Duration
   private let continuation: AsyncStream<ServerEvent>.Continuation
 
   private var task: URLSessionWebSocketTask?
   private var pump: Task<Void, Never>?
   private var stopped = true
-  private var active = true
+  private var active = false
+
+  /// The delay the *next* reconnect will sleep for. Starts at
+  /// `reconnectDelay`, doubles (capped at `maxReconnectDelay`) after every
+  /// connection attempt that never became "healthy", and resets to
+  /// `reconnectDelay` once one does. See `connectionWasHealthy`.
+  private var currentReconnectDelay: Duration
+
+  /// When the live socket was opened, so `connectionWasHealthy` can measure
+  /// how long it stayed up.
+  private var connectedAt: ContinuousClock.Instant?
+  /// Whether any message (decodable or not) arrived on the current socket.
+  private var frameReceivedSinceConnect = false
 
   private nonisolated let eventStream: AsyncStream<ServerEvent>
 
   /// Decoded frames, oldest first. Single-consumer: the `SessionStore` owns
-  /// it. Calling this twice hands back the same stream, so the second caller
-  /// would steal elements from the first — don't.
+  /// it. Calling this twice hands back the same `AsyncStream` — it is not a
+  /// broadcast — so a second caller would steal elements from the first
+  /// (each element goes to whichever iterator asks for it next) rather than
+  /// see its own copy of every event. Don't call it more than once.
   public nonisolated func events() -> AsyncStream<ServerEvent> { eventStream }
 
   /// - Parameters:
   ///   - baseURL: the full `ws(s)://…/events` URL.
   ///   - tokenProvider: read on every (re)connect, so a token minted after
   ///     construction is picked up without rebuilding the stream.
-  ///   - reconnectDelay: the design spec fixes this at 1 s; tests shorten it.
+  ///   - reconnectDelay: the delay before the first reconnect attempt after
+  ///     an unhealthy connection; the design spec fixes this at 1 s, tests
+  ///     shorten it. Doubles on each further consecutive failure.
+  ///   - maxReconnectDelay: the ceiling the doubling delay never exceeds.
+  ///     Defaults to 30 s so a server that is down for a while does not get
+  ///     hammered, without keeping the public initializer signature
+  ///     source-breaking for existing callers.
   public init(
     baseURL: URL,
     tokenProvider: @escaping @Sendable () -> String?,
     urlSession: URLSession = .shared,
-    reconnectDelay: Duration = .seconds(1)
+    reconnectDelay: Duration = .seconds(1),
+    maxReconnectDelay: Duration = .seconds(30)
   ) {
     self.baseURL = baseURL
     self.tokenProvider = tokenProvider
     self.urlSession = urlSession
     self.reconnectDelay = reconnectDelay
+    self.maxReconnectDelay = maxReconnectDelay
+    self.currentReconnectDelay = reconnectDelay
     let (stream, continuation) = AsyncStream<ServerEvent>.makeStream(
       bufferingPolicy: .bufferingNewest(256))
     eventStream = stream
@@ -56,12 +80,45 @@ public actor EventStream {
     )
   }
 
-  /// `http(s)://host/` → `ws(s)://host/events`.
+  /// `http(s)://host/some/prefix` → `ws(s)://host/some/prefix/events`,
+  /// preserving any path prefix the base URL carries (a reverse proxy may
+  /// mount Shepherd under one) and dropping query and fragment, which have
+  /// no meaning on the upgrade request.
+  ///
+  /// Built entirely through `URLComponents` with `guard` fallbacks: nothing
+  /// here force-unwraps, so a baseURL `URLComponents` cannot parse (or that
+  /// re-serializes to `nil`, which should not happen for a valid `URL` but
+  /// is not provably impossible) falls back to `baseURL` with `/events`
+  /// appended and the scheme swapped, rather than crashing.
   public static func eventsURL(for baseURL: URL) -> URL {
-    var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)!
+    guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
+      return appendingEventsPath(to: baseURL)
+    }
     components.scheme = components.scheme == "https" ? "wss" : "ws"
-    components.path = "/events"
-    return components.url!
+    components.query = nil
+    components.fragment = nil
+    let path = components.path
+    let prefix = path.hasSuffix("/") ? String(path.dropLast()) : path
+    components.path = prefix + "/events"
+    guard let url = components.url else {
+      return appendingEventsPath(to: baseURL)
+    }
+    return url
+  }
+
+  /// Last-resort fallback for a `baseURL` whose `URLComponents` will not
+  /// round-trip. Pure string surgery on `absoluteString` rather than another
+  /// `URLComponents` pass, so this path cannot fail the same way twice.
+  private static func appendingEventsPath(to baseURL: URL) -> URL {
+    let appended = baseURL.appendingPathComponent("events")
+    let absolute = appended.absoluteString
+    if absolute.hasPrefix("https://") {
+      return URL(string: "wss://" + absolute.dropFirst("https://".count)) ?? appended
+    }
+    if absolute.hasPrefix("http://") {
+      return URL(string: "ws://" + absolute.dropFirst("http://".count)) ?? appended
+    }
+    return appended
   }
 
   /// Opens the socket and keeps it open. Idempotent: a second `start()` on a
@@ -69,13 +126,18 @@ public actor EventStream {
   public func start() {
     guard stopped else { return }
     stopped = false
+    currentReconnectDelay = reconnectDelay
     connect()
   }
 
-  /// Closes the socket for good — `start()` can reopen it, but nothing else
-  /// will. Call it when the stream is no longer wanted: while a socket is
-  /// open the receive loop holds this actor alive, so a dropped reference
-  /// alone will not tear the connection down.
+  /// Closes the current socket and stops reconnecting — but does **not**
+  /// finish `events()`: `start()` can reopen the same stream later, and any
+  /// task consuming `events()` keeps waiting for elements that will never
+  /// come until then. Callers that no longer want the frames must cancel
+  /// their own consuming task; `stop()` alone will not end a `for await` on
+  /// it. Call it when the stream is no longer wanted: while a socket is open
+  /// the receive loop holds this actor alive, so a dropped reference alone
+  /// will not tear the connection down.
   public func stop() {
     stopped = true
     pump?.cancel()
@@ -86,6 +148,14 @@ public actor EventStream {
 
   /// Report whether the app is in the foreground. The server uses this to
   /// suppress push banners while the operator is already looking.
+  ///
+  /// Starts `false`: unlike the web client, which sends the page's live
+  /// visibility state the instant it opens the socket, this stream has no
+  /// signal of its own about the app's foreground state until told. The app
+  /// must call `setActive(true)` once it knows it is active (e.g. from
+  /// `applicationDidBecomeActive` / `scenePhase`) — otherwise the server
+  /// treats every connection as backgrounded and never suppresses push for
+  /// it.
   public func setActive(_ active: Bool) {
     guard self.active != active else { return }
     self.active = active
@@ -94,11 +164,15 @@ public actor EventStream {
 
   /// Drop the current socket and open a new one immediately — the app calls
   /// this on `applicationDidBecomeActive` rather than waiting out the delay.
+  /// Also resets the backoff: a deliberate, operator-triggered reconnect is
+  /// not a "consecutive failure" and should not inherit a long wait if the
+  /// next attempt fails too.
   public func reconnectNow() {
     guard !stopped else { return }
     pump?.cancel()
     pump = nil
     task?.cancel(with: .goingAway, reason: nil)
+    currentReconnectDelay = reconnectDelay
     connect()
   }
 
@@ -111,6 +185,8 @@ public actor EventStream {
     }
     let socket = urlSession.webSocketTask(with: request)
     task = socket
+    connectedAt = .now
+    frameReceivedSinceConnect = false
     socket.resume()
     sendPresence()
 
@@ -123,6 +199,7 @@ public actor EventStream {
     while !Task.isCancelled {
       do {
         let message = try await socket.receive()
+        frameReceivedSinceConnect = true
         switch message {
         case .string(let text): yield(Data(text.utf8))
         case .data(let data): yield(data)
@@ -137,13 +214,38 @@ public actor EventStream {
     await scheduleReconnect(after: socket)
   }
 
+  /// A connection counts as healthy — and resets the backoff — if it ever
+  /// received a message (a real frame proves the upgrade was accepted and
+  /// the server is talking) or if it simply stayed open for a while (5 s: a
+  /// socket the server did not immediately drop is doing fine even if
+  /// nothing has been sent on it yet, e.g. a quiet session). Anything
+  /// shorter that never received a message — an instant reject, a dropped
+  /// upgrade — counts as a failure and grows the delay.
+  private static let healthyConnectionDuration: Duration = .seconds(5)
+
+  private func connectionWasHealthy() -> Bool {
+    if frameReceivedSinceConnect { return true }
+    guard let connectedAt else { return false }
+    return ContinuousClock.now - connectedAt >= Self.healthyConnectionDuration
+  }
+
   private func scheduleReconnect(after socket: URLSessionWebSocketTask) async {
     // `task === socket` keeps a stale pump from racing a socket that
     // `reconnectNow()` has already replaced.
     guard !stopped, task === socket else { return }
     ShepherdLog.realtime.debug("events socket closed; reconnecting")
+
+    let delay: Duration
+    if connectionWasHealthy() {
+      currentReconnectDelay = reconnectDelay
+      delay = reconnectDelay
+    } else {
+      delay = currentReconnectDelay
+      currentReconnectDelay = min(currentReconnectDelay * 2, maxReconnectDelay)
+    }
+
     do {
-      try await Task.sleep(for: reconnectDelay)
+      try await Task.sleep(for: delay)
     } catch {
       return  // cancelled while waiting
     }

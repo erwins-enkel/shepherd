@@ -432,6 +432,11 @@ final class AppModel {
     /// A profile mid-`remove(_:)` — or already gone — is silently ignored: it
     /// may be about to lose its credential, or already have lost it, so it
     /// must not be (re-)activated.
+    ///
+    /// May suspend for up to `credentialTimeout` on the Keychain pre-flight
+    /// below, and may return having routed `sheet = .login(profile)` with no
+    /// store at all — a fresh sign-in instead of a connection, when the
+    /// Keychain did not answer in time.
     func activate(_ profile: ServerProfile) async {
         guard !removing.contains(profile.id), profiles.contains(where: { $0.id == profile.id })
         else {
@@ -458,7 +463,13 @@ final class AppModel {
         retrying = false
         // A stopped SessionStore cannot be restarted — the kit is explicit that
         // an app builds a fresh one per activation, which is what happens below.
+        // Dropped immediately, not just stopped: the Keychain pre-flight below
+        // can suspend for up to `credentialTimeout`, and a stopped store left
+        // published through that wait is a server the operator has already
+        // left, still shown as current — the welcome screen is the honest
+        // state while the probe runs.
         store?.stop()
+        store = nil
 
         activeProfile = profile
         selectedSessionID = nil

@@ -1151,6 +1151,41 @@ struct AppModelTests {
         #expect(model.store == nil)
     }
 
+    /// K1: the stopped old store must not stay published while a new
+    /// activation's credential pre-flight is in flight. Before the fix,
+    /// `store` still pointed at A's stopped `SessionStore` while
+    /// `activeProfile` already read B — `RootView` would keep `MainWindow`
+    /// mounted on A's dead store, showing B's title over A's content, and an
+    /// `isCurrent: { model.store === store }` check would fire against the
+    /// server the operator had just left.
+    @Test func activatingDropsTheOldStoreBeforeTheCredentialProbeSettles() async throws {
+        let model = makeModel()
+        let a = try remote(model, "alpha")
+        let b = try remote(model, "bravo")
+        await model.activate(a)
+        let previousStore = model.store
+        #expect(previousStore != nil)
+
+        let held = ProbeHold()
+        model.credentialProbe = { _, _ in await held.wait() }
+        let activation = Task { await model.activate(b) }
+        // `activeProfile` flips to `b` synchronously, before the pre-flight's
+        // only suspension point, so observing it here is observing the
+        // mid-flight state the probe is holding open.
+        #expect(await settle(until: { model.activeProfile == b }))
+
+        #expect(model.store == nil)
+        #expect(model.activeProfile == b)
+
+        await held.open()
+        await activation.value
+
+        #expect(model.store != nil)
+        #expect(model.store !== previousStore)
+        #expect(model.activeProfile == b)
+        model.teardown()
+    }
+
     /// The regression this file exists for: a Keychain read that never returns
     /// used to leave the operator on a main window with an empty sidebar, no
     /// banner and no sheet, for as long as they waited. `activate(_:)` now
@@ -1176,7 +1211,9 @@ struct AppModelTests {
     @Test func aKeychainThatAnswersActivatesNormally() async throws {
         let model = makeModel()
         let profile = try remote(model, "studio")
-        model.credentialTimeout = .milliseconds(20)
+        // No `credentialTimeout` override: the default `credentialProbe` hops
+        // to a real thread, and a tight budget here raced it against
+        // scheduling rather than against Keychain behaviour.
 
         await model.activate(profile)
 

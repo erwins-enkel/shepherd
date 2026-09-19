@@ -71,53 +71,78 @@ struct LiveServerTests {
         // one flushes on the way out of the process.
         let defaults = UserDefaults(suiteName: suite)!
 
-        // --- sign-in path -------------------------------------------------
-        let model = makeModel(defaults: defaults, credentials: credentials)
-        let profile = try model.addRemoteProfile(name: "Live", address: base)
-        try await model.signIn(profile: profile, password: password)
+        var model: AppModel?
+        var relaunched: AppModel?
+        var profile: ServerProfile?
+        // Runs even when `signIn`/`#require` below throws: a defaults suite or
+        // a live server token left behind by a failed run is exactly the kind
+        // of leak this test exists to avoid causing. `await` cannot appear
+        // directly in a `defer` body, so the two teardowns and the domain
+        // removal — all synchronous — go here; the server-side revoke, which
+        // needs `await`, is handled by `revoke()` below on every exit path.
+        defer {
+            relaunched?.teardown()
+            model?.teardown()
+            // Not conditioned on success: both teardowns above call `persist()`,
+            // so a domain removed earlier would simply be written again on the
+            // way out.
+            defaults.removePersistentDomain(forName: suite)
+            UserDefaults.standard.removeSuite(named: suite)
+        }
+        func revoke() async {
+            guard let profile else { return }
+            try? await ProfileSetup.logout(profile: profile, credentials: credentials)
+        }
 
-        let signedIn = await wait(seconds: 10) { model.store?.connection == .live }
-        #expect(
-            signedIn,
-            """
-            sign-in did not reach .live within 10s; \
-            connection=\(String(describing: model.store?.connection)) \
-            lastError=\(String(describing: model.store?.lastError)) \
-            sheet=\(String(describing: model.sheet))
-            """)
-        // The scratch server may legitimately have no sessions; what matters is
-        // that the bootstrap ran, which `.live` and a non-nil settings prove.
-        #expect(model.store?.settings != nil)
-        #expect(model.activeProfile?.id == profile.id)
+        do {
+            // --- sign-in path -----------------------------------------------
+            let signedInModel = makeModel(defaults: defaults, credentials: credentials)
+            model = signedInModel
+            let signedInProfile = try signedInModel.addRemoteProfile(name: "Live", address: base)
+            profile = signedInProfile
+            try await signedInModel.signIn(profile: signedInProfile, password: password)
 
-        // --- restore path -------------------------------------------------
-        // A second model over the *same* defaults suite and the same credential
-        // store is exactly what a relaunch is: `init` restores `activeProfile`
-        // from UserDefaults and starts nothing, and `restoreActiveProfile()` is
-        // the only thing that puts a store behind it.
-        let relaunched = makeModel(defaults: defaults, credentials: credentials)
-        #expect(relaunched.activeProfile?.id == profile.id)
-        #expect(relaunched.store == nil)
-        await relaunched.restoreActiveProfile()
+            let signedIn = await wait(seconds: 10) { signedInModel.store?.connection == .live }
+            #expect(
+                signedIn,
+                """
+                sign-in did not reach .live within 10s; \
+                connection=\(String(describing: signedInModel.store?.connection)) \
+                lastError=\(String(describing: signedInModel.store?.lastError)) \
+                sheet=\(String(describing: signedInModel.sheet))
+                """)
+            // The scratch server may legitimately have no sessions; what matters
+            // is that the bootstrap ran, which `.live` and a non-nil settings
+            // prove.
+            #expect(signedInModel.store?.settings != nil)
+            #expect(signedInModel.activeProfile?.id == signedInProfile.id)
 
-        let restored = await wait(seconds: 10) { relaunched.store?.connection == .live }
-        #expect(
-            restored,
-            """
-            restoreActiveProfile() did not reach .live within 10s; \
-            connection=\(String(describing: relaunched.store?.connection)) \
-            lastError=\(String(describing: relaunched.store?.lastError)) \
-            sheet=\(String(describing: relaunched.sheet))
-            """)
-        #expect(relaunched.store?.settings != nil)
+            // --- restore path -------------------------------------------------
+            // A second model over the *same* defaults suite and the same
+            // credential store is exactly what a relaunch is: `init` restores
+            // `activeProfile` from UserDefaults and starts nothing, and
+            // `restoreActiveProfile()` is the only thing that puts a store
+            // behind it.
+            let relaunchedModel = makeModel(defaults: defaults, credentials: credentials)
+            relaunched = relaunchedModel
+            #expect(relaunchedModel.activeProfile?.id == signedInProfile.id)
+            #expect(relaunchedModel.store == nil)
+            await relaunchedModel.restoreActiveProfile()
 
-        relaunched.teardown()
-        model.teardown()
-        try? await ProfileSetup.logout(profile: profile, credentials: credentials)
-
-        // After the teardowns, not in a `defer`: both of them `persist()`, so a
-        // domain removed earlier would simply be written again on the way out.
-        defaults.removePersistentDomain(forName: suite)
-        UserDefaults.standard.removeSuite(named: suite)
+            let restored = await wait(seconds: 10) { relaunchedModel.store?.connection == .live }
+            #expect(
+                restored,
+                """
+                restoreActiveProfile() did not reach .live within 10s; \
+                connection=\(String(describing: relaunchedModel.store?.connection)) \
+                lastError=\(String(describing: relaunchedModel.store?.lastError)) \
+                sheet=\(String(describing: relaunchedModel.sheet))
+                """)
+            #expect(relaunchedModel.store?.settings != nil)
+        } catch {
+            await revoke()
+            throw error
+        }
+        await revoke()
     }
 }

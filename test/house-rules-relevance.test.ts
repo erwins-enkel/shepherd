@@ -1,4 +1,6 @@
 import { test, expect } from "bun:test";
+import { spawnSync } from "node:child_process";
+import { join } from "node:path";
 import {
   MAX_JUDGED_RULES,
   RELEVANCE_DROP_BELOW,
@@ -143,6 +145,59 @@ test("the threshold is a floor, not a midpoint: only confident irrelevance drops
 
 test("the shipped default drops only well below even odds", () => {
   expect(RELEVANCE_DROP_BELOW).toBeLessThan(0.5);
+});
+
+/** Resolve RELEVANCE_DROP_BELOW in a fresh process with `raw` in the environment. The constant is
+ *  read at module load, so a subprocess is the only way to exercise the env path honestly. */
+function resolveThreshold(raw: string | undefined): number {
+  const run = spawnSync(
+    process.execPath,
+    [
+      "-e",
+      `import("${join(import.meta.dir, "../src/house-rules-relevance.ts")}").then((m) => console.log(m.RELEVANCE_DROP_BELOW))`,
+    ],
+    {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        ...(raw === undefined
+          ? { SHEPHERD_LEARNINGS_RELEVANCE_DROP_BELOW: "" }
+          : { SHEPHERD_LEARNINGS_RELEVANCE_DROP_BELOW: raw }),
+      },
+    },
+  );
+  expect(run.status).toBe(0);
+  return Number(run.stdout.trim());
+}
+
+test("an out-of-range threshold is clamped, so no env typo can empty the block", () => {
+  // The bounds in .env.schema are documentation — nothing reads that file at runtime. Without the
+  // clamp, a percent-for-probability typo puts the threshold above every possible p: in `enforce`
+  // EVERY candidate is judged out, `injected` is empty, and renderHouseRulesBlock returns null —
+  // the whole house-rules block disappears from the system prompt with no log line.
+  expect(resolveThreshold("35")).toBe(1);
+  expect(resolveThreshold("-2")).toBe(0);
+  // In-range values, including the deliberate extremes, pass through untouched.
+  expect(resolveThreshold("0.6")).toBe(0.6);
+  expect(resolveThreshold("0")).toBe(0);
+  expect(resolveThreshold("1")).toBe(1);
+  // Unset/garbage falls back to the default, as envNum already guaranteed.
+  expect(resolveThreshold(undefined)).toBe(RELEVANCE_DROP_BELOW);
+  expect(resolveThreshold("not-a-number")).toBe(RELEVANCE_DROP_BELOW);
+});
+
+test("a clamped-to-1 threshold still cannot drop a certain rule", () => {
+  // The clamp bounds the damage but does not make 1 meaningless: it is a legitimate (if extreme)
+  // "keep only certainties" setting, and p === 1 survives it.
+  const verdicts = interpretRelevance(
+    [rule("a"), rule("b")],
+    {
+      r0: { type: "noul", p: 1 },
+      r1: { type: "noul", p: 0.99 },
+    },
+    1,
+  );
+  expect(verdicts.map((v) => v.relevant)).toEqual([true, false]);
 });
 
 // ── orchestration: the enforcing path ───────────────────────────────────────────

@@ -36,8 +36,21 @@ import { envNum } from "./house-rules";
  * the judge is unsure about keeps today's behaviour, so the gate can only act where it has a strong
  * opinion. 0.35 is a starting point to be calibrated from shadow-mode data, not a measured value —
  * every verdict's raw `p` is persisted precisely so the threshold can be swept offline afterwards.
+ *
+ * CLAMPED TO [0,1], and the clamp is load-bearing rather than defensive. `envNum` only rejects
+ * non-finite values, and the bounds declared in `.env.schema` are documentation — nothing reads that
+ * file at runtime. So a percent-for-probability typo (`=35`) would put the threshold above every
+ * possible `p`, judge out EVERY candidate, and in `enforce` leave `injected` empty —
+ * `renderHouseRulesBlock` then returns null and the entire house-rules block vanishes from the
+ * system prompt, silently, which is exactly the outcome this module promises cannot happen. It
+ * would also skew {@link SessionStore.learningRelevanceStats}, which re-derives `relevant` from
+ * this same constant. Clamped inline rather than via `config.ts`'s `clampFraction`: this is a leaf
+ * (`store.ts` imports it) and `./config` reads the forge map off disk at import time.
  */
-export const RELEVANCE_DROP_BELOW = envNum("SHEPHERD_LEARNINGS_RELEVANCE_DROP_BELOW", 0.35);
+export const RELEVANCE_DROP_BELOW = Math.min(
+  1,
+  Math.max(0, envNum("SHEPHERD_LEARNINGS_RELEVANCE_DROP_BELOW", 0.35)),
+);
 
 /**
  * How many candidates one call may ask about.

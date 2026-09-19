@@ -510,7 +510,7 @@ so the drop threshold can be re-tuned against history rather than guessed again.
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `SHEPHERD_HOUSE_RULE_RELEVANCE` | `off` | `off` \| `shadow` (ask + record, change nothing) \| `enforce` (drop the rules judged irrelevant). Needs the judge armed. Seeds a fresh DB; persisted + UI-configurable (Settings → Session) |
-| `SHEPHERD_LEARNINGS_RELEVANCE_DROP_BELOW` | `0.35` | Drop a rule only when the probability the request is about it falls **below** this. Asymmetric on purpose — uncertainty keeps the rule |
+| `SHEPHERD_LEARNINGS_RELEVANCE_DROP_BELOW` | `0.35` | Drop a rule only when the probability the request is about it falls **below** this. Asymmetric on purpose — uncertainty keeps the rule. Clamped to `[0,1]`, so a percent-for-probability typo (`35`) cannot put the threshold above every possible probability and empty the block |
 | `SHEPHERD_LEARNINGS_RELEVANCE_MAX` | `32` | Most candidate rules one call may ask about. Overflow is injected unjudged, never dropped |
 | `SHEPHERD_LEARNINGS_RELEVANCE_RETENTION_DAYS` | `90` | How many days of relevance verdicts the daily sweep keeps (1–3650). They deliberately outlive their session, so this sweep is the only thing that removes one |
 

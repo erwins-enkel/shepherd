@@ -101,11 +101,29 @@ public actor LocalServerSupervisor {
   /// actor state because `terminateNow()` — the nonisolated quit path — has to
   /// set it too: without that, killing the child at app quit looked exactly
   /// like a crash and the supervisor spawned a replacement on the way out.
+  ///
+  /// It is transient, not a latch: every `startChild()` clears it, because a
+  /// stop→start turn (`restart()`) sets it on the way through. That is exactly
+  /// why it cannot also carry "the app is quitting" — see `terminationEpoch`.
   private let stopFlag = Mutex<Bool>(false)
   private var stopping: Bool {
     get { stopFlag.withLock { $0 } }
     set { stopFlag.withLock { $0 = newValue } }
   }
+
+  /// Raised by every `terminateNow()`. A lifecycle turn reads it when it is
+  /// called and `startChild()` refuses to spawn if it has moved since — the
+  /// quit landed inside that turn.
+  ///
+  /// A bare flag cannot express this. `stopFlag` is cleared by every
+  /// `startChild()`, so a quit that lands while `restart()` waits its old child
+  /// out is wiped out by the very spawn it was supposed to stop; and a flag
+  /// that is *not* cleared would wedge the crash loop's own relaunch for good,
+  /// which `terminateNow()` is explicitly allowed to be called into
+  /// speculatively. An epoch separates the two: a turn that had already decided
+  /// to spawn before the quit stands down, a turn that begins after one is a
+  /// fresh decision and proceeds.
+  private let terminationEpoch = Mutex<Int>(0)
 
   /// The live child's pid, readable without hopping onto the actor so
   /// `terminateNow()` can run inside `applicationWillTerminate` (D2). A
@@ -195,9 +213,12 @@ public actor LocalServerSupervisor {
 
   /// Spawns the child and waits until it answers `/api/health`. Idempotent.
   public func start() async {
+    // Read before the gate, not after it: a quit that lands while this call is
+    // still queued must reach `startChild()` too.
+    let epoch = terminationEpoch.withLock { $0 }
     await beginLifecycle()
     defer { endLifecycle() }
-    await startChild()
+    await startChild(epoch: epoch)
   }
 
   /// SIGTERM, then SIGKILL after the grace period. Cancels the pumps first, so
@@ -218,6 +239,7 @@ public actor LocalServerSupervisor {
   /// holding the gate across both is what stops a second `restart()` from
   /// resuming in the middle of this one.
   func restart(gracePeriod: TimeInterval) async {
+    let epoch = terminationEpoch.withLock { $0 }
     await beginLifecycle()
     defer { endLifecycle() }
     await stopChild(gracePeriod: gracePeriod)
@@ -225,11 +247,23 @@ public actor LocalServerSupervisor {
     // that dies now and then stays supervised instead of accumulating into a
     // crash loop.
     crashTimes.removeAll()
-    await startChild()
+    await startChild(epoch: epoch)
   }
 
-  private func startChild() async {
-    guard !state.isRunning, state != .starting else { return }
+  /// `epoch` is the caller's `terminationEpoch`, read before it took the
+  /// lifecycle gate. `terminateNow()` runs off the actor and lands wherever it
+  /// lands — while this turn was still queued on the gate, or while
+  /// `stopChild()` was waiting the old child out — and in both of those windows
+  /// there is no live pid for it to kill, so its own teardown is a no-op. The
+  /// epoch is how the quit reaches the spawn it has to stop; without it the
+  /// in-flight restart cleared `stopFlag` and left a server running after the
+  /// app had gone.
+  private func startChild(epoch: Int) async {
+    guard terminationEpoch.withLock({ $0 }) == epoch else { return }
+    // `.starting` with a live child is a start already in flight and this is a
+    // no-op; `.starting` with none is the crash loop's backoff window, which
+    // `relaunch()` is here to end.
+    guard !state.isRunning, !(state == .starting && process != nil) else { return }
     guard let launch = makeLaunch() else {
       state = .failed(.bunMissing)
       return
@@ -281,13 +315,20 @@ public actor LocalServerSupervisor {
 
   /// Synchronous, actor-free child kill for `applicationWillTerminate`, which
   /// gets no `await`. Safe to call when nothing is running — including
-  /// speculatively, e.g. mid crash-loop backoff, when there is no live child
-  /// to terminate: it must be a true no-op then, or it would mark `stopping`
-  /// and permanently block the backoff's own relaunch (which, unlike
-  /// `start()`, never clears that flag itself).
+  /// speculatively, e.g. mid crash-loop backoff: a relaunch that has not been
+  /// decided yet is a fresh decision and still goes ahead, so this can never
+  /// permanently wedge the crash loop's own recovery.
+  ///
+  /// What it must *not* be is silent. The pid guard below is the whole body of
+  /// the old bug: inside a `restart()`'s stop→start window there is no live
+  /// child to kill, so this returned having recorded nothing at all, and the
+  /// restart — one step from spawning — put a server on the machine that
+  /// outlived the app. Both flags are therefore set before the guard, not
+  /// after it.
   public nonisolated func terminateNow(gracePeriod: TimeInterval = 2) {
-    guard let pid = livePID.withLock({ $0 }) else { return }
+    terminationEpoch.withLock { $0 += 1 }
     stopFlag.withLock { $0 = true }  // deliberate: the exit is not a crash
+    guard let pid = livePID.withLock({ $0 }) else { return }
     deliver(SIGTERM, to: pid)
     let deadline = Date().addingTimeInterval(gracePeriod)
     while Date() < deadline {
@@ -491,24 +532,35 @@ public actor LocalServerSupervisor {
     }
     let delay = policy.backoff[min(crashTimes.count - 1, policy.backoff.count - 1)]
     state = .starting
+    // The world this backoff was scheduled in. Anything that spawns while it
+    // runs — an operator's `start()` or `restart()` — moves `spawnGeneration`
+    // on, and this relaunch then has nothing left to do.
+    let scheduled = spawnGeneration
     supervision = Task { [weak self] in
       try? await self?.clock.sleep(for: delay)
       guard !Task.isCancelled else { return }
-      await self?.relaunch()
+      await self?.relaunch(scheduled: scheduled)
     }
   }
 
   /// Takes the lifecycle gate like every other spawn/teardown path: a backoff
   /// that expires while an operator's `stop()` or `restart()` is mid-flight
   /// must queue behind it, not spawn into the middle of it.
-  private func relaunch() async {
+  ///
+  /// And parking on that gate is a suspension like any other, so the checks
+  /// above it are worth nothing on the way back. A `restart()` holding the gate
+  /// stops the crashed child, spawns its own replacement and ends its turn;
+  /// this one then resumed and — seeing only that no stop was in progress —
+  /// spawned a *third* child, leaving the replacement alive and unowned while
+  /// the supervisor's own state pointed elsewhere. `Task.isCancelled` catches
+  /// the deliberate teardown (`stopChild()` cancels this task), `scheduled`
+  /// catches everything that replaced the child without cancelling anything.
+  private func relaunch(scheduled: Int) async {
+    let epoch = terminationEpoch.withLock { $0 }
     await beginLifecycle()
     defer { endLifecycle() }
-    guard !stopping, let launch = makeLaunch() else { return }
-    do {
-      let generation = try spawn(launch)
-      await waitForHealth(generation: generation)
-    } catch { state = .failed(.bunMissing) }
+    guard !Task.isCancelled, scheduled == spawnGeneration else { return }
+    await startChild(epoch: epoch)
   }
 }
 #endif

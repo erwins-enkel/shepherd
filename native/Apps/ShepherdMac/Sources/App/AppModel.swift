@@ -108,6 +108,14 @@ final class AppModel {
     private(set) var store: SessionStore?
     var sheet: AppSheet?
     var selectedSessionID: String?
+    /// A sign-out whose server-side revoke failed, in operator-facing words.
+    ///
+    /// App-level rather than window-level on purpose: `signOutActive()` ends
+    /// the activation, so the main window — where the sign-out affordance
+    /// lives — is unmounted in the same turn the failure becomes known. A
+    /// notice owned by that window would never be read. Written and cleared
+    /// by the view, like `sheet`.
+    var signOutWarning: String?
 
     /// Bumped by every `activate(_:)`, every `teardown()`, and every
     /// `remove(_:)` of the profile that is currently active (via the
@@ -353,14 +361,40 @@ final class AppModel {
         await activate(profile)
     }
 
-    func signOutActive() async {
-        guard let profile = activeProfile else { return }
+    /// Revokes the active profile's token server-side and ends the activation.
+    ///
+    /// - Returns: the error the *revoke* failed with, or `nil` when it
+    ///   succeeded — and also `nil` when a newer activation superseded this
+    ///   sign-out, because nothing was torn down and there is nothing to
+    ///   report about a profile the operator has already left.
+    ///
+    /// The local teardown happens either way: a server that refuses the revoke
+    /// must not trap the operator in a session they asked to leave. What
+    /// changed is that the failure is no longer swallowed — `try?` alone left
+    /// an operator believing a token had been revoked when the server never
+    /// confirmed it, which for a remote profile is a live credential they
+    /// think is dead. The caller decides where to say so; see
+    /// `signOutWarning`, which outlives the window the affordance lives in.
+    @discardableResult
+    func signOutActive() async -> (any Error)? {
+        guard let profile = activeProfile else { return nil }
         let generation = activationGeneration
-        try? await logout(profile, credentials)
+        var failure: (any Error)?
+        do {
+            try await logout(profile, credentials)
+        } catch {
+            Log.connect.error(
+                """
+                sign-out of \(profile.name, privacy: .public) did not revoke the token: \
+                \(String(describing: error), privacy: .public)
+                """)
+            failure = error
+        }
         // Tearing down here after a switch would take the *new* profile's store
         // down with it.
-        guard generation == activationGeneration else { return }
+        guard generation == activationGeneration else { return nil }
         teardown()
+        return failure
     }
 
     // MARK: - Internals

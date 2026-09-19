@@ -260,11 +260,53 @@ struct AppModelTests {
 
         await model.activate(b)
         gate.open()
-        await signOut.value
+        let reported = await signOut.value
 
         #expect(model.activeProfile == b)
         #expect(model.store?.client.profile.id == b.id)
+        // Nothing was torn down, so there is nothing to tell the operator about
+        // a profile they have already left.
+        #expect(reported == nil)
         model.teardown()
+    }
+
+    // MARK: - Sign-out reporting
+
+    /// `signOutActive()` used to `try?` the revoke away, which left an operator
+    /// believing a token was dead when the server had never confirmed it. The
+    /// local sign-out still has to happen — a server that refuses must not trap
+    /// the operator in the session — but the failure now comes back.
+    @Test func aFailedRevokeIsReportedAndStillSignsOutLocally() async throws {
+        struct RevokeRefused: Error, Equatable {}
+        let model = makeModel()
+        let a = try remote(model, "a")
+        await model.activate(a)
+        model.logout = { _, _ in throw RevokeRefused() }
+
+        let reported = await model.signOutActive()
+
+        #expect(reported as? RevokeRefused == RevokeRefused())
+        #expect(model.activeProfile == nil)
+        #expect(model.store == nil)
+    }
+
+    @Test func aCleanRevokeReportsNothing() async throws {
+        let model = makeModel()
+        let a = try remote(model, "a")
+        await model.activate(a)
+        model.logout = { _, _ in }
+
+        let reported = await model.signOutActive()
+
+        #expect(reported == nil)
+        #expect(model.activeProfile == nil)
+        #expect(model.store == nil)
+    }
+
+    @Test func signingOutWithNoActiveProfileIsANoOp() async {
+        let model = makeModel()
+        let reported = await model.signOutActive()
+        #expect(reported == nil)
     }
 
     // MARK: - Removal races with activation

@@ -12,6 +12,7 @@ import {
   runProposedPrune,
   resolveProposedRetentionDays,
   runReapStaleTrials,
+  isJudgedIrrelevant,
   AUTO_RETIRE_REASON,
   WILSON_Z,
   RETIRE_N_MIN,
@@ -29,11 +30,14 @@ import {
   MAX_REAP_PER_SWEEP,
   PRUNE_DAYS,
   TRIAL_EXPIRED_REASON,
+  TRIAL_IRRELEVANT_REASON,
+  TRIAL_RELEVANCE_MIN_JUDGED,
   AUTO_TRIAL_ENABLED,
   type AutoRetireDeps,
   type AutoTrialDeps,
   type ProposedPruneDeps,
   type ReapTrialDeps,
+  type TrialRelevance,
 } from "../src/learnings-lifecycle";
 import type { Learning, ReviewVerdict } from "../src/types";
 import type { RepoConfig } from "../src/store";
@@ -1068,23 +1072,33 @@ describe("shouldReapTrial", () => {
 
 // ── runReapStaleTrials ────────────────────────────────────────────────────────
 
-function makeFakeReapDeps(opts: { trials?: Learning[]; cfg?: Partial<RepoConfig> }) {
+function makeFakeReapDeps(opts: {
+  trials?: Learning[];
+  cfg?: Partial<RepoConfig>;
+  /** Per-repo relevance tallies, keyed repoPath → learningId. Absent repos read empty. */
+  relevance?: Record<string, Record<string, TrialRelevance>>;
+}) {
   const trials = opts.trials ?? [];
   const cfg = makeRepoConfig(opts.cfg ?? {});
-  const reaped: string[] = [];
+  const reaped: { id: string; reason: string }[] = [];
+  const statsCalls: string[] = [];
 
   const store: ReapTrialDeps["store"] = {
     listTrialLearnings: () => trials,
     getRepoConfig: () => cfg,
-    reapStaleTrial: (id) => {
+    learningRelevanceStats: (repoPath) => {
+      statsCalls.push(repoPath);
+      return new Map(Object.entries(opts.relevance?.[repoPath] ?? {}));
+    },
+    reapStaleTrial: (id, reason = TRIAL_EXPIRED_REASON) => {
       const r = trials.find((x) => x.id === id);
       if (!r) return null;
-      reaped.push(id);
-      return { ...r, status: "retired", retiredReason: TRIAL_EXPIRED_REASON, trialedAt: null };
+      reaped.push({ id, reason });
+      return { ...r, status: "retired", retiredReason: reason, trialedAt: null };
     },
   };
 
-  return { store, reaped };
+  return { store, reaped, statsCalls, reapedIds: () => reaped.map((r) => r.id) };
 }
 
 describe("runReapStaleTrials", () => {
@@ -1126,14 +1140,221 @@ describe("runReapStaleTrials", () => {
 
   test("calls reapStaleTrial and returns ReapedRecord with injectedCount", () => {
     const rule = staleTrialRule("r1", "/myrepo");
-    const { store, reaped } = makeFakeReapDeps({ trials: [rule] });
+    const { store, reapedIds } = makeFakeReapDeps({ trials: [rule] });
     const result = runReapStaleTrials({ store, now: NOW, maxPerSweep: 5, reap });
-    expect(reaped).toEqual(["r1"]);
+    expect(reapedIds()).toEqual(["r1"]);
     expect(result).toHaveLength(1);
     const rec = result[0]!;
     expect(rec.repoPath).toBe("/myrepo");
     expect(rec.id).toBe("r1");
     expect(rec.injectedCount).toBe(8);
+  });
+});
+
+// ── isJudgedIrrelevant (#2382) ────────────────────────────────────────────────
+
+describe("isJudgedIrrelevant", () => {
+  const NOW = Date.now();
+  const trial = (o: Partial<Learning> = {}) =>
+    makeLearning({ id: "t", status: "active", trialedAt: NOW, helpfulCount: 0, ...o });
+
+  test("judged enough, relevant in none → true", () => {
+    expect(isJudgedIrrelevant(trial(), { judged: 8, relevant: 0 }, 8)).toBe(true);
+  });
+
+  test("no verdicts at all → false (no signal is never 'never relevant')", () => {
+    expect(isJudgedIrrelevant(trial(), undefined, 8)).toBe(false);
+    expect(isJudgedIrrelevant(trial(), { judged: 0, relevant: 0 }, 8)).toBe(false);
+  });
+
+  test("a zero floor still cannot make an empty history qualify", () => {
+    // The >= 1 clamp on the constant is one guard; this is the other, for a caller-supplied floor.
+    expect(isJudgedIrrelevant(trial(), { judged: 0, relevant: 0 }, 0)).toBe(false);
+  });
+
+  test("below the floor → false", () => {
+    expect(isJudgedIrrelevant(trial(), { judged: 7, relevant: 0 }, 8)).toBe(false);
+  });
+
+  test("any relevant verdict → false, however many judged", () => {
+    expect(isJudgedIrrelevant(trial(), { judged: 50, relevant: 1 }, 8)).toBe(false);
+  });
+
+  test("ever marked helpful → exempt, same as shouldReapTrial", () => {
+    expect(isJudgedIrrelevant(trial({ helpfulCount: 1 }), { judged: 20, relevant: 0 }, 8)).toBe(
+      false,
+    );
+  });
+
+  test("not an auto-trial, or no longer active → false", () => {
+    expect(isJudgedIrrelevant(trial({ trialedAt: null }), { judged: 20, relevant: 0 }, 8)).toBe(
+      false,
+    );
+    expect(isJudgedIrrelevant(trial({ status: "retired" }), { judged: 20, relevant: 0 }, 8)).toBe(
+      false,
+    );
+    expect(isJudgedIrrelevant(trial({ status: "proposed" }), { judged: 20, relevant: 0 }, 8)).toBe(
+      false,
+    );
+  });
+
+  test("defaults to TRIAL_RELEVANCE_MIN_JUDGED when no floor is passed", () => {
+    expect(isJudgedIrrelevant(trial(), { judged: TRIAL_RELEVANCE_MIN_JUDGED, relevant: 0 })).toBe(
+      true,
+    );
+    expect(
+      isJudgedIrrelevant(trial(), { judged: TRIAL_RELEVANCE_MIN_JUDGED - 1, relevant: 0 }),
+    ).toBe(false);
+  });
+});
+
+// ── runReapStaleTrials: relevance branch (#2382) ──────────────────────────────
+
+describe("runReapStaleTrials relevance branch", () => {
+  const NOW = Date.now();
+  const DAYS_MS = 86_400_000;
+  const reap = { reapNmin: 8, reapDays: 21, reapMaxDays: 60 };
+  const minJudged = 8;
+
+  /** Fresh trial the age/exposure branches cannot touch: judged out of every prompt, so it never
+   *  accrues injections, and far younger than reapMaxDays. This is the enforce-mode rule the
+   *  existing reaper could only reach on day 60. */
+  const judgedOutTrial = (id: string, repoPath = "/repo"): Learning =>
+    makeLearning({
+      id,
+      repoPath,
+      status: "active",
+      trialedAt: NOW - 2 * DAYS_MS,
+      injectedCount: 0,
+      helpfulCount: 0,
+    });
+
+  test("unarmed: 0-relevant history is ignored, and the stats read is skipped entirely", () => {
+    const { store, reaped, statsCalls } = makeFakeReapDeps({
+      trials: [judgedOutTrial("a")],
+      relevance: { "/repo": { a: { judged: 20, relevant: 0 } } },
+    });
+    const result = runReapStaleTrials({ store, now: NOW, maxPerSweep: 5, reap });
+    expect(reaped).toHaveLength(0);
+    expect(result).toHaveLength(0);
+    expect(statsCalls).toHaveLength(0);
+  });
+
+  test("armed: reaps with reason trial-irrelevant", () => {
+    const { store, reaped } = makeFakeReapDeps({
+      trials: [judgedOutTrial("a")],
+      relevance: { "/repo": { a: { judged: 8, relevant: 0 } } },
+    });
+    const result = runReapStaleTrials({
+      store,
+      now: NOW,
+      maxPerSweep: 5,
+      reap,
+      minJudged,
+      relevanceArmed: true,
+    });
+    expect(reaped).toEqual([{ id: "a", reason: TRIAL_IRRELEVANT_REASON }]);
+    expect(result).toHaveLength(1);
+    expect(result[0]!.reason).toBe(TRIAL_IRRELEVANT_REASON);
+  });
+
+  test("armed but never judged: untouched", () => {
+    const { store, reaped } = makeFakeReapDeps({ trials: [judgedOutTrial("a")] });
+    const result = runReapStaleTrials({
+      store,
+      now: NOW,
+      maxPerSweep: 5,
+      reap,
+      minJudged,
+      relevanceArmed: true,
+    });
+    expect(reaped).toHaveLength(0);
+    expect(result).toHaveLength(0);
+  });
+
+  test("armed: a stale-by-age trial with no verdicts still reaps as trial-expired", () => {
+    const stale = makeLearning({
+      id: "old",
+      status: "active",
+      trialedAt: NOW - 61 * DAYS_MS,
+      injectedCount: 0,
+      helpfulCount: 0,
+    });
+    const { store, reaped } = makeFakeReapDeps({ trials: [stale] });
+    runReapStaleTrials({ store, now: NOW, maxPerSweep: 5, reap, minJudged, relevanceArmed: true });
+    expect(reaped).toEqual([{ id: "old", reason: TRIAL_EXPIRED_REASON }]);
+  });
+
+  test("qualifying on both branches carries the relevance reason", () => {
+    const both = makeLearning({
+      id: "both",
+      status: "active",
+      trialedAt: NOW - 61 * DAYS_MS,
+      injectedCount: 8,
+      helpfulCount: 0,
+    });
+    const { store, reaped } = makeFakeReapDeps({
+      trials: [both],
+      relevance: { "/repo": { both: { judged: 9, relevant: 0 } } },
+    });
+    runReapStaleTrials({ store, now: NOW, maxPerSweep: 5, reap, minJudged, relevanceArmed: true });
+    expect(reaped).toEqual([{ id: "both", reason: TRIAL_IRRELEVANT_REASON }]);
+  });
+
+  test("stats are read once per distinct repo, not once per rule", () => {
+    const trials = [
+      judgedOutTrial("a", "/one"),
+      judgedOutTrial("b", "/one"),
+      judgedOutTrial("c", "/two"),
+    ];
+    const { store, statsCalls } = makeFakeReapDeps({
+      trials,
+      relevance: {
+        "/one": { a: { judged: 8, relevant: 0 }, b: { judged: 8, relevant: 0 } },
+        "/two": { c: { judged: 8, relevant: 0 } },
+      },
+    });
+    const result = runReapStaleTrials({
+      store,
+      now: NOW,
+      maxPerSweep: 5,
+      reap,
+      minJudged,
+      relevanceArmed: true,
+    });
+    expect(result).toHaveLength(3);
+    expect(statsCalls).toEqual(["/one", "/two"]);
+  });
+
+  test("relevance reaps still honour maxPerSweep and learningsEnabled", () => {
+    const trials = ["a", "b", "c"].map((id) => judgedOutTrial(id));
+    const relevance = {
+      "/repo": Object.fromEntries(trials.map((t) => [t.id, { judged: 8, relevant: 0 }])),
+    };
+    const capped = makeFakeReapDeps({ trials, relevance });
+    expect(
+      runReapStaleTrials({
+        store: capped.store,
+        now: NOW,
+        maxPerSweep: 2,
+        reap,
+        minJudged,
+        relevanceArmed: true,
+      }),
+    ).toHaveLength(2);
+
+    const disabled = makeFakeReapDeps({ trials, relevance, cfg: { learningsEnabled: false } });
+    expect(
+      runReapStaleTrials({
+        store: disabled.store,
+        now: NOW,
+        maxPerSweep: 5,
+        reap,
+        minJudged,
+        relevanceArmed: true,
+      }),
+    ).toHaveLength(0);
+    expect(disabled.statsCalls).toHaveLength(0);
   });
 });
 
@@ -1206,5 +1427,7 @@ describe("new constant defaults", () => {
     expect(MAX_REAP_PER_SWEEP).toBe(5);
     expect(PRUNE_DAYS).toBe(3);
     expect(TRIAL_EXPIRED_REASON).toBe("trial-expired");
+    expect(TRIAL_IRRELEVANT_REASON).toBe("trial-irrelevant");
+    expect(TRIAL_RELEVANCE_MIN_JUDGED).toBe(8);
   });
 });

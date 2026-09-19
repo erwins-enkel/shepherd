@@ -405,6 +405,13 @@ public actor LocalServerSupervisor {
       }
       if process == nil { return }  // died meanwhile; childStreamEnded handles it
       try? await clock.sleep(for: 0.5)
+      // `clock` can be a test double whose `sleep` returns without spending
+      // any real time (a fixed backoff assertion needs exactly that). Without
+      // ever spending real time, all 60 iterations here can run faster than
+      // the pipe's EOF is delivered and `childStreamEnded` gets a turn on
+      // this actor — outrunning a child that has, in reality, already exited.
+      // A short real sleep guarantees the scheduler a chance to catch up.
+      try? await Task.sleep(for: .milliseconds(2))
     }
     // The child never answered — but it may well still be running (hung, not
     // dead), so this must not be reported as `.exited`, which would claim the

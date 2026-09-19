@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
+  eventsForStream,
   operationsForStream,
   operationTemplate,
   parseStreamBlocks,
@@ -234,20 +235,57 @@ paths:
     // This is exactly the expression the event coverage gate in openapi.test.ts uses.
     expect(declared.filter((e) => !owned.has(e))).toEqual(["session:new"]);
   });
+});
 
-  test("the real contract's blocks are all still empty on this branch", () => {
-    expect(streamOwnedPaths().size).toBe(0);
-    expect(streamOwnedEvents().size).toBe(0);
-    expect([...streamBlocks().paths.keys()].sort()).toEqual([...STREAM_NAMES].sort());
-    expect([...streamBlocks().events.keys()].sort()).toEqual([...STREAM_NAMES].sort());
+/**
+ * Invariants over the live contract, not a snapshot of it.
+ *
+ * "Every block is empty" was true only until the first stream landed, and would
+ * have failed that stream's own branch. What has to hold forever is that the
+ * blocks stay well-formed and disjoint however full they get — the emptiness
+ * checks live on in the synthetic fixture above, where they mean something.
+ */
+describe("the real contract's stream blocks", () => {
+  const blocks = streamBlocks();
+  const sections = [
+    ["paths", blocks.paths],
+    ["schemas", blocks.schemas],
+    ["events", blocks.events],
+  ] as const;
+
+  test("every section names exactly the four streams", () => {
+    for (const [label, map] of sections) {
+      expect([...map.keys()].sort(), label).toEqual([...STREAM_NAMES].sort());
+    }
   });
 
-  // Smoke test: operationsForStream runs against the real contract and harness, and — since
-  // every stream's block is still empty on this branch (asserted above) — returns nothing for
-  // any of them yet. A stream that fills its block in a later task will see this go non-empty.
-  test("operationsForStream runs against the real contract for every stream name", () => {
+  test("nothing inside a block is claimed by a second block", () => {
+    for (const [label, map] of sections) {
+      const all = [...map.values()].flat();
+      expect(all.length, `${label}: a duplicate entry across blocks`).toBe(new Set(all).size);
+    }
+  });
+
+  test("the owned sets are exactly the union of the blocks", () => {
+    expect([...streamOwnedPaths()].sort()).toEqual([...blocks.paths.values()].flat().sort());
+    expect([...streamOwnedEvents()].sort()).toEqual([...blocks.events.values()].flat().sort());
+  });
+
+  // Runs the two per-stream gates against the real contract and harness. Empty on
+  // this branch, non-empty the moment a stream fills its block — and right either
+  // way, because what is asserted is the correspondence, not the count.
+  test("operationsForStream covers a stream's block and nothing else", () => {
     for (const stream of STREAM_NAMES) {
-      expect(operationsForStream(stream)).toEqual([]);
+      const owned = blocks.paths.get(stream) ?? [];
+      const templates = new Set(operationsForStream(stream).map(operationTemplate));
+      expect([...templates].sort(), stream).toEqual([...owned].sort());
+    }
+  });
+
+  test("eventsForStream covers a stream's block and nothing else", () => {
+    for (const stream of STREAM_NAMES) {
+      const owned = blocks.events.get(stream) ?? [];
+      expect([...eventsForStream(stream)].sort(), stream).toEqual([...owned].sort());
     }
   });
 });

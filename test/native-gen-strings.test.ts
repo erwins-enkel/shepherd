@@ -52,9 +52,21 @@ describe("gen-strings manifest", () => {
     expect([...KEYS]).toEqual([...KEYS_CORE, ...streamManifests.flat()]);
   });
 
-  test("only the core manifest is populated before the streams land", () => {
+  // Not "every stream manifest is empty": that was true only until the first
+  // stream landed, and would have failed that stream's own branch. What holds
+  // forever is that a stream manifest is a list of its own keys — no repeats
+  // inside it, nothing it shares with the core.
+  test("the core manifest is never empty", () => {
     expect(KEYS_CORE.length).toBeGreaterThan(0);
-    for (const manifest of streamManifests) expect([...manifest]).toEqual([]);
+  });
+
+  test("each stream manifest is a list of unique keys, disjoint from the core", () => {
+    const core = new Set(KEYS_CORE);
+    for (const manifest of streamManifests) {
+      expect(Array.isArray(manifest)).toBe(true);
+      expect(duplicateKeys(manifest)).toEqual([]);
+      expect([...manifest].filter((key) => core.has(key))).toEqual([]);
+    }
   });
 
   test("the core manifest stays alphabetical", () => {

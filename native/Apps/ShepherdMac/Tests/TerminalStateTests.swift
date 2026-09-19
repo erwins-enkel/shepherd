@@ -217,6 +217,36 @@ struct TerminalStateTests {
     }
 }
 
+@MainActor
+struct TerminalRegistrationTests {
+    private func makeApp() -> AppModel {
+        let name = UUID().uuidString
+        let defaults = UserDefaults(suiteName: name)!
+        defaults.removePersistentDomain(forName: name)
+        return AppModel(defaults: defaults, credentials: InMemoryCredentialStore())
+    }
+
+    @Test func theTerminalTabSortsAheadOfTheBuiltInPromptTab() {
+        DetailTabRegistry.reset()
+        TerminalInstall.install(into: makeApp())
+
+        // order 0 is the whole point: the terminal is what the operator came for.
+        #expect(DetailTabRegistry.tabs.first?.id == "terminal")
+        #expect(DetailTabRegistry.tabs.first?.title == L.t("native_terminal_tab_title"))
+        #expect(DetailTabRegistry.tabs.map(\.id) == ["terminal", "prompt"])
+    }
+
+    @Test func installIsIdempotent() {
+        DetailTabRegistry.reset()
+        let app = makeApp()
+        TerminalInstall.install(into: app)
+        TerminalInstall.install(into: app)
+
+        #expect(DetailTabRegistry.tabs.filter { $0.id == "terminal" }.count == 1)
+    }
+}
+
+
 /// Hands out a fresh `FakeAttachment` per call and keeps them, so a test can
 /// assert how many sockets a model opened — and re-attaching never re-consumes
 /// an `AsyncStream` that already has an iterator on it.

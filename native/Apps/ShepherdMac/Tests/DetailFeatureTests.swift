@@ -38,8 +38,17 @@ struct DetailFeatureTests {
         let tab = DetailTabRegistry.tabs.first { $0.id == "diff" }
         #expect(tab != nil)
         #expect(tab?.order == 20)
-        // Activity (10) before diff (20) before the built-in prompt tab (1_000).
-        #expect(DetailTabRegistry.tabs.map(\.id) == ["activity", "diff", "prompt"])
+    }
+
+    @Test func installRegistersTheFilesTabAtOrderThirty() {
+        let app = makeModel()
+        DetailFeature.install(app)
+
+        let tab = DetailTabRegistry.tabs.first { $0.id == "files" }
+        #expect(tab != nil)
+        #expect(tab?.order == 30)
+        // Activity (10) before diff (20) before files (30) before the built-in prompt tab (1_000).
+        #expect(DetailTabRegistry.tabs.map(\.id) == ["activity", "diff", "files", "prompt"])
     }
 
     @Test func installBuildsTheModelImmediatelyWhenAStoreIsAlreadyLive() async throws {
@@ -67,6 +76,7 @@ struct DetailFeatureTests {
 
         #expect(DetailTabRegistry.tabs.filter { $0.id == "activity" }.count == 1)
         #expect(DetailTabRegistry.tabs.filter { $0.id == "diff" }.count == 1)
+        #expect(DetailTabRegistry.tabs.filter { $0.id == "files" }.count == 1)
         #expect(DetailFeature.model(app) === first)
         app.teardown()
     }
@@ -130,6 +140,35 @@ struct DetailFeatureTests {
                 binary: false, patch: "@@ -1 +1 @@\n-a\n+b")
         ]
         #expect(DiffTabView.phase(for: .ready(.init(result: withFile, notes: []))) == .content)
+    }
+
+    // MARK: - The files tab's state mapping
+
+    @Test func theFilesPhaseMapsEveryLoadedState() {
+        #expect(
+            FilesTabView.phase(for: .loading, source: .scratchpad, listing: nil) == .loading)
+        #expect(
+            FilesTabView.phase(for: .failed("nope"), source: .scratchpad, listing: nil)
+                == .failed(L.t("files_load_error")))
+        #expect(
+            FilesTabView.phase(for: .failed("nope"), source: .worktree, listing: nil)
+                == .failed(L.t("files_worktree_load_error")))
+
+        let empty = BrowseListing(path: "", parent: nil, entries: [])
+        let ready = Loaded<DetailModel.FilesPayload>.ready(
+            .init(source: .scratchpad, listing: empty))
+        #expect(
+            FilesTabView.phase(for: ready, source: .scratchpad, listing: empty)
+                == .empty(L.t("files_empty")))
+
+        let entry = BrowseEntry(name: "notes", _type: .init(known: .dir), path: "notes")
+        let withEntries = BrowseListing(path: "", parent: nil, entries: [entry])
+        #expect(
+            FilesTabView.phase(for: ready, source: .scratchpad, listing: withEntries) == .content)
+
+        // A `.ready` payload is still shown as loading when the view's `listing` filtered it out
+        // because the payload belongs to the OTHER source — the caller's job, not `phase`'s.
+        #expect(FilesTabView.phase(for: ready, source: .scratchpad, listing: nil) == .loading)
     }
 
     @Test func theActivityTabHasNoModelToRenderBeforeInstall() async throws {

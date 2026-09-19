@@ -498,3 +498,23 @@ struct DetailModelTests {
         #expect(model.activity["drop"] == nil)
     }
 }
+
+/// `FilesBreadcrumb.trail(_:)` is a pure value — the cumulative path behind each crumb the files
+/// tab renders — so it is tested with no view and no model.
+struct FilesBreadcrumbTests {
+    @Test func theRootIsASingleCrumbWithNoPath() {
+        let trail = FilesBreadcrumb.trail("")
+        #expect(trail.count == 1)
+        #expect(trail[0].path == nil)
+    }
+
+    @Test func eachSegmentGetsItsOwnCumulativePath() {
+        let trail = FilesBreadcrumb.trail("docs/api/v2")
+        #expect(trail.map(\.label) == ["", "docs", "api", "v2"])
+        #expect(trail.map(\.path) == [nil, "docs", "docs/api", "docs/api/v2"])
+    }
+
+    @Test func aTrailingSlashDoesNotCreateAnEmptyCrumb() {
+        #expect(FilesBreadcrumb.trail("docs/").map(\.label) == ["", "docs"])
+    }
+}

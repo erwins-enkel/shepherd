@@ -17,6 +17,7 @@
     putTuiDisableMouse,
     putJudgeEnabled,
     putJudgeDailyUsd,
+    putBlockJudgeMode,
     logout,
   } from "$lib/api";
   import { MODELS, type Settings } from "$lib/types";
@@ -119,6 +120,9 @@
   let judgeDailyUsd = $state(1);
   let judgeDailyUsdSaved = 1;
   let judgeDailyUsdBusy = $state(false);
+  let blockJudgeMode = $state<"off" | "shadow" | "armed">("off");
+  let blockJudgeModeSaved: "off" | "shadow" | "armed" = "off";
+  let blockJudgeBusy = $state(false);
 
   // Seed once from the parent's single getSettings() payload; server-seed
   // fallbacks keep controls sensible against an older backend.
@@ -157,6 +161,8 @@
       judgeHasKey = s.judgeHasKey ?? false;
       judgeDailyUsd = s.judgeDailyUsd ?? 1;
       judgeDailyUsdSaved = judgeDailyUsd;
+      blockJudgeMode = s.blockJudgeMode ?? "off";
+      blockJudgeModeSaved = blockJudgeMode;
       telemetryOn = s.telemetryConsent === "granted";
       telemetryAvailable = s.telemetryAvailable;
       telemetryHealth = s.telemetryHealth;
@@ -363,6 +369,21 @@
       });
     } finally {
       judgeDailyUsdBusy = false;
+    }
+  }
+
+  async function saveBlockJudgeMode() {
+    if (blockJudgeBusy) return;
+    blockJudgeBusy = true;
+    try {
+      const r = await putBlockJudgeMode(blockJudgeMode);
+      blockJudgeMode = r.blockJudgeMode;
+      blockJudgeModeSaved = r.blockJudgeMode;
+    } catch {
+      blockJudgeMode = blockJudgeModeSaved;
+      toasts.info(m.settings_block_judge_save_failed(), { key: "block-judge", alert: true });
+    } finally {
+      blockJudgeBusy = false;
     }
   }
 
@@ -782,6 +803,28 @@
       aria-label={m.settings_judge_daily_usd_label()}
       onchange={saveJudgeDailyUsd}
     />
+  {/snippet}
+</SettingRow>
+
+<SettingRow
+  title={m.settings_block_judge_label()}
+  description={judgeHasKey ? m.settings_block_judge_hint() : m.settings_block_judge_no_key_hint()}
+  {query}
+>
+  {#snippet control()}
+    <span class="set-select">
+      <select
+        bind:value={blockJudgeMode}
+        disabled={blockJudgeBusy || !judgeHasKey}
+        aria-label={m.settings_block_judge_label()}
+        onchange={saveBlockJudgeMode}
+      >
+        <option value="off">{m.settings_block_judge_mode_off()}</option>
+        <option value="shadow">{m.settings_block_judge_mode_shadow()}</option>
+        <option value="armed">{m.settings_block_judge_mode_armed()}</option>
+      </select>
+      <span class="set-chev" aria-hidden="true">▾</span>
+    </span>
   {/snippet}
 </SettingRow>
 

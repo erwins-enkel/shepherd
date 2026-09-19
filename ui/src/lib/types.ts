@@ -255,6 +255,11 @@ export interface Settings {
   judgeHasKey: boolean;
   /** Daily USD ceiling for judge calls. On breach the classifier falls back to the agent spawn. */
   judgeDailyUsd: number;
+  /** #2375: how far the judge BEHIND the blocked-pane regexes is armed. "shadow" pays for answers
+   *  and logs them but can never delay a block; "armed" lets the probability buy a short hold.
+   *  Shares `judgeHasKey` and the daily ceiling above, but is armed independently of
+   *  `judgeEnabled`. */
+  blockJudgeMode: "off" | "shadow" | "armed";
 }
 
 export interface DirEntry {

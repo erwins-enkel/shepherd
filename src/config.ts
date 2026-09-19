@@ -11,7 +11,7 @@ import {
 import { normalizeDefaultEffortSetting, effortBelowHigh } from "./default-effort";
 import { normalizeAuthModeSetting } from "./auth-mode";
 import { normalizeAgentProvider } from "./agent-provider";
-import type { AgentProvider } from "./types";
+import { isBlockJudgeMode, type AgentProvider, type BlockJudgeMode } from "./types";
 import { normalizeTelemetryConsent } from "./telemetry-consent";
 import { normalizeOperatorLanguage } from "./operator-language";
 import { thresholdsFromEnv } from "./maintain-core";
@@ -151,6 +151,13 @@ const REVIEW_TIMEOUT_MS_DEFAULT = 10 * 60_000;
 export function clampCap(n: number, min: number, max: number, fallback: number): number {
   if (!Number.isFinite(n)) return fallback;
   return Math.min(max, Math.max(min, Math.round(n)));
+}
+
+/** The blocked-pane backstop mode an env value seeds, or `off` for anything unrecognised — a typo
+ *  must never arm a mode that can delay an operator-facing card. */
+function blockJudgeModeFromEnv(raw: string | undefined): BlockJudgeMode {
+  const v = raw?.trim();
+  return isBlockJudgeMode(v) ? v : "off";
 }
 
 // As clampCap, but WITHOUT the integer rounding — for ratio knobs (e.g. a CPU fraction, where
@@ -1150,6 +1157,27 @@ export const config = {
     1,
     3650,
     90,
+  ),
+
+  // ── Blocked-pane backstop: the judge BEHIND blocked.ts's regexes (issue #2375) ──────────────
+  // "off" (default) | "shadow" (pay, log, never delay) | "armed" (let the probability buy a hold).
+  // Independent of `judgeEnabled` on purpose: both consume the same client and the same daily
+  // ceiling, but coupling them would force an operator who only wants the shadow measurement to
+  // also change what `classifyStop` does. Inert without a key, whatever this says. Env seeds a
+  // fresh DB; persisted + UI-configurable.
+  blockJudgeMode: blockJudgeModeFromEnv(process.env.SHEPHERD_BLOCK_JUDGE),
+  // How many days of backstop log rows the daily sweep keeps. Shorter than the spend table's
+  // default: these rows carry terminal tails, and their job is to justify arming, not to be an
+  // archive.
+  blockJudgeLogRetentionDays: clampCap(
+    parseEnvNumber(
+      process.env.SHEPHERD_BLOCK_JUDGE_LOG_RETENTION_DAYS,
+      "SHEPHERD_BLOCK_JUDGE_LOG_RETENTION_DAYS",
+      14,
+    ),
+    1,
+    365,
+    14,
   ),
 };
 

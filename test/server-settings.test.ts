@@ -1225,3 +1225,40 @@ test("PUT judgeDailyUsd rejects a non-number rather than storing NaN", async () 
   expect((await put(app, { judgeDailyUsd: "1.00" })).status).toBe(400);
   expect((await put(app, { judgeDailyUsd: Number.NaN })).status).toBe(400);
 });
+
+test("GET settings exposes the blocked-pane backstop mode", async () => {
+  const { app } = harness();
+  const body = await (await app.fetch(new Request("http://x/api/settings"))).json();
+  expect(body.blockJudgeMode).toBe(config.blockJudgeMode);
+});
+
+test("PUT blockJudgeMode moves through the three modes and persists", async () => {
+  const { app, store } = harness();
+  const prev = config.blockJudgeMode;
+  try {
+    for (const mode of ["shadow", "armed", "off"] as const) {
+      expect(await (await put(app, { blockJudgeMode: mode })).json()).toEqual({
+        blockJudgeMode: mode,
+      });
+      expect(config.blockJudgeMode).toBe(mode);
+      expect(store.getSetting("blockJudgeMode")).toBe(mode);
+    }
+  } finally {
+    config.blockJudgeMode = prev;
+  }
+});
+
+test("PUT blockJudgeMode rejects anything off-enum rather than coercing", async () => {
+  const { app } = harness();
+  const prev = config.blockJudgeMode;
+  try {
+    // `armed` is the only mode that can delay an operator-facing card; a typo must never land there
+    // — and must not silently leave the old mode looking like it was changed either.
+    for (const bad of ["ARMED", "on", true, 1, null, ""]) {
+      expect((await put(app, { blockJudgeMode: bad })).status).toBe(400);
+    }
+    expect(config.blockJudgeMode).toBe(prev);
+  } finally {
+    config.blockJudgeMode = prev;
+  }
+});

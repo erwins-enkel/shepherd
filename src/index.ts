@@ -25,7 +25,12 @@ import {
   addServedHostsToAllowlist,
 } from "./config";
 import { SessionStore } from "./store";
-import type { Session, SessionPreviewEvent, SessionPreviewServeEvent } from "./types";
+import {
+  isBlockJudgeMode,
+  type Session,
+  type SessionPreviewEvent,
+  type SessionPreviewServeEvent,
+} from "./types";
 import { WorktreeMgr } from "./worktree";
 import { matchAgent, tabLabelMap, type IHerdrDriver } from "./herdr";
 import { selectHerdrDriver, SocketHerdrDriver } from "./herdr-socket-driver";
@@ -115,6 +120,7 @@ import { isFullAuto } from "./full-auto";
 import { classifyStop } from "./autopilot-llm";
 import { createTypeSafeJudge } from "./judge-typesafe";
 import { JudgeSpendLedger, dayKeyBefore } from "./judge-spend";
+import { BlockBackstop } from "./block-backstop";
 import { tailLines } from "./blocked";
 import { recommendPrompt, RECOMMEND_LABEL } from "./prompt-recommend";
 import { shapeTask, SHAPE_LABEL } from "./task-shape";
@@ -424,6 +430,9 @@ if (savedTuiMouse !== null) config.tuiDisableMouse = savedTuiMouse === "1";
 // in Settings stays off across restarts even with SHEPHERD_JUDGE=1 still exported.
 const savedJudge = store.getSetting("judgeEnabled");
 if (savedJudge !== null) config.judgeEnabled = savedJudge === "1";
+// Blocked-pane backstop (#2375): same persisted-overrides-env rule as the judge's own knobs.
+const savedBlockJudge = store.getSetting("blockJudgeMode");
+if (isBlockJudgeMode(savedBlockJudge)) config.blockJudgeMode = savedBlockJudge;
 const savedJudgeUsd = store.getSetting("judgeDailyUsd");
 // Blank is guarded explicitly: `Number("")` is 0, and 0 is a meaningful ceiling here ("spend
 // nothing"), so a set-but-empty row must not read as a deliberate disarm. Bounds mirror the PUT
@@ -2145,6 +2154,32 @@ if (judgeClient) {
   console.warn("[judge] SHEPHERD_JUDGE is on but no JEV_API_KEY is set — the judge stays unarmed.");
 }
 
+// The judge BEHIND blocked.ts's regexes (#2375). Built whenever a key exists and gated on its own
+// mode, read live per block: deliberately independent of `judgeEnabled`, since coupling the two
+// would force an operator who only wants the shadow measurement to also change what `classifyStop`
+// does. Shares the judge's client and its daily ceiling — one vendor, one bill.
+const blockBackstop = judgeClient
+  ? new BlockBackstop({
+      judge: judgeClient,
+      spend: judgeSpend,
+      mode: () => config.blockJudgeMode,
+      // Best-effort by contract: the caller swallows a throw rather than lose a block emit.
+      log: (row) => store.addBlockJudgeLog(row),
+      deadlineMs: config.judgeDeadlineMs,
+    })
+  : null;
+if (blockBackstop) {
+  // Wired post-construction (the poller is built long before the judge client). Left unset without
+  // a key, in which case block emission is byte-identical to before this feature landed.
+  poller.blockBackstop = blockBackstop;
+  console.log(`[block-judge] key present, mode ${config.blockJudgeMode}`);
+} else if (config.blockJudgeMode !== "off") {
+  console.warn(
+    `[block-judge] mode is "${config.blockJudgeMode}" but no JEV_API_KEY is set — the backstop ` +
+      "stays unarmed and blocks announce exactly as they do today.",
+  );
+}
+
 // Autopilot: the pre-PR twin of the critic's auto-address loop. When an autopilot-enabled
 // session (per-repo default + per-session override) stalls on a procedural gate with no PR
 // yet, a transient classifier decides gate (auto-proceed) / question (surface) / finished
@@ -2769,6 +2804,8 @@ const runDailySweep = (opts?: { skipTmpSweep?: boolean }) => {
   // Judge spend (#2369): day-keyed rows have no parent to cascade from, so this is the only thing
   // that ever removes one.
   store.pruneJudgeSpend(dayKeyBefore(Date.now(), config.judgeSpendRetentionDays));
+  // Backstop log (#2375): same reasoning, shorter window — these rows carry terminal tails.
+  store.pruneBlockJudgeLog(Date.now() - config.blockJudgeLogRetentionDays * 24 * 60 * 60 * 1000);
   // #1794: permanently prune stale proposed learnings (3-day default retention). Runs
   // synchronously here — before any async distillation/merge-suggestion/auto-trial work — so
   // the retention rule has unconditional, deterministic precedence over promotion.

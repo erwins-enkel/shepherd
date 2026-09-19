@@ -23,6 +23,7 @@ import {
   tailLines,
   type BlockReason,
 } from "./blocked";
+import { BACKSTOP_GATED_SHAPES, type BlockBackstop } from "./block-backstop";
 import { DEFAULT_STALL } from "./stall";
 import { jsonlPathFor, resumeSignalFrom, type ResumeSignal } from "./usage";
 import {
@@ -264,6 +265,14 @@ export class StatusPoller {
   /** Fired after each autonomous auto-revive completes, carrying the running default-account
    *  revived/failed totals for the current restart episode. Wired to emit `app:auto-revived`. */
   onAutoRevived?: (revived: number, failed: number) => void;
+
+  /**
+   * The decision-model backstop behind the block regexes (#2375), wired in index.ts when a judge key
+   * is configured. Unset ⇒ the judge path does not exist and block emission is byte-identical to
+   * before it landed — which is what the default (`blockJudgeMode = "off"`) and every existing
+   * poller test get.
+   */
+  blockBackstop?: BlockBackstop;
 
   /** Fire-and-forget best-effort seed of a running Codex session's provider-native id (wired to
    *  service.captureCodexSessionId in index.ts). No-op for non-Codex / legacy unmarked / already-seeded
@@ -1088,6 +1097,12 @@ export class StatusPoller {
     if (status !== "blocked") {
       this.lastSuppressVisible.delete(s.id);
       if (this.workingWhileBlocked.delete(s.id)) this.onWorkingBlocked(s.id, false);
+      // #2375: and the backstop episode. This is the COMPLETE leaving-blocked edge — `clearBlock`
+      // is not, because it early-returns when nothing was announced and a HELD block is precisely
+      // the case with no `lastSig` entry. Without this edge the one-ask-per-episode rule would
+      // silence a session's backstop for good after its first held block, starving the shadow log
+      // the arming decision reads.
+      this.blockBackstop?.release(s.id);
     }
     this.onLeaveResting(s.id, s.status, status);
     // Phase-1 push block-trigger (issue #704): a Notification awaiting-input edge
@@ -1330,6 +1345,8 @@ export class StatusPoller {
         this.strandedSweeps.delete(id);
         this.reviveInFlight.delete(id);
         this.reviveGaveUp.delete(id);
+        // Blocked-pane backstop (#2375): episode + re-ask stamp for a session nobody tracks.
+        this.blockBackstop?.forget(id);
       }
     }
     // Phase-1 (issue #704): drop the HookIngest ring buffers for dead sessions too
@@ -1803,6 +1820,24 @@ export class StatusPoller {
     }
     const sig = JSON.stringify(reason);
     if (sig === this.lastSig.get(id)) return true; // looked this tick (dedup short-circuit)
+    // #2375: the judge behind the regexes, consulted only for a shape that ASSERTS a rendered
+    // dialog. Synchronous — it fires its request detached and parks the answer for a later cadence
+    // to read, so the loop that also pumps the live web terminal never awaits it. Placed AFTER the
+    // dedup so a repainting dialog is not re-decided every cadence, and BEFORE the emit so a hold
+    // simply withholds an announcement: `lastSig` is untouched while holding, which is what makes
+    // "a block already announced is never retracted" true by construction rather than by a guard.
+    // A non-gated shape ENDS the episode — a forgery that scrolled away leaves the pane
+    // `awaiting-input` and never reaches `clearBlock`.
+    if (this.blockBackstop) {
+      if (!BACKSTOP_GATED_SHAPES.has(reason.shape)) this.blockBackstop.release(id);
+      // Returns FALSE ("did not look"), unlike the suppression path above, and the difference is
+      // load-bearing: a suppressed block is one the agent is not actually waiting on, while a HELD
+      // one is a block we still intend to announce. Returning false keeps `tryHookAwaitingBlock`'s
+      // marker, so a session whose only awaiting-input signal is the hook (herdr 0.7.5 never
+      // latches `blocked`) still surfaces it when the hold expires instead of losing it. The
+      // `lastReadAt` stamp is already set, so the retry is throttled to the normal cadence.
+      else if (this.blockBackstop.hold(id, reason)) return false; // announcement withheld
+    }
     // Re-arm: a block is about to be emitted → end the suppression episode FIRST so
     // the flag-off and the block reach clients in the same tick, in that order.
     if (this.workingWhileBlocked.delete(id)) this.onWorkingBlocked(id, false);
@@ -1927,6 +1962,11 @@ export class StatusPoller {
     // The shown-auth-URL marker follows the block (not the detection caches, which the
     // leave-resting edge owns) — drop it so the next auth block re-emits cleanly.
     this.lastAuthUrlEmitted.delete(id);
+    // #2375: ABOVE the early return, deliberately. A HELD block has no `lastSig` entry by
+    // definition, so a release below the guard would never run for exactly the episodes the
+    // backstop creates — and the one-ask-per-episode rule would then silence it for the rest of
+    // that session's life, starving the shadow log the arming decision depends on.
+    this.blockBackstop?.release(id);
     if (!this.lastSig.has(id)) return;
     this.lastSig.delete(id);
     this.lastReadAt.delete(id);

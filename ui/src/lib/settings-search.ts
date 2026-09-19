@@ -192,6 +192,12 @@ function sessionRows(ctx: SessionRowsCtx): string[][] {
       m.settings_judge_no_key_hint(),
     ],
     [m.settings_judge_daily_usd_label(), m.settings_judge_daily_usd_hint()],
+    // Both hint variants again — same key-state-dependent description.
+    [
+      m.settings_block_judge_label(),
+      m.settings_block_judge_hint(),
+      m.settings_block_judge_no_key_hint(),
+    ],
     [m.settings_tui_fullscreen_label(), m.settings_tui_fullscreen_hint()],
     [m.settings_tui_disable_mouse_label(), m.settings_tui_disable_mouse_hint()],
   ];

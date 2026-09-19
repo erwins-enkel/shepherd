@@ -505,6 +505,14 @@ components:
       properties:
         id: { type: string }
         ready: { type: boolean }
+    # ── stream: terminal ──
+    # ── /stream: terminal ──
+    # ── stream: detail ──
+    # ── /stream: detail ──
+    # ── stream: sidebar ──
+    # ── /stream: sidebar ──
+    # ── stream: actions ──
+    # ── /stream: actions ──
   responses:
     Unauthorized:
       description: Missing or invalid credential.
@@ -840,6 +848,14 @@ paths:
                 $ref: "#/components/schemas/RepoList"
         "401":
           $ref: "#/components/responses/Unauthorized"
+  # ── stream: terminal ──
+  # ── /stream: terminal ──
+  # ── stream: detail ──
+  # ── /stream: detail ──
+  # ── stream: sidebar ──
+  # ── /stream: sidebar ──
+  # ── stream: actions ──
+  # ── /stream: actions ──
 x-shepherd-events:
   description: 'WebSocket /events. Same auth gate as HTTP (send Authorization on the upgrade). Every frame is an EventEnvelope: {"event": string, "data": object}. Client may send {"type":"presence","active":boolean}; the server never replies to it.'
   envelope:

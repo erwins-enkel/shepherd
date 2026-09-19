@@ -268,6 +268,34 @@ final class AppModel {
         return profile
     }
 
+    /// The welcome screen's two "Connect" buttons, as the model sees them:
+    /// make sure the profile exists, then route its login through the **one**
+    /// sheet channel `RootView` presents.
+    ///
+    /// The welcome screen used to present a `LoginSheet` of its own from
+    /// view-local state. That second channel sat outside every invariant here
+    /// — clear-on-activate, clear-on-remove, the generation guards — and, worse,
+    /// it was still on screen when a successful login swapped Welcome for the
+    /// main window: the new activation's watcher then routed `.firstRun` into
+    /// `sheet` while AppKit refused to present a second modal, so the operator
+    /// was parked on an empty window with a sheet state nothing could clear.
+    @discardableResult
+    func beginLocalLogin() -> ServerProfile {
+        let profile = addLocalProfile()
+        sheet = .login(profile)
+        return profile
+    }
+
+    /// The remote card's twin of `beginLocalLogin()`. Throws exactly what
+    /// `addRemoteProfile(name:address:)` throws — and opens no sheet when it
+    /// does, because there is no profile to log in to.
+    @discardableResult
+    func beginRemoteLogin(name: String, address: String) throws -> ServerProfile {
+        let profile = try addRemoteProfile(name: name, address: address)
+        sheet = .login(profile)
+        return profile
+    }
+
     /// Drops a profile *and its credential*. Removing a row the operator has
     /// signed in to used to strand the minted token: the random `credentialKey`
     /// went with the row, so the Keychain item survived un-revokable and the

@@ -9,7 +9,6 @@ struct WelcomeView: View {
     @State private var remoteName = ""
     @State private var remoteAddress = ""
     @State private var remoteError: String?
-    @State private var pendingLogin: ServerProfile?
 
     private let probe = LocalServerProbe()
 
@@ -37,9 +36,6 @@ struct WelcomeView: View {
         .padding(40)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task { await refreshLocal() }
-        .sheet(item: $pendingLogin) { profile in
-            LoginSheet(profile: profile) { pendingLogin = nil }
-        }
     }
 
     // MARK: - Run on this Mac
@@ -57,7 +53,12 @@ struct WelcomeView: View {
             case .found(let version):
                 Label(L.t("native_welcome_local_found", version), systemImage: "checkmark.circle.fill")
                     .foregroundStyle(.green)
-                Button(L.t("native_welcome_connect")) { pendingLogin = model.addLocalProfile() }
+                // Routed through `model.sheet`, the app's one sheet channel:
+                // a sheet this view presented itself would still be on screen
+                // when a successful login swaps this screen for the main
+                // window, and the `.firstRun` routed behind it would never be
+                // presented.
+                Button(L.t("native_welcome_connect")) { model.beginLocalLogin() }
                     .buttonStyle(.borderedProminent)
             case .absent:
                 Label(L.t("native_welcome_local_missing"), systemImage: "exclamationmark.triangle")
@@ -158,7 +159,7 @@ struct WelcomeView: View {
     private func connectRemote() {
         do {
             remoteError = nil
-            pendingLogin = try model.addRemoteProfile(name: remoteName, address: remoteAddress)
+            try model.beginRemoteLogin(name: remoteName, address: remoteAddress)
         } catch {
             // One mapper for everything: RemoteServerForm.FieldError for a typo,
             // ShepherdKit's ServerProfileError for an address the policy rejects.

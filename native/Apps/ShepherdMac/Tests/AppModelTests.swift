@@ -900,4 +900,65 @@ struct AppModelTests {
         _ = model.addLocalProfile()
         #expect(model.savedServers.isEmpty)
     }
+
+    // MARK: - The welcome screen's logins go through the one sheet channel
+
+    /// B1 (whole-branch wave): `WelcomeView` used to present its own
+    /// `LoginSheet` from a view-local `pendingLogin` — a second sheet channel,
+    /// parallel to `RootView`'s single presenter and outside every AppModel
+    /// invariant. On success `activate(_:)` swapped Welcome → MainWindow
+    /// *under* that presented sheet while the new watcher routed `.firstRun`;
+    /// AppKit refuses a second modal, so `sheet` stayed `.firstRun` with
+    /// nothing on screen and routing never fired again. Both welcome paths now
+    /// write `model.sheet`, which the one presenter shows.
+    @Test func connectingToThisMacRoutesItsLoginThroughTheModelsSheet() {
+        let model = makeModel()
+        let profile = model.beginLocalLogin()
+        #expect(model.sheet == .login(profile))
+        #expect(model.profiles == [profile])
+    }
+
+    @Test func connectingToANewRemoteServerRoutesItsLoginThroughTheModelsSheet() throws {
+        let model = makeModel()
+        let profile = try model.beginRemoteLogin(name: "Studio", address: "studio.example.ts.net")
+        #expect(model.sheet == .login(profile))
+        #expect(model.profiles == [profile])
+    }
+
+    @Test func anAddressTheKitRejectsOpensNoSheet() {
+        let model = makeModel()
+        #expect(throws: ServerProfileError.insecureRemoteURL("studio.example.com")) {
+            try model.beginRemoteLogin(name: "Bad", address: "http://studio.example.com")
+        }
+        #expect(model.sheet == nil)
+        #expect(model.profiles.isEmpty)
+    }
+
+    /// The end of the same story: a login that succeeds leaves the one sheet
+    /// channel free, so the `.firstRun` the new activation's watcher routes is
+    /// actually presented — `.login` → nil → `.firstRun`, with `routeSheet`
+    /// running because `sheet` is nil rather than still holding a login sheet
+    /// nobody can see.
+    @Test func aFirstRunRoutedAfterASuccessfulLoginIsPresented() async throws {
+        let model = makeModel()
+        model.login = { _, _, _ in }
+        let profile = try model.beginRemoteLogin(
+            name: "Studio", address: "https://studio.example.ts.net")
+        #expect(model.sheet == .login(profile))
+
+        try await model.signIn(profile: profile, password: "hunter2")
+
+        // The activation cleared the profile-bound sheet on its way in.
+        #expect(model.sheet == nil)
+
+        let box = ConnectionBox()
+        model.watchConnection(
+            ConnectionSource(read: { box.state }, abandon: {}),
+            profile: profile,
+            generation: model.activationGeneration)
+        box.state = .firstRunPending
+
+        #expect(await settle(until: { model.sheet == .firstRun }))
+        model.teardown()
+    }
 }

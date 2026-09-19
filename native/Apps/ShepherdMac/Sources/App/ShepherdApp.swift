@@ -3,10 +3,24 @@ import ShepherdKit
 
 @main
 struct ShepherdApp: App {
-    @State private var model = AppModel()
+    @State private var model: AppModel
+    /// Non-nil only for an isolated launch — `-ShepherdIsolated 1` or
+    /// `SHEPHERD_ISOLATED=1`. See `LaunchEnvironment`: it is what keeps an
+    /// automated launch off the login Keychain and out of the operator's saved
+    /// profiles. A normal launch builds the model exactly as before.
+    private let isolation: IsolatedLaunch?
 
     init() {
-        Log.app.info("Shepherd for Mac starting")
+        // Everything the isolated launch needs — the throwaway stores, the
+        // quit-time cleanup and the optional live sign-in — is wired up by
+        // `IsolatedLaunch` itself rather than by a modifier on the scene below.
+        // That is not tidiness: an `.onReceive` of `NSApplication`'s terminate
+        // notification here left the app with no window at all under XCUITest.
+        let launch = LaunchEnvironment.configuration()
+        let isolation = launch.isIsolated ? IsolatedLaunch(configuration: launch) : nil
+        self.isolation = isolation
+        _model = State(initialValue: isolation?.makeModel() ?? AppModel())
+        Log.app.info("Shepherd for Mac starting — \(launch.logDescription, privacy: .public)")
     }
 
     var body: some Scene {

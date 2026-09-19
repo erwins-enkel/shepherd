@@ -46,6 +46,45 @@ Scope a run to just the UI smoke suite the same way:
 native/scripts/test-app.sh -only-testing:ShepherdUITests
 ```
 
+### Isolated launches
+
+Every automated launch of the app runs **isolated**, and the real app is unaffected: the switch is
+`-ShepherdIsolated 1` as a launch argument (what each `XCUIApplication` passes) or
+`SHEPHERD_ISOLATED=1` in the environment (what `test-app.sh` exports, in the plain and the
+`TEST_RUNNER_`-prefixed spelling, so the unit bundle's host app gets it too). An isolated launch
+builds its `AppModel` on a throwaway `UserDefaults` suite — `run.shepherd.mac.isolated.<pid>-<uuid>`,
+removed again on quit — and an `InMemoryCredentialStore`, so it reads neither the operator's saved
+profiles nor the login Keychain, and restores no persisted profile: the suite is empty. Launching
+Shepherd.app yourself passes neither switch, so nothing about a normal run changes — your profiles
+and your token stay exactly where they were.
+
+That is the whole reason the mode exists. The real store's `SecItemCopyMatching` blocks on a
+SecurityAgent dialog ("Shepherd möchte deine vertraulichen Informationen verwenden…"), and an
+unattended run has nobody to answer it. See `Sources/App/LaunchEnvironment.swift`; the parsing is
+covered by `ShepherdTests/LaunchEnvironmentTests`.
+
+### The live UI smoke test
+
+`ShepherdUITests/LiveSmokeUITests` is the end-to-end run: an isolated launch that signs in to a
+**real** server and has to land on the session list. Skipped — so silent in CI, which has no server
+— unless both variables are set:
+
+```
+TEST_RUNNER_SHEPHERD_LIVE_BASE_URL='https://your-server:7330/' \
+TEST_RUNNER_SHEPHERD_LIVE_PASSWORD='…' \
+  native/scripts/test-app.sh -only-testing:ShepherdUITests
+```
+
+The test hands both values to the app through `launchEnvironment`; the app adds a remote profile
+named "Live", signs in through the same `AppModel.signIn` the login sheet uses, and activates it.
+The minted token goes to the in-memory store and the profile to the throwaway suite — never the
+Keychain, never `run.shepherd.mac` — and `-ShepherdRevokeOnExit 1` gives the token back to the
+server when the app quits. One caveat, measured rather than assumed: `XCUIApplication.terminate()`
+does not deliver `NSApplicationWillTerminate`, so a run driven by the test does **not** revoke —
+expect one access token named `Shepherd for Mac (<host>)` per live run in the server's token list,
+and revoke it there if it bothers you. Keep the values out of files and shell history; they are an
+operator's real server and real password.
+
 ## Localisation
 
 EN and DE only, mirrored from the web catalogs. Add or change copy in
@@ -399,4 +438,6 @@ Job `shepherdkit` (blocking) runs `bun run check:contract-swift`,
 
 Job `shepherd-mac-ui` (`continue-on-error: true`, **non-blocking**) runs
 `native/scripts/test-app.sh -only-testing:ShepherdUITests`. XCUITest needs a real GUI login
-session, so a red run there is a prompt to investigate, not a merge blocker.
+session, so a red run there is a prompt to investigate, not a merge blocker. Both bundles launch
+the app isolated (see [Isolated launches](#isolated-launches)), so neither can stall on a Keychain
+prompt; `LiveSmokeUITests` skips itself there, because CI sets neither live variable.

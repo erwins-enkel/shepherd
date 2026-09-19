@@ -12,10 +12,13 @@ final class WelcomeSmokeUITests: XCTestCase {
         app.launchArguments = [
             "-AppleLanguages", "(en)",
             "-AppleLocale", "en_US",
-            // Empty the persisted profile keys for this launch so the welcome
-            // screen shows even on a machine that has already connected once.
-            "-run.shepherd.mac.profiles", "",
-            "-run.shepherd.mac.activeProfileID", "",
+            // Isolated: a private, empty UserDefaults suite and an in-memory
+            // credential store instead of the operator's profiles and the login
+            // Keychain — see `LaunchEnvironment`. This replaces the two blanked
+            // profile keys this suite used to pass, and covers what they never
+            // could: the Keychain read behind a restored profile blocks on a
+            // SecurityAgent dialog no unattended run can answer.
+            "-ShepherdIsolated", "1",
         ]
         app.launch()
     }
@@ -32,6 +35,18 @@ final class WelcomeSmokeUITests: XCTestCase {
         XCTAssertTrue(
             app.staticTexts["Connect to a remote server"].exists,
             "the remote card should be on screen")
+    }
+
+    /// The isolation is not an internal detail: an isolated launch has to come
+    /// up on an *empty* welcome screen. A saved-servers section here would mean
+    /// this launch had read the operator's own profiles after all.
+    func testIsolatedLaunchListsNoSavedServers() {
+        XCTAssertTrue(
+            app.descendants(matching: .any)["welcome-local-card"].waitForExistence(timeout: 15),
+            "the welcome screen should be up")
+        XCTAssertFalse(
+            app.descendants(matching: .any)["welcome-saved-servers"].exists,
+            "an isolated launch must not list the operator's saved servers")
     }
 
     func testWelcomeCardsAreIdentifiable() {

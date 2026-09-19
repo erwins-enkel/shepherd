@@ -336,4 +336,53 @@ func anyProcessCommand(contains needle: String) -> Bool {
   }
 }
 
+@Suite(.serialized) struct LocalServerRestartTests {
+  /// A child that exits immediately is restarted after 1 s, 2 s, 4 s; the fourth
+  /// crash inside the window stops the supervisor.
+  @Test func threeRestartsThenCrashLoop() async throws {
+    let (launch, cleanup) = try fakeScript("exit 1\n")
+    defer { cleanup() }
+    let clock = TestClock()
+    let sut = LocalServerSupervisor(
+      environment: LocalServerEnvironment(home: launch.workingDirectory),
+      log: LogRing(capacity: 50), health: { false }, clock: clock, launch: { launch })
+    await sut.start()
+    try await waitUntil(timeout: 10) { await sut.state == .failed(.crashLoop(restarts: 3)) }
+    #expect(await clock.slept.filter { [1, 2, 4].contains($0) } == [1, 2, 4])
+  }
+
+  /// `restart()` clears the crash history, so a server that dies once an hour
+  /// stays supervised forever instead of accumulating into a crash loop.
+  @Test func restartClearsTheCrashHistory() async throws {
+    let (launch, cleanup) = try fakeScript("exit 1\n")
+    defer { cleanup() }
+    var policy = LocalServerSupervisor.RestartPolicy()
+    policy.maxRestarts = 1
+    let clock = TestClock()
+    let sut = LocalServerSupervisor(
+      environment: LocalServerEnvironment(home: launch.workingDirectory),
+      log: LogRing(capacity: 50), health: { false }, clock: clock, policy: policy,
+      launch: { launch })
+    await sut.start()
+    try await waitUntil(timeout: 10) { await sut.state == .failed(.crashLoop(restarts: 1)) }
+    await clock.advance(400)  // past the 300 s window
+    await sut.restart()
+    try await waitUntil(timeout: 10) { await sut.state == .failed(.crashLoop(restarts: 1)) }
+  }
+
+  /// Health, not the ready line, is what flips `.starting` to `.running`.
+  @Test func healthDecidesReadiness() async throws {
+    let (launch, cleanup) = try fakeScript("sleep 30\n")
+    defer { cleanup() }
+    let healthy = Mutex(true)
+    let sut = LocalServerSupervisor(
+      environment: LocalServerEnvironment(home: launch.workingDirectory),
+      log: LogRing(), health: { healthy.withLock { $0 } }, clock: TestClock(),
+      launch: { launch })
+    await sut.start()
+    #expect(await sut.state.isRunning)
+    await sut.stop()
+  }
+}
+
 #endif

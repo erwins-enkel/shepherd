@@ -137,6 +137,9 @@ type FlatOptionalGitField = Exclude<
   | "latestReview"
   | "reviewerStates"
   | "reviewBlock"
+  // Derived on every annotateHandoff from the repo's roles file, so persisting it would only
+  // risk serving a stale responsibility after a restart. Restored states get it on the next poll.
+  | "mergeGate"
 >;
 
 function isRecord(value: unknown): value is Record<string, unknown> {

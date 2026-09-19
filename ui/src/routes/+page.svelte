@@ -168,6 +168,7 @@
     type DecommissionRequest,
   } from "$lib/decommission-commit";
   import {
+    isMergeConfirmRefusal,
     mergeConfirmFromGit,
     mergeConfirmPayload,
     type MergeTrainItem,
@@ -1130,13 +1131,7 @@
     // surfaced as the modal's warn line, NOT a post-launch toast (no double-surfacing).
     pendingTrain = {
       repoLabel: basename(repoPath),
-      items: prs.map((p) => ({
-        number: p.number,
-        title: p.title,
-        handoff: p.handoff,
-        handoffWho: p.handoffWho,
-        reviewBlockBy: p.reviewBlockBy,
-      })),
+      items: prs.map((p) => ({ number: p.number, title: p.title, mergeGate: p.mergeGate })),
       handpicked: false,
       otherRepoCount,
       run: async () => {
@@ -1169,13 +1164,7 @@
     // backlog overlay). The launch body runs on confirm; backlog stays open until then.
     pendingTrain = {
       repoLabel: basename(repoPath),
-      items: prs.map((p) => ({
-        number: p.number,
-        title: p.title,
-        handoff: p.handoff,
-        handoffWho: p.handoffWho,
-        reviewBlockBy: p.reviewBlockBy,
-      })),
+      items: prs.map((p) => ({ number: p.number, title: p.title, mergeGate: p.mergeGate })),
       handpicked: true,
       otherRepoCount: 0,
       run: async () => {
@@ -2358,7 +2347,12 @@
         // the same decommission, so the row never dead-ends.
         try {
           await commit.run();
-        } catch {
+        } catch (err) {
+          // A refused merge confirmation (#2299) must NOT be retried as-is: the payload is bound
+          // to a responsibility or revision the server has already rejected, so replaying it
+          // 409s forever and the session could never be decommissioned at all. Re-open the PR
+          // decision instead, so the operator answers the state the server actually reports.
+          if (isMergeConfirmRefusal(err) && reopenPrDecommission(request)) return;
           toasts.info(m.toast_decommission_failed({ name }), {
             sticky: true,
             alert: true,
@@ -2368,6 +2362,20 @@
         }
       },
     });
+  }
+
+  /** Re-open the decommission PR dialog against the session's CURRENT git state after the server
+   *  refused the merge confirmation. Returns false when the session or its PR is gone, so the
+   *  caller falls back to the ordinary failure toast. */
+  function reopenPrDecommission(request: PendingDecommission): boolean {
+    const git = store.git[request.id];
+    if (!store.sessions.some((s) => s.id === request.id) || git?.state !== "open") return false;
+    toasts.info(m.toast_decommission_merge_refused({ name: request.name }), {
+      alert: true,
+      key: `decommission-fail:${request.id}`,
+    });
+    decommissionPr = { id: request.id, name: request.name, git, reap: request.reap };
+    return true;
   }
 
   function onarchive(id: string, reap?: string[]) {

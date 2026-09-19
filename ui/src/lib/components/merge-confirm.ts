@@ -1,4 +1,4 @@
-import type { GitState, MergeMethod, PullRequest } from "$lib/types";
+import type { GitState, MergeMethod, MergeResponsibility, PullRequest } from "$lib/types";
 
 /** How long after the dialog opens its confirm button stays disabled (#2299).
  *
@@ -42,9 +42,7 @@ export interface MergeConfirmPayload {
 export interface MergeTrainItem {
   number: number;
   title: string;
-  handoff?: "reviewer" | "merger" | null;
-  handoffWho?: string | null;
-  reviewBlockBy?: string | null;
+  mergeGate?: MergeResponsibility;
 }
 
 /** True when confirming means taking over someone else's responsibility — which is what turns the
@@ -53,19 +51,27 @@ export function isMergeTakeover(ctx: { handoff?: unknown; reviewBlockBy?: unknow
   return !!ctx.handoff || !!ctx.reviewBlockBy;
 }
 
+/** Spread the server's stamped responsibility into the context's flat fields. Read from
+ *  `mergeGate` and NEVER from `GitState.handoff`/`reviewBlock`: those are the herd's readout,
+ *  which appears only on a green PR and is inferred where no roles are configured. Deriving the
+ *  confirmation from them made it disagree with the gate that validates it. */
+function responsibility(
+  gate: MergeResponsibility | undefined,
+): Pick<MergeConfirmContext, "handoff" | "handoffWho" | "reviewBlockBy"> {
+  return {
+    handoff: gate?.handoff ?? null,
+    handoffWho: gate?.handoffWho ?? null,
+    reviewBlockBy: gate?.reviewBlockBy ?? null,
+  };
+}
+
 /** A session's live git state → confirmation context. Null when there is no PR to merge, so a
- *  caller cannot open the dialog on an empty rail.
- *
- *  An INFERRED handoff is dropped: `GitState.handoff` doubles as the herd's "waiting on" readout
- *  and is guessed from the PR's reviewers when a repo has no `.shepherd/roles.json`. Only a
- *  configured role makes a merge someone else's to take over, so presenting an inferred one as a
- *  takeover would both overstate it and disagree with the server gate. */
+ *  caller cannot open the dialog on an empty rail. */
 export function mergeConfirmFromGit(
   git: GitState | null | undefined,
   repoLabel?: string,
 ): MergeConfirmContext | null {
   if (!git || git.state !== "open" || !git.number) return null;
-  const configured = !git.handoffInferred;
   return {
     repoLabel,
     number: git.number,
@@ -73,15 +79,12 @@ export function mergeConfirmFromGit(
     baseBranch: git.baseRefName ?? null,
     mergeMethod: git.mergeMethod ?? null,
     headSha: git.headSha ?? null,
-    handoff: (configured && git.handoff) || null,
-    handoffWho: (configured && git.handoffWho) || null,
-    // GitState carries the whole block; only the reviewer's login reaches the confirmation.
-    reviewBlockBy: git.reviewBlock?.reviewer ?? null,
+    ...responsibility(git.mergeGate),
   };
 }
 
-/** A backlog PR row → confirmation context. The row's responsibility fields are server-stamped
- *  from the repo's roles file (see the PRs route), so no client-side role logic exists. */
+/** A backlog PR row → confirmation context. The row's responsibility is server-stamped by the same
+ *  function the gate runs (see the PRs route), so no client-side role logic exists. */
 export function mergeConfirmFromPr(pr: PullRequest, repoLabel: string): MergeConfirmContext {
   return {
     repoLabel,
@@ -90,9 +93,7 @@ export function mergeConfirmFromPr(pr: PullRequest, repoLabel: string): MergeCon
     baseBranch: pr.baseRefName ?? pr.nonDefaultBase ?? null,
     mergeMethod: pr.mergeMethod ?? null,
     headSha: pr.headSha ?? null,
-    handoff: pr.handoff ?? null,
-    handoffWho: pr.handoffWho ?? null,
-    reviewBlockBy: pr.reviewBlockBy ?? null,
+    ...responsibility(pr.mergeGate),
   };
 }
 
@@ -105,6 +106,18 @@ export function mergeConfirmPayload(ctx: MergeConfirmContext): MergeConfirmPaylo
     handoffWho: ctx.handoffWho,
     reviewBlockBy: ctx.reviewBlockBy,
   };
+}
+
+/** Whether a failure is the merge gate refusing the operator's confirmation (#2299).
+ *
+ *  Matches on the server's stable `code` rather than the error class, so callers that only see an
+ *  opaque failure — the deferred decommission commit, which runs behind an undo toast — can tell
+ *  "this confirmation is spent" from an ordinary merge failure WITHOUT reaching into the API
+ *  module. A refusal must never be retried with the same payload: it is bound to a responsibility
+ *  or revision the server has already rejected, so replaying it can only 409 again. */
+export function isMergeConfirmRefusal(err: unknown): boolean {
+  const code = (err as { code?: unknown } | null)?.code;
+  return code === "merge_confirm_required" || code === "merge_confirm_stale";
 }
 
 /** Fold the server's refreshed verdict (from a `merge_confirm_stale` / `merge_confirm_required`

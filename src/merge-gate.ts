@@ -12,8 +12,10 @@
  *  reads the roles itself.
  *
  *  Pure: no git, no forge, no clock. The endpoints supply roles + identity + the PR's review data. */
-import type { PrReviewerState, PrStatus } from "./forge/types";
-import { reviewBlockFor, type RepoRoles } from "./repo-roles";
+import type { MergeResponsibility, PrReviewBlock, PrReviewerState, PrStatus } from "./forge/types";
+// TYPE-ONLY, deliberately: repo-roles imports this module at runtime (annotateHandoff stamps the
+// verdict), so a value import back would close a cycle. RepoRoles is erased at compile time.
+import type { RepoRoles } from "./repo-roles";
 
 /** Whose turn it is when it is not the operator's. Mirrors `HandoffRole` minus `self`. */
 export type MergeHandoffRole = "reviewer" | "merger";
@@ -44,6 +46,44 @@ export interface MergeConfirm {
 }
 
 export type MergeConfirmCheck = "ok" | "confirm_required" | "confirm_stale";
+
+/** The configured reviewer's latest terminal state on this PR, matched folded. */
+function stateForReviewer(
+  reviewerStates: Record<string, PrReviewerState> | undefined,
+  reviewer: string | null,
+): { login: string; state: PrReviewerState } | null {
+  if (!reviewer || !reviewerStates) return null;
+  const reviewerLc = reviewer.toLowerCase();
+  for (const [login, state] of Object.entries(reviewerStates)) {
+    if (login.toLowerCase() === reviewerLc) return { login, state };
+  }
+  return null;
+}
+
+/** Active changes requested by the repo's CONFIGURED reviewer, or undefined. Shared with
+ *  `annotateHandoff`'s display annotation so the two cannot disagree about what an outstanding
+ *  review block is. The login reported is the host's casing, not the configured one. */
+export function reviewBlockFor(
+  roles: RepoRoles,
+  reviewerStates: Record<string, PrReviewerState> | undefined,
+): PrReviewBlock | undefined {
+  const scoped = stateForReviewer(reviewerStates, roles.reviewer);
+  if (scoped?.state.state !== "changes_requested") return undefined;
+  return { reviewer: scoped.login, state: "changes_requested", latestAt: scoped.state.latestAt };
+}
+
+/** The verdict reduced to what a PR payload carries, or undefined when nothing is taken over.
+ *  This is what `mergeConfirmFrom*` reads and echoes back, so the dialog and this gate can never
+ *  derive the responsibility from two different rule sets. */
+export function mergeResponsibility(verdict: MergeGateVerdict): MergeResponsibility | undefined {
+  if (!verdict.requiresConfirm) return undefined;
+  return {
+    ...(verdict.handoff && verdict.handoffWho
+      ? { handoff: verdict.handoff, handoffWho: verdict.handoffWho }
+      : {}),
+    ...(verdict.reviewBlockBy ? { reviewBlockBy: verdict.reviewBlockBy } : {}),
+  };
+}
 
 const NO_GATE: MergeGateVerdict = {
   handoff: null,

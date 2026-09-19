@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   applyMergeGate,
+  isMergeConfirmRefusal,
   isMergeTakeover,
   mergeConfirmFromGit,
   mergeConfirmFromPr,
@@ -57,27 +58,38 @@ describe("mergeConfirmFromGit", () => {
     });
   });
 
-  it("carries the responsibility and flattens the review block to its reviewer", () => {
+  it("carries the server's stamped responsibility", () => {
+    const ctx = mergeConfirmFromGit(
+      git({ mergeGate: { handoff: "merger", handoffWho: "scoop", reviewBlockBy: "scoop" } }),
+    );
+    expect(ctx).toMatchObject({ handoff: "merger", handoffWho: "scoop", reviewBlockBy: "scoop" });
+  });
+
+  it("reads mergeGate, never the herd's handoff readout", () => {
+    // `handoff`/`reviewBlock` are the "waiting on" readout: stamped only on a GREEN PR and
+    // inferred where no roles are configured. Deriving the confirmation from them disagreed with
+    // the gate that validates it — neutral wording plus a 409 on the first confirm.
     const ctx = mergeConfirmFromGit(
       git({
         handoff: "merger",
         handoffWho: "scoop",
         reviewBlock: { reviewer: "scoop", state: "changes_requested", latestAt: 1 },
       }),
-    );
-    expect(ctx).toMatchObject({ handoff: "merger", handoffWho: "scoop", reviewBlockBy: "scoop" });
-  });
-
-  it("drops an INFERRED handoff — only a configured role is someone else's to take over", () => {
-    // GitState.handoff doubles as the herd's "waiting on" readout and is guessed from the PR's
-    // reviewers on a repo with no roles file. Carrying that into the confirmation would both
-    // overstate it and disagree with the server gate, which 409'd the first confirm.
-    const ctx = mergeConfirmFromGit(
-      git({ handoff: "merger", handoffWho: "scoop", handoffInferred: true }),
     )!;
     expect(ctx.handoff).toBeNull();
     expect(ctx.handoffWho).toBeNull();
+    expect(ctx.reviewBlockBy).toBeNull();
     expect(isMergeTakeover(ctx)).toBe(false);
+  });
+
+  it("names the responsible person on a PR whose CI has not cleared", () => {
+    // The readout is CI-gated (and never clears at all on a non-GitHub host); the stamped verdict
+    // is not. A red-but-mergeable PR must still say whose merge it is.
+    const ctx = mergeConfirmFromGit(
+      git({ checks: "failure", mergeGate: { handoff: "merger", handoffWho: "scoop" } }),
+    )!;
+    expect(isMergeTakeover(ctx)).toBe(true);
+    expect(ctx.handoffWho).toBe("scoop");
   });
 
   it("refuses to build a context without an open PR, so no dialog can open on one", () => {
@@ -103,7 +115,10 @@ describe("mergeConfirmFromPr", () => {
   });
 
   it("carries the server-stamped responsibility", () => {
-    const ctx = mergeConfirmFromPr(pr({ handoff: "reviewer", handoffWho: "scoop" }), "shepherd");
+    const ctx = mergeConfirmFromPr(
+      pr({ mergeGate: { handoff: "reviewer", handoffWho: "scoop" } }),
+      "shepherd",
+    );
     expect(ctx).toMatchObject({ handoff: "reviewer", handoffWho: "scoop" });
   });
 });
@@ -117,10 +132,24 @@ describe("isMergeTakeover", () => {
   });
 });
 
+describe("isMergeConfirmRefusal", () => {
+  it("recognises both refusal codes and nothing else", () => {
+    expect(isMergeConfirmRefusal({ code: "merge_confirm_required" })).toBe(true);
+    expect(isMergeConfirmRefusal({ code: "merge_confirm_stale" })).toBe(true);
+    // An in-flight async merge is NOT a refused confirmation — retrying that one is correct.
+    expect(isMergeConfirmRefusal({ code: "merge_pending" })).toBe(false);
+    expect(isMergeConfirmRefusal(new Error("boom"))).toBe(false);
+    expect(isMergeConfirmRefusal(null)).toBe(false);
+    expect(isMergeConfirmRefusal(undefined)).toBe(false);
+  });
+});
+
 describe("mergeConfirmPayload", () => {
   it("echoes exactly the fields the server re-derives and compares", () => {
     expect(
-      mergeConfirmPayload(mergeConfirmFromGit(git({ handoff: "merger", handoffWho: "scoop" }))!),
+      mergeConfirmPayload(
+        mergeConfirmFromGit(git({ mergeGate: { handoff: "merger", handoffWho: "scoop" } }))!,
+      ),
     ).toEqual({
       headSha: "abc123",
       baseRefName: "main",
@@ -133,7 +162,9 @@ describe("mergeConfirmPayload", () => {
 
 describe("applyMergeGate", () => {
   it("replaces the responsibility wholesale, so a cleared one cannot linger", () => {
-    const ctx = mergeConfirmFromGit(git({ handoff: "merger", handoffWho: "scoop" }))!;
+    const ctx = mergeConfirmFromGit(
+      git({ mergeGate: { handoff: "merger", handoffWho: "scoop" } }),
+    )!;
     const next = applyMergeGate(ctx, {}, {});
     expect(next).toMatchObject({ handoff: null, handoffWho: null, reviewBlockBy: null });
   });

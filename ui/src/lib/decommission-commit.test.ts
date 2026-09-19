@@ -62,6 +62,24 @@ describe("createDecommissionCommit", () => {
     expect(api.archiveSession).toHaveBeenCalledTimes(2);
   });
 
+  it("keeps the merge pending when it was refused, so a rebuilt commit still merges", async () => {
+    // A refused merge confirmation (#2299) must not silently degrade into "archive without
+    // merging" — the operator asked for a merge. The caller rebuilds the confirmation and
+    // re-runs; `remaining` staying "merge" is what makes that second run do the merge.
+    const api = actions();
+    api.mergePr.mockRejectedValueOnce(
+      Object.assign(new Error("confirm"), { code: "merge_confirm_stale" }),
+    );
+    const commit = createDecommissionCommit({ id: "s1", action: "merge" }, api);
+
+    await expect(commit.run()).rejects.toThrow("confirm");
+    expect(api.archiveSession).not.toHaveBeenCalled();
+
+    await commit.run();
+    expect(api.mergePr).toHaveBeenCalledTimes(2);
+    expect(api.archiveSession).toHaveBeenCalledTimes(1);
+  });
+
   it("does not repeat a successful merge when the immediate archive retry is needed", async () => {
     const api = actions();
     api.archiveSession.mockRejectedValueOnce(new Error("archive failed"));

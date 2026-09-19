@@ -1,5 +1,5 @@
 import { m } from "$lib/paraglide/messages";
-import type { Session, GitState, StandardCreateInput } from "$lib/types";
+import type { Session, GitState, MergeResponsibility, StandardCreateInput } from "$lib/types";
 
 /** Safety backstop, NOT the authoritative TTL. The server keeps a merge mark for
  *  the life of the train and clears it authoritatively on merge/close/archive, so
@@ -23,11 +23,9 @@ export interface ReadyPr {
   title: string;
   url: string;
   repoPath: string;
-  /** Repo-configured responsibility when it is not the operator's (#2299) — carried so the
-   *  train's confirmation can say whose PRs it will work through. Display-only. */
-  handoff?: "reviewer" | "merger";
-  handoffWho?: string;
-  reviewBlockBy?: string;
+  /** Who a manual merge of this PR would be taken over from (#2299) — carried so the train's
+   *  confirmation can say whose PRs it will work through. Display-only. */
+  mergeGate?: MergeResponsibility;
 }
 
 /** Ready-to-merge sessions that currently have an OPEN PR — the merge-train
@@ -55,8 +53,7 @@ export function collectReadyPrs(
       title: g.title ?? "",
       url: g.url ?? "",
       repoPath: s.repoPath,
-      ...(g.handoff && g.handoffWho ? { handoff: g.handoff, handoffWho: g.handoffWho } : {}),
-      ...(g.reviewBlock ? { reviewBlockBy: g.reviewBlock.reviewer } : {}),
+      ...(g.mergeGate ? { mergeGate: g.mergeGate } : {}),
     });
   }
   return out;

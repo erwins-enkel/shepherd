@@ -4112,5 +4112,6 @@
   "mergetrain_confirm_action_takeover": "Trotzdem starten",
   "feat_merge_confirm_title": "Merges fragen vor der Ausführung",
   "feat_merge_confirm_body": "Jeder manuelle Merge öffnet jetzt eine Bestätigung mit Pull Request, tatsächlichem Zielbranch und Merge-Methode — ein Doppelklick auf den Button beantwortet sie nicht mehr. Ist in der .shepherd/roles.json des Repos jemand anderes als Reviewer oder Merger eingetragen, weist der Dialog das aus und verlangt eine ausdrückliche Übernahme; ohne diese Bestätigung führt der Server den Merge nicht aus und bindet ihn an die angezeigte Revision.",
-  "decommission_pr_merge_takeover": "Trotzdem selbst mergen & stilllegen"
+  "decommission_pr_merge_takeover": "Trotzdem selbst mergen & stilllegen",
+  "toast_decommission_merge_refused": "{name}: Der Merge braucht eine neue Bestätigung — bitte erneut entscheiden."
 }

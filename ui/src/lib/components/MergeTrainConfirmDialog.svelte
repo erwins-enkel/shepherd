@@ -27,7 +27,7 @@
 
   // A merge train lands other people's PRs too. It stays a deliberate automation the operator
   // switched on — nothing server-side gates it — but it must not hide WHOSE PRs it will carry.
-  const foreign = $derived(items.filter(isMergeTakeover));
+  const foreign = $derived(items.filter((it) => isMergeTakeover(it.mergeGate ?? {})));
   const takeover = $derived(foreign.length > 0);
 
   // Same arm delay as the single-merge confirmation, for the same reason: the click that opened
@@ -71,8 +71,8 @@
         <div class="row">
           <span class="num">#{it.number}</span>
           <span class="nm">{it.title}</span>
-          {#if it.handoffWho}
-            <span class="who">@{it.handoffWho}</span>
+          {#if it.mergeGate?.handoffWho}
+            <span class="who">@{it.mergeGate.handoffWho}</span>
           {/if}
         </div>
       {/each}

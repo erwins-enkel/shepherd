@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { rmSync } from "node:fs";
 import type { GitState, PrReviewBlock, PrReviewerState, PrStatus } from "./forge/types";
 import { checksCleared, repoHasNoCiCached } from "./checks-gate";
+import { evaluateMergeGate, mergeResponsibility, reviewBlockFor } from "./merge-gate";
 
 /** Per-repo responsibility config, committed to `.shepherd/roles.json` at the repo
  *  root. Values are GitHub logins (the merger/reviewer for this repo) or null when
@@ -198,31 +199,6 @@ function readRolesFromRef(repoPath: string): RepoRoles {
   return EMPTY;
 }
 
-function stateForReviewer(
-  reviewerStates: Record<string, PrReviewerState> | undefined,
-  reviewer: string | null,
-): { login: string; state: PrReviewerState } | null {
-  if (!reviewer || !reviewerStates) return null;
-  const reviewerLc = reviewer.toLowerCase();
-  for (const [login, state] of Object.entries(reviewerStates)) {
-    if (login.toLowerCase() === reviewerLc) return { login, state };
-  }
-  return null;
-}
-
-/** Active changes requested by the repo's CONFIGURED reviewer, or undefined. Shared by the display
- *  annotation below and the manual-merge gate (`src/merge-gate.ts`) so the two cannot disagree
- *  about what an outstanding review block is. Logins are compared folded; the login reported is the
- *  host's casing, not the configured one. */
-export function reviewBlockFor(
-  roles: RepoRoles,
-  reviewerStates: Record<string, PrReviewerState> | undefined,
-): PrReviewBlock | undefined {
-  const scoped = stateForReviewer(reviewerStates, roles.reviewer);
-  if (scoped?.state.state !== "changes_requested") return undefined;
-  return { reviewer: scoped.login, state: "changes_requested", latestAt: scoped.state.latestAt };
-}
-
 function inferredForkReviewBlock(
   reviewerStates: Record<string, PrReviewerState> | undefined,
 ): PrReviewBlock | undefined {
@@ -276,6 +252,19 @@ export function annotateHandoff(
       ? inferredForkReviewBlock(base.reviewerStates)
       : reviewBlockFor(roles, base.reviewerStates);
   if (reviewBlock) base.reviewBlock = reviewBlock;
+  // Stamped BEFORE the eligibility gate and from the roles file alone (#2299): the merge
+  // confirmation must name whose merge it is taking over even on a PR the herd is not yet
+  // surfacing — a red or pending PR is still manually mergeable, and on a non-GitHub host
+  // `checksCleared` never clears at all, so a CI-gated readout would never name anyone there.
+  const gate = mergeResponsibility(
+    evaluateMergeGate({
+      roles,
+      me,
+      latestReview: base.latestReview,
+      reviewerStates: base.reviewerStates,
+    }),
+  );
+  if (gate) base.mergeGate = gate;
   if (!handoffEligible) return base;
   const { handoff, handoffWho, inferred } = computeHandoff(
     roles,

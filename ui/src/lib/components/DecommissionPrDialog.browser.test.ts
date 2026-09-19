@@ -43,7 +43,7 @@ describe("DecommissionPrDialog", () => {
     const onselect = vi.fn();
     render(DecommissionPrDialog, {
       name: "task one",
-      git: git({ handoff: "merger", handoffWho: "scoop" }),
+      git: git({ mergeGate: { handoff: "merger", handoffWho: "scoop" } }),
       onselect,
       onclose: vi.fn(),
     });

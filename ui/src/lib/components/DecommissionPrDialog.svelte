@@ -21,9 +21,7 @@
   const title = $derived(m.decommission_pr_title({ number: git.number ?? "?" }));
   // This dialog IS the merge's confirmation (#2299) — it is already modal, already an explicit
   // choice, so it states the responsibility here rather than stacking a second dialog on top.
-  const takeover = $derived(
-    isMergeTakeover({ handoff: git.handoff, reviewBlockBy: git.reviewBlock?.reviewer }),
-  );
+  const takeover = $derived(isMergeTakeover(git.mergeGate ?? {}));
 </script>
 
 <div
@@ -42,9 +40,9 @@
 
     {#if prMergeAvailable(git)}
       <MergeHandoffNotice
-        handoff={git.handoff}
-        handoffWho={git.handoffWho}
-        reviewBlockBy={git.reviewBlock?.reviewer}
+        handoff={git.mergeGate?.handoff}
+        handoffWho={git.mergeGate?.handoffWho}
+        reviewBlockBy={git.mergeGate?.reviewBlockBy}
         compact
       />
     {/if}

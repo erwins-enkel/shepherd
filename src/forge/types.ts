@@ -154,6 +154,22 @@ export interface PrReviewBlock {
   latestAt: number | null;
 }
 
+/** Who a manual merge would be taken over FROM (#2299) — the repo's configured responsibility for
+ *  one PR, as `evaluateMergeGate` derives it. Absent ⇒ nothing to take over.
+ *
+ *  Deliberately NOT the same thing as `GitState.handoff`, which is a herd readout: that one is
+ *  stamped only on an open + GREEN PR and is inferred from the PR's reviewers when a repo carries
+ *  no `.shepherd/roles.json`. This is stamped from the roles file alone and regardless of CI, so
+ *  the merge confirmation states exactly what the server's gate will re-derive when it runs — the
+ *  two deriving it differently is what makes a confirmation read as stale. */
+export interface MergeResponsibility {
+  handoff?: "reviewer" | "merger";
+  /** The responsible login; always set alongside `handoff`. */
+  handoffWho?: string;
+  /** The configured reviewer's login when they have active changes requested. */
+  reviewBlockBy?: string;
+}
+
 /** An open PR surfaced in the backlog PRs tab. Lighter than PrStatus: it is a
  *  list row across all forge repos, not one session's live git state. */
 export interface PullRequest {
@@ -203,15 +219,9 @@ export interface PullRequest {
    *  Display-only — the merge confirmation dialog names it; the endpoints still resolve the
    *  method themselves. Absent on payloads that predate the field. */
   mergeMethod?: MergeMethod;
-  /** Who the repo's `.shepherd/roles.json` puts on the hook for this PR, when it is not the
-   *  operator (#2299). Stamped by the PRs route, NOT by the forge. Unlike `GitState.handoff` this
-   *  is not gated on the PR being green — it exists so the merge confirmation can name the person
-   *  whose turn it is, and only configured roles produce it (never inferred ones). */
-  handoff?: "reviewer" | "merger";
-  /** The responsible login (always set alongside `handoff`). */
-  handoffWho?: string;
-  /** The configured reviewer's login when they have active changes requested on this PR. */
-  reviewBlockBy?: string;
+  /** Who a manual merge of this PR would be taken over from (#2299). Stamped by the PRs route,
+   *  NOT by the forge. Absent ⇒ nothing to take over. */
+  mergeGate?: MergeResponsibility;
 }
 
 export interface PrStatus {
@@ -258,6 +268,10 @@ export interface PrStatus {
   baseRefName?: string;
   /** A deploy workflow is configured for this host. */
   deployConfigured: boolean;
+  /** Who a manual merge of this PR would be taken over from (#2299). Stamped in `annotateHandoff`
+   *  alongside the display handoff, but from the roles file alone and with no CI precondition —
+   *  see {@link MergeResponsibility}. Absent ⇒ nothing to take over. */
+  mergeGate?: MergeResponsibility;
   /** The method Shepherd would land this PR with (the forge's configured `mergeMethod`).
    *  Display-only — see {@link PullRequest.mergeMethod}. */
   mergeMethod?: MergeMethod;

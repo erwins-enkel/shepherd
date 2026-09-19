@@ -186,6 +186,7 @@ import {
 } from "./repo-roles";
 import {
   evaluateMergeGate,
+  mergeResponsibility,
   parseMergeConfirm,
   validateMergeConfirm,
   type MergeConfirm,
@@ -6545,20 +6546,15 @@ async function annotatePrRoles(
   if (!roles.reviewer && !roles.merger) return prs;
   const me = (await forge.currentUser?.()) ?? null;
   return prs.map((pr) => {
-    const gate = evaluateMergeGate({
-      roles,
-      me,
-      latestReview: pr.latestReview,
-      reviewerStates: pr.headRefName ? statuses?.get(pr.headRefName)?.reviewerStates : undefined,
-    });
-    if (!gate.requiresConfirm) return pr;
-    return {
-      ...pr,
-      ...(gate.handoff && gate.handoffWho
-        ? { handoff: gate.handoff, handoffWho: gate.handoffWho }
-        : {}),
-      ...(gate.reviewBlockBy ? { reviewBlockBy: gate.reviewBlockBy } : {}),
-    };
+    const mergeGate = mergeResponsibility(
+      evaluateMergeGate({
+        roles,
+        me,
+        latestReview: pr.latestReview,
+        reviewerStates: pr.headRefName ? statuses?.get(pr.headRefName)?.reviewerStates : undefined,
+      }),
+    );
+    return mergeGate ? { ...pr, mergeGate } : pr;
   });
 }
 

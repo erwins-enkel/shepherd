@@ -213,7 +213,7 @@ describe("PrBadge", () => {
       const fetch = vi.fn(async () => new Response(JSON.stringify(git({ state: "merged" }))));
       vi.stubGlobal("fetch", fetch);
       render(PrBadge, {
-        props: { git: git({ handoff, handoffWho: "scoop" }), sessionId: "s1" },
+        props: { git: git({ mergeGate: { handoff, handoffWho: "scoop" } }), sessionId: "s1" },
       });
 
       await page.getByRole("button", { name: m.prbadge_button_title({ label: "PR #12" }) }).click();
@@ -227,15 +227,14 @@ describe("PrBadge", () => {
     });
   }
 
-  it("treats an inferred handoff as nobody's takeover and merges on one confirmation", async () => {
-    // Unconfigured repo: the handoff is guessed from the PR's reviewers. The dialog must stay
-    // neutral, and the single confirmation must produce a single merge request — echoing the
-    // inferred responsibility used to come back as a 409 "responsibility changed".
+  it("ignores the herd's handoff readout and merges on one confirmation", async () => {
+    // `handoff` alone is the "waiting on" readout — inferred where no roles are configured. Only
+    // a server-stamped mergeGate is a takeover; echoing the readout back came out as a 409.
     const fetch = vi.fn(async () => new Response(JSON.stringify(git({ state: "merged" }))));
     vi.stubGlobal("fetch", fetch);
     render(PrBadge, {
       props: {
-        git: git({ handoff: "merger", handoffWho: "scoop", handoffInferred: true }),
+        git: git({ handoff: "merger", handoffWho: "scoop" }),
         sessionId: "s1",
       },
     });
@@ -258,8 +257,7 @@ describe("PrBadge", () => {
     render(PrBadge, {
       props: {
         git: git({
-          handoff: "merger",
-          handoffWho: "scoop",
+          mergeGate: { handoff: "merger", handoffWho: "scoop" },
           headSha: "abc123",
           baseRefName: "main",
         }),

@@ -4112,5 +4112,6 @@
   "mergetrain_confirm_action_takeover": "Run it anyway",
   "feat_merge_confirm_title": "Merges ask before they run",
   "feat_merge_confirm_body": "Every manual merge now opens a confirmation naming the pull request, its real target branch and the merge method — a double-click on the button can no longer answer it. When your repo's .shepherd/roles.json puts someone else on the hook as reviewer or merger, the dialog says so and asks you to take the merge over deliberately; the server refuses the merge without that confirmation, and binds it to the revision you saw.",
-  "decommission_pr_merge_takeover": "Merge it myself & decommission"
+  "decommission_pr_merge_takeover": "Merge it myself & decommission",
+  "toast_decommission_merge_refused": "{name}: the merge needs a fresh confirmation — decide again."
 }

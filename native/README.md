@@ -31,15 +31,19 @@ open native/Apps/ShepherdMac/.build/Build/Products/Release/Shepherd.app
 native/scripts/test-app.sh
 ```
 
-Runs the Swift Testing unit bundle (`ShepherdTests`). The scheme also builds
-and runs the `ShepherdUITests` XCUITest bundle, but that bundle has no source
-files until Task 11 adds a smoke test, so xcodebuild cannot find its compiled
-executable and the bare invocation above currently fails at the test step
-(the build itself succeeds). Pass `-only-testing:ShepherdTests` to scope the
-run to the unit bundle, which is what CI does:
+Runs both the Swift Testing unit bundle (`ShepherdTests`) and the XCUITest smoke bundle
+(`ShepherdUITests`); the latter needs a real, logged-in GUI session — a window flashes on screen
+while it runs. Pass `-only-testing:ShepherdTests` to scope the run to the unit bundle, which is
+what CI's blocking job does:
 
 ```
 native/scripts/test-app.sh -only-testing:ShepherdTests
+```
+
+Scope a run to just the UI smoke suite the same way:
+
+```
+native/scripts/test-app.sh -only-testing:ShepherdUITests
 ```
 
 ## Localisation
@@ -188,11 +192,19 @@ safe against a `start()`/`stop()` race, as its own doc comment explains.
 
 ## CI
 
-`.github/workflows/native.yml`, job `shepherdkit` on `macos-latest`, runs
-`bun run check:contract-swift`, `./native/scripts/sync-contract.sh --check`,
-`swift build --package-path native` and `swift test --package-path native` for
-the package, then builds and tests the app above (`bun run check:strings`,
-`native/scripts/build-app.sh Release`, a signature check, and
-`native/scripts/test-app.sh -only-testing:ShepherdTests`) in the same job. It
-is paths-filtered to `native/**`, `contracts/**`, `scripts/gen-contract-swift.ts`
-and `ui/messages/*.json` (the app's string catalog source).
+`.github/workflows/native.yml` runs two jobs on `macos-latest`, paths-filtered to `native/**`,
+`contracts/**`, `scripts/gen-contract-swift.ts` and `ui/messages/*.json` (the app's string
+catalog source).
+
+Job `shepherdkit` (blocking) runs `bun run check:contract-swift`,
+`./native/scripts/sync-contract.sh --check`, `swift build --package-path native` and
+`swift test --package-path native` for the package, then builds and tests the app above:
+
+1. `bun run check:strings` — the committed string catalog must match `ui/messages/{en,de}.json`.
+2. `native/scripts/build-app.sh Release` — the app must build.
+3. A signature check — the bundle must be ad-hoc signed, hardened-runtime and sandbox-off.
+4. `native/scripts/test-app.sh -only-testing:ShepherdTests` — the unit bundle.
+
+Job `shepherd-mac-ui` (`continue-on-error: true`, **non-blocking**) runs
+`native/scripts/test-app.sh -only-testing:ShepherdUITests`. XCUITest needs a real GUI login
+session, so a red run there is a prompt to investigate, not a merge blocker.

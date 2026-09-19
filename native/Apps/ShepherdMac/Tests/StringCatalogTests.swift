@@ -76,7 +76,27 @@ struct StringCatalogTests {
         #expect(catalog.strings["native_welcome_remote_title"]?.localizations["de"]?.stringUnit.value
             == "Mit einem entfernten Server verbinden")
         #expect(catalog.strings["native_banner_mismatch"]?.localizations["en"]?.stringUnit.value
-            == "Server and app versions differ — server %1$@, app %2$@. Some things may not work.")
+            == "The server speaks a different API version than this app — "
+                + "server %1$@, app %2$@. Update one of them.")
+    }
+
+    /// B2: Remove revokes a token and deletes a Keychain item, so it asks
+    /// first — and the question names the server it is about.
+    @Test func theRemoveConfirmationNamesTheServerAndSaysWhatItCosts() throws {
+        let catalog = try Self.load()
+        #expect(
+            catalog.strings["native_welcome_saved_remove_confirm_title"]?
+                .localizations["en"]?.stringUnit.value == "Remove %1$@?")
+        #expect(
+            catalog.strings["native_welcome_saved_remove_confirm_title"]?
+                .localizations["de"]?.stringUnit.value == "%1$@ entfernen?")
+        #expect(
+            catalog.strings["native_welcome_saved_remove_confirm_body"]?
+                .localizations["en"]?.stringUnit.value
+                == "The saved sign-in for this server will be revoked and deleted from the Keychain.")
+        #expect(
+            catalog.strings["native_welcome_saved_remove_confirm_action"]?
+                .localizations["de"]?.stringUnit.value == "Entfernen")
     }
 
     /// Set of positional indices used by %N$@ placeholders.

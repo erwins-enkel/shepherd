@@ -3557,6 +3557,17 @@ EOF
 
 **Gate:** Gate 2 (`ConnectionState`, `ShepherdError`, `ShepherdClient.health()`).
 
+> **Amended 2026-09-19.** During review, `BannerKind.versionMismatch(server:app:)` was replaced by
+> `BannerKind.contractMismatch(server:app:)`, raised only on an actual `ShepherdError.contractMismatch`
+> — the app's `MARKETING_VERSION` and the server's `package.json` version are different version
+> lines, so a plain `server != app` inequality is true on every healthy connection and the banner
+> would never go away. Two cases were added alongside it: `.clientTooOld(minimum:app:)`, from
+> `Health.minClient` compared against the app version under SemVer 2.0 precedence, and
+> `.unhealthy(server:)`, from `Health.ok == false`. The `BannerKind` block and test list below are
+> updated to match; the shipped code and its full test suite are
+> `native/Apps/ShepherdMac/Sources/Main/ConnectionBanner.swift` and
+> `native/Apps/ShepherdMac/Tests/ConnectionBannerTests.swift`.
+
 **Files:**
 - Create: `native/Apps/ShepherdMac/Sources/Main/ConnectionBanner.swift`
 - Create: `native/Apps/ShepherdMac/Tests/ConnectionBannerTests.swift`
@@ -3570,15 +3581,22 @@ EOF
 ```swift
 enum BannerKind: Equatable, Sendable {
     case offline(server: String)
-    case versionMismatch(server: String, app: String)
+    /// Raised only by an actual `ShepherdError.contractMismatch` — the server and
+    /// this app disagree about the *payloads*, not the version numbers.
+    case contractMismatch(server: String, app: String)
+    /// The server's `Health.minClient` declares a minimum this build does not meet.
+    case clientTooOld(minimum: String, app: String)
+    /// `GET /api/health` answered `ok: false`: reachable but not well.
+    case unhealthy(server: String)
     case needsLogin
 }
 extension BannerKind { var message: String { get }; var systemImage: String { get } }
 enum BannerPolicy {
     static func kind(for state: ConnectionState, lastError: ShepherdError?,
-                     serverName: String, serverVersion: String?, appVersion: String) -> BannerKind?
+                     serverName: String, serverVersion: String?, appVersion: String,
+                     minClient: String? = nil, serverUnhealthy: Bool = false) -> BannerKind?
 }
-struct ConnectionBanner: View { let kind: BannerKind; let onRetry: () -> Void }
+struct ConnectionBanner: View { let kind: BannerKind; var isRetrying: Bool = false; let onRetry: () -> Void }
 ```
 
 - Produces on `AppModel`: `private(set) var serverVersion: String?`, `func refreshHealth() async`, `func retryActive() async`.
@@ -3630,32 +3648,46 @@ struct ConnectionBannerTests {
                                   serverVersion: "3.41.0", appVersion: "3.41.0") == .needsLogin)
     }
 
-    @Test func differingVersionsShowBothNumbers() {
-        let kind = BannerPolicy.kind(for: .live, lastError: nil, serverName: "Studio",
-                                     serverVersion: "3.42.0", appVersion: "3.41.0")
-        #expect(kind == .versionMismatch(server: "3.42.0", app: "3.41.0"))
-        #expect(kind?.message.contains("3.42.0") == true)
-        #expect(kind?.message.contains("3.41.0") == true)
+    @Test func differingVersionsAloneAreNotABanner() {
+        // The app's MARKETING_VERSION and the server's package.json version are
+        // separate lines that differ on every healthy connection — only an
+        // actual contractMismatch error, never a bare inequality, is a banner.
+        #expect(BannerPolicy.kind(for: .live, lastError: nil, serverName: "Studio",
+                                  serverVersion: "3.42.0", appVersion: "3.41.0") == nil)
     }
 
-    @Test func aContractMismatchRaisesTheVersionBannerEvenWhileLive() {
+    @Test func aContractMismatchRaisesItsOwnBannerEvenWhileLive() {
         let error = ShepherdError.contractMismatch(route: "listSessions", underlying: "keyNotFound")
-        #expect(BannerPolicy.kind(for: .live, lastError: error, serverName: "Studio",
-                                  serverVersion: "3.42.0", appVersion: "3.41.0")
-            == .versionMismatch(server: "3.42.0", app: "3.41.0"))
+        let kind = BannerPolicy.kind(for: .live, lastError: error, serverName: "Studio",
+                                     serverVersion: "3.42.0", appVersion: "3.41.0")
+        #expect(kind == .contractMismatch(server: "3.42.0", app: "3.41.0"))
+        #expect(kind?.message.contains("3.42.0") == true)
+        #expect(kind?.message.contains("3.41.0") == true)
     }
 
     @Test func aContractMismatchOutranksOffline() {
         let error = ShepherdError.contractMismatch(route: "listSessions", underlying: "keyNotFound")
         #expect(BannerPolicy.kind(for: .offline(message: "lost"), lastError: error, serverName: "Studio",
                                   serverVersion: "3.42.0", appVersion: "3.41.0")
-            == .versionMismatch(server: "3.42.0", app: "3.41.0"))
+            == .contractMismatch(server: "3.42.0", app: "3.41.0"))
     }
 
     @Test func aContractMismatchWithoutAKnownServerVersionFallsBackToOffline() {
         let error = ShepherdError.contractMismatch(route: "listSessions", underlying: "keyNotFound")
         #expect(BannerPolicy.kind(for: .offline(message: "lost"), lastError: error, serverName: "Studio",
                                   serverVersion: nil, appVersion: "3.41.0") == .offline(server: "Studio"))
+    }
+
+    @Test func aMinimumClientNewerThanTheAppIsItsOwnBanner() {
+        let kind = BannerPolicy.kind(for: .live, lastError: nil, serverName: "Studio",
+                                     serverVersion: "3.41.0", appVersion: "3.41.0", minClient: "3.42.0")
+        #expect(kind == .clientTooOld(minimum: "3.42.0", app: "3.41.0"))
+    }
+
+    @Test func aServerThatReportsNotOkShowsItsOwnBanner() {
+        let kind = BannerPolicy.kind(for: .live, lastError: nil, serverName: "Studio",
+                                     serverVersion: "3.41.0", appVersion: "3.41.0", serverUnhealthy: true)
+        #expect(kind == .unhealthy(server: "Studio"))
     }
 
     @Test func aCommandFailureIsNotABanner() {
@@ -3665,13 +3697,20 @@ struct ConnectionBannerTests {
     }
 
     @Test func everyKindHasCopyAndAnIcon() {
-        for kind: BannerKind in [.offline(server: "S"), .versionMismatch(server: "1", app: "2"), .needsLogin] {
+        for kind: BannerKind in [.offline(server: "S"), .contractMismatch(server: "1", app: "2"),
+                                 .clientTooOld(minimum: "1", app: "2"), .unhealthy(server: "S"), .needsLogin] {
             #expect(!kind.message.isEmpty)
             #expect(!kind.systemImage.isEmpty)
         }
     }
 }
 ```
+
+The shipped `ConnectionBannerTests.swift` carries a larger suite than shown above: it adds
+`.clientTooOld` precedence over `.contractMismatch` and `.offline`, an unhealthy-yields-to-needsLogin
+case, a full `SemanticVersion` precedence/prerelease/build-metadata/malformed-input suite (SemVer 2.0
+§9–§11), and `AppModel` coverage for activation-scoped retry cleanup (a superseded or cancelled health
+refresh must not write a stale version). See that file for the complete, current list.
 
 - [ ] **Step 2: Run the tests to verify they fail**
 

@@ -4091,7 +4091,7 @@
   "native_toolbar_add_server": "Server hinzufügen…",
   "native_toolbar_sign_out": "Abmelden",
   "native_banner_offline": "{server} nicht erreichbar. Neuer Versuch läuft.",
-  "native_banner_mismatch": "Server- und App-Version unterscheiden sich — Server {serverVersion}, App {appVersion}. Manches funktioniert möglicherweise nicht.",
+  "native_banner_mismatch": "Der Server spricht eine andere API-Version als diese App — Server {serverVersion}, App {appVersion}. Aktualisiere eines von beiden.",
   "native_banner_needs_login": "Deine Sitzung ist abgelaufen. Melde dich erneut an.",
   "native_newsession_provider_label": "Agent",
   "native_newsession_held": "Nutzungs-Stopp ist aktiv — die Aufgabe wurde eingereiht statt gestartet.",
@@ -4128,5 +4128,17 @@
   "feat_merge_confirm_title": "Merges fragen vor der Ausführung",
   "feat_merge_confirm_body": "Jeder manuelle Merge öffnet jetzt eine Bestätigung mit Pull Request, tatsächlichem Zielbranch und Merge-Methode — ein Doppelklick auf den Button beantwortet sie nicht mehr. Ist in der .shepherd/roles.json des Repos jemand anderes als Reviewer oder Merger eingetragen, weist der Dialog das aus und verlangt eine ausdrückliche Übernahme; ohne diese Bestätigung führt der Server den Merge nicht aus und bindet ihn an die angezeigte Revision.",
   "decommission_pr_merge_takeover": "Trotzdem selbst mergen & stilllegen",
-  "toast_decommission_merge_refused": "{name}: Der Merge braucht eine neue Bestätigung — bitte erneut entscheiden."
+  "toast_decommission_merge_refused": "{name}: Der Merge braucht eine neue Bestätigung — bitte erneut entscheiden.",
+  "native_error_keychain": "Das Token konnte nicht im Schlüsselbund gespeichert werden. Entsperre den Schlüsselbund und versuche es erneut.",
+  "native_archive_failed": "Session konnte nicht archiviert werden: {reason}",
+  "native_interrupt_failed": "Session konnte nicht unterbrochen werden: {reason}",
+  "native_signout_failed": "Auf diesem Mac abgemeldet, aber der Server hat den Widerruf des Tokens nicht bestätigt: {reason}",
+  "native_welcome_saved_title": "Gespeicherte Server",
+  "native_welcome_saved_connect": "Verbinden",
+  "native_welcome_saved_remove": "Entfernen",
+  "native_banner_client_too_old": "Dieser Server benötigt App-Version {minimum} oder neuer — du hast {app}. Aktualisiere Shepherd für Mac.",
+  "native_banner_unhealthy": "{server} antwortet, meldet aber ein Problem. Neuer Versuch.",
+  "native_welcome_saved_remove_confirm_title": "{server} entfernen?",
+  "native_welcome_saved_remove_confirm_body": "Die gespeicherte Anmeldung für diesen Server wird widerrufen und aus dem Schlüsselbund gelöscht.",
+  "native_welcome_saved_remove_confirm_action": "Entfernen"
 }

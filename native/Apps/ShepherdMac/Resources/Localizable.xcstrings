@@ -392,6 +392,42 @@
         }
       }
     },
+    "native_archive_failed": {
+      "comment": "%1$@ = reason",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session konnte nicht archiviert werden: %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not archive the session: %1$@"
+          }
+        }
+      }
+    },
+    "native_banner_client_too_old": {
+      "comment": "%1$@ = minimum, %2$@ = app",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Server benötigt App-Version %1$@ oder neuer — du hast %2$@. Aktualisiere Shepherd für Mac."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This server needs app version %1$@ or newer — you have %2$@. Update Shepherd for Mac."
+          }
+        }
+      }
+    },
     "native_banner_mismatch": {
       "comment": "%1$@ = serverVersion, %2$@ = appVersion",
       "extractionState": "manual",
@@ -399,13 +435,13 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Server- und App-Version unterscheiden sich — Server %1$@, App %2$@. Manches funktioniert möglicherweise nicht."
+            "value": "Der Server spricht eine andere API-Version als diese App — Server %1$@, App %2$@. Aktualisiere eines von beiden."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Server and app versions differ — server %1$@, app %2$@. Some things may not work."
+            "value": "The server speaks a different API version than this app — server %1$@, app %2$@. Update one of them."
           }
         }
       }
@@ -441,6 +477,24 @@
           "stringUnit": {
             "state": "translated",
             "value": "Cannot reach %1$@. Retrying."
+          }
+        }
+      }
+    },
+    "native_banner_unhealthy": {
+      "comment": "%1$@ = server",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ antwortet, meldet aber ein Problem. Neuer Versuch."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ answered but reports a problem. Retrying."
           }
         }
       }
@@ -543,6 +597,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "The server refused that request. Sign in again with the operator password."
+          }
+        }
+      }
+    },
+    "native_error_keychain": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Token konnte nicht im Schlüsselbund gespeichert werden. Entsperre den Schlüsselbund und versuche es erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The token could not be saved to the Keychain. Unlock the Keychain and try again."
           }
         }
       }
@@ -684,6 +755,24 @@
         }
       }
     },
+    "native_interrupt_failed": {
+      "comment": "%1$@ = reason",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session konnte nicht unterbrochen werden: %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not interrupt the session: %1$@"
+          }
+        }
+      }
+    },
     "native_login_sheet_title": {
       "comment": "%1$@ = server",
       "extractionState": "manual",
@@ -766,6 +855,24 @@
           "stringUnit": {
             "state": "translated",
             "value": "Sessions"
+          }
+        }
+      }
+    },
+    "native_signout_failed": {
+      "comment": "%1$@ = reason",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf diesem Mac abgemeldet, aber der Server hat den Widerruf des Tokens nicht bestätigt: %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Signed out on this Mac, but the server did not confirm the token was revoked: %1$@"
           }
         }
       }
@@ -1141,6 +1248,109 @@
           "stringUnit": {
             "state": "translated",
             "value": "https://shepherd.example.ts.net"
+          }
+        }
+      }
+    },
+    "native_welcome_saved_connect": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbinden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect"
+          }
+        }
+      }
+    },
+    "native_welcome_saved_remove": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entfernen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove"
+          }
+        }
+      }
+    },
+    "native_welcome_saved_remove_confirm_action": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entfernen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove"
+          }
+        }
+      }
+    },
+    "native_welcome_saved_remove_confirm_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die gespeicherte Anmeldung für diesen Server wird widerrufen und aus dem Schlüsselbund gelöscht."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The saved sign-in for this server will be revoked and deleted from the Keychain."
+          }
+        }
+      }
+    },
+    "native_welcome_saved_remove_confirm_title": {
+      "comment": "%1$@ = server",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ entfernen?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove %1$@?"
+          }
+        }
+      }
+    },
+    "native_welcome_saved_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gespeicherte Server"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved servers"
           }
         }
       }

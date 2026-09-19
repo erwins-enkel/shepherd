@@ -4091,7 +4091,7 @@
   "native_toolbar_add_server": "Add server…",
   "native_toolbar_sign_out": "Sign out",
   "native_banner_offline": "Cannot reach {server}. Retrying.",
-  "native_banner_mismatch": "Server and app versions differ — server {serverVersion}, app {appVersion}. Some things may not work.",
+  "native_banner_mismatch": "The server speaks a different API version than this app — server {serverVersion}, app {appVersion}. Update one of them.",
   "native_banner_needs_login": "Your session expired. Sign in again.",
   "native_newsession_provider_label": "Agent",
   "native_newsession_held": "Usage hold is on — the task was queued instead of started.",
@@ -4128,5 +4128,17 @@
   "feat_merge_confirm_title": "Merges ask before they run",
   "feat_merge_confirm_body": "Every manual merge now opens a confirmation naming the pull request, its real target branch and the merge method — a double-click on the button can no longer answer it. When your repo's .shepherd/roles.json puts someone else on the hook as reviewer or merger, the dialog says so and asks you to take the merge over deliberately; the server refuses the merge without that confirmation, and binds it to the revision you saw.",
   "decommission_pr_merge_takeover": "Merge it myself & decommission",
-  "toast_decommission_merge_refused": "{name}: the merge needs a fresh confirmation — decide again."
+  "toast_decommission_merge_refused": "{name}: the merge needs a fresh confirmation — decide again.",
+  "native_error_keychain": "The token could not be saved to the Keychain. Unlock the Keychain and try again.",
+  "native_archive_failed": "Could not archive the session: {reason}",
+  "native_interrupt_failed": "Could not interrupt the session: {reason}",
+  "native_signout_failed": "Signed out on this Mac, but the server did not confirm the token was revoked: {reason}",
+  "native_welcome_saved_title": "Saved servers",
+  "native_welcome_saved_connect": "Connect",
+  "native_welcome_saved_remove": "Remove",
+  "native_banner_client_too_old": "This server needs app version {minimum} or newer — you have {app}. Update Shepherd for Mac.",
+  "native_banner_unhealthy": "{server} answered but reports a problem. Retrying.",
+  "native_welcome_saved_remove_confirm_title": "Remove {server}?",
+  "native_welcome_saved_remove_confirm_body": "The saved sign-in for this server will be revoked and deleted from the Keychain.",
+  "native_welcome_saved_remove_confirm_action": "Remove"
 }

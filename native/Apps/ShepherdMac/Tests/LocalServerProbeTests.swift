@@ -76,4 +76,12 @@ struct LocalServerProbeTests {
         let probe = makeProbe { _ in throw URLError(.cannotConnectToHost) }
         #expect(await probe.probe() == .absent)
     }
+
+    /// Something is listening but never answers — the 1.5s timeout has to end
+    /// the wait, and a probe that timed out is no different from no server at
+    /// all as far as the welcome screen is concerned.
+    @Test func aTimedOutProbeIsAbsent() async {
+        let probe = makeProbe { _ in throw URLError(.timedOut) }
+        #expect(await probe.probe() == .absent)
+    }
 }

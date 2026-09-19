@@ -81,4 +81,24 @@ struct ShepherdClientTerminalTests {
       try await client.replySession(id: "s1", text: "")
     }
   }
+
+  @Test("415 is a contract mismatch, not a bad request — the client always sends JSON")
+  func unsupportedMediaType() async throws {
+    let server = FakeShepherdServer()
+    defer { server.tearDown() }
+    server.stub(
+      "POST", "/api/sessions/s1/reply", status: 415,
+      json: Data(#"{"error":"unsupported media type"}"#.utf8))
+    let client = try makeClient(server)
+
+    // Nothing the operator typed can cause this: the generated client always
+    // sends `application/json`, so a 415 is a proxy or a server that does not
+    // match the contract this build was generated from.
+    await #expect(
+      throws: ShepherdError.contractMismatch(
+        route: "replySession", underlying: "server rejected application/json")
+    ) {
+      try await client.replySession(id: "s1", text: "go ahead")
+    }
+  }
 }

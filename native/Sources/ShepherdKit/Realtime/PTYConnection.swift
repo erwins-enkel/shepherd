@@ -3,13 +3,15 @@ import Foundation
 /// One attached terminal: the `/pty/{id}` WebSocket.
 ///
 /// Shaped like `EventStream` — bearer on the upgrade, an `AsyncStream` of
-/// output, a `lifecycle()` stream, capped exponential backoff — except that
-/// both streams are per-call broadcasts (a terminal has more than one reader)
-/// rather than the single-consumer streams `EventStream` hands its store. The
-/// difference that matters is the PTY's own single-owner policy: a 4000
-/// (superseded) or 4001 (gone) close is terminal and must never be retried.
-/// Reconnecting after a 4000 restarts the takeover war with the device that
-/// just took the terminal.
+/// output, a `lifecycle()` stream — except in two ways. Both streams are
+/// per-call broadcasts (a terminal has more than one reader) rather than the
+/// single-consumer streams `EventStream` hands its store; and the retry is
+/// flat rather than exponential, because the PTY's own single-owner policy
+/// makes a retry loop the wrong thing to slow down. A 4000 (superseded) or
+/// 4001 (gone) close is terminal and must never be retried — reconnecting
+/// after a 4000 restarts the takeover war with the device that just took the
+/// terminal — and a herdr that is simply gone is caught by the fast-fail
+/// counter, not by waiting longer and longer between attaches.
 public actor PTYConnection {
   /// Why the connection stopped for good.
   public enum Closure: Sendable, Equatable {
@@ -46,8 +48,8 @@ public actor PTYConnection {
   private let sessionID: String
   private let tokenProvider: @Sendable () -> String?
   private let urlSession: URLSession
+  /// The pause between attaches. Flat, not a ladder — see `handleClose`.
   private let reconnectDelay: Duration
-  private let maxReconnectDelay: Duration
 
   /// One continuation per live `output()` / `lifecycle()` stream. Dictionaries,
   /// not a single shared continuation, because a shared `AsyncStream` splits
@@ -56,11 +58,17 @@ public actor PTYConnection {
   private var lifecycleTaps: [UUID: AsyncStream<LifecycleEvent>.Continuation] = [:]
   /// A trailing UTF-8 sequence `send(_:)` is holding until the caller finishes
   /// it. At most 3 bytes. See `send(_:)`.
-  private var pendingInput = Data()
+  private(set) var pendingInput = Data()
 
   private var task: URLSessionWebSocketTask?
   private var pump: Task<Void, Never>?
   private var stopped = true
+  /// A terminal verdict was delivered (`.superseded`, `.gone`, `.unreachable`)
+  /// and only an explicit `takeOver()` may reopen the socket. Separate from
+  /// `stopped` for the reason `ui/src/lib/pty.ts` keeps `parked` separate: a
+  /// view whose `.task`/`onAppear` runs again calls `start()`, and a `start()`
+  /// that re-attached here would restart the takeover war the park just ended.
+  private var parked = false
   private var everAttached = false
   private var cols: Int
   private var rows: Int
@@ -70,12 +78,12 @@ public actor PTYConnection {
   /// window from a later one that also opened and lost a socket. Same guard
   /// `EventStream.scheduleReconnect` uses, for the same reason.
   private var connectionGeneration = 0
-  /// The raw WebSocket close code of the socket that closed most recently, or
-  /// `0` when it died without a close frame (a dropped TCP connection). Read
+  /// The raw WebSocket close code the current generation's socket closed with,
+  /// or `0` when it died without a close frame (a dropped TCP connection). Read
   /// inside URLSession's completion callback, before anything can hop back onto
-  /// this actor — see `nextFrame(on:)`.
+  /// this actor (see `nextFrame(on:)`), and written only by
+  /// `recordCloseCode(_:generation:)`.
   private(set) var lastCloseCode = 0
-  private var currentReconnectDelay: Duration
   private var connectedAt: ContinuousClock.Instant?
   private var consecutiveFastFails = 0
 
@@ -86,8 +94,7 @@ public actor PTYConnection {
     urlSession: URLSession = .shared,
     cols: Int = 100,
     rows: Int = 30,
-    reconnectDelay: Duration = .seconds(1),
-    maxReconnectDelay: Duration = .seconds(30)
+    reconnectDelay: Duration = .seconds(1)
   ) {
     self.baseURL = baseURL
     self.sessionID = sessionID
@@ -96,8 +103,6 @@ public actor PTYConnection {
     self.cols = cols
     self.rows = rows
     self.reconnectDelay = reconnectDelay
-    self.maxReconnectDelay = maxReconnectDelay
-    self.currentReconnectDelay = reconnectDelay
   }
 
   /// Derive the URL and the token from a live client.
@@ -227,11 +232,14 @@ public actor PTYConnection {
   /// The size the next attach will use.
   public func currentSize() -> PTYSize { PTYSize(cols: cols, rows: rows) }
 
-  /// Opens the socket and keeps it open. Idempotent.
+  /// Opens the socket and keeps it open. Idempotent, and deliberately inert on
+  /// a parked connection: after `.superseded`, `.gone` or `.unreachable` only
+  /// `takeOver()` reopens the socket, so a view that reruns its `.task` on
+  /// every appearance cannot re-enter a takeover war or an `agent_not_found`
+  /// loop behind the operator's back.
   public func start() {
-    guard stopped else { return }
+    guard stopped, !parked else { return }
     stopped = false
-    currentReconnectDelay = reconnectDelay
     consecutiveFastFails = 0
     connect()
   }
@@ -249,6 +257,10 @@ public actor PTYConnection {
       // to stack on top of the verdict already delivered — but a caller saying
       // `stop()` is done with this connection, so its `for await` loops still
       // have to end.
+      //
+      // Held input belongs to the session that was taken away: a later
+      // `takeOver()` must not complete it into the new attach.
+      pendingInput = Data()
       finishTaps()
       return
     }
@@ -265,11 +277,23 @@ public actor PTYConnection {
   }
 
   /// Re-attach after a `.superseded` (or any terminal state the operator wants
-  /// to override): makes this client the owner again and resets the backoff.
+  /// to override): makes this client the owner again and resets the fast-fail
+  /// counter.
+  ///
+  /// This is the only way out of a park, and it re-attaches after `.gone` and
+  /// `.unreachable` as well as after `.superseded` — on purpose. Those two say
+  /// "the agent is gone" and "herdr is not answering", and both can be true one
+  /// minute and false the next (the agent is restarted, herdr finishes
+  /// updating), so the affordance a view puts behind them is "Reconnect", not a
+  /// dead end. What must never happen implicitly — an attach the operator did
+  /// not ask for — is what `start()` refuses.
   public func takeOver() {
     stopped = false
-    currentReconnectDelay = reconnectDelay
+    parked = false
     consecutiveFastFails = 0
+    // Same reason as in `stop()`: whatever `send(_:)` is still holding was
+    // typed at the session this connection just lost.
+    pendingInput = Data()
     pump?.cancel()
     pump = nil
     task?.cancel(with: .goingAway, reason: nil)
@@ -286,7 +310,8 @@ public actor PTYConnection {
   /// split a multi-byte character across two calls, and decoding each half on
   /// its own would put two U+FFFD replacement characters on the wire instead of
   /// the character. So an incomplete trailing sequence (never more than 3
-  /// bytes) is held back and prepended to the next call; `stop()` drops it.
+  /// bytes) is held back and prepended to the next call; `stop()` and
+  /// `takeOver()` drop it, because it was typed at a session that has ended.
   /// Nothing else is buffered: complete bytes always go out on the same call.
   public func send(_ bytes: Data) {
     var outgoing = pendingInput + bytes
@@ -348,6 +373,7 @@ public actor PTYConnection {
     let socket = urlSession.webSocketTask(with: request)
     task = socket
     connectionGeneration += 1
+    let generation = connectionGeneration
     connectedAt = .now
     socket.resume()
     // Yielded before the upgrade is confirmed, like
@@ -355,7 +381,7 @@ public actor PTYConnection {
     // `.detached` right after. `everAttached` deliberately does *not* flip
     // here — see `deliver(output:)`.
     deliver(lifecycle: everAttached ? .reattached : .attached)
-    pump = Task { [weak self] in await self?.receiveLoop(socket) }
+    pump = Task { [weak self] in await self?.receiveLoop(socket, generation: generation) }
   }
 
   /// One received frame, or the close that ended the socket.
@@ -397,7 +423,7 @@ public actor PTYConnection {
     }
   }
 
-  private func receiveLoop(_ socket: URLSessionWebSocketTask) async {
+  private func receiveLoop(_ socket: URLSessionWebSocketTask, generation: Int) async {
     var closeCode = 0
     receiving: while !Task.isCancelled {
       switch await nextFrame(on: socket) {
@@ -408,7 +434,7 @@ public actor PTYConnection {
         break receiving
       }
     }
-    await handleClose(of: socket, closeCode: closeCode)
+    await handleClose(of: socket, closeCode: closeCode, generation: generation)
   }
 
   /// Fans one chunk of terminal output out to every `output()` stream, and
@@ -425,13 +451,44 @@ public actor PTYConnection {
     for tap in outputTaps.values { tap.yield(bytes) }
   }
 
+  /// Records the close code of the socket that just died, unless a newer
+  /// connection has already replaced it.
+  ///
+  /// Keyed on the generation rather than on `task`, so a `stop()` that won the
+  /// race (it nils `task` without opening anything) still gets the code of the
+  /// socket it belonged to, while a pump left running by a `takeOver()` cannot
+  /// report the 1001 of its cancelled socket over the live one's verdict.
+  ///
+  /// Internal rather than private only so a test can replay what such a
+  /// superseded pump reports.
+  func recordCloseCode(_ code: Int, generation: Int) {
+    guard generation == connectionGeneration else { return }
+    lastCloseCode = code
+  }
+
+  /// One terminal verdict: park (so nothing but `takeOver()` reopens the
+  /// socket) and say so.
+  ///
+  /// The streams are deliberately *not* finished here, unlike in `stop()`:
+  /// `takeOver()` reclaims a superseded terminal on the same connection, and
+  /// its `.reattached` has to reach the `lifecycle()` stream the view is
+  /// already reading.
+  private func park(_ closure: Closure) {
+    stopped = true
+    parked = true
+    deliver(lifecycle: .closed(closure))
+  }
+
   /// What a dead socket means, and what happens next.
   ///
-  /// The whole single-owner policy lives here: 4000 parks, 4001 ends, anything
-  /// else is a transient drop that reconnects with capped exponential backoff
+  /// The whole single-owner policy lives here: 4000 parks, 4001 parks, anything
+  /// else is a transient drop that reconnects after a flat `reconnectDelay`
   /// until `maxFastFails` attaches in a row have died instantly. Mirrors
-  /// `ui/src/lib/pty.ts` (`parked`, `stopped`, `FAST_FAIL_MS`/`MAX_FAST_FAILS`)
-  /// so both clients behave the same against the same herdr.
+  /// `ui/src/lib/pty.ts` (`parked` separate from `stopped`, `FAST_FAIL_MS` /
+  /// `MAX_FAST_FAILS`, a flat 1 s retry) so both clients behave the same
+  /// against the same herdr — including how long they take to say so: at the
+  /// default 1 s the verdict lands ~8 s after the first failure, where a
+  /// doubling ladder capped at 30 s would take a minute and a half.
   ///
   /// - Parameter closeCode: the raw WebSocket close code this socket carried,
   ///   captured inside URLSession's completion callback before any hop back
@@ -443,38 +500,29 @@ public actor PTYConnection {
   ///   `.goingAway` (1001) and pointed `task` at a new socket or at `nil`.
   ///   `URLSessionWebSocketTask.CloseCode` has no case for 4000 or 4001, so the
   ///   comparison is on raw values, never on enum cases.
-  private func handleClose(of socket: URLSessionWebSocketTask, closeCode: Int) async {
-    // Before the guard: a `stop()` that won the race still wants the code
-    // recorded for the socket it actually belonged to.
-    lastCloseCode = closeCode
+  private func handleClose(
+    of socket: URLSessionWebSocketTask, closeCode: Int, generation: Int
+  ) async {
+    // Before the guard, and keyed on the generation rather than on `task`:
+    // see `recordCloseCode(_:generation:)`.
+    recordCloseCode(closeCode, generation: generation)
     // A pump left running after `stop()`/`takeOver()` already replaced this
     // socket must not report anything: the replacement owns the lifecycle now.
     guard !stopped, task === socket else { return }
-    // Captured before the backoff sleep below, so the guard after it can tell
-    // this backoff window from a later one — same reason
-    // `EventStream.scheduleReconnect` captures it.
-    let capturedGeneration = connectionGeneration
     task = nil
 
     // The two single-owner codes are terminal by contract
     // (`PTY_SUPERSEDED_CODE` / `PTY_GONE_CODE` in `src/server.ts`). Reconnecting
     // after 4000 restarts the takeover war with the device that just won it —
     // it would bump us straight back — and after 4001 it loops on herdr's
-    // `agent_not_found`. Both park `stopped` instead of retrying.
-    //
-    // The streams are deliberately *not* finished here, unlike in `stop()`:
-    // `takeOver()` reclaims a superseded terminal on the same connection, and
-    // its `.reattached` has to reach the `lifecycle()` stream the view is
-    // already reading.
+    // `agent_not_found`. Both park instead of retrying.
     if closeCode == Self.supersededCode {
-      stopped = true
       ShepherdLog.realtime.notice("pty superseded by another client; parked")
-      deliver(lifecycle: .closed(.superseded))
+      park(.superseded)
       return
     }
     if closeCode == Self.goneCode {
-      stopped = true
-      deliver(lifecycle: .closed(.gone))
+      park(.gone)
       return
     }
 
@@ -484,35 +532,31 @@ public actor PTYConnection {
     let lived = connectedAt.map { ContinuousClock.now - $0 } ?? .zero
     if lived >= Self.fastFailWindow {
       consecutiveFastFails = 0
-      currentReconnectDelay = reconnectDelay
     } else {
       consecutiveFastFails += 1
     }
     if consecutiveFastFails >= Self.maxFastFails {
-      stopped = true
       // The one failure nothing else surfaces — the connection would otherwise
       // retry quietly forever. Never the token, never the URL.
       ShepherdLog.realtime.notice(
         "pty gave up after \(Self.maxFastFails, privacy: .public) immediate failures")
-      deliver(lifecycle: .closed(.unreachable))
+      park(.unreachable)
       return
     }
 
     // Said before the sleep, so a view can repaint "reconnecting" immediately
     // rather than after the delay.
     deliver(lifecycle: .detached)
-    let delay = currentReconnectDelay
-    currentReconnectDelay = min(currentReconnectDelay * 2, maxReconnectDelay)
     do {
-      try await Task.sleep(for: delay)
+      try await Task.sleep(for: reconnectDelay)
     } catch {
       return  // cancelled while waiting: `stop()`/`takeOver()` cancelled `pump`
     }
     // `task == nil` plus the generation check is the same guard
     // `EventStream.scheduleReconnect` uses: `task == nil` alone cannot tell this
-    // backoff window from a later one that also opened and lost a socket while
+    // retry window from a later one that also opened and lost a socket while
     // this continuation was queued.
-    guard !stopped, task == nil, connectionGeneration == capturedGeneration else { return }
+    guard !stopped, task == nil, connectionGeneration == generation else { return }
     connect()
   }
 }

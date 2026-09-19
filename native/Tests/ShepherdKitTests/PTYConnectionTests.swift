@@ -41,6 +41,24 @@ struct PTYConnectionTests {
     return (box, Task { for await value in stream { box.append(value) } })
   }
 
+  /// `collect`, plus a flag the test polls instead of awaiting: a regression
+  /// that leaves a `for await` running forever must fail in seconds, and
+  /// `await reader.value` would instead park the run until a time limit fires
+  /// (cancelling the test task does not cancel this reader).
+  private func collectUntilEnd<Element: Sendable>(
+    _ stream: AsyncStream<Element>
+  ) -> (Box<Element>, Box<Bool>, Task<Void, Never>) {
+    let box = Box<Element>()
+    let ended = Box<Bool>()
+    return (
+      box, ended,
+      Task {
+        for await value in stream { box.append(value) }
+        ended.append(true)
+      }
+    )
+  }
+
   /// `eventually` for a condition that has to hop onto the actor.
   private func eventuallyAsync(
     timeout: Duration = .seconds(5), _ condition: () async -> Bool
@@ -53,18 +71,16 @@ struct PTYConnectionTests {
     return await condition()
   }
 
-  /// Short backoff by default so the retry tests finish in a second. A test
+  /// Short retry delay by default so the retry tests finish in a second. A test
   /// that needs the *first* retry to stay parked until it says otherwise passes
   /// a long delay instead of racing it.
   private func makeConnection(
     _ server: FakePTYServer, id: String = "sess-1", cols: Int = 120, rows: Int = 40,
-    reconnectDelay: Duration = .milliseconds(30),
-    maxReconnectDelay: Duration = .milliseconds(200)
+    reconnectDelay: Duration = .milliseconds(30)
   ) -> PTYConnection {
     PTYConnection(
       baseURL: server.baseURL, sessionID: id, tokenProvider: { "shp_test" },
-      cols: cols, rows: rows,
-      reconnectDelay: reconnectDelay, maxReconnectDelay: maxReconnectDelay)
+      cols: cols, rows: rows, reconnectDelay: reconnectDelay)
   }
 
   @Test("the pty URL carries the ws scheme, the id and the attach size")
@@ -201,15 +217,17 @@ struct PTYConnectionTests {
     #expect(try await eventuallyAsync { await connection.lastCloseCode == 4000 })
   }
 
-  // A time limit rather than a hang: the point of the test is that the
-  // `for await` loops end, so a regression must fail the suite, not park it.
-  @Test("every output() stream gets every chunk, and stop() ends them", .timeLimit(.minutes(1)))
+  @Test("every output() stream gets every chunk, and stop() ends them")
   func outputFansOutToEveryConsumer() async throws {
     let server = try FakePTYServer()
     defer { server.stop() }
     let connection = makeConnection(server)
-    let (first, firstReader) = collect(await connection.output())
-    let (second, secondReader) = collect(await connection.output())
+    let (first, firstEnded, firstReader) = collectUntilEnd(await connection.output())
+    let (second, secondEnded, secondReader) = collectUntilEnd(await connection.output())
+    defer {
+      firstReader.cancel()
+      secondReader.cancel()
+    }
     let chunks = [Data([0x61]), Data([0x62]), Data([0x63])]
 
     await connection.start()
@@ -220,26 +238,26 @@ struct PTYConnectionTests {
     await connection.stop()
     // Both `for await` loops end rather than hanging: `stop()` finishes every
     // stream it handed out.
-    await firstReader.value
-    await secondReader.value
+    #expect(try await eventually { firstEnded.all() == [true] && secondEnded.all() == [true] })
   }
 
-  @Test(
-    "every lifecycle() stream gets every event, and stop() ends them",
-    .timeLimit(.minutes(1)))
+  @Test("every lifecycle() stream gets every event, and stop() ends them")
   func lifecycleFansOutToEveryConsumer() async throws {
     let server = try FakePTYServer()
     defer { server.stop() }
     let connection = makeConnection(server)
-    let (first, firstReader) = collect(await connection.lifecycle())
-    let (second, secondReader) = collect(await connection.lifecycle())
+    let (first, firstEnded, firstReader) = collectUntilEnd(await connection.lifecycle())
+    let (second, secondEnded, secondReader) = collectUntilEnd(await connection.lifecycle())
+    defer {
+      firstReader.cancel()
+      secondReader.cancel()
+    }
 
     await connection.start()
     #expect(try await eventually { server.connectionCount() == 1 })
     await connection.stop()
 
-    await firstReader.value
-    await secondReader.value
+    #expect(try await eventually { firstEnded.all() == [true] && secondEnded.all() == [true] })
     #expect(first.all() == [.attached, .closed(.stopped)])
     #expect(second.all() == [.attached, .closed(.stopped)])
   }
@@ -270,8 +288,7 @@ struct PTYConnectionTests {
     // refused attach every few milliseconds and this test is about which event
     // the *next* attach reports, not about the retry cadence (see
     // `fastFailsGiveUp` for that).
-    let connection = makeConnection(
-      server, reconnectDelay: .seconds(30), maxReconnectDelay: .seconds(30))
+    let connection = makeConnection(server, reconnectDelay: .seconds(30))
     let (events, reader) = collect(await connection.lifecycle())
     let (bytes, byteReader) = collect(await connection.output())
     defer {
@@ -436,16 +453,7 @@ struct PTYConnectionTests {
     let server = try FakePTYServer()
     defer { server.stop() }
     let connection = makeConnection(server)
-    let lifecycle = Box<PTYConnection.LifecycleEvent>()
-    let ended = Box<Bool>()
-    let stream = await connection.lifecycle()
-    // Polled through `ended` rather than awaited through `reader.value`: a
-    // regression here is a `for await` that never ends, and awaiting it would
-    // park the suite for the whole time limit instead of failing in seconds.
-    let reader = Task {
-      for await event in stream { lifecycle.append(event) }
-      ended.append(true)
-    }
+    let (lifecycle, ended, reader) = collectUntilEnd(await connection.lifecycle())
     defer { reader.cancel() }
 
     await connection.start()
@@ -459,6 +467,118 @@ struct PTYConnectionTests {
     await connection.stop()
     #expect(try await eventually { ended.all() == [true] })
     #expect(lifecycle.all() == [.attached, .closed(.gone)])
+  }
+
+  @Test(
+    "a parked connection ignores start(): only takeOver() reclaims the terminal",
+    arguments: [UInt16(4000), UInt16(4001)])
+  func startDoesNotReviveAParkedConnection(code: UInt16) async throws {
+    let server = try FakePTYServer()
+    defer { server.stop() }
+    let connection = makeConnection(server)
+    let (lifecycle, reader) = collect(await connection.lifecycle())
+    defer { reader.cancel() }
+
+    await connection.start()
+    #expect(try await eventually { server.connectionCount() == 1 })
+    server.close(code: code)
+    #expect(try await eventually { lifecycle.all().contains { $0 != .attached } })
+
+    // The hazard this pins: a view whose `.task`/`onAppear` runs again calls
+    // `start()`, and a `start()` that re-attached here would restart the
+    // takeover war the park exists to end.
+    await connection.start()
+    #expect(
+      try await eventually(timeout: .milliseconds(400)) { server.connectionCount() > 1 } == false)
+
+    // Only the explicit operator gesture reclaims it.
+    await connection.takeOver()
+    #expect(try await eventually { server.connectionCount() == 2 })
+    await connection.stop()
+  }
+
+  @Test("input held across a park is dropped, not completed into the next attach")
+  func parkDropsHeldInput() async throws {
+    let server = try FakePTYServer()
+    defer { server.stop() }
+    let connection = makeConnection(server)
+
+    await connection.start()
+    #expect(try await eventually { server.connectionCount() == 1 })
+    // The lead byte of "ä" with its continuation byte still to come: `send`
+    // holds it back rather than putting a replacement character on the wire.
+    await connection.send(Data(Array("ä".utf8).prefix(1)))
+    server.close(code: 4000)
+    #expect(try await eventuallyAsync { await connection.lastCloseCode == 4000 })
+
+    await connection.takeOver()
+    #expect(try await eventually { server.connectionCount() == 2 })
+    await connection.send(Data("x".utf8))
+    #expect(try await eventually { server.receivedTexts().contains("x") })
+    // The half character belonged to the session that was taken away; joining
+    // it to the first keystroke of the new attach would type a stray character
+    // into somebody's shell.
+    #expect(!server.receivedTexts().contains { $0.contains("\u{FFFD}") })
+    await connection.stop()
+  }
+
+  @Test("stop() on a parked connection drops the held input too")
+  func parkedStopDropsHeldInput() async throws {
+    let server = try FakePTYServer()
+    defer { server.stop() }
+    let connection = makeConnection(server)
+
+    await connection.start()
+    #expect(try await eventually { server.connectionCount() == 1 })
+    await connection.send(Data(Array("ä".utf8).prefix(1)))
+    #expect(await connection.pendingInput.isEmpty == false)
+    server.close(code: 4000)
+    #expect(try await eventuallyAsync { await connection.lastCloseCode == 4000 })
+
+    // `stop()` takes the parked branch — no socket left to close — and still
+    // has to drop what the dead session never finished.
+    await connection.stop()
+    #expect(await connection.pendingInput.isEmpty)
+  }
+
+  @Test("a superseded pump's close code cannot clobber the live socket's verdict")
+  func staleCloseCodeIsIgnored() async throws {
+    let server = try FakePTYServer()
+    defer { server.stop() }
+    let connection = makeConnection(server)
+
+    await connection.start()
+    #expect(try await eventually { server.connectionCount() == 1 })
+    server.close(code: 4000)
+    #expect(try await eventuallyAsync { await connection.lastCloseCode == 4000 })
+
+    // What a pump left running by `takeOver()`/`stop()` reports: the 1001 its
+    // socket was cancelled with, from a generation that no longer owns the
+    // lifecycle. It must not overwrite the verdict of the socket that does.
+    await connection.recordCloseCode(1001, generation: 0)
+    #expect(await connection.lastCloseCode == 4000)
+  }
+
+  @Test("fast failures retry flat, so .unreachable arrives without a backoff ladder")
+  func unreachableArrivesPromptly() async throws {
+    let server = try FakePTYServer()
+    defer { server.stop() }
+    server.setRejectUpgrades(true)
+    // 8 fast failures at a flat 200 ms is ~1.6 s. A doubling ladder would need
+    // 200 ms · (2⁸ − 1) ≈ 25 s to reach the same verdict; the web client
+    // (`ui/src/lib/pty.ts`) retries flat at 1 s and gives up in ~8 s, and a
+    // native client that sulked for a minute and a half would look hung.
+    let connection = makeConnection(server, reconnectDelay: .milliseconds(200))
+    let (lifecycle, reader) = collect(await connection.lifecycle())
+    defer { reader.cancel() }
+
+    let started = ContinuousClock.now
+    await connection.start()
+    #expect(try await eventually(timeout: .seconds(8)) {
+      lifecycle.all().contains(.closed(.unreachable))
+    })
+    #expect(ContinuousClock.now - started < .seconds(4))
+    await connection.stop()
   }
 }
 

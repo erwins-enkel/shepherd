@@ -21,9 +21,13 @@ extension ShepherdClient {
       case .unauthorized: throw ShepherdError.unauthenticated
       case .notFound: throw ShepherdError.notFound
       case .unsupportedMediaType:
-        // The generated client always sends application/json, so this is
-        // unreachable in practice — map it rather than crash if it ever is not.
-        throw ShepherdError.badRequest("Content-Type must be application/json")
+        // The generated client always sends `application/json`, so a 415 says
+        // something between it and herdr disagrees about the contract — a proxy
+        // rewriting the request, or a server that is not the one this build was
+        // generated against. Never the operator's fault, so never `.badRequest`:
+        // a view would offer to fix the prose, and there is nothing to fix.
+        throw ShepherdError.contractMismatch(
+          route: "replySession", underlying: "server rejected application/json")
       case .undocumented(let statusCode, _):
         throw ShepherdError.fromUndocumented(statusCode: statusCode, route: "replySession")
       }

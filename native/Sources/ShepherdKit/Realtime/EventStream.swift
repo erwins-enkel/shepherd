@@ -262,7 +262,10 @@ public actor EventStream {
     // yields `.disconnected` — gated on `task === socket` — so a pump left
     // running after `reconnectNow()`/`stop()` already replaced or closed the
     // socket does not emit a second, stale `.disconnected` behind the
-    // `.connected` those callers already reported.
+    // `.connected` those callers already reported. It also clears `task` to
+    // nil right after yielding, so `task` is nil for the whole backoff sleep
+    // that follows — the invariant `stop()`/`reconnectNow()` rely on to know
+    // there is nothing left of this dead socket for *them* to report either.
     await scheduleReconnect(after: socket)
   }
 
@@ -290,6 +293,11 @@ public actor EventStream {
     // Say so before the backoff sleep, so a consumer can repaint
     // "reconnecting" immediately rather than after the delay.
     lifecycleContinuation.yield(.disconnected)
+    // Then clear it: `task` stays nil for the whole backoff sleep below, so
+    // a `stop()` or `reconnectNow()` call that lands mid-backoff sees
+    // nothing to report (both gate their own `.disconnected` yield on
+    // `task != nil`) and does not double-report the socket this just did.
+    task = nil
 
     let delay: Duration
     if connectionWasHealthy() {
@@ -314,7 +322,16 @@ public actor EventStream {
     } catch {
       return  // cancelled while waiting
     }
-    guard !stopped, task === socket else { return }
+    // `task === socket` no longer applies: `task` was cleared to nil above.
+    // `task == nil` is its replacement — it is nil unless `reconnectNow()`
+    // already opened a replacement during the sleep (the only thing that
+    // sets `task` while this function is waiting), in which case that
+    // replacement's own pump owns the next lifecycle events and this call
+    // must not open a second socket on top of it. `stopped` still covers
+    // `stop()`. Ordinarily either call also cancels `pump` — this task —
+    // which throws out of the sleep above before reaching here at all; this
+    // guard is the fallback for a `task` mutation that outraces that.
+    guard !stopped, task == nil else { return }
     connect()
   }
 

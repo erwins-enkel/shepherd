@@ -32,14 +32,18 @@ struct EventStreamTests {
     #expect(try await eventually { server.receivedTexts().count >= count })
   }
 
-  /// Reads one event without ever blocking forever: a reader task parks the
-  /// first element in a box and the poll loop gives up at the deadline, so a
-  /// frame that never arrives fails the test instead of hanging the suite.
-  private func firstEvent(
-    from stream: AsyncStream<ServerEvent>,
+  /// Reads one element without ever blocking forever: a reader task parks
+  /// the first element in a box and the poll loop gives up at the deadline,
+  /// returning `nil` — which lets a caller assert "nothing arrived" (e.g.
+  /// after `stop()`) just as well as it lets a frame that never arrives fail
+  /// the test instead of hanging the suite. Generic over `Element` so it
+  /// serves both `events()` (`ServerEvent`) and `lifecycle()`
+  /// (`EventStream.LifecycleEvent`).
+  private func firstEvent<Element: Sendable>(
+    from stream: AsyncStream<Element>,
     timeout: Duration = .seconds(5)
-  ) async throws -> ServerEvent? {
-    let box = FirstEventBox()
+  ) async throws -> Element? {
+    let box = FirstElementBox<Element>()
     let reader = Task {
       for await event in stream {
         box.set(event)
@@ -51,17 +55,17 @@ struct EventStreamTests {
     return box.get()
   }
 
-  private final class FirstEventBox: @unchecked Sendable {
+  private final class FirstElementBox<Element: Sendable>: @unchecked Sendable {
     private let lock = NSLock()
-    private var value: ServerEvent?
+    private var value: Element?
 
-    func set(_ event: ServerEvent) {
+    func set(_ event: Element) {
       lock.lock()
       defer { lock.unlock() }
       if value == nil { value = event }
     }
 
-    func get() -> ServerEvent? {
+    func get() -> Element? {
       lock.lock()
       defer { lock.unlock() }
       return value
@@ -239,6 +243,51 @@ struct EventStreamTests {
         if seen.count == 3 { break }
       }
       #expect(seen == [.connected, .disconnected, .connected])
+    }
+  }
+
+  @Test("reconnectNow() during backoff reports the lost socket's disconnected only once")
+  func reconnectNowDuringBackoffReportsDisconnectedOnce() async throws {
+    try await withStream(reconnectDelay: .seconds(10)) { server, stream in
+      let lifecycle = stream.lifecycle()
+      await stream.start()
+
+      try await awaitConnected(server)
+      server.closeCurrentConnection()
+
+      // `reconnectDelay` is 10 s, so the dead socket's backoff sleep is
+      // still pending when `reconnectNow()` lands below.
+      #expect(try await firstEvent(from: lifecycle) == .connected)
+      #expect(try await firstEvent(from: lifecycle) == .disconnected)
+
+      await stream.reconnectNow()
+      #expect(try await eventually(timeout: .seconds(5)) { server.connectionCount() == 2 })
+
+      // Exactly `.connected` for the replacement — not a second
+      // `.disconnected` for the socket that already reported its own loss
+      // and cleared itself before `reconnectNow()` ran.
+      #expect(try await firstEvent(from: lifecycle) == .connected)
+    }
+  }
+
+  @Test("stop() during backoff does not report a second disconnected")
+  func stopDuringBackoffDoesNotReportSecondDisconnected() async throws {
+    try await withStream(reconnectDelay: .seconds(10)) { server, stream in
+      let lifecycle = stream.lifecycle()
+      await stream.start()
+
+      try await awaitConnected(server)
+      server.closeCurrentConnection()
+
+      #expect(try await firstEvent(from: lifecycle) == .connected)
+      #expect(try await firstEvent(from: lifecycle) == .disconnected)
+
+      await stream.stop()
+
+      // No further lifecycle event should arrive: `stop()` saw the dead
+      // socket already cleared (nothing left to report) and skipped its own
+      // yield, so the poll below should time out rather than find one.
+      #expect(try await firstEvent(from: lifecycle, timeout: .milliseconds(300)) == nil)
     }
   }
 

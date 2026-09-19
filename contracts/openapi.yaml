@@ -516,7 +516,7 @@ components:
           description: Operator free text, delivered verbatim to the agent pane.
     # ── /stream: terminal ──
     # ── stream: detail ──
-    CodeError:
+    ReviewCodeError:
       type: object
       additionalProperties: true
       description: The review-request family answers with a machine code rather than prose.
@@ -772,7 +772,7 @@ components:
       required: [prNumber, reviewer]
       properties:
         prNumber: { type: integer, minimum: 1 }
-        reviewer: { type: string, pattern: "^[a-z\\d](?:[a-z\\d]|-(?=[a-z\\d])){0,38}$" }
+        reviewer: { type: string, pattern: "^[A-Za-z\\d](?:[A-Za-z\\d]|-(?=[A-Za-z\\d])){0,38}$" }
     OpenPrBody:
       type: object
       additionalProperties: false
@@ -1332,6 +1332,9 @@ paths:
         "200":
           description: Git state after the change.
           content: { application/json: { schema: { $ref: "#/components/schemas/GitState" } } }
+        "400":
+          description: This forge cannot change draft state (no `markReady`, e.g. LocalForge).
+          content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404":
           description: Unknown id, or no forge for this repo.
@@ -1352,6 +1355,9 @@ paths:
         "200":
           description: Git state after the change.
           content: { application/json: { schema: { $ref: "#/components/schemas/GitState" } } }
+        "400":
+          description: This forge cannot change draft state (no `convertToDraft`, e.g. LocalForge).
+          content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404":
           description: Unknown id, or no forge for this repo.
@@ -1371,6 +1377,9 @@ paths:
         "200":
           description: Git state after the close.
           content: { application/json: { schema: { $ref: "#/components/schemas/GitState" } } }
+        "400":
+          description: This forge cannot close PRs (no `closePr`, e.g. LocalForge).
+          content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404":
           description: Unknown id, or no forge for this repo.
@@ -1394,14 +1403,20 @@ paths:
             { application/json: { schema: { $ref: "#/components/schemas/PrReviewerOptions" } } }
         "400":
           description: "This forge cannot request reviews (`code: review_request_unsupported`)."
-          content: { application/json: { schema: { $ref: "#/components/schemas/CodeError" } } }
+          content:
+            { application/json: { schema: { $ref: "#/components/schemas/ReviewCodeError" } } }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404":
           description: Unknown id, or no forge for this repo.
           content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
         "409":
           description: "No open PR to request a review on (`code: review_request_stale`)."
-          content: { application/json: { schema: { $ref: "#/components/schemas/CodeError" } } }
+          content:
+            { application/json: { schema: { $ref: "#/components/schemas/ReviewCodeError" } } }
+        "502":
+          description: "The forge failed (`code: review_request_failed`)."
+          content:
+            { application/json: { schema: { $ref: "#/components/schemas/ReviewCodeError" } } }
   /api/sessions/{id}/git/request-review:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string } }
@@ -1419,14 +1434,24 @@ paths:
             { application/json: { schema: { $ref: "#/components/schemas/ReviewRequestAck" } } }
         "400":
           description: Unsupported forge, or an invalid body/reviewer (`code`).
-          content: { application/json: { schema: { $ref: "#/components/schemas/CodeError" } } }
+          content:
+            { application/json: { schema: { $ref: "#/components/schemas/ReviewCodeError" } } }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403":
+          description: "The host forbids this review request (`code: review_request_forbidden`)."
+          content:
+            { application/json: { schema: { $ref: "#/components/schemas/ReviewCodeError" } } }
         "404":
           description: Unknown id, or no forge for this repo.
           content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
         "409":
           description: The PR is stale or still a draft (`code`).
-          content: { application/json: { schema: { $ref: "#/components/schemas/CodeError" } } }
+          content:
+            { application/json: { schema: { $ref: "#/components/schemas/ReviewCodeError" } } }
+        "422":
+          description: "The host rejects the reviewer login (`code: review_request_invalid_reviewer`)."
+          content:
+            { application/json: { schema: { $ref: "#/components/schemas/ReviewCodeError" } } }
   # ── /stream: detail ──
   # ── stream: sidebar ──
   # ── /stream: sidebar ──

@@ -243,6 +243,71 @@ describe("detail: git", () => {
         await validateResponse("POST", `/api/sessions/{id}/git/${action}`, res);
         expect(res.status, action).toBe(502);
       }
+      const reviewers = await get(`/api/sessions/${ok}/git/reviewers`);
+      await validateResponse("GET", "/api/sessions/{id}/git/reviewers", reviewers);
+      expect(reviewers.status).toBe(502);
+    } finally {
+      delete s.deps.resolveForge;
+    }
+  });
+
+  test("a forge missing one PR-mutation capability is 400 on just that action", async () => {
+    s.deps.resolveForge = () => fx.noClosePrForge();
+    try {
+      const res = await post(`/api/sessions/${ok}/git/close`);
+      await validateResponse("POST", "/api/sessions/{id}/git/close", res);
+      expect(res.status).toBe(400);
+    } finally {
+      delete s.deps.resolveForge;
+    }
+    s.deps.resolveForge = () => fx.noMarkReadyForDraftForge();
+    try {
+      const res = await post(`/api/sessions/${ok}/git/draft`);
+      await validateResponse("POST", "/api/sessions/{id}/git/draft", res);
+      expect(res.status).toBe(400);
+    } finally {
+      delete s.deps.resolveForge;
+    }
+    s.deps.resolveForge = () => fx.noMarkReadyForge();
+    try {
+      const res = await post(`/api/sessions/${ok}/git/ready`);
+      await validateResponse("POST", "/api/sessions/{id}/git/ready", res);
+      expect(res.status).toBe(400);
+    } finally {
+      delete s.deps.resolveForge;
+    }
+  });
+
+  test("the host's review-request refusal maps to 403, an invalid reviewer to 422", async () => {
+    s.deps.resolveForge = () => fx.forbiddenReviewForge();
+    try {
+      const res = await post(`/api/sessions/${ok}/git/request-review`, {
+        prNumber: 12,
+        reviewer: "octocat",
+      });
+      const body = (await validateResponse(
+        "POST",
+        "/api/sessions/{id}/git/request-review",
+        res,
+      )) as { code: string };
+      expect(res.status).toBe(403);
+      expect(body.code).toBe("review_request_forbidden");
+    } finally {
+      delete s.deps.resolveForge;
+    }
+    s.deps.resolveForge = () => fx.invalidReviewerForge();
+    try {
+      const res = await post(`/api/sessions/${ok}/git/request-review`, {
+        prNumber: 12,
+        reviewer: "octocat",
+      });
+      const body = (await validateResponse(
+        "POST",
+        "/api/sessions/{id}/git/request-review",
+        res,
+      )) as { code: string };
+      expect(res.status).toBe(422);
+      expect(body.code).toBe("review_request_invalid_reviewer");
     } finally {
       delete s.deps.resolveForge;
     }

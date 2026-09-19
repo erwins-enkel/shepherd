@@ -1,5 +1,63 @@
+import type { ActivityEntry } from "../../src/activity";
 import type { SessionActivity } from "../../src/activity-signal";
-import { EmptyDiffError, type GitForge, type GitState, type PrStatus } from "../../src/forge/types";
+import type { DiffFileStatus } from "../../src/types";
+import {
+  EmptyDiffError,
+  type ChecksState,
+  type GitForge,
+  type GitState,
+  type MergeStateStatus,
+  type PrReview,
+  type PrStatus,
+} from "../../src/forge/types";
+
+/** Pins each detail-stream open enum to the server's own TS union. `satisfies Record<T, true>`
+ *  against an exhaustive object literal fails `bun run typecheck` in BOTH directions — a member
+ *  removed from the union leaves an excess key here, a member added to the union leaves a key
+ *  missing here — so contracts/openapi.yaml's enum can't silently drift from src/. */
+export const CHECKS_STATES = {
+  none: true,
+  pending: true,
+  success: true,
+  failure: true,
+} satisfies Record<ChecksState, true>;
+
+export const PR_STATES = {
+  none: true,
+  open: true,
+  merged: true,
+  closed: true,
+} satisfies Record<PrStatus["state"], true>;
+
+export const MERGE_STATE_STATUSES = {
+  behind: true,
+  blocked: true,
+  clean: true,
+  dirty: true,
+  draft: true,
+  has_hooks: true,
+  unknown: true,
+  unstable: true,
+} satisfies Record<MergeStateStatus, true>;
+
+export const PR_REVIEW_STATES = {
+  approved: true,
+  changes_requested: true,
+  commented: true,
+} satisfies Record<PrReview["state"], true>;
+
+export const DIFF_FILE_STATUSES = {
+  added: true,
+  modified: true,
+  deleted: true,
+  renamed: true,
+} satisfies Record<DiffFileStatus, true>;
+
+export const ACTIVITY_STATUSES = {
+  ok: true,
+  error: true,
+  pending: true,
+} satisfies Record<ActivityEntry["status"], true>;
 
 /** Event payloads, annotated with the server's own types so a shape change in src/ breaks
  *  `bun run typecheck` before it can drift out of the contract. */
@@ -89,5 +147,37 @@ export const emptyDiffForge = (): GitForge =>
   makeForge({
     openPr: async () => {
       throw new EmptyDiffError("shepherd/x", "main");
+    },
+  });
+
+/** No `closePr` — mirrors LocalForge, which implements none of the PR-mutation optionals.
+ *  The open PR from `openStatus` is enough: forgeClosePr never looks at `isDraft`. */
+export const noClosePrForge = (): GitForge => makeForge({ closePr: undefined });
+
+/** No `convertToDraft`. `openStatus.isDraft` is falsy, so POST /git/draft always needs the
+ *  conversion and hits the missing method. */
+export const noMarkReadyForDraftForge = (): GitForge => makeForge({ convertToDraft: undefined });
+
+/** No `markReady`, and the PR itself is already a draft, so POST /git/ready needs the
+ *  conversion and hits the missing method. */
+export const noMarkReadyForge = (): GitForge =>
+  makeForge({
+    markReady: undefined,
+    prStatus: async () => ({ ...openStatus, isDraft: true }),
+  });
+
+/** The host rejects the review request outright (branch protection, no push access, …). */
+export const forbiddenReviewForge = (): GitForge =>
+  makeForge({
+    requestReview: async () => {
+      throw new Error("review_request_forbidden");
+    },
+  });
+
+/** The host rejects the named reviewer (not a collaborator, no push access, …). */
+export const invalidReviewerForge = (): GitForge =>
+  makeForge({
+    requestReview: async () => {
+      throw new Error("review_request_invalid_reviewer");
     },
   });

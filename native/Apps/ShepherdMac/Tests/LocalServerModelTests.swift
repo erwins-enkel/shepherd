@@ -152,10 +152,20 @@ actor LocalServerGate {
 
     @Test func installingTheFeatureFillsTheWelcomeSlotAndIsIdempotent() {
         WelcomeSlots.localPanel = nil
-        LocalServerFeature.install()
+        let app = freshApp()
+        LocalServerFeature.install(app)
         #expect(WelcomeSlots.localPanel != nil)
-        LocalServerFeature.install()
+        LocalServerFeature.install(app)
         #expect(WelcomeSlots.localPanel != nil)
+        WelcomeSlots.reset()
+    }
+
+    /// Task 7's deviation: Task 6 left `app.register(LocalServerSessionExtension.self)`
+    /// out of `install()` because the panel it gates did not exist yet.
+    @Test func installingTheFeatureRegistersTheSessionExtensionType() {
+        let app = freshApp()
+        LocalServerFeature.install(app)
+        #expect(app.extensionFactories.contains { $0.key == ObjectIdentifier(LocalServerSessionExtension.self) })
         WelcomeSlots.reset()
     }
 

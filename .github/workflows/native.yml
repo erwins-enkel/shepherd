@@ -77,7 +77,9 @@ jobs:
       - name: Cache SwiftPM build state
         uses: actions/cache@v6
         with:
-          path: native/.build
+          path: |
+            native/.build
+            native/Apps/ShepherdMac/.build
           key: ${{ runner.os }}-spm-${{ hashFiles('native/Package.resolved') }}
           restore-keys: |
             ${{ runner.os }}-spm-
@@ -108,3 +110,32 @@ jobs:
 
       - name: Test
         run: swift test --package-path native
+
+      # ── Shepherd for Mac (sub-project 4a) ───────────────────────────────
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Check the string catalog is not stale
+        # Fails if ui/messages/{en,de}.json changed without regenerating the
+        # xcstrings catalog. Same script the developer runs locally.
+        run: bun run check:strings
+
+      - name: Build Shepherd.app
+        run: native/scripts/build-app.sh Release
+
+      - name: Verify the bundle is ad-hoc signed with the hardened runtime
+        run: |
+          APP=native/Apps/ShepherdMac/.build/Build/Products/Release/Shepherd.app
+          codesign -d --entitlements :- "$APP" 2>/dev/null > "$RUNNER_TEMP/ent.plist"
+          # The key path's dots are escaped: plutil -extract otherwise reads
+          # unescaped dots as nested-keypath separators, not a literal key.
+          plutil -extract 'com\.apple\.security\.app-sandbox' raw -o - "$RUNNER_TEMP/ent.plist" | grep -qx false
+          if grep -q 'get-task-allow' "$RUNNER_TEMP/ent.plist"; then echo "::error::release bundle carries get-task-allow"; exit 1; fi
+          codesign -dv "$APP" 2>&1 | grep -q adhoc
+          codesign -dv "$APP" 2>&1 | grep -q runtime
+          codesign --verify --strict "$APP"
+
+      - name: Unit tests
+        # Blocking. The XCUITest bundle does not exist yet; it gets its own
+        # non-blocking job in a later PR.
+        run: native/scripts/test-app.sh -only-testing:ShepherdTests

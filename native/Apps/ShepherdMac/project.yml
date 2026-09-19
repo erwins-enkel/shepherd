@@ -1,0 +1,111 @@
+name: Shepherd
+options:
+  bundleIdPrefix: run.shepherd
+  createIntermediateGroups: true
+  minimumXcodeGenVersion: "2.46.0"
+  deploymentTarget:
+    macOS: "15.0"
+packages:
+  # The key must match the package's own name in native/Package.swift
+  # (`Package(name: "ShepherdKit", …)`), and the path is the package root.
+  ShepherdKit:
+    path: ../..
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    SWIFT_UPCOMING_FEATURE_EXISTENTIAL_ANY: YES
+    CODE_SIGN_STYLE: Manual
+    CODE_SIGN_IDENTITY: "-"
+    CODE_SIGNING_REQUIRED: YES
+    CODE_SIGNING_ALLOWED: YES
+    ENABLE_HARDENED_RUNTIME: YES
+    ENABLE_APP_SANDBOX: NO
+    DEVELOPMENT_TEAM: ""
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    DEAD_CODE_STRIPPING: YES
+  configs:
+    Release:
+      # Drops com.apple.security.get-task-allow from the ad-hoc signature so a
+      # Release .app is not debuggable by any process on the machine.
+      CODE_SIGN_INJECT_BASE_ENTITLEMENTS: NO
+      SWIFT_COMPILATION_MODE: wholemodule
+targets:
+  Shepherd:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources
+      - path: Resources
+    dependencies:
+      - package: ShepherdKit
+        product: ShepherdKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: run.shepherd.mac
+        PRODUCT_NAME: Shepherd
+        GENERATE_INFOPLIST_FILE: NO
+        COMBINE_HIDPI_IMAGES: YES
+    info:
+      path: Sources/Info.plist
+      properties:
+        CFBundleName: Shepherd
+        CFBundleDisplayName: Shepherd
+        CFBundlePackageType: APPL
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSMinimumSystemVersion: "15.0"
+        LSApplicationCategoryType: public.app-category.developer-tools
+        NSHighResolutionCapable: true
+        NSHumanReadableCopyright: ""
+        CFBundleLocalizations: [en, de]
+    entitlements:
+      path: Sources/Shepherd.entitlements
+      properties:
+        com.apple.security.app-sandbox: false
+        # The hardened runtime turns library validation on; ad-hoc code has no
+        # Team ID, so without this the app cannot load its own embedded code.
+        com.apple.security.cs.disable-library-validation: true
+  ShepherdTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: Tests
+    dependencies:
+      - target: Shepherd
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: run.shepherd.mac.tests
+        GENERATE_INFOPLIST_FILE: YES
+  ShepherdUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    sources:
+      - path: UITests
+    dependencies:
+      - target: Shepherd
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: run.shepherd.mac.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: Shepherd
+        # MUST stay NO: with the hardened runtime on, XCTRunner cannot dlopen an
+        # ad-hoc-signed .xctest ("different Team IDs"). Verified failure mode.
+        ENABLE_HARDENED_RUNTIME: NO
+schemes:
+  Shepherd:
+    build:
+      targets:
+        Shepherd: all
+        ShepherdTests: [test]
+        ShepherdUITests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - ShepherdTests
+        - ShepherdUITests
+    archive:
+      config: Release

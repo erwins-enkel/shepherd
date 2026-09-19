@@ -151,6 +151,27 @@ sees every transition without polling. `bootstrap()`, `apply(_:)` and
 `consume(_:)` remain available for a caller that would rather drive the loop
 itself; build such a store with `SessionStore(client:)`.
 
+`start()` opens the `/events` socket and subscribes to it **before** it reads the
+first snapshot, and events that arrive while a snapshot load is in flight are
+replayed on top of the snapshot rather than under it — so a push that races the
+bootstrap is never lost, and a session archived during the load does not come
+back. A socket that drops shows as `.connecting`, not `.offline`: the stream is
+already reconnecting with capped backoff, and every reconnect re-reads sessions,
+settings and repos, which is what covers the pushes the 256-frame buffer may have
+dropped while the socket was down.
+
+A 401 on a request the store made surfaces as `store.lastError ==
+.unauthenticated` plus `connection == .needsLogin`. A 401 on a request the store
+did **not** make reaches the app through `store.client.needsLogin`, an
+`AsyncStream<Void>` with exactly one consumer — the app, never the store:
+
+```swift
+Task { for await _ in store.client.needsLogin { presentLoginSheet() } }
+```
+
+A cancelled call is not a failure: it maps to `ShepherdError.cancelled`, and the
+store leaves `connection` and `lastError` alone rather than painting `.offline`.
+
 Call `await store.setActive(_:)` from the app's foreground notifications
 (`applicationDidBecomeActive` / `scenePhase`) so the server can suppress push
 while the operator is already looking; a store built with `init(client:)` and
@@ -158,9 +179,10 @@ no socket ignores it.
 
 `stop()` ends the store for good — it does not merely pause it: cancelling the
 event consumer finishes `EventStream.events()`, so calling `start()` again
-afterwards will not reopen the socket. Build a fresh `SessionStore` (and the
-`EventStream` it owns) per activation rather than restarting one that was
-stopped; that per-activation contract is also what keeps `start()`'s internal
+afterwards will not reopen the socket. A store that is simply released does the
+same tidying from `deinit`, so a dropped store cannot leave a socket
+reconnecting behind it. Build a fresh `SessionStore` (and the `EventStream` it
+owns) per activation rather than restarting one that was stopped; that per-activation contract is also what keeps `start()`'s internal
 `running` flag safe against a `start()`/`stop()` race, as its own doc comment
 explains.
 

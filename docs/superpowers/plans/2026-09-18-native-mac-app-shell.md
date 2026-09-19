@@ -120,6 +120,12 @@ public protocol CredentialStore: Sendable {
 public struct KeychainCredentialStore: CredentialStore, Sendable {
     public init(service: String = ShepherdLog.subsystem)
 }
+/// What the three `CredentialStore` methods throw when the Keychain refuses.
+/// A locked keychain arrives as `.unexpectedStatus(errSecInteractionNotAllowed)`.
+public enum KeychainError: Error, Equatable {
+    case unexpectedStatus(OSStatus)
+    case malformedItem
+}
 public final class InMemoryCredentialStore: CredentialStore, @unchecked Sendable {
     public init()
     public init(seed: [String: StoredCredential])
@@ -163,6 +169,9 @@ public enum ShepherdError: Error, Equatable, Sendable {
     case contractMismatch(route: String, underlying: String)
     case insecureProfile(ServerProfileError)
     case transport(String)
+    /// The task making the request was cancelled. Not a server, network or
+    /// contract failure: show nothing, retry nothing.
+    case cancelled
 }
 
 public enum ProfileSetup {
@@ -183,11 +192,20 @@ public enum ProfileSetup {
 // MARK: Realtime
 
 public actor EventStream {
+    /// `maxReconnectDelay` is the ceiling the doubling backoff never exceeds.
     public init(baseURL: URL, tokenProvider: @escaping @Sendable () -> String?,
-                urlSession: URLSession = .shared, reconnectDelay: Duration = .seconds(1))
+                urlSession: URLSession = .shared, reconnectDelay: Duration = .seconds(1),
+                maxReconnectDelay: Duration = .seconds(30))
+    /// Derives the `/events` URL and the token from a live client; the delays
+    /// keep their defaults.
     public init(client: ShepherdClient, urlSession: URLSession = .shared)
     public static func eventsURL(for baseURL: URL) -> URL
     public nonisolated func events() -> AsyncStream<ServerEvent>
+    /// What the socket itself is doing. Single-consumer, like `events()`, and
+    /// `SessionStore.start()` is that consumer — an app reads `connection`
+    /// instead of subscribing here.
+    public nonisolated func lifecycle() -> AsyncStream<LifecycleEvent>
+    public enum LifecycleEvent: Sendable, Equatable { case connected, disconnected }
     public func start()
     public func stop()
     public func setActive(_ active: Bool)
@@ -213,11 +231,19 @@ public enum ConnectionState: Sendable, Equatable {
 }
 
 @Observable @MainActor public final class SessionStore {
+    /// `reconnectDelay` is the first bootstrap-retry delay and doubles up to
+    /// `maxReconnectDelay`, mirroring `EventStream`'s socket backoff.
     public init(client: ShepherdClient, events: EventStream? = nil,
-                reconnectDelay: Duration = .seconds(1))
+                reconnectDelay: Duration = .seconds(1),
+                maxReconnectDelay: Duration = .seconds(30))
     /// Self-driving: builds the client and an `EventStream` internally.
     /// - Throws: `ServerProfileError`, exactly like `ShepherdClient.init`.
     public convenience init(profile: ServerProfile, credentials: any CredentialStore) throws
+    /// The client the store drives. The one thing only it exposes is
+    /// `client.needsLogin`, the 401 signal for requests the store did not
+    /// make — the store deliberately does not consume that stream, so the app
+    /// is its single consumer. Reachable even for a store built from a profile.
+    public let client: ShepherdClient
     public private(set) var sessions: [Session]
     public private(set) var blocks: [String: Components.Schemas.BlockReason]
     public private(set) var settings: Settings?
@@ -233,6 +259,10 @@ public enum ConnectionState: Sendable, Equatable {
     /// failures land in `connection` and `lastError`.
     public func start() async
     public func stop()
+    /// Forward the app's foreground state to the socket, so the server can
+    /// suppress push while the operator is already looking. A store with no
+    /// socket ignores it.
+    public func setActive(_ active: Bool) async
     public func bootstrap() async throws
     public func refresh() async throws
     public func apply(_ event: ServerEvent)
@@ -2628,6 +2658,7 @@ struct ShepherdErrorCopyTests {
         .contractMismatch(route: "listSessions", underlying: "keyNotFound"),
         .insecureProfile(.insecureRemoteURL("box.example.com")),
         .transport("connection lost"),
+        .cancelled,
     ]
 
     @Test func everyCaseHasNonEmptyCopy() {
@@ -2739,6 +2770,13 @@ enum ShepherdErrorCopy {
         case .contractMismatch: return L.t("native_error_mismatch")
         case .insecureProfile(let reason): return message(reason)
         case .transport: return L.t("native_error_offline")
+        // A cancelled request is the app walking away from its own call, so
+        // there is nothing to tell the operator: `SessionStore` never records
+        // it in `lastError`, and no banner reacts to it. This arm exists only
+        // because the switch is exhaustive — a view that cancels a task it
+        // started and then insists on showing something gets the neutral
+        // "cannot reach the server" line rather than a Swift dump.
+        case .cancelled: return L.t("native_error_offline")
         }
     }
 
@@ -2747,7 +2785,7 @@ enum ShepherdErrorCopy {
         switch shepherd {
         case .unauthenticated, .forbidden: return true
         case .firstRunPending, .notFound, .badRequest, .conflict, .unprocessable,
-             .upstreamFailure, .contractMismatch, .insecureProfile, .transport:
+             .upstreamFailure, .contractMismatch, .insecureProfile, .transport, .cancelled:
             return false
         }
     }

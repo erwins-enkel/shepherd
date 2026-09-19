@@ -451,13 +451,22 @@ full-frontier over a 7-day, 237-turn backtest on the author's own setup — one 
 Related, from the tool-permissions work: **prune N candidates in exactly one round trip** by making
 each candidate its own boolean question against one shared state — the same primitive as §5.4.
 
-The per-spawn surface that exists today is **skills**, not plugins: `agent-skills.ts` reaches a
-session through `--add-dir`, so what a spawn loads is decided per spawn. Plugins are not a
-per-spawn surface at all — `SHEPHERD_PLUGINS_DIR` (`src/config.ts:40`) picks the load directory and
-a manifest's `enabled: false` (`src/plugins/types.ts:22`) is a soft off-switch applied at load, both
-boot-time and server-wide. So the one-round-trip prune applies to skill selection now, and would
-apply to plugins only if a per-spawn switch were built first — which is a separate piece of work,
-not a knob waiting to be turned.
+The per-spawn surface that exists today is `SpawnTrimOverlay` (`src/service.ts:569`), carrying
+`disablePlugins` and `disableSkills` into `spawnSettingsOverlay` (`:486`). `trimDecision` (`:607`)
+applies it, and **it is all-or-nothing**: an auto (drain) session with `trimAutoContext` on gets
+`enabledPlugins:false` for _every_ operator-enabled plugin plus `disableBundledSkills`, while
+interactive spawns are untouched and `SHEPHERD_TRIM_AUTO_CONTEXT=false` opts the whole thing out.
+(Not to be confused with the boot-time, server-wide switches: `SHEPHERD_PLUGINS_DIR`
+(`src/config.ts:40`) picks the load directory, and a manifest's `enabled:false`
+(`src/plugins/types.ts:22`) is a soft off-switch at load.)
+
+Binary is the interesting part. The trim is currently a choice between "all of it" and "none of it",
+justified by the observation that an unattended run has no use for built-in or personal skills — a
+blunt instrument that happens to be right on average. A one-round-trip relevance prune is exactly
+what turns that into _keep what this task plausibly needs_, on the same overlay, without inventing a
+new mechanism: the ids are already enumerated and already passed per spawn. It also applies to the
+half the trim deliberately leaves alone — the worktree's own `.claude/skills`, which stay loadable
+precisely because progressive disclosure is the mechanism worth keeping (#2001).
 
 ---
 

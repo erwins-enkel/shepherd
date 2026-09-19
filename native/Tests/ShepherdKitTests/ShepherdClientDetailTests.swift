@@ -124,6 +124,15 @@ struct ShepherdClientDetailReadTests {
     await #expect(throws: ShepherdError.upstreamFailure("forge unreachable")) {
       _ = try await detailClient(angry).reviewers(sessionID: "s1")
     }
+
+    let missing = FakeShepherdServer()
+    defer { missing.tearDown() }
+    missing.stub(
+      "GET", "/api/sessions/s1/git/reviewers", status: 404,
+      json: Data(#"{"error":"no forge for this repo"}"#.utf8))
+    await #expect(throws: ShepherdError.notFound) {
+      _ = try await detailClient(missing).reviewers(sessionID: "s1")
+    }
   }
 }
 
@@ -158,6 +167,27 @@ struct ShepherdClientDetailWriteTests {
     }
   }
 
+  @Test("opening a PR for an unknown session is notFound; a forge failure is an upstream failure")
+  func openPRNotFoundAndUpstreamFailure() async throws {
+    let missing = FakeShepherdServer()
+    defer { missing.tearDown() }
+    missing.stub(
+      "POST", "/api/sessions/s1/git/pr", status: 404,
+      json: Data(#"{"error":"no forge for this repo"}"#.utf8))
+    await #expect(throws: ShepherdError.notFound) {
+      _ = try await detailClient(missing).openPR(sessionID: "s1", title: nil, body: nil)
+    }
+
+    let angry = FakeShepherdServer()
+    defer { angry.tearDown() }
+    angry.stub(
+      "POST", "/api/sessions/s1/git/pr", status: 502,
+      json: Data(#"{"error":"forge error"}"#.utf8))
+    await #expect(throws: ShepherdError.upstreamFailure("forge error")) {
+      _ = try await detailClient(angry).openPR(sessionID: "s1", title: nil, body: nil)
+    }
+  }
+
   @Test("merging sends the method and the delete-branch choice; an enqueued merge is a failure")
   func mergePR() async throws {
     let fake = FakeShepherdServer()
@@ -175,6 +205,28 @@ struct ShepherdClientDetailWriteTests {
       json: Data(#"{"error":"merge enqueued","code":"merge_enqueued"}"#.utf8))
     await #expect(throws: ShepherdError.upstreamFailure("merge enqueued")) {
       _ = try await detailClient(enqueued).mergePR(
+        sessionID: "s1", method: nil, deleteBranch: nil)
+    }
+  }
+
+  @Test("merging an unknown session is notFound; a merge conflict carries the server's sentence")
+  func mergePRNotFoundAndConflict() async throws {
+    let missing = FakeShepherdServer()
+    defer { missing.tearDown() }
+    missing.stub(
+      "POST", "/api/sessions/s1/git/merge", status: 404,
+      json: Data(#"{"error":"no forge for this repo"}"#.utf8))
+    await #expect(throws: ShepherdError.notFound) {
+      _ = try await detailClient(missing).mergePR(sessionID: "s1", method: nil, deleteBranch: nil)
+    }
+
+    let conflicted = FakeShepherdServer()
+    defer { conflicted.tearDown() }
+    conflicted.stub(
+      "POST", "/api/sessions/s1/git/merge", status: 409,
+      json: Data(#"{"error":"merge conflict"}"#.utf8))
+    await #expect(throws: ShepherdError.conflict(code: nil, message: "merge conflict")) {
+      _ = try await detailClient(conflicted).mergePR(
         sessionID: "s1", method: nil, deleteBranch: nil)
     }
   }
@@ -218,6 +270,100 @@ struct ShepherdClientDetailWriteTests {
     await #expect(
       throws: ShepherdError.badRequest("this host does not support closing a pull request")
     ) { _ = try await detailClient(fake).closePR(sessionID: "s1") }
+  }
+
+  @Test("closing an unknown session is notFound; no open PR is a conflict; a forge failure is upstream")
+  func closePRNotFoundConflictAndUpstreamFailure() async throws {
+    let missing = FakeShepherdServer()
+    defer { missing.tearDown() }
+    missing.stub(
+      "POST", "/api/sessions/s1/git/close", status: 404,
+      json: Data(#"{"error":"no forge for this repo"}"#.utf8))
+    await #expect(throws: ShepherdError.notFound) {
+      _ = try await detailClient(missing).closePR(sessionID: "s1")
+    }
+
+    let conflicted = FakeShepherdServer()
+    defer { conflicted.tearDown() }
+    conflicted.stub(
+      "POST", "/api/sessions/s1/git/close", status: 409,
+      json: Data(#"{"error":"no open pull request"}"#.utf8))
+    await #expect(throws: ShepherdError.conflict(code: nil, message: "no open pull request")) {
+      _ = try await detailClient(conflicted).closePR(sessionID: "s1")
+    }
+
+    let angry = FakeShepherdServer()
+    defer { angry.tearDown() }
+    angry.stub(
+      "POST", "/api/sessions/s1/git/close", status: 502,
+      json: Data(#"{"error":"forge error"}"#.utf8))
+    await #expect(throws: ShepherdError.upstreamFailure("forge error")) {
+      _ = try await detailClient(angry).closePR(sessionID: "s1")
+    }
+  }
+
+  @Test("marking a PR back to draft covers every declared error status")
+  func markPRDraftErrors() async throws {
+    let unsupported = FakeShepherdServer()
+    defer { unsupported.tearDown() }
+    unsupported.stub(
+      "POST", "/api/sessions/s1/git/draft", status: 400,
+      json: Data(#"{"error":"this host does not support draft state"}"#.utf8))
+    await #expect(throws: ShepherdError.badRequest("this host does not support draft state")) {
+      _ = try await detailClient(unsupported).markPRDraft(sessionID: "s1")
+    }
+
+    let missing = FakeShepherdServer()
+    defer { missing.tearDown() }
+    missing.stub(
+      "POST", "/api/sessions/s1/git/draft", status: 404,
+      json: Data(#"{"error":"no forge for this repo"}"#.utf8))
+    await #expect(throws: ShepherdError.notFound) {
+      _ = try await detailClient(missing).markPRDraft(sessionID: "s1")
+    }
+
+    let conflicted = FakeShepherdServer()
+    defer { conflicted.tearDown() }
+    conflicted.stub(
+      "POST", "/api/sessions/s1/git/draft", status: 409,
+      json: Data(#"{"error":"no open pull request"}"#.utf8))
+    await #expect(throws: ShepherdError.conflict(code: nil, message: "no open pull request")) {
+      _ = try await detailClient(conflicted).markPRDraft(sessionID: "s1")
+    }
+
+    let angry = FakeShepherdServer()
+    defer { angry.tearDown() }
+    angry.stub(
+      "POST", "/api/sessions/s1/git/draft", status: 502,
+      json: Data(#"{"error":"forge error"}"#.utf8))
+    await #expect(throws: ShepherdError.upstreamFailure("forge error")) {
+      _ = try await detailClient(angry).markPRDraft(sessionID: "s1")
+    }
+  }
+
+  @Test("a 401 from any pull-request action is unauthenticated")
+  func pullRequestActions401() async throws {
+    let cases: [(method: String, path: String, call: @Sendable (ShepherdClient) async throws -> Void)] = [
+      ("POST", "/api/sessions/s1/git/pr", { _ = try await $0.openPR(sessionID: "s1", title: nil, body: nil) }),
+      (
+        "POST", "/api/sessions/s1/git/merge",
+        { _ = try await $0.mergePR(sessionID: "s1", method: nil, deleteBranch: nil) }
+      ),
+      ("POST", "/api/sessions/s1/git/draft", { _ = try await $0.markPRDraft(sessionID: "s1") }),
+      ("POST", "/api/sessions/s1/git/close", { _ = try await $0.closePR(sessionID: "s1") }),
+      ("GET", "/api/sessions/s1/git/reviewers", { _ = try await $0.reviewers(sessionID: "s1") }),
+      (
+        "POST", "/api/sessions/s1/git/request-review",
+        { _ = try await $0.requestPRReview(sessionID: "s1", prNumber: 12, reviewer: "octocat") }
+      ),
+    ]
+    for testCase in cases {
+      let fake = FakeShepherdServer()
+      defer { fake.tearDown() }
+      fake.stub(testCase.method, testCase.path, status: 401, json: Data(#"{"error":"unauthorized"}"#.utf8))
+      let client = try detailClient(fake)
+      await #expect(throws: ShepherdError.unauthenticated) { try await testCase.call(client) }
+    }
   }
 
   @Test("requesting a review reports refreshPending and sends both fields")
@@ -271,6 +417,29 @@ struct ShepherdClientDetailWriteTests {
     await #expect(throws: ShepherdError.unprocessable("review_request_invalid_reviewer")) {
       _ = try await detailClient(invalid).requestPRReview(
         sessionID: "s1", prNumber: 12, reviewer: "not-a-user")
+    }
+  }
+
+  @Test("an unsupported forge is a bad request; an unknown session is notFound")
+  func requestReviewUnsupportedOrNotFound() async throws {
+    let unsupported = FakeShepherdServer()
+    defer { unsupported.tearDown() }
+    unsupported.stub(
+      "POST", "/api/sessions/s1/git/request-review", status: 400,
+      json: Data(#"{"code":"review_request_unsupported"}"#.utf8))
+    await #expect(throws: ShepherdError.badRequest("review_request_unsupported")) {
+      _ = try await detailClient(unsupported).requestPRReview(
+        sessionID: "s1", prNumber: 12, reviewer: "octocat")
+    }
+
+    let missing = FakeShepherdServer()
+    defer { missing.tearDown() }
+    missing.stub(
+      "POST", "/api/sessions/s1/git/request-review", status: 404,
+      json: Data(#"{"error":"no forge for this repo"}"#.utf8))
+    await #expect(throws: ShepherdError.notFound) {
+      _ = try await detailClient(missing).requestPRReview(
+        sessionID: "s1", prNumber: 12, reviewer: "octocat")
     }
   }
 }

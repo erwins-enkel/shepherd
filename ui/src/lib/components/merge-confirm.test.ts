@@ -6,6 +6,7 @@ import {
   mergeConfirmFromGit,
   mergeConfirmFromPr,
   mergeConfirmPayload,
+  mergeRefusalResponsibility,
 } from "./merge-confirm";
 import type { GitState, PullRequest } from "$lib/types";
 
@@ -141,6 +142,40 @@ describe("isMergeConfirmRefusal", () => {
     expect(isMergeConfirmRefusal(new Error("boom"))).toBe(false);
     expect(isMergeConfirmRefusal(null)).toBe(false);
     expect(isMergeConfirmRefusal(undefined)).toBe(false);
+  });
+});
+
+describe("mergeRefusalResponsibility", () => {
+  it("reports what the SERVER derived, so a re-open cannot rebuild the refused payload", () => {
+    expect(
+      mergeRefusalResponsibility({
+        code: "merge_confirm_required",
+        gate: {
+          handoff: "merger",
+          handoffWho: "scoop",
+          reviewBlockBy: null,
+          requiresConfirm: true,
+        },
+      }),
+    ).toEqual({ handoff: "merger", handoffWho: "scoop" });
+  });
+
+  it("keeps a lone review block", () => {
+    expect(
+      mergeRefusalResponsibility({
+        code: "merge_confirm_stale",
+        gate: { handoff: null, handoffWho: null, reviewBlockBy: "scoop" },
+      }),
+    ).toEqual({ reviewBlockBy: "scoop" });
+  });
+
+  it("is undefined for a non-refusal, and for a refusal naming nobody", () => {
+    expect(mergeRefusalResponsibility(new Error("boom"))).toBeUndefined();
+    expect(mergeRefusalResponsibility({ code: "merge_pending", gate: {} })).toBeUndefined();
+    expect(mergeRefusalResponsibility({ code: "merge_confirm_stale" })).toBeUndefined();
+    expect(
+      mergeRefusalResponsibility({ code: "merge_confirm_stale", gate: { handoff: "merger" } }),
+    ).toBeUndefined();
   });
 });
 

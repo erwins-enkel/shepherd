@@ -120,6 +120,25 @@ export function isMergeConfirmRefusal(err: unknown): boolean {
   return code === "merge_confirm_required" || code === "merge_confirm_stale";
 }
 
+/** The responsibility a refusal reports, in the shape a PR payload carries it — so a caller can
+ *  re-state the merge against what the SERVER just derived rather than against a cached view that
+ *  may be what caused the refusal. Undefined when the error is not a refusal, or reports nobody. */
+export function mergeRefusalResponsibility(err: unknown): MergeResponsibility | undefined {
+  if (!isMergeConfirmRefusal(err)) return undefined;
+  const gate = (err as { gate?: Record<string, unknown> }).gate ?? {};
+  const str = (v: unknown): string | undefined => (typeof v === "string" && v ? v : undefined);
+  const handoff = gate.handoff === "reviewer" || gate.handoff === "merger" ? gate.handoff : null;
+  const handoffWho = str(gate.handoffWho);
+  const reviewBlockBy = str(gate.reviewBlockBy);
+  const out: MergeResponsibility = {
+    ...(handoff && handoffWho ? { handoff, handoffWho } : {}),
+    ...(reviewBlockBy ? { reviewBlockBy } : {}),
+  };
+  // Emptiness is decided on the RESULT, not on the inputs: a handoff whose login is missing names
+  // nobody, and an object that reads as present while naming nobody is worse than none at all.
+  return Object.keys(out).length ? out : undefined;
+}
+
 /** Fold the server's refreshed verdict (from a `merge_confirm_stale` / `merge_confirm_required`
  *  refusal) into the open dialog, so the operator re-confirms against what is true NOW rather than
  *  against what they were first shown. */

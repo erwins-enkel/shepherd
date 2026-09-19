@@ -137,8 +137,6 @@ type FlatOptionalGitField = Exclude<
   | "latestReview"
   | "reviewerStates"
   | "reviewBlock"
-  // Derived on every annotateHandoff from the repo's roles file, so persisting it would only
-  // risk serving a stale responsibility after a restart. Restored states get it on the next poll.
   | "mergeGate"
 >;
 
@@ -262,6 +260,33 @@ function applyPersistedFlatGitFields(state: Record<string, unknown>, result: Git
   return true;
 }
 
+/** The stamped merge responsibility (#2299). Persisted rather than re-derived on demand: the
+ *  cache is rehydrated straight from these rows at boot and the poller only writes a recomputed
+ *  state back when something ELSE about the PR changed, so a dropped responsibility would stay
+ *  missing on a stable open PR — leaving every merge confirmation unable to name anyone. */
+function parsePersistedMergeGate(value: unknown): GitState["mergeGate"] | null {
+  if (!isRecord(value)) return null;
+  const str = (v: unknown): string | undefined => (typeof v === "string" && v ? v : undefined);
+  const handoff = value.handoff === "reviewer" || value.handoff === "merger" ? value.handoff : null;
+  const handoffWho = str(value.handoffWho);
+  const reviewBlockBy = str(value.reviewBlockBy);
+  // A handoff without its login (or vice versa) is not a shape this ever writes — reject the row
+  // rather than hydrate a responsibility that names nobody.
+  if (!!handoff !== !!handoffWho) return null;
+  if (!handoff && !reviewBlockBy) return null;
+  return {
+    ...(handoff && handoffWho ? { handoff, handoffWho } : {}),
+    ...(reviewBlockBy ? { reviewBlockBy } : {}),
+  };
+}
+
+const NESTED_OPTIONAL_GIT_FIELDS = [
+  ["latestReview", parsePersistedLatestReview],
+  ["reviewerStates", parsePersistedReviewerStates],
+  ["reviewBlock", parsePersistedReviewBlock],
+  ["mergeGate", parsePersistedMergeGate],
+] as const satisfies ReadonlyArray<readonly [keyof GitState, (value: unknown) => unknown]>;
+
 function parsePersistedGitState(raw: string): GitState | null {
   let value: unknown;
   try {
@@ -274,22 +299,14 @@ function parsePersistedGitState(raw: string): GitState | null {
   const result = parsePersistedGitCore(state);
   if (!result || !applyPersistedFlatGitFields(state, result)) return null;
 
-  if (state.latestReview !== undefined) {
-    const latestReview = parsePersistedLatestReview(state.latestReview);
-    if (!latestReview) return null;
-    result.latestReview = latestReview;
-  }
-
-  if (state.reviewerStates !== undefined) {
-    const reviewerStates = parsePersistedReviewerStates(state.reviewerStates);
-    if (!reviewerStates) return null;
-    result.reviewerStates = reviewerStates;
-  }
-
-  if (state.reviewBlock !== undefined) {
-    const reviewBlock = parsePersistedReviewBlock(state.reviewBlock);
-    if (!reviewBlock) return null;
-    result.reviewBlock = reviewBlock;
+  // The nested fields, each: absent stays absent, present-but-invalid rejects the whole row.
+  // A table rather than four identical blocks, mirroring applyPersistedFlatGitFields above.
+  for (const [field, parse] of NESTED_OPTIONAL_GIT_FIELDS) {
+    const raw = state[field];
+    if (raw === undefined) continue;
+    const parsed = parse(raw);
+    if (!parsed) return null;
+    Object.assign(result, { [field]: parsed });
   }
 
   return result;

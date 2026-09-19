@@ -410,3 +410,24 @@ test("mergeGate reports the reviewer's open changes where the readout says 'your
     reviewBlockBy: "scoop",
   });
 });
+
+test("mergeGate is cleared when the roles no longer name anyone", () => {
+  // annotateHandoff re-annotates ALREADY-annotated states (the roles dialog's re-push, the
+  // poller's prev). A responsibility the operator has since cleared must not survive, or every
+  // merge entry point keeps offering to "take over" a merge that is now their own.
+  const dir = repoWithRoles({ reviewer: null, merger: "scoop" });
+  const annotated = annotateHandoff(gitState({ number: 7 }), dir, "kai");
+  expect(annotated.mergeGate).toBeDefined();
+
+  const cleared = annotateHandoff(annotated, "/no/such/repo", "kai");
+  expect(cleared.mergeGate).toBeUndefined();
+});
+
+test("mergeGate is replaced, not merged, when the roles are reassigned", () => {
+  const scoopRepo = repoWithRoles({ reviewer: null, merger: "scoop" });
+  const danaRepo = repoWithRoles({ reviewer: null, merger: "dana" });
+  const annotated = annotateHandoff(gitState({ number: 7 }), scoopRepo, "kai");
+
+  const reassigned = annotateHandoff(annotated, danaRepo, "kai");
+  expect(reassigned.mergeGate).toEqual({ handoff: "merger", handoffWho: "dana" });
+});

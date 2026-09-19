@@ -241,6 +241,11 @@ export function annotateHandoff(
   delete base.handoffWho;
   delete base.handoffInferred;
   delete base.reviewBlock;
+  // Same reason, and load-bearing: this function re-annotates ALREADY-annotated states (the role
+  // dialog's re-push, the poller's prev), so a responsibility the operator has since cleared or
+  // reassigned would otherwise survive and keep the takeover wording on a merge that is now
+  // their own.
+  delete base.mergeGate;
   const roles = readRepoRoles(repoPath);
   const unconfiguredFork = !roles.reviewer && !roles.merger && !!base.isFork;
   const handoffEligible =

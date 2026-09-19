@@ -77,12 +77,16 @@ export function reviewBlockFor(
  *  derive the responsibility from two different rule sets. */
 export function mergeResponsibility(verdict: MergeGateVerdict): MergeResponsibility | undefined {
   if (!verdict.requiresConfirm) return undefined;
-  return {
+  const out: MergeResponsibility = {
     ...(verdict.handoff && verdict.handoffWho
       ? { handoff: verdict.handoff, handoffWho: verdict.handoffWho }
       : {}),
     ...(verdict.reviewBlockBy ? { reviewBlockBy: verdict.reviewBlockBy } : {}),
   };
+  // Emptiness is decided on the RESULT: a verdict that requires a confirmation but names nobody
+  // (a fork's unnamed maintainer) must not stamp an object that reads as present while naming
+  // nobody — the dialog would escalate its wording with nothing to show.
+  return Object.keys(out).length ? out : undefined;
 }
 
 const NO_GATE: MergeGateVerdict = {

@@ -1,6 +1,7 @@
 import { test, expect } from "bun:test";
 import {
   evaluateMergeGate,
+  mergeResponsibility,
   parseMergeConfirm,
   validateMergeConfirm,
   type MergeConfirm,
@@ -283,4 +284,32 @@ test("a malformed confirmation cannot satisfy a gate", () => {
   expect(validateMergeConfirm(GATED, CURRENT, parseMergeConfirm({ handoff: "nonsense" }))).toBe(
     "confirm_required",
   );
+});
+
+// ── mergeResponsibility (the stamped shape) ─────────────────────────────────────────────────
+
+test("mergeResponsibility is absent when nothing is taken over", () => {
+  expect(mergeResponsibility(OPEN)).toBeUndefined();
+});
+
+test("mergeResponsibility carries the handoff with its login, and a review block", () => {
+  expect(mergeResponsibility(GATED)).toEqual({ handoff: "merger", handoffWho: "scoop" });
+  expect(mergeResponsibility({ ...GATED, reviewBlockBy: "dana" })).toEqual({
+    handoff: "merger",
+    handoffWho: "scoop",
+    reviewBlockBy: "dana",
+  });
+});
+
+test("mergeResponsibility is absent when the verdict names nobody", () => {
+  // A fork's unnamed maintainer: requiresConfirm with no login to show. Stamping an object that
+  // reads as present while naming nobody would escalate the dialog's wording with nothing in it.
+  expect(
+    mergeResponsibility({
+      handoff: "reviewer",
+      handoffWho: null,
+      reviewBlockBy: null,
+      requiresConfirm: true,
+    }),
+  ).toBeUndefined();
 });

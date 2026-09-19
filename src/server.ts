@@ -1913,7 +1913,8 @@ function repushHandoff(deps: AppDeps, dir: string, me: string | null): void {
       updated.handoff !== prev.handoff ||
       updated.handoffWho !== prev.handoffWho ||
       updated.handoffInferred !== prev.handoffInferred ||
-      JSON.stringify(updated.reviewBlock ?? null) !== JSON.stringify(prev.reviewBlock ?? null)
+      JSON.stringify(updated.reviewBlock ?? null) !== JSON.stringify(prev.reviewBlock ?? null) ||
+      JSON.stringify(updated.mergeGate ?? null) !== JSON.stringify(prev.mergeGate ?? null)
     ) {
       deps.prCache.set(s.id, updated);
       deps.events.emit("session:git", { id: s.id, git: updated });

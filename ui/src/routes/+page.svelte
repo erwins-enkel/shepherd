@@ -171,6 +171,7 @@
     isMergeConfirmRefusal,
     mergeConfirmFromGit,
     mergeConfirmPayload,
+    mergeRefusalResponsibility,
     type MergeTrainItem,
   } from "$lib/components/merge-confirm";
 
@@ -2352,7 +2353,7 @@
           // to a responsibility or revision the server has already rejected, so replaying it
           // 409s forever and the session could never be decommissioned at all. Re-open the PR
           // decision instead, so the operator answers the state the server actually reports.
-          if (isMergeConfirmRefusal(err) && reopenPrDecommission(request)) return;
+          if (isMergeConfirmRefusal(err) && reopenPrDecommission(request, err)) return;
           toasts.info(m.toast_decommission_failed({ name }), {
             sticky: true,
             alert: true,
@@ -2364,17 +2365,24 @@
     });
   }
 
-  /** Re-open the decommission PR dialog against the session's CURRENT git state after the server
-   *  refused the merge confirmation. Returns false when the session or its PR is gone, so the
-   *  caller falls back to the ordinary failure toast. */
-  function reopenPrDecommission(request: PendingDecommission): boolean {
-    const git = store.git[request.id];
-    if (!store.sessions.some((s) => s.id === request.id) || git?.state !== "open") return false;
+  /** Re-open the decommission PR dialog after the server refused the merge confirmation, with the
+   *  responsibility the REFUSAL reported rather than the cached one — re-opening against the same
+   *  cached state would rebuild the same payload and earn the same refusal forever. Returns false
+   *  when the session or its PR is gone, so the caller falls back to the ordinary failure toast. */
+  function reopenPrDecommission(request: PendingDecommission, err: unknown): boolean {
+    const cached = store.git[request.id];
+    if (!store.sessions.some((s) => s.id === request.id) || cached?.state !== "open") return false;
+    const fresh = mergeRefusalResponsibility(err);
     toasts.info(m.toast_decommission_merge_refused({ name: request.name }), {
       alert: true,
       key: `decommission-fail:${request.id}`,
     });
-    decommissionPr = { id: request.id, name: request.name, git, reap: request.reap };
+    decommissionPr = {
+      id: request.id,
+      name: request.name,
+      git: fresh ? { ...cached, mergeGate: fresh } : cached,
+      reap: request.reap,
+    };
     return true;
   }
 

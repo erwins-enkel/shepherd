@@ -117,6 +117,22 @@ function stableJson(v: unknown): string {
 /** True when a freshly polled PR state differs from the cached one in any field
  *  the UI renders (status, CI/merge-eligibility, review, handoff) — i.e. worth
  *  pushing a session:git update. Exported for unit testing. */
+/** The review + responsibility half of {@link gitStateChanged}, split out so each comparison
+ *  chain stays one readable screen. */
+function reviewStateChanged(prev: GitState, git: GitState): boolean {
+  return (
+    prev.latestReview?.submittedAt !== git.latestReview?.submittedAt ||
+    stableJson(prev.reviewerStates) !== stableJson(git.reviewerStates) ||
+    prev.handoff !== git.handoff ||
+    prev.handoffWho !== git.handoffWho ||
+    stableJson(prev.reviewBlock) !== stableJson(git.reviewBlock) ||
+    // The merge confirmation reads this, and unlike `handoff` it is not CI-gated — on a stable
+    // open PR nothing else here moves, so without this term a freshly derived (or cleared)
+    // responsibility would be recomputed and then discarded, forever.
+    stableJson(prev.mergeGate) !== stableJson(git.mergeGate)
+  );
+}
+
 export function gitStateChanged(prev: GitState | undefined, git: GitState): boolean {
   return (
     !prev ||
@@ -132,11 +148,7 @@ export function gitStateChanged(prev: GitState | undefined, git: GitState): bool
     !sameSet(prev.requestedReviewers, git.requestedReviewers) ||
     prev.headSha !== git.headSha ||
     prev.baseRefName !== git.baseRefName ||
-    prev.latestReview?.submittedAt !== git.latestReview?.submittedAt ||
-    stableJson(prev.reviewerStates) !== stableJson(git.reviewerStates) ||
-    prev.handoff !== git.handoff ||
-    prev.handoffWho !== git.handoffWho ||
-    stableJson(prev.reviewBlock) !== stableJson(git.reviewBlock)
+    reviewStateChanged(prev, git)
   );
 }
 

@@ -216,15 +216,11 @@ actor GatedTestClock: SupervisorClock {
   func sleep(for seconds: TimeInterval) async throws {
     slept.append(seconds)
     current = current.addingTimeInterval(seconds)
-    guard seconds == gatedDuration else {
-      // A real, brief sleep rather than an instant return: `waitForHealth()`'s
-      // poll loop calls this every iteration, and an instant return lets it
-      // race through all 60 iterations faster than the child's pipe EOF can
-      // ever be delivered and processed, reaching the iteration cap before
-      // the crash this test needs is even detected.
-      try? await Task.sleep(for: .milliseconds(2))
-      return
-    }
+    // Every other duration returns instantly, spending no real time at all:
+    // a test clock that quietly sleeps for real is no longer a test clock, and
+    // `waitForHealth()` now settles a spent poll budget against the OS rather
+    // than against how much wall time the injected clock happened to burn.
+    guard seconds == gatedDuration else { return }
     await withCheckedContinuation { self.continuation = $0 }
   }
   func release() {
@@ -351,8 +347,11 @@ func anyProcessCommand(contains needle: String) -> Bool {
     #expect(await clock.slept.filter { [1, 2, 4].contains($0) } == [1, 2, 4])
   }
 
-  /// `restart()` clears the crash history, so a server that dies once an hour
-  /// stays supervised forever instead of accumulating into a crash loop.
+  /// An operator's own `restart()` forgives the crashes before it, so a server
+  /// that dies once in a while stays supervised instead of accumulating into a
+  /// crash loop. Asserting only the end state is not enough — it is reached
+  /// either way. What separates a cleared history from a kept one is that the
+  /// supervisor tries again at all: a *new* backoff wait after `restart()`.
   @Test func restartClearsTheCrashHistory() async throws {
     let (launch, cleanup) = try fakeScript("exit 1\n")
     defer { cleanup() }
@@ -365,9 +364,13 @@ func anyProcessCommand(contains needle: String) -> Bool {
       launch: { launch })
     await sut.start()
     try await waitUntil(timeout: 10) { await sut.state == .failed(.crashLoop(restarts: 1)) }
-    await clock.advance(400)  // past the 300 s window
+    let backoffsBefore = await clock.slept.filter { $0 == policy.backoff[0] }.count
+    #expect(backoffsBefore == 1)
+    await clock.advance(10)  // still well inside the 300 s window
     await sut.restart()
     try await waitUntil(timeout: 10) { await sut.state == .failed(.crashLoop(restarts: 1)) }
+    let backoffsAfter = await clock.slept.filter { $0 == policy.backoff[0] }.count
+    #expect(backoffsAfter == backoffsBefore + 1)
   }
 
   /// Health, not the ready line, is what flips `.starting` to `.running`.
@@ -382,6 +385,174 @@ func anyProcessCommand(contains needle: String) -> Bool {
     await sut.start()
     #expect(await sut.state.isRunning)
     await sut.stop()
+  }
+}
+
+
+/// How many live processes `ps` still reports whose command line contains
+/// `needle` — the count `anyProcessCommand(contains:)` cannot give, and the
+/// only way to tell "one child, replaced" from "two children, one orphaned".
+/// `-ww` because the fake scripts live under long temp paths that `ps` would
+/// otherwise truncate.
+func processCommandCount(containing needle: String) -> Int {
+  let ps = Process()
+  ps.executableURL = URL(fileURLWithPath: "/bin/ps")
+  ps.arguments = ["-axww", "-o", "command="]
+  let out = Pipe()
+  ps.standardOutput = out
+  ps.standardError = Pipe()
+  do { try ps.run() } catch { return 0 }
+  let data = out.fileHandleForReading.readDataToEndOfFile()
+  ps.waitUntilExit()
+  return String(decoding: data, as: UTF8.self).split(separator: "\n")
+    .filter { $0.contains(needle) }.count
+}
+
+/// Regression tests for the coordinator's second review pass: the exit report
+/// of a child the supervisor had already moved past still acted on the *next*
+/// child, two overlapping `restart()`s tore each other's children down, a
+/// spent health budget was decided against wall time rather than against the
+/// OS, `.running(pid:)` was claimed before anything had answered `/api/health`,
+/// and one shared `lastExitCode` slot was read across generations.
+@Suite(.serialized) struct LocalServerSupervisorFix2Tests {
+  private func supervisor(
+    _ launch: LocalServerLaunch, health: @escaping @Sendable () async -> Bool,
+    clock: any SupervisorClock = TestClock(),
+    policy: LocalServerSupervisor.RestartPolicy = .init()
+  ) -> LocalServerSupervisor {
+    LocalServerSupervisor(
+      environment: LocalServerEnvironment(home: launch.workingDirectory),
+      log: LogRing(capacity: 200), health: health, clock: clock, policy: policy,
+      launch: { launch })
+  }
+
+  /// BL-1. `childStreamEnded` checked the generation once, then suspended in
+  /// `exitCode()` for up to 500 ms waiting on the termination handler. A
+  /// `restart()` landing in that window spawned the next child; the stale
+  /// report then resumed and cleared *its* pid and process and drove a crash
+  /// restart, orphaning a live, unowned server.
+  ///
+  /// The seam is EOF without exit: the first child closes its pipe and keeps
+  /// running, which splits the two notifications `childStreamEnded` sits
+  /// between and parks it in `exitCode()` for the whole window. Later children
+  /// keep their pipe open, so only the first one produces a stale report.
+  @Test func aStaleExitReportAfterARestartLeavesTheNewChildAlone() async throws {
+    let (launch, cleanup) = try fakeScript(
+      """
+      if [ -f ran ]; then
+        echo 'later child is up'
+        sleep 30
+      else
+        : > ran
+        echo 'first child is up'
+        exec 1>&-
+        exec 2>&-
+        sleep 30
+      fi
+      """)
+    defer { cleanup() }
+    let sut = supervisor(launch, health: { true })
+    await sut.start()
+    let first = try #require(await sut.state.pid)
+    try await waitUntil { await sut.logLines().contains("first child is up") }
+    try await Task.sleep(for: .milliseconds(100))  // let the EOF reach the pump
+    await sut.restart(gracePeriod: 0.2)
+    let second = try #require(await sut.state.pid)
+    #expect(second != first)
+    // Past `exitCode()`'s 500 ms cap: the stale report resumes inside here.
+    try await Task.sleep(for: .milliseconds(700))
+    #expect(await sut.state.pid == second)
+    #expect(processIsAlive(second))
+    #expect(processCommandCount(containing: launch.arguments[0]) == 1)
+    await sut.stop(gracePeriod: 0.3)
+    #expect(processCommandCount(containing: launch.arguments[0]) == 0)
+  }
+
+  /// BL-2. `stop()` suspends while it waits the child out, so a second
+  /// `restart()` got its turn in the middle of the first one: it resumed still
+  /// holding the *first* child's pid, cleared the pid of the replacement the
+  /// first `restart()` had meanwhile spawned, cancelled its pump and declared
+  /// the supervisor `.stopped` — leaving that replacement alive and unowned,
+  /// while its own `start()` spawned a third child.
+  ///
+  /// The 5 ms stagger is the whole point: both waits poll on the same 20 ms
+  /// period, so the second one always resumes just *after* the first, which by
+  /// then has already synchronously spawned the replacement. Repeated because
+  /// one round leaves the supervisor's own bookkeeping intact — only the
+  /// process table shows the damage.
+  @Test func twoOverlappingRestartsLeaveExactlyOneLiveChild() async throws {
+    let (launch, cleanup) = try fakeScript("sleep 60\n")
+    defer { cleanup() }
+    let sut = supervisor(launch, health: { true })
+    await sut.start()
+    for _ in 0..<3 {
+      let first = Task { await sut.restart(gracePeriod: 0.3) }
+      try await Task.sleep(for: .milliseconds(5))
+      let second = Task { await sut.restart(gracePeriod: 0.3) }
+      await first.value
+      await second.value
+      let pid = try #require(await sut.state.pid)
+      #expect(processIsAlive(pid))
+      #expect(processCommandCount(containing: launch.arguments[0]) == 1)
+    }
+    await sut.stop(gracePeriod: 0.3)
+    #expect(processCommandCount(containing: launch.arguments[0]) == 0)
+  }
+
+  /// HI-1. A child that is already dead when the health budget runs out is a
+  /// crash, not a health timeout — `.healthTimeout` is only for a child that is
+  /// still there and refusing to answer. With an injected clock that spends no
+  /// real time, the whole 60-poll budget can run before the dead child's pipe
+  /// EOF has even been delivered, so the budget's end must be settled against
+  /// the OS rather than against how much wall time happened to pass.
+  @Test func anAlreadyDeadChildIsNotMislabelledAsAHealthTimeout() async throws {
+    let (launch, cleanup) = try fakeScript("exit 1\n")
+    defer { cleanup() }
+    var policy = LocalServerSupervisor.RestartPolicy()
+    policy.maxRestarts = 0  // the first crash is the last one
+    let sut = supervisor(launch, health: { false }, policy: policy)
+    await sut.start()
+    try await waitUntil(timeout: 10) { await sut.state == .failed(.crashLoop(restarts: 0)) }
+  }
+
+  /// HI-2. `.running(pid:)` is a promise that the server answers requests, so
+  /// spawning alone must not claim it: the state stays `.starting` until
+  /// `/api/health` says yes. The gated clock parks on `waitForHealth()`'s own
+  /// poll interval, which holds the mid-poll moment open with no real sleep.
+  @Test func aSpawnedChildIsNotCalledRunningUntilHealthPasses() async throws {
+    let (launch, cleanup) = try fakeScript("sleep 30\n")
+    defer { cleanup() }
+    let healthy = Mutex(false)
+    let clock = GatedTestClock(gating: 0.5)
+    let sut = supervisor(launch, health: { healthy.withLock { $0 } }, clock: clock)
+    let starting = Task { await sut.start() }
+    try await waitUntil { await clock.slept.contains(0.5) }  // the first poll said no
+    #expect(await sut.state == .starting)
+    healthy.withLock { $0 = true }
+    await clock.release()
+    await starting.value
+    #expect(await sut.state.isRunning)
+    await sut.stop(gracePeriod: 0.3)
+  }
+
+  /// ME-1. One `lastExitCode` slot is read by every generation, so the dead
+  /// first child's code must not make the live, hung second child look dead —
+  /// which would leave it running behind a state that never reports it.
+  @Test func aPreviousChildsExitCodeNeverStandsInForTheCurrentOne() async throws {
+    let (launch, cleanup) = try fakeScript(
+      """
+      if [ -f ran ]; then
+        sleep 30
+      else
+        : > ran
+        exit 7
+      fi
+      """)
+    defer { cleanup() }
+    let sut = supervisor(launch, health: { false })
+    await sut.start()
+    try await waitUntil(timeout: 15) { await sut.state == .failed(.healthTimeout) }
+    try await waitUntil { processCommandCount(containing: launch.arguments[0]) == 0 }
   }
 }
 

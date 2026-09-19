@@ -57,10 +57,6 @@ public struct LocalServerLaunch: Sendable {
 public actor LocalServerSupervisor {
   static let logger = Logger(subsystem: "run.shepherd.mac", category: "localserver")
 
-  /// A child that prints megabytes without a newline must not grow the pump's
-  /// buffer without bound; at this size the partial line is flushed as-is.
-  private static let maxPartialLineBytes = 64 * 1024
-
   /// At most `maxRestarts` within `window` seconds, then stop trying.
   public struct RestartPolicy: Sendable {
     public var maxRestarts = 3
@@ -86,15 +82,18 @@ public actor LocalServerSupervisor {
   private var supervision: Task<Void, Never>?
   private var crashTimes: [Date] = []
 
-  /// Bumped on every `spawn()`. A pump captures the generation of the child it
-  /// is reading; `childStreamEnded(generation:)` ignores a report whose
-  /// generation is stale. `stop()` cancels the pump, but Swift Task
-  /// cancellation does not abort an in-flight `for await` loop over the pipe's
-  /// chunks, so a late EOF from the child being stopped can still reach the
-  /// actor after `restart()` has already spawned the next one. Without this
-  /// guard that stale report reads `terminationStatus` off the *new*, still
-  /// running `Process` — an `NSInvalidArgumentException` crash — and can also
-  /// trigger a spurious extra restart.
+  /// Bumped on every `spawn()`, and the identity of one child for everything
+  /// that outlives a suspension point: the pump's exit report, the exit code
+  /// the termination handler publishes, and the health poll.
+  ///
+  /// An actor serializes calls; it does not stop one from being interleaved
+  /// with another *at an `await`*. So every path that suspends re-checks
+  /// `generation == spawnGeneration && !stopping` on the way back — not just
+  /// on the way in. `childStreamEnded` in particular used to check once and
+  /// then wait up to 500 ms for the exit code: a `restart()` landing in that
+  /// window spawned the next child, and the stale report resumed to clear
+  /// *its* pid and process and start a third one, leaving the second alive and
+  /// unowned.
   private var spawnGeneration = 0
 
   /// Set while the child is torn down on purpose, so the exit that follows is
@@ -113,14 +112,54 @@ public actor LocalServerSupervisor {
   /// `Mutex<Process?>` would not compile — `Process` is not `Sendable`.
   private let livePID = Mutex<Int32?>(nil)
 
+  /// One child's exit, carrying the generation it belongs to. The code alone
+  /// would be ambiguous: this one slot is written by every child's
+  /// `terminationHandler` and read by whichever generation happens to be
+  /// asking, so an untagged value let a dead child's code answer for the child
+  /// that replaced it — reported as its exit code, and, worse, read as proof
+  /// that a live but hung child had already died.
+  private struct ChildExit: Sendable {
+    let generation: Int
+    let code: Int32
+  }
+
   /// Set from `Process.terminationHandler`, which Foundation only invokes once
   /// `terminationStatus` is actually valid. The pipe's EOF is a *separate*
   /// notification with no ordering guarantee against it — reading
   /// `terminationStatus` directly from the EOF path raced Foundation's own
   /// bookkeeping and threw `NSInvalidArgumentException` ("task still
-  /// running"). `childStreamEnded` waits briefly on this instead of ever
-  /// touching `terminationStatus` itself.
-  private let lastExitCode = Mutex<Int32?>(nil)
+  /// running"). Everything here waits on this instead of ever touching
+  /// `terminationStatus` itself.
+  private let lastExitCode = Mutex<ChildExit?>(nil)
+
+  /// Serializes the lifecycle operations — `start`, `stop`, `restart`, and the
+  /// crash loop's `relaunch` — against each other. Actor isolation alone does
+  /// not: each of them suspends (the grace-period wait, the health poll), and
+  /// every suspension hands the actor to the next caller *mid-operation*. Two
+  /// overlapping `restart()`s interleaved exactly that way — the second one's
+  /// `stop()` resumed still holding the first child's pid, cleared the pid of
+  /// the replacement the first `restart()` had already spawned, cancelled its
+  /// pump and declared the supervisor `.stopped`, while its own `start()`
+  /// spawned a third child. One live server, two processes.
+  private var lifecycleBusy = false
+  private var lifecycleWaiters: [CheckedContinuation<Void, Never>] = []
+
+  private func beginLifecycle() async {
+    while lifecycleBusy {
+      await withCheckedContinuation { lifecycleWaiters.append($0) }
+    }
+    lifecycleBusy = true
+  }
+
+  private func endLifecycle() {
+    lifecycleBusy = false
+    let waiters = lifecycleWaiters
+    lifecycleWaiters.removeAll()
+    // All of them; each re-checks the flag above, so exactly one proceeds and
+    // the rest park again. Resuming only the first would strand the others
+    // whenever that one's own `while` sees the flag already retaken.
+    for waiter in waiters { waiter.resume() }
+  }
 
   public init(
     environment: LocalServerEnvironment,
@@ -156,19 +195,9 @@ public actor LocalServerSupervisor {
 
   /// Spawns the child and waits until it answers `/api/health`. Idempotent.
   public func start() async {
-    guard !state.isRunning, state != .starting else { return }
-    guard let launch = makeLaunch() else {
-      state = .failed(.bunMissing)
-      return
-    }
-    stopping = false
-    state = .starting
-    do { try spawn(launch) } catch {
-      Self.logger.error("spawn failed: \(String(describing: error), privacy: .public)")
-      state = .failed(.bunMissing)
-      return
-    }
-    await waitForHealth()
+    await beginLifecycle()
+    defer { endLifecycle() }
+    await startChild()
   }
 
   /// SIGTERM, then SIGKILL after the grace period. Cancels the pumps first, so
@@ -176,14 +205,53 @@ public actor LocalServerSupervisor {
   public func stop() async { await stop(gracePeriod: 5) }
 
   /// `gracePeriod` is internal-only (default 5 s via `stop()`) so tests can
-  /// exercise the wait without a multi-second run. Deliberately does not call
-  /// the nonisolated `terminateNow()`: that one busy-waits with `usleep`,
-  /// which blocks this *actor's* thread for the whole grace period and stalls
-  /// every other call on it — including a plain `state` read — until the
-  /// child dies or the grace period elapses. This waits with `Task.sleep`
-  /// instead, a real suspension point that lets other actor-isolated work run
-  /// in between.
+  /// exercise the wait without a multi-second run.
   func stop(gracePeriod: TimeInterval) async {
+    await beginLifecycle()
+    defer { endLifecycle() }
+    await stopChild(gracePeriod: gracePeriod)
+  }
+
+  public func restart() async { await restart(gracePeriod: 5) }
+
+  /// One lifecycle turn, not a `stop()` followed by an unrelated `start()`:
+  /// holding the gate across both is what stops a second `restart()` from
+  /// resuming in the middle of this one.
+  func restart(gracePeriod: TimeInterval) async {
+    await beginLifecycle()
+    defer { endLifecycle() }
+    await stopChild(gracePeriod: gracePeriod)
+    // An operator's own restart forgives the crashes before it, so a server
+    // that dies now and then stays supervised instead of accumulating into a
+    // crash loop.
+    crashTimes.removeAll()
+    await startChild()
+  }
+
+  private func startChild() async {
+    guard !state.isRunning, state != .starting else { return }
+    guard let launch = makeLaunch() else {
+      state = .failed(.bunMissing)
+      return
+    }
+    stopping = false
+    state = .starting
+    let generation: Int
+    do { generation = try spawn(launch) } catch {
+      Self.logger.error("spawn failed: \(String(describing: error), privacy: .public)")
+      state = .failed(.bunMissing)
+      return
+    }
+    await waitForHealth(generation: generation)
+  }
+
+  /// Deliberately does not call the nonisolated `terminateNow()`: that one
+  /// busy-waits with `usleep`, which blocks this *actor's* thread for the whole
+  /// grace period and stalls every other call on it — including a plain `state`
+  /// read — until the child dies or the grace period elapses. This waits with
+  /// `Task.sleep` instead, a real suspension point that lets other
+  /// actor-isolated work run in between.
+  private func stopChild(gracePeriod: TimeInterval) async {
     // Unconditional, and before the cancel below: a `supervision` task already
     // past its own `Task.isCancelled` check is about to call `relaunch()`,
     // which is the second, belt-and-suspenders line of defence against it.
@@ -200,18 +268,15 @@ public actor LocalServerSupervisor {
         deliver(SIGKILL, to: pid)
         await reap(pid)
       }
-      livePID.withLock { $0 = nil }
+      // Only if it is still the pid this call set out to stop. Nothing else
+      // may spawn a child while the lifecycle gate is held, so in practice it
+      // always is; the guard keeps that a local fact rather than a global one.
+      livePID.withLock { if $0 == pid { $0 = nil } }
     }
     pump?.cancel()
     pump = nil
     process = nil
     if case .failed = state {} else { state = .stopped }
-  }
-
-  public func restart() async {
-    await stop()
-    crashTimes.removeAll()
-    await start()
   }
 
   /// Synchronous, actor-free child kill for `applicationWillTerminate`, which
@@ -227,7 +292,7 @@ public actor LocalServerSupervisor {
     let deadline = Date().addingTimeInterval(gracePeriod)
     while Date() < deadline {
       if kill(pid, 0) != 0 {
-        livePID.withLock { $0 = nil }
+        livePID.withLock { if $0 == pid { $0 = nil } }
         return
       }
       usleep(20_000)
@@ -242,10 +307,10 @@ public actor LocalServerSupervisor {
       if waitpid(pid, &status, WNOHANG) == pid { break }
       usleep(20_000)
     }
-    livePID.withLock { $0 = nil }
+    livePID.withLock { if $0 == pid { $0 = nil } }
   }
 
-  /// Async counterpart of the reap loop in `terminateNow()`, for `stop()`'s
+  /// Async counterpart of the reap loop in `terminateNow()`, for `stopChild()`'s
   /// non-blocking path.
   private func reap(_ pid: Int32) async {
     var status: Int32 = 0
@@ -269,7 +334,15 @@ public actor LocalServerSupervisor {
     }
   }
 
-  private func spawn(_ launch: LocalServerLaunch) throws {
+  /// A child that logs far faster than the actor can drain it (a runaway loop,
+  /// say) must not grow the pump's buffer without limit. 4096 chunks is
+  /// generous for a log pump; past that, the oldest unread chunks are dropped
+  /// so memory stays bounded instead of the operator's log.
+  private static let chunkBufferCapacity = 4096
+
+  /// Returns the new child's generation, so its caller can carry that identity
+  /// through every suspension point that follows.
+  private func spawn(_ launch: LocalServerLaunch) throws -> Int {
     let pipe = Pipe()
     let child = Process()
     child.executableURL = launch.executable
@@ -280,83 +353,38 @@ public actor LocalServerSupervisor {
     // and two pipes would need two pumps and could deadlock on a full buffer.
     child.standardOutput = pipe
     child.standardError = pipe
-    lastExitCode.withLock { $0 = nil }  // clear the previous child's code, if any
+    // Bumped before `run()` so the termination handler can tag its exit code
+    // with the generation it belongs to. A spawn that throws still burns a
+    // generation, which is harmless: it only invalidates reports about a child
+    // that was never started.
+    spawnGeneration += 1
+    let generation = spawnGeneration
     child.terminationHandler = { [weak self] proc in
-      self?.lastExitCode.withLock { $0 = proc.terminationStatus }
+      self?.lastExitCode.withLock {
+        $0 = ChildExit(generation: generation, code: proc.terminationStatus)
+      }
     }
     try child.run()
 
     process = child
     let pid = child.processIdentifier
     livePID.withLock { $0 = pid }
-    state = .running(pid: pid)
-    spawnGeneration += 1
-    let generation = spawnGeneration
+    // Not `.running(pid:)`: that is a promise the server answers requests, and
+    // nothing has asked it yet. `waitForHealth()` promotes it once `/api/health`
+    // says yes.
+    state = .starting
     Self.logger.info("local server started, pid \(pid, privacy: .public)")
 
-    let chunks = Self.chunks(from: pipe.fileHandleForReading)
+    let handle = pipe.fileHandleForReading
     pump = Task { [weak self] in
-      // A pipe read boundary is not a line boundary: bytes are accumulated here
-      // and split on "\n", so `BootLineScanner` — which only understands whole
-      // lines — never sees half of the password banner.
-      var partial: [UInt8] = []
-      func flush() async {
-        guard !partial.isEmpty else { return }
-        let line = Self.decodeLine(partial)
-        partial.removeAll(keepingCapacity: true)
+      await ProcessOutputPump.pump(
+        handle, bufferingPolicy: .bufferingNewest(Self.chunkBufferCapacity)
+      ) { line in
         await self?.ingest(line)
       }
-      for await chunk in chunks {
-        for byte in chunk {
-          if byte == UInt8(ascii: "\n") {
-            await flush()
-          } else {
-            partial.append(byte)
-            if partial.count >= Self.maxPartialLineBytes { await flush() }
-          }
-        }
-      }
-      await flush()  // whatever the child printed without a final newline
       await self?.childStreamEnded(generation: generation)
     }
-  }
-
-  /// The child's merged stdout/stderr as ordered chunks.
-  ///
-  /// Deliberately not `FileHandle.bytes`: that sequence serializes every handle
-  /// in the process onto one reader, so a pump still parked on a dead child's
-  /// pipe starves the next child's output entirely — and it offers no way to let
-  /// go of the handle. `readabilityHandler` fires on the handle's own queue, in
-  /// order, and `onTermination` detaches it when the pump is cancelled, so the
-  /// `Pipe` deallocates and closes both descriptors.
-  /// Bounded rather than `.unbounded`: a child that logs far faster than the
-  /// actor can drain it (a runaway loop, say) must not grow this buffer
-  /// without limit. 4096 chunks is generous for a log pump; past that, the
-  /// oldest unread chunks are dropped so memory stays bounded instead of the
-  /// operator's log.
-  private static let chunkBufferCapacity = 4096
-
-  private nonisolated static func chunks(from handle: FileHandle) -> AsyncStream<Data> {
-    AsyncStream(Data.self, bufferingPolicy: .bufferingNewest(chunkBufferCapacity)) { continuation in
-      handle.readabilityHandler = { handle in
-        let data = handle.availableData
-        if data.isEmpty {  // EOF: the child closed its end
-          handle.readabilityHandler = nil
-          continuation.finish()
-        } else {
-          continuation.yield(data)
-        }
-      }
-      continuation.onTermination = { _ in handle.readabilityHandler = nil }
-    }
-  }
-
-  /// One buffered line, minus the `\r` of a `\r\n` pair. Invalid UTF-8 is
-  /// repaired rather than dropped — child output is not ours to trust.
-  private static func decodeLine(_ bytes: [UInt8]) -> String {
-    var bytes = bytes
-    if bytes.last == UInt8(ascii: "\r") { bytes.removeLast() }
-    return String(decoding: bytes, as: UTF8.self)
+    return generation
   }
 
   /// One line of child output. Nothing here reaches os.Logger: the child may
@@ -370,24 +398,31 @@ public actor LocalServerSupervisor {
   }
 
   private func childStreamEnded(generation: Int) async {
-    // A stale report from a child this supervisor has already moved past —
-    // see `spawnGeneration`'s doc comment.
-    guard generation == spawnGeneration else { return }
-    guard !stopping else { return }
-    let code = await exitCode()
+    guard generation == spawnGeneration, !stopping else { return }
+    let code = await exitCode(generation: generation)
+    // Again, on the way back: `exitCode()` waits on the termination handler,
+    // and a `restart()` landing in that window has already spawned the next
+    // child. Acting on this stale report would clear that child's pid and
+    // process — orphaning it — and then start a third one.
+    guard generation == spawnGeneration, !stopping else { return }
     livePID.withLock { $0 = nil }
     process = nil
     Self.logger.error("local server exited with \(code, privacy: .public)")
-    await handleCrash(exitCode: code)
+    await handleCrash(exitCode: code, generation: generation)
   }
 
   /// The child has already closed its pipe by the time this is called, so
   /// `terminationHandler` firing is imminent, not a wait on a live process —
   /// see `lastExitCode`'s doc comment for why this never reads
   /// `terminationStatus` directly.
-  private func exitCode() async -> Int32 {
+  private func exitCode(generation: Int) async -> Int32 {
     for _ in 0..<25 {
-      if let code = lastExitCode.withLock({ $0 }) { return code }
+      if let exit = lastExitCode.withLock({ $0 }), exit.generation == generation {
+        return exit.code
+      }
+      // Nothing left to wait for once this supervisor has moved past the child
+      // being asked about.
+      guard generation == spawnGeneration, !stopping else { return -1 }
       try? await Task.sleep(for: .milliseconds(20))
     }
     return -1
@@ -396,35 +431,56 @@ public actor LocalServerSupervisor {
   /// Polls health for up to 30 s. Readiness is the health answer, not the ready
   /// line: the line is a nicety the server may stop printing, `/api/health` is
   /// the contract.
-  private func waitForHealth() async {
+  private func waitForHealth(generation: Int) async {
     for _ in 0..<60 {
       if Task.isCancelled || stopping { return }
       if await health() {
+        // The health answer is about the child that was live when it was
+        // asked; a stop or the next spawn can land in that await.
+        guard generation == spawnGeneration, !stopping else { return }
         if let pid = livePID.withLock({ $0 }) { state = .running(pid: pid) }
         return
       }
+      guard generation == spawnGeneration, !stopping else { return }
       if process == nil { return }  // died meanwhile; childStreamEnded handles it
       try? await clock.sleep(for: 0.5)
-      // `clock` can be a test double whose `sleep` returns without spending
-      // any real time (a fixed backoff assertion needs exactly that). Without
-      // ever spending real time, all 60 iterations here can run faster than
-      // the pipe's EOF is delivered and `childStreamEnded` gets a turn on
-      // this actor — outrunning a child that has, in reality, already exited.
-      // A short real sleep guarantees the scheduler a chance to catch up.
-      try? await Task.sleep(for: .milliseconds(2))
+      // `clock` is injected and arbitrary — a test double's `sleep` may return
+      // without spending any real time at all.
+      guard generation == spawnGeneration, !stopping else { return }
     }
-    // The child never answered — but it may well still be running (hung, not
-    // dead), so this must not be reported as `.exited`, which would claim the
-    // process is gone when it is not. Tear it down so nothing keeps running
-    // unsupervised behind a state that says otherwise.
-    await stop()
+    // The budget is spent, and "never answered" is not "dead": a hung child is
+    // still there and must be torn down, a crashed one belongs to
+    // `childStreamEnded`'s restart accounting. Ask the OS which it is rather
+    // than inferring it from how much wall time happened to pass — under a
+    // clock that spends none, all 60 polls above can run before a dead child's
+    // pipe EOF has even been delivered.
+    if await childHasExited(generation: generation) { return }
+    guard generation == spawnGeneration, !stopping else { return }
+    await stopChild(gracePeriod: 5)
     state = .failed(.healthTimeout)
+  }
+
+  /// Whether this child is already gone. `kill(pid, 0)` cannot answer it on its
+  /// own — a dead child Foundation has not reaped yet is a zombie, and a zombie
+  /// still answers `kill` — so this waits a bounded amount of *real* time for
+  /// the termination handler, the one signal that is never ambiguous.
+  private func childHasExited(generation: Int) async -> Bool {
+    for _ in 0..<25 {
+      // Already accounted for, or no longer ours to judge.
+      guard generation == spawnGeneration, !stopping else { return true }
+      if process == nil { return true }
+      if let exit = lastExitCode.withLock({ $0 }), exit.generation == generation { return true }
+      if let pid = livePID.withLock({ $0 }), kill(pid, 0) != 0 { return true }
+      try? await Task.sleep(for: .milliseconds(20))
+    }
+    return false
   }
 
   /// `maxRestarts` within `window`, with `backoff` between them, then give up
   /// and leave `.failed(.crashLoop:)` on screen.
-  private func handleCrash(exitCode: Int32) async {
+  private func handleCrash(exitCode: Int32, generation: Int) async {
     let now = await clock.now
+    guard generation == spawnGeneration, !stopping else { return }
     crashTimes.append(now)
     crashTimes.removeAll { now.timeIntervalSince($0) > policy.window }
 
@@ -442,11 +498,16 @@ public actor LocalServerSupervisor {
     }
   }
 
+  /// Takes the lifecycle gate like every other spawn/teardown path: a backoff
+  /// that expires while an operator's `stop()` or `restart()` is mid-flight
+  /// must queue behind it, not spawn into the middle of it.
   private func relaunch() async {
+    await beginLifecycle()
+    defer { endLifecycle() }
     guard !stopping, let launch = makeLaunch() else { return }
     do {
-      try spawn(launch)
-      await waitForHealth()
+      let generation = try spawn(launch)
+      await waitForHealth(generation: generation)
     } catch { state = .failed(.bunMissing) }
   }
 }

@@ -16,8 +16,16 @@ public enum ProcessOutputPump {
   /// type doc comment for why not `FileHandle.bytes`). `onTermination` detaches the
   /// handler when the consumer stops iterating, so the underlying `Pipe` deallocates
   /// and closes both descriptors.
-  public static func chunks(from handle: FileHandle) -> AsyncStream<Data> {
-    AsyncStream(Data.self, bufferingPolicy: .unbounded) { continuation in
+  ///
+  /// `bufferingPolicy` is the caller's: an installer run is bounded by the script
+  /// itself and keeps every chunk, while a long-lived server the supervisor watches
+  /// may log faster than the actor drains it and caps the buffer instead, dropping the
+  /// oldest unread chunks so memory stays bounded rather than the operator's log.
+  public static func chunks(
+    from handle: FileHandle,
+    bufferingPolicy: AsyncStream<Data>.Continuation.BufferingPolicy = .unbounded
+  ) -> AsyncStream<Data> {
+    AsyncStream(Data.self, bufferingPolicy: bufferingPolicy) { continuation in
       handle.readabilityHandler = { handle in
         let data = handle.availableData
         if data.isEmpty {  // EOF: the child closed its end
@@ -35,7 +43,11 @@ public enum ProcessOutputPump {
   /// trailing `"\r"`, calling `onLine` for each one — including a final line with no
   /// trailing newline. Invalid UTF-8 is repaired rather than dropped: child output is
   /// not ours to trust.
-  public static func pump(_ handle: FileHandle, onLine: (String) async -> Void) async {
+  public static func pump(
+    _ handle: FileHandle,
+    bufferingPolicy: AsyncStream<Data>.Continuation.BufferingPolicy = .unbounded,
+    onLine: (String) async -> Void
+  ) async {
     var partial: [UInt8] = []
     func flush() async {
       guard !partial.isEmpty else { return }
@@ -45,7 +57,7 @@ public enum ProcessOutputPump {
       partial.removeAll(keepingCapacity: true)
       await onLine(line)
     }
-    for await chunk in chunks(from: handle) {
+    for await chunk in chunks(from: handle, bufferingPolicy: bufferingPolicy) {
       for byte in chunk {
         if byte == UInt8(ascii: "\n") {
           await flush()

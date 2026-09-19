@@ -58,6 +58,29 @@ struct ShepherdClientWriteTests {
     #expect(decoded.prompt == "do the thing")
   }
 
+  @Test("force survives the round trip into the request body")
+  func sendsForce() async throws {
+    let server = FakeShepherdServer()
+    defer { server.tearDown() }
+    server.stub(
+      "POST", "/api/sessions", status: 201,
+      json: try Fixtures.json(Fixtures.session(id: "new")))
+    let client = try makeClient(server)
+
+    _ = try await client.createSession(
+      CreateSessionRequest(
+        repoPath: "/repos/demo", baseBranch: "main", prompt: "do the thing", force: true))
+
+    let body = try #require(server.requests().last?.body)
+    // Decoding would accept a missing `force` as nil, so assert on the JSON
+    // the server actually received: the usage-hold bypass has to be on the
+    // wire, not merely in the Swift value.
+    let json = try #require(
+      try JSONSerialization.jsonObject(with: body) as? [String: Any])
+    #expect(json["force"] as? Bool == true)
+    #expect(try JSONDecoder().decode(CreateSessionRequest.self, from: body).force == true)
+  }
+
   @Test("409 first_run_pending becomes firstRunPending")
   func firstRunPending() async throws {
     let server = FakeShepherdServer()

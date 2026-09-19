@@ -25,6 +25,7 @@
     "check:model-mirror": "node scripts/check-model-mirror.mjs",
     "check:fallow-pin": "node scripts/check-fallow-pin.mjs",
     "check:env-schema": "VARLOCK_TELEMETRY_DISABLED=1 varlock audit src scripts deploy",
+    "check:env-schema-docs": "node scripts/check-env-schema-docs.mjs",
     "next-version": "node scripts/next-version.mjs",
     "gen:herdr-schema": "bun run scripts/gen-herdr-schema.ts",
     "gen:herdr-types": "bun run scripts/gen-herdr-types.ts",

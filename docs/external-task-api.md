@@ -57,6 +57,17 @@ its hostname to `SHEPHERD_ALLOWED_HOSTS`.
 | **Auth**             | Gated by default (operator password → session cookie) | Machine clients can't use the browser login, so they authenticate with a bearer: `Authorization: Bearer <token>` on every request. Two sources, both accepted at once — mint a **named token** in the HUD under Settings → Access (recommended; revocable per client, no restart, and carries a **scope** — see below), or set `SHEPHERD_TOKEN=<random>` in the server's environment (the deployment-provisioned option; no scope, always full reach). Without a valid cookie or bearer the request is `401` |
 | **Repo confinement** | `SHEPHERD_REPO_ROOT` = `~` (home)                     | `repoPath` must resolve **inside** the root, or the request is rejected `400`                                                                                                                                                                                                                                                                                                                                                                                                                                |
 
+### The one unauthenticated route
+
+`GET /api/health` is the single route that passes the auth gate
+un-credentialed (`isPublicRequest`, `src/server.ts`) — a liveness probe a client
+can hit before it holds any credential. It answers
+`200 { "ok": true, "version": "<shepherd package version>" }`; a `HEAD` gets a
+bare `200` with no body. The version is the root `package.json` version
+(`SHEPHERD_VERSION`, `src/version.ts`), so a client that pins an API contract can
+compare it against its own before it tries anything else. Everything else under
+`/api` — including every route below — is gated.
+
 ### Recommended setup for a remote agent
 
 1. Expose the core to the agent's network — prefer **Tailscale serve** over

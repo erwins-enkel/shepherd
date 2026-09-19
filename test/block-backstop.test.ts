@@ -414,16 +414,53 @@ describe("BlockBackstop — episodes", () => {
     const h = harness();
     h.backstop.hold("s1", menu());
     await h.answer(0.95);
+    h.advance(BACKSTOP_REASK_MS); // the hold is spent, so the episode is collectable
     h.backstop.release("s1");
-    h.advance(BACKSTOP_REASK_MS);
     expect(h.backstop.hold("s1", menu())).toBe(true);
     expect(h.asks).toHaveLength(2);
+  });
+
+  test("release REFUSES to cut a live hold short", async () => {
+    // Its callers are per-tick, not edges — a session holding a block sits at a non-blocked status
+    // for the whole hold, and the poller drops this state on every such tick. Deleting the episode
+    // there would throw away the answer we paid for and collapse the hold to one cadence.
+    const h = harness();
+    expect(h.backstop.hold("s1", menu())).toBe(true);
+    await h.answer(0.95);
+
+    for (let t = 3_000; t < BACKSTOP_MAX_HOLD_MS; t += 3_000) {
+      h.backstop.release("s1"); // every tick, as the poller does
+      h.advance(3_000);
+      expect(h.backstop.hold("s1", menu())).toBe(true);
+    }
+    expect(h.asks).toHaveLength(1); // one ask for the whole hold, and the answer survived
+
+    h.advance(3_000); // past the band
+    expect(h.backstop.hold("s1", menu())).toBe(false);
+  });
+
+  test("a dialog that never goes away is held once, not once per band", async () => {
+    // The release runs per tick, immediately BEFORE the classify — so at the tick its hold expires
+    // the episode is both collectable and about to be consulted again. Collecting it there would
+    // start a fresh episode, ask again and hold again: a dialog held in perpetuity, one band at a
+    // time, paying for an ask every interval.
+    const h = harness();
+    h.backstop.hold("s1", menu());
+    await h.answer(0.95);
+
+    for (let elapsed = 3_000; elapsed <= 60_000; elapsed += 3_000) {
+      h.backstop.release("s1"); // per tick, as the poller does
+      h.advance(3_000);
+      const held = h.backstop.hold("s1", menu()); // and the block is still on screen
+      expect(held).toBe(elapsed < BACKSTOP_MAX_HOLD_MS);
+    }
+    expect(h.asks).toHaveLength(1);
   });
 
   test("a flapping pane cannot buy an ask faster than the re-ask interval", async () => {
     const h = harness();
     h.backstop.hold("s1", menu());
-    await h.answer(0.95);
+    await h.answer(0.2); // announce-now, so the episode is collectable immediately
     for (let i = 0; i < 4; i++) {
       h.backstop.release("s1");
       h.advance(3_000); // one cadence per flip — 12s total, inside the interval
@@ -435,7 +472,7 @@ describe("BlockBackstop — episodes", () => {
   test("an answer that lands after its episode was released cannot resurrect it", async () => {
     const h = harness();
     h.backstop.hold("s1", menu());
-    h.backstop.release("s1");
+    h.backstop.forget("s1"); // the session went away mid-flight
     await h.answer(0.95);
     // The row is still logged — the measurement is valid whatever happened to the pane — but the
     // next episode starts clean rather than inheriting a 15s hold.

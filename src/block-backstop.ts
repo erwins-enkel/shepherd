@@ -74,6 +74,16 @@ export const BACKSTOP_REASK_MS = BACKSTOP_MAX_HOLD_MS;
  *  is not treated as expired before the answer has been written back. */
 const POLL_SLACK_MS = 1_000;
 
+/** How long after the last sighting of its gated block an episode stays uncollectable.
+ *
+ *  Comfortably more than the poller's classify cadence (`reclassifyMs`, 3s in production), because
+ *  an episode is "seen" once per cadence for as long as its block is on screen. Collecting one
+ *  while its block is still there would let the next classify build a fresh episode, ask again and
+ *  hold again — a dialog held in perpetuity, one band at a time. The boundary case is real rather
+ *  than theoretical: the per-tick release runs immediately BEFORE the classify that would have
+ *  announced the block, at the very tick its hold expires. */
+const BACKSTOP_SEEN_MS = 10_000;
+
 /** How much of the tail the log row keeps. Tails are bulky and the log is retained for days. */
 export const BACKSTOP_TAIL_CLIP = 4_000;
 
@@ -192,6 +202,8 @@ export interface BlockBackstopDeps {
  *  episode is released. */
 interface Episode {
   firstSeenAt: number;
+  /** When its gated block was last observed — re-stamped every cadence the block is on screen. */
+  lastSeenAt: number;
   pending: boolean;
   /** null while no decision has landed yet. */
   decidedDelayMs: number | null;
@@ -236,37 +248,56 @@ export class BlockBackstop {
 
     let ep = this.episodes.get(sessionId);
     if (!ep) {
-      ep = { firstSeenAt: t, pending: false, decidedDelayMs: null };
+      ep = { firstSeenAt: t, lastSeenAt: t, pending: false, decidedDelayMs: null };
       this.episodes.set(sessionId, ep);
     }
+    ep.lastSeenAt = t;
 
     if (!ep.pending && ep.decidedDelayMs === null) this.start(sessionId, ep, reason, t, mode);
 
-    // Provisional while in flight, banded once decided — and capped either way, so the worst case is
-    // one bounded hold measured from the first sighting.
-    const provisional = this.deps.deadlineMs + POLL_SLACK_MS;
-    const budget = ep.decidedDelayMs ?? provisional;
-    const holdUntil = ep.firstSeenAt + Math.min(budget, BACKSTOP_MAX_HOLD_MS);
-    return mode === "armed" && t < holdUntil;
+    return mode === "armed" && t < this.holdUntil(ep);
+  }
+
+  /** When this episode's hold runs out: provisional while the call is in flight, banded once
+   *  decided, and capped either way — so the worst case is one bounded hold measured from the
+   *  block's first sighting. */
+  private holdUntil(ep: Episode): number {
+    const budget = ep.decidedDelayMs ?? this.deps.deadlineMs + POLL_SLACK_MS;
+    return ep.firstSeenAt + Math.min(budget, BACKSTOP_MAX_HOLD_MS);
   }
 
   /**
-   * End an episode. The next gated sighting starts a fresh one (subject to
-   * {@link BACKSTOP_REASK_MS}).
+   * End an episode, UNLESS it is still live: an answer is in flight, its hold has not run out, or
+   * its block was on screen within {@link BACKSTOP_SEEN_MS}. The next gated sighting then starts a
+   * fresh one (subject to {@link BACKSTOP_REASK_MS}).
    *
-   * Called from every edge that can end one, because a HELD block — which by definition was never
-   * announced — reaches none of them reliably on its own: the session leaving `blocked` (the
-   * complete edge), an explicit `clearBlock` (from ABOVE its `lastSig` early return, which a held
-   * block would otherwise fall foul of), and a reclassify to a non-gated shape, which is where a
-   * forgery that scrolled away actually ends up. Missing them all would leave the one-ask rule
-   * silencing this session's backstop for good and starve the shadow log the arming decision
-   * reads.
+   * The refusal is the load-bearing half. Its callers are not clean edges: the poller drops this
+   * state on any non-`blocked` status and inside `clearBlock`, both of which run on EVERY tick for
+   * a session that is merely idle — and a held block is exactly the case where the session can SIT
+   * at a non-`blocked` status, because Shepherd is the one holding the block back. Without the
+   * refusal a per-tick release would delete the episode between cadences, so every classify would
+   * build a fresh one: the answer's write-back would be dropped on the identity check, the paid `p`
+   * discarded, and the re-ask cooldown would decide the block — a one-cadence hold whatever the
+   * model said. The hook-driven path (`tryHookAwaitingBlock`, which classifies precisely when herdr
+   * has NOT latched `blocked`) reaches this every time.
+   *
+   * Once the hold has run out AND the block has stopped appearing, the episode is inert — its
+   * decision is spent and there is nothing left to apply it to — so the same per-tick calls collect
+   * it, which is what keeps the one-ask rule from silencing a session whose held block cleared
+   * without ever being announced.
    */
   release(sessionId: string): void {
+    const ep = this.episodes.get(sessionId);
+    if (!ep) return;
+    const t = this.now();
+    if (ep.pending) return; // an answer we have paid for is still coming
+    if (t < this.holdUntil(ep)) return; // the hold is live
+    if (t - ep.lastSeenAt < BACKSTOP_SEEN_MS) return; // the block itself is still on screen
     this.episodes.delete(sessionId);
   }
 
-  /** Drop per-session state for sessions that are gone. */
+  /** Drop per-session state for a session that is gone. Unconditional, unlike {@link release}:
+   *  there is no pane left to hold a block back from. */
   forget(sessionId: string): void {
     this.episodes.delete(sessionId);
     this.lastAskAt.delete(sessionId);

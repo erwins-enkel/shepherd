@@ -1097,11 +1097,13 @@ export class StatusPoller {
     if (status !== "blocked") {
       this.lastSuppressVisible.delete(s.id);
       if (this.workingWhileBlocked.delete(s.id)) this.onWorkingBlocked(s.id, false);
-      // #2375: and the backstop episode. This is the COMPLETE leaving-blocked edge — `clearBlock`
-      // is not, because it early-returns when nothing was announced and a HELD block is precisely
-      // the case with no `lastSig` entry. Without this edge the one-ask-per-episode rule would
-      // silence a session's backstop for good after its first held block, starving the shadow log
-      // the arming decision reads.
+      // #2375: and the backstop episode — but only once its hold has expired. This branch runs on
+      // EVERY tick of a non-`blocked` session, and a session HOLDING a gated block sits at exactly
+      // such a status (the hook path below classifies precisely when herdr has not latched
+      // `blocked`), so `release` refuses while the hold is live rather than deleting the episode
+      // between cadences. What it does do is collect a spent episode, including one whose held
+      // block cleared without ever being announced — the case `clearBlock` cannot reach, since it
+      // early-returns when nothing was announced.
       this.blockBackstop?.release(s.id);
     }
     this.onLeaveResting(s.id, s.status, status);
@@ -1811,6 +1813,15 @@ export class StatusPoller {
       console.warn(`[poller] classify failed for ${id}:`, err);
       return false; // best-effort; retry next cadence (didn't classify → didn't look)
     }
+    // #2375: a shape the backstop does not gate ENDS its episode, whatever happens to the emit
+    // below. Evaluated here rather than beside the `hold` consult because both paths below can
+    // return early — a suppressed fallback, and an unchanged tail hitting the sig dedup — and a
+    // pane that settles into an unchanged non-gated buffer would then never collect a spent
+    // episode, leaving the one-ask rule to silence the session. `release` refuses while a hold is
+    // still live, so this cannot cut one short.
+    if (this.blockBackstop && !BACKSTOP_GATED_SHAPES.has(reason.shape)) {
+      this.blockBackstop.release(id);
+    }
     if (reason.shape === "awaiting-input") {
       if (this.suppressAwaitingInput(s, visible, reason)) return true; // looked, suppressed emit
     } else {
@@ -1826,17 +1837,19 @@ export class StatusPoller {
     // dedup so a repainting dialog is not re-decided every cadence, and BEFORE the emit so a hold
     // simply withholds an announcement: `lastSig` is untouched while holding, which is what makes
     // "a block already announced is never retracted" true by construction rather than by a guard.
-    // A non-gated shape ENDS the episode — a forgery that scrolled away leaves the pane
-    // `awaiting-input` and never reaches `clearBlock`.
-    if (this.blockBackstop) {
-      if (!BACKSTOP_GATED_SHAPES.has(reason.shape)) this.blockBackstop.release(id);
-      // Returns FALSE ("did not look"), unlike the suppression path above, and the difference is
-      // load-bearing: a suppressed block is one the agent is not actually waiting on, while a HELD
-      // one is a block we still intend to announce. Returning false keeps `tryHookAwaitingBlock`'s
-      // marker, so a session whose only awaiting-input signal is the hook (herdr 0.7.5 never
-      // latches `blocked`) still surfaces it when the hold expires instead of losing it. The
-      // `lastReadAt` stamp is already set, so the retry is throttled to the normal cadence.
-      else if (this.blockBackstop.hold(id, reason)) return false; // announcement withheld
+    //
+    // A hold returns FALSE ("did not look"), unlike the suppression path above, and the difference
+    // is load-bearing: a suppressed block is one the agent is not actually waiting on, while a HELD
+    // one is a block we still intend to announce. Returning false keeps `tryHookAwaitingBlock`'s
+    // marker, so a session whose only awaiting-input signal is the hook (herdr 0.7.5 never latches
+    // `blocked`) still surfaces it when the hold expires instead of losing it. The `lastReadAt`
+    // stamp is already set, so the retry is throttled to the normal cadence.
+    if (
+      this.blockBackstop &&
+      BACKSTOP_GATED_SHAPES.has(reason.shape) &&
+      this.blockBackstop.hold(id, reason)
+    ) {
+      return false; // announcement withheld
     }
     // Re-arm: a block is about to be emitted → end the suppression episode FIRST so
     // the flag-off and the block reach clients in the same tick, in that order.
@@ -1964,8 +1977,9 @@ export class StatusPoller {
     this.lastAuthUrlEmitted.delete(id);
     // #2375: ABOVE the early return, deliberately. A HELD block has no `lastSig` entry by
     // definition, so a release below the guard would never run for exactly the episodes the
-    // backstop creates — and the one-ask-per-episode rule would then silence it for the rest of
-    // that session's life, starving the shadow log the arming decision depends on.
+    // backstop creates. `release` itself refuses while the hold is live — this runs on every tick
+    // of an idle session via `maybeQuota` — so it collects a spent episode without ever cutting a
+    // live hold short.
     this.blockBackstop?.release(id);
     if (!this.lastSig.has(id)) return;
     this.lastSig.delete(id);

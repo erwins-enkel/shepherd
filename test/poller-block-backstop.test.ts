@@ -3,6 +3,7 @@
 // that an announced block is never retracted, that a held (never-announced) episode is still
 // released, and that an unwired poller emits exactly as it did before the feature existed.
 import { test, expect } from "bun:test";
+import { config } from "../src/config";
 import { SessionStore } from "../src/store";
 import { StatusPoller } from "../src/poller";
 import { classifyBlocked, type BlockReason } from "../src/blocked";
@@ -229,15 +230,15 @@ test("a HELD, never-announced episode is still released when the block clears", 
   expect(r.asks).toBe(1);
 
   // The agent resumes. Nothing was announced, so `clearBlock`'s own early return skips its release
-  // entirely — the leaving-blocked edge in reconcileAgent is what has to catch this, or the episode
-  // is never released and the session can never be judged again.
+  // entirely — the per-tick drop in reconcileAgent is what has to collect this once the hold is
+  // spent, or the episode lives forever and the session can never be judged again.
   r.setStatus("working");
-  r.advance(3_000);
+  r.advance(16_000);
   await r.tick();
 
   // A fresh dialog, past the re-ask interval: the backstop must ask again.
   r.setStatus("blocked");
-  r.advance(16_000);
+  r.advance(3_000);
   await r.tick();
   expect(r.asks).toBe(2);
 });
@@ -256,10 +257,52 @@ test("a held episode whose pane reclassifies to a non-gated shape is released", 
   await r.tick();
   expect(r.blocks).toHaveLength(1); // the awaiting-input fallback, unheld
 
+  // The episode is collected on the first non-gated cadence past its (now spent) hold.
+  r.advance(16_000);
+  await r.tick();
+
   r.setBuffer(MENU);
-  r.advance(16_000); // past the re-ask interval
+  r.advance(3_000);
   await r.tick();
   expect(r.asks).toBe(2);
+});
+
+test("the hook path holds for the full band even though herdr never latches blocked", async () => {
+  // The path this regressed on. `tryHookAwaitingBlock` classifies precisely when herdr has NOT
+  // latched `blocked` — which is the whole point of the push-hook trigger, and for a sandboxed
+  // >=0.7.5 session it is also the steady state, because the pushed agent state derives from
+  // `lastBlockReason`, which stays empty for exactly as long as the block is held. So the session
+  // sits at a non-blocked status for the entire hold, and the per-tick episode drops on that branch
+  // (and in `clearBlock` via `maybeQuota`) run between every cadence. If either of them actually
+  // deleted the episode, each classify would build a fresh one: the answer's write-back would be
+  // dropped on the identity check, the paid `p` discarded, and the re-ask cooldown would collapse
+  // the hold to a single cadence whatever the model said.
+  const orig = config.hooksSignals;
+  config.hooksSignals = true;
+  try {
+    const r = rig("armed", 0.95);
+    r.setStatus("working"); // herdr never latches blocked; only the hook can surface this
+
+    r.poller.ingestNotification(r.sessionId, "permission_prompt");
+    await r.tick();
+    expect(r.blocks).toHaveLength(0); // held
+    expect(r.asks).toBe(1);
+
+    // Drive the full band one cadence at a time, as the real loop does.
+    for (let t = 3_000; t < 15_000; t += 3_000) {
+      r.advance(3_000);
+      await r.tick();
+      expect(r.blocks).toHaveLength(0);
+    }
+    expect(r.asks).toBe(1); // one ask for the whole hold — the episode survived every tick
+
+    r.advance(3_000); // past the band
+    await r.tick();
+    expect(r.blocks).toHaveLength(1);
+    expect(r.blocks[0]!.block!.shape).toBe("menu");
+  } finally {
+    config.hooksSignals = orig;
+  }
 });
 
 test("a flapping pane cannot buy an ask on every flip", async () => {

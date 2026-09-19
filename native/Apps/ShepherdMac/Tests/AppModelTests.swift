@@ -36,6 +36,24 @@ final class Gate {
     }
 }
 
+/// `Gate`'s `Sendable` twin, for the injected `credentialProbe` — that seam is
+/// a `@Sendable` closure, so what it holds cannot be main-actor-isolated.
+actor ProbeHold {
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var opened = false
+
+    func wait() async {
+        if opened { return }
+        await withCheckedContinuation { continuation = $0 }
+    }
+
+    func open() {
+        opened = true
+        continuation?.resume()
+        continuation = nil
+    }
+}
+
 /// Yields until `condition` holds or the budget runs out, and reports whether
 /// it held. Everything under test is main-actor work that a yield lets run, so
 /// there is nothing here to sleep for.
@@ -1107,5 +1125,64 @@ struct AppModelTests {
         await model.restoreActiveProfile()
         #expect(model.store == nil)
         #expect(model.activeProfile == nil)
+    }
+
+    /// The launch task is not first by contract. A Connect for a *different*
+    /// server writes `sheet = .login(that one)` and leaves `activeProfile`
+    /// alone, so a restore running afterwards would activate the persisted
+    /// profile and clear the sheet the operator just asked for.
+    @Test func restoringDoesNotOverruleALoginTheOperatorAlreadyAskedFor() async throws {
+        let name = UUID().uuidString
+        let defaults = UserDefaults(suiteName: name)!
+        defaults.removePersistentDomain(forName: name)
+        let persisted = ServerProfile(
+            id: UUID(),
+            name: "Studio",
+            baseURL: URL(string: "https://studio.example.ts.net")!,
+            mode: .remote,
+            credentialKey: "run.shepherd.mac.restored")
+        ProfileStore(defaults: defaults).save(profiles: [persisted], activeID: persisted.id)
+        let model = AppModel(defaults: defaults, credentials: InMemoryCredentialStore())
+
+        let chosen = try model.beginRemoteLogin(name: "Loft", address: "https://loft.example.ts.net")
+        await model.restoreActiveProfile()
+
+        #expect(model.sheet == .login(chosen))
+        #expect(model.store == nil)
+    }
+
+    /// The regression this file exists for: a Keychain read that never returns
+    /// used to leave the operator on a main window with an empty sidebar, no
+    /// banner and no sheet, for as long as they waited. `activate(_:)` now
+    /// bounds that read and asks for a fresh sign-in instead — which is also
+    /// what repairs the stored item.
+    @Test func aKeychainThatNeverAnswersAsksForAFreshSignInInsteadOfHanging() async throws {
+        let model = makeModel()
+        let profile = try remote(model, "studio")
+        let held = ProbeHold()
+        model.credentialProbe = { _, _ in await held.wait() }
+        model.credentialTimeout = .milliseconds(20)
+
+        await model.activate(profile)
+
+        #expect(model.store == nil)
+        #expect(model.activeProfile == nil)
+        #expect(model.sheet == .login(profile))
+        await held.open()
+    }
+
+    /// The same pre-flight must be invisible when the Keychain behaves: a store
+    /// is built, exactly as before.
+    @Test func aKeychainThatAnswersActivatesNormally() async throws {
+        let model = makeModel()
+        let profile = try remote(model, "studio")
+        model.credentialTimeout = .milliseconds(20)
+
+        await model.activate(profile)
+
+        #expect(model.store != nil)
+        #expect(model.activeProfile == profile)
+        #expect(model.sheet == nil)
+        model.teardown()
     }
 }

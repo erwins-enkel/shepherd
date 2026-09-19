@@ -50,7 +50,14 @@ struct RootView: View {
         .sheet(item: $model.sheet) { sheet in
             switch sheet {
             case .login(let profile):
-                LoginSheet(profile: profile) { model.sheet = nil }
+                // Narrow, not `model.sheet = nil`: this closure also runs after
+                // a *successful* sign-in, and by then `activate(_:)` has already
+                // cleared this sheet and the new activation's watcher may have
+                // routed the next one. Clearing unconditionally would take that
+                // one down with it — a `.firstRun` nobody would ever see again.
+                LoginSheet(profile: profile) {
+                    if case .login = model.sheet { model.sheet = nil }
+                }
             case .firstRun:
                 FirstRunSheet()
             case .newSession:

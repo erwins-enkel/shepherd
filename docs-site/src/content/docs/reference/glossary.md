@@ -141,8 +141,11 @@ branch locally; the operator pushes to a remote when they choose.
 
 A proposed house rule auto-promoted to active on strong, multi-source evidence,
 injected at lowest priority while it proves itself. It is auto-removed if it
-underperforms (Wilson auto-retire) or stays inert, and can be reverted to the
-queue by hand.
+underperforms (Wilson auto-retire), stays inert, or — while the relevance judge
+is armed — has been ruled on enough times and found relevant in none of them
+([#2382](https://github.com/erwins-enkel/shepherd/issues/2382)); a trial that was
+ever marked helpful is exempt from all of the reaper's branches. It can be
+reverted to the queue by hand.
 
 ### Weighted units
 

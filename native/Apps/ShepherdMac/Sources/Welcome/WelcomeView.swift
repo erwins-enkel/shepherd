@@ -111,12 +111,17 @@ struct WelcomeView: View {
                 }
                 .padding(.vertical, 6)
                 .accessibilityIdentifier("welcome-saved-\(profile.id.uuidString)")
+                // See WelcomeCard's own `.accessibilityElement(children: .contain)`:
+                // without it the row's identifier would swallow the connect and
+                // remove buttons' own identifiers.
+                .accessibilityElement(children: .contain)
             }
         }
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 12))
         .accessibilityIdentifier("welcome-saved-servers")
+        .accessibilityElement(children: .contain)
     }
 
     // MARK: - Connect to a remote server
@@ -187,5 +192,10 @@ private struct WelcomeCard<Content: View>: View {
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 12))
+        // Without this, macOS's AX bridge collapses every descendant's own
+        // accessibilityIdentifier (the text field, the connect button, …) onto
+        // whatever identifier the card container carries — `.contain` keeps
+        // this view as a group and lets each child stay its own AX element.
+        .accessibilityElement(children: .contain)
     }
 }

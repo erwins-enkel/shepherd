@@ -152,6 +152,24 @@ jobs:
           codesign --verify --strict "$APP"
 
       - name: Unit tests
-        # Blocking. The XCUITest bundle does not exist yet; it gets its own
-        # non-blocking job in a later PR.
+        # Blocking. The XCUITest bundle is deliberately NOT run here — see the
+        # shepherd-mac-ui job below.
         run: native/scripts/test-app.sh -only-testing:ShepherdTests
+
+  shepherd-mac-ui:
+    name: Shepherd for Mac (XCUITest)
+    runs-on: macos-latest
+    # Non-blocking on purpose. XCUITest needs a real GUI login session; on a
+    # hosted runner it is flaky in ways that have nothing to do with the diff.
+    # A red run here is a signal to look, not a reason to stop a merge. Promote
+    # it to blocking only after it has been green for a sustained run of PRs.
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: UI smoke test
+        run: native/scripts/test-app.sh -only-testing:ShepherdUITests

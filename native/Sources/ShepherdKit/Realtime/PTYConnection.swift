@@ -241,7 +241,17 @@ public actor PTYConnection {
   /// its own rather than hanging on a terminal nobody will feed again. A caller
   /// that reopens with `start()`/`takeOver()` takes fresh streams.
   public func stop() {
-    guard !stopped else { return }
+    guard !stopped else {
+      // Already parked: `handleClose` reported `.closed(.superseded)`,
+      // `.closed(.gone)` or `.closed(.unreachable)` and left the streams open on
+      // purpose, so `takeOver()` can reclaim the terminal on the same
+      // connection. There is no socket left to close and no `.closed(.stopped)`
+      // to stack on top of the verdict already delivered — but a caller saying
+      // `stop()` is done with this connection, so its `for await` loops still
+      // have to end.
+      finishTaps()
+      return
+    }
     stopped = true
     pump?.cancel()
     pump = nil
@@ -415,6 +425,96 @@ public actor PTYConnection {
     for tap in outputTaps.values { tap.yield(bytes) }
   }
 
+  /// What a dead socket means, and what happens next.
+  ///
+  /// The whole single-owner policy lives here: 4000 parks, 4001 ends, anything
+  /// else is a transient drop that reconnects with capped exponential backoff
+  /// until `maxFastFails` attaches in a row have died instantly. Mirrors
+  /// `ui/src/lib/pty.ts` (`parked`, `stopped`, `FAST_FAIL_MS`/`MAX_FAST_FAILS`)
+  /// so both clients behave the same against the same herdr.
+  ///
+  /// - Parameter closeCode: the raw WebSocket close code this socket carried,
+  ///   captured inside URLSession's completion callback before any hop back
+  ///   onto this actor (`nextFrame(on:)`), or `0` when it died with no close
+  ///   frame at all — a dropped network or a refused upgrade, both transient as
+  ///   far as policy is concerned. The policy switches on this *parameter*,
+  ///   never on `socket.closeCode` or on `task`: by the time this runs, a
+  ///   racing `stop()`/`takeOver()` may have cancelled that task with
+  ///   `.goingAway` (1001) and pointed `task` at a new socket or at `nil`.
+  ///   `URLSessionWebSocketTask.CloseCode` has no case for 4000 or 4001, so the
+  ///   comparison is on raw values, never on enum cases.
+  private func handleClose(of socket: URLSessionWebSocketTask, closeCode: Int) async {
+    // Before the guard: a `stop()` that won the race still wants the code
+    // recorded for the socket it actually belonged to.
+    lastCloseCode = closeCode
+    // A pump left running after `stop()`/`takeOver()` already replaced this
+    // socket must not report anything: the replacement owns the lifecycle now.
+    guard !stopped, task === socket else { return }
+    // Captured before the backoff sleep below, so the guard after it can tell
+    // this backoff window from a later one — same reason
+    // `EventStream.scheduleReconnect` captures it.
+    let capturedGeneration = connectionGeneration
+    task = nil
+
+    // The two single-owner codes are terminal by contract
+    // (`PTY_SUPERSEDED_CODE` / `PTY_GONE_CODE` in `src/server.ts`). Reconnecting
+    // after 4000 restarts the takeover war with the device that just won it —
+    // it would bump us straight back — and after 4001 it loops on herdr's
+    // `agent_not_found`. Both park `stopped` instead of retrying.
+    //
+    // The streams are deliberately *not* finished here, unlike in `stop()`:
+    // `takeOver()` reclaims a superseded terminal on the same connection, and
+    // its `.reattached` has to reach the `lifecycle()` stream the view is
+    // already reading.
+    if closeCode == Self.supersededCode {
+      stopped = true
+      ShepherdLog.realtime.notice("pty superseded by another client; parked")
+      deliver(lifecycle: .closed(.superseded))
+      return
+    }
+    if closeCode == Self.goneCode {
+      stopped = true
+      deliver(lifecycle: .closed(.gone))
+      return
+    }
+
+    // A socket that lived past the window carried a real session; anything
+    // shorter is an attach against a herdr that is not there. `everAttached` is
+    // deliberately not the test: a long-lived but silent terminal is healthy.
+    let lived = connectedAt.map { ContinuousClock.now - $0 } ?? .zero
+    if lived >= Self.fastFailWindow {
+      consecutiveFastFails = 0
+      currentReconnectDelay = reconnectDelay
+    } else {
+      consecutiveFastFails += 1
+    }
+    if consecutiveFastFails >= Self.maxFastFails {
+      stopped = true
+      // The one failure nothing else surfaces — the connection would otherwise
+      // retry quietly forever. Never the token, never the URL.
+      ShepherdLog.realtime.notice(
+        "pty gave up after \(Self.maxFastFails, privacy: .public) immediate failures")
+      deliver(lifecycle: .closed(.unreachable))
+      return
+    }
+
+    // Said before the sleep, so a view can repaint "reconnecting" immediately
+    // rather than after the delay.
+    deliver(lifecycle: .detached)
+    let delay = currentReconnectDelay
+    currentReconnectDelay = min(currentReconnectDelay * 2, maxReconnectDelay)
+    do {
+      try await Task.sleep(for: delay)
+    } catch {
+      return  // cancelled while waiting: `stop()`/`takeOver()` cancelled `pump`
+    }
+    // `task == nil` plus the generation check is the same guard
+    // `EventStream.scheduleReconnect` uses: `task == nil` alone cannot tell this
+    // backoff window from a later one that also opened and lost a socket while
+    // this continuation was queued.
+    guard !stopped, task == nil, connectionGeneration == capturedGeneration else { return }
+    connect()
+  }
 }
 
 /// The attach dimensions of a `PTYConnection`.
@@ -424,30 +524,5 @@ public struct PTYSize: Equatable, Sendable {
   public init(cols: Int, rows: Int) {
     self.cols = cols
     self.rows = rows
-  }
-}
-
-extension PTYConnection {
-  /// TEMPORARY (Task 2 only). Task 3 replaces this with the real close policy.
-  ///
-  /// - Parameter closeCode: the raw WebSocket close code this socket carried
-  ///   when it died, captured in URLSession's completion callback before any
-  ///   hop back onto this actor (`nextFrame(on:)`), or `0` when it closed with
-  ///   no close frame at all. Task 3 switches its close policy on this
-  ///   parameter — 4000 `.superseded`, 4001 `.gone`, everything else a backed
-  ///   off retry — and should keep reading the parameter rather than going back
-  ///   to the socket: by the time this runs, a racing `stop()`/`takeOver()` may
-  ///   have cancelled that task with `.goingAway` and pointed `task` at a new
-  ///   one (or at `nil`), so `task?.closeCode` is a different socket's answer.
-  ///   `URLSessionWebSocketTask.CloseCode` has no case for 4000/4001, so
-  ///   compare raw values, never enum cases.
-  private func handleClose(of socket: URLSessionWebSocketTask, closeCode: Int) async {
-    // Before the guard: a `stop()` that won the race still wants the code
-    // recorded, and Task 3's policy needs it for the socket it actually
-    // belonged to.
-    lastCloseCode = closeCode
-    guard !stopped, task === socket else { return }
-    task = nil
-    deliver(lifecycle: .detached)
   }
 }

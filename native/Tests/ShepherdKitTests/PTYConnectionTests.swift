@@ -53,13 +53,18 @@ struct PTYConnectionTests {
     return await condition()
   }
 
+  /// Short backoff by default so the retry tests finish in a second. A test
+  /// that needs the *first* retry to stay parked until it says otherwise passes
+  /// a long delay instead of racing it.
   private func makeConnection(
-    _ server: FakePTYServer, id: String = "sess-1", cols: Int = 120, rows: Int = 40
+    _ server: FakePTYServer, id: String = "sess-1", cols: Int = 120, rows: Int = 40,
+    reconnectDelay: Duration = .milliseconds(30),
+    maxReconnectDelay: Duration = .milliseconds(200)
   ) -> PTYConnection {
     PTYConnection(
       baseURL: server.baseURL, sessionID: id, tokenProvider: { "shp_test" },
       cols: cols, rows: rows,
-      reconnectDelay: .milliseconds(30), maxReconnectDelay: .milliseconds(200))
+      reconnectDelay: reconnectDelay, maxReconnectDelay: maxReconnectDelay)
   }
 
   @Test("the pty URL carries the ws scheme, the id and the attach size")
@@ -261,7 +266,12 @@ struct PTYConnectionTests {
     let server = try FakePTYServer()
     defer { server.stop() }
     server.setRejectUpgrades(true)
-    let connection = makeConnection(server)
+    // A backoff longer than the test: the close policy would otherwise retry the
+    // refused attach every few milliseconds and this test is about which event
+    // the *next* attach reports, not about the retry cadence (see
+    // `fastFailsGiveUp` for that).
+    let connection = makeConnection(
+      server, reconnectDelay: .seconds(30), maxReconnectDelay: .seconds(30))
     let (events, reader) = collect(await connection.lifecycle())
     let (bytes, byteReader) = collect(await connection.output())
     defer {
@@ -285,6 +295,170 @@ struct PTYConnectionTests {
     await connection.takeOver()
     #expect(try await eventually { events.all().last == .reattached })
     await connection.stop()
+  }
+
+  @Test("close 4000 parks the connection instead of reconnecting")
+  func supersededParks() async throws {
+    let server = try FakePTYServer()
+    defer { server.stop() }
+    let connection = makeConnection(server)
+    let (lifecycle, reader) = collect(await connection.lifecycle())
+    defer { reader.cancel() }
+
+    await connection.start()
+    #expect(try await eventually { server.connectionCount() == 1 })
+    server.close(code: 4000)
+
+    #expect(try await eventually { lifecycle.all().contains(.closed(.superseded)) })
+    // The whole point: no second attach. Reconnecting here would bump the
+    // device that just took over, which would bump back.
+    #expect(
+      try await eventually(timeout: .milliseconds(400)) { server.connectionCount() > 1 } == false)
+    #expect(!lifecycle.all().contains(.detached))
+    await connection.stop()
+  }
+
+  @Test("close 4001 ends the connection for good")
+  func goneEnds() async throws {
+    let server = try FakePTYServer()
+    defer { server.stop() }
+    let connection = makeConnection(server)
+    let (lifecycle, reader) = collect(await connection.lifecycle())
+    defer { reader.cancel() }
+
+    await connection.start()
+    #expect(try await eventually { server.connectionCount() == 1 })
+    server.close(code: 4001)
+
+    #expect(try await eventually { lifecycle.all().contains(.closed(.gone)) })
+    #expect(
+      try await eventually(timeout: .milliseconds(400)) { server.connectionCount() > 1 } == false)
+    await connection.stop()
+  }
+
+  @Test("takeOver re-attaches after a 4000")
+  func takeOverReattaches() async throws {
+    let server = try FakePTYServer()
+    defer { server.stop() }
+    let connection = makeConnection(server)
+    let (lifecycle, reader) = collect(await connection.lifecycle())
+    let (bytes, byteReader) = collect(await connection.output())
+    defer {
+      reader.cancel()
+      byteReader.cancel()
+    }
+
+    await connection.start()
+    #expect(try await eventually { server.connectionCount() == 1 })
+    // One real frame first: `.reattached` only follows an attach that actually
+    // carried scrollback (`deliver(output:)`), which is what the superseded
+    // terminal this test models had.
+    server.sendBytes(Data([0x68, 0x69]))
+    #expect(try await eventually { bytes.all() == [Data([0x68, 0x69])] })
+    server.close(code: 4000)
+    #expect(try await eventually { lifecycle.all().contains(.closed(.superseded)) })
+
+    await connection.takeOver()
+    #expect(try await eventually { server.connectionCount() == 2 })
+    // A second socket is a reattach, not a first attach: the view must clear
+    // its buffer before the replayed scrollback lands.
+    #expect(try await eventually { lifecycle.all().contains(.reattached) })
+    await connection.stop()
+  }
+
+  @Test("a transient drop reconnects and reports .reattached")
+  func transientReconnects() async throws {
+    let server = try FakePTYServer()
+    defer { server.stop() }
+    let connection = makeConnection(server)
+    let (lifecycle, reader) = collect(await connection.lifecycle())
+    let (bytes, byteReader) = collect(await connection.output())
+    defer {
+      reader.cancel()
+      byteReader.cancel()
+    }
+
+    await connection.start()
+    #expect(try await eventually { server.connectionCount() == 1 })
+    // Same reason as in `takeOverReattaches`: the drop has to interrupt an
+    // attach that carried something, or `.attached` is the correct report.
+    server.sendBytes(Data([0x68, 0x69]))
+    #expect(try await eventually { bytes.all() == [Data([0x68, 0x69])] })
+    server.dropCurrentConnection()
+
+    #expect(try await eventually { server.connectionCount() >= 2 })
+    #expect(try await eventually { lifecycle.all().contains(.detached) })
+    #expect(try await eventually { lifecycle.all().contains(.reattached) })
+    await connection.stop()
+  }
+
+  @Test("eight refused upgrades in a row report .unreachable and stop retrying")
+  func fastFailsGiveUp() async throws {
+    let server = try FakePTYServer()
+    defer { server.stop() }
+    server.setRejectUpgrades(true)
+    let connection = makeConnection(server)
+    let (lifecycle, reader) = collect(await connection.lifecycle())
+    defer { reader.cancel() }
+
+    await connection.start()
+    #expect(try await eventually(timeout: .seconds(10)) {
+      lifecycle.all().contains(.closed(.unreachable))
+    })
+    let attempts = server.connectionCount()
+    #expect(attempts == PTYConnection.maxFastFails)
+    // And it really stopped: no further attach after the verdict.
+    #expect(try await eventually(timeout: .milliseconds(400)) {
+      server.connectionCount() > attempts
+    } == false)
+    await connection.stop()
+  }
+
+  @Test("stop() reports .closed(.stopped) and opens nothing more")
+  func stopIsTerminal() async throws {
+    let server = try FakePTYServer()
+    defer { server.stop() }
+    let connection = makeConnection(server)
+    let (lifecycle, reader) = collect(await connection.lifecycle())
+    defer { reader.cancel() }
+
+    await connection.start()
+    #expect(try await eventually { server.connectionCount() == 1 })
+    await connection.stop()
+
+    #expect(try await eventually { lifecycle.all().contains(.closed(.stopped)) })
+    #expect(
+      try await eventually(timeout: .milliseconds(400)) { server.connectionCount() > 1 } == false)
+  }
+
+  @Test("stop() after a parked close still ends the streams")
+  func stopAfterParkedCloseEndsStreams() async throws {
+    let server = try FakePTYServer()
+    defer { server.stop() }
+    let connection = makeConnection(server)
+    let lifecycle = Box<PTYConnection.LifecycleEvent>()
+    let ended = Box<Bool>()
+    let stream = await connection.lifecycle()
+    // Polled through `ended` rather than awaited through `reader.value`: a
+    // regression here is a `for await` that never ends, and awaiting it would
+    // park the suite for the whole time limit instead of failing in seconds.
+    let reader = Task {
+      for await event in stream { lifecycle.append(event) }
+      ended.append(true)
+    }
+    defer { reader.cancel() }
+
+    await connection.start()
+    #expect(try await eventually { server.connectionCount() == 1 })
+    server.close(code: 4001)
+    #expect(try await eventually { lifecycle.all().contains(.closed(.gone)) })
+
+    // `stopped` is already true, so this adds no event — but the streams the
+    // close policy deliberately left open (so `takeOver()` can reclaim a
+    // superseded terminal) still have to end when the caller says it is done.
+    await connection.stop()
+    #expect(try await eventually { ended.all() == [true] })
+    #expect(lifecycle.all() == [.attached, .closed(.gone)])
   }
 }
 

@@ -1457,3 +1457,69 @@ test("#925: new DB columns exist with correct defaults after migration", () => {
   expect(fetched.distinctKinds).toBe(0);
   expect(fetched.distinctSessions).toBe(0);
 });
+
+// ── relevance verdicts (#2376) ────────────────────────────────────────────────
+
+test("learningRelevanceStats tallies per rule, scoped to the repo, derived from the threshold", () => {
+  const s = new SessionStore(":memory:");
+  const mine = s.addLearning({ repoPath: "/r", rule: "mine", rationale: "", evidence: [] });
+  const other = s.addLearning({ repoPath: "/other", rule: "other", rationale: "", evidence: [] });
+
+  s.recordLearningRelevance(
+    "sess-1",
+    [
+      { learningId: mine.id, p: 0.9, relevant: true },
+      { learningId: other.id, p: 0.9, relevant: true },
+    ],
+    { applied: true, at: 1_000 },
+  );
+  s.recordLearningRelevance("sess-2", [{ learningId: mine.id, p: 0.1, relevant: false }], {
+    applied: false,
+    at: 2_000,
+  });
+
+  const stats = s.learningRelevanceStats("/r");
+  // Only this repo's rule; `relevant` is re-derived from the stored p, so the threshold stays
+  // re-tunable against history rather than frozen at write time.
+  expect([...stats.keys()]).toEqual([mine.id]);
+  expect(stats.get(mine.id)).toEqual({ judged: 2, relevant: 1 });
+  // A rule nobody has judged is absent, so the drawer can tell "never judged" from "never relevant".
+  const fresh = s.addLearning({ repoPath: "/r", rule: "fresh", rationale: "", evidence: [] });
+  expect(s.learningRelevanceStats("/r").has(fresh.id)).toBe(false);
+});
+
+test("recordLearningRelevance is idempotent per (session, rule) and no-ops on empty", () => {
+  const s = new SessionStore(":memory:");
+  const l = s.addLearning({ repoPath: "/r", rule: "r", rationale: "", evidence: [] });
+  s.recordLearningRelevance("sess", [], { applied: false, at: 1 });
+  expect(s.learningRelevanceStats("/r").size).toBe(0);
+
+  s.recordLearningRelevance("sess", [{ learningId: l.id, p: 0.9, relevant: true }], {
+    applied: false,
+    at: 1,
+  });
+  s.recordLearningRelevance("sess", [{ learningId: l.id, p: 0.1, relevant: false }], {
+    applied: true,
+    at: 2,
+  });
+  expect(s.learningRelevanceStats("/r").get(l.id)).toEqual({ judged: 1, relevant: 0 });
+});
+
+test("relevance verdicts outlive both archive and the sessions prune; only age removes them", () => {
+  const s = new SessionStore(":memory:");
+  const l = s.addLearning({ repoPath: "/r", rule: "r", rationale: "", evidence: [] });
+  s.recordInjectedLearnings("sess", [l.id]);
+  s.recordLearningRelevance("sess", [{ learningId: l.id, p: 0.9, relevant: true }], {
+    applied: true,
+    at: 5_000,
+  });
+
+  // archive() consumes the injected join rows; the verdict is a durable statistic and must not go
+  // with them.
+  expect(s.takeSessionInjectedLearnings("sess")).toEqual([l.id]);
+  expect(s.learningRelevanceStats("/r").get(l.id)).toEqual({ judged: 1, relevant: 1 });
+
+  expect(s.pruneLearningRelevance(5_000)).toBe(0); // strictly older, not equal
+  expect(s.pruneLearningRelevance(5_001)).toBe(1);
+  expect(s.learningRelevanceStats("/r").size).toBe(0);
+});

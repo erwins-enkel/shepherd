@@ -14,6 +14,7 @@ import { normalizeAgentProvider } from "./agent-provider";
 import { isBlockJudgeMode, type AgentProvider, type BlockJudgeMode } from "./types";
 import { normalizeTelemetryConsent } from "./telemetry-consent";
 import { normalizeOperatorLanguage } from "./operator-language";
+import { normalizeRelevanceMode } from "./house-rules-relevance";
 import { thresholdsFromEnv } from "./maintain-core";
 import { type SandboxProfile, isSandboxProfile } from "./sandbox";
 import { applyHerdrSocket } from "./herdr-session";
@@ -1178,6 +1179,27 @@ export const config = {
     1,
     365,
     14,
+  ),
+  // ── House-rule relevance (issue #2376) ───────────────────────────────────────
+  // Whether the judge narrows the injected house-rules block to the rules this session's request is
+  // actually about. Three states rather than a boolean: `shadow` asks and persists the verdicts
+  // WITHOUT acting on them, so the evidence for arming `enforce` comes from real sessions instead of
+  // from flipping it on and watching. Requires the judge itself to be armed (`judgeEnabled` + a
+  // key); inert otherwise. Env seeds a fresh DB; persisted + UI-configurable.
+  houseRuleRelevance: normalizeRelevanceMode(process.env.SHEPHERD_HOUSE_RULE_RELEVANCE),
+  // How many days of relevance verdicts the daily sweep keeps. They are the per-rule statistic the
+  // drawer reads and the calibration record for the drop threshold, so this is longer than a
+  // debugging window — but they are also the only rows in the schema with no parent to cascade from
+  // and no consumer to clear them, so they do get an age bound.
+  relevanceRetentionDays: clampCap(
+    parseEnvNumber(
+      process.env.SHEPHERD_LEARNINGS_RELEVANCE_RETENTION_DAYS,
+      "SHEPHERD_LEARNINGS_RELEVANCE_RETENTION_DAYS",
+      90,
+    ),
+    1,
+    3650,
+    90,
   ),
 };
 

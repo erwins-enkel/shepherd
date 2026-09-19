@@ -260,7 +260,13 @@ export interface Settings {
    *  Shares `judgeHasKey` and the daily ceiling above, but is armed independently of
    *  `judgeEnabled`. */
   blockJudgeMode: "off" | "shadow" | "armed";
+  /** House-rule relevance gate (#2376). `shadow` judges and records without acting, so the
+   *  evidence for arming `enforce` comes from real sessions. Inert unless the judge is armed. */
+  houseRuleRelevance: HouseRuleRelevanceMode;
 }
+
+/** The three states of the house-rule relevance gate (#2376). */
+export type HouseRuleRelevanceMode = "off" | "shadow" | "enforce";
 
 export interface DirEntry {
   name: string;
@@ -2696,8 +2702,15 @@ export interface MergeSuggestion {
 
 /** A learning as it appears in the injectable preview: the rule plus the planner's
  *  per-rule verdict — `injected` (made the budget cut) and `scoped` (glob-conditional,
- *  not injected in this no-session preview). */
-export type InjectableRule = Learning & { injected: boolean; scoped: boolean };
+ *  not injected in this no-session preview) — plus the relevance judge's running tally
+ *  (#2376): how many sessions this rule was judged for, and in how many of those the request
+ *  was judged to be about it. Both 0 until the gate has been armed at least once. */
+export type InjectableRule = Learning & {
+  injected: boolean;
+  scoped: boolean;
+  relevanceJudged: number;
+  relevanceRelevant: number;
+};
 
 /** GET /api/learnings/injectable: one entry per repo with ≥1 active/promoted rule.
  *  Drives the drawer's "Injected house rules" view; the budget value flows from

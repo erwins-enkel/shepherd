@@ -4149,5 +4149,15 @@
   "native_banner_unhealthy": "{server} antwortet, meldet aber ein Problem. Neuer Versuch.",
   "native_welcome_saved_remove_confirm_title": "{server} entfernen?",
   "native_welcome_saved_remove_confirm_body": "Die gespeicherte Anmeldung für diesen Server wird widerrufen und aus dem Schlüsselbund gelöscht.",
-  "native_welcome_saved_remove_confirm_action": "Entfernen"
+  "native_welcome_saved_remove_confirm_action": "Entfernen",
+  "settings_house_rule_relevance_label": "Hausregeln nur für diese Aufgabe",
+  "settings_house_rule_relevance_hint": "Vor dem Start einer Session das Entscheidungsmodell fragen, um welche Hausregeln dieses Repos es bei der Anfrage wirklich geht — der Rest bleibt aus dem Prompt des Agenten. Bisher werden nur Regeln mit Dateimuster gefiltert, Regeln ohne Muster gehen jedes Mal mit. Kostet einen kostenpflichtigen Aufruf pro Session, angerechnet auf das Tageslimit oben. Beginne mit „Nur aufzeichnen“: fragt und protokolliert, ändert nichts und liefert die Zahlen für die Entscheidung. Bei jedem Fehler wird der komplette Satz gesendet, es geht also nichts verloren.",
+  "settings_house_rule_relevance_no_key_hint": "Benötigt den aktivierten schnellen Stop-Klassifikator und damit einen API-Schlüssel für das Entscheidungsmodell in ~/.shepherd/env. Bis dahin geht wie bisher jede Hausregel an jede Session.",
+  "settings_house_rule_relevance_off": "Aus",
+  "settings_house_rule_relevance_shadow": "Nur aufzeichnen",
+  "settings_house_rule_relevance_enforce": "Regeln filtern",
+  "settings_house_rule_relevance_save_failed": "Die Relevanzprüfung für Hausregeln konnte nicht umgestellt werden. Erneut versuchen.",
+  "feat_house_rule_relevance_title": "Einem Agenten nur die Hausregeln geben, um die es bei seiner Aufgabe geht",
+  "feat_house_rule_relevance_body": "Bisher bekam jede Session jede Hausregel ohne Dateimuster — egal, ob sie etwas mit der Aufgabe zu tun hatte. Einstellungen → Session → „Hausregeln nur für diese Aufgabe“ fragt jetzt einmal pro Session das Entscheidungsmodell, um welche Regeln es bei der Anfrage wirklich geht, und lässt den Rest aus dem Prompt. Starte mit „Nur aufzeichnen“: es fragt und protokolliert, was es weggelassen hätte, ohne etwas wegzulassen — die Trefferquote je Regel erscheint in der Learnings-Leiste, sodass du anhand eigener Sessions entscheiden kannst. Standardmäßig aus; bei jedem Fehler geht der komplette Satz raus.",
+  "learnings_relevance_rate": "relevant {relevant}/{judged}"
 }

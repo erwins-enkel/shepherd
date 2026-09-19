@@ -198,6 +198,13 @@ function sessionRows(ctx: SessionRowsCtx): string[][] {
       m.settings_block_judge_hint(),
       m.settings_block_judge_no_key_hint(),
     ],
+    // Carries BOTH hint variants: the row renders whichever matches the key state, and a row counts
+    // once however many of its strings hit.
+    [
+      m.settings_house_rule_relevance_label(),
+      m.settings_house_rule_relevance_hint(),
+      m.settings_house_rule_relevance_no_key_hint(),
+    ],
     [m.settings_tui_fullscreen_label(), m.settings_tui_fullscreen_hint()],
     [m.settings_tui_disable_mouse_label(), m.settings_tui_disable_mouse_hint()],
   ];

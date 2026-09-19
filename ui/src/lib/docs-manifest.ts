@@ -69,7 +69,7 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     title: "Configuration",
     path: "/reference/configuration/",
     keywords:
-      "every environment variable and the per-agent sandbox profiles. core operator authentication web push (vapid) model, effort and provider defaults role agents review rounds, merge train and spend learnings lifecycle live preview host tuning (tmpfs inodes) runaway-orphan reaper main agent terminal renderer (research preview) up next quick-start session lifecycle (auto-archive + herdr daemon-restart revival) push-based hook ingestion tool guard (pretooluse deny) documentation automation (pr-gated doc agent) fast stop classifier (the judge) blocked-pane backstop maintain loop (self-health bands) tier 3 — the pre-approved fix class anonymous usage telemetry per-agent sandbox / permission profiles",
+      "every environment variable and the per-agent sandbox profiles. core operator authentication web push (vapid) model, effort and provider defaults role agents review rounds, merge train and spend learnings lifecycle live preview host tuning (tmpfs inodes) runaway-orphan reaper main agent terminal renderer (research preview) up next quick-start session lifecycle (auto-archive + herdr daemon-restart revival) push-based hook ingestion tool guard (pretooluse deny) documentation automation (pr-gated doc agent) fast stop classifier (the judge) blocked-pane backstop house rules for this task only maintain loop (self-health bands) tier 3 — the pre-approved fix class anonymous usage telemetry per-agent sandbox / permission profiles",
   },
   {
     title: "External Task API",

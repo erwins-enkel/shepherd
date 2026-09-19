@@ -18,6 +18,7 @@ import {
   splitDropped,
   reposNeedingAttention,
   visibleInjectableRules,
+  relevanceRate,
   retiredRules,
   retiredCount,
   unseenRetiredCount,
@@ -72,6 +73,8 @@ function IR(
       scoped: r.scoped ?? false,
       scopeGlobs: r.scopeGlobs ?? [],
       ineffectiveCount: r.ineffectiveCount ?? 0,
+      relevanceJudged: 0,
+      relevanceRelevant: 0,
     })),
     retired: [],
     unseenRetired: 0,
@@ -447,6 +450,27 @@ describe("reposNeedingAttention", () => {
 
   it("returns [] for empty input", () => {
     expect(reposNeedingAttention([])).toEqual([]);
+  });
+});
+
+// ─── relevanceRate ────────────────────────────────────────────────────────────
+
+describe("relevanceRate", () => {
+  it("is null until the judge has ruled on the rule at least once", () => {
+    // A corpus that has never armed the gate must show nothing, not a misleading 0/0.
+    expect(relevanceRate({ relevanceJudged: 0, relevanceRelevant: 0 })).toBeNull();
+  });
+
+  it("reports relevant-of-judged once there is a verdict", () => {
+    expect(relevanceRate({ relevanceJudged: 11, relevanceRelevant: 2 })).toEqual({
+      relevant: 2,
+      judged: 11,
+    });
+    // Never relevant is a real, displayable answer — it is the reason to retire the rule.
+    expect(relevanceRate({ relevanceJudged: 9, relevanceRelevant: 0 })).toEqual({
+      relevant: 0,
+      judged: 9,
+    });
   });
 });
 

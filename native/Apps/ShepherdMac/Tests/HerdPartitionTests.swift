@@ -252,8 +252,8 @@ struct HerdPartitionTests {
     /// — and `UnitRowRight.svelte:226`, `{#if quotaKind && quotaKind !== "plan"}`: the `plan` kind
     /// is the plan-gate badge's, not the quota chip's.
     @Test func quotaKindOnlyForQuotaShapesAndNeverForPlan() {
-        #expect(HerdPartition.quotaKind(block(.quota, .rework)) == "rework")
-        #expect(HerdPartition.quotaKind(block(.quota, .review)) == "review")
+        #expect(HerdPartition.quotaKind(block(.quota, .rework)) == .rework)
+        #expect(HerdPartition.quotaKind(block(.quota, .review)) == .review)
         #expect(HerdPartition.quotaKind(block(.quota, .plan)) == nil)
         #expect(HerdPartition.quotaKind(block(.stall, nil)) == nil)
         #expect(HerdPartition.quotaKind(nil) == nil)

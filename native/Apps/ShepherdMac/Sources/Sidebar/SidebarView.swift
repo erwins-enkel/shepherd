@@ -10,13 +10,19 @@ struct SidebarView: View {
 
     var body: some View {
         @Bindable var app = app
+        // Read each derived collection once per render: both recompute the whole partition
+        // (`HerdPartition.stageOf` per session), and the old code read `model.chips` and
+        // `model.groups` twice each — once for a gate/emptiness check, once again to render —
+        // doubling the partition pass on every repaint for no reason.
+        let chips = model.chips
+        let groups = model.groups
 
         return VStack(spacing: 0) {
             lensStrip
             // The web shows the rail only once there is something to choose between.
-            if model.chips.count >= 2 { repoRail }
+            if chips.count >= 2 { repoRail(chips) }
             Divider()
-            list(selection: $app.selectedSessionID)
+            list(groups, selection: $app.selectedSessionID)
         }
         .accessibilityIdentifier("herd-sidebar")
     }
@@ -42,10 +48,10 @@ struct SidebarView: View {
         .accessibilityLabel(L.t("herd_lenses_label"))
     }
 
-    private var repoRail: some View {
+    private func repoRail(_ chips: [HerdRepoChip]) -> some View {
         ScrollView(.horizontal) {
             HStack(spacing: 6) {
-                ForEach(model.chips) { chip in
+                ForEach(chips) { chip in
                     let selected = model.selectedRepos.contains(chip.path)
                     Button {
                         model.toggleRepo(
@@ -79,12 +85,14 @@ struct SidebarView: View {
     }
 
     @ViewBuilder
-    private func list(selection: Binding<String?>) -> some View {
-        if model.groups.isEmpty {
-            ContentUnavailableView(emptyCopy, systemImage: "tray")
+    private func list(_ groups: [HerdGroup], selection: Binding<String?>) -> some View {
+        if groups.isEmpty {
+            ContentUnavailableView(
+                SidebarCopy.empty(lens: model.lens, repos: model.selectedRepos),
+                systemImage: "tray")
         } else {
             List(selection: selection) {
-                ForEach(model.groups) { group in
+                ForEach(groups) { group in
                     HerdGroupView(
                         group: group,
                         isCollapsed: model.collapsedStages.contains(group.stage),
@@ -92,18 +100,6 @@ struct SidebarView: View {
                         onToggle: { model.toggleCollapsed(group.stage) })
                 }
             }
-        }
-    }
-
-    /// The web has a distinct empty line per lens, and one for an empty single-repo filter.
-    private var emptyCopy: String {
-        if model.selectedRepos.count == 1, let repo = model.selectedRepos.first {
-            return L.t("herd_repo_filter_empty", (repo as NSString).lastPathComponent)
-        }
-        switch model.lens {
-        case .ready: return L.t("herd_ready_empty")
-        case .done: return L.t("herd_done_empty")
-        default: return L.t("native_sidebar_empty")
         }
     }
 }

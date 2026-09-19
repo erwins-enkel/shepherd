@@ -208,6 +208,10 @@ struct SidebarModelTests {
 
         let entered = ReadLedger()
         let gate = Signal()
+        // Safe to swap in here, after the settle above: the production bootstrap already ran to
+        // completion against the *original* `reads` (that is what `ledger.count >= 1` just
+        // confirmed), so this assignment only ever governs the `requestRefresh()` reads the
+        // `store.apply` burst below triggers — never races the bootstrap's own first read.
         model.reads = gated(entered, gate)
 
         for _ in 0..<10 { store.apply(.unknown(name: "held:changed", payload: nil)) }
@@ -265,6 +269,12 @@ struct SidebarModelTests {
         let entered = ReadLedger()
         let gate = Signal()
         let model = SidebarModel(store: store, app: app)
+        // `init` only *schedules* `bootstrap = Task { … }`; a `Task` never runs synchronously
+        // inside its enclosing scope, so nothing in that task body can execute until this
+        // synchronous initializer call returns and the main actor's run loop gets a chance to pick
+        // it up. That guarantees this assignment — still on the same, uninterrupted main-actor
+        // turn as `init` — lands before the bootstrap's first `await`, so it is `gated`'s reads,
+        // not the (real) production ones, that the task actually calls.
         model.reads = gated(entered, gate)
 
         // The bootstrap refresh is now parked inside `workingBlocked()`, before its first `await`

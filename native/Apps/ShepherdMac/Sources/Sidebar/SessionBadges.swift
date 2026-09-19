@@ -21,8 +21,8 @@ enum SessionBadges {
         if session.terminal == true {
             items.append(.init(id: "terminal", text: L.t("terminal_badge_label"), tint: .secondary))
         }
-        if let kind = HerdPartition.quotaKind(block) {
-            items.append(.init(id: "quota", text: quotaLabel(kind), tint: .orange))
+        if let kind = HerdPartition.quotaKind(block), let text = quotaLabel(kind) {
+            items.append(.init(id: "quota", text: text, tint: .orange))
         }
         // The web hides this while the critic is re-reviewing; that needs git, so here it stands on
         // `autopilotPaused` alone.
@@ -40,11 +40,18 @@ enum SessionBadges {
         return items
     }
 
-    private static func quotaLabel(_ kind: String) -> String {
+    /// Exhaustive over `HerdPartition.quotaKind`'s typed result, so a call site can no longer match
+    /// an arbitrary string. `.plan` never reaches here (`quotaKind` already filters it), and
+    /// `@unknown default` is this build's usual answer to a value it has never seen — no chip,
+    /// same as `quotaKind`'s own doc comment — never the `.error` copy, which is a real, distinct
+    /// quota kind and must not be the catch-all for "something else".
+    private static func quotaLabel(_ kind: BlockReason.QuotaKindPayload.Value1Payload) -> String? {
         switch kind {
-        case "rework": L.t("unitrow_quota_rework")
-        case "review": L.t("unitrow_quota_review")
-        default: L.t("unitrow_quota_error")
+        case .rework: L.t("unitrow_quota_rework")
+        case .review: L.t("unitrow_quota_review")
+        case .error: L.t("unitrow_quota_error")
+        case .plan: nil
+        @unknown default: nil
         }
     }
 }

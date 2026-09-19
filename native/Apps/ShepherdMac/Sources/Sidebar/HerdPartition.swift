@@ -284,10 +284,13 @@ enum HerdPartition {
     /// (`contracts/README.md`, "Open enums") — but both still conform to `OpenEnum`
     /// (`Model/OpenEnum.swift:66-67`), so `known` is the spelling here as everywhere else. A value
     /// this build has never seen is `nil` and shows no chip, which is the point of the open enum.
-    static func quotaKind(_ block: BlockReason?) -> String? {
+    ///
+    /// Returns the typed case, not its `rawValue`, so a call site (`SessionBadges.quotaLabel`)
+    /// switches on it exhaustively instead of matching against string literals.
+    static func quotaKind(_ block: BlockReason?) -> BlockReason.QuotaKindPayload.Value1Payload? {
         guard let block, block.shape.known == .quota, let known = block.quotaKind?.known,
             known != .plan
         else { return nil }
-        return known.rawValue
+        return known
     }
 }

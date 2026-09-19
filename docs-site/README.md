@@ -102,6 +102,40 @@ literal values live in a single `--brand-*` provenance block (mirroring
 `app.css`); every `--sl-*` mapping references those via `var()`, so no hex is
 scattered through the theme — the same pattern as `site/src/styles/global.css`.
 
+## Deploy config (`vercel.json`)
+
+`vercel.json` is strict JSON and cannot carry comments, so its non-obvious key is
+documented here. Alongside `"framework": "astro"` and the `ignoreCommand` deploy
+gate (see `scripts/vercel-ignore-build.sh`), it pins the install:
+
+```json
+"installCommand": "rm -rf node_modules && bun install --frozen-lockfile"
+```
+
+**Why not the auto-detected `bun install`.** Vercel restores a build cache between
+deploys, `node_modules` included, and bun then installs *incrementally* on top of
+it. When a dependency bump moves a **nested** dependency, that incremental install
+can leave the nested copy inconsistent, and the build dies before it starts:
+
+```
+Restored build cache from previous deployment (…)
+bun install … + @astrojs/starlight@0.42.1 … 3 packages installed
+[astro] Unable to load your Astro config
+Cannot find package '…/@astrojs/starlight/node_modules/@astrojs/mdx/index.js'
+  at legacyMainResolve (node:internal/modules/esm/resolve)
+```
+
+`legacyMainResolve` only fires for a `package.json` with **no `exports` field**, and
+`@astrojs/mdx@8.x` is exports-only — so what sat on disk was not a valid copy of the
+package. It is non-deterministic: the two deploys after that one restored the *same*
+cache and went green. Rebuilding the dependency tree from `bun.lock` removes the
+failure mode; the rest of the build cache (astro, vite, TypeDoc, Pagefind) is still
+restored, and `--frozen-lockfile` matches what CI runs for this package.
+
+Note this project builds **no preview deployments** — a pull request does not build
+it, so there is nothing to inspect before merge. Verify a change to the install or
+the build locally.
+
 ## Go-live (manual operator steps — creating from scratch)
 
 The build is **deployment-inert** until an operator creates and wires a Vercel

@@ -26,6 +26,33 @@ struct FakeShepherdServerTests {
     #expect(recorded[0].headers["Authorization"] == "Bearer shp_test")
   }
 
+  @Test("a Set-Cookie comes back on the next request of the same session only")
+  func cookiesAreScopedToOneSession() async throws {
+    let server = FakeShepherdServer()
+    defer { server.tearDown() }
+    server.on("POST", "/api/login") { _ in
+      FakeResponse(
+        statusCode: 200,
+        headers: [
+          "Content-Type": "application/json",
+          "Set-Cookie": "shepherd_session=s1; Path=/; HttpOnly",
+        ],
+        body: try Fixtures.json(Components.Schemas.Ok(ok: true)))
+    }
+    server.stub("GET", "/api/health", status: 200, json: try Fixtures.json(Fixtures.health()))
+
+    let session = server.urlSession()
+    var login = URLRequest(url: server.baseURL.appending(path: "api/login"))
+    login.httpMethod = "POST"
+    _ = try await session.data(for: login)
+    _ = try await session.data(from: server.baseURL.appending(path: "api/health"))
+    #expect(server.requests().last?.headers["Cookie"] == "shepherd_session=s1")
+
+    // A second session has its own jar, so the cookie does not follow it.
+    _ = try await server.urlSession().data(from: server.baseURL.appending(path: "api/health"))
+    #expect(server.requests().last?.headers["Cookie"] == nil)
+  }
+
   @Test("an unstubbed route fails the request rather than hanging")
   func unstubbedRouteFails() async throws {
     let server = FakeShepherdServer()

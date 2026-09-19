@@ -71,10 +71,19 @@ final class FakeShepherdServer: Sendable {
     FakeServerRegistry.shared.requests(registryKey)
   }
 
+  /// Header that tells the fake which `URLSession` a request came from, so
+  /// it can keep one cookie jar per session (see `urlSession()`).
+  static let sessionHeader = "X-Fake-Session"
+
   /// A session wired to this fake. Hand it to `URLSessionTransport`.
+  ///
+  /// Each call is a distinct session with a distinct cookie jar inside the
+  /// fake: two sessions never see each other's cookies, exactly as two real
+  /// `URLSession`s with separate storage would not.
   func urlSession() -> URLSession {
     let configuration = URLSessionConfiguration.ephemeral
     configuration.protocolClasses = [FakeURLProtocol.self]
+    configuration.httpAdditionalHeaders = [Self.sessionHeader: UUID().uuidString]
     return URLSession(configuration: configuration)
   }
 
@@ -92,6 +101,8 @@ private final class FakeServerRegistry: @unchecked Sendable {
   private struct Entry {
     var handlers: [String: @Sendable (RecordedRequest) throws -> FakeResponse] = [:]
     var recorded: [RecordedRequest] = []
+    /// One cookie jar per client session id, name -> value.
+    var cookies: [String: [String: String]] = [:]
   }
 
   private let lock = NSLock()
@@ -122,6 +133,32 @@ private final class FakeServerRegistry: @unchecked Sendable {
     lock.lock()
     defer { lock.unlock() }
     return entries[key]?.recorded ?? []
+  }
+
+  /// The `Cookie` header this session would send, or `nil` when its jar is
+  /// empty. Cookie names are sorted so the header is deterministic.
+  func cookieHeader(host: String, session: String) -> String? {
+    lock.lock()
+    defer { lock.unlock() }
+    guard let jar = entries[host]?.cookies[session], !jar.isEmpty else { return nil }
+    return jar.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: "; ")
+  }
+
+  /// Applies one `Set-Cookie` value to a session's jar. `Max-Age=0` clears
+  /// the cookie, which is how the server's logout expires the session.
+  func absorb(setCookie: String, host: String, session: String) {
+    let parts = setCookie.split(separator: ";").map {
+      $0.trimmingCharacters(in: .whitespaces)
+    }
+    guard let pair = parts.first, let equals = pair.firstIndex(of: "=") else { return }
+    let name = String(pair[pair.startIndex..<equals])
+    let value = String(pair[pair.index(after: equals)...])
+    let expired = parts.dropFirst().contains {
+      $0.lowercased().replacingOccurrences(of: " ", with: "") == "max-age=0"
+    }
+    lock.lock()
+    defer { lock.unlock() }
+    entries[host]?.cookies[session, default: [:]][name] = expired ? nil : value
   }
 
   func knows(host: String) -> Bool {
@@ -163,11 +200,24 @@ private final class FakeURLProtocol: URLProtocol {
       return
     }
     let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+    // The URL loading system does NOT run its cookie machinery for a custom
+    // `URLProtocol`: nothing stores a `Set-Cookie` and nothing replays it on
+    // the next request. The fake therefore keeps the jar itself, per client
+    // session, so a cookie-authenticated exchange (login then mint) is
+    // testable — and so a client that switched sessions mid-exchange would
+    // arrive here without its cookie, just as it would against the server.
+    let session = request.value(forHTTPHeaderField: FakeShepherdServer.sessionHeader)
+    var headers = request.allHTTPHeaderFields ?? [:]
+    if headers["Cookie"] == nil, let session,
+      let cookies = FakeServerRegistry.shared.cookieHeader(host: host, session: session)
+    {
+      headers["Cookie"] = cookies
+    }
     let recorded = RecordedRequest(
       method: request.httpMethod?.uppercased() ?? "GET",
       path: url.path(percentEncoded: false),
       query: components?.query,
-      headers: request.allHTTPHeaderFields ?? [:],
+      headers: headers,
       body: request.httpBody ?? request.httpBodyStream.map(Self.drain)
     )
 
@@ -179,6 +229,9 @@ private final class FakeURLProtocol: URLProtocol {
 
     do {
       let fake = try handler(recorded)
+      if let setCookie = fake.headers["Set-Cookie"], let session {
+        FakeServerRegistry.shared.absorb(setCookie: setCookie, host: host, session: session)
+      }
       let response = HTTPURLResponse(
         url: url, statusCode: fake.statusCode, httpVersion: "HTTP/1.1",
         headerFields: fake.headers)!

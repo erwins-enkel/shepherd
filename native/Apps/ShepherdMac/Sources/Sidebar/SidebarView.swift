@@ -18,6 +18,7 @@ struct SidebarView: View {
         let groups = model.groups
 
         return VStack(spacing: 0) {
+            HeaderStrip(model: model)
             lensStrip
             // The web shows the rail only once there is something to choose between.
             if chips.count >= 2 { repoRail(chips) }

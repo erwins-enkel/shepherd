@@ -79,6 +79,96 @@ struct ProfileSetupTests {
     #expect(mintBody.name.hasPrefix("Shepherd for Mac ("))
   }
 
+  @Test("a custom token name overrides the default on the mint request")
+  func loginWithCustomTokenName() async throws {
+    let server = FakeShepherdServer()
+    defer { server.tearDown() }
+    try stubLogin(server)
+    server.stub("POST", "/api/access-tokens", status: 201, json: try mintedJSON())
+    let credentials = InMemoryCredentialStore()
+
+    _ = try await ProfileSetup.login(
+      profile: profile(server), password: "hunter2", credentials: credentials,
+      tokenName: "Shepherd UI test (probe)",
+      urlSessionFactory: { _ in server.urlSession() })
+
+    let mint = try #require(server.requests().first { $0.path == "/api/access-tokens" })
+    let mintBody = try JSONDecoder().decode(
+      Components.Schemas.AccessTokenMintRequest.self, from: try #require(mint.body))
+    #expect(mintBody.name == "Shepherd UI test (probe)")
+  }
+
+  @Test("a sweep name revokes every prior token sharing it before minting a fresh one")
+  func loginSweepsPriorTokensWithTheSameName() async throws {
+    let server = FakeShepherdServer()
+    defer { server.tearDown() }
+    try stubLogin(server)
+    let sweepName = "Shepherd UI test (probe)"
+    server.stub(
+      "GET", "/api/access-tokens", status: 200,
+      json: try Fixtures.json(
+        Components.Schemas.AccessTokenList(tokens: [
+          Components.Schemas.AccessTokenSummary(
+            id: "stale-1", name: sweepName, hint: "…ale1",
+            createdAt: 1, lastUsedAt: nil, expiresAt: nil, scope: .full),
+          Components.Schemas.AccessTokenSummary(
+            id: "stale-2", name: sweepName, hint: "…ale2",
+            createdAt: 2, lastUsedAt: nil, expiresAt: nil, scope: .full),
+          Components.Schemas.AccessTokenSummary(
+            id: "unrelated", name: "Shepherd for Mac (someone-else)", hint: "…ther",
+            createdAt: 3, lastUsedAt: nil, expiresAt: nil, scope: .full),
+        ])))
+    server.stub(
+      "DELETE", "/api/access-tokens/stale-1", status: 200,
+      json: try Fixtures.json(Components.Schemas.Ok(ok: true)))
+    server.stub(
+      "DELETE", "/api/access-tokens/stale-2", status: 200,
+      json: try Fixtures.json(Components.Schemas.Ok(ok: true)))
+    server.stub("POST", "/api/access-tokens", status: 201, json: try mintedJSON())
+    let credentials = InMemoryCredentialStore()
+
+    let stored = try await ProfileSetup.login(
+      profile: profile(server), password: "hunter2", credentials: credentials,
+      tokenName: sweepName, sweepPriorTokensNamed: sweepName,
+      urlSessionFactory: { _ in server.urlSession() })
+
+    #expect(stored == StoredCredential(token: "shp_minted", tokenId: "tok_1"))
+    #expect(
+      server.requests().contains {
+        $0.method == "DELETE" && $0.path == "/api/access-tokens/stale-1"
+      })
+    #expect(
+      server.requests().contains {
+        $0.method == "DELETE" && $0.path == "/api/access-tokens/stale-2"
+      })
+    #expect(
+      !server.requests().contains {
+        $0.method == "DELETE" && $0.path == "/api/access-tokens/unrelated"
+      })
+    // The sweep rides the login cookie, exactly like the mint that follows it.
+    let list = try #require(
+      server.requests().first { $0.method == "GET" && $0.path == "/api/access-tokens" })
+    let cookie = try #require(list.headers["Cookie"])
+    #expect(cookie.contains("shepherd_session=fake-session"))
+  }
+
+  @Test("a sweep that cannot list tokens does not block the mint")
+  func sweepFailureDoesNotBlockTheMint() async throws {
+    let server = FakeShepherdServer()
+    defer { server.tearDown() }
+    try stubLogin(server)
+    // No stub for GET /api/access-tokens: the fake fails that request.
+    server.stub("POST", "/api/access-tokens", status: 201, json: try mintedJSON())
+    let credentials = InMemoryCredentialStore()
+
+    let stored = try await ProfileSetup.login(
+      profile: profile(server), password: "hunter2", credentials: credentials,
+      sweepPriorTokensNamed: "Shepherd UI test (probe)",
+      urlSessionFactory: { _ in server.urlSession() })
+
+    #expect(stored == StoredCredential(token: "shp_minted", tokenId: "tok_1"))
+  }
+
   @Test("the mint call rides the session cookie, not a bearer header")
   func mintUsesTheCookieNotABearer() async throws {
     let server = FakeShepherdServer()

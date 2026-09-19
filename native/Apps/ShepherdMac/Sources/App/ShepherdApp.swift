@@ -25,7 +25,7 @@ struct ShepherdApp: App {
 
     var body: some Scene {
         WindowGroup("Shepherd") {
-            RootView()
+            RootView(startIsolatedSeed: isolation?.startLiveSeedIfNeeded)
                 .environment(model)
                 .frame(minWidth: 900, minHeight: 600)
         }
@@ -39,6 +39,12 @@ struct ShepherdApp: App {
 /// the sign-out notice, which has to outlive the window it was triggered from.
 struct RootView: View {
     @Environment(AppModel.self) private var model
+    /// `IsolatedLaunch.startLiveSeedIfNeeded`, for an isolated launch with a
+    /// live seed configured — `nil` for every other launch. Passed in rather
+    /// than reached for through `ShepherdApp` directly: `IsolatedLaunch` is
+    /// owned by the app, not the environment, and this is the one call this
+    /// view needs from it.
+    var startIsolatedSeed: (() -> Void)? = nil
 
     var body: some View {
         @Bindable var model = model
@@ -46,6 +52,9 @@ struct RootView: View {
         return VStack(spacing: 0) {
             if let warning = model.signOutWarning {
                 NoticeBar(message: warning) { model.signOutWarning = nil }
+            }
+            if let isolatedLaunchError = model.isolatedLaunchError {
+                NoticeBar(message: isolatedLaunchError) { model.isolatedLaunchError = nil }
             }
             Group {
                 if model.store == nil {
@@ -61,9 +70,14 @@ struct RootView: View {
         // a relaunch with an active profile and nothing behind it. Idempotent,
         // so a second appearance keeps the store already running.
         // Registration runs first and synchronously: an extension registered
-        // after the restored activation would miss it.
+        // after the restored activation would miss it. The isolated launch's
+        // live seed starts right after, for the same reason — its `signIn`
+        // ends in `activate(_:)`, and a stream extension registered after that
+        // call would have missed the activation's first frame. See
+        // `IsolatedLaunch.startLiveSeedIfNeeded()`.
         .task {
             StreamRegistrations.installAll(into: model)
+            startIsolatedSeed?()
             await model.restoreActiveProfile()
         }
         .sheet(item: $model.sheet) { sheet in

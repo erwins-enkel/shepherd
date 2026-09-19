@@ -99,3 +99,42 @@ struct LaunchEnvironmentTests {
         #expect(line.contains("example.ts.net") == false)
     }
 }
+
+/// `IsolatedLaunch.sweepOrphanSuites(in:except:isAlive:)` — directory- and
+/// liveness-injected precisely so this can run against a scratch directory
+/// instead of the real `~/Library/Preferences`.
+struct IsolatedLaunchOrphanSweepTests {
+    @Test @MainActor func sweepsOnlyDeadOrphansSharingTheIsolatedPrefix() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("shepherd-isolated-sweep-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let current = "run.shepherd.mac.isolated.111-current"
+        let deadOrphan = "run.shepherd.mac.isolated.222-dead"
+        let liveOrphan = "run.shepherd.mac.isolated.333-live"
+        let unrelated = "some.other.suite"
+        for name in [current, deadOrphan, liveOrphan, unrelated] {
+            #expect(
+                FileManager.default.createFile(
+                    atPath: directory.appendingPathComponent("\(name).plist").path, contents: Data()))
+        }
+        // A non-`.plist` file sharing the prefix must survive: it is not a
+        // `UserDefaults` domain this sweep understands.
+        let notAPlist = "run.shepherd.mac.isolated.444-notaplist.txt"
+        #expect(
+            FileManager.default.createFile(
+                atPath: directory.appendingPathComponent(notAPlist).path, contents: Data()))
+
+        IsolatedLaunch.sweepOrphanSuites(
+            in: directory, except: current,
+            isAlive: { pid in pid == 333 })
+
+        let remaining = Set(try FileManager.default.contentsOfDirectory(atPath: directory.path))
+        #expect(remaining.contains("\(current).plist"), "the current launch's own suite must survive")
+        #expect(remaining.contains("\(liveOrphan).plist"), "a sibling worktree's live process must survive")
+        #expect(remaining.contains("\(unrelated).plist"), "a differently-prefixed suite must survive")
+        #expect(remaining.contains(notAPlist))
+        #expect(!remaining.contains("\(deadOrphan).plist"), "an orphan from a dead process must go")
+    }
+}

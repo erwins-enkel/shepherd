@@ -179,6 +179,12 @@ final class AppModel {
     /// notice owned by that window would never be read. Written and cleared
     /// by the view, like `sheet`.
     var signOutWarning: String?
+    /// Set only by an isolated launch whose private `UserDefaults` suite could
+    /// not be opened — see `IsolatedLaunch.init()`. Never cleared automatically
+    /// and never operator-facing copy: no isolated launch outlives its test,
+    /// so unlike `signOutWarning` this is not in the catalogs, only in
+    /// `RootView`'s notice bar for whoever reads the test's log or screenshot.
+    var isolatedLaunchError: String?
 
     /// Bumped by every `activate(_:)`, every `teardown()`, and every
     /// `remove(_:)` of the profile that is currently active (via the

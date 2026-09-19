@@ -184,6 +184,14 @@ function sessionRows(ctx: SessionRowsCtx): string[][] {
     [m.settings_usage_downgrade_pct_label(), m.settings_usage_downgrade_pct_hint()],
     [m.settings_usage_downgrade_model_label(), m.settings_usage_downgrade_model_hint()],
     [m.settings_fable_available_label(), m.settings_fable_available_hint()],
+    // Both hint variants, because the row renders whichever matches the key state and a row counts
+    // once however many of its strings hit — so the row stays findable either way.
+    [
+      m.settings_judge_enabled_label(),
+      m.settings_judge_enabled_hint(),
+      m.settings_judge_no_key_hint(),
+    ],
+    [m.settings_judge_daily_usd_label(), m.settings_judge_daily_usd_hint()],
     [m.settings_tui_fullscreen_label(), m.settings_tui_fullscreen_hint()],
     [m.settings_tui_disable_mouse_label(), m.settings_tui_disable_mouse_hint()],
   ];

@@ -272,6 +272,21 @@ final class AppModel {
     @ObservationIgnored private var connectionSource: ConnectionSource?
     @ObservationIgnored private var watchedProfile: ServerProfile?
 
+    /// Per-stream sub-models, keyed by extension type. Not `private`:
+    /// `AppModel+Extensions.swift` is a different file and owns every write to
+    /// both of these. Nothing else may touch them.
+    ///
+    /// A factory closure rather than an `any AppExtension.Type`: calling a
+    /// protocol `init` requirement through an existential metatype is not
+    /// expressible, so `register<E>` captures the concrete `E` here instead.
+    @ObservationIgnored
+    var extensionFactories:
+        [(key: ObjectIdentifier, make: @MainActor (SessionStore, AppModel) -> any AppExtension)] = []
+    /// Live instances for the current activation, in creation order. Emptied by
+    /// `tearDownExtensions()`; never outlives its store.
+    @ObservationIgnored
+    var liveExtensions: [(key: ObjectIdentifier, value: any AppExtension)] = []
+
     init(
         defaults: UserDefaults = .standard,
         credentials: any CredentialStore = KeychainCredentialStore()
@@ -461,6 +476,9 @@ final class AppModel {
         retryTask?.cancel()
         retryTask = nil
         retrying = false
+        // Before the old store stops: an extension may need a last word with the
+        // store it was built for, and none may outlive it.
+        tearDownExtensions()
         // A stopped SessionStore cannot be restarted — the kit is explicit that
         // an app builds a fresh one per activation, which is what happens below.
         // Dropped immediately, not just stopped: the Keychain pre-flight below
@@ -543,6 +561,9 @@ final class AppModel {
         }
 
         self.store = store
+        // After the store exists and before anything consumes events, so an
+        // extension is in place for the first frame the store publishes.
+        makeExtensions(store: store)
         watchConnection(
             ConnectionSource(
                 read: { [weak store] in store?.connection },
@@ -1012,6 +1033,7 @@ final class AppModel {
         retryTask?.cancel()
         retryTask = nil
         retrying = false
+        tearDownExtensions()
         // stop() also publishes `connection = .idle`, which releases the
         // watcher's continuation so the cancelled task can actually finish.
         store?.stop()

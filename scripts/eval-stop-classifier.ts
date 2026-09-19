@@ -376,11 +376,17 @@ export function jevAuthoredState(fixture: Fixture): { task: string; terminal_tai
   };
 }
 
-/** JEV's answer as the raw verdict object `SPEC.score` reads. `summary` is empty by construction —
- *  JEV cannot generate prose, and this eval scores `kind` only, so nothing is lost HERE. (In
- *  production the summary is operator-facing; see the research doc §3a.) An answer that is missing
- *  or outside the enum returns null, which the harness records as a MECHANICAL miss rather than
- *  silently collapsing to `unknown` the way `normalize` must. */
+/**
+ * JEV's answer as the raw verdict object `SPEC.score` reads. `summary` is empty by construction —
+ * JEV cannot generate prose, and this eval scores `kind` only, so nothing is lost HERE. (In
+ * production the summary is operator-facing; see the research doc §3a.)
+ *
+ * An answer that is missing or outside the enum returns null. What the harness then does with it,
+ * precisely: the trial is flagged `no-tool` and carries a mechanical sample, and `SPEC.score` gives
+ * it `correct: false` — but its LABEL still renders as `unknown`, because that is what
+ * `normalize(null)` returns. So read the `no-tool` tally, never the `unknown` count in the
+ * distribution, to tell a failed trial from a genuine abstain.
+ */
 export function jevVerdict(
   answers: Record<string, JevChoiceAnswer>,
 ): Record<string, unknown> | null {
@@ -447,7 +453,18 @@ export const SPEC: EvalSpec<Fixture> = {
     const declared = (raw as RawVerdict | null)?.kind;
     const unrecognised =
       typeof declared !== "string" || !ALL_KINDS.includes(declared as AutopilotKind);
-    return { label: kind, correct: kind === fixture.expectedKind, unrecognised };
+    // A trial that produced NO usable verdict (`raw === null`: no tool call, unparseable content,
+    // or a backend that could not read an answer) is NEVER correct — not even on the two fixtures
+    // that expect `unknown`.
+    //
+    // `normalize(null)` returns `unknown` by design (bias to surface, which is right in
+    // PRODUCTION), and crediting that here would let a mechanical failure score as a correct
+    // abstain on `ambiguous-unknown` / `de-ambiguous-unknown` — precisely the buckets whose job is
+    // to measure abstention. Nine transport failures would have reported a perfect abstain score.
+    // The `no-tool` / `parse-fail` tallies already name the failure; this stops it also being
+    // counted as a right answer.
+    const correct = raw !== null && kind === fixture.expectedKind;
+    return { label: kind, correct, unrecognised };
   },
 };
 

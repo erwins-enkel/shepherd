@@ -115,10 +115,10 @@ test("the full distribution and confidence are recorded per trial — the offlin
   expect(capture.detail).toEqual({ kind: answer() as unknown as Record<string, unknown> });
 });
 
-test("an unreadable answer is a MECHANICAL miss, not a silently wrong label", async () => {
-  // JEV's decoder cannot emit an out-of-enum value, so this is defensive — but the distinction
-  // matters: production's `normalize` collapses a bad verdict into `unknown`, which would read as
-  // a correct abstain on the very fixtures that measure abstaining.
+test("an unreadable answer produces no verdict at all", async () => {
+  // JEV's decoder cannot emit an out-of-enum value, so this is defensive. The scoring consequence
+  // — that such a trial is never counted CORRECT, including on the abstain fixtures — is asserted
+  // in `eval-stop-classifier.test.ts`, since it lives in that eval's scorer, not here.
   const { send } = stubSend({ answers: {} });
   const backend = jevBackend(send, { ...ASK, verdict: () => null });
   const capture = await backend.trial(FIXTURE, "p", RUN, emptySpend());

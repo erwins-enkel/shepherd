@@ -33,6 +33,13 @@ threshold that tolerates the classifier's nondeterminism.
   `normalize` collapses a missing/garbage verdict **and** a genuine model `unknown` into the same
   `{kind:"unknown"}`, the report keeps distinct `no-tool` and `parse-fail` tallies so a mechanical
   failure never masquerades as a genuine abstain.
+- **A verdict-less trial is never scored correct.** This is the sharp edge of the point above, and it
+  is specific to the two `unknown` fixtures: `normalize(null)` returns `unknown` (bias to surface —
+  correct in production), so crediting it would score a transport failure as a _correct abstain_ on
+  exactly the buckets that exist to measure abstention. Nine failed trials on `ambiguous-unknown`
+  would have reported a flawless 9/9. The trial still carries `label: unknown` in the distribution —
+  that is what `normalize` returned — so **read the `no-tool` tally, not the `unknown` count**, to
+  tell a failure from an abstain.
 
 ## How to run
 

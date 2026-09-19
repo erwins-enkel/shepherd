@@ -15,6 +15,7 @@ import {
   decide,
   formatReport,
   majority,
+  outcomeFrom,
   parseArgs,
   tolerantParse,
   type AnthropicResponse,
@@ -434,4 +435,47 @@ test("the report header names the framing, and says what T does NOT measure here
 
   // The Anthropic leg's header is untouched by any of this.
   expect(formatReport(SPEC, [], decide([], 0.8), parseArgs(SPEC, []))).not.toContain("jev framing");
+});
+
+test("a verdict-less trial is never counted correct — not even on the abstain fixtures", () => {
+  // THE TRAP this guards, which is specific to the two `unknown` fixtures: `normalize(null)`
+  // returns `unknown` (bias to surface — right in production), so before this was fixed a trial
+  // that obtained NO verdict scored as a correct abstain on exactly the buckets whose job is
+  // measuring abstention. Nine transport failures reported a perfect 9/9.
+  const ambiguous = FIXTURES.find((f) => f.id === "ambiguous-unknown")!;
+  const german = FIXTURES.find((f) => f.id === "de-ambiguous-unknown")!;
+  const verdictless = { toolUsed: false, content: null, turns: 1 };
+
+  for (const fixture of [ambiguous, german]) {
+    const o = outcomeFrom(SPEC, fixture, verdictless);
+    expect(o.correct).toBe(false);
+    expect(o.toolUsed).toBe(false);
+    // The label still reads `unknown` — that IS normalize's answer, and the distribution is not
+    // the place this is disambiguated. `no-tool` is.
+    expect(o.label).toBe("unknown");
+  }
+
+  // ...and the whole way up: nine such trials must not pass the gate.
+  const agg = aggregate(
+    ambiguous,
+    Array.from({ length: 9 }, () => outcomeFrom(SPEC, ambiguous, verdictless)),
+    SPEC.labels,
+  );
+  expect(agg.noTool).toBe(9);
+  expect(agg.correct).toBe(0);
+  expect(agg.majorityCorrect).toBe(false);
+  expect(decide([agg], 0.8).pass).toBe(false);
+
+  // A GENUINE abstain — the model really wrote `{"kind":"unknown"}` — still scores correct.
+  const real = outcomeFor(ambiguous, {
+    content: [
+      {
+        type: "tool_use",
+        id: "t",
+        name: "Write",
+        input: { file_path: "v.json", content: '{"kind":"unknown","summary":"cannot tell"}' },
+      },
+    ],
+  });
+  expect(real).toMatchObject({ toolUsed: true, label: "unknown", correct: true });
 });

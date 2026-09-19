@@ -161,8 +161,9 @@ its credit, did not then guess at a threshold: it records every trial's distribu
 (`bun run scripts/eval-jev.ts <report.json>`), so one paid run settles the whole sweep. On the
 verbatim framing, accuracy is **unchanged across every threshold up to 0.60** and degrades above it,
 losing two gating fixtures. **No threshold** is therefore a measured conclusion, not a default, and
-this section does not disturb it. The figures themselves are in
-[`eval-stop-classifier.md`](../eval-stop-classifier.md) — see §1.4 for why they are not repeated here.
+this section does not disturb it. The sweep's **shape** is recorded in
+[`eval-stop-classifier.md`](../eval-stop-classifier.md); the absolute figures are published nowhere
+in-tree (§1.4), and `--backend jev --json` reproduces them locally.
 
 What the ecosystem adds is the _explanation_, which matters for the sites that come after
 `classifyStop`. Two independent sources report that the `confidence` field is **opaque and is not

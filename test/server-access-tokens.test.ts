@@ -221,17 +221,47 @@ test("self-revoke: allowed for every scope — a token may always kill itself", 
       token: string;
       entry: { id: string };
     };
+    // A second token of the same scope: this bearer must not be able to revoke IT, only itself —
+    // the carve-out is bound to the caller's own id (`scopeAllows`'s `selfTokenId`). `full` reaches
+    // the handler regardless of id (its scope-gate check is unconditional) and is refused there by
+    // `requireOperatorSession`/`revokesItself`; `read`/`submit` never even reach the handler for
+    // someone else's id — the tightened seam gate (#F3) refuses it first as `insufficient_scope`.
+    const other = (await (await app.fetch(post({ name: `other-${scope}`, scope }))).json()) as {
+      token: string;
+      entry: { id: string };
+    };
+    const asMinted = { Authorization: `Bearer ${minted.token}` };
+    const crossRevoke = await app.fetch(
+      new Request(`http://x/api/access-tokens/${other.entry.id}`, {
+        method: "DELETE",
+        headers: asMinted,
+      }),
+    );
+    const expectedError = scope === "full" ? "operator_session_required" : "insufficient_scope";
+    expect(`${scope} cross-revoke → ${crossRevoke.status}`).toBe(`${scope} cross-revoke → 403`);
+    expect(await crossRevoke.json()).toEqual({ error: expectedError });
+    // The target token is untouched — still able to authenticate.
+    const otherStillLive = await app.fetch(
+      new Request("http://x/api/ping", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${other.token}` },
+      }),
+    );
+    expect(`${scope} target still live → ${otherStillLive.status}`).toBe(
+      `${scope} target still live → 200`,
+    );
+
     const res = await app.fetch(
       new Request(`http://x/api/access-tokens/${minted.entry.id}`, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${minted.token}` },
+        headers: asMinted,
       }),
     );
     expect(`${scope} → ${res.status}`).toBe(`${scope} → 200`);
   }
 });
 
-test("self-revoke: an unknown, tampered or already-revoked bearer gets 403, not 404", async () => {
+test("self-revoke: an unknown or tampered bearer gets 401 at the gate, never 404", async () => {
   // The mismatch answer must not depend on whether the id exists, or it becomes an enumeration
   // oracle for the token list a bearer is deliberately not allowed to read.
   const app = makeApp(makeDeps());
@@ -264,6 +294,33 @@ test("self-revoke: an unknown, tampered or already-revoked bearer gets 403, not 
       ).json()) as Listed
     ).tokens,
   ).toHaveLength(1);
+});
+
+test("self-revoke: an already-revoked bearer also gets 401 at the gate, not 404", async () => {
+  // Once revoked (here, by the operator, as `checkAuth`'s ordinary path would after any revoke),
+  // the plaintext no longer verifies at all — replaying it hits the SAME gate as a bearer that was
+  // never real, not a special "already gone" case in the self-revoke handler.
+  const app = makeApp(makeDeps());
+  const minted = (await (await app.fetch(post({ name: "Asyar" }))).json()) as {
+    token: string;
+    entry: { id: string };
+  };
+  const revoke = await app.fetch(
+    new Request(`http://x/api/access-tokens/${minted.entry.id}`, {
+      method: "DELETE",
+      headers: asOperator(),
+    }),
+  );
+  expect(revoke.status).toBe(200);
+
+  const replay = await app.fetch(
+    new Request(`http://x/api/access-tokens/${minted.entry.id}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${minted.token}` },
+    }),
+  );
+  expect(replay.status).toBe(401);
+  expect(await replay.json()).toEqual({ error: "unauthorized" });
 });
 
 test("self-revoke: SHEPHERD_TOKEN has no id of its own, so it revokes nothing", async () => {

@@ -82,15 +82,17 @@ const SUBMIT_PATTERNS: readonly (readonly [string, RegExp])[] = [
 ];
 
 /**
- * The one route EVERY scope reaches: `DELETE /api/access-tokens/{id}`, revoking a single token.
+ * The one route EVERY scope reaches: `DELETE /api/access-tokens/{id}`, revoking a single token —
+ * and, since the id itself is now checked here (see `scopeAllows`'s `selfTokenId` parameter), only
+ * when `{id}` names the very token making the request.
  *
- * This is not a hole in the deny-by-default rule, because passing here grants no authority: the
- * route itself (`handleAccessTokens`, src/server.ts) still refuses unless the presented bearer IS
- * the token named by `{id}`, so all a `read`/`submit` credential gets out of this line is the
- * ability to destroy itself. Listing and minting stay operator-session-only at the same route.
- * It lives here rather than in `READ_ROUTES` so that nothing about it reads as a read surface.
+ * This is not a hole in the deny-by-default rule: a `read`/`submit` credential gets nothing out of
+ * this line beyond the ability to destroy itself. Listing, minting and revoking any OTHER id stay
+ * operator-session-only at the same route (`handleAccessTokens`, src/server.ts, belt-and-suspenders
+ * with the id check here). It lives here rather than in `READ_ROUTES` so that nothing about it
+ * reads as a read surface.
  */
-const SELF_REVOKE_PATTERN = /^\/api\/access-tokens\/[^/]+$/;
+const SELF_REVOKE_PATTERN = /^\/api\/access-tokens\/([^/]+)$/;
 
 /** Strip ONE trailing slash. The dispatcher routes on `pathname.split("/").filter(Boolean)`, so
  *  `/api/sessions/` and `/api/sessions` reach the same handler and must score the same here — an
@@ -109,8 +111,21 @@ function normalizePath(pathname: string): string {
  *
  * Matching is exact on method + path. No prefix matching: `GET /api/sessions/abc` does not inherit
  * `GET /api/sessions`, so a per-session read stays behind `full` until it is listed here.
+ *
+ * `selfTokenId` is the id of the token the CALLER authenticated as (`verified.id` in `checkAuth`,
+ * src/server.ts) — never taken from the request in any other way, and never trusted from anywhere
+ * a caller could put an arbitrary value. The self-revoke carve-out fires only when it is given AND
+ * equals the id captured out of `pathname` by `SELF_REVOKE_PATTERN`: a `read`/`submit` token may
+ * therefore reach `DELETE /api/access-tokens/{id}` for its OWN id and no other — omitting the
+ * argument (as every call site but `checkAuth` does) never opens the carve-out, matching the
+ * deny-by-default rule the rest of this module follows.
  */
-export function scopeAllows(scope: string, method: string, pathname: string): boolean {
+export function scopeAllows(
+  scope: string,
+  method: string,
+  pathname: string,
+  selfTokenId?: string,
+): boolean {
   if (scope === "full") return true;
   // Adding a fourth level to TOKEN_SCOPES is not enough — it lands here as "unrecognized" and
   // grants NOTHING until it gets its own branch. Deliberately: a level that silently inherited
@@ -118,7 +133,10 @@ export function scopeAllows(scope: string, method: string, pathname: string): bo
   if (scope !== "read" && scope !== "submit") return false;
   const path = normalizePath(pathname);
   // Below the unrecognized-scope guard on purpose: a scope nobody recognizes still reaches nothing.
-  if (method === "DELETE" && SELF_REVOKE_PATTERN.test(path)) return true;
+  if (method === "DELETE" && selfTokenId !== undefined) {
+    const match = SELF_REVOKE_PATTERN.exec(path);
+    if (match !== null && match[1] === selfTokenId) return true;
+  }
   const key = `${method} ${path}`;
   if (READ_ROUTES.has(key)) return true;
   if (scope === "read") return false;

@@ -803,7 +803,7 @@ function checkAuth(req: Request, deps: AppDeps): Response | null {
       // route was out of its reach. A misconfigured client hammering a forbidden route should read
       // as active in the token list — that is the attribution #2082 shipped this stamp for.
       svc.stampUsed(verified.id); // throttled to one write per token per minute
-      if (!scopeAllows(verified.scope, req.method, new URL(req.url).pathname)) {
+      if (!scopeAllows(verified.scope, req.method, new URL(req.url).pathname, verified.id)) {
         // 403, not 401: the token is valid and known — it simply does not carry this route. The
         // body is a fixed string rather than the required level, so it diagnoses without
         // enumerating the policy table.
@@ -823,6 +823,9 @@ function checkAuth(req: Request, deps: AppDeps): Response | null {
  *
  * Mirrors checkAuth's un-bootstrapped escape hatch, so unit-test apps that configure no auth at
  * all keep reaching these routes.
+ *
+ * The one carve-out to "interactive session required" is self-revocation — see `revokesItself`
+ * below, which `handleAccessTokens` consults instead of this gate for exactly that one call.
  */
 function requireOperatorSession(req: Request): Response | null {
   if (config.cookieSecret === null && config.token === null) return null; // un-bootstrapped (tests)
@@ -992,6 +995,14 @@ async function mintAccessToken(req: Request, deps: AppDeps): Promise<Response> {
  * Deliberately SCOPE-BLIND: a token of any scope may kill itself. Scope answers "how far does this
  * credential reach", and self-destruction reaches nothing. (The seam's scope gate agrees — see
  * SELF_REVOKE_PATTERN in src/token-scopes.ts.) Nothing about the token is logged here.
+ *
+ * This re-verifies the bearer and re-derives its id from the header rather than trusting a value
+ * `checkAuth` already computed — a second, independent source of truth for "whose token is this"
+ * sitting right next to the operator-session check it may override. That duplication is acceptable
+ * (rather than a smell) precisely because the two verifications can only ever agree or both fail:
+ * `svc.verify` is a pure hash + map lookup with no side effect that could make the two calls diverge
+ * within one request, and the authority this grants is bounded to "delete the credential you just
+ * proved you hold" either way.
  */
 function revokesItself(req: Request, deps: AppDeps, id: string): boolean {
   const authHeader = req.headers.get("Authorization");

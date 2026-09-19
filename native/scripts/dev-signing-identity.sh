@@ -23,6 +23,17 @@ set -euo pipefail
 IDENTITY_NAME="Shepherd Local Dev"
 VALID_DAYS=3650
 
+# Track temp directories for cleanup on any exit (including set -e abort)
+TMPDIRS=()
+
+cleanup() {
+  for d in "${TMPDIRS[@]+"${TMPDIRS[@]}"}"; do
+    rm -rf "$d"
+  done
+}
+
+trap cleanup EXIT
+
 login_keychain() {
   # `security login-keychain` prints the path quoted and indented.
   security login-keychain | sed -e 's/^[[:space:]]*//' -e 's/^"//' -e 's/"$//'
@@ -77,7 +88,7 @@ cmd_remove() {
   fi
 
   tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' RETURN
+  TMPDIRS+=("$tmp")
 
   # Drop the per-user trust setting first — it survives the certificate and
   # would otherwise linger as an orphan entry in Keychain Access.
@@ -118,7 +129,7 @@ cmd_create() {
   }
 
   tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' RETURN
+  TMPDIRS+=("$tmp")
   chmod 700 "$tmp"
 
   cat >"$tmp/openssl.cnf" <<CNF

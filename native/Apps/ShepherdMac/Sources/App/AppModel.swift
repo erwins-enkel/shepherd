@@ -88,7 +88,13 @@ struct ConnectionSource {
     /// The current state, or `nil` once the store behind it is gone.
     let read: () -> ConnectionState?
     /// Called when the watcher finds its model released without a `teardown()`:
-    /// ends the store's loop rather than leaving it reconnecting forever.
+    /// ends the store's loop rather than leaving it reconnecting forever. A
+    /// store parked inside `start()` on a quiet socket is released only here,
+    /// on its *next* connection-state change — `start()`'s own suspended frame
+    /// keeps it alive until then. Accepted: `ShepherdApp` holds one
+    /// app-lifetime `@State AppModel`, so the only drop path today is process
+    /// exit; an isolated `deinit` (needs macOS 15.4+, past this app's floor)
+    /// is the proper fix once the deployment target moves.
     let abandon: () -> Void
 }
 
@@ -110,6 +116,14 @@ final class AppModel {
     /// none at all. Profile identity is not enough, because re-activating the
     /// *same* profile has to invalidate the older completions too.
     private(set) var activationGeneration = 0
+
+    /// Profiles whose `remove(_:)` is currently in flight. `activate(_:)` and
+    /// `signIn`'s completion consult this in addition to `activationGeneration`:
+    /// a profile can be mid-removal without a generation bump ever having run
+    /// for it (it may never have been active), and once `remove(_:)` finishes
+    /// the profile is simply gone from `profiles` — a longer-lived signal this
+    /// set does not carry once removal completes and clears it here.
+    @ObservationIgnored private var removing: Set<ServerProfile.ID> = []
 
     /// The two server-facing setup steps, behind stored closures so a test can
     /// hold a sign-in mid-flight or remove a profile without touching the
@@ -187,7 +201,18 @@ final class AppModel {
     /// credential that is about to be revoked — then the server-side revocation
     /// (best effort: a server that refuses it must not strand the local item),
     /// then the local delete, then the row.
+    ///
+    /// `removing` is marked before anything else and `activationGeneration` is
+    /// bumped unconditionally — even when `profile` is not the active one — so
+    /// a sign-in already in flight for it cannot land after this call starts
+    /// and re-activate a row this method is in the middle of deleting; a
+    /// `logout` gated by a test cannot let a re-`activate(_:)` of the still-
+    /// listed row install a replacement store either, since `removing` blocks
+    /// it directly. Nothing here bails out early on a generation mismatch —
+    /// removal always runs to completion once started.
     func remove(_ profile: ServerProfile) async {
+        removing.insert(profile.id)
+        activationGeneration &+= 1
         if activeProfile?.id == profile.id { teardown() }
         // `logout` revokes and clears the local item; the explicit delete covers
         // the paths where it bailed out before getting there.
@@ -195,12 +220,23 @@ final class AppModel {
         try? credentials.delete(for: profile.credentialKey)
         profiles.removeAll { $0.id == profile.id }
         persist()
+        removing.remove(profile.id)
         Log.app.info("removed profile \(profile.name, privacy: .public)")
     }
 
     // MARK: - Activation
 
     func activate(_ profile: ServerProfile) async {
+        // A profile mid-`remove(_:)` — or already gone — must not be
+        // (re-)activated: it may be about to lose its credential, or already
+        // have lost it.
+        guard !removing.contains(profile.id), profiles.contains(where: { $0.id == profile.id })
+        else {
+            Log.app.debug(
+                "ignoring activate for a profile that is being removed or already gone")
+            return
+        }
+
         activationGeneration &+= 1
         let generation = activationGeneration
 
@@ -274,6 +310,14 @@ final class AppModel {
             Log.connect.info("a newer activation won; not switching back")
             return
         }
+        // A profile that `remove(_:)` took mid-flight, or has already
+        // finished taking, must not be resurrected by a sign-in that outlived
+        // it — the credential this login just stored may already be revoked.
+        guard !removing.contains(profile.id), profiles.contains(where: { $0.id == profile.id })
+        else {
+            Log.connect.debug("ignoring sign-in completion for a profile that was removed")
+            return
+        }
         await activate(profile)
     }
 
@@ -302,10 +346,10 @@ final class AppModel {
         _ source: ConnectionSource, profile: ServerProfile, generation: Int
     ) {
         guard let initial = source.read() else { return }
-        routeSheet(for: initial, profile: profile)
 
         connectionWatcher = Task { @MainActor [weak self] in
             var current = initial
+            var routedInitial = false
             while !Task.isCancelled {
                 // Read and route *before* arming, in its own scope. Before:
                 // because a state that moved between the initial read and this
@@ -314,6 +358,11 @@ final class AppModel {
                 // observation only reports the *next* write. In its own scope:
                 // because a `self` still bound across the suspension below would
                 // make this watcher the reason a dropped model never deinits.
+                // This also covers the *initial* state, routed here on the
+                // first pass rather than at arm time: an activation a newer
+                // one has already superseded must not route a stale state just
+                // because it happened to be current when `watchConnection` was
+                // called.
                 var routed = false
                 do {
                     guard let self else {
@@ -325,13 +374,19 @@ final class AppModel {
                     // A watcher from an older activation may still be unwinding;
                     // what it reads belongs to a store the app has moved on from.
                     guard self.activationGeneration == generation else { return }
-                    // Registering an observation on a store that is gone would
-                    // park this task on a continuation no write can resume.
-                    guard let latest = source.read() else { return }
-                    if latest != current {
-                        current = latest
+                    if !routedInitial {
+                        routedInitial = true
                         routed = true
-                        self.routeSheet(for: latest, profile: profile)
+                        self.routeSheet(for: current, profile: profile)
+                    } else {
+                        // Registering an observation on a store that is gone would
+                        // park this task on a continuation no write can resume.
+                        guard let latest = source.read() else { return }
+                        if latest != current {
+                            current = latest
+                            routed = true
+                            self.routeSheet(for: latest, profile: profile)
+                        }
                     }
                 }
                 if routed { continue }

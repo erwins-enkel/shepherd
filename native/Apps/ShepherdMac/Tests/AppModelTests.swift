@@ -210,8 +210,12 @@ struct AppModelTests {
 
     @Test func removingTheActiveProfileTearsItsStoreDownFirst() async throws {
         let model = makeModel()
-        model.logout = { _, _ in }
         let profile = try remote(model, "studio")
+        // Reversing the order — logout before teardown — must fail this test:
+        // assert the store is already gone from *inside* the injected logout.
+        model.logout = { [weak model] _, _ in
+            #expect(model?.store == nil, "the store must be torn down before logout runs")
+        }
         await model.activate(profile)
         #expect(model.store != nil)
 
@@ -263,6 +267,65 @@ struct AppModelTests {
         model.teardown()
     }
 
+    // MARK: - Removal races with activation
+
+    /// Scenario A from the fix-wave-2 brief: a login sheet for B is submitted,
+    /// `login` is in flight, and the operator removes B before it lands.
+    /// Before the fix, `remove(_:)` never bumped `activationGeneration` for a
+    /// profile that was never active, so the completing sign-in still matched
+    /// and `activate(B)` resurrected a row this call had just deleted.
+    @Test func aSignInLandingAfterTheProfileWasRemovedDoesNotReviveIt() async throws {
+        let model = makeModel()
+        model.logout = { _, _ in }
+        let b = try remote(model, "b")
+
+        let gate = Gate()
+        model.login = { _, _, _ in await gate.wait() }
+
+        let signIn = Task { try await model.signIn(profile: b, password: "hunter2") }
+        #expect(await settle(until: { gate.isWaiting }))
+
+        await model.remove(b)
+        gate.open()
+        try await signIn.value
+
+        #expect(model.profiles.isEmpty)
+        #expect(model.activeProfile == nil)
+        #expect(model.store == nil)
+    }
+
+    /// Scenario B from the fix-wave-2 brief: B is active, `remove(_:)` tears
+    /// its store down and is then held mid-flight inside the gated `logout`
+    /// — B is still in `profiles` at this point, removal has not reached
+    /// `profiles.removeAll` yet. Re-activating B here must be refused, or it
+    /// would install a replacement store for a row `remove(_:)` is about to
+    /// delete.
+    @Test func reactivatingAProfileMidRemovalIsRefused() async throws {
+        let model = makeModel()
+        let b = try remote(model, "b")
+        await model.activate(b)
+        #expect(model.store != nil)
+
+        let gate = Gate()
+        model.logout = { _, _ in await gate.wait() }
+        let remove = Task { await model.remove(b) }
+        #expect(await settle(until: { gate.isWaiting }))
+
+        // b is still listed here — remove() has not reached
+        // profiles.removeAll — but reactivation must already be refused.
+        #expect(model.profiles.contains(where: { $0.id == b.id }))
+        await model.activate(b)
+        #expect(model.store == nil)
+        #expect(model.activeProfile == nil)
+
+        gate.open()
+        await remove.value
+
+        #expect(model.profiles.isEmpty)
+        #expect(model.store == nil)
+        #expect(model.activeProfile == nil)
+    }
+
     // MARK: - Profile-bound sheets
 
     @Test func activatingAnotherProfileClosesTheOldLoginSheet() async throws {
@@ -295,15 +358,24 @@ struct AppModelTests {
     }
 
     @Test func aFailedActivationLeavesNoSheetOverTheWelcomeScreen() async {
-        let model = makeModel()
         // The shape only an older build could have persisted: plain http to a
-        // public host, which SessionStore.init refuses.
+        // public host, which SessionStore.init refuses. `activate(_:)` now
+        // requires the profile to actually be listed, so it is seeded straight
+        // into UserDefaults — as `ProfileStore.save` (no validation) would have
+        // left it — rather than added through `addRemoteProfile`, which would
+        // reject it.
         let stale = ServerProfile(
             id: UUID(),
             name: "Old",
             baseURL: URL(string: "http://studio.example.com")!,
             mode: .remote,
             credentialKey: "run.shepherd.mac.stale")
+        let name = UUID().uuidString
+        let defaults = UserDefaults(suiteName: name)!
+        defaults.removePersistentDomain(forName: name)
+        ProfileStore(defaults: defaults).save(profiles: [stale], activeID: nil)
+
+        let model = AppModel(defaults: defaults, credentials: InMemoryCredentialStore())
         model.sheet = .firstRun
 
         await model.activate(stale)
@@ -364,12 +436,16 @@ struct AppModelTests {
         let model = makeModel()
         let profile = try remote(model, "studio")
         let box = ConnectionBox()
+        // Already `.needsLogin` *before* the watcher is armed, so the old
+        // (pre-fix) code — which routed the initial read outside the
+        // generation guard — would have opened the login sheet right away.
+        // This must still pass only because the guard now covers that read.
+        box.state = .needsLogin
         model.watchConnection(
             ConnectionSource(read: { box.state }, abandon: {}),
             profile: profile,
             generation: model.activationGeneration - 1)
 
-        box.state = .needsLogin
         _ = await settle(until: { model.sheet != nil }, yields: 50)
         #expect(model.sheet == nil)
         model.teardown()

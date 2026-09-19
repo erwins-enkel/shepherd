@@ -3,8 +3,9 @@
 // WHY this exists: `docs/research/jev-system-one-models.md` recommends JEV for exactly two of
 // Shepherd's judgement sites and parks the whole recommendation behind one gate — "add a JEV
 // backend to the existing harness and run the existing stop-classifier fixture set; that is the
-// go/no-go". This file is that backend, and nothing more. No production code calls it; when and if
-// the `Judge` seam is built, the transport below is what moves to `src/`.
+// go/no-go". This file is that backend, and nothing more. The go/no-go came back GO, so #2369 built
+// the `Judge` seam and this file now calls IT (`src/judge-typesafe.ts`) rather than speaking HTTP
+// itself — the eval and production share one transport, so neither can drift from the other.
 //
 // WHAT JEV IS, in the one sentence that shapes this file: it answers TYPED questions (choice /
 // yes-no / score) against a shared `state` blob and returns the answer, the full probability
@@ -15,7 +16,7 @@
 // Only `choice` is implemented: it is the one primitive this eval asks for. `noul` and `score` get
 // added when something measures them, not before.
 //
-// Everything here is pure or transport-injected, so `test/eval-jev.test.ts` exercises it with no
+// Everything here is pure or judge-injected, so `test/eval-jev.test.ts` exercises it with no
 // network and no key.
 
 import {
@@ -26,83 +27,29 @@ import {
   type RunOptions,
   type Spend,
 } from "./eval-core";
-
-// ---------------------------------------------------------------------------
-// Wire types — verified against a live probe, not only against the docs
-// ---------------------------------------------------------------------------
-
-const JEV_URL = "https://api.typesafe.ai/v1/systemone";
-
-/** A `choice` question: pick exactly one named option. `criteria` maps each option name to its
- *  description, or to `null` when the option names are self-describing given the `state`. */
-export interface JevChoiceQuestion {
-  type: "choice";
-  instructions: string;
-  criteria: Record<string, string | null>;
-}
-
-/** A `choice` answer. `confidence` is the distribution's peakedness — reported SEPARATELY from the
- *  answer, which is the property that lets "which option" and "should we act on it" be two
- *  decisions instead of one. */
-export interface JevChoiceAnswer {
-  type: "choice";
-  choice: string;
-  confidence: number;
-  probabilities: Record<string, number>;
-}
-
-export interface JevResponse {
-  model: string;
-  answers: Record<string, JevChoiceAnswer>;
-  /** Field names match the Anthropic shape, so {@link addUsage} reads it directly. */
-  usage?: { input_tokens?: number; output_tokens?: number };
-}
-
-export interface JevRequest {
-  model: string;
-  /** Text, or any JSON value — the docs allow an object, and the live API accepts one. */
-  state: unknown;
-  questions: Record<string, JevChoiceQuestion>;
-}
-
-/** The transport. Injected so the backend is testable without network access. */
-export type JevSend = (body: JevRequest) => Promise<JevResponse>;
-
-export function jevSend(apiKey: string): JevSend {
-  return async (body) => {
-    const res = await fetch(JEV_URL, {
-      method: "POST",
-      headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) {
-      // The status goes FIRST and verbatim because the harness's `isPermanent` / `isCannotRun`
-      // classify on this message. Verified live: a bad key returns 401 with an
-      // `authentication_error` body, which `isPermanent` already matches, so a dead key fails fast
-      // instead of burning the backoff once per trial across the pool.
-      throw new Error(`JEV API ${res.status}: ${(await res.text()).slice(0, 500)}`);
-    }
-    return (await res.json()) as JevResponse;
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Pricing
-// ---------------------------------------------------------------------------
-
-/** $/Mtok. Input only — JEV bills no output. `src/pricing.ts` deliberately does NOT learn this
- *  model: its table is real Anthropic list prices feeding the usage lens, and a non-Anthropic row
- *  would pollute it. Left to fall through there, `jev-1.13.0` would be priced at default
- *  (sonnet-like) weights and over-report this run's spend by a factor of ~71. */
-export const JEV_INPUT_USD_PER_MTOK = 0.042;
-
-export function jevPriceUsd(spend: Spend): number {
-  return (spend.input * JEV_INPUT_USD_PER_MTOK) / 1_000_000;
-}
+import type { Judge, JudgeChoiceAnswer, JudgeChoiceQuestion } from "../src/judge";
+import { createTypeSafeJudge, judgeCostUsd, JUDGE_INPUT_USD_PER_MTOK } from "../src/judge-typesafe";
 
 // ---------------------------------------------------------------------------
 // Backend
 // ---------------------------------------------------------------------------
+
+/**
+ * The question/answer shapes are the PRODUCTION seam's (`src/judge.ts`), not this file's. #2369
+ * moved the transport into `src/` behind the official SDK and re-pointed this backend at it, so the
+ * eval exercises the code path production uses — the same drift-prevented-by-import property that
+ * made feeding the real prompt as `state` the right call. This file no longer speaks HTTP.
+ */
+export type JevChoiceQuestion = JudgeChoiceQuestion;
+export type JevChoiceAnswer = JudgeChoiceAnswer;
+
+/** $/Mtok, re-exported from the production pricing constant so the two cannot drift.
+ *  `src/pricing.ts` deliberately does not learn this model — see the note there. */
+export const JEV_INPUT_USD_PER_MTOK = JUDGE_INPUT_USD_PER_MTOK;
+
+export function jevPriceUsd(spend: Spend): number {
+  return judgeCostUsd(spend.input);
+}
 
 /** What a fixture asks JEV: the shared `state` blob plus the questions asked against it. The eval
  *  owns this — the harness stays free of any knowledge of what is being judged. */
@@ -128,6 +75,10 @@ export interface JevBackendOptions<F extends EvalFixtureBase> {
   verdict: JevVerdict;
 }
 
+/** Generous next to production's: an eval run is a batch job, and a trial lost to a slow response
+ *  costs a paid re-run, whereas production would rather fall back to its spawn than wait. */
+const EVAL_DEADLINE_MS = 60_000;
+
 export function jevBackendSpec<F extends EvalFixtureBase>(
   options: JevBackendOptions<F>,
 ): BackendSpec<F> {
@@ -142,22 +93,44 @@ export function jevBackendSpec<F extends EvalFixtureBase>(
           "(~/.shepherd/eval.env) and retry."
         );
       }
-      return jevBackend(jevSend(apiKey), options);
+      // Memoised per model: `--model` is a run-level choice the spec cannot see at create time, and
+      // a client is pure configuration, so one per distinct model is both correct and cheap.
+      const byModel = new Map<string, Judge>();
+      const judgeFor = (model: string): Judge => {
+        let judge = byModel.get(model);
+        if (!judge) {
+          judge = createTypeSafeJudge({
+            apiKey,
+            baseUrl: process.env.SHEPHERD_JUDGE_BASE_URL?.trim() || "https://api.typesafe.ai",
+            model,
+            deadlineMs: EVAL_DEADLINE_MS,
+          });
+          byModel.set(model, judge);
+        }
+        return judge;
+      };
+      return jevBackend(judgeFor, options);
     },
   };
 }
 
-/** The backend itself, over an injected transport. */
+/** The backend itself, over an injected judge factory — so a unit test drives it with a stub and
+ *  needs neither a key nor a network. */
 export function jevBackend<F extends EvalFixtureBase>(
-  send: JevSend,
+  judgeFor: (model: string) => Judge,
   options: JevBackendOptions<F>,
 ): Backend<F> {
   return {
     trial: async (fixture, prompt, run, spend) => {
       const { state, questions } = options.ask(fixture, prompt, run);
-      const response = await send({ model: run.model, state, questions });
-      addUsage(spend, { usage: response.usage });
-      const answers = response.answers ?? {};
+      const result = await judgeFor(run.model).ask(state, questions);
+      addUsage(spend, {
+        usage: {
+          input_tokens: result.usage.inputTokens,
+          output_tokens: result.usage.outputTokens,
+        },
+      });
+      const answers = result.answers as Record<string, JevChoiceAnswer>;
       const raw = options.verdict(answers);
       // `turns: 1` is the literal truth here — one request, one answer. There is no tool loop to
       // exhaust and no file for a model to decline to write, so the whole `no-tool` failure class
@@ -271,11 +244,14 @@ export function sweepTrialsFrom(
     if (!Array.isArray(r.trialDetails)) continue;
     for (const detail of r.trialDetails) {
       const answer = (detail as Record<string, unknown> | null)?.[questionId] as
-        JevChoiceAnswer | undefined;
-      if (typeof answer?.choice !== "string" || typeof answer.confidence !== "number") continue;
+        (JevChoiceAnswer & { confidence?: number }) | undefined;
+      // `vendorConfidence` is the seam's name for the field; `confidence` is what reports recorded
+      // before #2369 renamed it. Both are read so an older report still sweeps.
+      const confidence = answer?.vendorConfidence ?? answer?.confidence;
+      if (typeof answer?.choice !== "string" || typeof confidence !== "number") continue;
       trials.push({
         choice: answer.choice,
-        confidence: answer.confidence,
+        confidence,
         expected: r.expected,
         fixture: r.id,
       });

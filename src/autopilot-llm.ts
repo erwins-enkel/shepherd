@@ -21,8 +21,14 @@ import {
   preClassify,
   classifierPrompt,
   normalize,
+  judgeClassifierQuestion,
+  judgeVerdict,
+  JUDGE_QUESTION_ID,
   type RawVerdict,
 } from "./autopilot-classify-core";
+import type { Judge } from "./judge";
+import type { JudgeSpendLedger } from "./judge-spend";
+import { timedAsync } from "./instrument";
 
 // Re-export the pure classifier-core symbols that external code + tests import from this module,
 // so they keep resolving after the extraction to the leaf module (autopilot-classify-core.ts).
@@ -62,6 +68,13 @@ export interface ClassifierDeps {
   sleep?: (ms: number) => Promise<void>;
   timeoutMs?: number;
   pollMs?: number;
+  /** #2369: the decision-model judge. Absent — which is the default, and what an operator gets
+   *  unless they BOTH turn the setting on and supply a key — means the spawn path below runs
+   *  exactly as it always has. */
+  judge?: Judge | null;
+  /** #2369: the daily spend ceiling. Absent ⇒ unmetered, which only happens in tests; production
+   *  always wires one alongside the judge. */
+  judgeSpend?: JudgeSpendLedger | null;
 }
 
 const defaultMakeTmpDir = (): string => makeHelperTmpDir("shepherd-autopilot-");
@@ -222,9 +235,48 @@ async function teardownClassifier(
 }
 
 /**
- * Classify why an agent stopped, via a transient interactive `claude` (subscription OAuth —
- * NOT `claude -p`). Spawns the classifier model in a fresh temp dir with only the Write
- * tool, polls for the verdict file, normalizes it, then tears the agent + dir down.
+ * The judge leg (#2369): one HTTP request in place of a spawn, a PTY pane and a 1 s disk poll under
+ * a 120 s budget. Returns null for EVERY failure — unarmed, over the ceiling, transport error,
+ * deadline, missing answer, off-enum answer — and null always means "fall back to the spawn below",
+ * so there is no path on which arming the judge can cost a capability.
+ */
+async function classifyViaJudge(
+  tail: string[],
+  prompt: string,
+  judge: Judge,
+  spend: JudgeSpendLedger | null | undefined,
+  reportFailure: (message: string, err: unknown) => void,
+): Promise<AutopilotVerdict | null> {
+  try {
+    // Inside the try, deliberately: `allow` reads the DB, and a locked database must degrade to the
+    // spawn like every other failure here rather than escape `classifyStop` to its caller.
+    if (spend && !spend.allow()) return null;
+    const result = await timedAsync("judge classifyStop", () =>
+      judge.ask(prompt, { [JUDGE_QUESTION_ID]: judgeClassifierQuestion() }),
+    );
+    // Booked before the answer is inspected: an unusable answer was still billed, and a ceiling
+    // that only counts answers it liked is not a ceiling. A ledger write must never lose a verdict
+    // we already paid for, so it is best-effort.
+    try {
+      spend?.record(result.costUsd);
+    } catch (err) {
+      reportFailure("[autopilot] judge spend record failed:", err);
+    }
+    const raw = judgeVerdict(result.answers[JUDGE_QUESTION_ID], tail);
+    return raw === null ? null : normalize(raw);
+  } catch (err) {
+    reportFailure("[autopilot] judge classify failed (falling back to spawn):", err);
+    return null;
+  }
+}
+
+/**
+ * Classify why an agent stopped.
+ *
+ * Two legs. When a judge is wired (#2369) it answers first — one HTTP request, bounded by its own
+ * wall-clock deadline. On ANY judge failure, and whenever no judge is wired, this falls back to the
+ * historical path: a transient interactive `claude` (subscription OAuth — NOT `claude -p`) spawned
+ * into a fresh temp dir with only the Write tool, polled for its verdict file, then torn down.
  * Returns `{kind:"unknown",summary:""}` on any failure/timeout/garbage — bias to surface.
  */
 export async function classifyStop(
@@ -258,10 +310,33 @@ export async function classifyStop(
   // Fail closed: in Anthropic api-key mode without a configured key, a Claude spawn must NOT bill
   // the subscription — surface to the operator rather than auto-classifying on the wrong footing.
   // Gated on the resolved provider: a Codex classifier uses Codex's own auth, so the gate skips it.
-  if (apiKeyFailClosed(provider)) return SURFACE;
+  //
+  // #2369 scoped this to the SPAWN rather than to classification as a whole. The judge bills its own
+  // vendor on its own key, so a missing Anthropic key is no reason for it not to answer; what the
+  // gate must still prevent is the fallback silently billing the subscription. So: judge first,
+  // then surface instead of spawning.
+  const spawnBarred = apiKeyFailClosed(provider);
 
+  // Still ahead of the judge: an empty tail has nothing to classify, and surfacing costs nothing.
   const pre = preClassify(tail);
   if (pre) return pre;
+
+  // One prompt, both legs: the judge is asked the production prompt VERBATIM as its state, which is
+  // what the measurement picked — so the two classifiers cannot drift apart by construction.
+  const prompt = classifierPrompt(tail, taskPrompt, operatorLanguage, amendments);
+
+  if (deps.judge) {
+    const viaJudge = await classifyViaJudge(
+      tail,
+      prompt,
+      deps.judge,
+      deps.judgeSpend,
+      reportFailure,
+    );
+    if (viaJudge) return viaJudge;
+  }
+
+  if (spawnBarred) return SURFACE;
 
   let cwd: string | null = null;
   let terminalId: string | null = null;
@@ -270,7 +345,6 @@ export async function classifyStop(
   let spawnAccountDir: string | undefined;
   try {
     cwd = makeTmpDir();
-    const prompt = classifierPrompt(tail, taskPrompt, operatorLanguage, amendments);
     try {
       const built = classifierArgv(provider, model, prompt, effort);
       classifierSessionId = built.sessionId;

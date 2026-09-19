@@ -8,10 +8,9 @@ import {
   sweepThreshold,
   sweepTrialsFrom,
   type JevChoiceAnswer,
-  type JevRequest,
-  type JevResponse,
   type SweepTrial,
 } from "../scripts/eval-jev";
+import type { Judge, JudgeResult } from "../src/judge";
 import {
   emptySpend,
   isCannotRun,
@@ -22,9 +21,9 @@ import {
   type RunOptions,
 } from "../scripts/eval-core";
 
-// HERMETIC: the transport is injected, so nothing here calls api.typesafe.ai and no JEV_API_KEY is
-// read. The wire SHAPES asserted below were captured from a live probe before this code was
-// written, not copied from the vendor docs alone.
+// HERMETIC: the judge is injected, so nothing here calls api.typesafe.ai and no JEV_API_KEY is
+// read. The transport itself lives in `src/judge-typesafe.ts` since #2369 and is covered by
+// `test/judge-typesafe.test.ts`, which drives the real SDK over an injected `fetch`.
 
 interface TestFixture extends EvalFixtureBase {
   expected: string;
@@ -59,23 +58,37 @@ function answer(over: Partial<JevChoiceAnswer> = {}): JevChoiceAnswer {
   return {
     type: "choice",
     choice: "a",
-    confidence: 0.84,
+    vendorConfidence: 0.84,
     probabilities: { a: 0.88, b: 0.12 },
     ...over,
   };
 }
 
-function stubSend(response: Partial<JevResponse>): {
-  send: (body: JevRequest) => Promise<JevResponse>;
-  bodies: JevRequest[];
+interface AskCall {
+  state: unknown;
+  questions: Record<string, unknown>;
+  model: string;
+}
+
+function stubJudge(over: Partial<JudgeResult<Record<string, never>>> = {}): {
+  judgeFor: (model: string) => Judge;
+  calls: AskCall[];
 } {
-  const bodies: JevRequest[] = [];
+  const calls: AskCall[] = [];
   return {
-    bodies,
-    send: async (body) => {
-      bodies.push(body);
-      return { model: "jev-1.13.0", answers: {}, ...response };
-    },
+    calls,
+    judgeFor: (model) => ({
+      ask: async (state, questions) => {
+        calls.push({ state, questions, model });
+        return {
+          model: "jev-1.13.0",
+          answers: {},
+          usage: { inputTokens: 0, outputTokens: 0 },
+          costUsd: 0,
+          ...over,
+        } as never;
+      },
+    }),
   };
 }
 
@@ -84,12 +97,12 @@ const ASK = { ask: () => ({ state: "S", questions: {} }), defaultModel: "jev-1.1
 // --- the backend ------------------------------------------------------------
 
 test("a choice answer becomes the same verdict shape the Claude backend writes to a file", async () => {
-  const { send, bodies } = stubSend({
-    answers: { kind: answer() },
-    usage: { input_tokens: 606, output_tokens: 52 },
+  const { judgeFor, calls } = stubJudge({
+    answers: { kind: answer() } as never,
+    usage: { inputTokens: 606, outputTokens: 52 },
   });
   const spend = emptySpend();
-  const backend = jevBackend(send, {
+  const backend = jevBackend(judgeFor, {
     ...ASK,
     ask: (_f, prompt) => ({ state: prompt, questions: {} }),
     verdict: (answers) => ({ kind: answers.kind?.choice, summary: "" }),
@@ -101,16 +114,17 @@ test("a choice answer becomes the same verdict shape the Claude backend writes t
   expect(JSON.parse(capture.content!)).toEqual({ kind: "a", summary: "" });
   expect(capture.turns).toBe(1);
   // The state is whatever the EVAL chose — here the production prompt verbatim.
-  expect(bodies[0]!.state).toBe("THE PROMPT");
-  expect(bodies[0]!.model).toBe("jev-1.13.0");
+  expect(calls[0]!.state).toBe("THE PROMPT");
+  // `--model` reaches the transport as the model the judge is built for — the pin is not bypassed.
+  expect(calls[0]!.model).toBe("jev-1.13.0");
   // Usage accrues through the harness's own meter, so the spend ceiling governs this backend too.
   expect(spend.calls).toBe(1);
   expect(spend.input).toBe(606);
 });
 
 test("the full distribution and confidence are recorded per trial — the offline sweep's raw material", async () => {
-  const { send } = stubSend({ answers: { kind: answer() } });
-  const backend = jevBackend(send, { ...ASK, verdict: () => ({ kind: "a" }) });
+  const { judgeFor } = stubJudge({ answers: { kind: answer() } as never });
+  const backend = jevBackend(judgeFor, { ...ASK, verdict: () => ({ kind: "a" }) });
   const capture = await backend.trial(FIXTURE, "p", RUN, emptySpend());
   expect(capture.detail).toEqual({ kind: answer() as unknown as Record<string, unknown> });
 });
@@ -119,8 +133,8 @@ test("an unreadable answer produces no verdict at all", async () => {
   // JEV's decoder cannot emit an out-of-enum value, so this is defensive. The scoring consequence
   // — that such a trial is never counted CORRECT, including on the abstain fixtures — is asserted
   // in `eval-stop-classifier.test.ts`, since it lives in that eval's scorer, not here.
-  const { send } = stubSend({ answers: {} });
-  const backend = jevBackend(send, { ...ASK, verdict: () => null });
+  const { judgeFor } = stubJudge({ answers: {} as never });
+  const backend = jevBackend(judgeFor, { ...ASK, verdict: () => null });
   const capture = await backend.trial(FIXTURE, "p", RUN, emptySpend());
   expect(capture.toolUsed).toBe(false);
   expect(capture.content).toBeNull();
@@ -142,17 +156,18 @@ test("JEV bills input only, so output tokens are free", () => {
 
 // --- transport error text, as the harness classifies it ---------------------
 
-test("a dead key fails fast because JEV's own 401 body is what isPermanent matches", () => {
-  // Captured live: the body carries `authentication_error`, and the message this backend throws
-  // puts the status first. Both are load-bearing — without them a bad key burns the retry backoff
-  // once per trial across the whole pool.
+test("a dead key fails fast because the seam's error text is what isPermanent matches", () => {
+  // Captured live: the body carries `authentication_error`, and `JudgeError`'s message leads with
+  // the status. Both are load-bearing — without them a bad key burns the retry backoff once per
+  // trial across the whole pool. #2369 changed the prefix from `JEV API` to `judge:` when the
+  // transport moved into `src/`; the classification must survive that, which is what this pins.
   const dead =
-    'JEV API 401: {"detail":{"error_type":"authentication_error","message":"Cannot authenticate with the server."}}';
+    'judge: 401 {"detail":{"error_type":"authentication_error","message":"Cannot authenticate with the server."}}';
   expect(isPermanent(dead)).toBe(true);
   expect(isCannotRun(dead)).toBe(true);
   // A 429 is explicitly NOT permanent — backoff is what it exists for.
-  expect(isPermanent("JEV API 429: rate limited")).toBe(false);
-  expect(isCannotRun("JEV API 429: rate limited")).toBe(true);
+  expect(isPermanent("judge: 429 rate limited")).toBe(false);
+  expect(isCannotRun("judge: 429 rate limited")).toBe(true);
 });
 
 // --- the offline confidence sweep -------------------------------------------
@@ -209,7 +224,7 @@ test("sweepTrialsFrom reads a --json report, and skips what it cannot score", ()
         id: "gating-with-details",
         expected: "gate",
         gating: true,
-        trialDetails: [{ kind: answer({ choice: "gate", confidence: 0.9 }) }],
+        trialDetails: [{ kind: answer({ choice: "gate", vendorConfidence: 0.9 }) }],
       },
       // Baseline fixture — excluded by default, since the gate is defined over gating fixtures.
       {

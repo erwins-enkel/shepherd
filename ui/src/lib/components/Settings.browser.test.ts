@@ -134,6 +134,9 @@ function settings(over: Partial<SettingsPayload> = {}): SettingsPayload {
     telemetryAvailable: true,
     telemetryHealth: null,
     docAgentEnabled: false,
+    judgeEnabled: false,
+    judgeHasKey: false,
+    judgeDailyUsd: 1,
     docAgentAct: true,
     ...over,
   };

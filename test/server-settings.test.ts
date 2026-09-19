@@ -1160,3 +1160,68 @@ test("#1144: the CPU fraction clamps WITHOUT rounding (clampCap would round 0.8 
   expect(clampFraction(asEnv("nonsense", 0.8), 0.05, 1, 0.8)).toBe(0.8);
   expect(clampFraction(asEnv("5", 0.8), 0.05, 1, 0.8)).toBe(1);
 });
+
+// ── judge settings (#2369) ────────────────────────────────────────────────────
+
+test("GET /api/settings reports the judge flag, ceiling and key PRESENCE — never the key", async () => {
+  const { app } = harness();
+  const prevKey = config.judgeApiKey;
+  config.judgeApiKey = "sk-secret-value";
+  try {
+    const body = await (await app.fetch(new Request("http://x/api/settings"))).json();
+    expect(body.judgeHasKey).toBe(true);
+    expect(body.judgeEnabled).toBe(config.judgeEnabled);
+    expect(body.judgeDailyUsd).toBe(config.judgeDailyUsd);
+    // The credential must never reach a client. The UI needs only to distinguish "off" from
+    // "cannot be turned on", which the boolean above gives it.
+    expect(JSON.stringify(body)).not.toContain("sk-secret-value");
+  } finally {
+    config.judgeApiKey = prevKey;
+  }
+});
+
+test("PUT judgeEnabled arms/disarms and persists across a restart", async () => {
+  const { app, store } = harness();
+  const prev = config.judgeEnabled;
+  try {
+    expect(await (await put(app, { judgeEnabled: true })).json()).toEqual({ judgeEnabled: true });
+    expect(config.judgeEnabled).toBe(true);
+    // Persisted, so an operator who disarms it stays disarmed even with SHEPHERD_JUDGE=1 exported.
+    expect(store.getSetting("judgeEnabled")).toBe("1");
+
+    expect(await (await put(app, { judgeEnabled: false })).json()).toEqual({ judgeEnabled: false });
+    expect(store.getSetting("judgeEnabled")).toBe("0");
+  } finally {
+    config.judgeEnabled = prev;
+  }
+});
+
+test("PUT judgeEnabled rejects a non-boolean", async () => {
+  const { app } = harness();
+  const res = await put(app, { judgeEnabled: "yes" });
+  expect(res.status).toBe(400);
+});
+
+test("PUT judgeDailyUsd clamps into range and persists", async () => {
+  const { app, store } = harness();
+  const prev = config.judgeDailyUsd;
+  try {
+    expect(await (await put(app, { judgeDailyUsd: 2.5 })).json()).toEqual({ judgeDailyUsd: 2.5 });
+    expect(store.getSetting("judgeDailyUsd")).toBe("2.5");
+
+    // 0 is a legitimate value — it disarms by spending nothing.
+    expect(await (await put(app, { judgeDailyUsd: 0 })).json()).toEqual({ judgeDailyUsd: 0 });
+    // Negative clamps up; absurd clamps down. A runaway guard must not be removable by a typo.
+    expect(await (await put(app, { judgeDailyUsd: -5 })).json()).toEqual({ judgeDailyUsd: 0 });
+    expect(await (await put(app, { judgeDailyUsd: 1e9 })).json()).toEqual({ judgeDailyUsd: 1000 });
+  } finally {
+    config.judgeDailyUsd = prev;
+  }
+});
+
+test("PUT judgeDailyUsd rejects a non-number rather than storing NaN", async () => {
+  const { app } = harness();
+  // A NaN ceiling makes every comparison against it false, which reads as "the guard is off".
+  expect((await put(app, { judgeDailyUsd: "1.00" })).status).toBe(400);
+  expect((await put(app, { judgeDailyUsd: Number.NaN })).status).toBe(400);
+});

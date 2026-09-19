@@ -168,6 +168,9 @@ export function buildUsageBreakdown(sessions: Session[]): UsageBreakdown {
     satelliteUnits,
     cacheReadUnits: Math.round(authoringUnits * 0.83),
     generationUnits: Math.round(authoringUnits * 0.17),
+    // Null, not a zero row: the demo world has never armed the judge, and that is exactly the
+    // state in which the lens must omit the block rather than render an empty one.
+    judge: null,
     satelliteByKind: SATELLITE.map((sp) => ({
       kind: sp.role,
       units: sp.units,

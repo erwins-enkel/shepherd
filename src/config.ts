@@ -1107,6 +1107,50 @@ export const config = {
   usageDowngradePct: clampCap(Number(process.env.SHEPHERD_USAGE_DOWNGRADE_PCT ?? 70), 0, 100, 70),
   usageDowngradeModel:
     normalizeDefaultModelSetting(process.env.SHEPHERD_USAGE_DOWNGRADE_MODEL) ?? "haiku",
+  // ── Judge: the decision-model seam (issue #2369) ──────────────────────────────
+  // Routes the autopilot stop classifier through a metered "System One" decision API instead of a
+  // transient `claude` spawn. OPT-IN and off by default, and arming needs BOTH this flag and a key:
+  // `JEV_API_KEY` is also the eval harness's credential (`~/.shepherd/eval.env`), so key presence
+  // alone must not arm a billed production path, and the judge has to be disarmable without
+  // removing the credential the eval leg needs. Env seeds a fresh DB; persisted + UI-configurable.
+  judgeEnabled: process.env.SHEPHERD_JUDGE === "1",
+  // The vendor key. Never logged, never sent anywhere but the configured base URL. Absent ⇒ no
+  // client is constructed no matter what the flag says.
+  judgeApiKey: process.env.JEV_API_KEY?.trim() || null,
+  // A PINNED snapshot, never a floating alias — the SDK's own default IS the floating alias, under
+  // which a vendor re-point would arrive as a silent accuracy change rather than as a version bump.
+  judgeModel: process.env.SHEPHERD_JUDGE_MODEL?.trim() || "jev-1.13.0",
+  // Configuration rather than a constant so the vendor-swap door stays open: this wire format has
+  // at least one Apache-2.0 implementation, and this is the whole cost of being able to point at it.
+  judgeBaseUrl: process.env.SHEPHERD_JUDGE_BASE_URL?.trim() || "https://api.typesafe.ai",
+  // Daily USD ceiling. Per-call cost is a small fraction of a cent, so this is a RUNAWAY GUARD, not
+  // a budget: on breach the judge stops being asked and the existing spawn answers instead.
+  // Persisted + UI-configurable.
+  judgeDailyUsd: Math.max(
+    0,
+    parseEnvNumber(process.env.SHEPHERD_JUDGE_DAILY_USD, "SHEPHERD_JUDGE_DAILY_USD", 1),
+  ),
+  // TOTAL wall-clock budget for one judge call, retries included. The SDK's own timeout is
+  // per-attempt with no total budget, so without this a rate-limited call honouring `Retry-After`
+  // can outlast the 120 s spawn the judge exists to be faster than. Typical answers land in well
+  // under a second; this is the give-up point, not the expected latency.
+  judgeDeadlineMs: clampCap(
+    parseEnvNumber(process.env.SHEPHERD_JUDGE_TIMEOUT_MS, "SHEPHERD_JUDGE_TIMEOUT_MS", 8_000),
+    1_000,
+    60_000,
+    8_000,
+  ),
+  // How many days of judge spend rows the daily sweep keeps.
+  judgeSpendRetentionDays: clampCap(
+    parseEnvNumber(
+      process.env.SHEPHERD_JUDGE_SPEND_RETENTION_DAYS,
+      "SHEPHERD_JUDGE_SPEND_RETENTION_DAYS",
+      90,
+    ),
+    1,
+    3650,
+    90,
+  ),
 };
 
 // #1430 guardrail: the critic is a rigor role seeded to "high". Warn at startup when

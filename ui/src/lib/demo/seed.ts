@@ -1230,6 +1230,9 @@ function buildSettings(): Settings {
     telemetryHealth: null,
     docAgentEnabled: false,
     docAgentAct: false,
+    judgeEnabled: false,
+    judgeHasKey: false,
+    judgeDailyUsd: 1,
   };
 }
 

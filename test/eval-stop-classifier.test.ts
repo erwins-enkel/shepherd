@@ -383,7 +383,12 @@ test("the authored state clips exactly as the production prompt clips", () => {
 
 test("a JEV choice becomes the verdict the existing scorer already reads", () => {
   const raw = jevVerdict({
-    kind: { type: "choice", choice: "gate", confidence: 0.84, probabilities: { gate: 0.88 } },
+    kind: {
+      type: "choice",
+      choice: "gate",
+      vendorConfidence: 0.84,
+      probabilities: { gate: 0.88 },
+    },
   });
   expect(raw).toEqual({ kind: "gate", summary: "" });
   // The summary is empty BY CONSTRUCTION — JEV cannot generate prose. This eval scores `kind`
@@ -403,7 +408,7 @@ test("a missing or out-of-enum answer is rejected rather than collapsed to `unkn
   expect(jevVerdict({})).toBeNull();
   expect(
     jevVerdict({
-      kind: { type: "choice", choice: "GATE", confidence: 1, probabilities: {} },
+      kind: { type: "choice", choice: "GATE", vendorConfidence: 1, probabilities: {} },
     }),
   ).toBeNull();
 });

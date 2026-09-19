@@ -4159,5 +4159,17 @@
   "settings_house_rule_relevance_save_failed": "Die Relevanzprüfung für Hausregeln konnte nicht umgestellt werden. Erneut versuchen.",
   "feat_house_rule_relevance_title": "Einem Agenten nur die Hausregeln geben, um die es bei seiner Aufgabe geht",
   "feat_house_rule_relevance_body": "Bisher bekam jede Session jede Hausregel ohne Dateimuster — egal, ob sie etwas mit der Aufgabe zu tun hatte. Einstellungen → Session → „Hausregeln nur für diese Aufgabe“ fragt jetzt einmal pro Session das Entscheidungsmodell, um welche Regeln es bei der Anfrage wirklich geht, und lässt den Rest aus dem Prompt. Starte mit „Nur aufzeichnen“: es fragt und protokolliert, was es weggelassen hätte, ohne etwas wegzulassen — die Trefferquote je Regel erscheint in der Learnings-Leiste, sodass du anhand eigener Sessions entscheiden kannst. Standardmäßig aus; bei jedem Fehler geht der komplette Satz raus.",
-  "learnings_relevance_rate": "relevant {relevant}/{judged}"
+  "learnings_relevance_rate": "relevant {relevant}/{judged}",
+  "native_terminal_connecting": "Verbinde mit dem Agenten…",
+  "native_terminal_ended_body": "Diese Sitzung hat keinen laufenden Agenten mehr. Die Ausgabe ist eingefroren.",
+  "native_terminal_ended_title": "Sitzung beendet",
+  "native_terminal_prompt_failed": "Der Agent hat die Nachricht nicht angenommen.",
+  "native_terminal_prompt_placeholder": "Nachricht an den Agenten",
+  "native_terminal_prompt_send": "Senden",
+  "native_terminal_superseded_action": "Übernehmen",
+  "native_terminal_superseded_body": "Ein anderes Gerät ist mit diesem Terminal verbunden. Beim Übernehmen wechselt es zurück auf diesen Mac und das andere Gerät wird getrennt.",
+  "native_terminal_superseded_title": "Ein anderes Gerät hat dieses Terminal",
+  "native_terminal_tab_title": "Terminal",
+  "native_terminal_unreachable_body": "Der Agent-Runner antwortet nicht. Prüfe, ob der Shepherd-Server und herdr laufen.",
+  "native_terminal_unreachable_title": "Agent nicht erreichbar"
 }

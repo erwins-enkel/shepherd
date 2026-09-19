@@ -128,8 +128,21 @@ export const KEYS_CORE: readonly string[] = [
   "status_working",
 ];
 
-/** S1 — terminal view, PTY status, takeover and reconnect copy. */
-export const KEYS_TERMINAL: readonly string[] = [];
+/** Terminal stream (S1). Keep alphabetical. */
+export const KEYS_TERMINAL: readonly string[] = [
+  "native_terminal_connecting",
+  "native_terminal_ended_body",
+  "native_terminal_ended_title",
+  "native_terminal_prompt_failed",
+  "native_terminal_prompt_placeholder",
+  "native_terminal_prompt_send",
+  "native_terminal_superseded_action",
+  "native_terminal_superseded_body",
+  "native_terminal_superseded_title",
+  "native_terminal_tab_title",
+  "native_terminal_unreachable_body",
+  "native_terminal_unreachable_title",
+];
 
 /** S2 — detail tabs: activity, diff, files, PR status and PR actions. */
 export const KEYS_DETAIL: readonly string[] = [];

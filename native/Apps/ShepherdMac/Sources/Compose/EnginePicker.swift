@@ -3,6 +3,7 @@ import SwiftUI
 
 struct EnginePicker: View {
     @Bindable var model: ComposeModel
+    @FocusState private var pickerFocused: Bool
 
     var selection: Binding<AgentProvider> {
         Binding(get: { model.provider }, set: { provider in
@@ -25,6 +26,10 @@ struct EnginePicker: View {
                 .disabled(!model.allowsProvider(.codex))
         }
         .pickerStyle(.menu)
+        .focused($pickerFocused)
+        .onChange(of: model.focusRevision) { _, _ in
+            if model.focusTarget == "engine" { pickerFocused = true }
+        }
         .accessibilityIdentifier("compose.engine")
     }
 }

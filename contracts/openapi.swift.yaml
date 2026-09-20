@@ -3830,6 +3830,50 @@ components:
           type: string
           enum:
             - unavailable
+    SpawnPhase:
+      type: string
+      enum:
+        - base
+        - worktree
+        - prompt
+        - launch
+        - agent
+    SpawnProgressEvent:
+      type: object
+      additionalProperties: true
+      required:
+        - spawnId
+        - phase
+        - startedAt
+        - completed
+      properties:
+        spawnId:
+          type: string
+        phase:
+          $ref: "#/components/schemas/SpawnPhase"
+        startedAt:
+          type: integer
+        completed:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+            required:
+              - phase
+              - ms
+            properties:
+              phase:
+                $ref: "#/components/schemas/SpawnPhase"
+              ms:
+                type: number
+    SpawnCancelResponse:
+      type: object
+      additionalProperties: true
+      required:
+        - canceled
+      properties:
+        canceled:
+          type: boolean
   responses:
     Unauthorized:
       description: Missing or invalid credential.
@@ -5872,6 +5916,36 @@ paths:
                 $ref: "#/components/schemas/Error"
         "401":
           $ref: "#/components/responses/Unauthorized"
+  /api/spawns/{id}/cancel:
+    post:
+      operationId: cancelSpawn
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Cancellation requested, or false when the agent started first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SpawnCancelResponse"
+        "400":
+          description: Invalid spawn id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: No such spawn in flight.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 x-shepherd-events:
   description: 'WebSocket /events. Same auth gate as HTTP (send Authorization on the upgrade). Every frame is an EventEnvelope: {"event": string, "data": object}. Client may send {"type":"presence","active":boolean}; the server never replies to it.'
   envelope:
@@ -5979,6 +6053,10 @@ x-shepherd-events:
     description: The poller revived stranded sessions by itself. Totals for the current restart episode.
     schema:
       $ref: "#/components/schemas/AutoRevivedEvent"
+  spawn:progress:
+    description: Current phase and completed phase timings for a correlated session create.
+    schema:
+      $ref: "#/components/schemas/SpawnProgressEvent"
 x-shepherd-pty:
   description: WebSocket /pty/{id}?cols=&rows=. Same auth gate and origin check as HTTP; the bearer goes on the upgrade request. An unknown session id is answered 404 before the upgrade. cols/rows set the attach size so the first paint matches the client's viewport. On attach the server replays the pane's scrollback, so a client must clear its own buffer on every (re)attach rather than appending. Server→client frames are raw terminal bytes (binary or text). Client→server text frames are keystrokes, except frames starting with resizePrefix which carry "<cols>:<rows>\n". One owner per terminal id; a new attach closes the previous socket with closeCodes.superseded and the loser must NOT reconnect (both would bump each other forever). closeCodes.gone means the session no longer has a live agent and no reattach can succeed. Any other close is transient; clients retry with backoff.
   path: /pty/{id}

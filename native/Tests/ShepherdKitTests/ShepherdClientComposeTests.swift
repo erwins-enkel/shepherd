@@ -11,6 +11,25 @@ struct ShepherdClientComposeTests {
         return try ShepherdClient(profile: profile, credentials: credentials, urlSession: server.urlSession())
     }
 
+    @Test func correlatedCreateUsesHeaderAndCancelMapsOutcome() async throws {
+        let server = FakeShepherdServer()
+        defer { server.tearDown() }
+        server.stub("POST", "/api/sessions", status: 401, json: try Fixtures.errorJSON("unauthorized"))
+        server.stub("POST", "/api/spawns/compose-test-id/cancel", status: 200,
+                    json: Data(#"{"canceled":false}"#.utf8))
+        let client = try makeClient(server)
+        await #expect(throws: ShepherdError.unauthenticated) {
+            _ = try await client.createSession(.init(repoPath: "/repo", baseBranch: "main", prompt: "Fix",
+                                                     agentProvider: .claude), spawnID: "compose-test-id")
+        }
+        let request = try #require(server.requests().first)
+        #expect(request.headers.first { $0.key.lowercased() == "x-shepherd-spawn-id" }?.value == "compose-test-id")
+        let body = try #require(request.body)
+        let json = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        #expect(json["spawnId"] == nil)
+        #expect(try await client.cancelSpawn(id: "compose-test-id") == false)
+    }
+
     @Test func shapeAndBriefUseGeneratedPayloads() async throws {
         let server = FakeShepherdServer()
         defer { server.tearDown() }

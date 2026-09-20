@@ -57,6 +57,7 @@ struct RepoBranchRow: View {
                             TextField(L.t("newtask_branch_label"), text: $branch.baseBranch,
                                       prompt: Text(verbatim: L.t("newtask_branch_placeholder")))
                                 .focused($editingBase)
+                        .focusedValue(\.composeEditingText, true)
                                 .onAppear { editingBase = true }
                                 .onSubmit { branch.presentedPicker = nil }
                         } else {

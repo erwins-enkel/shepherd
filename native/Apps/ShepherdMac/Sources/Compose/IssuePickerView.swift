@@ -3,7 +3,6 @@ import SwiftUI
 
 struct IssuePickerView: View {
     @Bindable var model: ComposeModel
-    @State private var showFilters = false
     @State private var commandQuery = ""
 
     var body: some View {
@@ -18,7 +17,7 @@ struct IssuePickerView: View {
             HStack {
                 SourceToggle(selection: $model.source)
                 if model.source == .issues {
-                    Button { showFilters.toggle() } label: {
+                    Button { model.showFilters.toggle() } label: {
                         HStack {
                             Text(verbatim: L.t("issue_filter_button"))
                             Text(verbatim: "\(model.filter.activeCount(hasViewer: model.viewer != nil))")
@@ -26,7 +25,7 @@ struct IssuePickerView: View {
                         }
                     }
                     .accessibilityLabel(L.t("issue_filter_button_aria", String(model.filter.activeCount(hasViewer: model.viewer != nil))))
-                    .popover(isPresented: $showFilters) { filters.padding().frame(width: 300) }
+                    .popover(isPresented: $model.showFilters) { filters.padding().frame(width: 300) }
                 }
             }
             if model.source == .issues { issueList } else { commandList }
@@ -80,6 +79,7 @@ struct IssuePickerView: View {
     private var commandList: some View {
         VStack(alignment: .leading, spacing: 8) {
             TextField(L.t("promptsources_commands_filter"), text: $commandQuery)
+                .focusedValue(\.composeEditingText, true)
             if let error = model.commandsError {
                 Text(verbatim: error).foregroundStyle(.secondary)
             } else if model.commands.isEmpty {
@@ -155,6 +155,7 @@ private struct IssuePickerRow: View {
 /// so the inline menu uses the actual caret without an AppKit text-view bridge.
 struct ComposePromptEditor: View {
     @Bindable var model: ComposeModel
+    @FocusState private var editingPrompt: Bool
     @State private var selection: TextSelection?
     @State private var caretOffset: Int?
     @State private var dismissed = false
@@ -178,6 +179,11 @@ struct ComposePromptEditor: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(verbatim: L.t("newtask_prompt_label"))
             TextEditor(text: $model.prompt, selection: $selection)
+                .focused($editingPrompt)
+                .focusedValue(\.composeEditingText, true)
+                .onChange(of: model.focusRevision) { _, _ in
+                    if model.focusTarget == "prompt" { editingPrompt = true }
+                }
                 .task(id: "\(model.repoPath):\(commandProvider.rawValue)") {
                     await model.loadCommands(provider: commandProvider)
                 }
@@ -193,8 +199,8 @@ struct ComposePromptEditor: View {
                 .onChange(of: model.prompt) { _, _ in dismissed = false; selectedMatch = 0 }
                 .onKeyPress(.downArrow) { move(1) }
                 .onKeyPress(.upArrow) { move(-1) }
-                .onKeyPress(.return) {
-                    guard matchCount > 0 else { return .ignored }
+                .onKeyPress(.return, phases: .down) { press in
+                    guard press.modifiers.isEmpty, matchCount > 0 else { return .ignored }
                     pickMatch(min(selectedMatch, matchCount - 1)); return .handled
                 }
                 .onKeyPress(.escape) {

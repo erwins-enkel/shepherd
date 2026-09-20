@@ -4256,5 +4256,6 @@
   "topbar_held_reason_usage": "Held because usage is high.",
   "topbar_held_reason_capacity": "Held because no account has capacity.",
   "topbar_held_reason_unknown": "Held — reason unavailable.",
-  "topbar_held_discard_confirm": "Discard this held task?"
+  "topbar_held_discard_confirm": "Discard this held task?",
+  "native_compose_dictation_deferred": "Dictation is not available in the native composer yet."
 }

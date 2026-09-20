@@ -59,6 +59,11 @@ final class ComposeModel {
         }
     }
     var source: SourceToggle.Source = .issues
+    var showFilters = false
+    var choosingFiles = false
+    var focusTarget = ""
+    var focusRevision = 0
+    func requestFocus(_ target: String) { focusTarget = target; focusRevision += 1 }
     var expanded = false
     private(set) var listing: IssueListing?
     private(set) var issues: [Issue] = []
@@ -394,13 +399,16 @@ final class ComposeModel {
     func allowsProvider(_ provider: AgentProvider) -> Bool {
         providerConstraint == nil || providerConstraint?.provider == provider
     }
-    var readinessBlocker: String? { attachments.hasOutstandingUploads ? "uploading" : nil }
+    var readinessBlocker: String? { readiness().blocker }
 
     func createRequest(baseBranch: String) -> CreateSessionRequest? {
         normalizeRunConfig()
-        guard !repoPath.isEmpty, !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              allowsProvider(provider), readinessBlocker == nil else { return nil }
-        var request = CreateSessionRequest(repoPath: repoPath, baseBranch: baseBranch, prompt: prompt, agentProvider: provider)
+        guard readiness().canSubmit, allowsProvider(provider) else { return nil }
+        let effectivePrompt: String
+        if prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, let issue = activeIssue {
+            effectivePrompt = L.t("newtask_issue_prompt_template", String(issue.number), issue.title)
+        } else { effectivePrompt = prompt }
+        var request = CreateSessionRequest(repoPath: repoPath, baseBranch: baseBranch, prompt: effectivePrompt, agentProvider: provider)
         request.model = model == "default" ? nil : model
         request.effort = effort == "default" ? nil : Effort(rawValue: effort)
         if !attachments.rows.isEmpty {

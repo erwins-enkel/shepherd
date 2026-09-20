@@ -35,6 +35,37 @@ extension Components.Schemas.SlashCommandKind: OpenEnum {}
 extension Components.Schemas.IssueFetchAttempt.ReasonPayload: OpenEnum {}
 
 extension ShepherdClient {
+    /// Correlation is a header: held tasks must never persist a stale spawn id in their body.
+    public func createSession(_ request: CreateSessionRequest, spawnID: String) async throws -> CreateOutcome {
+        do {
+            switch try await generated.createSession(.init(
+                headers: .init(xShepherdSpawnId: spawnID), body: .json(request))) {
+            case .created(let created): return .created(try created.body.json)
+            case .ok(let ok): return .held(try ok.body.json)
+            case .badRequest(let bad): throw ShepherdError.badRequest(try bad.body.json.error)
+            case .unauthorized: throw ShepherdError.unauthenticated
+            case .conflict(let conflict): throw ShepherdError.fromConflict(try conflict.body.json)
+            case .unprocessableContent(let bad): throw ShepherdError.unprocessable(try bad.body.json.error)
+            case .badGateway(let bad): throw ShepherdError.upstreamFailure(try bad.body.json.error)
+            case .undocumented(let code, _):
+                throw ShepherdError.fromUndocumented(statusCode: code, route: "createSession")
+            }
+        } catch { throw ShepherdError.from(error, route: "createSession") }
+    }
+
+    public func cancelSpawn(id: String) async throws -> Bool {
+        do {
+            switch try await generated.cancelSpawn(.init(path: .init(id: id))) {
+            case .ok(let ok): return try ok.body.json.canceled
+            case .badRequest(let bad): throw ShepherdError.badRequest(try bad.body.json.error)
+            case .unauthorized: throw ShepherdError.unauthenticated
+            case .notFound: throw ShepherdError.notFound
+            case .undocumented(let code, _):
+                throw ShepherdError.fromUndocumented(statusCode: code, route: "cancelSpawn")
+            }
+        } catch { throw ShepherdError.from(error, route: "cancelSpawn") }
+    }
+
     public func shapeTask(_ request: ShapeRequest) async throws -> ShapeRound {
         do {
             switch try await generated.shapeTask(.init(body: .json(request))) {

@@ -3,7 +3,7 @@ import UniformTypeIdentifiers
 
 struct AttachmentsRow: View {
     @Bindable var model: AttachmentModel
-    @State private var choosingFiles = false
+    @Binding var choosingFiles: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {

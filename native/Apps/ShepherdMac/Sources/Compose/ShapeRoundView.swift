@@ -119,6 +119,7 @@ private struct ShapeRoundBody: View {
                 model.freeform[question.id] = $0
             }), axis: .vertical) { Text(verbatim: question.prompt) }
                 .textFieldStyle(.roundedBorder)
+                .focusedValue(\.composeEditingText, true)
         case nil:
             // A newer question kind is visible but never given an invented answer.
             EmptyView()

@@ -78,6 +78,7 @@ enum ComposeRunConfig {
 /// The complete model · effort row and its cost/fit explanation. The sheet mounts this in Task 9.
 struct ModelPicker: View {
     @Bindable var model: ComposeModel
+    @FocusState private var pickerFocused: Bool
 
     var options: [String] {
         ["default"] + ComposeRunConfig.providerModels(model.provider).filter {
@@ -94,6 +95,10 @@ struct ModelPicker: View {
                     }
                 }
                 .pickerStyle(.menu)
+                .focused($pickerFocused)
+                .onChange(of: model.focusRevision) { _, _ in
+                    if model.focusTarget == "model" { pickerFocused = true }
+                }
                 .accessibilityIdentifier("compose.model")
                 EffortPicker(model: model)
             }

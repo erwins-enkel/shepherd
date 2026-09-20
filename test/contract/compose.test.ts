@@ -3,6 +3,7 @@ import { isAbsolute } from "node:path";
 import { readFileSync } from "node:fs";
 import Ajv2020 from "ajv/dist/2020";
 import { clearBranchStatusCacheForTests } from "../../src/server";
+import { SpawnPhaseTracker, registerSpawn, releaseSpawn } from "../../src/spawn-progress";
 import * as fx from "./compose-fixtures";
 import {
   bearer,
@@ -13,6 +14,7 @@ import {
   restoreAuth,
   startContractServer,
   validateResponse,
+  validateEvent,
   withAuth,
   type ContractServer,
 } from "./harness";
@@ -432,6 +434,54 @@ describe("shaping round", () => {
     const anon = await post("/api/shape/brief", fx.shapeRound, false);
     expect(anon.status).toBe(401);
     await validateResponse("POST", "/api/shape/brief", anon);
+  });
+});
+
+describe("spawn progress and cancellation", () => {
+  test("validates real phase frames and all cancel outcomes", async () => {
+    const id = "compose-task-nine";
+    const tracker = new SpawnPhaseTracker({
+      spawnId: id,
+      log: () => {},
+      emit: (frame) => validateEvent("spawn:progress", frame),
+    });
+    registerSpawn(tracker);
+    const cancel = (spawnId: string, auth = true) =>
+      fetch(`${s.baseUrl}/api/spawns/${spawnId}/cancel`, {
+        method: "POST",
+        headers: auth ? bearer(token) : {},
+      });
+    try {
+      for (const phase of ["base", "worktree", "prompt", "launch", "agent"] as const) {
+        await tracker.phase(phase, async () => {});
+      }
+      const ok = await cancel(id);
+      expect(ok.status).toBe(200);
+      expect(await validateResponse("POST", "/api/spawns/{id}/cancel", ok)).toEqual({
+        canceled: true,
+      });
+      for (const [spawnId, auth, status] of [
+        ["bad", true, 400],
+        ["unknown-spawn", true, 404],
+        [id, false, 401],
+      ] as const) {
+        const response = await cancel(spawnId, auth);
+        expect(response.status).toBe(status);
+        await validateResponse("POST", "/api/spawns/{id}/cancel", response);
+      }
+    } finally {
+      releaseSpawn(id);
+    }
+    const sealed = new SpawnPhaseTracker({ spawnId: id, log: () => {} });
+    registerSpawn(sealed);
+    try {
+      sealed.seal();
+      expect(await validateResponse("POST", "/api/spawns/{id}/cancel", await cancel(id))).toEqual({
+        canceled: false,
+      });
+    } finally {
+      releaseSpawn(id);
+    }
   });
 });
 

@@ -188,6 +188,29 @@ struct ActionBarTests {
         #expect(ActionBarView.intent(for: .regenerateRecap) == .execute)
     }
 
+    @Test func resumeConfirmsTheSessionNameWithSuccessTone() {
+        let note = ActionBarView.resumeOutcomeNote(name: "TASK-07")
+        #expect(note.text == L.t("native_actions_resumed", "TASK-07"))
+        #expect(note.text.contains("TASK-07"))
+        #expect(note.tone == .success)
+    }
+
+    @Test func readyConfirmsBothResultingStatesWithSuccessTone() {
+        let on = ActionBarView.readyOutcomeNote(ready: true)
+        let off = ActionBarView.readyOutcomeNote(ready: false)
+        #expect(on.text == L.t("native_actions_ready_on"))
+        #expect(off.text == L.t("native_actions_ready_off"))
+        #expect(on.text != off.text)
+        #expect(on.tone == .success)
+        #expect(off.tone == .success)
+    }
+
+    @Test func recapConfirmsTheRequestWithSuccessTone() {
+        let note = ActionBarView.recapRequestedNote()
+        #expect(note.text == L.t("native_actions_recap_requested"))
+        #expect(note.tone == .success)
+    }
+
     @Test func isCurrentDropsACompletionAfterTheOperatorSelectedAnotherSession() async throws {
         let app = AppModel(defaults: Self.scratchDefaults(), credentials: InMemoryCredentialStore())
         let profile = try app.addRemoteProfile(

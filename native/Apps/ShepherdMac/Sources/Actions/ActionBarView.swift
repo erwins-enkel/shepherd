@@ -115,6 +115,18 @@ struct ActionBarView: View {
             : .warning(L.t("relaunch_archive_failed"))
     }
 
+    static func resumeOutcomeNote(name: String) -> ActionNote {
+        .success(L.t("native_actions_resumed", name))
+    }
+
+    static func readyOutcomeNote(ready: Bool) -> ActionNote {
+        .success(ready ? L.t("native_actions_ready_on") : L.t("native_actions_ready_off"))
+    }
+
+    static func recapRequestedNote() -> ActionNote {
+        .success(L.t("native_actions_recap_requested"))
+    }
+
     /// Whether a completion started for `session`/`store` may still touch the bar that started
     /// it. Store identity catches a profile switch; the selection catches the operator's
     /// selection moving off this session while the command was in flight — a remote
@@ -238,7 +250,7 @@ struct ActionBarView: View {
                 .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
             if content.openItems > 0 {
-                Text(verbatim: "\(L.t("recap_open_items")): \(content.openItems)")
+                Text(verbatim: L.t("native_actions_open_items", String(content.openItems)))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -308,29 +320,32 @@ struct ActionBarView: View {
     private func resume() {
         let name = session.name
         Task {
-            await command.run(
+            let ok = await command.run(
                 { _ = try await store.client.resume(sessionID: session.id) },
                 failureCopy: { _ in L.t("cardmenu_resume_failed", name) },
                 isCurrent: { isCurrent })
+            if ok { note = Self.resumeOutcomeNote(name: name) }
         }
     }
 
     private func toggleReady() {
         let next = !session.readyToMerge
         Task {
-            await command.run(
+            let ok = await command.run(
                 { try await store.client.setReadyToMerge(sessionID: session.id, ready: next) },
                 failureCopy: { L.t("native_actions_failed", $0) },
                 isCurrent: { isCurrent })
+            if ok { note = Self.readyOutcomeNote(ready: next) }
         }
     }
 
     private func regenerateRecap() {
         Task {
-            await command.run(
+            let ok = await command.run(
                 { _ = try await store.client.regenerateRecap(sessionID: session.id) },
                 failureCopy: { _ in L.t("recap_regenerate_failed") },
                 isCurrent: { isCurrent })
+            if ok { note = Self.recapRequestedNote() }
         }
     }
 

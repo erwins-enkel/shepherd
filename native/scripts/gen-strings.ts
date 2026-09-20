@@ -250,8 +250,54 @@ export const KEYS_SIDEBAR: readonly string[] = [
   "usage_subscription_only",
 ];
 
-/** S4 — the quick-action bar and the "Handlungsbedarf" recap line. */
-export const KEYS_ACTIONS: readonly string[] = [];
+/** S4 — the quick-action bar and the "Handlungsbedarf" recap line. Keep alphabetical. */
+export const KEYS_ACTIONS: readonly string[] = [
+  "amend_failed",
+  "amend_original_task",
+  "amend_placeholder",
+  "amend_recorded",
+  "amend_recorded_and_steered",
+  "amend_recorded_not_steered",
+  "amend_sending",
+  "amend_steer_label",
+  "amend_steer_offline",
+  "amend_submit",
+  "amend_title",
+  "cardmenu_amend",
+  "cardmenu_relaunch",
+  "cardmenu_rename",
+  "cardmenu_resume",
+  "cardmenu_resume_failed",
+  "cardmenu_stop",
+  "cardmenu_stop_failed",
+  "cardmenu_stop_title",
+  "cardmenu_stop_toast",
+  "gitrail_ready",
+  "gitrail_ready_aria",
+  "gitrail_ready_off_title",
+  "gitrail_ready_on_title",
+  "native_actions_bar_label",
+  "native_actions_failed",
+  "native_actions_ready_off",
+  "native_actions_relaunch_confirm_action",
+  "native_actions_relaunch_confirm_body",
+  "native_actions_relaunch_confirm_title",
+  "recap_open_items",
+  "recap_regenerate",
+  "recap_regenerate_failed",
+  "recap_verdict_needs_attention",
+  "recap_verdict_parked",
+  "recap_verdict_ready",
+  "relaunch_archive_failed",
+  "relaunch_done",
+  "relaunch_in_progress",
+  "relaunch_issue_unresolved",
+  "toast_renamed",
+  "viewport_rename_branch_kept",
+  "viewport_rename_failed",
+  "viewport_rename_name_taken",
+  "viewport_rename_placeholder",
+];
 
 /** S5 — local server detection, install, start/stop/restart and the log tail. */
 export const KEYS_LOCALSERVER: readonly string[] = [

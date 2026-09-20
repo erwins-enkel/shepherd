@@ -2334,7 +2334,7 @@ components:
         the operator than a failed fetch.
       required: [slug, webUrl, issues, viewer]
       properties:
-        slug: { type: [string, "null"], description: 'owner/repo, or null when there is no forge.' }
+        slug: { type: [string, "null"], description: "owner/repo, or null when there is no forge." }
         webUrl: { type: [string, "null"] }
         issues: { type: array, items: { $ref: "#/components/schemas/Issue" } }
         viewer:
@@ -2343,8 +2343,16 @@ components:
             The authenticated forge user. The "mine & unassigned" filter fails OPEN when this is
             null — a client that hid everything instead would show an empty list for a repo whose
             issues are all assigned.
-        error: { type: [string, "null"], description: '"fetch_failed" when the listing threw. The list is then empty and stale.' }
-        lightweight: { type: boolean, description: 'Repo is in local-only mode — no forge by configuration. Not a failure; test with === true.' }
+        error:
+          {
+            type: [string, "null"],
+            description: '"fetch_failed" when the listing threw. The list is then empty and stale.',
+          }
+        lightweight:
+          {
+            type: boolean,
+            description: "Repo is in local-only mode — no forge by configuration. Not a failure; test with === true.",
+          }
         attempts:
           type: array
           items: { $ref: "#/components/schemas/IssueFetchAttempt" }
@@ -2400,11 +2408,16 @@ components:
     EpicListing:
       type: object
       additionalProperties: true
-      description: 'GET /api/epics?repo=. Answers {epics: [], subIssues: []} whenever the drain dep or the forge is absent — an empty answer is never an error.'
+      description: "GET /api/epics?repo=. Answers {epics: [], subIssues: []} whenever the drain dep or the forge is absent — an empty answer is never an error."
       required: [epics, subIssues]
       properties:
         epics: { type: array, items: { $ref: "#/components/schemas/EpicSummary" } }
-        subIssues: { type: array, items: { type: integer }, description: Issue numbers that are children of an epic. The "hide sub-issues" filter removes these. }
+        subIssues:
+          {
+            type: array,
+            items: { type: integer },
+            description: Issue numbers that are children of an epic. The "hide sub-issues" filter removes these.,
+          }
     BranchListing:
       type: object
       additionalProperties: true
@@ -2412,7 +2425,11 @@ components:
       properties:
         branches: { type: array, items: { type: string } }
         current: { type: [string, "null"] }
-        default: { type: [string, "null"], description: 'Repo default from origin/HEAD; may not be a local branch.' }
+        default:
+          {
+            type: [string, "null"],
+            description: "Repo default from origin/HEAD; may not be a local branch.",
+          }
     BranchStatus:
       type: object
       additionalProperties: true
@@ -2429,7 +2446,7 @@ components:
       required: [repo]
       properties:
         repo: { type: string }
-        branch: { type: string, description: 'Trimmed; defaults to main when absent or blank.' }
+        branch: { type: string, description: "Trimmed; defaults to main when absent or blank." }
     InitEmptyCommitResponse:
       type: object
       additionalProperties: true
@@ -2480,7 +2497,12 @@ components:
       additionalProperties: true
       required: [error]
       properties:
-        error: { type: string, enum: [empty-prompt, spawn-failed, timeout, unavailable], x-shepherd-open-enum: true }
+        error:
+          {
+            type: string,
+            enum: [empty-prompt, spawn-failed, timeout, unavailable],
+            x-shepherd-open-enum: true,
+          }
     ShapeUnavailable:
       type: object
       additionalProperties: true
@@ -2542,7 +2564,8 @@ components:
         inSteerBar: { type: boolean }
         onIssues: { type: boolean }
         repos: { type: array, maxItems: 40, items: { type: string } }
-        agentProviders: { type: [array, "null"], items: { $ref: "#/components/schemas/AgentProvider" } }
+        agentProviders:
+          { type: [array, "null"], items: { $ref: "#/components/schemas/AgentProvider" } }
     ComposeVariantRequest:
       type: object
       additionalProperties: false
@@ -4296,7 +4319,12 @@ paths:
         required: true
         content:
           application/json:
-            schema: { type: array, maxItems: 40, items: { $ref: "#/components/schemas/ComposeSteerInput" } }
+            schema:
+              {
+                type: array,
+                maxItems: 40,
+                items: { $ref: "#/components/schemas/ComposeSteerInput" },
+              }
       responses:
         "200":
           description: Success.

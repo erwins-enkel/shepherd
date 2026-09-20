@@ -41,6 +41,51 @@ import Testing
         #expect(model.effort == (explicit ? "high" : "ultra"))
         #expect(ModelPicker(model: model).options.contains(model.model))
         #expect(EffortPicker(model: model).options.contains(model.effort))
+        // Opt-in screenshot handoff: the regular unit suite never waits or exposes a window.
+        if !explicit, let marker = ProcessInfo.processInfo.environment["SHEPHERD_COMPOSE_CAPTURE"] {
+            let webURL = URL(fileURLWithPath: marker).deletingLastPathComponent().appendingPathComponent("web-composer.png")
+            let webImage = try #require(NSImage(contentsOf: webURL))
+            let screenshotModel = ComposeModel(defaults: defaults,
+                repoBranches: RepoBranchModel(loadBranches: { _ in .init(branches: ["main"]) },
+                    loadStatus: { _, _ in .init(behind: 0, ahead: 0, diverged: false, hasUpstream: true, localExists: true) },
+                    repair: { _, branch in .init(branch: branch) }),
+                loadIssues: { _ in .init(issues: [
+                    .init(number: 121, title: "Wishlist button on product cards", body: "Add a wishlist button.",
+                          url: "https://example.com/issues/121", labels: [], createdAt: 0, assignees: []),
+                    .init(number: 122, title: "Empty-cart illustration", body: "Illustrate the empty cart.",
+                          url: "https://example.com/issues/122", labels: [], createdAt: 0, assignees: [])
+                ]) }, loadCommands: { _, _ in .init(commands: []) },
+                loadEpics: { _ in .init(epics: [], subIssues: []) })
+            screenshotModel.repoPath = "/repo"
+            await screenshotModel.loadSources()
+            defer { screenshotModel.teardown() }
+            let comparison = NSHostingView(rootView: HStack(alignment: .top, spacing: 24) {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("Web · local demo").font(.title2.bold())
+                    ZStack(alignment: .topLeading) {
+                        Color.clear
+                        Image(nsImage: webImage).resizable()
+                            .frame(width: 897 * 1.4, height: 769 * 1.4)
+                            .offset(x: -261 * 1.4, y: -239 * 1.4)
+                    }.frame(width: 482 * 1.4, height: 336 * 1.4, alignment: .topLeading).clipped()
+                }
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("macOS · local fixture").font(.title2.bold())
+                    ComposeSheetContent(app: app, store: store, activation: 0, model: screenshotModel)
+                }
+            }.padding(24).background(Color(nsColor: .windowBackgroundColor)))
+            window.styleMask = [.titled, .closable]
+            window.contentView = comparison
+            window.setContentSize(NSSize(width: 1490, height: 860))
+            window.title = "S11 composer fixture"
+            window.center()
+            window.makeKeyAndOrderFront(nil)
+            print("compose fixture capture ready")
+            let deadline = ContinuousClock.now + .seconds(120)
+            while !FileManager.default.fileExists(atPath: marker), ContinuousClock.now < deadline {
+                try await Task.sleep(for: .milliseconds(250))
+            }
+        }
 
     }
 

@@ -266,6 +266,65 @@ test("PATCH /api/settings requires authentication before parsing or mutating set
   }
 });
 
+for (const method of ["PUT", "PATCH"]) {
+  test(`${method} /api/settings rejects foreign origins without writes`, async () => {
+    const savedToken = config.token;
+    config.token = "settings-test-token";
+    config.reducedPushMode = false;
+    const { app, store } = harness();
+    try {
+      for (const [origin, error] of [
+        [`http://localhost:${config.previewPortBase}`, "forbidden: origin not allowed"],
+        ["https://untrusted.invalid", "forbidden: origin host not allowed"],
+      ] as const) {
+        const res = await app.fetch(
+          new Request("http://localhost:7330/api/settings", {
+            method,
+            headers: {
+              "content-type": "application/json",
+              authorization: "Bearer settings-test-token",
+              origin,
+            },
+            body: JSON.stringify({ reducedPushMode: true }),
+          }),
+        );
+        expect(res.status).toBe(403);
+        expect(await res.json()).toEqual({ error });
+        expect(config.reducedPushMode).toBe(false);
+        expect(store.getSetting("reducedPushMode")).toBeNull();
+      }
+    } finally {
+      config.token = savedToken;
+    }
+  });
+
+  test(`${method} /api/settings accepts the same origin and persists the setting`, async () => {
+    const savedToken = config.token;
+    config.token = "settings-test-token";
+    config.reducedPushMode = false;
+    const { app, store } = harness();
+    try {
+      const res = await app.fetch(
+        new Request("http://localhost:7330/api/settings", {
+          method,
+          headers: {
+            "content-type": "application/json",
+            authorization: "Bearer settings-test-token",
+            origin: "http://localhost:7330",
+          },
+          body: JSON.stringify({ reducedPushMode: true }),
+        }),
+      );
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ reducedPushMode: true });
+      expect(config.reducedPushMode).toBe(true);
+      expect(store.getSetting("reducedPushMode")).toBe("1");
+    } finally {
+      config.token = savedToken;
+    }
+  });
+}
+
 test("PUT /api/settings retains legacy first-match dispatch for multiple settings", async () => {
   config.remoteControlAtStartup = false;
   config.reducedPushMode = false;

@@ -131,10 +131,11 @@ describe("held queue", () => {
         "content-type": "application/json",
         origin: "https://untrusted.invalid",
       },
-      body: JSON.stringify(input),
+      body: JSON.stringify({ ...input, prompt: "Foreign-origin edit" }),
     });
-    expect(crossOrigin.status).toBe(200);
+    expect(crossOrigin.status).toBe(403);
     await validateResponse("PATCH", "/api/held/{id}", crossOrigin);
+    expect(s.deps.store.getHeldTask(entry.id)?.input.prompt).toBe("Edited");
     await check("PATCH", "/api/held/{id}", 400, `/api/held/${entry.id}`, {});
     await check("PATCH", "/api/held/{id}", 400, `/api/held/${entry.id}`, {
       terminal: true,

@@ -898,7 +898,8 @@ function maybeRestamp(req: Request, res: Response): Response {
 
 function checkOrigin(req: Request): Response | null {
   const method = req.method;
-  if (method !== "POST" && method !== "DELETE" && method !== "PUT") return null;
+  if (method !== "POST" && method !== "DELETE" && method !== "PUT" && method !== "PATCH")
+    return null;
   const previewRange = { base: config.previewPortBase, count: config.previewPortCount };
   const verdict = classifyOrigin(
     req.headers.get("Origin"),

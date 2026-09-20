@@ -13,6 +13,7 @@ struct HerdTalliesView: View {
             tally("native_herd_counter_total", tallies.total, .primary)
         }
         .font(.caption2)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("herd-tallies")
     }
 

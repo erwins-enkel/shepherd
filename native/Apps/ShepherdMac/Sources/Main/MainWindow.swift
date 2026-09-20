@@ -154,10 +154,10 @@ struct MainWindow: View {
                 content(model)
             } else {
                 builtInSessionList
+                    .accessibilityIdentifier("session-sidebar")
             }
         }
         .navigationTitle(L.t("native_sidebar_title"))
-        .accessibilityIdentifier("session-sidebar")
     }
 
     /// The flat list Gate 2 shipped. S3 replaces it through `SidebarSlot`; it

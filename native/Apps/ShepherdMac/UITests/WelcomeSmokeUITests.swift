@@ -10,6 +10,10 @@ final class WelcomeSmokeUITests: XCTestCase {
         continueAfterFailure = false
         app = XCUIApplication()
         app.launchArguments = [
+            // Profile isolation does not isolate AppKit's saved-window restoration.
+            // A prior no-window launch must not prevent RootView's task from running.
+            "-ApplePersistenceIgnoreState", "YES",
+            "-NSQuitAlwaysKeepsWindows", "NO",
             "-AppleLanguages", "(en)",
             "-AppleLocale", "en_US",
             // Isolated: a private, empty UserDefaults suite and an in-memory

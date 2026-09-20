@@ -47,6 +47,7 @@ struct SidebarView: View {
                 list(groups, selection: $app.selectedSessionID)
             }
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("herd-sidebar")
     }
 

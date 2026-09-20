@@ -4444,5 +4444,15 @@
   "native_settings_no_commands": "Keine passenden Befehle",
   "native_settings_reduced_motion": "Reduzierte Bewegung",
   "native_settings_system": "System",
-  "native_settings_theme": "Darstellung"
+  "native_settings_theme": "Darstellung",
+  "native_settings_access": "Zugriff",
+  "native_settings_clis": "Coding-CLIs",
+  "native_settings_command_palette": "Befehlspalette",
+  "native_settings_connect": "Zum Bearbeiten dieser Einstellungen mit einem Server verbinden.",
+  "native_settings_diagnose": "Diagnose",
+  "native_settings_general": "Allgemein",
+  "native_settings_notifications": "Benachrichtigungen",
+  "native_settings_open": "Einstellungen …",
+  "native_settings_reduced_push": "Reduzierte Benachrichtigungen",
+  "native_settings_workspace": "Arbeitsbereich"
 }

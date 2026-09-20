@@ -10024,6 +10024,23 @@
         }
       }
     },
+    "native_settings_access": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zugriff"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Access"
+          }
+        }
+      }
+    },
     "native_settings_action_failed": {
       "extractionState": "manual",
       "localizations": {
@@ -10109,6 +10126,23 @@
         }
       }
     },
+    "native_settings_clis": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coding-CLIs"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coding CLIs"
+          }
+        }
+      }
+    },
     "native_settings_colorblind": {
       "extractionState": "manual",
       "localizations": {
@@ -10126,6 +10160,23 @@
         }
       }
     },
+    "native_settings_command_palette": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Befehlspalette"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command palette"
+          }
+        }
+      }
+    },
     "native_settings_command_search": {
       "extractionState": "manual",
       "localizations": {
@@ -10139,6 +10190,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Search commands"
+          }
+        }
+      }
+    },
+    "native_settings_connect": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zum Bearbeiten dieser Einstellungen mit einem Server verbinden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect to a server to edit these settings."
           }
         }
       }
@@ -10209,6 +10277,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "%1$@ days"
+          }
+        }
+      }
+    },
+    "native_settings_diagnose": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diagnose"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diagnose"
           }
         }
       }
@@ -11284,6 +11369,23 @@
         }
       }
     },
+    "native_settings_general": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allgemein"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "General"
+          }
+        }
+      }
+    },
     "native_settings_key_absent": {
       "extractionState": "manual",
       "localizations": {
@@ -11506,6 +11608,23 @@
         }
       }
     },
+    "native_settings_notifications": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Benachrichtigungen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifications"
+          }
+        }
+      }
+    },
     "native_settings_observed_absent": {
       "extractionState": "manual",
       "localizations": {
@@ -11555,6 +11674,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Observed week: %1$@%%"
+          }
+        }
+      }
+    },
+    "native_settings_open": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einstellungen …"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Settings…"
           }
         }
       }
@@ -11693,6 +11829,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Reduced motion"
+          }
+        }
+      }
+    },
+    "native_settings_reduced_push": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reduzierte Benachrichtigungen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reduced notifications"
           }
         }
       }
@@ -12714,6 +12867,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Key verified"
+          }
+        }
+      }
+    },
+    "native_settings_workspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbeitsbereich"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace"
           }
         }
       }

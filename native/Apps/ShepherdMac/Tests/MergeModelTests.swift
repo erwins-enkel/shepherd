@@ -120,4 +120,37 @@ actor MergeLatch {
         #expect(app.extension(MergeModel.self) == nil)
         app.teardown()
     }
+    @Test func isolatedProfileSwitchDropsLateReadAndBufferedEventAndFinishesWatcher() async throws {
+        let suite = "MergeProfileSwitch-" + UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        let app = AppModel(defaults: defaults, credentials: InMemoryCredentialStore())
+        defer { app.teardown(); defaults.removePersistentDomain(forName: suite) }
+        let first = try app.addRemoteProfile(name: "first", address: "https://first.example.test")
+        let second = try app.addRemoteProfile(name: "second", address: "https://second.example.test")
+        app.register(MergeModel.self)
+        await app.activate(first)
+        app.tearDownExtensions()
+        let latch = MergeLatch()
+        let outgoing = MergeModel(reads: .init(snapshot: { await latch.read() }))
+        app.liveExtensions = [(ObjectIdentifier(MergeModel.self), outgoing)]
+        let load = Task { await outgoing.refresh() }
+        #expect(await eventually { await latch.waiting })
+        // The next activation uses the real extension factory and watcher.
+        await app.activate(second)
+        let current = try #require(app.extension(MergeModel.self))
+        #expect(current !== outgoing)
+        #expect(await eventually { current.watching })
+        let oldQueue = BuildQueue(sessionId: "old-profile", steps: [], approved: false)
+        await latch.release(.init(queues: ["old-profile": oldQueue]))
+        await load.value
+        outgoing.receive(name: "queue:update") // A cancelled tap can still deliver this frame.
+        for _ in 0..<20 { await Task.yield() }
+        #expect(await latch.calls == 1)
+        #expect(!outgoing.settled)
+        #expect(current.snapshot.queues["old-profile"] == nil)
+        #expect(app.activeProfile?.id == second.id)
+        app.teardown()
+        #expect(await eventually { !current.watching })
+    }
+
 }

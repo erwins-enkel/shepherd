@@ -136,6 +136,11 @@ struct DoneRecapView: View {
                 .disabled(bringBack == nil)
                 .accessibilityIdentifier("queues-done-bring-back")
             }
+            Text(verbatim: DonePresentation.archiveReason(session.archiveReason))
+                .font(.caption).foregroundStyle(.secondary)
+            if let issue = SessionBadges.issue(session, git: nil) {
+                SessionBadgeStack(badges: [issue])
+            }
             TimelineView(.periodic(from: .now, by: 30)) { context in
                 Text(verbatim: DonePresentation.finished(session, now: context.date))
                     .font(.caption).foregroundStyle(.secondary)

@@ -56,7 +56,7 @@ struct HeldQueueTests {
             #expect(bundle.localizedString(forKey: "\(key)", value: nil, table: nil) == expected[index])
             #expect(HeldQueuePresentation.reasonLabel(row.reason) == L.t(key))
         }
-        #expect(HeldQueuePresentation.reasonLabel(nil) == L.t("topbar_held_reason_unknown"))
+        #expect(HeldQueuePresentation.reasonLabel(nil) == L.t("native_held_reason_unknown"))
     }
 
     @Test func badgeOnlyRendersForAPositiveHeldCount() {

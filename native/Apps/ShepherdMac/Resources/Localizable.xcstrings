@@ -8681,6 +8681,74 @@
         }
       }
     },
+    "native_held_discard_confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese zurückgehaltene Aufgabe verwerfen?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Discard this held task?"
+          }
+        }
+      }
+    },
+    "native_held_reason_capacity": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zurückgehalten, weil kein Konto Kapazität hat."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Held because no account has capacity."
+          }
+        }
+      }
+    },
+    "native_held_reason_unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zurückgehalten — Grund nicht verfügbar."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Held — reason unavailable."
+          }
+        }
+      }
+    },
+    "native_held_reason_usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zurückgehalten, weil die Nutzung hoch ist."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Held because usage is high."
+          }
+        }
+      }
+    },
     "native_herd_counter_active": {
       "extractionState": "manual",
       "localizations": {
@@ -19926,23 +19994,6 @@
         }
       }
     },
-    "topbar_held_discard_confirm": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Diese zurückgehaltene Aufgabe verwerfen?"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Discard this held task?"
-          }
-        }
-      }
-    },
     "topbar_held_discard_failed": {
       "extractionState": "manual",
       "localizations": {
@@ -20025,57 +20076,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Held for %1$@"
-          }
-        }
-      }
-    },
-    "topbar_held_reason_capacity": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zurückgehalten, weil kein Konto Kapazität hat."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Held because no account has capacity."
-          }
-        }
-      }
-    },
-    "topbar_held_reason_unknown": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zurückgehalten — Grund nicht verfügbar."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Held — reason unavailable."
-          }
-        }
-      }
-    },
-    "topbar_held_reason_usage": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zurückgehalten, weil die Nutzung hoch ist."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Held because usage is high."
           }
         }
       }

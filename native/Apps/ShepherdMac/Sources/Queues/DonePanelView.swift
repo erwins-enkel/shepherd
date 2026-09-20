@@ -92,6 +92,17 @@ final class DonePanelState {
 }
 
 enum DonePresentation {
+    static func archiveReason(_ reason: Components.Schemas.SessionArchiveReason?) -> String {
+        switch reason?.known {
+        case ._operator: L.t("done_recap_archive_operator")
+        case .merged: L.t("done_recap_archive_merged")
+        case .drain: L.t("done_recap_archive_drain")
+        case .relaunch: L.t("done_recap_archive_relaunch")
+        case .stale: L.t("done_recap_archive_stale")
+        case nil: L.t("done_recap_archive_unknown")
+        }
+    }
+
     static let recapFeatureEpochMS = 1_781_423_073_000
 
     static func sorted(_ sessions: [Session]) -> [Session] {

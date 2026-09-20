@@ -6080,6 +6080,108 @@
         }
       }
     },
+    "newtask_agent_provider_codex_alpha_note": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Codex-Integration ist eine Alpha/MVP-Funktion und wird gerade intensiv weiterentwickelt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex integration is an Alpha/MVP feature and is under heavy development."
+          }
+        }
+      }
+    },
+    "newtask_agent_provider_codex_note": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex startet als interaktive Terminal-Session und läuft unbeaufsichtigt mit --dangerously-bypass-approvals-and-sandbox (Sandbox-Profil auf trusted gesetzt). Plan Gate ist verfügbar. Autopilot arbeitet nach bestem Bemühen (Alpha) und führt die zugeordnete Unterhaltung in beiden Checkout-Arten bis zu einem offenen PR. Die Modellauswahl verwendet Codex-CLI-Modelle."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex starts as an interactive terminal session, running unattended under --dangerously-bypass-approvals-and-sandbox (sandbox profile forced to trusted). Plan Gate is available. Autopilot is best-effort (Alpha) and drives the identified task conversation toward an open PR in either checkout mode. The model picker uses Codex CLI models."
+          }
+        }
+      }
+    },
+    "newtask_agent_provider_codex_suggested_for_hold": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code ist am Nutzungsrückhalt-Schwellenwert, daher umgeht das Ausführen dieser Aufgabe auf Codex den Rückhalt. Wechsle die Coding-CLI zurück zu Claude Code, um sie stattdessen bis zum Reset zurückzuhalten oder trotzdem einzureichen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code is at the usage-hold threshold, so running this task on Codex sidesteps the hold. Switch the coding CLI back to Claude Code to hold it until the reset or submit anyway instead."
+          }
+        }
+      }
+    },
+    "newtask_alpha_caution": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alpha: läuft unbeaufsichtigt, Sandbox auf »trusted« erzwungen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alpha: runs unattended, sandbox forced to trusted."
+          }
+        }
+      }
+    },
+    "newtask_alpha_details": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Details"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "details"
+          }
+        }
+      }
+    },
+    "newtask_autopilot_hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Aufgabe autonom bis zum PR durchziehen. Aus, um mitzudiskutieren, zu iterieren und jeden Schritt selbst freizugeben. Übernimmt standardmäßig die Autopilot-Einstellung des Repos."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drive this task autonomously through to a PR. Turn off to discuss, iterate and approve each step yourself. Defaults to this repo's Autopilot setting."
+          }
+        }
+      }
+    },
     "newtask_base_missing": {
       "extractionState": "manual",
       "localizations": {
@@ -6251,6 +6353,23 @@
         }
       }
     },
+    "newtask_group_guards": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leitplanken"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guards"
+          }
+        }
+      }
+    },
     "newtask_group_mode": {
       "extractionState": "manual",
       "localizations": {
@@ -6264,6 +6383,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Mode"
+          }
+        }
+      }
+    },
+    "newtask_guard_autopilot": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[[autopilot|Autopilot bis zum PR]]"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[[autopilot|Autopilot to PR]]"
+          }
+        }
+      }
+    },
+    "newtask_guard_plan_gate": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[[plan-gate|Plan-Gate]]"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[[plan-gate|Plan gate]]"
           }
         }
       }
@@ -6508,6 +6661,23 @@
         }
       }
     },
+    "newtask_plan_gate_hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan vor dem Agentenlauf prüfen + kontradiktorisch hinterfragen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grill + adversarial review before the agent runs"
+          }
+        }
+      }
+    },
     "newtask_prompt_label": {
       "extractionState": "manual",
       "localizations": {
@@ -6611,6 +6781,74 @@
         }
       }
     },
+    "newtask_research_sandbox_note": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recherche-Aufgaben können das autonome Profil nicht verwenden — Websuche benötigt offenen Netzwerkzugang."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Research can't use the autonomous profile — web search needs open network access."
+          }
+        }
+      }
+    },
+    "newtask_sandbox_default": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repo-Standard"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repo default"
+          }
+        }
+      }
+    },
+    "newtask_sandbox_hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sandbox-Override pro Aufgabe. Bei 'Repo-Standard' wird das konfigurierte Profil dieses Repos übernommen. standard/autonom sperren den Agenten in sein Worktree ein und blockieren ~/.ssh, ~/.aws und andere $HOME-Dotfiles. Autonom fügt zudem die Egress-Allowlist hinzu (Anthropic + den Forge-Host) und blockiert anderen ausgehenden Verkehr; Standard lässt das Netzwerk offen (rein interaktiv). Die gh-/claude-Auth-Tokens bleiben lesbar."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Per-task sandbox override. Leave at 'Repo default' to inherit this repo's configured profile. standard/autonomous confine the agent to its worktree and block ~/.ssh, ~/.aws, and other $HOME dotfiles. Autonomous also adds the egress allowlist (Anthropic + the forge host), blocking other outbound; Standard leaves network open (interactive-only). The gh/claude auth tokens stay readable."
+          }
+        }
+      }
+    },
+    "newtask_sandbox_label": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sandbox"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sandbox"
+          }
+        }
+      }
+    },
     "newtask_spawning": {
       "extractionState": "manual",
       "localizations": {
@@ -6658,6 +6896,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "New Task"
+          }
+        }
+      }
+    },
+    "newtask_toggle_off": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AUS"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OFF"
+          }
+        }
+      }
+    },
+    "newtask_toggle_on": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AN"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ON"
           }
         }
       }
@@ -9653,6 +9925,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "Retry halted"
+          }
+        }
+      }
+    },
+    "sandbox_profile_autonomous": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autonom"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autonomous"
+          }
+        }
+      }
+    },
+    "sandbox_profile_standard": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard"
+          }
+        }
+      }
+    },
+    "sandbox_profile_trusted": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vertraut (keine Sandbox)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trusted (no sandbox)"
           }
         }
       }

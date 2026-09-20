@@ -5,6 +5,54 @@ import Testing
 
 /// The create payload matrix is independent of the later POST /api/shape integration.
 @MainActor @Suite struct ComposeShapeTests {
+    @Test func guardControlsPreserveInheritanceUntilEachControlIsTouched() throws {
+        let m = ComposeModelTests.composer()
+        defer { m.teardown() }
+        m.repoPath = "/repo"; m.prompt = "Do the task"
+        let controls = GuardToggles(model: m)
+        _ = controls.planGate.wrappedValue
+        _ = controls.autopilot.wrappedValue
+        var request = try #require(m.createRequest(baseBranch: "main"))
+        #expect(request.planGateEnabled == nil && request.autopilotEnabled == nil)
+
+        controls.planGate.wrappedValue = true
+        request = try #require(m.createRequest(baseBranch: "main"))
+        #expect(request.planGateEnabled == true && request.autopilotEnabled == nil)
+        controls.planGate.wrappedValue = false
+        controls.autopilot.wrappedValue = false
+        request = try #require(m.createRequest(baseBranch: "main"))
+        #expect(request.planGateEnabled == false && request.autopilotEnabled == false)
+        controls.autopilot.wrappedValue = true
+        let json = try encodedRequest(m)
+        #expect(json["planGateEnabled"] as? Bool == false)
+        #expect(json["autopilotEnabled"] as? Bool == true)
+    }
+
+    @Test(arguments: ComposeMode.allCases)
+    func sandboxControlSerializesProfilesAndOmitsRepoDefault(_ mode: ComposeMode) throws {
+        let m = ComposeModelTests.composer()
+        defer { m.teardown() }
+        m.repoPath = "/repo"; m.prompt = "Do the task"
+        m.setMode(mode)
+        let picker = SandboxPicker(model: m, holdLikely: false)
+        for profile in [Components.Schemas.SandboxProfile.trusted, .standard, .autonomous] {
+            picker.selection.wrappedValue = profile
+            let json = try encodedRequest(m)
+            if profile == .autonomous && (mode == .research || mode == .epic) {
+                #expect(json["sandboxProfile"] as? String == "standard")
+            } else {
+                #expect(json["sandboxProfile"] as? String == profile.rawValue)
+            }
+        }
+        picker.selection.wrappedValue = nil
+        #expect(try encodedRequest(m)["sandboxProfile"] == nil)
+    }
+
+    private func encodedRequest(_ model: ComposeModel) throws -> [String: Any] {
+        let request = try #require(model.createRequest(baseBranch: "main"))
+        return try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(request)) as? [String: Any])
+    }
+
     @Test(arguments: ComposeMode.allCases, [false, true])
     func eachModeSerializesEveryFlagAndGuard(_ mode: ComposeMode, touched: Bool) throws {
         let m = ComposeModelTests.composer()

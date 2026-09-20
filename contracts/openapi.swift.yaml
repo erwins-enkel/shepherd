@@ -1303,6 +1303,140 @@ components:
           $ref: "#/components/schemas/MergeMethod"
         deleteBranch:
           type: boolean
+    WorkingBlockedMap:
+      type: object
+      additionalProperties:
+        type: boolean
+      description: GET /api/working-blocked. Session id -> true while a session the poller called blocked is in fact still producing output. The web UI folds this into the status it shows (ui/src/lib/display-status.ts).
+    HoldCode:
+      anyOf:
+        - $ref: "#/components/schemas/HoldCodeKnown"
+        - type: string
+    HoldCodeKnown:
+      type: string
+      enum:
+        - halted-error
+        - halted-usage
+        - autopilot-paused
+        - blocked-menu
+        - blocked-yes-no
+        - blocked-awaiting-input
+        - blocked-stall
+        - blocked-generic
+        - quota-rework
+        - quota-review
+        - quota-error
+        - quota-plan
+        - plan-rework
+        - plan-question
+        - critic-rework
+        - ci-red
+        - pr-conflict
+        - awaiting-merge
+        - train-error
+        - stalled
+        - recap-attention
+        - merging
+        - merge-rebasing
+        - ready-merge
+        - manual-steps
+    HoldParams:
+      type: object
+      additionalProperties: true
+      description: Every member is optional; which ones are set depends on the HoldCode.
+      properties:
+        round:
+          type: integer
+        cap:
+          type: integer
+        findings:
+          type: integer
+        resetAt:
+          type: integer
+        pr:
+          type: integer
+        rebaseCount:
+          type: integer
+        question:
+          type: string
+        steps:
+          type: integer
+    HoldReason:
+      type: object
+      additionalProperties: true
+      required:
+        - code
+      properties:
+        code:
+          $ref: "#/components/schemas/HoldCode"
+        params:
+          $ref: "#/components/schemas/HoldParams"
+    HoldMap:
+      type: object
+      additionalProperties:
+        $ref: "#/components/schemas/HoldReason"
+      description: GET /api/holds. Session id -> why that session is parked. Absent means not holding.
+    BlockMap:
+      type: object
+      additionalProperties:
+        $ref: "#/components/schemas/BlockReason"
+      description: GET /api/blocks. Session id -> what the agent is waiting on. Absent means not blocked.
+    UsageProjection:
+      type: object
+      additionalProperties: true
+      required:
+        - window
+        - projectedPct
+        - resetAt
+        - burnRatePerHour
+      properties:
+        window:
+          type: string
+          enum:
+            - 5H
+            - WK
+          description: The rate-limit window this projection is for.
+        projectedPct:
+          type: number
+          description: Not clamped; may exceed 100.
+        resetAt:
+          type: integer
+        burnRatePerHour:
+          type: number
+    UsageLimitsResponse:
+      type: object
+      additionalProperties: true
+      required:
+        - limits
+        - projections
+      description: GET /api/usage/limits wraps the limits; the usage:limits event carries UsageLimits bare.
+      properties:
+        limits:
+          $ref: "#/components/schemas/UsageLimits"
+        projections:
+          type: array
+          items:
+            $ref: "#/components/schemas/UsageProjection"
+    HeldChangedEvent:
+      type: object
+      additionalProperties: true
+      required:
+        - count
+      properties:
+        count:
+          type: integer
+          description: How many tasks are held behind the usage gate right now.
+    SessionWorkingBlockedEvent:
+      type: object
+      additionalProperties: true
+      required:
+        - id
+        - working
+      properties:
+        id:
+          type: string
+        working:
+          type: boolean
   responses:
     Unauthorized:
       description: Missing or invalid credential.
@@ -2173,6 +2307,55 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ReviewCodeError"
+  /api/working-blocked:
+    get:
+      operationId: getWorkingBlocked
+      description: Which blocked-looking sessions are in fact still working.
+      responses:
+        "200":
+          description: Session id -> working flag.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkingBlockedMap"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/holds:
+    get:
+      operationId: getHolds
+      responses:
+        "200":
+          description: Session id -> hold reason.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HoldMap"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/blocks:
+    get:
+      operationId: getBlocks
+      responses:
+        "200":
+          description: Session id -> block reason.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BlockMap"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/usage/limits:
+    get:
+      operationId: getUsageLimits
+      responses:
+        "200":
+          description: The rate-limit windows plus their projections.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UsageLimitsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
 x-shepherd-events:
   description: 'WebSocket /events. Same auth gate as HTTP (send Authorization on the upgrade). Every frame is an EventEnvelope: {"event": string, "data": object}. Client may send {"type":"presence","active":boolean}; the server never replies to it.'
   envelope:
@@ -2212,6 +2395,14 @@ x-shepherd-events:
     description: The agent transcript heartbeat moved.
     schema:
       $ref: "#/components/schemas/SessionActivityEvent"
+  held:changed:
+    description: The number of tasks held behind the usage gate moved. The client re-reads GET /api/holds; the frame carries only the count.
+    schema:
+      $ref: "#/components/schemas/HeldChangedEvent"
+  session:working-blocked:
+    description: A session the poller called blocked is (or is no longer) still producing output. The client re-reads GET /api/working-blocked.
+    schema:
+      $ref: "#/components/schemas/SessionWorkingBlockedEvent"
 x-shepherd-pty:
   description: WebSocket /pty/{id}?cols=&rows=. Same auth gate and origin check as HTTP; the bearer goes on the upgrade request. An unknown session id is answered 404 before the upgrade. cols/rows set the attach size so the first paint matches the client's viewport. On attach the server replays the pane's scrollback, so a client must clear its own buffer on every (re)attach rather than appending. Server→client frames are raw terminal bytes (binary or text). Client→server text frames are keystrokes, except frames starting with resizePrefix which carry "<cols>:<rows>\n". One owner per terminal id; a new attach closes the previous socket with closeCodes.superseded and the loser must NOT reconnect (both would bump each other forever). closeCodes.gone means the session no longer has a live agent and no reattach can succeed. Any other close is transient; clients retry with backoff.
   path: /pty/{id}

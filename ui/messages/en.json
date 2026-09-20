@@ -4186,5 +4186,9 @@
   "native_detail_merge_confirm_action": "Merge",
   "native_detail_close_confirm_title": "Close this pull request?",
   "native_detail_close_confirm_body": "The pull request is closed without merging. The branch stays.",
-  "native_detail_close_confirm_action": "Close pull request"
+  "native_detail_close_confirm_action": "Close pull request",
+  "native_herd_counter_active": "Active",
+  "native_herd_counter_idle": "Idle",
+  "native_herd_counter_blocked": "Blocked",
+  "native_herd_counter_total": "Total"
 }

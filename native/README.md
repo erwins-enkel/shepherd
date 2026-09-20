@@ -11,6 +11,124 @@ gitignored.
 - `brew install xcodegen`
 - [`bun`](https://bun.sh) (generates the string catalog and runs the sync/contract scripts)
 
+## Getting started as a contributor
+
+1. Fork the repo and clone your fork. Then, from the repo root:
+
+   ```
+   bun install
+   ```
+
+   Root's `bun` install is required even though this package is Swift — the string-catalog
+   generator (`native/scripts/gen-strings.ts`) and the contract scripts
+   (`bun run gen:contract-swift`, `bun run check:contract-swift`, `bun run test:contract`) are
+   TypeScript, run from the repo root. You also need Xcode 26.6+ and `xcodegen` — see
+   [Prerequisites](#prerequisites).
+
+2. First build only: SwiftTerm (see the `SwiftTerm` package dependency in
+   `Apps/ShepherdMac/project.yml`) needs Metal to compile its shaders. If a fresh Xcode 26
+   install has not downloaded that component yet, the first build fails complaining about a
+   missing Metal toolchain. If that happens, run:
+
+   ```
+   xcodebuild -downloadComponent MetalToolchain
+   ```
+
+   then re-run the build.
+
+3. Optional but recommended, once per machine:
+
+   ```
+   native/scripts/dev-signing-identity.sh
+   ```
+
+   Without it, every local build is ad-hoc signed and every rebuild is a new signer as far as
+   the Keychain is concerned — macOS re-prompts for Keychain access on each rebuild, and an
+   unattended run falls back to the login sheet after an 8 s timeout. See
+   [Local code signing (stable Keychain access)](#local-code-signing-stable-keychain-access) for
+   why, and what the script does.
+
+4. Build and run:
+
+   ```
+   native/scripts/build-app.sh Release
+   open native/Apps/ShepherdMac/.build/Build/Products/Release/Shepherd.app
+   ```
+
+   See [Build](#build) and [Run](#run).
+
+5. Connect to a server. On first launch the app offers two ways in:
+   - **Run on this Mac** — the local panel supervises `~/.shepherd/app`, or detects a server
+     already listening on port 7330 and uses that instead.
+   - **A remote profile** — the server URL must be `https`, or `http` to loopback or a
+     `.ts.net` (Tailscale) name; anything else is rejected. Enter the operator password once —
+     the app signs in and mints its own access token, which it stores itself rather than
+     reusing the password.
+
+6. Tests:
+
+   ```
+   native/scripts/test-app.sh -only-testing:ShepherdTests
+   ```
+
+   Runs just the Swift Testing unit bundle — no Keychain access, isolated launch (see
+   [Isolated launches](#isolated-launches)). This is what CI's blocking job runs.
+
+   ```
+   native/scripts/test-app.sh
+   ```
+
+   Runs the unit bundle plus the XCUITest smoke bundle (`ShepherdUITests`). This needs a real,
+   logged-in GUI session — a window flashes on screen while it runs — and, the first time
+   XCUITest drives the app on a fresh machine, macOS shows an "Enable UI Automation"
+   authorization prompt that has to be approved before the run can proceed.
+
+   ```
+   swift test --package-path native
+   git checkout -- native/Package.resolved
+   ```
+
+   Tests the `ShepherdKit` package on its own. Run the `git checkout` afterwards: SwiftTerm is
+   pinned by the app's `project.yml`, not by the package, so `swift test` rewrites
+   `native/Package.resolved` as a side effect and that rewrite should not end up in your diff.
+
+   The live suites (`ShepherdUITests/LiveSmokeUITests`, `ShepherdTests/LiveServerTests`) are
+   opt-in and gated behind environment variables — `SHEPHERD_LIVE_BASE_URL` and
+   `SHEPHERD_LIVE_PASSWORD` (plain, or `TEST_RUNNER_`-prefixed for `xcodebuild`), plus
+   `SHEPHERD_REVOKE_ON_EXIT=1` so the token they mint is revoked when the run ends. Point them
+   only at a server you control, and never commit the values. See
+   [The live UI smoke test](#the-live-ui-smoke-test) and
+   [Live smoke](#parallel-streams-seams-and-rules) for the exact invocations.
+
+7. Contract changes: edit `contracts/openapi.yaml` only — never the derived
+   `contracts/openapi.swift.yaml` or the copy under `native/Sources/ShepherdKit/`. Then, from
+   the repo root:
+
+   ```
+   bun run gen:contract-swift
+   native/scripts/sync-contract.sh
+   ```
+
+   Regenerate the string catalog if you touched copy (`ui/messages/en.json` and `de.json`
+   first, then `native/scripts/gen-strings.ts` — see [Localisation](#localisation)), and before
+   pushing run:
+
+   ```
+   bun run check:strings
+   bun run typecheck
+   bun run test:contract
+   ```
+
+   See [Two contracts, one truth](#two-contracts-one-truth) and
+   [Changing the contract](#changing-the-contract) for the full picture, including why the
+   derived file exists at all.
+
+8. Branch hygiene: cut your branch from `origin/main`, rebase rather than merging `main` back
+   in, and keep one feature per PR — see this repo's `CLAUDE.md`. If your change touches a
+   Milestone 2 stream, also read
+   [Parallel streams: seams and rules](#parallel-streams-seams-and-rules) before editing any
+   shared file.
+
 ## Build
 
 ```

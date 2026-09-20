@@ -35,11 +35,11 @@ struct AmendSheet: View {
         AmendSubmission.maxCharacters - text.trimmingCharacters(in: .whitespacesAndNewlines).count
     }
 
-    /// See `RenameSheet.isCurrent`: store identity catches a profile switch, the selection
-    /// catches the operator's selection moving off this session while the amendment is in
-    /// flight.
+    /// See `RenameSheet.isCurrent`: the bar's own guard, called rather than re-declared. Store
+    /// identity catches a profile switch, the selection catches the operator's selection moving
+    /// off this session while the amendment is in flight.
     private var isCurrent: Bool {
-        app.store === store && app.selectedSessionID == session.id
+        ActionBarView.isCurrent(session: session, store: store, app: app)
     }
 
     var body: some View {

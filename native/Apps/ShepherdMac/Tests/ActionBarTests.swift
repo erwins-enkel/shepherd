@@ -108,6 +108,39 @@ struct ActionBarTests {
             "a display-only rename must say the branch stayed put")
     }
 
+    @Test func aBranchlessRenameIsAPlainSuccess() {
+        // The server answers `branchRenamed: false` for every session with no branch to move
+        // (src/server.ts:3359-3362), not only for one whose branch an open PR pinned. Telling
+        // the operator "branch kept" about a session that never had a branch is a lie.
+        let branchless = Components.Schemas.RenameResult(
+            session: PreviewData.session(
+                id: "s2", status: SessionStatus(known: .idle), branch: nil),
+            branchRenamed: false)
+        #expect(
+            RenameSubmission.note(for: branchless)
+                == L.t("toast_renamed", branchless.session.name),
+            "a session with no branch has no branch to keep")
+
+        let withBranch = Components.Schemas.RenameResult(
+            session: PreviewData.session(
+                id: "s3", status: SessionStatus(known: .idle), branch: "feat/pinned"),
+            branchRenamed: false)
+        #expect(RenameSubmission.note(for: withBranch) == L.t("viewport_rename_branch_kept"))
+    }
+
+    @Test func anUnchangedNameIsANoOpAndNameTakenGetsItsOwnSentence() {
+        // The web's commitRename (Viewport.svelte:1029) closes without calling the route when
+        // the typed name matches the current one; Save is disabled on the same predicate.
+        #expect(!RenameSubmission.validate("same name", current: "same name"))
+        #expect(!RenameSubmission.validate("  same name  ", current: "same name"))
+        #expect(RenameSubmission.validate("other name", current: "same name"))
+        #expect(!RenameSubmission.validate("   ", current: "same name"))
+
+        #expect(RenameSubmission.failureCopy("name_taken") == L.t("viewport_rename_name_taken"))
+        #expect(RenameSubmission.failureCopy("boom") == L.t("viewport_rename_failed"))
+        #expect(RenameSubmission.failureCopy("") == L.t("viewport_rename_failed"))
+    }
+
     @Test func amendRejectsBlankAndOverLongTextAndReportsDelivery() {
         #expect(!AmendSubmission.validate(""))
         #expect(!AmendSubmission.validate("  \n "))

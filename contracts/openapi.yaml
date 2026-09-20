@@ -2419,6 +2419,7 @@ components:
         localExists: { type: boolean }
     InitEmptyCommitRequest:
       type: object
+      additionalProperties: false
       required: [repo]
       properties:
         repo: { type: string }

@@ -3706,6 +3706,7 @@ components:
           type: boolean
     InitEmptyCommitRequest:
       type: object
+      additionalProperties: false
       required:
         - repo
       properties:

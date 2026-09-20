@@ -1,10 +1,12 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import Ajv2020 from "ajv/dist/2020";
 import { clearBranchStatusCacheForTests } from "../../src/server";
 import * as fx from "./compose-fixtures";
 import {
   bearer,
   coverage,
   login,
+  loadContract,
   mintToken,
   restoreAuth,
   startContractServer,
@@ -180,6 +182,15 @@ describe("epics", () => {
 });
 
 describe("repo and base branch", () => {
+  test("the repair request schema rejects unknown keys instead of accepting branch typos", () => {
+    const validate = new Ajv2020({ strict: false }).compile(
+      loadContract().components.schemas.InitEmptyCommitRequest as object,
+    );
+    expect(validate({ repo: "/repo" })).toBe(true);
+    expect(validate({ repo: "/repo", branch: "trunk" })).toBe(true);
+    expect(validate({ repo: "/repo", brnach: "trunk" })).toBe(false);
+  });
+
   test("lists an unborn repo, rejects an invalid repo, and requires auth", async () => {
     const ok = await get(`/api/branches?repo=${encodeURIComponent(s.validRepo)}`);
     expect(ok.status).toBe(200);

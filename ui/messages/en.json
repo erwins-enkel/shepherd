@@ -4415,5 +4415,22 @@
   "native_settings_token_login": "Unlock token administration",
   "native_settings_token_name": "Token name",
   "native_settings_token_once": "Shown once. Copy now; closing this pane hides it permanently.",
-  "native_settings_token_scope": "Scope"
+  "native_settings_token_scope": "Scope",
+  "native_settings_credits": "Credits: {spent} of {cap} {currency}",
+  "native_settings_diagnostic_unknown": "This check needs attention. Consult the server diagnostics.",
+  "native_settings_fix": "Apply fix",
+  "native_settings_fix_confirm": "Run this remediation on the server?",
+  "native_settings_model_usage": "{model}: {pct}% this week",
+  "native_settings_observed_absent": "No observed usage windows available",
+  "native_settings_observed_session": "Observed 5-hour window: {pct}%",
+  "native_settings_observed_week": "Observed week: {pct}%",
+  "native_settings_refresh_diagnostics": "Refresh diagnostics",
+  "native_settings_stale": "Data is stale",
+  "native_settings_subscription_only": "Subscription usage only",
+  "native_settings_usage": "Usage details",
+  "native_settings_usage_all": "Usage including paid credits",
+  "native_settings_verify_confirm": "Start a temporary agent to verify authentication?",
+  "native_settings_verify_failed": "Verification failed",
+  "native_settings_verify_key": "Verify API key",
+  "native_settings_verify_ok": "Key verified"
 }

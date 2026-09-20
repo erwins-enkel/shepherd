@@ -4415,5 +4415,22 @@
   "native_settings_token_login": "Token-Verwaltung entsperren",
   "native_settings_token_name": "Token-Name",
   "native_settings_token_once": "Nur einmal sichtbar. Jetzt kopieren; nach dem Schließen ist es nicht erneut abrufbar.",
-  "native_settings_token_scope": "Berechtigung"
+  "native_settings_token_scope": "Berechtigung",
+  "native_settings_credits": "Zusatzguthaben: {spent} von {cap} {currency}",
+  "native_settings_diagnostic_unknown": "Diese Prüfung erfordert Aufmerksamkeit. Server-Diagnose prüfen.",
+  "native_settings_fix": "Korrektur anwenden",
+  "native_settings_fix_confirm": "Diese Korrektur auf dem Server ausführen?",
+  "native_settings_model_usage": "{model}: {pct}% diese Woche",
+  "native_settings_observed_absent": "Keine beobachteten Nutzungsfenster verfügbar",
+  "native_settings_observed_session": "Beobachtetes 5-Stunden-Fenster: {pct}%",
+  "native_settings_observed_week": "Beobachtete Woche: {pct}%",
+  "native_settings_refresh_diagnostics": "Diagnose aktualisieren",
+  "native_settings_stale": "Daten sind veraltet",
+  "native_settings_subscription_only": "Nur Abonnement-Nutzung",
+  "native_settings_usage": "Nutzungsdetails",
+  "native_settings_usage_all": "Nutzung einschließlich Zusatzguthaben",
+  "native_settings_verify_confirm": "Temporären Agenten zur Prüfung der Anmeldung starten?",
+  "native_settings_verify_failed": "Prüfung fehlgeschlagen",
+  "native_settings_verify_key": "API-Schlüssel prüfen",
+  "native_settings_verify_ok": "Schlüssel bestätigt"
 }

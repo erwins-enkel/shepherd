@@ -1582,6 +1582,2051 @@
         }
       }
     },
+    "diagnostics_all_ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alles startklar."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Everything's ready."
+          }
+        }
+      }
+    },
+    "diagnostics_doc_link": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "So behebst du das"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How to fix"
+          }
+        }
+      }
+    },
+    "diagnostics_fix": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beheben"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fix"
+          }
+        }
+      }
+    },
+    "diagnostics_fix_action_claude_trust": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd markiert diesen Repo-Ordner als vertrauenswürdig für Claude Code, damit die Nutzungsanzeige ihn lesen kann. Es wird kein Befehl ausgeführt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd will mark this repo folder as trusted for Claude Code so the usage gauge can read it. No command runs."
+          }
+        }
+      }
+    },
+    "diagnostics_fix_action_host_capacity": {
+      "comment": "%1$@ = memoryHigh, %2$@ = cpuQuota, %3$@ = units",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd setzt MemoryHigh=%1$@ und CPUQuota=%2$@ für diese Units: %3$@. Das wendet ein sofort wirksames, dauerhaftes Limit an — ohne Neustart, ohne unterbrochene Sessions. Es begrenzt jede Unit für sich; für eine gemeinsame Obergrenze über Shepherd und herdr richte eine shepherd.slice ein (siehe „So behebst du das“)."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd will set MemoryHigh=%1$@ and CPUQuota=%2$@ on these units: %3$@. This applies a live, persistent limit — no restart, no interrupted sessions. It bounds each unit on its own; for one shared cap across Shepherd and herdr, set up a shepherd.slice (see How to fix)."
+          }
+        }
+      }
+    },
+    "diagnostics_fix_action_tmp_inodes": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherds freigebbare Caches jetzt aus dem temporären Dateisystem räumen, unabhängig vom üblichen Schwellenwert. Das entfernt den Compile-Cache und veraltete Tool-Caches. Paketmanager-Stores und von Agents zurückgelassene Worktrees werden noch nicht freigegeben, die Auslastung kann also hoch bleiben."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sweep Shepherd's reclaimable caches from the temporary filesystem now, ignoring the usual usage threshold. This drops the compile cache and stale tool caches. Package-manager stores and leftover worktrees left behind by agents are not reclaimed yet, so usage may stay high."
+          }
+        }
+      }
+    },
+    "diagnostics_fix_confirm_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd führt diesen Befehl auf dem Server als dein Benutzer aus:"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd will run this command on the server as your user:"
+          }
+        }
+      }
+    },
+    "diagnostics_fix_confirm_run": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ausführen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run"
+          }
+        }
+      }
+    },
+    "diagnostics_fix_confirm_run_code": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ordner vertrauen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trust folder"
+          }
+        }
+      }
+    },
+    "diagnostics_fix_confirm_run_host_capacity": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Limits anwenden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apply limits"
+          }
+        }
+      }
+    },
+    "diagnostics_fix_confirm_run_tmp_inodes": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jetzt aufräumen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sweep now"
+          }
+        }
+      }
+    },
+    "diagnostics_fix_confirm_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diesen Befehl ausführen?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run this command?"
+          }
+        }
+      }
+    },
+    "diagnostics_fix_confirm_title_code": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diesen Ordner als vertrauenswürdig markieren?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mark this folder as trusted?"
+          }
+        }
+      }
+    },
+    "diagnostics_fix_confirm_title_host_capacity": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Host-Kapazitätslimits anwenden?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apply host capacity limits?"
+          }
+        }
+      }
+    },
+    "diagnostics_fix_confirm_title_tmp_inodes": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Temporäre Dateien jetzt aufräumen?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sweep temporary files now?"
+          }
+        }
+      }
+    },
+    "diagnostics_fix_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beheben fehlgeschlagen — der Befehl wurde nicht abgeschlossen. Führe ihn manuell aus."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fix failed — the command did not complete. Try running it manually."
+          }
+        }
+      }
+    },
+    "diagnostics_fix_running": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wird ausgeführt…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Running…"
+          }
+        }
+      }
+    },
+    "diagnostics_fix_success": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Behoben — neu geprüft."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fixed — re-checked."
+          }
+        }
+      }
+    },
+    "diagnostics_fix_unresolved": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Befehl wurde ausgeführt, aber der Check ist weiterhin nicht OK — möglicherweise ist ein manueller Schritt oder ein Neustart nötig."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The command ran, but the check is still not OK — it may need a manual step or a restart."
+          }
+        }
+      }
+    },
+    "diagnostics_fix_unresolved_code": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd hat die Einstellung aktualisiert, aber der Check ist weiterhin nicht OK — Claude Code muss möglicherweise neu gestartet werden, um sie zu übernehmen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd updated the setting, but the check is still not OK — Claude Code may need a restart to pick it up."
+          }
+        }
+      }
+    },
+    "diagnostics_fix_unresolved_host_capacity": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd hat die Limits angewendet, aber der Check ist weiterhin nicht OK — gib ihm einen Moment oder prüfe, ob die Unit benutzerbezogen ist."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd applied the limits, but the check is still not OK — give it a moment, or check the unit is user-scoped."
+          }
+        }
+      }
+    },
+    "diagnostics_fix_unresolved_tmp_inodes": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd hat die freigebbaren Caches aufgeräumt, aber die Auslastung ist weiterhin hoch — der Rest ist höchstwahrscheinlich ein Paketmanager-Store oder ein zurückgelassener Worktree im temporären Dateisystem, den Shepherd noch nicht freigibt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd swept the caches it can reclaim, but usage is still high — the rest is most likely a package-manager store or a leftover worktree an agent left in the temporary filesystem, which Shepherd doesn't reclaim yet."
+          }
+        }
+      }
+    },
+    "diagnostics_herdr_downgrade": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "herdr downgraden…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Downgrade herdr…"
+          }
+        }
+      }
+    },
+    "diagnostics_herdr_repair": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "herdr reparieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repair herdr"
+          }
+        }
+      }
+    },
+    "diagnostics_hint_bun_missing": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "bun nicht im PATH gefunden — installiere es von bun.sh."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "bun not found in PATH — install it from bun.sh."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_bun_ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "bun ist aktuell."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "bun is up to date."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_bun_outdated": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine bun-Version liegt unter dem unterstützten Minimum — führe bun upgrade aus."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your bun version is below the supported floor — run bun upgrade."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_claude_install_diverged": {
+      "comment": "%1$@ = running, %2$@ = managed",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd startet Claude Code %1$@, mise verwaltet aber %2$@ — zwei Installationen, die auseinandergelaufen sind. Der Auto-Updater von Claude Code schreibt eine native Kopie nach ~/.local/bin/claude, die die von mise überdeckt, sodass mise upgrade claude nur die Installation bewegt, die niemand ausführt. Entferne die native Kopie, damit die von mise wieder im PATH liegt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd spawns Claude Code %1$@, but mise manages %2$@ — two installs that have drifted apart. Claude Code's auto-updater writes a native copy to ~/.local/bin/claude that shadows the mise one, so mise upgrade claude moves only the install nothing runs. Remove the native copy so mise's is back on PATH."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_claude_install_native_on_path": {
+      "comment": "%1$@ = running",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd startet Claude Code aus einer nativen Installation, nicht aus der von mise verwalteten. Beide melden heute %1$@, sie laufen aber auseinander, sobald eine Seite aktualisiert wird, und mise upgrade claude bewegt dann nur die Kopie, die niemand ausführt. Entferne die native Kopie aus ~/.local/bin, damit die von mise wieder im PATH liegt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd spawns Claude Code from a native install, not the one mise manages. Both report %1$@ today, but they will drift as soon as either side updates, and mise upgrade claude will move only the copy nothing runs. Remove the native copy from ~/.local/bin so mise's is back on PATH."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_claude_install_native_residue": {
+      "comment": "%1$@ = count, %2$@ = size",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mise verwaltet das Claude Code, das Shepherd startet, aber eine native Installation liegt noch auf der Platte: %1$@ Build(s), %2$@. Der Auto-Updater von Claude Code hat sie angelegt, bevor mise übernommen hat; sie wird nicht ausgeführt und kann gefahrlos gelöscht werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mise manages the Claude Code that Shepherd spawns, but a leftover native install is still on disk: %1$@ build(s), %2$@. Claude Code's auto-updater put it there before mise took over; nothing runs it and it is safe to delete."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_claude_install_ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mise verwaltet das Claude Code, das Shepherd startet, und es liegt keine übrig gebliebene native Installation auf der Platte. Shepherd deaktiviert hier den Auto-Updater von Claude Code für Agent-Sessions, damit keine zweite Kopie angelegt wird; aktualisiere mit mise upgrade claude."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mise manages the Claude Code that Shepherd spawns, and no leftover native install is on disk. Shepherd disables Claude Code's auto-updater for agent sessions here so it can't plant a second copy; update with mise upgrade claude."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_claude_missing": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code CLI nicht im PATH gefunden. Installiere Claude Code oder Codex, um Agent-Sessions zu starten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code CLI not found in PATH. Install Claude Code or Codex to run agent sessions."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_claude_ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code CLI ist verfügbar."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code CLI is available."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_claude_optional": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code CLI ist optional, weil Codex verfügbar ist. Installiere es, wenn beide Agent-Runtimes funktionieren sollen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code CLI is optional because Codex is available. Install it if you want both agent runtimes."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_claude_trust_ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code vertraut diesem Repo-Ordner — die Nutzungsanzeige kann ihn lesen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code trusts this repo folder — the usage gauge can read it."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_claude_trust_untrusted": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code hat diesem Repo-Ordner nicht vertraut, daher bleibt die Nutzungsanzeige möglicherweise leer. Als vertrauenswürdig markieren, um es zu beheben."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code hasn't trusted this repo folder, so the usage gauge may stay blank. Mark it trusted to fix."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_codex_missing": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex CLI nicht im PATH gefunden. Installiere Codex oder Claude Code, um Agent-Sessions zu starten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex CLI not found in PATH. Install Codex or Claude Code to run agent sessions."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_codex_model_chatgpt_incompatible": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein konfiguriertes Codex-Modell wird von deinem ChatGPT-Account-Login für Codex nicht unterstützt und durch den Account-Standard ersetzt. Wähle ein unterstütztes Modell oder melde dich bei Codex mit einem API-Key an."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A configured Codex model isn't supported by your ChatGPT-account Codex login and is being replaced with the account default. Pick a supported model, or sign in to Codex with an API key."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_codex_ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex CLI ist verfügbar."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex CLI is available."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_codex_optional": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex CLI ist optional, weil Claude Code verfügbar ist. Installiere es, wenn beide Agent-Runtimes funktionieren sollen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex CLI is optional because Claude Code is available. Install it if you want both agent runtimes."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_gh_missing": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub CLI (gh) nicht im PATH gefunden — installiere es und führe anschließend gh auth login aus."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub CLI (gh) not found in PATH — install it, then run gh auth login."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_gh_not_authenticated": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub CLI fehlt oder ist nicht angemeldet — führe gh auth login aus."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub CLI missing or not logged in — run gh auth login."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_gh_not_required": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub CLI ist nicht installiert oder nicht authentifiziert, es sind jedoch keine Forge-basierten Repos konfiguriert — gh ist optional, wenn ausschließlich Lightweight-Repos verwendet werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub CLI is not installed or not authenticated, but no forge-backed repos are configured — gh is optional when using only lightweight repos."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_gh_ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub CLI ist authentifiziert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub CLI is authenticated."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_gh_unverified": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub-CLI-Authentifizierung konnte nicht geprüft werden — die Prüfung hat das Zeitlimit überschritten. Shepherd prüft in Kürze erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't verify GitHub CLI auth — the check timed out. Shepherd will re-check shortly."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_git_missing": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "git nicht im PATH gefunden — installiere es, bevor du Aufgaben startest."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "git not found in PATH — install it before running tasks."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_git_ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "git ist verfügbar."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "git is available."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_gitcap_ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "git unterstützt Lightweight-Merge (≥ 2.38)."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "git supports lightweight merge (≥ 2.38)."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_gitcap_old": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "git ≥ 2.38 nicht verfügbar — der Lightweight-Repo-Modus benötigt git merge-tree --write-tree (git ≥ 2.38) für lokale Merges. git fehlt möglicherweise (siehe git-Prüfung) oder ist zu alt; installiere oder aktualisiere es, um Lightweight-Repos zu nutzen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "git ≥ 2.38 not available — lightweight repo mode needs git merge-tree --write-tree (git ≥ 2.38) for local merges. git may be missing (see the git check) or too old; install or update it to use lightweight repos."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_herdr_health_leftover": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einige herdr-Panes führen noch Prozesse aus, hinter denen keine aktive Shepherd-Sitzung steht — wahrscheinlich Überbleibsel abgeschlossener Aufgaben. Es wurde nichts verändert (nur Diagnose). Hinweis: Die „Tasks“-Zahl von systemd für herdr zählt [[herdr-hygiene|Threads, keine Prozesse]], eine hohe Zahl ist also für sich genommen kein Leck."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Some herdr panes are still running processes with no active Shepherd session behind them — likely leftovers from finished tasks. Nothing was touched (diagnose-only). Note: systemd's Tasks count for herdr reflects [[herdr-hygiene|threads, not processes]], so a high number there isn't itself a leak."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_herdr_health_ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine übrig gebliebenen herdr-Panes — jedes aktive Pane gehört zu einer aktiven Sitzung."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No leftover herdr panes — every live pane maps to an active session."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_herdr_health_uninspectable": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd kann herdr gerade nicht erreichen, um die Laufzeithygiene zu prüfen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd can't reach herdr to check runtime hygiene right now."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_herdr_missing": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "herdr-Binary nicht im PATH gefunden — installiere es, um Agent-Sessions zu starten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "herdr binary not found in PATH — install it to run agent sessions."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_herdr_offline": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "herdr ist installiert, aber sein Server ist offline — Agent-Sessions können nicht laufen. Starte ihn mit `herdr server` und führe die Diagnose erneut aus."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "herdr is installed but its server is offline — agent sessions can't run. Start it by running `herdr server`, then re-run Diagnose."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_herdr_ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "herdr ist aktuell."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "herdr is up to date."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_herdr_outdated": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine herdr-Version liegt unter dem unterstützten Minimum — aktualisiere herdr."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your herdr version is below the supported floor — update herdr."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_herdr_restart": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die installierte herdr-Version und ihr laufender Server passen nicht zusammen. Schließe den Serverwechsel mit einem bestätigten Neustart ab."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The installed herdr and its running server do not match. Finish the server update with a confirmed restart."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_herdr_unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der herdr-Serverzustand konnte nicht geprüft werden. Öffne den Update-Dialog, um die Verbindung zu prüfen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The herdr server state could not be verified. Open the update dialog to check the connection."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_herdr_unsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese herdr-Version ist neuer als von Shepherd unterstützt — das Starten von Agenten würde damit fehlschlagen. Nutze „herdr downgraden“, um mit einem Klick zur höchsten unterstützten Version zurückzukehren, oder fixiere herdr manuell (https://herdr.dev) und führe die Diagnose erneut aus."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This herdr version is newer than Shepherd supports — agent spawning would fail on it. Use Downgrade herdr to return to the highest supported version in one click, or pin herdr manually (https://herdr.dev), then re-run Diagnose."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_host_capacity_herdr_unbounded": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherds eigener Dienst ist begrenzt, aber der herdr-Dienst, der deine Agent-Sessions ausführt, hat keine Speicher- oder CPU-Obergrenze — eine außer Kontrolle geratene Session könnte den Host trotzdem auslasten. Setze auch für herdr ein [[host-capacity|Host-Kapazität]]-Limit."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd's own service is bounded, but the herdr service that runs your agent sessions has no memory or CPU ceiling — a runaway session could still starve the host. Add a [[host-capacity|host capacity]] limit to herdr too."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_host_capacity_ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Host-Ressourcenlimits sind konfiguriert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Host resource guardrails are configured."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_host_capacity_pressure": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Host steht gerade unter Speicher- oder IO-Last — pausiere oder reduziere aktive Agent-Sessions, bis er sich erholt. „So behebst du das“ erklärt, wie du Limits setzt, damit das nicht erneut passiert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The host is under memory or IO pressure right now — pause or reduce active agent sessions until it recovers. How to fix covers adding limits so it can't recur."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_host_capacity_unbounded": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd läuft als systemd-Dienst ohne Speicher- oder CPU-Obergrenze, sodass ein Schwung an Sessions den Host auslasten könnte. Setze ein [[host-capacity|Host-Kapazität]]-Limit — „So behebst du das“ enthält einen fertigen Befehl."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd runs as a systemd service with no memory or CPU ceiling, so a burst of sessions could starve the host. Add a [[host-capacity|host capacity]] limit — How to fix has a copy-paste command."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_host_capacity_uninspectable": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd kann die Host-Ressourcenlimits auf diesem Deployment nicht prüfen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd can't verify host resource guardrails on this deployment."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_node_missing": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "node nicht im PATH gefunden — installiere es, bevor du Aufgaben startest."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "node not found in PATH — install it before running tasks."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_node_ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "node ist aktuell."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "node is up to date."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_node_outdated": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine node-Version liegt unter dem unterstützten Minimum — aktualisiere node."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your node version is below the supported floor — update node."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_preview_probes_idle": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Preview-Erkennung funktioniert, wird derzeit aber nicht genutzt — ohne aktive Session in einem Worktree hält Shepherd seine Sicht auf die laufenden Prozesse nicht aktuell. Sie wird aufgefrischt, sobald eine Session startet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preview detection works, but nothing is exercising it right now — with no active session in a worktree, Shepherd doesn't keep its view of running processes up to date. It refreshes as soon as a session starts."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_preview_probes_ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd erkennt die von deinen Agenten gestarteten Dev-Server, daher funktionieren Live-Previews."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd can detect the dev servers your agents start, so live previews work."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_preview_probes_stale": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherds Sicht auf die laufenden Prozesse ist auf diesem Host veraltet (die letzte Inspektion wurde nicht rechtzeitig abgeschlossen), daher können Live-Previews verzögert sein oder fehlen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd's view of running processes is out of date on this host (the last inspection didn't complete in time), so live previews may be delayed or missing."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_preview_probes_unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd kann laufende Prozesse auf diesem Host nicht inspizieren und daher die von deinen Agenten gestarteten Dev-Server nicht erkennen — Live-Previews erscheinen nicht."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd can't inspect running processes on this host, so it can't detect the dev servers your agents start — live previews won't appear."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_preview_probes_uninspectable": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd konnte nicht überprüfen, ob die Prozesserkennung auf diesem Host funktioniert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd couldn't verify whether process detection works on this host."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_preview_probes_unsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Erkennung von Live-Previews wird auf diesem Betriebssystem nicht unterstützt, daher erscheinen keine Previews."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live preview detection isn't supported on this operating system, so previews won't appear."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_pwa_android": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installiere Shepherd für ein App-Symbol, eine Vollbild-Ansicht und ein Push-Abo, das die Speicherbereinigung des Browsers übersteht. Öffne das Browser-Menü → „App installieren“ / „Zum Startbildschirm hinzufügen“."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Install Shepherd for an app icon, a full-screen view, and a push subscription that survives the browser's storage cleanup. Open the browser menu → 'Install app' / 'Add to Home Screen'."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_pwa_ios": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf iOS funktionieren Shepherds Push-Benachrichtigungen nur, wenn die App zum Home-Bildschirm hinzugefügt ist — in einem Safari-Tab bekommst du keine. Tippe auf „Teilen“ und dann „Zum Home-Bildschirm“."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On iOS, Shepherd's push notifications only work when it's installed to the Home Screen — in a Safari tab you get none. Tap the Share button, then 'Add to Home Screen'."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_pwa_optional": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd in diesem Browser zu installieren ist optional. Wo es unterstützt wird, ergänzt es ein App-Symbol, eine Vollbild-Ansicht und Push-Benachrichtigungen, die die Speicherbereinigung des Browsers überstehen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installing Shepherd is optional in this browser. Where it's supported, it adds an app icon, a full-screen view, and push notifications that survive the browser's storage cleanup."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_sandbox_membrane_broken": {
+      "comment": "%1$@ = agent",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ startet auf diesem Host nicht in der [[sandbox-membrane|Sandbox-Membran]]. Deshalb verweigern alle eingeschränkten Helfer — Plan-Prüfer, Pull-Request-Kritiker, Doku-Agent — den Start, statt bis zum Timeout zu hängen. Meist versucht ein Versionsmanager, Dateien zu überschreiben, die die Sandbox schreibgeschützt hält. Der genaue Fehler steht in Shepherds Log."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ does not start inside the [[sandbox-membrane|sandbox membrane]] on this host, so every confined helper — plan reviewer, pull-request critic, doc agent — refuses to start rather than hanging until it times out. Usually a version manager trying to rewrite files the sandbox keeps read-only. The exact error is in Shepherd's log."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_sandbox_membrane_ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent-Programme starten korrekt in der [[sandbox-membrane|Sandbox-Membran]], Prüfer und Kritiker können also eingeschränkt laufen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent programs start correctly inside the [[sandbox-membrane|sandbox membrane]], so reviewers and critics can run confined."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_sandbox_membrane_uninspectable": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd konnte nicht prüfen, ob Agent-Programme auf diesem Host in der [[sandbox-membrane|Sandbox-Membran]] starten. Eingeschränkte Helfer laufen weiterhin."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd could not check whether agent programs start inside the [[sandbox-membrane|sandbox membrane]] on this host. Confined helpers still run."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_tailscale_missing": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale nicht installiert oder nicht angemeldet — installiere es und führe tailscale up aus."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale not installed or not logged in — install it and run tailscale up."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_tailscale_not_serving": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale läuft, stellt Shepherd aber nicht bereit — richte tailscale serve oder einen Tailscale-Service für den Remote-Zugriff ein."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale is running but isn't fronting Shepherd — set up tailscale serve or a Tailscale Service for remote access."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_tailscale_ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale ist verbunden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale is connected."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_tailscale_serve_denied": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale verweigert Shepherd die serve-Konfiguration, dadurch lässt sich keine Live-Vorschau veröffentlichen — führe einmalig sudo tailscale set --operator=$USER aus und prüfe die Checks erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale refuses Shepherd's serve config, so no live preview can be published — run sudo tailscale set --operator=$USER once, then re-run the checks."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_tmp_entries_critical": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das temporäre Dateisystem ist stark mit Überbleibseln zugesetzt — weit jenseits der Schwelle, ab der Shepherd aufräumt. Verzeichnis-Scans werden langsam, und die [[inode|Inodes]] können ausgehen, obwohl Speicherplatz frei aussieht. „Beheben“ räumt die Caches auf, die Shepherd freigeben kann."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The temporary filesystem is badly cluttered with leftover entries — far past the point where Shepherd starts sweeping. Directory scans get slow and the filesystem can run out of [[inode|inodes]] while disk space still looks free. Fix sweeps the caches Shepherd can reclaim."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_tmp_entries_high": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Im temporären Dateisystem sammeln sich Überbleibsel an. Es vergibt [[inode|Inodes]] dynamisch, deshalb beobachtet Shepherd die Anzahl statt einer Auslastung in Prozent. Unbeachtet verlangsamt das jeden Verzeichnis-Scan und kann die [[inode|Inodes]] trotzdem aufbrauchen. „Beheben“ räumt die Caches auf, die Shepherd freigeben kann."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leftover entries are piling up in the temporary filesystem. It allocates [[inode|inodes]] on demand, so Shepherd watches the count rather than a usage percentage. Left alone this slows every scan of those directories and can still exhaust the filesystem's [[inode|inodes]]. Fix sweeps the caches Shepherd can reclaim."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_tmp_entries_ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das temporäre Dateisystem vergibt [[inode|Inodes]] dynamisch — eine Auslastung in Prozent gibt es dort nicht. Shepherd beobachtet stattdessen, wie viele Überbleibsel sich ansammeln. Aktuell unbedenklich wenige."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The temporary filesystem allocates [[inode|inodes]] on demand, so there is no usage percentage to read — Shepherd watches how many leftover entries pile up instead. Few enough to be healthy."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_tmp_inodes_critical": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Im temporären Dateisystem sind die [[inode|Inodes]] fast aufgebraucht. Neue Agent-Sessions werden mit „kein Speicherplatz“-Fehlern scheitern, obwohl Speicherplatz frei aussieht. „Beheben“ räumt die Caches auf, die Shepherd freigeben kann."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The temporary filesystem is nearly out of [[inode|inodes]]. New agent sessions will start failing with \"no space\" errors even though disk space looks free. Fix sweeps the caches Shepherd can reclaim."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_tmp_inodes_high": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Im temporären Dateisystem werden die [[inode|Inodes]] knapp — es kann volllaufen, obwohl noch Speicherplatz frei ist, und Agent-Sessions scheitern dann mit irreführenden „kein Speicherplatz“-Fehlern. „Beheben“ räumt die Caches auf, die Shepherd freigeben kann."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The temporary filesystem is running low on [[inode|inodes]] — it can run out while still showing free space, and agent sessions then fail with confusing \"no space\" errors. Fix sweeps the caches Shepherd can reclaim."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_tmp_inodes_ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das temporäre Dateisystem hat reichlich freie [[inode|Inodes]]."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The temporary filesystem has plenty of [[inode|inodes]] free."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_tmp_inodes_uninspectable": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd kann die [[inode|Inode]]-Auslastung des temporären Dateisystems auf diesem System nicht auslesen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd can't read [[inode|inode]] usage for the temporary filesystem on this deployment."
+          }
+        }
+      }
+    },
+    "diagnostics_label_bun": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "bun"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "bun"
+          }
+        }
+      }
+    },
+    "diagnostics_label_claude": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claude"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claude"
+          }
+        }
+      }
+    },
+    "diagnostics_label_claude_install": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude-Installation"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claude install"
+          }
+        }
+      }
+    },
+    "diagnostics_label_claude_trust": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Ordner-Vertrauen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claude folder trust"
+          }
+        }
+      }
+    },
+    "diagnostics_label_codex": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "codex"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "codex"
+          }
+        }
+      }
+    },
+    "diagnostics_label_gh": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "gh"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "gh"
+          }
+        }
+      }
+    },
+    "diagnostics_label_git": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "git"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "git"
+          }
+        }
+      }
+    },
+    "diagnostics_label_git_mergetree": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "git merge-tree"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "git merge-tree"
+          }
+        }
+      }
+    },
+    "diagnostics_label_herdr": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "herdr"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "herdr"
+          }
+        }
+      }
+    },
+    "diagnostics_label_herdr_health": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Herdr-Laufzeithygiene"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Herdr runtime hygiene"
+          }
+        }
+      }
+    },
+    "diagnostics_label_host_capacity": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Host-Kapazität"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Host capacity"
+          }
+        }
+      }
+    },
+    "diagnostics_label_node": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "node"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "node"
+          }
+        }
+      }
+    },
+    "diagnostics_label_preview_probes": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preview-Erkennung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preview detection"
+          }
+        }
+      }
+    },
+    "diagnostics_label_pwa_install": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Home-Bildschirm-App"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Home Screen app"
+          }
+        }
+      }
+    },
+    "diagnostics_label_sandbox_membrane": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent-Start in Sandbox"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent launch in sandbox"
+          }
+        }
+      }
+    },
+    "diagnostics_label_tailscale": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale"
+          }
+        }
+      }
+    },
+    "diagnostics_label_tmp_inodes": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inodes im temporären Dateisystem"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Temp filesystem inodes"
+          }
+        }
+      }
+    },
+    "diagnostics_learn_more": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mehr erfahren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Learn more"
+          }
+        }
+      }
+    },
+    "diagnostics_load_error": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checks konnten nicht geladen werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't load checks."
+          }
+        }
+      }
+    },
+    "diagnostics_pip_label": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einige Voraussetzungen brauchen Aufmerksamkeit"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Some prerequisites need attention"
+          }
+        }
+      }
+    },
+    "diagnostics_rerun": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checks neu prüfen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Re-run checks"
+          }
+        }
+      }
+    },
+    "diagnostics_rerun_error": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checks konnten nicht neu geprüft werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to re-run checks."
+          }
+        }
+      }
+    },
+    "diagnostics_state_error": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Problem"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Problem"
+          }
+        }
+      }
+    },
+    "diagnostics_state_installed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installiert"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installed"
+          }
+        }
+      }
+    },
+    "diagnostics_state_not_installed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht installiert"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not installed"
+          }
+        }
+      }
+    },
+    "diagnostics_state_ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        }
+      }
+    },
+    "diagnostics_state_optional": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Optional"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Optional"
+          }
+        }
+      }
+    },
+    "diagnostics_state_warning": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warnung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warning"
+          }
+        }
+      }
+    },
+    "diagnostics_subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voraussetzungen, die Shepherd für einen reibungslosen Lauf braucht."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prerequisites Shepherd needs to run smoothly."
+          }
+        }
+      }
+    },
+    "diagnostics_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System-Diagnose"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System diagnostics"
+          }
+        }
+      }
+    },
     "diff_empty": {
       "comment": "%1$@ = base",
       "extractionState": "manual",
@@ -8047,6 +10092,24 @@
         }
       }
     },
+    "native_settings_credits": {
+      "comment": "%1$@ = spent, %2$@ = cap, %3$@ = currency",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zusatzguthaben: %1$@ von %2$@ %3$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Credits: %1$@ of %2$@ %3$@"
+          }
+        }
+      }
+    },
     "native_settings_days": {
       "comment": "%1$@ = days",
       "extractionState": "manual",
@@ -8061,6 +10124,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "%1$@ days"
+          }
+        }
+      }
+    },
+    "native_settings_diagnostic_unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Prüfung erfordert Aufmerksamkeit. Server-Diagnose prüfen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This check needs attention. Consult the server diagnostics."
           }
         }
       }
@@ -9034,6 +11114,40 @@
         }
       }
     },
+    "native_settings_fix": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Korrektur anwenden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apply fix"
+          }
+        }
+      }
+    },
+    "native_settings_fix_confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Korrektur auf dem Server ausführen?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run this remediation on the server?"
+          }
+        }
+      }
+    },
     "native_settings_fork": {
       "extractionState": "manual",
       "localizations": {
@@ -9204,6 +11318,24 @@
         }
       }
     },
+    "native_settings_model_usage": {
+      "comment": "%1$@ = model, %2$@ = pct",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@%% diese Woche"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@%% this week"
+          }
+        }
+      }
+    },
     "native_settings_never": {
       "extractionState": "manual",
       "localizations": {
@@ -9217,6 +11349,59 @@
           "stringUnit": {
             "state": "translated",
             "value": "Never"
+          }
+        }
+      }
+    },
+    "native_settings_observed_absent": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine beobachteten Nutzungsfenster verfügbar"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No observed usage windows available"
+          }
+        }
+      }
+    },
+    "native_settings_observed_session": {
+      "comment": "%1$@ = pct",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beobachtetes 5-Stunden-Fenster: %1$@%%"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Observed 5-hour window: %1$@%%"
+          }
+        }
+      }
+    },
+    "native_settings_observed_week": {
+      "comment": "%1$@ = pct",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beobachtete Woche: %1$@%%"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Observed week: %1$@%%"
           }
         }
       }
@@ -9338,6 +11523,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Pull default branch"
+          }
+        }
+      }
+    },
+    "native_settings_refresh_diagnostics": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diagnose aktualisieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refresh diagnostics"
           }
         }
       }
@@ -10023,6 +12225,40 @@
         }
       }
     },
+    "native_settings_stale": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Daten sind veraltet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Data is stale"
+          }
+        }
+      }
+    },
+    "native_settings_subscription_only": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur Abonnement-Nutzung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subscription usage only"
+          }
+        }
+      }
+    },
     "native_settings_sync": {
       "extractionState": "manual",
       "localizations": {
@@ -10159,6 +12395,40 @@
         }
       }
     },
+    "native_settings_usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nutzungsdetails"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage details"
+          }
+        }
+      }
+    },
+    "native_settings_usage_all": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nutzung einschließlich Zusatzguthaben"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage including paid credits"
+          }
+        }
+      }
+    },
     "native_settings_use_folder": {
       "extractionState": "manual",
       "localizations": {
@@ -10172,6 +12442,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "Use this folder"
+          }
+        }
+      }
+    },
+    "native_settings_verify_confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Temporären Agenten zur Prüfung der Anmeldung starten?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start a temporary agent to verify authentication?"
+          }
+        }
+      }
+    },
+    "native_settings_verify_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prüfung fehlgeschlagen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verification failed"
+          }
+        }
+      }
+    },
+    "native_settings_verify_key": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API-Schlüssel prüfen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verify API key"
+          }
+        }
+      }
+    },
+    "native_settings_verify_ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schlüssel bestätigt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Key verified"
           }
         }
       }

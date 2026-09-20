@@ -1,22 +1,18 @@
 import XCTest
 
+@MainActor
 final class SettingsSceneUITests: XCTestCase {
-    private var app: XCUIApplication!
+    private let harness = IsolatedUITestHarness()
+    private var app: XCUIApplication { harness.application }
 
-    override func setUpWithError() throws {
+    override func setUp() async throws {
         continueAfterFailure = false
-        app = XCUIApplication()
-        app.launchArguments = [
-            "-ApplePersistenceIgnoreState", "YES", "-NSQuitAlwaysKeepsWindows", "NO",
-            "-AppleLanguages", "(en)", "-AppleLocale", "en_US", "-ShepherdIsolated", "1",
-        ]
-        app.launch()
+        harness.launch()
         XCTAssertTrue(app.descendants(matching: .any)["welcome-local-card"].waitForExistence(timeout: 15))
     }
 
-    override func tearDownWithError() throws {
-        app.terminate()
-        app = nil
+    override func tearDown() async throws {
+        harness.shutdown()
     }
 
     func testSettingsUsesOneWindowAndRetiresLegacyMenu() {

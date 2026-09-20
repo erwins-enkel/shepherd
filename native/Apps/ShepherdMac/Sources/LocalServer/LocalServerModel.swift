@@ -76,6 +76,9 @@ final class LocalServerModel {
     /// bumps it on entry, so a second, later `refresh()` wins over a stale
     /// first one the same way. Pattern: `AppModel.activationGeneration`.
     private var generation = 0
+    /// The in-flight `install()`, held so the quit path can cancel it — see
+    /// `beginInstall()` / `cancelInstallForQuit()`.
+    private var installTask: Task<Void, Never>?
 
     init(
         environment: LocalServerEnvironment = LocalServerEnvironment(),
@@ -128,6 +131,14 @@ final class LocalServerModel {
     /// checkout/probe say with nothing in flight.
     func refresh() async {
         guard !busy else { return }
+        await resolveState()
+    }
+
+    /// `refresh()` without the `busy` guard, for the one caller that is itself
+    /// the reason `busy` is set. The `generation` re-checks stay: they are what
+    /// keeps a stale answer from landing on a newer state, and they are a
+    /// different protection from M-1's.
+    private func resolveState() async {
         generation += 1
         let expected = generation
         let supervised = await supervisor.state
@@ -156,9 +167,33 @@ final class LocalServerModel {
         let result = await installer(environment, log)
         await pullLog()
         switch result {
-        case .success: await refresh()
+        // `resolveState()`, not `refresh()`: `busy` is still true here — the
+        // `defer` above has not run yet — so `refresh()`'s M-1 guard made this
+        // a no-op and left the panel on the spinner and "Wird installiert…"
+        // with no Start button, for an install that had in fact succeeded.
+        case .success: await resolveState()
         case .failure(let failure): state = .failed(failure)
         }
+    }
+
+    /// The panel's Install button. The task is kept, not dropped: a bare
+    /// `Task { await model.install() }` in the view had no handle anyone could
+    /// cancel, so quitting mid-install left `install.sh` and its whole subtree
+    /// running, still mutating `~/.shepherd/app` — and the next launch's
+    /// Install raced a second installer over the same checkout.
+    func beginInstall() {
+        guard !busy else { return }
+        installTask = Task { await self.install() }
+    }
+
+    /// The quit path's other half, next to `terminateForQuit()`.
+    /// `Task.cancel()` runs `withTaskCancellationHandler`'s `onCancel`
+    /// synchronously, so `InstallerRun` has signalled its child by the time
+    /// this returns — which is what `applicationWillTerminate`, with no
+    /// `await` to give, needs.
+    func cancelInstallForQuit() {
+        installTask?.cancel()
+        installTask = nil
     }
 
     func start() async { await act { await self.supervisor.start() } }

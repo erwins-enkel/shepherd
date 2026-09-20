@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import Testing
 import ShepherdKit
 @testable import Shepherd
@@ -407,5 +408,75 @@ actor LocalServerGate {
         // Dismissing is not the same as connecting: no pending password is
         // handed to the login sheet.
         #expect(model.takePendingPassword() == nil)
+    }
+
+    // MARK: - Final whole-branch review (C2, I2)
+
+    /// C2: `install()` held `busy` across its own `defer` and, on success,
+    /// called `refresh()` — whose first line is the M-1 `guard !busy`. The
+    /// refresh was therefore a no-op, the defer then cleared `busy`, and the
+    /// panel sat on the spinner and "Wird installiert…" with no Start button
+    /// until it was torn down and re-appeared.
+    @Test func aSuccessfulInstallLeavesThePanelReadyToStart() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let environment = LocalServerEnvironment(home: home)
+        let model = LocalServerModel(
+            environment: environment,
+            probeExternal: { false },
+            // Stands in for `deploy/install.sh`: leaves a real checkout behind,
+            // which is what `refresh()` reads to decide `.stopped`.
+            installer: { environment, _ in
+                try? FileManager.default.createDirectory(
+                    at: environment.appDirectory, withIntermediateDirectories: true)
+                try? #"{"name":"shepherd"}"#.write(
+                    to: environment.appDirectory.appendingPathComponent("package.json"),
+                    atomically: true, encoding: .utf8)
+                return .success(())
+            })
+
+        await model.install()
+
+        #expect(model.busy == false)
+        #expect(model.state == .stopped)
+        #expect(model.canStart)
+    }
+
+    /// I2: the panel fired `Task { await model.install() }` and dropped the
+    /// handle, so `terminateForQuit()` — which only reaches the supervisor's
+    /// child — left `install.sh` and its whole subtree running after the app
+    /// had gone, still mutating ~/.shepherd/app. Relaunching and pressing
+    /// Install again then raced two installers over the same checkout.
+    @Test func quittingMidInstallCancelsTheInstaller() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let cancelled = Mutex(false)
+        // Stands in for `InstallerRun`, whose own `withTaskCancellationHandler`
+        // is what signals `install.sh`. `running` is how the test knows the
+        // handler is installed before it cancels — otherwise the cancel lands
+        // in the window before the installer has even been entered, and proves
+        // nothing about the handler.
+        let running = Mutex(false)
+        let model = LocalServerModel(
+            environment: LocalServerEnvironment(home: home),
+            probeExternal: { false },
+            installer: { _, _ in
+                await withTaskCancellationHandler {
+                    running.withLock { $0 = true }
+                    for _ in 0..<500 where !Task.isCancelled {
+                        try? await Task.sleep(for: .milliseconds(20))
+                    }
+                    return .failure(.installFailed(exitCode: 130))
+                } onCancel: {
+                    cancelled.withLock { $0 = true }
+                }
+            })
+
+        model.beginInstall()  // the panel's Install button
+        #expect(await settle(until: { model.busy && running.withLock { $0 } }))
+        #expect(model.state == .installing)
+
+        model.cancelInstallForQuit()  // applicationWillTerminate
+
+        #expect(cancelled.withLock { $0 })  // `onCancel` runs synchronously
+        #expect(await settle(until: { !model.busy }))
     }
 }

@@ -28,7 +28,13 @@ enum LocalServerFeature {
         NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification, object: nil, queue: .main
         ) { _ in
-            MainActor.assumeIsolated { LocalServerModel.shared.terminateForQuit() }
+            MainActor.assumeIsolated {
+                // The installer first: cancelling it signals `install.sh` and
+                // its subtree synchronously, and an install in flight is the
+                // one thing `terminateForQuit()` cannot reach.
+                LocalServerModel.shared.cancelInstallForQuit()
+                LocalServerModel.shared.terminateForQuit()
+            }
         }
         Log.app.info("local server feature installed")
     }

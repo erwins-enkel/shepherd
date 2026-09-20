@@ -140,7 +140,9 @@ struct LocalServerPanel: View {
     private var controls: some View {
         HStack(spacing: 8) {
             if panel.showsInstall {
-                Button(L.t("native_local_install")) { Task { await model.install() } }
+                // `beginInstall()`, not a bare `Task`: the model keeps the
+                // handle so the quit path can cancel the installer.
+                Button(L.t("native_local_install")) { model.beginInstall() }
                     .disabled(!panel.canInstall)
                     .accessibilityIdentifier("local-install")
             }

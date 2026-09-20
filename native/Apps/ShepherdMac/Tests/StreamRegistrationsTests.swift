@@ -10,6 +10,17 @@ import Testing
 struct StreamRegistrationsTests {
     init() { resetStreamSeams() }
 
+    @Test func sidebarPlusRoutesThroughTheInstalledComposer() {
+        defer { resetStreamSeams() }
+        let app = scratchModel()
+        defer { app.teardown() }
+        StreamRegistrations.installAll(into: app)
+        MainWindow.openComposer(app)
+        #expect(app.sheet == .newSession)
+        #expect(NewSessionSlot.resolution == .slot)
+        #expect(NewSessionSlot.content?(app) != nil)
+    }
+
     @Test func isolatedLiveLaunchDisablesWritesBeforeInstallingStreams() throws {
         defer { resetStreamSeams() }
         let launch = IsolatedLaunch(configuration: .init(
@@ -38,10 +49,13 @@ struct StreamRegistrationsTests {
         }
         StreamRegistrations.installAll(into: app)
         let factories = Set(app.extensionFactories.map(\.key))
-        for type in [HerdSignals.self, PlanModel.self, QueuesModel.self] as [any AppExtension.Type] {
+        for type in [HerdSignals.self, PlanModel.self, QueuesModel.self, MergeModel.self] as [any AppExtension.Type] {
             #expect(factories.contains(ObjectIdentifier(type)))
         }
         #expect(DetailTabRegistry.tabs.map(\.id).contains("plan"))
+        #expect(DetailTabRegistry.tabs.map(\.id).contains("merge"))
+        #expect(NewSessionSlot.resolution == .slot)
+        #expect(CommandRegistry.commands(in: .session).contains { $0.id == "merge.overview" })
         #expect(SidebarSlot.content != nil)
         #expect(ActionBarSlot.content != nil)
         #expect(WelcomeSlots.localPanel != nil)
@@ -52,6 +66,10 @@ struct StreamRegistrationsTests {
         SessionSignals.gitMerged = { _ in true }
         SessionSignals.workingBlocked = { ["a": true] }
         SessionSignals.manualStepsOutstanding = { ["a": 1] }
+        MergeInputs.git = { _ in ["a": .init(state: .init(known: .open), checks: .init(known: .success), deployConfigured: false)] }
+        MergeInputs.reviewing = { _, _ in true }
+        MergeInputs.planReviewBlocked = { _, _ in false }
+        MergeInputs.terminalEnded = { _, _ in false }
         resetStreamSeams()
         #expect(DetailTabRegistry.tabs.map(\.id) == ["prompt"])
         #expect(SidebarSlot.content == nil)
@@ -62,6 +80,11 @@ struct StreamRegistrationsTests {
         #expect(!SessionSignals.gitMerged("a"))
         #expect(SessionSignals.workingBlocked().isEmpty)
         #expect(SessionSignals.manualStepsOutstanding().isEmpty)
+        #expect(NewSessionSlot.resolution == .fallback)
+        #expect(MergeInputs.git(app).isEmpty)
+        #expect(!MergeInputs.reviewing(app, "a"))
+        #expect(MergeInputs.planReviewBlocked(app, "a"))
+        #expect(MergeInputs.terminalEnded(app, "a"))
         for lens in [HerdLens.next, .owed, .done] {
             #expect(QueuesPanels.panel(for: lens) == nil)
         }
@@ -99,6 +122,11 @@ struct StreamRegistrationsTests {
             plan.receive(.unknown(name: "session:plangate", payload: try JSONEncoder().encode(
                 SessionPlanGateEvent(id: "a", gate: gate))))
             #expect(SessionSignals.planQuestionsUnanswered("a"))
+            #expect(MergeInputs.planReviewBlocked(app, "a"))
+            herd.applyForTesting(name: "session:claude-alive", payload: ["id": "a", "claudeAlive": false, "liveness": "stranded"])
+            #expect(MergeInputs.terminalEnded(app, "a"))
+            herd.applyForTesting(name: "session:claude-alive", payload: ["id": "a", "claudeAlive": true, "liveness": "alive"])
+            #expect(!MergeInputs.terminalEnded(app, "a"))
             #expect(herd.planRework(session))
             #expect(sidebar.gitStage(session) == .reworkRunning)
             plan.receive(.unknown(name: "session:plangate-reviewing", payload: try JSONEncoder().encode(
@@ -123,6 +151,53 @@ struct StreamRegistrationsTests {
             #expect(!sidebar.inReview(session))
             #expect(!herd.planRework(session))
             #expect(!herd.planReviewing(session))
+        }
+    }
+
+    @Test func mergeSeamsResolveCurrentActivationAndKeepDefaultsBeforeBootstrap() async throws {
+        defer { resetStreamSeams() }
+        let app = scratchModel()
+        defer { app.teardown() }
+        StreamRegistrations.installAll(into: app)
+        #expect(SessionSignals.manualStepsOutstanding().isEmpty)
+        #expect(MergeInputs.git(app).isEmpty)
+        #expect(!MergeInputs.reviewing(app, "gone"))
+        #expect(MergeInputs.planReviewBlocked(app, "gone"))
+        #expect(MergeInputs.terminalEnded(app, "gone"))
+        let owed = try JSONDecoder().decode(PostMergeSteps.self, from: Data(#"{"sessionId":"gone","desig":"TASK-1","repoPath":"/a","prNumber":7,"prTitle":"Ship","steps":[{"id":"one","text":"Check","postMerge":true,"doneAt":null}],"trackingIssueUrl":null,"trackingIssueNumber":null,"createdAt":1,"updatedAt":1,"clearedAt":null}"#.utf8))
+        for count in [1, 0] {
+            let merge = MergeModel(reads: .init(snapshot: { .init(owed: count == 1 ? [owed] : []) }))
+            app.liveExtensions = [(ObjectIdentifier(MergeModel.self), merge)]
+            await merge.refresh()
+            #expect(SessionSignals.manualStepsOutstanding() == (count == 1 ? ["gone": 1] : [:]))
+            app.tearDownExtensions()
+            #expect(SessionSignals.manualStepsOutstanding().isEmpty)
+        }
+    }
+
+    @Test func mergeQueueGatesStayClosedUntilOwnersHaveAuthoritativeData() async throws {
+        defer { resetStreamSeams() }
+        let app = scratchModel()
+        defer { app.teardown() }
+        Wave2Seams.connect(app)
+        enum Unavailable: Error { case offline }
+        for _ in 0..<2 {
+            let plan = PlanModel(reads: .init(gates: { throw Unavailable.offline }, inflight: { [] }))
+            let herd = HerdSignals(reads: .stub(), now: { 0 })
+            app.liveExtensions = [(ObjectIdentifier(PlanModel.self), plan), (ObjectIdentifier(HerdSignals.self), herd)]
+            #expect(MergeInputs.planReviewBlocked(app, "a"))
+            #expect(MergeInputs.terminalEnded(app, "a"))
+            await plan.refresh()
+            #expect(MergeInputs.planReviewBlocked(app, "a"), "failed bootstrap must not authorize approval")
+            plan.reads = .init(gates: { [:] }, inflight: { [] })
+            await plan.refresh()
+            #expect(!MergeInputs.planReviewBlocked(app, "a"), "a successful empty snapshot is authoritative")
+            herd.applyForTesting(name: "session:claude-alive", payload: ["id": "a", "claudeAlive": true, "liveness": "alive"])
+            #expect(!MergeInputs.terminalEnded(app, "a"))
+            #expect(MergeInputs.terminalEnded(app, "unknown"))
+            app.tearDownExtensions()
+            #expect(MergeInputs.planReviewBlocked(app, "a"))
+            #expect(MergeInputs.terminalEnded(app, "a"))
         }
     }
 

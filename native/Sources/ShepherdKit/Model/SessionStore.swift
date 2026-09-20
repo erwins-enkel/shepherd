@@ -646,9 +646,9 @@ public final class SessionStore {
     }
   }
 
-  public func archive(id: String) async throws {
+  public func archive(id: String, reap: [String]? = nil) async throws {
     do {
-      try await client.archiveSession(id: id)
+      try await client.archiveSession(id: id, reap: reap)
       sessions.removeAll { $0.id == id }
       blocks[id] = nil
       lastError = nil

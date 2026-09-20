@@ -4,9 +4,10 @@ import { join } from "node:path";
 
 // Compare the type, not `rg -n` output: paths/line numbers hide duplicate declarations.
 function conformances(source: string): string[] {
-  return [...source.matchAll(/extension\s+([\w.]+)\s*:\s*OpenEnum\s*\{/g)].map((match) =>
-    match[1]!.replace(/^Components\.Schemas\./, ""),
-  );
+  const code = source.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, " ");
+  return [...code.matchAll(/extension\s+([\w.]+)\s*:\s*([^{}]+)\{/g)]
+    .filter((match) => /(?:^|,)\s*(?:ShepherdKit\.)?OpenEnum\s*(?:,|where\b|$)/.test(match[2]!))
+    .map((match) => match[1]!.replace(/^Components\.Schemas\./, ""));
 }
 
 function swiftFiles(directory: string): string[] {
@@ -37,4 +38,15 @@ test("the conformance guard normalizes qualified and aliased schema names", () =
       "extension Components.Schemas.PrHandoff: OpenEnum {}\nextension PrHandoff: OpenEnum {}",
     ),
   ).toEqual(["PrHandoff", "PrHandoff"]);
+});
+
+test("the guard accepts protocol lists, qualified protocols and conditional extensions", () => {
+  expect(
+    conformances(`
+    extension Components.Schemas.A: Codable, OpenEnum {}
+    extension B: ShepherdKit.OpenEnum, Sendable where RawValue == String {}
+    // extension Ignored: OpenEnum {}
+    /* extension AlsoIgnored: OpenEnum {} */
+  `),
+  ).toEqual(["A", "B"]);
 });

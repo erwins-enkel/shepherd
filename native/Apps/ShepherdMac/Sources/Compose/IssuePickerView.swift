@@ -4,6 +4,7 @@ import SwiftUI
 struct IssuePickerView: View {
     @Bindable var model: ComposeModel
     @State private var commandQuery = ""
+    @State private var issueQuery = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -28,7 +29,12 @@ struct IssuePickerView: View {
                     .popover(isPresented: $model.showFilters) { filters.padding().frame(width: 300) }
                 }
             }
-            if model.source == .issues { issueList } else { commandList }
+            if model.source == .issues {
+                TextField(L.t("issuespanel_filter_placeholder"), text: $issueQuery)
+                    .focusedValue(\.composeEditingText, true)
+                    .accessibilityIdentifier("compose.issue-search")
+                issueList
+            } else { commandList }
             if let issue = model.activeIssue {
                 HStack {
                     Text(verbatim: "#\(issue.number) · \(issue.title)").lineLimit(1)
@@ -40,6 +46,7 @@ struct IssuePickerView: View {
         }
         .task(id: model.repoPath) { await model.loadSources() }
         .task(id: model.provider) { await model.loadCommands() }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("compose.sources")
     }
 
@@ -54,21 +61,25 @@ struct IssuePickerView: View {
             Text(verbatim: L.t("promptsources_no_github")).foregroundStyle(.secondary)
         } else {
             let result = model.filteredIssues
-            if result.visible.isEmpty {
-                Text(verbatim: result.emptiedBy?.message ?? L.t("common_no_open_issues"))
+            let visible = result.visible.filter {
+                issueQuery.isEmpty || $0.title.localizedCaseInsensitiveContains(issueQuery)
+                    || String($0.number).contains(issueQuery.trimmingCharacters(in: CharacterSet(charactersIn: "#")))
+            }
+            if visible.isEmpty {
+                Text(verbatim: issueQuery.isEmpty ? (result.emptiedBy?.message ?? L.t("common_no_open_issues")) : L.t("issuespanel_no_match"))
                     .foregroundStyle(.secondary)
             } else {
-                ForEach(Array(result.visible.prefix(model.expanded ? result.visible.count : 3)), id: \.number) { issue in
+                ForEach(Array(visible.prefix(model.expanded ? visible.count : 3)), id: \.number) { issue in
                     Button { model.pickIssue(issue) } label: { IssuePickerRow(issue: issue) }
                         .buttonStyle(.plain)
                         .accessibilityIdentifier("compose.issue.\(issue.number)")
                 }
-                if result.visible.count > 3 {
+                if visible.count > 3 {
                     Button {
                         model.expanded.toggle()
                     } label: {
                         Text(verbatim: model.expanded ? L.t("promptsources_collapse_row")
-                             : L.t("promptsources_more_row", String(result.visible.count - 3)))
+                             : L.t("promptsources_more_row", String(visible.count - 3)))
                     }
                     .buttonStyle(.plain).foregroundStyle(.secondary)
                 }

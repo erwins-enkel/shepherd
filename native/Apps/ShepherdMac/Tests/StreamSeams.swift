@@ -18,6 +18,10 @@ import Testing
 func resetStreamSeams() {
     StreamRegistrations.reset()
     QueuesPanels.reset()
+    MergeInputs.git = { _ in [:] }
+    MergeInputs.reviewing = { _, _ in false }
+    MergeInputs.planReviewBlocked = { _, _ in true }
+    MergeInputs.terminalEnded = { _, _ in true }
     PlanSignals.planReviewing = { _ in false }
     DetailTabRegistry.reset()
     SidebarSlot.reset()

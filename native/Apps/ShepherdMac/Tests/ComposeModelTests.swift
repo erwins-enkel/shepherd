@@ -602,6 +602,22 @@ import Testing
         #expect(predicate())
     }
 
+    @Test func isolatedComposerListsBranchesWithoutFetchingRefs() async throws {
+        var probes = 0
+        let m = model(branches: { _ in .init(branches: ["main"]) }, status: { _, _ in
+            probes += 1
+            return .init(behind: 0, ahead: 0, diverged: false, hasUpstream: false, localExists: true)
+        })
+        defer { m.teardown() }
+        m.allowsStatusProbe = false
+        m.selectRepo("/fixture")
+        try await eventually { !m.loadingBranches }
+        m.baseBranch = "other"
+        for _ in 0..<20 { await Task.yield() }
+        #expect(m.branches == ["main"])
+        #expect(probes == 0 && m.upstream == nil && !m.upstreamLoading)
+    }
+
     @Test func baseChoiceUsesExactWebFallbackOrder() {
         #expect(RepoBranchModel.pickBaseBranch(.init(branches: ["recent"], current: "checkout", _default: "trunk")) == "trunk")
         #expect(RepoBranchModel.pickBaseBranch(.init(branches: ["recent"], current: "checkout")) == "checkout")

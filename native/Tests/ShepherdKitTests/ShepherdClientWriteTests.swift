@@ -141,7 +141,10 @@ struct ShepherdClientWriteTests {
       json: try Fixtures.json(Components.Schemas.Ok(ok: true)))
     let client = try makeClient(server)
 
-    try await client.archiveSession(id: "a")
+    try await client.archiveSession(id: "a", reap: ["process:fixture"])
+    let body = try #require(server.requests().last?.body)
+    let sent = try JSONDecoder().decode(Components.Schemas.ArchiveSessionRequest.self, from: body)
+    #expect(sent.reap == ["process:fixture"])
     try await client.interruptSession(id: "a")
     #expect(server.requests().map(\.method) == ["DELETE", "POST"])
   }

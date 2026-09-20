@@ -122,12 +122,12 @@ private struct MergeOverviewContent: View {
                 Text(L.t("native_merge_overview")).font(.headline)
                 if let error = model.error { Text(verbatim: error).foregroundStyle(.red) }
                 ForEach(model.snapshot.automation, id: \.repoPath) { state in
-                    Text(verbatim: "\(state.repoPath) · \(state.state ?? "—") · \(state.detail ?? "")")
+                    Text(verbatim: "\(state.repoPath) · \(MergeOverviewCopy.automation(state.state)) · \(state.detail ?? "")")
                 }
                 ForEach(model.snapshot.drain, id: \.repoPath) { state in
                     HStack {
                         Text(verbatim: "\(state.repoPath) · \(state.inFlight)/\(state.max) · \(state.queued)")
-                        if state.paused { Text(verbatim: state.reason ?? "—").foregroundStyle(.orange) }
+                        if state.paused { Text(verbatim: MergeOverviewCopy.paused(state)).foregroundStyle(.orange) }
                         Button(L.t("native_merge_queue")) {
                             model.perform(commit: { queue = $0 }) { try await store.client.listDrainQueue(repo: state.repoPath) }
                         }

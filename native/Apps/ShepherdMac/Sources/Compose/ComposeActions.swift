@@ -30,6 +30,7 @@ final class ComposeActions {
     var handoff: ComposeReplaceRequest.HandoffModePayload = .resume
     var steers: [ComposeSteer] = []
     var leftovers: ComposeLeftovers?
+    var reap: Set<String> = []
     var recommendation: String?
     var loaded = false
     private(set) var busy = false

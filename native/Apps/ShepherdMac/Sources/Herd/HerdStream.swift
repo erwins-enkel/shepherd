@@ -61,7 +61,8 @@ private final class HerdBindings: AppExtension {
                         let questions = Set((plan?.gates.keys.map { $0 } ?? []).filter {
                             plan?.questionsUnanswered($0) == true
                         })
-                        return ci.union(questions)
+                        let owed = Set(app.extension(MergeModel.self)?.outstanding.keys.map { $0 } ?? [])
+                        return ci.union(questions).union(owed)
                     } onChange: {
                         signal.yield()
                     }

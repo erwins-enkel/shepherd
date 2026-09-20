@@ -550,6 +550,91 @@
         }
       }
     },
+    "automerge_state_merge_error": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge fehlgeschlagen, Eingriff nötig"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge failed, needs attention"
+          }
+        }
+      }
+    },
+    "automerge_state_merging": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wird gemergt…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merging…"
+          }
+        }
+      }
+    },
+    "automerge_state_rebase_cap": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rebase-Limit erreicht, Eingriff nötig"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rebase limit reached, needs attention"
+          }
+        }
+      }
+    },
+    "automerge_state_rebasing": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rebase auf main…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rebasing onto main…"
+          }
+        }
+      }
+    },
+    "automerge_state_stacked": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gestapelter PR, manuell mergen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stacked PR, merge it manually"
+          }
+        }
+      }
+    },
     "broadcast_clear_all": {
       "extractionState": "manual",
       "localizations": {
@@ -1671,6 +1756,130 @@
         }
       }
     },
+    "drain_paused_blocked": {
+      "comment": "%1$@ = desig",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pausiert: %1$@ ist blockiert"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paused: %1$@ is blocked"
+          }
+        }
+      }
+    },
+    "drain_paused_changes": {
+      "comment": "%1$@ = desig",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pausiert: %1$@ braucht Änderungen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paused: %1$@ needs changes"
+          }
+        }
+      }
+    },
+    "drain_paused_credits": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pausiert: Zusatzguthaben wird verbraucht"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paused: spending extra credits"
+          }
+        }
+      }
+    },
+    "drain_paused_epic_base": {
+      "comment": "%1$@ = branch",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pausiert: Epic-Branch %1$@ nicht erstellbar"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paused: can't create epic branch %1$@"
+          }
+        }
+      }
+    },
+    "drain_paused_error": {
+      "comment": "%1$@ = desig",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pausiert: %1$@ mit Fehler"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paused: %1$@ hit an error"
+          }
+        }
+      }
+    },
+    "drain_paused_generic": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pausiert"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paused"
+          }
+        }
+      }
+    },
+    "drain_paused_usage": {
+      "comment": "%1$@ = pct",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pausiert: Auslastung über %1$@ %%"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paused: usage over %1$@%%"
+          }
+        }
+      }
+    },
     "effort_default": {
       "extractionState": "manual",
       "localizations": {
@@ -1922,6 +2131,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Start as variant"
+          }
+        }
+      }
+    },
+    "feat_visual_recap_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Visuelle Zusammenfassungen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Visual recaps"
           }
         }
       }
@@ -3759,6 +3985,40 @@
         }
       }
     },
+    "issuespanel_filter_placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Issues durchsuchen…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "search issues…"
+          }
+        }
+      }
+    },
+    "issuespanel_no_match": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "keine Issues passen zur Suche"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no issues match the search"
+          }
+        }
+      }
+    },
     "keymap_attach": {
       "extractionState": "manual",
       "localizations": {
@@ -4475,6 +4735,23 @@
         }
       }
     },
+    "leftover_desc": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Während dieser Session gestartet und noch aktiv. Mitbeenden?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "These were started during this session and are still active. Terminate them too?"
+          }
+        }
+      }
+    },
     "leftover_port": {
       "comment": "%1$@ = port",
       "extractionState": "manual",
@@ -4489,6 +4766,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "port %1$@"
+          }
+        }
+      }
+    },
+    "leftover_terminate": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beenden & schließen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminate & close"
           }
         }
       }

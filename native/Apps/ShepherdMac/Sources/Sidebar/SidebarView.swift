@@ -58,6 +58,11 @@ struct SidebarView: View {
                     VStack(spacing: 1) {
                         Text(verbatim: lens.glyph).font(.caption)
                         Text(verbatim: L.t(lens.labelKey)).font(.caption2)
+                        if lens == .owed, let merge = app.extension(MergeModel.self) {
+                            Text(verbatim: String(MergeRules.owed(merge.snapshot.owed, repos: model.activeRepos).count))
+                                .font(.caption2.monospacedDigit())
+                                .accessibilityIdentifier("herd-owed-count")
+                        }
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 5)

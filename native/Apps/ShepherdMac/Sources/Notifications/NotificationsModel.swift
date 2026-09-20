@@ -398,7 +398,9 @@ final class NotificationsModel: AppExtension {
         // Intersected with the live, non-archived ids rather than unioned in wholesale: an id
         // the integration lane forgets to prune would otherwise be a phantom on the Dock that
         // the operator has no way to clear — no session to open, no state to change.
-        needing.formUnion(extraAttention.intersection(live))
+        // Frozen owed records remain actionable in the Owed panel after archival.
+        let owed = Set(SessionSignals.manualStepsOutstanding().keys)
+        needing.formUnion(extraAttention.intersection(live.union(owed)))
         await writeBadge(needing.count)
     }
 

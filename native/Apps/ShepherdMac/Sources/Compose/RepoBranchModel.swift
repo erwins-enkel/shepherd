@@ -33,6 +33,7 @@ final class RepoBranchModel {
     private var selectionGeneration = 0
     private var statusGeneration = 0
     private var stopped = false
+    var allowsStatusProbe = true
     private var applyingRepair = false
 
     convenience init(client: ShepherdClient) {
@@ -90,7 +91,7 @@ final class RepoBranchModel {
 
     private func scheduleStatus() {
         invalidateStatus()
-        guard !stopped, !loadingBranches, !repairingBase, !repoPath.isEmpty, !baseBranch.isEmpty else { return }
+        guard allowsStatusProbe, !stopped, !loadingBranches, !repairingBase, !repoPath.isEmpty, !baseBranch.isEmpty else { return }
         upstreamLoading = true
         let mine = statusGeneration, repo = repoPath, branch = baseBranch
         statusTask = Task { [weak self] in

@@ -338,6 +338,14 @@ components:
           description: Display names for `images`, positionally. The server rejects a length mismatch with 400 (src/validate.ts:287-291).
         launchUiState:
           $ref: "#/components/schemas/LaunchUiState"
+    ArchiveSessionRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        reap:
+          type: array
+          items: { type: string }
+          description: Explicitly selected leftover keys from the session leftovers probe.
     HeldTask:
       type: object
       additionalProperties: true
@@ -1187,6 +1195,39 @@ components:
       description: POST /api/sessions/{id}/ready — the manual "parked / ready to merge" flag, orthogonal to SessionStatus.
       properties:
         ready: { type: boolean }
+    RelaunchRequest:
+      type: object
+      additionalProperties: false
+      description: Optional overrides; absent fields inherit the original session. Mirrors validateRelaunchOverrides.
+      properties:
+        repoPath: { type: string }
+        baseBranch: { type: string }
+        prompt: { type: string, minLength: 1, maxLength: 8000 }
+        agentProvider:
+          $ref: "#/components/schemas/AgentProvider"
+        model: { type: [string, "null"] }
+        effort:
+          oneOf:
+            - $ref: "#/components/schemas/Effort"
+            - type: "null"
+        images:
+          type: array
+          items: { type: string }
+        planGateEnabled: { type: [boolean, "null"] }
+        autopilotEnabled: { type: [boolean, "null"] }
+        plain: { type: boolean }
+        research:
+          type: boolean
+          description: Start in research mode — no worktree writes, no PR.
+        epicAuthoring:
+          type: boolean
+          description: Start in epic-authoring mode.
+        attachmentNames:
+          type: array
+          items: { type: string }
+          description: Display names for `images`, positionally. The server rejects a length mismatch with 400 (src/validate.ts:287-291).
+        launchUiState:
+          $ref: "#/components/schemas/LaunchUiState"
     RelaunchResult:
       type: object
       additionalProperties: true
@@ -3305,6 +3346,11 @@ paths:
     delete:
       operationId: archiveSession
       description: Archives the session (stops the agent, keeps the row). Always 200.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ArchiveSessionRequest" }
       responses:
         "200":
           description: Archived.
@@ -3851,7 +3897,12 @@ paths:
         schema: { type: string }
     post:
       operationId: relaunchSession
-      description: Spawn a fresh replacement carrying the original's prompt and settings, then decommission the original. Destructive — the original's worktree goes away. Send no body for a plain relaunch; overrides are the composer's surface and are not declared here.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RelaunchRequest" }
+      description: Spawn a fresh replacement carrying the original's prompt and settings, then decommission the original. Destructive — the original's worktree goes away. Absent fields inherit the original session.
       responses:
         "201":
           description: The replacement, and whether the original was torn down.

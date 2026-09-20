@@ -54,10 +54,13 @@ struct SidebarLiveTests {
             minted = true
         }
 
-        let store = try SessionStore(profile: profile, credentials: credentials)
+        let audit = ReadOnlyRequestAudit()
+        let store = try SessionStore(client: ShepherdClient(profile: profile, credentials: credentials, readOnlyAudit: audit))
         return (
             store,
             {
+                #expect(audit.counts.reads > 0)
+                #expect(audit.counts.rejected == 0)
                 store.stop()
                 // Only ever the token this test minted: a pre-minted one belongs to the caller, and
                 // no sweep by name runs here, so no other token on the server is touched.

@@ -255,6 +255,7 @@ export const KEYS_SIDEBAR: readonly string[] = [
 
 /** S4 — the quick-action bar and the "Handlungsbedarf" recap line. Keep alphabetical. */
 export const KEYS_ACTIONS: readonly string[] = [
+  "feat_visual_recap_title",
   "amend_failed",
   "amend_original_task",
   "amend_placeholder",
@@ -597,6 +598,18 @@ export const KEYS_PLAN: readonly string[] = [
 
 /** S9 — merge, automation and post-merge steps. */
 export const KEYS_MERGE: readonly string[] = [
+  "automerge_state_merge_error",
+  "automerge_state_merging",
+  "automerge_state_rebase_cap",
+  "automerge_state_rebasing",
+  "automerge_state_stacked",
+  "drain_paused_blocked",
+  "drain_paused_changes",
+  "drain_paused_credits",
+  "drain_paused_epic_base",
+  "drain_paused_error",
+  "drain_paused_generic",
+  "drain_paused_usage",
   "buildqueue_start",
   "buildqueue_start_steer",
   "clearmerged_confirm",
@@ -769,6 +782,10 @@ export const KEYS_QUEUES: readonly string[] = [
 
 /** S11 — the composer: create fields, slash commands, steers, attachments. */
 export const KEYS_COMPOSE: readonly string[] = [
+  "issuespanel_filter_placeholder",
+  "issuespanel_no_match",
+  "leftover_desc",
+  "leftover_terminate",
   "recommend_inject",
   "cardmenu_decommission",
   "cardmenu_replace_with",

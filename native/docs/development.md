@@ -136,6 +136,14 @@ Quit (⌘Q), allowing the app's synchronous termination observer to revoke its m
 uses forced termination only as a bounded fallback. A later isolated seed can sweep an orphan
 with its exact test-token name.
 
+Both suites use the committed `IsolatedUITestHarness`. It verifies isolation arguments before
+every launch and drops its query handle before sending Quit. After Quit it only waits for
+process termination, with a bounded termination fallback; it never queries accessibility,
+captures a screenshot, or activates the app. A stopped app must be launched explicitly through
+that harness again. Manual automation must follow the same rule: do not query or reacquire the
+app after Quit, since an automation tool can implicitly relaunch it without isolation.
+The contract suite guards the single launch path and the absence of post-Quit UI queries.
+
 Both UI suites pass `-ApplePersistenceIgnoreState YES -NSQuitAlwaysKeepsWindows NO`. Profile
 isolation alone does not isolate AppKit window restoration: in this environment a restored
 no-window launch never mounted `RootView`, so its `.task` never started the live seed. The same
@@ -447,6 +455,38 @@ Tests/previews use `resetStreamSeams()` to reset all slots/registries, session s
 activation-bound attention and signal closures resolve conservative answers without a live model.
 `test/contract/native-open-enum.test.ts` rejects duplicate conformances by normalized type name
 across native sources, excluding generated build directories.
+
+### Wave-2 integration (S9, S11)
+
+The scene pass also registers the merge overview command and the replacement Owed panel.
+The model pass installs Compose after Queues, then Merge, then connects `Wave2Seams`.
+Both action-bar wrappers belong to their slot closures, so a complete reinstall for a second
+window preserves the base bar, compose actions, merge queue badge and sidebar launcher once.
+The sidebar “+” now resolves `NewSessionSlot.content` to `ComposeSheet`; the milestone-1 form
+remains only the empty-slot fallback for previews and tests.
+
+`MergeInputs` reads Herd git/review/liveness and Plan review/gate presence. The authoritative
+Herd liveness permits queue actions only for an explicit `claudeAlive == true`, even when no
+terminal tab was visited. Plan review stays blocked until both initial snapshot reads succeed;
+an empty map before bootstrap or after a failed initial read is not an unblocked plan.
+Manual-step counts resolve the current MergeModel; the Owed panel and count share its
+repo-filtered records. HerdBindings unions owed attention with CI failures and plan questions;
+Notifications also counts archived ids when they still have an actionable owed record.
+The shared reset clears all four MergeInputs closures to conservative defaults.
+
+Recap blocks render in the action bar's disclosure. Relaunch sends only changed repo, branch
+and prompt overrides; other fields inherit the original session. Archive uses the composer's
+leftover probe and sends only explicitly selected keys in `reap`.
+
+The live composer smoke enters through `toolbar-new-session`, selects a real issue, checks
+prompt prefill and engine/model/effort/capacity, and stops before the spawn CTA. In isolated
+live mode the activated client's `ReadOnlyRequestAudit` rejects every non-GET operation and
+`getBranchStatus` (a GET that may fetch git refs). Compose also suppresses that automatic
+probe, and uses the isolated model's defaults for its filters. UI teardown and all live
+snapshot/sign-in suites assert positive read counts and zero rejected requests. Authentication and
+revocation remain confined to ProfileSetup's separately named test-token clients. Counts
+contain no URL, payload or credential. The existing PTY-input/takeover and Up Next write
+blocks remain in force.
 
 ## ShepherdKit
 

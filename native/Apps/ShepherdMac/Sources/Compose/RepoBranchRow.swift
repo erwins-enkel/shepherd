@@ -31,13 +31,13 @@ struct RepoBranchRow: View {
                 .popover(isPresented: presented(.repo)) {
                     ScrollView {
                         VStack(alignment: .leading) {
-                            ForEach(visibleRepos, id: \.path) { repo in
+                            ForEach(Array(visibleRepos.enumerated()), id: \.element.path) { index, repo in
                                 Button {
                                     model.repoPath = repo.path
                                     branch.presentedPicker = nil
                                 } label: {
                                     Text(verbatim: repo.name).frame(maxWidth: .infinity, alignment: .leading)
-                                }
+                                }.accessibilityIdentifier("compose.repo.option.\(index)")
                             }
                         }.padding()
                     }.frame(minWidth: 240, maxHeight: 300)

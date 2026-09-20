@@ -44,7 +44,12 @@ import ShepherdKit
                 try probeCredentials.save(credential, for: profile.credentialKey)
                 revocationProbe = try ShepherdClient(profile: profile, credentials: probeCredentials)
             }
-            let client = try ShepherdClient(profile: profile, credentials: credentials)
+            let audit = ReadOnlyRequestAudit()
+            defer {
+                #expect(audit.counts.reads > 0)
+                #expect(audit.counts.rejected == 0, "live checks must attempt only read-only operations")
+            }
+            let client = try ShepherdClient(profile: profile, credentials: credentials, readOnlyAudit: audit)
             // Only GETs against merge state. No AppModel activation or queue recomputation.
             async let auto = client.listAutomerge()
             async let drain = client.listDrain()

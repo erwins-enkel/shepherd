@@ -45,9 +45,9 @@ enum StreamRegistrations {
     private static let installation = Installation(
         scene: {
             QueuesStream.installScene()
-            // S12 adds `SettingsFeature.installScene()` here; S7–S11 add their command rows.
-            // Empty until those streams land: Settings shows its placeholder, and Session
-            // has no top-level menu.
+            MergeStream.installScene()
+            Wave2Seams.installPanels()
+            // S12 adds `SettingsFeature.installScene()` here.
         },
         model: installModels)
 
@@ -90,5 +90,8 @@ enum StreamRegistrations {
         PlanStream.install(app)             // S8: plan tab and plan signal owners
         HerdStream.install(app)             // S7: replaces the sparse S2 git seam
         QueuesStream.install(app)           // S10: scene factories already registered
+        ComposeStream.install(app)          // S11: composer and session actions
+        MergeStream.install(app)            // S9: composes the sidebar and complete action bar
+        Wave2Seams.connect(app)
     }
 }

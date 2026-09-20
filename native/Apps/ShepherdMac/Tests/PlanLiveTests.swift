@@ -56,7 +56,12 @@ struct PlanLiveTests {
                 try probeCredentials.save(credential, for: profile.credentialKey)
                 revocationProbe = try ShepherdClient(profile: profile, credentials: probeCredentials)
             }
-            let client = try ShepherdClient(profile: profile, credentials: credentials)
+            let audit = ReadOnlyRequestAudit()
+            defer {
+                #expect(audit.counts.reads > 0)
+                #expect(audit.counts.rejected == 0, "live checks must attempt only read-only operations")
+            }
+            let client = try ShepherdClient(profile: profile, credentials: credentials, readOnlyAudit: audit)
             let gates = try await client.planGates()
             let inflight = try await client.planGatesInflight()
             var forms = 0

@@ -74,18 +74,17 @@ import ShepherdKit
         app.liveExtensions = [(ObjectIdentifier(MergeModel.self), model)]
         await model.refresh()
 
-        // RootView repeats this real wave-1 pass for a second window. It replaces both
-        // predecessor slots before S0's forthcoming S9 call composes them again.
+        // RootView repeats the production pass for a second window, replacing predecessor slots.
         for pass in 0..<3 {
             if pass == 2 { resetStreamSeams() } // No S9-specific reset should be needed.
             StreamRegistrations.installAll(into: app)
-            MergeStream.installScene()
-            MergeStream.install(app)
             MergeStream.install(app) // Also remain idempotent without predecessors.
             let sidebar = try #require(SidebarSlot.content?(app))
             let actions = try #require(ActionBarSlot.content?(session, store, app))
             #expect(rendered(sidebar, as: MergeLauncher.self).count == 1)
             #expect(rendered(actions, as: Label<Text, Image>.self).count == 1)
+            #expect(rendered(actions, as: ComposeSessionActions.self).count == 1)
+            #expect(NewSessionSlot.resolution == .slot)
             let command = try #require(CommandRegistry.commands(in: .session)
                 .first { $0.id == "merge.overview" })
             model.showOverview = false

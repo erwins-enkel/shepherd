@@ -83,8 +83,7 @@ struct DoneRecapView: View {
     let session: Session
     let recap: Recap?
     let loadUsage: (String) async throws -> Components.Schemas.SessionUsage
-    // Task 8 supplies the restore action over POST /api/sessions/{id}/restore.
-    // Until that wrapper lands the button stays visible, disabled, and performs no mutation.
+    // The Done panel supplies the command; nil keeps the button disabled while it is busy.
     var bringBack: ((String) -> Void)?
     @State private var usage = DoneUsageState()
     @State private var confirmation = DoneRestoreConfirmation()

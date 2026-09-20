@@ -461,3 +461,228 @@ struct QueuesModelTests {
         #expect(f.model.strandedNotice == nil && f.model.autoRevivedNotice == nil)
     }
 }
+
+@MainActor
+struct QueueActionsTests {
+    private var commands: QueueActionCommands {
+        .init(halt: { .init(halted: 2) }, retry: { _, _ in .init(resumed: 1, steered: 2, total: 3) },
+              revive: { .init(revived: 2, failed: 1) }, restore: { PreviewData.session(id: $0) },
+              broadcast: { _, _ in .init(delivered: 1, queued: 2, offline: 3, skipped: 4, total: 10) },
+              reloadStranded: {})
+    }
+
+    @Test func haltUsesRawRunningAndRequiresTwoTapsOnTheSameSet() {
+        let running = PreviewData.session(id: "running")
+        let blocked = PreviewData.session(id: "blocked", status: .init(known: .blocked))
+        #expect(HerdPartition.displayStatus(blocked, workingBlocked: ["blocked": true]).known == .running)
+        #expect(QueueActionPresentation.haltable([running, blocked]) == ["running"])
+        var arm = QueueHaltConfirmation()
+        let tap1 = arm.tap(sessions: [], now: 0)
+        #expect(!tap1)
+        #expect(!arm.isArmed)
+        let tap2 = arm.tap(sessions: [running, blocked], now: 1)
+        #expect(!tap2)
+        #expect(arm.isArmed)
+        let tap3 = arm.tap(sessions: [running, blocked], now: 2)
+        #expect(tap3)
+        let tap4 = arm.tap(sessions: [running], now: 3)
+        #expect(!tap4)
+        let tap5 = arm.tap(sessions: [PreviewData.session(id: "new")], now: 4)
+        #expect(!tap5)
+        let tap6 = arm.tap(sessions: [running], now: 4_000)
+        #expect(!tap6)
+        arm.disarm()
+        #expect(!arm.isArmed)
+    }
+
+    @Test func haltFailureStaysVisibleUntilExplicitRetryAndNeverReportsZeroSuccess() async {
+        let state = QueueActionState()
+        var calls = 0
+        var api = commands
+        api.halt = { calls += 1; throw ShepherdError.upstreamFailure(code: nil, message: "HTTP 500") }
+        #expect(await state.run(.halt, commands: api, isCurrent: { true }) == false)
+        #expect(state.gate.message?.contains(L.t("halt_failed")) == true)
+        #expect(state.notices.isEmpty && calls == 1)
+        for _ in 0..<10 { await Task.yield() }
+        #expect(state.gate.message != nil)
+        api.halt = { calls += 1; return .init(halted: 2) }
+        #expect(await state.run(.halt, commands: api, isCurrent: { true }))
+        #expect(calls == 2 && state.gate.message == nil)
+        #expect(state.notices == [L.t("halt_done", "2")])
+    }
+
+    @Test func retrySelectionIsSeededOnceAndHaltFramesCannotReselectUncheckedRows() async throws {
+        let empty = QueuesReads(held: { [] }, done: { [] }, recaps: { [:] }, stranded: { [] }, refreshUpNext: {})
+        let fixture = try QueueFixture(empty)
+        defer { fixture.close() }
+        var halted = PreviewData.session(id: "halted")
+        halted.haltReason = .init(known: .usageLimit)
+        let other = PreviewData.session(id: "other")
+        var selection = QueueTargetSelection(sessions: [halted, other], preselectUsage: true)
+        #expect(selection.selected == ["halted"])
+        selection.toggle("halted")
+        fixture.store.apply(try JSONDecoder().decode(ServerEvent.self, from: Data(#"{"event":"session:halt","data":{"id":"halted","haltReason":"usage_limit","haltedAt":2}}"#.utf8)))
+        #expect(await queueSettle { fixture.model.retrySelectionGeneration == 1 })
+        #expect(selection.ids(in: [halted, other]).isEmpty)
+        #expect(QueueTargetSelection(sessions: [halted, other], preselectUsage: true).selected == ["halted"])
+        selection.toggle("other")
+        #expect(selection.ids(in: [halted, other]) == ["other"])
+        #expect(selection.ids(in: [halted]).isEmpty)
+    }
+
+    @Test func retrySendsTheSelectedIDsAndClientLocalizedSteer() async {
+        let state = QueueActionState()
+        var sent: [String] = []
+        var text = ""
+        var api = commands
+        api.retry = { sent = $0; text = $1; return .init(resumed: 1, steered: 2, total: 3) }
+        #expect(await state.run(.retry(["b", "a"]), commands: api, isCurrent: { true }))
+        #expect(sent == ["b", "a"] && text == L.t("retry_continue_steer"))
+        #expect(state.notices == [L.t("toast_retry_done", "1", "2", "3")])
+    }
+
+    @Test func restoreReturnsLocalizedSuccessAndDoesNotInventALiveSession() async {
+        let state = QueueActionState()
+        let session = PreviewData.session(id: "done", desig: "TASK-42", status: .init(known: .archived))
+        var restored: [String] = []
+        var api = commands
+        api.restore = { restored.append($0); return session }
+        #expect(await state.run(.restore(session), commands: api, isCurrent: { true }))
+        #expect(restored == ["done"] && state.notices == [L.t("restore_done", "TASK-42")])
+    }
+
+    @Test(arguments: ["in_progress", "not_archived", "cannot_restore", "branch_gone", "branch_in_use", "spawn_refused", "future"])
+    func restoreConflictHasLocalizedFailure(code: String) async throws {
+        let state = QueueActionState()
+        let conflict = try JSONDecoder().decode(RestoreConflict.self,
+            from: JSONEncoder().encode(["code": code, "error": "server detail"]))
+        var api = commands
+        api.restore = { _ in throw conflict }
+        #expect(await state.run(.restore(PreviewData.session()), commands: api, isCurrent: { true }) == false)
+        let expected: [String: StaticString] = ["in_progress": "restore_in_progress", "not_archived": "restore_not_archived",
+            "cannot_restore": "restore_cannot", "branch_gone": "restore_branch_gone", "branch_in_use": "restore_branch_in_use"]
+        #expect(state.gate.message == L.t(expected[code] ?? "restore_failed"))
+        #expect(state.notices.isEmpty)
+    }
+
+    @Test func reviveRereadsAndBannerClearsOnlyWithAnEmptyAuthoritativeCount() async throws {
+        let model = QueuesModel(reads: .init(held: { [] }, done: { [] }, recaps: { [:] },
+            stranded: { ["a", "b", "c"] }, refreshUpNext: {}))
+        defer { model.teardown() }
+        await model.refresh(recomputeUpNext: false)
+        #expect(QueueActionPresentation.strandedMessage(model.stranded) == L.t("toast_sessions_stranded", "3"))
+        let state = QueueActionState()
+        var api = commands
+        var calls: [String] = []
+        api.revive = { calls.append("revive"); return .init(revived: 2, failed: 1) }
+        api.reloadStranded = { calls.append("read"); try await model.reloadStranded() }
+        model.reads.stranded = { ["c"] }
+        #expect(await state.run(.revive, commands: api, isCurrent: { true }))
+        #expect(calls == ["revive", "read"] && model.stranded == ["c"])
+        #expect(state.notices == [L.t("toast_revive_all_result", "2", "1")])
+        model.reads.stranded = { [] }
+        try await model.reloadStranded()
+        #expect(QueueActionPresentation.strandedMessage(model.stranded) == nil)
+    }
+
+    @Test func broadcastTrimsTextAndShowsDeliveredQueuedOfflineAndSkippedCounts() async {
+        let state = QueueActionState()
+        var sent: [String] = []
+        var text = ""
+        var api = commands
+        api.broadcast = { sent = $0; text = $1; return .init(delivered: 1, queued: 2, offline: 3, skipped: 4, total: 10) }
+        #expect(await state.run(.broadcast(["a", "b"], "  please continue \n"), commands: api, isCurrent: { true }))
+        #expect(sent == ["a", "b"] && text == "please continue")
+        #expect(state.notices == [L.t("toast_broadcast_result", "1", "2", "3"), L.t("toast_broadcast_skipped_terminals", "4")])
+        #expect(await state.run(.broadcast([], "hi"), commands: api, isCurrent: { true }) == false)
+        #expect(await state.run(.broadcast(["a"], " \n"), commands: api, isCurrent: { true }) == false)
+    }
+
+    @Test func broadcastWithNoDeliveryIsFailureExceptForSkippedTerminals() async {
+        let state = QueueActionState()
+        var api = commands
+        api.broadcast = { _, _ in .init(delivered: 0, queued: 0, offline: 1, skipped: 0, total: 1) }
+        #expect(await state.run(.broadcast(["a"], "go"), commands: api, isCurrent: { true }) == false)
+        #expect(state.gate.message == L.t("broadcast_failed") && state.notices.isEmpty)
+        api.broadcast = { _, _ in .init(delivered: 0, queued: 0, offline: 0, skipped: 1, total: 1) }
+        #expect(await state.run(.broadcast(["a"], "go"), commands: api, isCurrent: { true }))
+        #expect(state.notices == [L.t("toast_broadcast_skipped_terminals", "1")])
+    }
+
+    @Test(arguments: [false, true])
+    func busyAndStaleCommandsCannotSendTwiceOrPublishALateResult(fail: Bool) async {
+        let pause = LoadGate()
+        var current = true
+        var calls = 0
+        var reads = 0
+        let state = QueueActionState()
+        var api = commands
+        api.revive = {
+            calls += 1
+            await pause.wait()
+            if fail { throw ShepherdError.notFound }
+            return .init(revived: 1, failed: 0)
+        }
+        api.reloadStranded = { reads += 1 }
+        let pending = Task { await state.run(.revive, commands: api, isCurrent: { current }) }
+        #expect(await settleDetail(until: { pause.isWaiting }))
+        #expect(await state.run(.revive, commands: api, isCurrent: { current }) == false)
+        current = false
+        pause.open()
+        #expect(await pending.value == false)
+        #expect(calls == 1 && reads == 0 && state.notices.isEmpty && state.gate.message == nil)
+        #expect(await state.run(.halt, commands: api, isCurrent: { false }) == false)
+    }
+
+    @Test func owedUsesPositiveSeamCountsIncludingArchivedIDsMissingFromTheLiveStore() {
+        let rows = QueueActionPresentation.owed(["archived": 2, "zero": 0, "negative": -1, "other": 1])
+        #expect(rows.map(\.id) == ["archived", "other"])
+        #expect(rows.map(\.count) == [2, 1])
+        #expect(QueueActionPresentation.owed([:]).isEmpty)
+    }
+}
+
+@MainActor
+struct QueueActionsReconciliationTests {
+    private func model() -> QueuesModel {
+        QueuesModel(reads: .init(held: { [] }, done: { [] }, recaps: { [:] },
+            stranded: { [] }, refreshUpNext: {}))
+    }
+
+    @Test func commandRereadFencesAnOlderBackgroundStrandedRead() async throws {
+        let state = model()
+        defer { state.teardown() }
+        let old = QueueReadGate()
+        state.reads.stranded = { await old.enter(); return ["revived"] }
+        let background = Task { await state.refresh(recomputeUpNext: false) }
+        #expect(await queueSettle { await old.calls == 1 })
+        state.reads.stranded = { [] }
+        try await state.reloadStranded()
+        await old.open()
+        await background.value
+        #expect(state.stranded.isEmpty)
+    }
+
+    @Test func teardownDropsALateStrandedCommandRead() async throws {
+        let state = model()
+        let pause = QueueReadGate()
+        state.reads.stranded = { await pause.enter(); return ["old-server"] }
+        let pending = Task { try await state.reloadStranded() }
+        #expect(await queueSettle { await pause.calls == 1 })
+        state.teardown()
+        await pause.open()
+        try await pending.value
+        #expect(state.stranded.isEmpty)
+    }
+
+    @Test func failedStrandedRereadPreservesTheActionableBanner() async throws {
+        let state = model()
+        defer { state.teardown() }
+        state.reads.stranded = { ["still-stranded"] }
+        try await state.reloadStranded()
+        state.reads.stranded = { throw ShepherdError.notFound }
+        await #expect(throws: ShepherdError.notFound) { try await state.reloadStranded() }
+        #expect(state.stranded == ["still-stranded"])
+        #expect(QueueActionPresentation.strandedMessage(state.stranded) != nil)
+    }
+}

@@ -63,6 +63,7 @@ struct HeldQueueTests {
         #expect(!HeldQueuePresentation.showsBadge(0))
         #expect(!HeldQueuePresentation.showsBadge(-1))
         #expect(HeldQueuePresentation.showsBadge(1))
+        #expect(HeldQueuePresentation.badgeLabel(2) == L.t("topbar_held_badge", "2"))
     }
 
     @Test func providerOverrideOnlyFollowsTheChangedRowSelection() throws {

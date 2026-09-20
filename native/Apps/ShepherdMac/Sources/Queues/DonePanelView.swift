@@ -205,6 +205,8 @@ struct DonePanelView: View {
     @State private var state = DonePanelState()
     @State private var doneSelectedID: String?
     @State private var refreshID = 0
+    @State private var restore = QueueActionState()
+    @State private var presentation = 0
 
     private var shownSessions: [Session] {
         DonePresentation.filtered(state.sessions, repos: app.extension(SidebarModel.self)?.activeRepos ?? [])
@@ -235,7 +237,8 @@ struct DonePanelView: View {
                     if let selected = shownSessions.first(where: { $0.id == doneSelectedID }),
                        let client = app.store?.client {
                         DoneRecapView(session: selected, recap: recap(for: selected.id),
-                                      loadUsage: { try await client.sessionUsage(id: $0) })
+                                      loadUsage: { try await client.sessionUsage(id: $0) },
+                                      bringBack: restore.gate.busy ? nil : restoreAction(selected, client: client))
                             .id(ObjectIdentifier(client))
                     }
                 }
@@ -243,6 +246,8 @@ struct DonePanelView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityIdentifier("queues-done-panel")
+        .safeAreaInset(edge: .top) { QueueActionNotices(state: restore) }
+        .onChange(of: app.activationGeneration) { _, _ in presentation &+= 1; restore.clear() }
         // .task runs again on every appearance, even if the activation/refresh ids did not change.
         .task(id: "\(app.activationGeneration):\(refreshID)") {
             let generation = app.activationGeneration
@@ -264,7 +269,21 @@ struct DonePanelView: View {
         .onChange(of: shownSessions.map(\.id)) { _, _ in
             doneSelectedID = DonePresentation.nextSelectedID(shownSessions, selectedID: doneSelectedID)
         }
-        .onDisappear { state.close() }
+        .onDisappear { presentation &+= 1; restore.clear(); state.close() }
+    }
+
+    private func restoreAction(_ session: Session, client: ShepherdClient) -> (String) -> Void {
+        let activation = app.activationGeneration
+        let shown = presentation
+        return { _ in
+            Task {
+                if await restore.run(.restore(session), commands: .live(client, model: nil),
+                    isCurrent: { app.activationGeneration == activation && presentation == shown }) {
+                    // The server/event stream owns the live row. Re-read the archived list.
+                    refreshID &+= 1
+                }
+            }
+        }
     }
 
     private func row(_ session: Session) -> some View {

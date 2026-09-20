@@ -150,6 +150,19 @@ final class QueuesModel: AppExtension {
         heldCount = rows.count
     }
 
+    /// Reconcile a revive command without allowing an older background read to restore its IDs.
+    func reloadStranded() async throws {
+        let mine = generation
+        guard isCurrent(mine), !Task.isCancelled else { return }
+        strandedRevision &+= 1
+        let version = strandedRevision
+        let ids = try await reads.stranded()
+        guard isCurrent(mine), version == strandedRevision, !Task.isCancelled else { return }
+        strandedRevision &+= 1
+        stranded = Set(ids)
+        pruneStranded()
+    }
+
     private nonisolated static func load<Value: Sendable>(
         _ read: @Sendable () async throws -> Value
     ) async -> Result<Value, any Error> {

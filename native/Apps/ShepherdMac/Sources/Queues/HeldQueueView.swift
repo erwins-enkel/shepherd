@@ -15,6 +15,8 @@ enum HeldQueuePresentation {
 
     static func reasonLabel(_ reason: HeldReason?) -> String { L.t(reasonKey(reason)) }
 
+    static func badgeLabel(_ count: Int) -> String { L.t("topbar_held_badge", String(count)) }
+
     static func showsBadge(_ count: Int) -> Bool { count > 0 }
 
     static func originalProvider(_ entry: HeldQueueEntry) -> AgentProvider {
@@ -119,7 +121,7 @@ struct HeldQueueView: View {
     var body: some View {
         Group {
             if HeldQueuePresentation.showsBadge(model.heldCount) {
-                Button(L.t("topbar_held_badge", model.heldCount), systemImage: "hourglass") {
+                Button(HeldQueuePresentation.badgeLabel(model.heldCount), systemImage: "hourglass") {
                     isPresented.toggle()
                 }
                 .accessibilityIdentifier("queues-held-badge")

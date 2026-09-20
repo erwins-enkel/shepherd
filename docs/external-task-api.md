@@ -89,6 +89,16 @@ its hostname to `SHEPHERD_ALLOWED_HOSTS`.
      submits and steers wants **Full**; a dashboard that only watches wants
      **Read**.
 
+     One route every scope reaches: `DELETE /api/access-tokens/<id>` where
+     `<id>` is the id of **the token making the request** — a client that holds
+     only a bearer (no operator cookie) can hand its own credential back on
+     logout instead of waiting for an operator to revoke it in the HUD
+     ([#2358](https://github.com/erwins-enkel/shepherd/pull/2358)). It is
+     deliberately scope-blind: self-destruction reaches nothing. Listing,
+     minting, and revoking **any other** id still require the operator session
+     cookie, and a bearer naming an id that isn't its own is answered `403`
+     whether or not that id exists, so the route is not an existence oracle.
+
    - **`SHEPHERD_TOKEN=<random>`** in the server's environment — the right
      mechanism when the deployment platform provisions the secret (systemd unit,
      container env). One shared value for every client; changing it is a deploy.

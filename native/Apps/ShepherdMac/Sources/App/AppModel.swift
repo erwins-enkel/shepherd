@@ -271,6 +271,15 @@ final class AppModel {
     @ObservationIgnored private var retryTask: Task<Void, Never>?
     /// Watches `SessionStore.connection` and routes sheets off it.
     @ObservationIgnored private var connectionWatcher: Task<Void, Never>?
+    /// The watcher's wake-up channel. An `AsyncStream` rather than a bare
+    /// `withCheckedContinuation` because a stream can be **finished** and a
+    /// checked continuation cannot be resumed by cancellation — see
+    /// `watchConnection(_:profile:generation:)`.
+    @ObservationIgnored private var connectionSignal: AsyncStream<Void>.Continuation?
+    /// True while the watcher task is alive. Written by the task itself, so a
+    /// test can prove the loop actually ended rather than merely that
+    /// `Task.cancel()` was called on it.
+    @ObservationIgnored private(set) var isWatchingConnection = false
     /// The live activation's connection source and the profile it belongs to,
     /// kept so a sheet closing can re-route against the *current* state rather
     /// than waiting for the next change. Cleared whenever the activation ends,
@@ -471,6 +480,10 @@ final class AppModel {
 
         connectionWatcher?.cancel()
         connectionWatcher = nil
+        // Cancellation alone leaves the loop suspended; finishing its stream is
+        // what actually ends it.
+        connectionSignal?.finish()
+        connectionSignal = nil
         // Dropped before the sheet below is cleared: a sheet closing must never
         // re-route against the connection of the profile being left.
         connectionSource = nil
@@ -898,6 +911,18 @@ final class AppModel {
     /// missed transition. `withObservationTracking` fires `onChange` exactly once,
     /// which is why the loop re-registers on every pass.
     ///
+    /// The wake-up channel is an `AsyncStream`, not a bare
+    /// `withCheckedContinuation`: a stream can be **finished**, and cancelling
+    /// a task does not resume a checked continuation. The previous shape parked
+    /// here forever unless the store happened to publish one more state after
+    /// `teardown()` — `stop()` only writes `connection` when it is not already
+    /// `.idle` — so the loop, its `ConnectionSource` and the observation
+    /// registration inside the store survived every profile switch and every
+    /// closed window. `teardown()` (and the next `activate(_:)`) now finishes
+    /// the stream, `next()` returns `nil`, and the task runs off the end.
+    /// Finishing twice, or yielding into a finished stream, is a no-op, so
+    /// there is no double-resume to get wrong either.
+    ///
     /// Internal, not private: the unit tests drive it with their own
     /// `ConnectionSource` so the re-arm contract is covered without a server.
     func watchConnection(
@@ -907,7 +932,13 @@ final class AppModel {
 
         connectionSource = source
         watchedProfile = profile
+        connectionSignal?.finish()
+        let (changes, signal) = AsyncStream<Void>.makeStream()
+        connectionSignal = signal
+        isWatchingConnection = true
         connectionWatcher = Task { @MainActor [weak self] in
+            defer { self?.isWatchingConnection = false }
+            var iterator = changes.makeAsyncIterator()
             var current = initial
             var routedInitial = false
             while !Task.isCancelled {
@@ -940,7 +971,7 @@ final class AppModel {
                         self.routeSheet(for: current, profile: profile)
                     } else {
                         // Registering an observation on a store that is gone would
-                        // park this task on a continuation no write can resume.
+                        // park this task on a signal no write can ever send.
                         guard let latest = source.read() else { return }
                         if latest != current {
                             current = latest
@@ -951,13 +982,14 @@ final class AppModel {
                 }
                 if routed { continue }
 
-                await withCheckedContinuation { continuation in
-                    withObservationTracking {
-                        _ = source.read()
-                    } onChange: {
-                        continuation.resume()
-                    }
+                withObservationTracking {
+                    _ = source.read()
+                } onChange: {
+                    signal.yield()
                 }
+                // `nil` means the stream was finished — an activation ended —
+                // which is the one exit cancellation alone could never give us.
+                guard await iterator.next() != nil else { return }
                 // `onChange` runs just before the property is written, so yield
                 // once to let the writer finish before the next pass reads it.
                 await Task.yield()
@@ -1029,6 +1061,10 @@ final class AppModel {
         activationGeneration &+= 1
         connectionWatcher?.cancel()
         connectionWatcher = nil
+        // The cancel above only sets a flag; this is what wakes the suspended
+        // loop so it can observe it and let go of everything it captured.
+        connectionSignal?.finish()
+        connectionSignal = nil
         // Before `sheet = nil` below, so closing it routes nothing.
         connectionSource = nil
         watchedProfile = nil

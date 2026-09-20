@@ -634,6 +634,42 @@ struct AppModelTests {
         #expect(model.sheet == nil)
     }
 
+    /// S1's review handed S0-int this one: `teardown()` cancels the watcher, and cancellation
+    /// alone never resumes a suspended `withCheckedContinuation`. Only a *further* write to
+    /// `SessionStore.connection` could, and `stop()` publishes `.idle` only when the state is not
+    /// already `.idle` — so a watcher parked on a quiet connection stayed parked for the life of
+    /// the process, once per profile switch, holding its `ConnectionSource` and an observation
+    /// registration inside the store. The `AsyncStream` shape is finishable, so `teardown()` ends
+    /// the loop for real and the model goes with it.
+    ///
+    /// Mirrors `DetailModelTests.teardownEndsTheSessionsWatcher`.
+    @Test func teardownEndsTheConnectionWatcherAndReleasesTheModel() async throws {
+        let box = ConnectionBox()
+        weak var released: AppModel?
+        do {
+            let model = makeModel()
+            let profile = try remote(model, "studio")
+            model.watchConnection(
+                ConnectionSource(read: { box.state }, abandon: {}),
+                profile: profile,
+                generation: model.activationGeneration)
+            #expect(model.isWatchingConnection)
+
+            // Park it: route the initial `.idle`, then one real change, so the loop is
+            // demonstrably suspended waiting for the next one when teardown arrives.
+            box.state = .needsLogin
+            #expect(await settle(until: { model.sheet == .login(profile) }))
+
+            model.teardown()
+            #expect(await settle(until: { model.isWatchingConnection == false }))
+
+            // The connection never changes again — exactly the case the old shape could not
+            // survive.
+            released = model
+        }
+        #expect(await settle(until: { released == nil }))
+    }
+
     @Test func theWatcherIgnoresStatesFromAnOlderActivation() async throws {
         let model = makeModel()
         let profile = try remote(model, "studio")

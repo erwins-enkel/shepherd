@@ -29,7 +29,18 @@ struct SettingsReads: Sendable {
     private(set) var busy = false
     var repo = ""
     var repoConfig: RepoConfig?
-    var roles: RepoRolesResult?
+    var reviewer = ""
+    var merger = ""
+    var forkTarget = ""
+    private(set) var workspaceAction: String?
+    private(set) var workspaceTarget = ""
+    private var pendingConfig: RepoConfigPatch?
+    var roles: RepoRolesResult? {
+        didSet {
+            reviewer = roles?.roles.reviewer ?? ""
+            merger = roles?.roles.merger ?? ""
+        }
+    }
     var collaborators: RepoCollaborators?
     var directories: DirectoryListing?
     var verification: KeyVerification?
@@ -98,7 +109,9 @@ struct SettingsReads: Sendable {
     }
     func run<Value: Sendable>(
         _ operation: @escaping @Sendable () async throws -> Value,
-        commit: @escaping @MainActor (Value) -> Void = { _ in }
+        commit: @escaping @MainActor (Value) -> Void = { _ in },
+        recover: (@Sendable () async throws -> Value)? = nil,
+        failure: @escaping @MainActor (Value?) -> Void = { _ in }
     ) {
         guard !stopped, !busy else { return }
         busy = true; error = nil
@@ -118,6 +131,11 @@ struct SettingsReads: Sendable {
             } catch {
                 guard let self, !self.stopped, self.app?.activationGeneration == activation,
                     !Task.isCancelled else { return }
+                // Keep Save disabled until recovery has reconciled the authoritative drafts.
+                let recovered = try? await recover?()
+                guard !self.stopped, self.app?.activationGeneration == activation,
+                    !Task.isCancelled else { return }
+                failure(recovered)
                 self.busy = false; self.error = L.t("native_settings_action_failed")
             }
         }
@@ -139,8 +157,43 @@ struct SettingsReads: Sendable {
             self.repoConfig = value.0; self.roles = value.1; self.collaborators = value.2
         })
     }
+    func requestWorkspaceAction(_ action: String, config: RepoConfigPatch? = nil) {
+        guard !stopped, !busy else { return }
+        workspaceAction = action; pendingConfig = config
+        workspaceTarget = action == "root" ? directories?.path ?? "" : action == "fork" ? forkTarget : repo
+    }
+    func cancelWorkspaceAction() {
+        workspaceAction = nil; workspaceTarget = ""; pendingConfig = nil
+    }
+    func applyWorkspaceAction(client: ShepherdClient) {
+        guard !stopped, !busy else { return }
+        let action = workspaceAction, target = workspaceTarget, config = pendingConfig
+        cancelWorkspaceAction()
+        switch action {
+        case "config":
+            guard var patch = config else { return }
+            patch.automationConfirmed = true
+            let confirmed = patch
+            run({ try await client.putRepoConfig(repo: target, body: confirmed) }, commit: { self.repoConfig = $0 })
+        case "roles":
+            let reviewer = reviewer.isEmpty ? nil : reviewer
+            let merger = merger.isEmpty ? nil : merger
+            run({ try await client.putRepoRoles(repo: target, body: .values(reviewer: reviewer, merger: merger)) },
+                commit: { self.roles = $0 },
+                recover: { try await client.getRepoRoles(repo: target) },
+                failure: { self.roles = $0 })
+        case "pull": run { try await client.pullRepo(body: .init(repo: target)) }
+        case "sync": run { try await client.syncFork(body: .init(repo: target)) }
+        case "fork": run { try await client.forkRepo(body: .init(target: target)) }
+        case "root":
+            guard !target.isEmpty else { return }
+            run { try await client.putRepoRoot(target) }
+        default: break
+        }
+    }
     func teardown() {
         stopped = true; generation &+= 1
+        cancelWorkspaceAction(); forkTarget = ""
         wake?.finish(); wake = nil
         tap?.cancel(); loadTask?.cancel(); writeTask?.cancel(); watcher?.cancel()
         tap = nil; loadTask = nil; writeTask = nil; watcher = nil

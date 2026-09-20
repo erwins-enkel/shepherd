@@ -106,15 +106,20 @@ import Testing
         }
         try await eventually { pending != nil }
         let id = submission.spawnID!
-        submission.receive(.init(spawnId: "other", phase: .base, startedAt: 0, completed: []))
+        submission.receive(.init(spawnId: "other", phase: .init(known: .base), startedAt: 0, completed: []))
         #expect(submission.progress == nil)
-        submission.receive(.init(spawnId: id, phase: .agent, startedAt: 0, completed: []))
-        #expect(submission.progress?.phase == .agent)
+        submission.receive(.init(spawnId: id, phase: .init(known: .agent), startedAt: 0, completed: []))
+        #expect(submission.progress?.phase.known == .agent)
         submission.teardown()
-        submission.receive(.init(spawnId: id, phase: .base, startedAt: 0, completed: []))
+        submission.receive(.init(spawnId: id, phase: .init(known: .base), startedAt: 0, completed: []))
         #expect(submission.progress == nil)
         pending?.resume(throwing: ShepherdError.cancelled)
         _ = await task.value
+    }
+
+    @Test func unknownSpawnPhaseUsesLocalizedFallback() {
+        #expect(ComposeSubmission.phaseCopy(.init(unknown: "future-phase")) == L.t("newtask_spawning"))
+        #expect(ComposeSubmission.phaseCopy(.init(known: .agent)) == L.t("newtask_spawn_phase_agent"))
     }
 
     private func eventually(_ predicate: () -> Bool) async throws {
@@ -156,21 +161,26 @@ import Testing
         #expect(NewSessionSlot.resolution == .fallback)
     }
 
-    @Test func forceIsExplicitAndHeldKeepsDraft() async {
+    @Test func forceIsExplicitAndHeldResetsDraft() async {
         let model = composer()
         defer { model.teardown() }
         model.repoPath = "/repo"; model.prompt = "Fix"
         let submission = ComposeSubmission()
         defer { submission.teardown() }
+        var closed = false
         let result = await submission.submit(model: model, repoResolved: true, holdLikely: true, force: true,
             create: { request, _ in
                 #expect(request.force == true)
                 return .held(.init(held: true, id: "held", count: 1))
-            }, isCurrent: { true })
+            }, onHeld: { closed = true }, isCurrent: { true })
+        #expect(closed)
         #expect(result == nil)
         #expect(submission.message == L.t("native_newsession_held"))
         #expect(!submission.busy)
-        #expect(model.prompt == "Fix")
+        #expect(model.prompt.isEmpty)
+        _ = await submission.submit(model: model, repoResolved: true, holdLikely: true,
+            create: { _, _ in Issue.record("Held task submitted twice"); throw ShepherdError.cancelled },
+            isCurrent: { true })
     }
 
     @Test func aProfileSwitchDropsASuccessfulCreate() async {

@@ -11,6 +11,14 @@ struct ShepherdClientComposeTests {
         return try ShepherdClient(profile: profile, credentials: credentials, urlSession: server.urlSession())
     }
 
+    @Test func spawnProgressDecodesUnknownCurrentAndCompletedPhases() throws {
+        let data = Data(#"{"spawnId":"s","phase":"future-current","startedAt":0,"completed":[{"phase":"future-completed","ms":12}]}"#.utf8)
+        let frame = try JSONDecoder().decode(Components.Schemas.SpawnProgressEvent.self, from: data)
+        let wire = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(frame)) as? [String: Any])
+        #expect(wire["phase"] as? String == "future-current")
+        #expect((wire["completed"] as? [[String: Any]])?.first?["phase"] as? String == "future-completed")
+    }
+
     @Test func sessionActionsUseWirePayloadsAndStatusCodes() async throws {
         let server = FakeShepherdServer()
         defer { server.tearDown() }

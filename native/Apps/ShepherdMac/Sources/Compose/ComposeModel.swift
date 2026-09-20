@@ -21,16 +21,24 @@ final class ComposeModel {
         }
     }
     var provider: AgentProvider = .claude { didSet {
+        if !normalizingRunConfig { providerTouched = true }
         if oldValue != provider { shaping.discard() }
         normalizeRunConfig()
     } }
     var model = "default" { didSet {
+        if !normalizingRunConfig { modelTouched = true; providerTouched = true }
         if oldValue != model { shaping.discard() }
         normalizeRunConfig()
     } }
-    var effort = "default" { didSet { normalizeRunConfig() } }
-    var runDefaults: ComposeRunConfig.Defaults { didSet { normalizeRunConfig() } }
+    var effort = "default" { didSet {
+        if !normalizingRunConfig { effortTouched = true }
+        normalizeRunConfig()
+    } }
+    var runDefaults: ComposeRunConfig.Defaults { didSet { reconcileRunDefaults() } }
     @ObservationIgnored private var normalizingRunConfig = false
+    private var providerTouched = false
+    private var modelTouched = false
+    private var effortTouched = false
     var research = false { didSet { if oldValue != research { shaping.discard() } } }
     var epicAuthoring = false { didSet { if oldValue != epicAuthoring { shaping.discard() } } }
     var plain = false { didSet { if oldValue != plain { shaping.discard() } } }
@@ -127,6 +135,28 @@ final class ComposeModel {
                                                                fableAvailable: runDefaults.fableAvailable)
         effort = initialEffort ?? ComposeRunConfig.preselectEffort(runDefaults.effort)
         normalizeRunConfig()
+        modelTouched = initialModel != nil
+        providerTouched = initialModel != nil
+        effortTouched = initialEffort != nil
+    }
+
+    /// Bootstrap and reconnect may deliver defaults after the sheet is already visible.
+    private func reconcileRunDefaults() {
+        normalizingRunConfig = true
+        if !providerTouched { provider = providerConstraint?.provider ?? runDefaults.provider }
+        if !modelTouched {
+            model = ComposeRunConfig.modelForManualProviderChange(provider, defaults: runDefaults)
+        }
+        if !effortTouched { effort = ComposeRunConfig.preselectEffort(runDefaults.effort) }
+        normalizingRunConfig = false
+        normalizeRunConfig()
+    }
+
+    func discardSubmittedDraft() {
+        prompt = ""
+        removeIssue()
+        attachments.teardown()
+        shaping.discard()
     }
 
     /// Correct validity at every mutation and again at submit, even if no picker was mounted.
@@ -143,8 +173,12 @@ final class ComposeModel {
 
     func selectProviderManually(_ provider: AgentProvider) {
         guard allowsProvider(provider) else { return }
+        providerTouched = true
+        modelTouched = false
+        normalizingRunConfig = true
         self.provider = provider
         model = ComposeRunConfig.modelForManualProviderChange(provider, defaults: runDefaults)
+        normalizingRunConfig = false
         normalizeRunConfig()
     }
 

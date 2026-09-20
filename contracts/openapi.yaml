@@ -2488,6 +2488,7 @@ components:
       properties:
         error: { type: string, enum: [unavailable], x-shepherd-open-enum: true }
     SpawnPhase:
+      x-shepherd-open-enum: true
       type: string
       enum: [base, worktree, prompt, launch, agent]
     SpawnProgressEvent:

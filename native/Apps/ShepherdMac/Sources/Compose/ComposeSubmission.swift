@@ -18,6 +18,17 @@ final class ComposeSubmission {
     private var generation = 0
     private var stopped = false
 
+    static func phaseCopy(_ phase: Components.Schemas.SpawnPhase) -> String {
+        switch phase.known {
+        case .base: L.t("newtask_spawn_phase_base")
+        case .worktree: L.t("newtask_spawn_phase_worktree")
+        case .prompt: L.t("newtask_spawn_phase_prompt")
+        case .launch: L.t("newtask_spawn_phase_launch")
+        case .agent: L.t("newtask_spawn_phase_agent")
+        case nil: L.t("newtask_spawning")
+        }
+    }
+
     func receive(_ frame: Components.Schemas.SpawnProgressEvent) {
         guard !stopped, busy, frame.spawnId == spawnID else { return }
         progress = frame
@@ -26,6 +37,7 @@ final class ComposeSubmission {
     func submit(model: ComposeModel, repoResolved: Bool, holdLikely: Bool, force: Bool = false,
                 events: AsyncStream<ServerEvent>? = nil,
                 create: (CreateSessionRequest, String) async throws -> CreateOutcome,
+                onHeld: () -> Void = {},
                 isCurrent: @escaping @MainActor () -> Bool) async -> Session? {
         guard !stopped, isCurrent(), model.readiness(submitting: busy, repoResolved: repoResolved,
                                                    holdLikely: holdLikely).canSubmit,
@@ -59,7 +71,12 @@ final class ComposeSubmission {
             guard mine == generation, !stopped, isCurrent() else { return nil }
             switch result {
             case .created(let session): return session
-            case .held: message = L.t("native_newsession_held"); return nil
+            case .held:
+                model.discardSubmittedDraft()
+                message = L.t("native_newsession_held")
+                teardown()
+                onHeld()
+                return nil
             }
         } catch {
             guard mine == generation, !stopped, isCurrent() else { return nil }

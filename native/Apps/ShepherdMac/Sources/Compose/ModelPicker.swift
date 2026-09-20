@@ -12,6 +12,13 @@ enum ComposeRunConfig {
         var fableAvailable = true
         func model(for provider: AgentProvider) -> String { provider == .codex ? codexModel : claudeModel }
     }
+    static func defaults(from settings: ShepherdKit.Settings?) -> Defaults {
+        .init(provider: settings?.defaultAgentProvider ?? .claude,
+              claudeModel: settings?.defaultModel ?? "auto",
+              codexModel: settings?.defaultCodexModel ?? "gpt-5.6-sol",
+              effort: settings?.defaultEffort ?? "default",
+              fableAvailable: settings?.additionalProperties.value["fableAvailable"] as? Bool ?? true)
+    }
     struct Selection {
         var provider: AgentProvider
         var model: String

@@ -3835,6 +3835,10 @@ components:
                 - unavailable
             - type: string
     SpawnPhase:
+      anyOf:
+        - $ref: "#/components/schemas/SpawnPhaseKnown"
+        - type: string
+    SpawnPhaseKnown:
       type: string
       enum:
         - base

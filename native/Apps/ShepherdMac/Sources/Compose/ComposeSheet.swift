@@ -11,7 +11,7 @@ struct ComposeSheet: View {
     }
 }
 
-private struct ComposeSheetContent: View {
+struct ComposeSheetContent: View {
     let app: AppModel
     let store: SessionStore
     let activation: Int
@@ -22,14 +22,10 @@ private struct ComposeSheetContent: View {
     @State private var steers = false
     @FocusedValue(\.composeEditingText) private var editingText
 
-    init(app: AppModel, store: SessionStore, activation: Int) {
+    init(app: AppModel, store: SessionStore, activation: Int, model: ComposeModel? = nil) {
         self.app = app; self.store = store; self.activation = activation
-        let settings = store.settings
-        let defaults = ComposeRunConfig.Defaults(provider: settings?.defaultAgentProvider ?? .claude,
-            claudeModel: settings?.defaultModel ?? "auto", codexModel: settings?.defaultCodexModel ?? "gpt-5.6-sol",
-            effort: settings?.defaultEffort ?? "default",
-            fableAvailable: settings?.additionalProperties.value["fableAvailable"] as? Bool ?? true)
-        _model = State(initialValue: ComposeModel(client: store.client, runDefaults: defaults))
+        let defaults = ComposeRunConfig.defaults(from: store.settings)
+        _model = State(initialValue: model ?? ComposeModel(client: store.client, runDefaults: defaults))
     }
     private var current: Bool { app.store === store && app.activationGeneration == activation && app.sheet == .newSession }
     private var repos: [Repo] { store.repos.filter { !$0.hidden } }
@@ -90,6 +86,9 @@ private struct ComposeSheetContent: View {
         .sheet(isPresented: $keyCard) { ComposeKeyCard { keyCard = false } }
         .interactiveDismissDisabled(submission.busy)
         .onAppear { seedRepo() }
+        .onChange(of: store.settings, initial: true) { _, settings in
+            if let settings { model.runDefaults = ComposeRunConfig.defaults(from: settings) }
+        }
         .onChange(of: store.repos) { _, _ in seedRepo() }
         .onDisappear { submission.teardown(); model.teardown() }
         .accessibilityIdentifier("compose.sheet")
@@ -103,7 +102,7 @@ private struct ComposeSheetContent: View {
         Task {
             let session = await submission.submit(model: model, repoResolved: repo != nil, holdLikely: holdLikely,
                 force: force, events: store.events(), create: { try await store.client.createSession($0, spawnID: $1) },
-                isCurrent: { current })
+                onHeld: { app.sheet = nil }, isCurrent: { current })
             if let session, current {
                 store.apply(.sessionNew(session))
                 app.selectedSessionID = session.id
@@ -155,23 +154,14 @@ private struct ComposeSheetContent: View {
             Text(verbatim: L.t("newtask_spawn_slow")).font(.headline)
             if let progress = submission.progress {
                 ForEach(progress.completed.indices, id: \.self) { i in
-                    Label { Text(verbatim: phaseCopy(progress.completed[i].phase)) } icon: { Image(systemName: "checkmark") }
+                    Label { Text(verbatim: ComposeSubmission.phaseCopy(progress.completed[i].phase)) } icon: { Image(systemName: "checkmark") }
                 }
-                HStack { ProgressView().controlSize(.small); Text(verbatim: phaseCopy(progress.phase)) }
+                HStack { ProgressView().controlSize(.small); Text(verbatim: ComposeSubmission.phaseCopy(progress.phase)) }
             } else { Text(verbatim: L.t("newtask_spawning")) }
             Button(submission.canceling || submission.cancelRequested ? L.t("newtask_spawn_canceling") : L.t("newtask_spawn_cancel")) {
                 Task { await submission.cancel(using: { try await store.client.cancelSpawn(id: $0) }, isCurrent: { current }) }
             }.disabled(submission.canceling || submission.cancelRequested)
         }.padding(12).background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
             .accessibilityLabel(L.t("newtask_spawn_progress_aria"))
-    }
-    private func phaseCopy(_ phase: Components.Schemas.SpawnPhase) -> String {
-        switch phase {
-        case .base: L.t("newtask_spawn_phase_base")
-        case .worktree: L.t("newtask_spawn_phase_worktree")
-        case .prompt: L.t("newtask_spawn_phase_prompt")
-        case .launch: L.t("newtask_spawn_phase_launch")
-        case .agent: L.t("newtask_spawn_phase_agent")
-        }
     }
 }

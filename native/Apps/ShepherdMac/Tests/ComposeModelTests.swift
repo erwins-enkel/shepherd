@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import ShepherdKit
 import SwiftUI
@@ -5,6 +6,65 @@ import Testing
 @testable import Shepherd
 
 @MainActor @Suite struct ComposeModelTests {
+    @Test(arguments: [false, true])
+    func sheetOpenedBeforeBootstrapReconcilesPickerSelections(explicit: Bool) async throws {
+        let suite = "ComposeBootstrapTests.\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        let credentials = InMemoryCredentialStore()
+        let app = AppModel(defaults: defaults, credentials: credentials)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ComposeBootstrapProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let client = try ShepherdClient(profile: .init(name: "fixture", baseURL: URL(string: "https://compose.invalid")!,
+            mode: .remote), credentials: credentials, urlSession: session)
+        let store = SessionStore(client: client)
+        let model = Self.composer()
+        let host = NSHostingView(rootView: ComposeSheetContent(app: app, store: store, activation: 0, model: model))
+        let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 740, height: 780),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = host
+        window.orderFront(nil)
+        host.layoutSubtreeIfNeeded()
+        defer {
+            window.orderOut(nil); window.contentView = nil
+            model.teardown(); store.stop(); app.teardown(); session.invalidateAndCancel()
+            defaults.removePersistentDomain(forName: suite)
+        }
+        #expect(store.settings == nil)
+        if explicit {
+            model.selectProviderManually(.claude); model.model = "sonnet"; model.effort = "high"
+        }
+        try await store.bootstrap()
+        try await eventually { model.runDefaults.provider == .codex }
+        #expect(EnginePicker(model: model).selection.wrappedValue == (explicit ? .claude : .codex))
+        #expect(model.model == (explicit ? "sonnet" : "gpt-6-astra"))
+        #expect(model.effort == (explicit ? "high" : "ultra"))
+        #expect(ModelPicker(model: model).options.contains(model.model))
+        #expect(EffortPicker(model: model).options.contains(model.effort))
+
+    }
+
+    @Test func bootstrapDefaultsUpdateUntouchedRunPickers() {
+        let model = Self.composer()
+        defer { model.teardown() }
+        model.runDefaults = .init(provider: .codex, claudeModel: "opus", codexModel: "gpt-6-astra", effort: "ultra")
+        #expect(model.provider == .codex)
+        #expect(model.model == "gpt-6-astra")
+        #expect(model.effort == "ultra")
+    }
+
+    @Test func bootstrapDefaultsPreserveExplicitRunChoices() {
+        let model = Self.composer()
+        defer { model.teardown() }
+        model.selectProviderManually(.claude)
+        model.model = "sonnet"
+        model.effort = "high"
+        model.runDefaults = .init(provider: .codex, claudeModel: "opus", codexModel: "gpt-6-astra", effort: "ultra")
+        #expect(model.provider == .claude)
+        #expect(model.model == "sonnet")
+        #expect(model.effort == "high")
+    }
+
     @Test func actionSelectionResetsAcrossProvidersAndKeepsHandoff() {
         let actions = ComposeActions(provider: .codex)
         actions.model = "gpt-6-astra"; actions.effort = "ultra"
@@ -843,6 +903,29 @@ final class ComposeUploadProtocol: URLProtocol {
                                        headerFields: ["Content-Type": "application/json"])!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: Data(#"{"error":"unauthorized"}"#.utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}
+
+/// In-memory HTTP fixture: opening before bootstrap must exercise the sheet's actual onChange.
+private final class ComposeBootstrapProtocol: URLProtocol {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        let body: String
+        switch request.url?.path {
+        case "/api/settings":
+            body = #"{"repoRoot":"/repo","repoRootDisplay":"repo","firstRunPending":false,"defaultModel":"opus","defaultCodexModel":"gpt-6-astra","defaultEffort":"ultra","defaultAgentProvider":"codex","authMode":"subscription","operatorLanguage":"en"}"#
+        case "/api/repos":
+            body = #"{"recentWindowDays":7,"repos":[{"name":"shepherd","path":"/repo","display":"shepherd","realPath":"/repo","isFork":false,"hidden":false}]}"#
+        case "/api/sessions": body = "[]"
+        default: body = "{}"
+        }
+        guard let url = request.url, let response = HTTPURLResponse(url: url, statusCode: 200,
+            httpVersion: nil, headerFields: ["Content-Type": "application/json"]) else { return }
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data(body.utf8))
         client?.urlProtocolDidFinishLoading(self)
     }
     override func stopLoading() {}

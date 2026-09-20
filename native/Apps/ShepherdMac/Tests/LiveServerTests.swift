@@ -208,6 +208,11 @@ struct LiveServerTests {
         // fields it draws with. A live server may legitimately hold zero
         // sessions, so emptiness is reported, not asserted.
         #expect(store.sessions.allSatisfy { !$0.id.isEmpty && !$0.desig.isEmpty })
-        print("live smoke: \(store.sessions.count) session(s) from \(address)")
+        // The host is redacted. `address` is the operator's own server — a tailnet name or a
+        // LAN address — and this line goes to a test log that is attached to CI runs and pasted
+        // into PRs. The count is the evidence; which machine served it is already known to
+        // whoever set `SHEPHERD_LIVE_BASE_URL`, and to nobody else.
+        let scheme = URL(string: address)?.scheme ?? "unknown"
+        print("live smoke: \(store.sessions.count) session(s) from a \(scheme) server")
     }
 }

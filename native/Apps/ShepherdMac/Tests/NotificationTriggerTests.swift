@@ -260,4 +260,29 @@ struct NotificationTriggerTests {
         #expect(t.intents(for: .sessionRenamed(.init(id: "s1", name: "n", branch: nil))).isEmpty)
         #expect(t.intents(for: .unknown(name: "session:recap", payload: nil)).isEmpty)
     }
+
+    /// `session:recap` stays ignored now that S4 has merged and declared it, and this pins that
+    /// as a decision rather than an oversight: a frame carrying a real `needs_attention` recap
+    /// still produces nothing.
+    ///
+    /// The web has no recap notification to port. `NotifyInput.kind` in `src/push.ts` has no
+    /// recap case, nothing in that file or in `src/ready-notify.ts` subscribes to the event, and
+    /// `deriveTabState` — the badge's reference — does not read recaps either. A recap reaches
+    /// the operator through in-app surfaces only: S4's "Handlungsbedarf" line and the
+    /// `recap-attention` signal in `src/attention-core.ts`. Adding an arm here would invent a
+    /// banner the web does not send.
+    ///
+    /// The payload is a **complete** `SessionRecapEvent`: every field the schema makes required
+    /// (`id`, and `recap`'s `sessionId`, `state`, `headline`, `body`, `openItems`, `updatedAt`),
+    /// not just the three a `needs_attention` recap reads as. A partial frame decodes to
+    /// nothing, so this test would go on passing against a ported arm that *does* decode — the
+    /// pin would be worth nothing at exactly the moment it is needed.
+    @Test func aRecapFrameIsIgnoredEvenWhenItAsksForAttention() {
+        var t = trigger()
+        let json =
+            #"{"id":"s1","recap":{"sessionId":"s1","state":"ready","verdict":"needs_attention","#
+            + #""headline":"h","body":"b","openItems":["x"],"updatedAt":1}}"#
+        let payload = Data(json.utf8)
+        #expect(t.intents(for: .unknown(name: "session:recap", payload: payload)).isEmpty)
+    }
 }

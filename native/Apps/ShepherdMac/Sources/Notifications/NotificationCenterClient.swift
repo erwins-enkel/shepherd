@@ -57,6 +57,22 @@ protocol NotificationCenterClient: AnyObject {
     /// caches nothing.
     @discardableResult
     func setBadgeCount(_ count: Int) async -> Bool
+    /// Clears the Dock badge **synchronously** — the write is issued before this call returns.
+    ///
+    /// `teardown()`'s only badge caller, and the reason this exists beside `setBadgeCount(_:)`.
+    /// The Dock badge is process-global and a profile switch tears the outgoing model down and
+    /// builds the incoming one in the same turn (`AppModel.activate` calls `tearDownExtensions()`
+    /// and then `makeExtensions(store:)`). Reaching an `async` clear through an unstructured
+    /// `Task` hands the ordering to the scheduler, which promises nothing about unstructured
+    /// tasks on an actor: the outgoing profile's zero can land *after* the incoming profile's
+    /// first count and sit there, because the new model's `lastBadge` cache then elides every
+    /// write of that same count until it next moves. Issuing it here, with no suspension in
+    /// between, is what makes "the clear happens before anything the next model writes" a
+    /// property of the call order rather than of the scheduler.
+    ///
+    /// It answers nothing: a caller that has just torn itself down has nowhere to put an answer
+    /// and nothing to retry with. A failure is logged by the implementation.
+    func clearBadgeNow()
     /// Installs the click handler. Called once, after `onSelectSession` is set. Idempotent on
     /// `SystemNotificationCenter`; `FakeNotificationCenter` instead counts every call, so a test
     /// can hold a caller to calling it exactly once.
@@ -167,6 +183,30 @@ final class SystemNotificationCenter: NotificationCenterClient {
         }
     }
 
+    /// The completion-handler spelling of `setBadgeCount`, which is what makes the clear
+    /// synchronous: it hands the request to the shared `UNUserNotificationCenter` and returns,
+    /// so the request is already *submitted* — ahead of anything the *next* profile's model
+    /// submits — by the time `teardown()` returns. The `async` variant would have to be
+    /// awaited, and the hop that await needs is precisely the re-ordering this method exists
+    /// to avoid. (The `async` spelling calls this same ObjC entry point; what differs is only
+    /// *when* the call is made.)
+    ///
+    /// What this buys, exactly: submission order. The last hop — `notificationd` applying two
+    /// overlapping updates — is not something Apple documents as FIFO, so the guarantee rests
+    /// on the shared centre's single connection delivering requests in the order they were
+    /// made. That is one unproven assumption instead of the previous *two* (scheduler order
+    /// for unstructured tasks, and then this), and it is the reason the clear is issued here
+    /// rather than from a `Task`. A hard barrier would need a badge writer that outlives the
+    /// activation and serialises every write through one owner; that is a larger change than
+    /// this seam, and it is not what the profile-switch bug needed.
+    func clearBadgeNow() {
+        center.setBadgeCount(0) { error in
+            guard let error else { return }
+            Log.app.error(
+                "could not clear the badge: \(String(describing: error), privacy: .public)")
+        }
+    }
+
     /// Forwards a click to the closure.
     ///
     /// `UNUserNotificationCenterDelegate` is an `@objc` protocol whose callbacks arrive on an
@@ -237,6 +277,11 @@ final class FakeNotificationCenter: NotificationCenterClient {
     /// that was elided from one that wrote the same number again, which is the whole subject of
     /// `NotificationsModel.writeBadge(_:)`.
     private(set) var badgeWrites = 0
+    /// How many of those writes came through `clearBadgeNow()`. `badge == 0` alone cannot tell
+    /// a clear that was issued synchronously from one a `Task` got round to eventually, and the
+    /// ordering against the next profile's first write is the only thing that distinguishes
+    /// them.
+    private(set) var synchronousClears = 0
     /// Every `authorization()` read this centre has seen, parked or not. A test waiting for a
     /// read to reach the centre waits on this, never on the parked count, which falls again as
     /// reads are completed.
@@ -288,6 +333,18 @@ final class FakeNotificationCenter: NotificationCenterClient {
         return true
     }
 
+    /// Lands before this call returns, exactly as the real one does — which is the whole point
+    /// of the method, so the fake must not model it with a hop of its own. Counted in
+    /// `badgeWrites` like any other write, and recorded separately so a test can tell a
+    /// synchronous clear from an `await`ed `setBadgeCount(0)` that happens to write the same
+    /// number. `nextBadgeWriteSucceeds` deliberately does not apply: the real method answers
+    /// nothing and its caller has nothing to retry with, so there is no rejection to stage.
+    func clearBadgeNow() {
+        badgeWrites += 1
+        synchronousClears += 1
+        badge = 0
+    }
+
     /// Test seam: pretend the operator clicked a banner for `sessionID`.
     ///
     /// Guarded on `starts > 0` because the real centre delivers nothing until `start()` installs
@@ -314,6 +371,7 @@ final class FakeNotificationCenter: NotificationCenterClient {
         posted.removeAll()
         badge = 0
         badgeWrites = 0
+        synchronousClears = 0
         authorizationRequests = 0
         authorizationReads = 0
     }

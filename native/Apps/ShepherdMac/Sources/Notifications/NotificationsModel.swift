@@ -29,6 +29,29 @@ final class NotificationsModel: AppExtension {
     /// a plan gate with unanswered questions. Empty until the integration lane assigns it; the
     /// badge counts blocked ∪ ready-to-merge ∪ (this ∩ the live sessions).
     ///
+    /// **Still empty after S2 and S4 merged, and the reason is the contract, not the wiring.**
+    /// The web's `deriveTabState` (`ui/src/lib/tab-signal.svelte.ts`) reads two per-session maps
+    /// this client cannot fill for *all* sessions without one HTTP request per session, which is
+    /// not something a Dock badge may cost:
+    ///
+    /// - **ci-red** is `store.git[id].checks === "failure"`. The web bootstraps that whole map
+    ///   from `GET /api/git` and keeps it live with `session:git`. `native/Sources/ShepherdKit/
+    ///   openapi.yaml` declares only the per-session `GET /api/sessions/{id}/git`; the bulk
+    ///   `/api/git` is absent, and `Session` carries no `checks` (or any other git) field. S2's
+    ///   `DetailModel.git` is therefore sparse by design — `hasCacheEntry` drops a `session:git`
+    ///   frame for a session whose Git tab nobody opened — so it answers for the sessions the
+    ///   operator happened to look at, never for the herd. Accumulating from the event tap alone
+    ///   is not a substitute: there is no snapshot to join, and this model's badge is derived
+    ///   from the store on every frame precisely so a dropped frame cannot make it drift.
+    /// - **an unanswered plan question** is `planQuestionsUnanswered(planGates[id])` over
+    ///   `gate.blocks[].questions` and `gate.answeredQuestionKeys`, bootstrapped from
+    ///   `GET /api/plan-gates`. Neither the endpoint nor a `PlanGate` schema exists in the
+    ///   contract at all — `Session` has `planGateEnabled` and `planPhase`, which are the other
+    ///   two thirds of the web's condition and useless without the questions.
+    ///
+    /// Either one is a contract addition away, and this property is still the seam that takes
+    /// it. Until then the badge is honestly two-thirds of the web's count.
+    ///
     /// Assigning it refreshes the badge itself rather than waiting for the next frame: on a quiet
     /// server the next frame can be minutes away, and a Dock icon that lags the reason it is
     /// lit is a seam the integration lane cannot use. Unchanged values are ignored (a re-assign
@@ -317,8 +340,9 @@ final class NotificationsModel: AppExtension {
         // hundred milliseconds. `clearBadge()` drops `lastBadge` first, so routing this
         // branch through it meant the elision below could never fire and every one of those
         // frames cost an XPC round trip to `notificationd`, which is precisely what the
-        // de-duplication exists to stop. The *transitions* that must not be elided —
-        // focusing the window, and `teardown()` — call `clearBadge()` themselves.
+        // de-duplication exists to stop. The *transitions* that must not be elided force
+        // their own write: focusing the window through `clearBadge()`, and `teardown()`
+        // through the seam's synchronous `clearBadgeNow()`.
         guard !windowFocused else {
             await writeBadge(0)
             return
@@ -378,13 +402,13 @@ final class NotificationsModel: AppExtension {
     /// even when the last count this model wrote was already zero — the Dock badge is global,
     /// and something else (the outgoing profile, a previous run) may have left a number on it.
     ///
-    /// Exactly two callers force a write this way, and they are the two moments where
-    /// `lastBadge` is not evidence about what is actually on the Dock: `setWindowFocused`
-    /// when the window comes forward (the operator is now looking, and whatever is up there
-    /// may have been written by the previous activation), and `teardown()`, which forces the
-    /// same clear inline because it must outlive this model. Every other path — the per-frame
-    /// refresh, focused or not — is an ordinary `writeBadge(_:)` and is elided when the count
-    /// has not changed.
+    /// One caller forces a write this way: `setWindowFocused` when the window comes forward —
+    /// the operator is now looking, and whatever is up there may have been written by the
+    /// previous activation, so `lastBadge` is not evidence about the Dock. `teardown()` clears
+    /// too, but through the seam's synchronous `clearBadgeNow()` rather than here, because its
+    /// clear has to be ordered against the *next* model's first write and an `await` cannot
+    /// promise that; see there. Every other path — the per-frame refresh, focused or not — is an
+    /// ordinary `writeBadge(_:)` and is elided when the count has not changed.
     private func clearBadge() async {
         lastBadge = nil
         await writeBadge(0)
@@ -472,7 +496,22 @@ final class NotificationsModel: AppExtension {
         // A profile switch must not leave the outgoing server's count on the Dock icon. Forced
         // through `lastBadge`, which `clearBadge()` would drop anyway: a clear is never elided.
         lastBadge = nil
-        let center = self.center
-        Task { await center.setBadgeCount(0) }
+        // Synchronously, and deliberately NOT `Task { await center.setBadgeCount(0) }`.
+        //
+        // `AppModel.activate(_:)` calls `tearDownExtensions()` and then `makeExtensions(store:)`,
+        // and the incoming `NotificationsModel` writes its first badge from its own launch task.
+        // Both this clear and that write would be unstructured main-actor tasks, and nothing
+        // promises unstructured tasks resume in the order they were created — so the outgoing
+        // profile's zero could land *after* the incoming profile's count. The Dock would then
+        // read 0 with N sessions needing the operator, and stay there: the new model's
+        // `lastBadge` is N, so `writeBadge(_:)` elides every rewrite of N until the derived
+        // count happens to move. Issuing the clear before `teardown()` returns puts it ahead of
+        // anything the next model can queue, which is an ordering this file controls rather than
+        // one it hopes for.
+        //
+        // It is also why the centre no longer has to outlive this method for the badge's sake —
+        // only the weak `UNUserNotificationCenter.delegate` keeps it interesting, and
+        // `onSelectSession` was dropped above.
+        center.clearBadgeNow()
     }
 }

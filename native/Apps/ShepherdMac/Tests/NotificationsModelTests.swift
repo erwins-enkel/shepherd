@@ -399,10 +399,56 @@ struct NotificationsModelTests {
         #expect(center.badge == 1)
         m.teardown()
         #expect(!m.isSubscribed)
-        // `teardown()` is synchronous but the badge clear is a main-actor `Task`, so give the
-        // run loop one turn before asserting on it.
-        await Task.yield()
+        // No yield: the clear goes through the seam's synchronous `clearBadgeNow()`, so it has
+        // already landed by the time `teardown()` returns. See the next test for why that
+        // matters and not merely for why it is tidier.
         #expect(center.badge == 0, "a profile switch must not leave the old server's count up")
+    }
+
+    /// The profile switch, in the order `AppModel.activate(_:)` really runs it: `teardown()` on
+    /// the outgoing extension, then `makeExtensions(store:)` builds the incoming one, then the
+    /// incoming one writes its first badge. The Dock badge is process-global, so those two
+    /// models are writing the same number.
+    ///
+    /// With the clear on an unstructured `Task` nothing ordered it against that first write —
+    /// unstructured tasks on an actor carry no such promise — and the outgoing profile's zero
+    /// could land on top of the incoming profile's count. That is not a frame of flicker: the
+    /// incoming model's `lastBadge` is already N, so `writeBadge(_:)` elides every rewrite of N
+    /// and the Dock stays wrong until the derived count happens to move.
+    @Test func theTeardownClearCannotLandOnTheNextProfilesCount() async {
+        let center = FakeNotificationCenter()
+        let blocked = PreviewData.session(id: "a", status: SessionStatus(known: .blocked))
+        var ready = PreviewData.session(id: "b", status: SessionStatus(known: .idle))
+        ready.readyToMerge = true
+
+        let outgoing = await model(center: center)
+        await outgoing.setWindowFocused(false)
+        await outgoing.updateBadge(sessions: [blocked])
+        #expect(center.badge == 1)
+
+        outgoing.teardown()
+        #expect(center.badge == 0, "the clear landed before teardown() returned")
+        #expect(center.synchronousClears == 1, "and it did not go through a Task hop")
+
+        // No suspension between the two, exactly as in `activate(_:)`.
+        let incoming = await model(center: center)
+        await incoming.setWindowFocused(false)
+        await incoming.updateBadge(sessions: [blocked, ready])
+        #expect(center.badge == 2)
+
+        // Whatever the outgoing model left for the scheduler runs here. Nothing it left may
+        // reach the Dock.
+        await Task.yield()
+        await Task.yield()
+        #expect(center.badge == 2, "the outgoing profile cannot clear the incoming one's count")
+
+        // `badge` alone cannot see the elision — a rewrite of 2 leaves 2 either way — so the
+        // write count is what is asserted: the incoming model's `lastBadge` still records what
+        // is really on the Dock, which is the half of the bug that made the old failure stick.
+        let writes = center.badgeWrites
+        await incoming.updateBadge(sessions: [blocked, ready])
+        #expect(center.badge == 2)
+        #expect(center.badgeWrites == writes, "the elision is still measuring against the truth")
     }
 
     /// `UNUserNotificationCenter.delegate` is weak and `teardown()` keeps the centre alive to
@@ -461,8 +507,7 @@ struct NotificationsModelTests {
 
         await center.setBadgeCount(4)
         m.teardown()
-        await Task.yield()
-        #expect(center.badge == 0, "and so does a teardown")
+        #expect(center.badge == 0, "and so does a teardown, synchronously")
     }
 
     /// `if (sent) …`, the whole point of the seam returning a `Bool`: a banner macOS threw away

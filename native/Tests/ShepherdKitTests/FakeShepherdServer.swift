@@ -6,15 +6,18 @@ struct FakeResponse: Sendable {
   var statusCode: Int
   var headers: [String: String]
   var body: Data
+  var delay: TimeInterval
 
   init(
     statusCode: Int = 200,
     headers: [String: String] = ["Content-Type": "application/json"],
-    body: Data = Data()
+    body: Data = Data(),
+    delay: TimeInterval = 0
   ) {
     self.statusCode = statusCode
     self.headers = headers
     self.body = body
+    self.delay = delay
   }
 }
 
@@ -80,8 +83,13 @@ final class FakeShepherdServer: Sendable {
   /// Each call is a distinct session with a distinct cookie jar inside the
   /// fake: two sessions never see each other's cookies, exactly as two real
   /// `URLSession`s with separate storage would not.
-  func urlSession() -> URLSession {
+  func urlSession(
+    requestTimeout: TimeInterval = 60,
+    resourceTimeout: TimeInterval = 604_800
+  ) -> URLSession {
     let configuration = URLSessionConfiguration.ephemeral
+    configuration.timeoutIntervalForRequest = requestTimeout
+    configuration.timeoutIntervalForResource = resourceTimeout
     configuration.protocolClasses = [FakeURLProtocol.self]
     configuration.httpAdditionalHeaders = [Self.sessionHeader: UUID().uuidString]
     return URLSession(configuration: configuration)
@@ -181,7 +189,11 @@ private final class FakeServerRegistry: @unchecked Sendable {
 }
 
 /// The `URLProtocol` that serves `FakeShepherdServer`.
-private final class FakeURLProtocol: URLProtocol {
+private final class FakeURLProtocol: URLProtocol, @unchecked Sendable {
+  // Delayed delivery and cancellation are serialized on this queue.
+  private let deliveryQueue = DispatchQueue(label: "FakeShepherdServer.delivery")
+  private var stopped = false
+
   override class func canInit(with request: URLRequest) -> Bool {
     // On current macOS the URL loading system DOES route a
     // URLSessionWebSocketTask upgrade through URLProtocol, and a stub cannot
@@ -235,15 +247,28 @@ private final class FakeURLProtocol: URLProtocol {
       let response = HTTPURLResponse(
         url: url, statusCode: fake.statusCode, httpVersion: "HTTP/1.1",
         headerFields: fake.headers)!
-      client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-      client?.urlProtocol(self, didLoad: fake.body)
-      client?.urlProtocolDidFinishLoading(self)
+      if fake.delay > 0 {
+        deliveryQueue.asyncAfter(deadline: .now() + fake.delay) { [self] in
+          guard !stopped else { return }
+          deliver(response, body: fake.body)
+        }
+      } else {
+        deliver(response, body: fake.body)
+      }
     } catch {
       client?.urlProtocol(self, didFailWithError: error)
     }
   }
 
-  override func stopLoading() {}
+  private func deliver(_ response: HTTPURLResponse, body: Data) {
+    client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+    client?.urlProtocol(self, didLoad: body)
+    client?.urlProtocolDidFinishLoading(self)
+  }
+
+  override func stopLoading() {
+    deliveryQueue.async { self.stopped = true }
+  }
 }
 
 /// Reads an HTTP request body stream to its end and returns every byte.

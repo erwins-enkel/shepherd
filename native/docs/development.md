@@ -333,7 +333,27 @@ of each other's way by extending the app through seams instead of editing shared
   `store.settings` and `store.repos` — every reconnect re-reads all three — and treat an event as a
   prompt to refresh, not as the only copy of a fact.
 - **Kit routes.** Wrap generated operations in your own `ShepherdClient+<Stream>.swift`. The
-  `generated` property is `internal` for exactly that, and never `public`.
+  `generated` property is `internal` for exactly that, and never `public`. For an operation
+  that legitimately waits minutes (S11 prompt shaping, future merge/train operations), use the
+  internal sibling `longRunning` instead. It shares credentials, `needsLogin` and retry policy,
+  with a dedicated session whose request timeout is 300 seconds and resource timeout is at
+  least 300 seconds. Ordinary `generated` calls retain their existing session and 60-second
+  default. No route registration or core edit is needed: change only the generated-client
+  receiver in your stream wrapper and keep its output/error mapping. For example, using a
+  health operation already in the contract:
+
+  ```swift
+  let input = Operations.GetHealth.Input()
+  let output = try await longRunning.getHealth(input)
+  // Keep the wrapper's existing Output-to-value and ShepherdError mapping.
+  ```
+
+  `ShepherdClient.init(profile:credentials:urlSession:longRunningRequestTimeout:)` permits
+  shorter timeouts in tests. The long-running session copies the supplied session's
+  configuration, including protocol classes and headers, but not its delegate. The supplied
+  session is unchanged. Request timeouts measure the wait for additional data, not a total
+  operation deadline; the existing GET-only retry policy still applies.
+
 - **Contract blocks — three per stream.** You own a marked block in `components.schemas:`, in
   `paths:` _and_ in `x-shepherd-events:`, so a stream declares its own event frames next to its
   own routes. Same grammar in all three, same ten streams in the same order, blocks last in

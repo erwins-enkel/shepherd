@@ -782,6 +782,8 @@ export const KEYS_QUEUES: readonly string[] = [
 
 /** S11 — the composer: create fields, slash commands, steers, attachments. */
 export const KEYS_COMPOSE: readonly string[] = [
+  "recommend_copy",
+  "recommend_copied",
   "issuespanel_filter_placeholder",
   "issuespanel_no_match",
   "leftover_desc",

@@ -79,6 +79,7 @@ extension FocusedValues {
 }
 struct ComposeKeycap: ViewModifier {
     @Environment(\.composeReveal) private var reveal
+    @Environment(\.isEnabled) private var isEnabled
     let ids: [String]
     func body(content: Content) -> some View {
         content.overlay(alignment: .topTrailing) {
@@ -88,7 +89,7 @@ struct ComposeKeycap: ViewModifier {
                         Text(verbatim: ComposeKeymap.entry(id).cap).font(.caption.bold().monospaced())
                             .padding(4).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 4))
                     }
-                }.allowsHitTesting(false)
+                }.opacity(isEnabled ? 1 : 0.35).allowsHitTesting(false)
             }
         }
     }

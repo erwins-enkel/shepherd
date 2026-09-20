@@ -16,7 +16,7 @@ final class ComposeModel {
             generation += 1
             listing = nil; issues = []; commandListings = [:]; commandErrors = [:]; epicParents = []; subIssues = []
             viewer = viewers[repoPath]; issuesFailed = false
-            filter.author = nil; filter.labels = []; expanded = false
+            filter.author = nil; filter.labels = []; expanded = false; issueQuery = ""
             loading = false
         }
     }
@@ -49,6 +49,7 @@ final class ComposeModel {
     var sandboxProfile: Components.Schemas.SandboxProfile?
     private(set) var modeTouched = false
     private var designPreselected = false
+    var issueQuery = ""
     var prompt = "" {
         didSet {
             if oldValue != prompt { shaping.discard() }

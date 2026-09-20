@@ -12,7 +12,7 @@ func detailClient(_ fake: FakeShepherdServer) throws -> ShepherdClient {
   return try ShepherdClient(profile: profile, credentials: credentials, urlSession: fake.urlSession())
 }
 
-@Suite("ShepherdClient detail reads")
+@Suite("ShepherdClient detail reads", .timeLimit(.minutes(1)))
 @MainActor
 struct ShepherdClientDetailReadTests {
   @Test("activity comes back as generated entries; a 404 is notFound")
@@ -136,7 +136,7 @@ struct ShepherdClientDetailReadTests {
   }
 }
 
-@Suite("ShepherdClient detail writes")
+@Suite("ShepherdClient detail writes", .timeLimit(.minutes(1)))
 @MainActor
 struct ShepherdClientDetailWriteTests {
   private func sentJSON(_ fake: FakeShepherdServer) throws -> [String: Any] {

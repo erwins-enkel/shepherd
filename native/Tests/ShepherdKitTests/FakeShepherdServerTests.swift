@@ -3,7 +3,7 @@ import Testing
 
 @testable import ShepherdKit
 
-@Suite("FakeShepherdServer")
+@Suite("FakeShepherdServer", .timeLimit(.minutes(1)))
 struct FakeShepherdServerTests {
   @Test("serves a stubbed route and records the request")
   func servesAndRecords() async throws {

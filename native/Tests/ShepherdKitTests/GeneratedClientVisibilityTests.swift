@@ -22,7 +22,7 @@ extension ShepherdClient {
   }
 }
 
-@Suite("generated client visibility")
+@Suite("generated client visibility", .timeLimit(.minutes(1)))
 struct GeneratedClientVisibilityTests {
   @Test("a kit extension in another file can reach ShepherdClient.generated")
   func extensionReachesTheGeneratedClient() async throws {

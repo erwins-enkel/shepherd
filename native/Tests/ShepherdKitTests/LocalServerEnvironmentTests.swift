@@ -16,7 +16,7 @@ func makeExecutable(_ url: URL) throws {
   try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
 }
 
-@Suite struct LocalServerEnvironmentTests {
+@Suite(.timeLimit(.minutes(1))) struct LocalServerEnvironmentTests {
   @Test func pathsFollowTheInstallerDefaults() throws {
     let home = try makeTempHome()
     defer { try? FileManager.default.removeItem(at: home) }

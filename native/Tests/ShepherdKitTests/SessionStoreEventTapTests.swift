@@ -4,7 +4,7 @@ import Testing
 @testable import ShepherdKit
 
 @MainActor
-@Suite("SessionStore event tap")
+@Suite("SessionStore event tap", .timeLimit(.minutes(1)))
 struct SessionStoreEventTapTests {
   /// A store with no socket of its own: `consume(_:)` is driven by hand, which
   /// is the only part of the pipeline this suite is about.

@@ -3,7 +3,7 @@ import Testing
 
 @testable import ShepherdKit
 
-@Suite struct BootLineScannerTests {
+@Suite(.timeLimit(.minutes(1))) struct BootLineScannerTests {
   @Test func theReadyLineYieldsItsPort() {
     #expect(BootLineScanner.readyPort(in: "shepherd core on http://localhost:7330") == 7330)
     #expect(BootLineScanner.readyPort(in: "shepherd core on http://localhost:7331") == 7331)
@@ -22,7 +22,7 @@ import Testing
   }
 }
 
-@Suite struct LogRingTests {
+@Suite(.timeLimit(.minutes(1))) struct LogRingTests {
   @Test func theRingKeepsOnlyTheLastNLinesAndClears() async {
     let ring = LogRing(capacity: 3)
     for index in 1...5 { await ring.append("line \(index)") }

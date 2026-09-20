@@ -80,7 +80,7 @@ func processesInGroup(_ group: Int32) -> [Int32] {
   }
 }
 
-@Suite(.serialized) struct LocalServerSupervisorProcessTests {
+@Suite(.serialized, .timeLimit(.minutes(1))) struct LocalServerSupervisorProcessTests {
   private func supervisor(_ launch: LocalServerLaunch) -> LocalServerSupervisor {
     LocalServerSupervisor(
       environment: LocalServerEnvironment(home: launch.workingDirectory),
@@ -251,7 +251,7 @@ func anyProcessCommand(contains needle: String) -> Bool {
 /// could wedge the crash-loop's own relaunch, `stop()` blocked the actor for
 /// its whole grace period, and a health timeout mislabelled a child that was
 /// still alive as `.exited`.
-@Suite(.serialized) struct LocalServerSupervisorFixTests {
+@Suite(.serialized, .timeLimit(.minutes(1))) struct LocalServerSupervisorFixTests {
   /// `stop()` cancels the pump, but Task cancellation does not abort an
   /// in-flight `for await` loop, so a late exit report from the child being
   /// stopped can still reach the actor after the next `start()` has already
@@ -332,7 +332,7 @@ func anyProcessCommand(contains needle: String) -> Bool {
   }
 }
 
-@Suite(.serialized) struct LocalServerRestartTests {
+@Suite(.serialized, .timeLimit(.minutes(1))) struct LocalServerRestartTests {
   /// A child that exits immediately is restarted after 1 s, 2 s, 4 s; the fourth
   /// crash inside the window stops the supervisor.
   @Test func threeRestartsThenCrashLoop() async throws {
@@ -414,7 +414,7 @@ func processCommandCount(containing needle: String) -> Int {
 /// spent health budget was decided against wall time rather than against the
 /// OS, `.running(pid:)` was claimed before anything had answered `/api/health`,
 /// and one shared `lastExitCode` slot was read across generations.
-@Suite(.serialized) struct LocalServerSupervisorFix2Tests {
+@Suite(.serialized, .timeLimit(.minutes(1))) struct LocalServerSupervisorFix2Tests {
   private func supervisor(
     _ launch: LocalServerLaunch, health: @escaping @Sendable () async -> Bool,
     clock: any SupervisorClock = TestClock(),

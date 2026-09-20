@@ -3,7 +3,7 @@ import Testing
 
 @testable import ShepherdKit
 
-@Suite("EventStream")
+@Suite("EventStream", .timeLimit(.minutes(1)))
 struct EventStreamTests {
   /// Polls `condition` until it holds or the deadline passes. Network.framework
   /// handlers run on their own queue, so tests observe them by polling rather

@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import ShepherdKit
 
-@Suite("CredentialStore")
+@Suite("CredentialStore", .timeLimit(.minutes(1)))
 struct CredentialStoreTests {
   @Test("in-memory store round-trips and deletes")
   func inMemoryRoundTrip() throws {

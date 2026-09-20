@@ -12,7 +12,7 @@ import Testing
 /// close its stdio and keep running, and a child's own descendants hold the
 /// write end open long after the child itself is gone — and the same confusion
 /// between "the leader" and "the group" let descendants survive a teardown.
-@Suite(.serialized) struct LocalServerSupervisorFix4Tests {
+@Suite(.serialized, .timeLimit(.minutes(1))) struct LocalServerSupervisorFix4Tests {
   private func supervisor(
     _ launch: LocalServerLaunch, health: @escaping @Sendable () async -> Bool,
     clock: any SupervisorClock = TestClock(),

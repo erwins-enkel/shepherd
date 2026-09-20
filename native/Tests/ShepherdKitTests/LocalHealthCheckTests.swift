@@ -1,16 +1,17 @@
 #if os(macOS)
 import Foundation
+import Synchronization
 import Testing
 @testable import ShepherdKit
 
-/// URLProtocol is a class cluster with no injection point, so the stub needs the
-/// escape hatch the global constraints allow exactly here. Suite is .serialized.
-final class HealthStubProtocol: URLProtocol, @unchecked Sendable {
-  nonisolated(unsafe) static var handler: (@Sendable (URLRequest) throws -> (HTTPURLResponse, Data))?
+/// Only this serialized suite uses the stub. The lock also synchronizes access
+/// from Foundation's custom-protocol thread; serialization alone cannot do that.
+private final class HealthStubProtocol: URLProtocol, @unchecked Sendable {
+  static let handler = Mutex<(@Sendable (URLRequest) throws -> (HTTPURLResponse, Data))?>(nil)
   override class func canInit(with request: URLRequest) -> Bool { true }
   override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
   override func startLoading() {
-    guard let handler = Self.handler else {
+    guard let handler = Self.handler.withLock({ $0 }) else {
       client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse)); return
     }
     do {
@@ -23,14 +24,22 @@ final class HealthStubProtocol: URLProtocol, @unchecked Sendable {
   override func stopLoading() {}
 }
 
-@Suite(.serialized) struct LocalHealthCheckTests {
+@Suite(.serialized, .timeLimit(.minutes(1))) struct LocalHealthCheckTests {
   private func check(
     _ handler: @escaping @Sendable (URLRequest) throws -> (HTTPURLResponse, Data)
-  ) -> LocalHealthCheck {
-    HealthStubProtocol.handler = handler
+  ) async -> Bool {
+    HealthStubProtocol.handler.withLock { $0 = handler }
     let config = URLSessionConfiguration.ephemeral
     config.protocolClasses = [HealthStubProtocol.self]
-    return LocalHealthCheck(port: 7330, session: URLSession(configuration: config))
+    let session = URLSession(configuration: config)
+    defer {
+      session.invalidateAndCancel()
+      HealthStubProtocol.handler.withLock { $0 = nil }
+    }
+    // Other suites deliberately sleep in URLProtocol handlers. Foundation runs
+    // those on the same custom-protocol thread, even for different sessions.
+    // Test response decoding with headroom; production keeps its 1.5 s budget.
+    return await LocalHealthCheck(port: 7330, session: session, timeout: 10)()
   }
 
   private func body(_ text: String, status: Int = 200)
@@ -47,11 +56,11 @@ final class HealthStubProtocol: URLProtocol, @unchecked Sendable {
   }
 
   @Test func okTrueIsHealthyAndNothingElseIs() async {
-    #expect(await check(body(#"{"ok":true,"version":"3.41.0"}"#))() == true)
-    #expect(await check(body(#"{"ok":false,"version":"3.41.0"}"#))() == false)
-    #expect(await check(body(#"{"ok":true,"version":"3"}"#, status: 503))() == false)
-    #expect(await check(body("<html>nginx</html>"))() == false)
-    #expect(await check({ _ in throw URLError(.cannotConnectToHost) })() == false)
+    #expect(await check(body(#"{"ok":true,"version":"3.41.0"}"#)) == true)
+    #expect(await check(body(#"{"ok":false,"version":"3.41.0"}"#)) == false)
+    #expect(await check(body(#"{"ok":true,"version":"3"}"#, status: 503)) == false)
+    #expect(await check(body("<html>nginx</html>")) == false)
+    #expect(await check({ _ in throw URLError(.cannotConnectToHost) }) == false)
   }
 }
 #endif

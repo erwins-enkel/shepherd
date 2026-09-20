@@ -3,7 +3,7 @@ import Testing
 
 @testable import ShepherdKit
 
-@Suite("ShepherdClient reads")
+@Suite("ShepherdClient reads", .timeLimit(.minutes(1)))
 struct ShepherdClientReadTests {
   /// Builds a client pointed at `server`, with `token` already stored.
   private func makeClient(

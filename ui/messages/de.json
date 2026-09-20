@@ -4246,5 +4246,11 @@
   "native_notify_settings_permission_denied": "macOS lässt Shepherd keine Benachrichtigungen senden. Aktiviere sie in Systemeinstellungen › Mitteilungen › Shepherd.",
   "native_menu_session": "Sitzung",
   "native_settings_placeholder_body": "Die Einstellungsbereiche kommen mit dem Settings-Stream.",
-  "native_settings_placeholder_title": "Noch nichts einzustellen"
+  "native_settings_placeholder_title": "Noch nichts einzustellen",
+  "vblock_native_not_rendered": "Hier nicht dargestellt",
+  "vblock_native_wireframe_omitted": "Wireframe ausgelassen",
+  "qform_native_confirm_body": "Antworten auf {count} Fragen an den Planungsagenten senden? Diese Antworten steuern seine Arbeit.",
+  "planpanel_native_go_confirm": "Ausführung für „{name}“ starten? Der Agent beginnt, in seinen Worktree zu schreiben.",
+  "planpanel_native_go_failed": "Die Ausführung konnte nicht gestartet werden. Versuche es erneut.",
+  "planpanel_native_not_releasable": "Der Plan ist nicht freigegeben oder befindet sich nicht mehr in der Planungsphase."
 }

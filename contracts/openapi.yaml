@@ -1430,6 +1430,531 @@ components:
           enum: [alive, husk, stranded]
     # ── /stream: herd ──
     # ── stream: plan ──
+    PlanDecision:
+      type: string
+      x-shepherd-open-enum: true
+      # Copied verbatim from PlanDecision in src/types.ts:713.
+      enum: [approved, changes_requested, error]
+    PlanSummaryCode:
+      type: string
+      x-shepherd-open-enum: true
+      # A server-authored plan summary rendered per-locale by the client (src/types.ts:721). Only `error` verdicts carry one.
+      enum: [no-verdict, membrane-launch]
+    CalloutTone:
+      type: string
+      x-shepherd-open-enum: true
+      # Copied verbatim from CalloutTone in src/visual-blocks.ts.
+      enum: [info, decision, risk, warning, success]
+    FileTreeChange:
+      type: string
+      x-shepherd-open-enum: true
+      enum: [added, modified, removed, renamed]
+    FileTreeEntry:
+      type: object
+      additionalProperties: true
+      required: [path, change]
+      properties:
+        path: { type: string, description: Slash-separated; the renderer splits it into the tree. }
+        change: { $ref: "#/components/schemas/FileTreeChange" }
+        note: { type: string }
+    DiffAnnotation:
+      type: object
+      additionalProperties: true
+      required: [note]
+      properties:
+        label: { type: string }
+        note: { type: string, description: Prose only — annotations carry no line anchors. }
+    QuestionKind:
+      type: string
+      x-shepherd-open-enum: true
+      # Copied verbatim from QuestionKind in src/visual-blocks.ts.
+      enum: [single, multi, freeform]
+    PlanQuestion:
+      type: object
+      additionalProperties: true
+      required: [id, prompt, kind]
+      properties:
+        id:
+          {
+            type: string,
+            description: 'Unique within its block only. The answer key is "<blockId> <questionId>", space-separated.',
+          }
+        prompt: { type: string }
+        kind: { $ref: "#/components/schemas/QuestionKind" }
+        options:
+          type: array
+          items: { type: string }
+          description: Non-empty only for single/multi. An answer names an INDEX into this array, never a label.
+    VisualBlockRichText:
+      type: object
+      additionalProperties: true
+      required: [type, id, markdown]
+      properties:
+        type: { type: string, enum: [rich-text] }
+        id: { type: string }
+        markdown: { type: string }
+    VisualBlockCallout:
+      type: object
+      additionalProperties: true
+      required: [type, id, tone, markdown]
+      properties:
+        type: { type: string, enum: [callout] }
+        id: { type: string }
+        tone: { $ref: "#/components/schemas/CalloutTone" }
+        markdown: { type: string }
+    VisualBlockFileTree:
+      type: object
+      additionalProperties: true
+      required: [type, id, entries]
+      properties:
+        type: { type: string, enum: [file-tree] }
+        id: { type: string }
+        title: { type: string }
+        entries: { type: array, items: { $ref: "#/components/schemas/FileTreeEntry" } }
+    VisualBlockDiff:
+      type: object
+      additionalProperties: true
+      description: "The `file` member is a server-joined real diff and is deliberately undeclared here: the native renderer shows `summary` and the annotations, and the diff tab is S2's surface."
+      required: [type, id, path, summary]
+      properties:
+        type: { type: string, enum: [diff] }
+        id: { type: string }
+        path: { type: string }
+        summary: { type: string }
+        annotations: { type: array, items: { $ref: "#/components/schemas/DiffAnnotation" } }
+    VisualBlockCode:
+      type: object
+      additionalProperties: true
+      required: [type, id, filename]
+      properties:
+        type: { type: string, enum: [code] }
+        id: { type: string }
+        filename: { type: string }
+        code:
+          {
+            type: string,
+            description: Server-populated; absent when the source could not be joined.,
+          }
+        truncated: { type: boolean }
+    VisualBlockAnnotatedCode:
+      type: object
+      additionalProperties: true
+      required: [type, id, filename]
+      properties:
+        type: { type: string, enum: [annotated-code] }
+        id: { type: string }
+        filename: { type: string }
+        annotations: { type: array, items: { $ref: "#/components/schemas/DiffAnnotation" } }
+        code: { type: string }
+        truncated: { type: boolean }
+    VisualBlockTable:
+      type: object
+      additionalProperties: true
+      required: [type, id, columns, rows]
+      properties:
+        type: { type: string, enum: [table] }
+        id: { type: string }
+        columns: { type: array, items: { type: string } }
+        rows: { type: array, items: { type: array, items: { type: string } } }
+    VisualBlockChecklist:
+      type: object
+      additionalProperties: true
+      description: Display-only. The web's checkboxes are not interactive and neither are the native ones; `checked` is tri-state (absent is neither done nor open).
+      required: [type, id, items]
+      properties:
+        type: { type: string, enum: [checklist] }
+        id: { type: string }
+        items:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+            required: [id, label]
+            properties:
+              id: { type: string }
+              label: { type: string }
+              note: { type: string }
+              checked: { type: boolean }
+    VisualBlockMermaid:
+      type: object
+      additionalProperties: true
+      required: [type, id, source]
+      properties:
+        type: { type: string, enum: [mermaid] }
+        id: { type: string }
+        source: { type: string, description: At most MERMAID_SOURCE_MAX_CHARS (8000) characters. }
+        caption: { type: string }
+        inferred: { type: boolean }
+    WireframeSurfaceKnown:
+      type: string
+      enum: [browser, desktop, mobile, popover, panel]
+    WireframeSurface:
+      anyOf:
+        - $ref: "#/components/schemas/WireframeSurfaceKnown"
+        - type: string
+    VisualBlockWireframe:
+      type: object
+      additionalProperties: true
+      required: [type, id, surface, html]
+      properties:
+        type: { type: string, enum: [wireframe] }
+        id: { type: string }
+        surface: { $ref: "#/components/schemas/WireframeSurface" }
+        html:
+          {
+            type: string,
+            description: At most WIREFRAME_HTML_MAX_CHARS (20000) characters. Untrusted — never rendered as markup by the native client.,
+          }
+        caption: { type: string }
+    VisualBlockApiEndpoint:
+      type: object
+      additionalProperties: true
+      required: [type, id, method, path]
+      properties:
+        type: { type: string, enum: [api-endpoint] }
+        id: { type: string }
+        method: { type: string }
+        path: { type: string }
+        summary: { type: string }
+        change: { type: string }
+        deprecated: { type: boolean }
+        inferred: { type: boolean }
+        params:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+            required: [name, in, type]
+            properties:
+              name: { type: string }
+              in: { type: string }
+              type: { type: string }
+              required: { type: boolean }
+              note: { type: string }
+        "responses":
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+            required: [status]
+            properties:
+              status: { type: integer }
+              description: { type: string }
+              example: { type: string }
+    VisualBlockDataModel:
+      type: object
+      additionalProperties: true
+      required: [type, id, entities]
+      properties:
+        type: { type: string, enum: [data-model] }
+        id: { type: string }
+        inferred: { type: boolean }
+        entities:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+            required: [id, name, fields]
+            properties:
+              id: { type: string }
+              name: { type: string }
+              fields:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+                  required: [name, type]
+                  properties:
+                    name: { type: string }
+                    type: { type: string }
+                    pk: { type: boolean }
+                    fk: { type: string }
+                    nullable: { type: boolean }
+                    change: { $ref: "#/components/schemas/FileTreeChange" }
+                    was: { type: string }
+        relations:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+            required: [from, to, kind]
+            properties:
+              from: { type: string }
+              to: { type: string }
+              kind: { type: string }
+    VisualBlockQuestionForm:
+      type: object
+      additionalProperties: true
+      required: [type, id, questions]
+      properties:
+        type: { type: string, enum: [question-form] }
+        id: { type: string }
+        questions: { type: array, items: { $ref: "#/components/schemas/PlanQuestion" } }
+    VisualBlockUnknown:
+      type: object
+      additionalProperties: true
+      description: >-
+        The catch-all member of VisualBlock, and the ONLY reason an unfamiliar block type does not
+        cost the client the whole gate. Same idea as x-shepherd-open-enum for a string enum, one
+        level up: `type` excludes all known discriminators, and `markdown` is the degraded
+        rendering every server-side block carries. A renderer that reaches this member draws the
+        markdown if there is one and skips the block otherwise.
+      required: [type]
+      properties:
+        type:
+          type: string
+          # A negative lookahead keeps this a string schema for swift-openapi-generator.
+          # A `not: { enum: [...] }` property is skipped by that generator entirely.
+          pattern: "^(?!(?:rich-text|callout|file-tree|diff|code|annotated-code|table|checklist|mermaid|wireframe|api-endpoint|data-model|question-form)$)"
+        markdown: { type: string }
+    VisualBlock:
+      description: >-
+        The thirteen typed plan/recap blocks (src/visual-blocks.ts:10-107), discriminated on `type`,
+        plus VisualBlockUnknown. Shared by plan gates and recaps.
+
+        **`anyOf`, deliberately not `oneOf`.** swift-openapi-generator renders a `oneOf` as a closed
+        Swift enum: thirteen cases and nothing else, so an unfamiliar `type` matches no member and
+        the decode of the WHOLE PlanGate fails — the opposite of the degradation this description
+        promises, and the failure mode `contracts/README.md`'s open-enum section exists to prevent.
+        An `anyOf` decodes each member independently into optional properties, so the fourteenth
+        matches only unfamiliar types and the gate survives. Malformed known blocks must fail
+        validation rather than slipping through the fallback. This is the same shape
+        `x-shepherd-open-enum` already
+        produces (`anyOf: [{$ref: <Name>Known}, {type: string}]`), one level up. A `discriminator:`
+        would be the other way to get an undocumented case, but nothing in this contract uses one
+        and `scripts/gen-contract-swift.ts` has no handling for it — do not introduce one here.
+
+        Before writing the renderer, run `bun run gen:contract-swift` and READ the generated
+        `Types.swift` for `VisualBlock`: assert against the property names the generator actually
+        produced, never against a guessed `.undocumented` case.
+      anyOf:
+        - $ref: "#/components/schemas/VisualBlockRichText"
+        - $ref: "#/components/schemas/VisualBlockCallout"
+        - $ref: "#/components/schemas/VisualBlockFileTree"
+        - $ref: "#/components/schemas/VisualBlockDiff"
+        - $ref: "#/components/schemas/VisualBlockCode"
+        - $ref: "#/components/schemas/VisualBlockAnnotatedCode"
+        - $ref: "#/components/schemas/VisualBlockDataModel"
+        - $ref: "#/components/schemas/VisualBlockApiEndpoint"
+        - $ref: "#/components/schemas/VisualBlockTable"
+        - $ref: "#/components/schemas/VisualBlockChecklist"
+        - $ref: "#/components/schemas/VisualBlockMermaid"
+        - $ref: "#/components/schemas/VisualBlockWireframe"
+        - $ref: "#/components/schemas/VisualBlockQuestionForm"
+        - $ref: "#/components/schemas/VisualBlockUnknown"
+    PlanGate:
+      type: object
+      additionalProperties: true
+      description: >-
+        A plan-gate verdict, keyed by session id. Ported from src/types.ts:713-811. `approved` is the
+        load-bearing flag: execution is allowed only when it is true.
+      required:
+        [
+          sessionId,
+          planHash,
+          decision,
+          summary,
+          body,
+          findings,
+          round,
+          cap,
+          approved,
+          plan,
+          updatedAt,
+        ]
+      properties:
+        sessionId: { type: string }
+        planHash:
+          {
+            type: string,
+            description: sha256 of the reviewed plan; dedups re-reviews of an unchanged plan.,
+          }
+        decision: { $ref: "#/components/schemas/PlanDecision" }
+        summary:
+          { type: string, description: 'At most 100 characters; "" when summaryCode is set.' }
+        summaryCode:
+          oneOf:
+            - $ref: "#/components/schemas/PlanSummaryCode"
+            - type: "null"
+        body: { type: string, description: Markdown. }
+        findings: { type: array, items: { type: string } }
+        round: { type: integer, description: Adversarial rounds spent on the current plan streak. }
+        cap:
+          {
+            type: integer,
+            description: The cap THIS run used. Read it; never mirror a config value.,
+          }
+        approved: { type: boolean }
+        plan: { type: string, description: Snapshot of the reviewed plan text. }
+        livePlanHash:
+          type: [string, "null"]
+          description: >-
+            sha256 of the LIVE .shepherd-plan.md at the last settle-edge check. Differs from planHash
+            on an APPROVED gate ⇒ the plan was edited after sign-off, which is the only source of the
+            "edited" chip and the only bypass for re-reviewing an approved gate.
+        approvedAt:
+          {
+            type: [integer, "null"],
+            description: "When the plan was last APPROVED. approvedAt != null && !approved identifies a session deliberately re-gated out of execution.",
+          }
+        reviewerProvider:
+          oneOf:
+            - $ref: "#/components/schemas/AgentProvider"
+            - type: "null"
+        reviewerModel: { type: [string, "null"] }
+        reviewerEffort: { type: [string, "null"] }
+        blocks:
+          type: array
+          items: { $ref: "#/components/schemas/VisualBlock" }
+          description: Absent ⇒ render `plan` as flat markdown.
+        answeredQuestionKeys:
+          type: array
+          items: { type: string }
+          description: 'Keys of the form "<blockId> <questionId>", space-separated. Absent ⇒ [].'
+        finalRoundPending:
+          {
+            type: boolean,
+            description: "Absent ⇒ false. The cap-th rework steer landed and the FINAL round is in flight.",
+          }
+        dismissed:
+          {
+            type: boolean,
+            description: "Absent ⇒ false. The operator took this stalled rework over.",
+          }
+        updatedAt: { type: integer }
+    PlanGateMap:
+      type: object
+      additionalProperties: { $ref: "#/components/schemas/PlanGate" }
+      description: GET /api/plan-gates. Session id -> gate. Absent means no gate has ever been written for that session.
+    PlanGateInflightEntry:
+      type: object
+      additionalProperties: true
+      description: One in-flight plan review, with the CLI/model/effort doing it — so a reload mid-review restores WHICH reviewer is running, not merely that one is.
+      required: [id, provider, model, effort]
+      properties:
+        id: { type: string }
+        provider:
+          oneOf:
+            - $ref: "#/components/schemas/AgentProvider"
+            - type: "null"
+        model: { type: [string, "null"] }
+        effort: { type: [string, "null"] }
+    PlanGateInflightList:
+      type: array
+      items: { $ref: "#/components/schemas/PlanGateInflightEntry" }
+    PlanReviewTrigger:
+      type: string
+      x-shepherd-open-enum: true
+      # What POST /api/sessions/{id}/review-plan did (src/plan-gate.ts:77-84). `started-at-cap` means
+      # the review ran but any further findings will NOT be delivered to the planning agent.
+      enum:
+        [
+          started,
+          started-at-cap,
+          skipped,
+          plan-unavailable,
+          error-spawn,
+          error-worktree,
+          error-auth,
+        ]
+    PlanReviewResult:
+      type: object
+      additionalProperties: true
+      required: [ok, status]
+      properties:
+        ok: { type: boolean }
+        status: { $ref: "#/components/schemas/PlanReviewTrigger" }
+    PlanQuotaStatus:
+      type: string
+      x-shepherd-open-enum: true
+      # The outcome of a quota resume/dismiss. The plan branch produces resumed/unreachable/dismissed/
+      # not-stalled; the SAME routes serve the critic branch, which produces pr-merged, pr-closed,
+      # started, skipped and error — hence the open enum.
+      enum:
+        [
+          resumed,
+          unreachable,
+          dismissed,
+          not-stalled,
+          pr-merged,
+          pr-closed,
+          started,
+          skipped,
+          error,
+        ]
+    PlanQuotaResult:
+      type: object
+      additionalProperties: true
+      required: [ok, status]
+      properties:
+        ok: { type: boolean }
+        status: { $ref: "#/components/schemas/PlanQuotaStatus" }
+    RawAnswer:
+      type: object
+      additionalProperties: false
+      description: >-
+        One answer to one plan question (src/plan-gate.ts:1979-1986). `optionIndices` indexes
+        PlanQuestion.options. Resolution is fail-closed: a single answer must carry exactly one
+        in-range index or it is DROPPED; a multi answer may be empty, which is the real answer
+        "none of these"; a freeform answer must be non-blank after trimming.
+      required: [blockId, questionId]
+      properties:
+        blockId: { type: string }
+        questionId: { type: string }
+        optionIndices: { type: array, items: { type: integer } }
+        text: { type: string }
+    AnswerPlanQuestionsRequest:
+      type: object
+      additionalProperties: false
+      required: [answers]
+      properties:
+        answers: { type: array, items: { $ref: "#/components/schemas/RawAnswer" } }
+    AnswerPlanQuestionsResult:
+      type: object
+      additionalProperties: true
+      required: [ok, delivered]
+      properties:
+        ok: { type: boolean }
+        delivered:
+          type: boolean
+          description: >-
+            Whether the steer reached the live planning pane. False is NOT an error — the answers are
+            recorded either way — but the operator must be told, because the agent may have moved on.
+    PlanGatePhaseKnown:
+      type: string
+      enum: [planning, executing]
+    PlanGatePhase:
+      anyOf:
+        - $ref: "#/components/schemas/PlanGatePhaseKnown"
+        - type: string
+    SessionPlanGateEvent:
+      type: object
+      additionalProperties: true
+      description: >-
+        POLYMORPHIC. A fresh verdict carries `gate`; a phase flip carries `planPhase`. Both keys are
+        optional and a client must handle each independently — requiring either would reject half
+        the real traffic.
+      required: [id]
+      properties:
+        id: { type: string }
+        gate: { $ref: "#/components/schemas/PlanGate" }
+        planPhase: { $ref: "#/components/schemas/PlanGatePhase" }
+    SessionPlanGateReviewingEvent:
+      type: object
+      additionalProperties: true
+      description: A plan review started or ended. `env` rides the start edge only; both edges clear the activity feed.
+      required: [id, reviewing]
+      properties:
+        id: { type: string }
+        reviewing: { type: boolean }
+        env: { $ref: "#/components/schemas/ReviewerEnv" }
+    SessionPlanGateActivityEvent:
+      type: object
+      additionalProperties: true
+      required: [id, summary]
+      properties:
+        id: { type: string }
+        summary: { type: string }
     # ── /stream: plan ──
     # ── stream: merge ──
     # ── /stream: merge ──
@@ -2436,6 +2961,159 @@ paths:
               schema: { $ref: "#/components/schemas/Error" }
   # ── /stream: herd ──
   # ── stream: plan ──
+  /api/plan-gates:
+    get:
+      operationId: listPlanGates
+      description: Every session's plan-gate verdict in one read. Bootstraps the badge, the plan tab and the unanswered-question signal.
+      responses:
+        "200":
+          description: Session id to gate.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlanGateMap" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /api/plan-gates/inflight:
+    get:
+      operationId: listPlanGatesInflight
+      description: The plan reviews running right now, each with its reviewer environment.
+      responses:
+        "200":
+          description: One row per in-flight review.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlanGateInflightList" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /api/sessions/{id}/go:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      operationId: releasePlanGate
+      description: >-
+        Release an approved plan gate and start execution. Succeeds only when the session is in the
+        planning phase, its gate is approved, and the steer reaches the live pane. There is NO 404:
+        an unknown id answers the same 409 as a gate that is not releasable.
+      responses:
+        "200":
+          description: Execution started.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Ok" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409":
+          description: 'error is "plan not approved or not in planning phase". Also the answer for an unknown id.'
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/sessions/{id}/answer-plan-questions:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      operationId: answerPlanQuestions
+      description: >-
+        Deliver the operator's answers to the planning agent and record which questions are answered.
+        Answers are resolved fail-closed, and only RESOLVED answers record a key — a dropped answer
+        never marks its question done.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AnswerPlanQuestionsRequest" }
+      responses:
+        "200":
+          description: Recorded. `delivered` says whether the steer reached the live pane.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AnswerPlanQuestionsResult" }
+        "400":
+          description: 'Two bodies: "body must be {answers: RawAnswer[]}" for a malformed payload, and "no answers resolved" when every answer was dropped.'
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          description: Unknown id.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "409":
+          description: 'Two bodies: "not in planning phase", and "no plan questions" when the gate carries no question-form block.'
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/sessions/{id}/review-plan:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      operationId: reviewPlan
+      description: Force an adversarial plan review. 202 — the review itself is asynchronous and lands as session:plangate-reviewing then session:plangate.
+      responses:
+        "202":
+          description: Accepted. `status` says what actually happened.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlanReviewResult" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          description: Unknown id.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/sessions/{id}/quota/resume:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      operationId: resumePlanQuota
+      description: Reset a stalled plan's round budget and re-deliver its findings to the planning agent. 202 even when nothing was stalled.
+      responses:
+        "202":
+          description: Accepted. `status` distinguishes resumed, unreachable and not-stalled.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlanQuotaResult" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          description: 'Two bodies, same status: "not found" for an unknown id, and "no forge for this repo" on the critic branch of this shared route.'
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "502":
+          description: The critic branch's forge lookup threw.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/sessions/{id}/quota/dismiss:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      operationId: dismissPlanQuota
+      description: Reset a stalled plan's round budget WITHOUT re-delivering findings — the operator is taking it over.
+      responses:
+        "202":
+          description: Accepted.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlanQuotaResult" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          description: Unknown id.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
   # ── /stream: plan ──
   # ── stream: merge ──
   # ── /stream: merge ──
@@ -2524,6 +3202,15 @@ x-shepherd-events:
     schema: { $ref: "#/components/schemas/SessionClaudeAliveEvent" }
   # ── /stream: herd ──
   # ── stream: plan ──
+  session:plangate:
+    description: Polymorphic — a fresh verdict carries `gate`, a phase flip carries `planPhase`. Handle each key independently.
+    schema: { $ref: "#/components/schemas/SessionPlanGateEvent" }
+  session:plangate-reviewing:
+    description: A plan review started or ended. `env` rides the start edge only.
+    schema: { $ref: "#/components/schemas/SessionPlanGateReviewingEvent" }
+  session:plangate-activity:
+    description: One line of plan-reviewer progress. Cleared on both edges of session:plangate-reviewing.
+    schema: { $ref: "#/components/schemas/SessionPlanGateActivityEvent" }
   # ── /stream: plan ──
   # ── stream: merge ──
   # ── /stream: merge ──

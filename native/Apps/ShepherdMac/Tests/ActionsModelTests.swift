@@ -124,6 +124,59 @@ struct ActionsModelTests {
         #expect(m.recaps.keys.sorted() == ["s2"])
         #expect(m.amendments.keys.sorted() == ["s2"])
     }
+
+    /// `native/README.md`, "Reconcile after a drop": the bootstrap read is not the only read
+    /// this model may ever do. Frames are lost while the socket is down, so every return to
+    /// `.live` re-reads the snapshot — and only a return to `.live` does, because `.connecting`
+    /// is published on every retry against a server the store cannot yet reach.
+    @Test func everyReconnectReReadsTheSnapshotAndTeardownStopsThat() async {
+        let counter = ReadCounter()
+        let m = ActionsModel(
+            reads: ActionReads(recaps: {
+                await MainActor.run { counter.count += 1 }
+                return try await ActionReads.stub.recaps()
+            }),
+            now: { 1_800_000_000_000 })
+        let box = ConnectionBox()
+        box.state = .connecting
+        m.connectionSource = ConnectionSource(read: { box.state }, abandon: {})
+        m.watchConnection()
+
+        box.state = .live
+        #expect(await settle(until: { counter.count == 1 }), "coming up live reads once")
+        // The counter moves when the read *starts*; the snapshot lands a hop later.
+        #expect(await settle(until: { m.recap(for: "s1") != nil }), "and installs what it read")
+
+        // A drop and a retry that never reach `.live` read nothing.
+        box.state = .offline(message: "down")
+        box.state = .connecting
+        #expect(await settle(until: { counter.count > 1 }, yields: 50) == false)
+
+        box.state = .live
+        #expect(await settle(until: { counter.count == 2 }), "the reconnect reads again")
+
+        m.teardown()
+        box.state = .connecting
+        box.state = .live
+        #expect(await settle(until: { counter.count > 2 }, yields: 50) == false)
+    }
+
+    /// Yields until `condition` holds or the budget runs out. Everything here lands on the main
+    /// actor, so there is nothing to sleep for.
+    private func settle(until condition: () -> Bool, yields: Int = 500) async -> Bool {
+        for _ in 0..<yields {
+            if condition() { return true }
+            await Task.yield()
+        }
+        return condition()
+    }
+}
+
+/// Counts reads from inside a `@Sendable` closure. Main-actor isolated, so it is `Sendable`
+/// without a lock and the test can read it directly.
+@MainActor
+final class ReadCounter {
+    var count = 0
 }
 
 /// The store-backed half: the real `AppExtension` initialiser, the real `SessionStore.events()`
@@ -198,6 +251,52 @@ struct ActionsModelTapTests {
                     .utf8))
     }
 
+    /// The reconcile loop against a real store's caches: coming back live re-reads the snapshot
+    /// *and* prunes to what the store now lists. The bootstrap read is deliberately made to fail
+    /// first, so a recap appearing at all can only be the reconnect's doing.
+    @Test func aReconnectReReadsAndPrunesAgainstTheStore() async throws {
+        let store = try makeStore()
+        let model = ActionsModel(store: store, app: makeApp())
+        model.reads = .failing
+        model.apply(amendmentsFrame("s9"))
+        store.apply(.sessionNew(PreviewData.session(id: "s1")))
+
+        let box = ConnectionBox()
+        box.state = .connecting
+        model.connectionSource = ConnectionSource(read: { box.state }, abandon: {})
+        model.watchConnection()
+
+        // Let the failing bootstrap land: it installs nothing and prunes nothing.
+        _ = await settle(until: { model.recap(for: "s1") != nil }, yields: 50)
+        #expect(model.recap(for: "s1") == nil)
+        #expect(model.amendments(for: "s9").count == 1)
+
+        model.reads = .stub
+        box.state = .live
+        #expect(
+            await settle(until: { model.recap(for: "s1") != nil }),
+            "the socket coming back re-reads the snapshot")
+        #expect(model.amendments(for: "s9").isEmpty, "and prunes what the store no longer lists")
+        model.teardown()
+    }
+
+    /// The two guards are separate facts. A read that lost its race bumps the reads' generation;
+    /// that must not silently kill a perfectly live event tap — which is what one shared counter
+    /// did, while `isSubscribed` went on claiming the tap was there.
+    @Test func aStaleReadDoesNotKillTheEventTap() async throws {
+        let store = try makeStore()
+        let model = ActionsModel(store: store, app: makeApp())
+        model.reads = .stub
+        model.armStaleGeneration()
+        await model.refresh()
+        #expect(model.recaps.isEmpty, "the superseded snapshot is still dropped")
+
+        store.apply(recapFrame("s7"))
+        #expect(await settle(until: { model.recap(for: "s7") != nil }), "the tap is still live")
+        #expect(model.isSubscribed)
+        model.teardown()
+    }
+
     @Test func theStoreInitTapsEventsAndTeardownEndsTheTap() async throws {
         let store = try makeStore()
         let model = ActionsModel(store: store, app: makeApp())
@@ -211,7 +310,7 @@ struct ActionsModelTapTests {
 
         // A frame after teardown reaches nothing. Cancelling the tap task is not on its own
         // enough — a cancelled AsyncStream iterator still returns an element that is already
-        // buffered — so the model drops a frame whose generation has moved on.
+        // buffered — so the model drops any frame that arrives once it is torn down.
         store.apply(recapFrame("s8"))
         _ = await settle(until: { model.recap(for: "s8") != nil }, yields: 50)
         #expect(model.recap(for: "s8") == nil)

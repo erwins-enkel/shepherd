@@ -159,7 +159,7 @@ enum ActionRules {
         case .rename, .amend, .regenerateRecap:
             return true
         case .toggleReady:
-            // `readyToggleShown` in ui/src/lib/components/RailStatusActions.svelte:
+            // `readyToggleShown` in ui/src/lib/components/git-rail/RailStatusActions.svelte:
             // `(git.state === "open" || ready) && status !== "running" && status !== "blocked"`.
             // Marking work ready while the agent is still moving marks a moving target, so the
             // toggle goes away until the session settles. It reads the RAW status, not the

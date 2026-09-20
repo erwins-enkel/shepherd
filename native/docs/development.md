@@ -472,8 +472,8 @@ The live composer smoke enters through `toolbar-new-session`, selects a real iss
 prompt prefill and engine/model/effort/capacity, and stops before the spawn CTA. In isolated
 live mode the activated client's `ReadOnlyRequestAudit` rejects every non-GET operation and
 `getBranchStatus` (a GET that may fetch git refs). Compose also suppresses that automatic
-probe, and uses the isolated model's defaults for its filters. UI teardown and the S7–S11 live
-snapshot suites assert positive read counts and zero rejected requests. Authentication and
+probe, and uses the isolated model's defaults for its filters. UI teardown and all live
+snapshot/sign-in suites assert positive read counts and zero rejected requests. Authentication and
 revocation remain confined to ProfileSetup's separately named test-token clients. Counts
 contain no URL, payload or credential. The existing PTY-input/takeover and Up Next write
 blocks remain in force.

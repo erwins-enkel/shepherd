@@ -83,13 +83,13 @@ mints, never to an environment-provided token.
 ### Ownership and prerequisites
 
 Own `Sources/Merge/**`, `ShepherdClient+Merge.swift`, `ShepherdClientMergeTests.swift`,
-`Tests/Merge*Tests.swift`, `test/contract/merge{,-fixtures}.ts`, only the three `merge` blocks in
+`Tests/Merge*Tests.swift`, `test/contract/merge.test.ts` and `merge-fixtures.ts`, only the three `merge` blocks in
 `contracts/openapi.yaml`, their generated copies, `KEYS_MERGE`, append-only EN/DE entries and the
 generated string catalog. App paths are relative to `native/Apps/ShepherdMac/`; kit paths to
 `native/Sources/ShepherdKit/Client/` and `native/Tests/ShepherdKitTests/`.
 
 Never edit `StreamRegistrations.swift`, `ShepherdApp.swift`, any `*Slot.swift`, `SessionSignals.swift`,
-`SessionStore.swift`, `ServerEvent.swift`, `EventName`, shared harness files, S7's sidebar, S10's
+`AppModel.swift`, `MainWindow.swift`, `SessionStore.swift`, `ServerEvent.swift`, `EventName`, shared harness files, S7's sidebar, S10's
 queues or S11's composer. `NewSessionSlot.content/options` stays S11's; a train calls
 `store.create` with S0's extended `CreateSessionRequest`, not the composer extras hook.
 
@@ -128,10 +128,11 @@ A missing marker or seam is an S0 prerequisite failure; report it instead of edi
 - The current web confirmation displays method/branch deletion, rather than offering pickers.
   Native offers the requested pickers using S2's existing `mergePR(sessionID:method:deleteBranch:)`.
   The current contract omits `GitState.mergeGate` and the merge request's `confirm` object.
-  S9 must not widen the `detail` block. Until an S0 follow-up adds those generated fields and the
-  wrapper argument, takeovers remain server-refused; show the 409 and never bypass it. This is a
-  recorded parity limit, not permission to infer responsibility from `GitState.handoff` (which is
-  a different, CI-dependent fact). Train confirmation lists every chosen PR and warns that the
+  S9 must not widen the `detail` block. The S0-owned prerequisite below must merge before Task 7
+  can pass: takeover confirmation is part of S9's merge scope, not a deferred parity limit.
+  S0 owns the shared contract/wrapper extension; S9 owns its confirmation UI and tests. Never
+  infer responsibility from `GitState.handoff` (a different, CI-dependent fact).
+  Train confirmation lists every chosen PR and warns that the
   driver can land other people's PRs; it never claims that every target belongs to the operator.
 - `SidebarSlot` and `ActionBarSlot` are single closures. Task 9 composes their existing content,
   once per process, and resolves the live model at render time. S0 installs S9 after S3/S4/S10.
@@ -1664,7 +1665,7 @@ import Testing
 struct MergeStringsTests {
     @Test func nativeLabelsResolve() {
         #expect(L.t("native_merge_overview") != "native_merge_overview")
-        #expect(L.t("native_merge_takeover_limit") != "native_merge_takeover_limit")
+        #expect(L.t("mergeconfirm_review_block", "reviewer") != "mergeconfirm_review_block")
     }
 }
 ```
@@ -1687,6 +1688,7 @@ additions = {'native_merge_load_failed': ('Could not load merge state. Reconnect
  'native_merge_queue': ('Build queue', 'Build-Warteschlange'),
  'native_merge_remove': ('Remove', 'Entfernen'),
  'native_merge_step': ('Step title', 'Schritttitel'),
+ 'native_merge_step_detail': ('Step details', 'Schrittdetails'),
  'native_merge_add': ('Add step', 'Schritt hinzufügen'),
  'native_merge_approve': ('Approve queue', 'Warteschlange freigeben'),
  'native_merge_overview': ('Merge & automation', 'Merge & Automatisierung'),
@@ -1706,10 +1708,6 @@ additions = {'native_merge_load_failed': ('Could not load merge state. Reconnect
  'native_merge_delete_branch': ('Delete source branch', 'Quellbranch löschen'),
  'native_merge_redeploy': ('Redeploy', 'Erneut bereitstellen'),
  'native_merge_ack': ('I own the manual steps', 'Ich übernehme die manuellen Schritte'),
- 'native_merge_takeover_limit': ('The server checks merge responsibility. A refused takeover '
-                                 'cannot be confirmed in this version.',
-                                 'Der Server prüft die Merge-Verantwortung. Eine abgelehnte '
-                                 'Übernahme kann in dieser Version nicht bestätigt werden.'),
  'native_merge_inherit': ('Repository default', 'Repository-Standard'),
  'native_merge_off': ('Off', 'Aus'),
  'native_merge_on': ('On', 'An'),
@@ -1738,6 +1736,7 @@ keys = ['buildqueue_start',
  'clearmerged_probes_unavailable',
  'clearmerged_title',
  'common_cancel',
+ 'common_save',
  'herd_merge_train_prompt',
  'mergeconfirm_confirm',
  'native_merge_ack',
@@ -1763,7 +1762,10 @@ keys = ['buildqueue_start',
  'native_merge_redeploy',
  'native_merge_remove',
  'native_merge_step',
- 'native_merge_takeover_limit',
+ 'native_merge_step_detail',
+ 'mergeconfirm_handoff_reviewer',
+ 'mergeconfirm_handoff_merger',
+ 'mergeconfirm_review_block',
  'native_merge_train',
  'native_merge_train_warning',
  'owed_dismiss',
@@ -1984,6 +1986,22 @@ actor MergeLatch {
         #expect(MergeRules.owed(model.snapshot.owed, repos: ["/b"]).isEmpty)
         model.teardown()
     }
+    @Test func externalAutomationFramesRefreshSessionRows() async {
+        var rowsRead = 0
+        let model = MergeModel(reads: .init(snapshot: { .init() }, sessionRows: { rowsRead += 1 }))
+        defer { model.teardown() }
+        for name in ["session:autopilot", "session:automerge", "session:manual-steps", "session:merging"] {
+            let previous = rowsRead
+            model.receive(name: name)
+            while rowsRead == previous { await Task.yield() }
+            #expect(rowsRead > previous)
+        }
+        model.teardown()
+        let stoppedAt = rowsRead
+        model.receive(name: "session:autopilot")
+        await model.refresh()
+        #expect(rowsRead == stoppedAt)
+    }
     @Test func registrationNeverTouchesKeychain() {
         let suite = "MergeModelTests-" + UUID().uuidString
         let defaults = UserDefaults(suiteName: suite)!
@@ -2016,14 +2034,16 @@ struct MergeSnapshot: Sendable {
 }
 struct MergeReads: Sendable {
     var snapshot: @Sendable () async throws -> MergeSnapshot
-    static func live(_ client: ShepherdClient) -> Self {
-        .init(snapshot: {
+    var sessionRows: @MainActor @Sendable () async throws -> Void = {}
+    @MainActor static func live(_ store: SessionStore) -> Self {
+        let client = store.client
+        return .init(snapshot: {
             async let auto = client.listAutomerge()
             async let drain = client.listDrain()
             async let queues = client.listBuildQueues()
             async let owed = client.listOutstandingManualSteps()
             return try await MergeSnapshot(automation: auto, drain: drain, queues: queues, owed: owed)
-        })
+        }, sessionRows: { try await store.refresh() })
     }
 }
 @Observable @MainActor
@@ -2050,7 +2070,7 @@ final class MergeModel: AppExtension {
 
     init(reads: MergeReads) { self.reads = reads }
     init(store: SessionStore, app: AppModel) {
-        self.store = store; self.app = app; self.reads = .live(store.client)
+        self.store = store; self.app = app; self.reads = .live(store)
         let mine = generation
         let activation = app.activationGeneration
         // Subscribe before scheduling the bootstrap. Buffered old frames are generation-guarded.
@@ -2062,7 +2082,7 @@ final class MergeModel: AppExtension {
                 case .automergeStatus, .sessionNew, .sessionArchived, .sessionStatus:
                     self.invalidate()
                 case .unknown(let name, _):
-                    if Self.refreshEvents.contains(name) { self.invalidate() }
+                    self.receive(name: name)
                 default: break
                 }
             }
@@ -2094,6 +2114,10 @@ final class MergeModel: AppExtension {
     private func valid(_ mine: Int, _ activation: Int?) -> Bool {
         !stopped && mine == generation && activation == app?.activationGeneration
     }
+    func receive(name: String) {
+        guard Self.refreshEvents.contains(name) else { return }
+        invalidate()
+    }
     func invalidate() {
         guard !stopped else { return }
         revision &+= 1
@@ -2111,6 +2135,10 @@ final class MergeModel: AppExtension {
             pending = false
             let started = revision
             do {
+                // SessionStore ignores these frames. Refresh its session rows too, so another
+                // client's autopilot/ack change and merge-train progress reach the controls.
+                try await reads.sessionRows()
+                guard valid(mine, activation), !Task.isCancelled else { return }
                 let value = try await reads.snapshot()
                 guard valid(mine, activation), !Task.isCancelled else { return }
                 // A frame during the GET makes the snapshot suspect. Re-read, don't overwrite it.
@@ -2134,22 +2162,24 @@ final class MergeModel: AppExtension {
             ($0.sessionId, $0.steps.filter { $0.doneAt == nil }.count)
         })
     }
-    func perform(_ action: @escaping @MainActor () async throws -> Void) {
+    func perform<Value: Sendable>(
+        commit: @escaping @MainActor (Value) -> Void = { _ in },
+        failure: @escaping @MainActor () -> Void = {},
+        _ action: @escaping @MainActor () async throws -> Value
+    ) {
         guard !busy, !stopped else { return }
         busy = true; error = nil
         let mine = generation, activation = app?.activationGeneration
         writeTask = Task { [weak self] in
             do {
-                try await action()
+                let value = try await action()
                 guard let self, self.valid(mine, activation), !Task.isCancelled else { return }
-                // SessionStore ignores these unknown frames; refresh its authoritative rows.
-                try await self.store?.refresh()
-                guard self.valid(mine, activation), !Task.isCancelled else { return }
-                self.busy = false; self.invalidate()
+                commit(value); self.busy = false; self.invalidate()
             } catch {
                 guard let self, self.valid(mine, activation), !Task.isCancelled else { return }
                 self.busy = false
                 self.error = ShepherdErrorCopy.message(error)
+                failure()
             }
         }
     }
@@ -2164,7 +2194,7 @@ final class MergeModel: AppExtension {
 }
 ```
 
-The stream refreshes authoritative snapshots for its eight unknown frames; it does not modify
+The stream refreshes authoritative snapshots and SessionStore rows for its eight unknown frames; it does not modify
 `EventName` or start a second socket. The observation continuation is retained and **finished** in
 teardown so a suspended iterator exits. Views are keyed by activation generation, including sheet
 content, preventing local preview state from appearing under a newly selected profile. HTTP
@@ -2274,11 +2304,191 @@ git add native/Apps/ShepherdMac/Sources/Merge/MergeOwedView.swift native/Apps/Sh
 git commit -m "feat(mac): durable owed manual steps"
 ```
 
+### S0 prerequisite for Task 7: complete the existing manual-merge contract
+
+**Blocking for Task 7 and S9 acceptance; independent Tasks 1–6 may proceed.** This is S0's
+integration work under the master's shared-file protocol, because `GitState`, `MergePrBody`,
+`POST /api/sessions/{id}/git/merge` and `ShepherdClient+Detail.swift` already belong to S2.
+It is not another approved core-path exception for S9. Keep that path in `detail`, with its
+existing 200/401/404/409/502 statuses and its existing Error response mapping. Do not put a
+second merge operation or a second GitState in `merge`. S0 lands this before S9 rebases for Task 7.
+
+S0 appends these two schemas in **detail**, reusing S0-prep-2's already merged `PrHandoff`
+read-side open enum (S7 supplies its OpenEnum conformance before S9 merges):
+
+```yaml
+MergeResponsibility:
+  type: object
+  additionalProperties: true
+  properties:
+    handoff:
+      $ref: "#/components/schemas/PrHandoff"
+    handoffWho: { type: string }
+    reviewBlockBy: { type: string }
+MergeConfirmation:
+  type: object
+  additionalProperties: false
+  properties:
+    headSha: { type: [string, "null"] }
+    baseRefName: { type: [string, "null"] }
+    handoff: { type: [string, "null"], enum: [reviewer, merger, null] }
+    handoffWho: { type: [string, "null"] }
+    reviewBlockBy: { type: [string, "null"] }
+```
+
+S0 adds the following optional members to `GitState.properties`; `headSha` already exists
+from S0-prep-2 and must not be added twice:
+
+```yaml
+baseRefName: { type: string }
+mergeGate:
+  $ref: "#/components/schemas/MergeResponsibility"
+```
+
+And this member to `MergePrBody.properties`:
+
+```yaml
+confirm:
+  $ref: "#/components/schemas/MergeConfirmation"
+```
+
+`parseMergeConfirm` treats absent scalar members exactly like null, so these optional fields do
+not need the explicit-null generator flag. Update `MergePrBody.description` to describe the
+optional confirmation. Regenerate and sync before changing the wrapper. In S0's
+`ShepherdClient+Detail.swift`, replace only the `mergePR` signature and generated-body expression:
+
+```swift
+public func mergePR(
+    sessionID: String, method: MergeMethod?, deleteBranch: Bool?,
+    confirm: Components.Schemas.MergeConfirmation? = nil
+) async throws -> GitState
+// Keep the existing function body/status handling; replace its request body argument with:
+body: .json(.init(method: method, deleteBranch: deleteBranch, confirm: confirm))
+```
+
+The default preserves S2 callers and tests. S0 adds this test **before** the coverage gate in
+`test/contract/detail.test.ts`, using that file's real `post`, `ok`, `fx.makeForge` and harness
+helpers. Missing and stale confirmations must not invoke the forge. These are additional cases
+of already declared statuses, not a new S9 coverage exemption.
+
+```ts
+test("manual merge confirms the displayed revision and configured responsibility", async () => {
+  const savedForge = s.deps.resolveForge,
+    savedRoles = s.deps.readRoles;
+  const savedGit = s.stubs.prCache.rows[ok];
+  const calls: { number: number; options: unknown }[] = [];
+  const current = {
+    state: "open",
+    checks: "success",
+    number: 12,
+    deployConfigured: false,
+    headSha: "head-a",
+    baseRefName: "release",
+  };
+  s.deps.readRoles = () => ({ reviewer: null, merger: "owner" });
+  s.deps.resolveForge = () =>
+    fx.makeForge({
+      currentUser: async () => "operator",
+      prStatus: async () => current,
+      merge: async (number: number, options: unknown) => {
+        calls.push({ number, options });
+      },
+    });
+  const template = "/api/sessions/{id}/git/merge";
+  const invoke = async (confirm?: unknown) => {
+    const res = await post(`/api/sessions/${ok}/git/merge`, { confirm });
+    const body = await validateResponse("POST", template, res);
+    return { status: res.status, body };
+  };
+  try {
+    const missing = await invoke();
+    expect(missing.status).toBe(409);
+    expect(missing.body).toMatchObject({ code: "merge_confirm_required" });
+    const confirmed = {
+      headSha: "head-a",
+      baseRefName: "release",
+      handoff: "merger",
+      handoffWho: "owner",
+      reviewBlockBy: null,
+    };
+    const stale = await invoke({ ...confirmed, headSha: "head-old" });
+    expect(stale.status).toBe(409);
+    expect(stale.body).toMatchObject({ code: "merge_confirm_stale" });
+    expect(calls).toEqual([]);
+    expect((await invoke(confirmed)).status).toBe(200);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({ number: 12, options: { expectedHeadSha: "head-a" } });
+  } finally {
+    s.deps.resolveForge = savedForge;
+    s.deps.readRoles = savedRoles;
+    if (savedGit === undefined) delete s.stubs.prCache.rows[ok];
+    else s.stubs.prCache.rows[ok] = savedGit;
+  }
+});
+```
+
+S9 creates `Sources/Merge/MergeConfirmationRules.swift`:
+
+```swift
+import ShepherdKit
+
+enum MergeConfirmationRules {
+    static func payload(_ git: GitState) -> Components.Schemas.MergeConfirmation {
+        .init(headSha: git.headSha, baseRefName: git.baseRefName,
+            handoff: git.mergeGate?.handoff.flatMap { .init(rawValue: $0.rawValue) },
+            handoffWho: git.mergeGate?.handoffWho, reviewBlockBy: git.mergeGate?.reviewBlockBy)
+    }
+}
+```
+
+Add this substantive case to `MergeRulesTests` and the transport case to
+`ShepherdClientMergeTests` after rebasing onto the S0 prerequisite:
+
+```swift
+@Test func confirmationUsesGateAndActualTargetRatherThanHerdHandoff() throws {
+    let git = try JSONDecoder().decode(GitState.self, from: Data(#"{"state":"open","checks":"pending","number":7,"deployConfigured":false,"headSha":"head-a","baseRefName":"release","handoff":"reviewer","handoffWho":"wrong","mergeGate":{"handoff":"merger","handoffWho":"owner","reviewBlockBy":"reviewer"}}"#.utf8))
+    let confirm = MergeConfirmationRules.payload(git)
+    #expect(confirm.headSha == "head-a")
+    #expect(confirm.baseRefName == "release")
+    #expect(confirm.handoff?.rawValue == "merger")
+    #expect(confirm.handoffWho == "owner")
+    #expect(confirm.reviewBlockBy == "reviewer")
+}
+```
+
+```swift
+@Test func mergeCarriesTheConfirmedRevisionAndResponsibility() async throws {
+    let server = FakeShepherdServer(); defer { server.tearDown() }
+    server.on("POST", "/api/sessions/a/git/merge") { request in
+        let data = try #require(request.body)
+        let body = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let confirm = try #require(body["confirm"] as? [String: Any])
+        #expect(confirm["headSha"] as? String == "head-a")
+        #expect(confirm["baseRefName"] as? String == "release")
+        #expect(confirm["handoffWho"] as? String == "owner")
+        return FakeResponse(body: Data(#"{"state":"merged","checks":"success","deployConfigured":false}"#.utf8))
+    }
+    let result = try await client(server).mergePR(sessionID: "a", method: .squash,
+        deleteBranch: false, confirm: .init(headSha: "head-a", baseRefName: "release",
+            handoff: .merger, handoffWho: "owner"))
+    #expect(result.state.known == .merged)
+    #expect(server.requests().count == 1)
+}
+```
+
+```bash
+bun run test:contract
+bun run gen:contract-swift && ./native/scripts/sync-contract.sh
+swift test --package-path native --filter ShepherdClientMerge
+./native/scripts/test-app.sh -only-testing:ShepherdTests/MergeRulesTests
+git checkout -- native/Package.resolved
+```
+
 ### Task 7: Add session automation and guarded merge actions
 
-**Files:** `Sources/Merge/MergeSessionView.swift`.
+**Files:** `Sources/Merge/MergeSessionView.swift`, `MergeConfirmationRules.swift`; extend Task 2/4 tests as above.
 
-**Interfaces:** consumes S2 merge wrapper, generated tri-state settings, Task 2 transport tests; produces AppKit-free merge detail view without a toolbar.
+**Interfaces:** consumes the S0-extended S2 merge wrapper, generated tri-state settings, Task 2 transport tests; produces AppKit-free merge detail view without a toolbar.
 
 - [ ] **Step 1: Run the refusal and explicit-null tests red if the view wiring changes the payload**
 
@@ -2300,6 +2510,7 @@ struct MergeSessionView: View {
     @State private var method: MergeMethod = .squash
     @State private var deleteBranch = true
     @State private var confirm = false
+    @State private var candidate: GitState?
     @State private var redeploy = false
     @State private var armed = false
     var body: some View {
@@ -2320,30 +2531,57 @@ struct MergeSessionView: View {
                 Text(verbatim: "rebase").tag(MergeMethod.rebase)
             }
             Toggle(L.t("native_merge_delete_branch"), isOn: $deleteBranch)
-            Button(L.t("mergeconfirm_confirm")) { confirm = true }
+            Button(L.t("mergeconfirm_confirm")) {
+                candidate = nil; armed = false
+                model.perform(commit: { git in
+                    guard let git, git.state.known == .open, git.number != nil else { return }
+                    candidate = git; confirm = true
+                }) { try await store.client.git(sessionID: session.id) }
+            }
             Button(L.t("native_merge_redeploy")) { redeploy = true }
+            ForEach(session.manualSteps, id: \.id) { step in
+                Text(verbatim: step.text)
+            }
             Button(L.t("native_merge_ack")) {
                 model.perform { _ = try await store.client.ackManualSteps(id: session.id) }
             }.disabled(session.manualSteps.isEmpty)
-            if let q = model.snapshot.queues[session.id] {
-                MergeQueueView(app: app, queue: q, session: session, store: store, model: model)
-            }
+            // The bulk endpoint omits sessions without a persisted queue. Offer their empty
+            // editor too; otherwise the first step could never be created from the native app.
+            let q = model.snapshot.queues[session.id]
+                ?? BuildQueue(sessionId: session.id, steps: [], approved: false)
+            MergeQueueView(app: app, queue: q, session: session, store: store, model: model)
         }
         .padding().disabled(model.busy)
         .sheet(isPresented: $confirm) {
             VStack(alignment: .leading, spacing: 12) {
-                Text(verbatim: "\(session.name) → \(session.baseBranch)")
+                Text(verbatim: "#\(candidate?.number ?? 0) \(candidate?.title ?? session.name)")
+                Text(verbatim: candidate?.baseRefName ?? "—")
+                Text(verbatim: candidate?.headSha ?? "—")
                 Text(verbatim: method.rawValue)
-                Text(L.t("native_merge_takeover_limit"))
+                if let gate = candidate?.mergeGate {
+                    if let who = gate.handoffWho {
+                        Text(gate.handoff?.known == .reviewer
+                            ? L.t("mergeconfirm_handoff_reviewer", who)
+                            : L.t("mergeconfirm_handoff_merger", who))
+                    }
+                    if let reviewer = gate.reviewBlockBy { Text(L.t("mergeconfirm_review_block", reviewer)) }
+                }
                 Toggle(L.t("native_merge_delete_branch"), isOn: $deleteBranch)
                 if let error = model.error { Text(verbatim: error).foregroundStyle(.red) }
                 HStack {
                     Button(L.t("common_cancel")) { confirm = false }.keyboardShortcut(.cancelAction)
                     Button(L.t("mergeconfirm_confirm")) {
-                        guard armed, !model.busy else { return }
-                        model.perform { _ = try await store.client.mergePR(sessionID: session.id,
-                            method: method, deleteBranch: deleteBranch) }
-                    }.disabled(!armed || model.busy)
+                        guard armed, !model.busy, let candidate,
+                            candidate.mergeGate?.handoff == nil || candidate.mergeGate?.handoff?.known != nil else { return }
+                        let payload = MergeConfirmationRules.payload(candidate)
+                        armed = false
+                        model.perform(commit: { _ in confirm = false; self.candidate = nil },
+                            failure: { confirm = false; self.candidate = nil }) {
+                            try await store.client.mergePR(sessionID: session.id,
+                                method: method, deleteBranch: deleteBranch, confirm: payload)
+                        }
+                    }.disabled(!armed || model.busy || candidate == nil
+                        || (candidate?.mergeGate?.handoff != nil && candidate?.mergeGate?.handoff?.known == nil))
                 }
             }.padding().task {
                 armed = false
@@ -2372,7 +2610,11 @@ struct MergeSessionView: View {
 
 Compare manually in the isolated fixture app: inherited/false/true each select distinctly;
 paused and complete remain distinct labels; Escape cancels; clicking during the 350 ms arm period
-sends nothing; a 409 leaves the confirmation open with the failure visible. The server remains
+sends nothing; the dialog names the actual PR target (not the session's original base branch),
+revision and responsible people. A 409 discards the spent confirmation and shows the failure in
+its parent; reopening performs a fresh GET and arms for another 350 ms. Never retry automatically.
+The view identity includes both activation and session ID, so switching sessions closes all
+pending confirmations. The server remains
 the authority on readiness. A successful request is followed by store/snapshot refresh, not an
 optimistic local PR state. Never add `.toolbar` to this view or its children.
 
@@ -2382,7 +2624,7 @@ optimistic local PR state. Never add `.toolbar` to this view or its children.
 ./native/scripts/test-app.sh -only-testing:ShepherdTests/MergeRulesTests
 swift test --package-path native --filter ShepherdClientMerge
 git checkout -- native/Package.resolved
-git add native/Apps/ShepherdMac/Sources/Merge/MergeSessionView.swift
+git add native/Apps/ShepherdMac/Sources/Merge/MergeSessionView.swift native/Apps/ShepherdMac/Sources/Merge/MergeConfirmationRules.swift native/Apps/ShepherdMac/Tests/MergeRulesTests.swift native/Tests/ShepherdKitTests/ShepherdClientMergeTests.swift
 git commit -m "feat(mac): session merge and automation controls"
 ```
 
@@ -2429,17 +2671,15 @@ struct MergeQueueView: View {
                     HStack {
                         Image(systemName: step.status.known == .done ? "checkmark.circle" :
                             step.status.known == .skipped ? "minus.circle" : "circle")
-                        TextField(L.t("native_merge_step"), text: Binding(get: { step.title }, set: { title in
-                            guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, title.count <= 200 else { return }
+                        MergeStepEditor(step: step) { title, detail in
                             var steps = queue.steps
                             guard let index = steps.firstIndex(where: { $0.id == step.id }) else { return }
-                            steps[index].title = title; write(steps)
-                        }))
+                            steps[index].title = title; steps[index].detail = detail; write(steps)
+                        }
                         Button { move(step.id, by: -1) } label: { Image(systemName: "arrow.up") }
                             .accessibilityLabel(L.t("native_merge_move_up"))
                         Button { move(step.id, by: 1) } label: { Image(systemName: "arrow.down") }
                             .accessibilityLabel(L.t("native_merge_move_down"))
-                        Text(verbatim: step.detail).foregroundStyle(.secondary)
                         Button(L.t("native_merge_remove")) { write(queue.steps.filter { $0.id != step.id }) }
                     }
                 }
@@ -2462,7 +2702,7 @@ struct MergeQueueView: View {
                         model.perform { try await store.client.replySession(id: session.id, text: L.t("buildqueue_start_steer")) }
                     }
                 }
-            }.disabled(model.busy)
+            }.disabled(model.busy || queue.steps.contains { $0.status.known == nil })
         }
     }
     private func move(_ id: String, by offset: Int) {
@@ -2476,6 +2716,25 @@ struct MergeQueueView: View {
         let rows = steps.map { BuildStepInput(id: $0.id, title: $0.title, detail: $0.detail,
             status: .init(rawValue: $0.status.rawValue)) }
         model.perform { _ = try await store.client.putBuildQueue(id: session.id, body: .init(steps: rows)) }
+    }
+}
+struct MergeStepEditor: View {
+    let step: BuildStep
+    let save: (String, String) -> Void
+    @State private var title = ""
+    @State private var detail = ""
+    var body: some View {
+        VStack {
+            TextField(L.t("native_merge_step"), text: $title)
+            TextField(L.t("native_merge_step_detail"), text: $detail)
+            Button(L.t("common_save")) {
+                save(title.trimmingCharacters(in: .whitespacesAndNewlines), detail)
+            }.disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                || title.count > 200 || detail.count > 4000
+                || (title == step.title && detail == step.detail))
+        }.onAppear { title = step.title; detail = step.detail }
+        .onChange(of: step.title) { title = step.title }
+        .onChange(of: step.detail) { detail = step.detail }
     }
 }
 struct MergeOverviewView: View {
@@ -2503,7 +2762,7 @@ struct MergeOverviewView: View {
                         Text(verbatim: "\(state.repoPath) · \(state.inFlight)/\(state.max) · \(state.queued)")
                         if state.paused { Text(verbatim: state.reason ?? "—").foregroundStyle(.orange) }
                         Button(L.t("native_merge_queue")) {
-                            model.perform { queue = try await store.client.listDrainQueue(repo: state.repoPath) }
+                            model.perform(commit: { queue = $0 }) { try await store.client.listDrainQueue(repo: state.repoPath) }
                         }
                     }
                 }
@@ -2517,9 +2776,8 @@ struct MergeOverviewView: View {
                     trainOpen = true
                 }
                 Button(L.t("clearmerged_title")) {
-                    model.perform {
-                        clearPreview = try await store.client.previewClearMerged()
-                        clearOpen = true
+                    model.perform(commit: { clearPreview = $0; clearOpen = true }) {
+                        try await store.client.previewClearMerged()
                     }
                 }
                 MergeOwedView(model: model, client: store.client)
@@ -2564,6 +2822,8 @@ struct MergeOverviewView: View {
 }
 ```
 
+Title/detail edits stay local until Save; typing never starts a request. Unknown statuses disable
+the whole editor, including removal, so deleting an unknown row cannot bypass the guard.
 Queue writes preserve IDs and statuses; the server assigns positions from the array order.
 The queue's current approval is server-owned, so always re-read after replacement. Show drain
 pause reason rather than offering a pretend drain API. Clear-merged lists the exact preview IDs,
@@ -2637,7 +2897,7 @@ struct MergeDetailTab: DetailTab {
     @MainActor func makeView(session: Session, store: SessionStore, app: AppModel) -> AnyView {
         guard let model = app.extension(MergeModel.self) else { return AnyView(EmptyView()) }
         return AnyView(MergeSessionView(app: app, session: session, store: store, model: model)
-            .id(app.activationGeneration))
+            .id("\(app.activationGeneration):\(session.id)"))
     }
 }
 struct MergeLauncher: View {
@@ -2795,7 +3055,8 @@ The `rg` check must have no matches. Audit changed paths against Ownership above
 rule test with the named web helper, inspect the actual generated null encoder, and confirm all
 declared statuses appear in this stream's own coverage gate. Verify with an isolated profile switch
 that a queued GET/event completion cannot repaint the new profile and closing the app finishes the
-watcher. Record takeover confirmation as the explicit S0-dependent parity limit, not “complete”.
+watcher. Task 7 and the S9 acceptance gate are blocked until the S0 takeover prerequisite and
+its contract/transport regressions have merged; a refusal-only UI does not complete S9.
 
 - [ ] **Step 3: Commit final tests and open the stream PR**
 
@@ -2811,7 +3072,7 @@ Validation: contract status/event coverage, Swift transport/rule/lifecycle tests
 lint, typecheck, contract and string drift. Record the actual read-only live outcome before posting.
 
 Integration: S0 installs the scene/model and owed panel, wires MergeInputs and manualStepsOutstanding.
-Takeover confirmation needs the separately owned mergeGate/confirm contract follow-up.
+Requires the merged S0 mergeGate/baseRefName/confirm extension; takeover confirmation is included.
 BODY
 gh pr create --base main --title "feat(native): merge automation and post-merge" --body-file /tmp/native-merge-pr.md
 ```

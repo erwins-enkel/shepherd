@@ -83,7 +83,7 @@ mints, never to an environment-provided token.
 ### Ownership, prerequisites and verified decisions
 
 Own `Sources/Settings/**`, `ShepherdClient+Settings.swift`, `ShepherdClientSettingsTests.swift`,
-`Tests/Settings*Tests.swift`, `test/contract/settings{,-fixtures}.ts`, the three `settings` contract
+`Tests/Settings*Tests.swift`, `test/contract/settings.test.ts` and `settings-fixtures.ts`, the three `settings` contract
 blocks, generated contract copies, `KEYS_SETTINGS`, append-only EN/DE keys and generated strings.
 App paths are relative to `native/Apps/ShepherdMac/`; kit paths use `native/Sources/ShepherdKit/Client/`
 and `native/Tests/ShepherdKitTests/`. Run alone in Phase E after S0-prep-2 and S7–S11. S9's tested
@@ -93,7 +93,8 @@ and `native/Tests/ShepherdKitTests/`. Run alone in Phase E after S0-prep-2 and S
 The only core contract edits are **adding `patch:` to the existing `/api/settings` path** and
 expanding **`Settings`**. Keep existing GET and PUT `putRepoRoot` intact. Never duplicate the core
 access-token paths, login, repo listing, usage limits, or S11's `/api/repos/init-empty-commit`.
-Never edit `StreamRegistrations.swift`, `ShepherdApp.swift`, `SessionSignals.swift`, `SessionStore`,
+Never edit `StreamRegistrations.swift`, `ShepherdApp.swift`, `AppModel.swift`, `MainWindow.swift`,
+`SessionSignals.swift`, `SessionStore`,
 `EventName`, shared harness files, or S6's files inside this stream. Task 9 gives S0 exact integration
 changes, including retirement of S6's AppKit window and notification delivery hooks.
 
@@ -777,8 +778,6 @@ SettingsPatchResult:
     autopilotModel:
       type: string
     autopilotEffort:
-      type: string
-    anthropicApiKey:
       type: string
     hasApiKey:
       type: boolean
@@ -2063,6 +2062,19 @@ actor SettingsReadLatch {
         #expect(model.error != nil)
         model.teardown()
     }
+    @Test func successfulWriteReconcilesSharedStoreBeforePublishing() async {
+        var reconciled = false
+        var committed = false
+        let model = SettingsModel(reads: .init(snapshot: { throw ShepherdError.notFound },
+            reconcile: { reconciled = true }))
+        defer { model.teardown() }
+        model.run({ true }, commit: { value in
+            #expect(reconciled)
+            committed = value
+        })
+        while model.busy { await Task.yield() }
+        #expect(reconciled); #expect(committed)
+    }
     @Test func registrationUsesIsolatedPersistence() {
         let suite = "SettingsModel-" + UUID().uuidString
         let defaults = UserDefaults(suiteName:suite)!
@@ -2095,15 +2107,17 @@ struct SettingsSnapshot: Sendable {
 }
 struct SettingsReads: Sendable {
     var snapshot: @Sendable () async throws -> SettingsSnapshot
-    static func live(_ client: ShepherdClient) -> Self {
-        .init(snapshot: {
+    var reconcile: @MainActor @Sendable () async throws -> Void = {}
+    @MainActor static func live(_ store: SessionStore) -> Self {
+        let client = store.client
+        return .init(snapshot: {
             async let settings = client.settings()
             async let diagnostics = client.getDiagnostics()
             async let usage = client.usage()
             async let repos = client.repos()
             return try await .init(settings: settings, diagnostics: diagnostics,
                 usage: usage.limits, repos: repos.repos)
-        })
+        }, reconcile: { try await store.refresh() })
     }
 }
 @Observable @MainActor final class SettingsModel: AppExtension {
@@ -2128,7 +2142,7 @@ struct SettingsReads: Sendable {
     @ObservationIgnored private var wake: AsyncStream<Void>.Continuation?
     init(reads: SettingsReads) { self.reads = reads }
     init(store: SessionStore, app: AppModel) {
-        self.app = app; reads = .live(store.client)
+        self.app = app; reads = .live(store)
         let activation = app.activationGeneration
         tap = Task { [weak self, weak store] in
             guard let store else { return }
@@ -2188,6 +2202,11 @@ struct SettingsReads: Sendable {
             do {
                 let value = try await operation()
                 guard let self, !self.stopped, self.app?.activationGeneration == activation,
+                    !Task.isCancelled else { return }
+                // Other streams read SessionStore.settings/repos (composer defaults and root).
+                // A SettingsModel-only GET would leave those consumers stale until reconnect.
+                try await self.reads.reconcile()
+                guard !self.stopped, self.app?.activationGeneration == activation,
                     !Task.isCancelled else { return }
                 commit(value); self.busy = false; self.reload()
             } catch {
@@ -3372,6 +3391,9 @@ struct SettingsPaneEntry: SettingsPane {
     let systemImage: String
     let order: Int
     var title: String {L.t(titleKey)}
+    @MainActor static func notifications(in app: AppModel) -> NotificationsModel? {
+        app.extension(NotificationsModel.self)
+    }
     @MainActor func makeView(app: AppModel) -> AnyView {
         AnyView(Group {
             if id == "general" {
@@ -3381,7 +3403,7 @@ struct SettingsPaneEntry: SettingsPane {
                         SettingsGeneralView(model:model,client:store.client)
                     }
                 }
-            } else if id == "notifications", let model = app.extension(NotificationsModel.self) {
+            } else if id == "notifications", let model = Self.notifications(in: app) {
                 VStack {
                     NotificationSettingsView(model:model,profileName:app.activeProfile?.name ?? "")
                     if let settings = app.extension(SettingsModel.self), let client = app.store?.client {
@@ -3454,10 +3476,6 @@ SettingsNotificationBridge.sendReady = {app,session in
     return await model.deliver(.init(kind:.ready,sessionID:session.id,subject:session.name),evaluatedReady:true)
 }
 // This is lazy per-activation lookup; never capture a NotificationsModel instance here.
-NotificationsModel.intentPolicy = { [weak app] intent,evaluated in
-    let reduced = app?.extension(SettingsModel.self)?.snapshot?.settings.reducedPushMode ?? true
-    return SettingsReadyRules.allows(kind:intent.kind.id,reduced:reduced,evaluatedReady:evaluated)
-}
 // HerdGroupView: replace the SessionRow expression with:
 SessionRow(session: display(session))
     .modifier(SettingsStatusShape(status: display(session).status))
@@ -3486,14 +3504,85 @@ and `import os` if unused after deletion. Keep the SwiftUI `NotificationSettings
 which the new Notifications pane embeds. There must be no reference to `NotificationSettingsWindow`
 or its old menu item after integration. No replacement `NSWindow` or `NSApp` usage is introduced.
 
+**Retire the old tests in the same S0 commit.** At tip `895c439d`, the trailing
+`NotificationWindowStateTests` suite in `Tests/NotificationsModelTests.swift` still calls
+`NotificationSettingsWindow.reset/installMenuItem/show/isOpen/armedWatchers`. Deleting only the
+production enum leaves the test target uncompilable. Replace that whole trailing suite with the
+following; keep all earlier notification delivery, authorization, cooldown, badge and teardown
+suites, plus `NotificationsBadgeRaceTests.swift`, unchanged. Remove obsolete menu/panel-only
+helpers and imports if no longer used. These tests preserve registration and permission-copy
+coverage, and replace window-close/watch assertions with the new scene's actual contract:
+re-resolve the active notification model and retire the old model on profile switch.
+
+```swift
+@Suite(.serialized) @MainActor
+struct NotificationWindowStateTests {
+    @Test func notificationPaneAndModelRegisterOnce() {
+        let suite = "notification-scene-" + UUID().uuidString
+        let defaults = UserDefaults(suiteName: suite)!
+        defer {
+            defaults.removePersistentDomain(forName: suite)
+            SettingsPaneRegistry.reset(); CommandRegistry.reset()
+        }
+        let app = AppModel(defaults: defaults, credentials: InMemoryCredentialStore())
+        defer { app.teardown() }
+        NotificationsStream.install(app); NotificationsStream.install(app)
+        SettingsFeature.installScene(); SettingsFeature.installScene()
+        #expect(app.extensionFactories.count == 1)
+        #expect(SettingsPaneEntry.notifications(in: app) == nil)
+        #expect(SettingsPaneRegistry.panes.filter { $0.id == "notifications" }.count == 1)
+    }
+    @Test func permissionCopySurvivesPanelRetirement() {
+        #expect(NotificationSettingsView.permissionNote(for: .denied)
+            == L.t("native_notify_settings_permission_denied"))
+        #expect(NotificationSettingsView.permissionNote(for: .granted) == nil)
+        #expect(NotificationSettingsView.permissionNote(for: .notDetermined) == nil)
+        #expect(NotificationSettingsView.showsAskButton(for: .notDetermined))
+        #expect(!NotificationSettingsView.showsAskButton(for: .granted))
+        #expect(!NotificationSettingsView.showsAskButton(for: .denied))
+    }
+    @Test func paneResolvesNewActivationAndCannotWriteThroughRetiredModel() async throws {
+        let suite = "notification-scene-switch-" + UUID().uuidString
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let app = AppModel(defaults: defaults, credentials: InMemoryCredentialStore())
+        defer { app.teardown() }
+        NotificationsStream.install(app)
+        let first = try app.addRemoteProfile(name: "first", address: "https://first.example.ts.net")
+        await app.activate(first)
+        let old = try #require(SettingsPaneEntry.notifications(in: app))
+        let generation = app.activationGeneration
+        let second = try app.addRemoteProfile(name: "second", address: "https://second.example.ts.net")
+        await app.activate(second)
+        let current = try #require(SettingsPaneEntry.notifications(in: app))
+        #expect(current !== old)
+        #expect(app.activationGeneration != generation)
+        let oldSettings = old.settings
+        let currentSettings = current.settings
+        old.save(oldSettings.settingEnabled(!oldSettings.enabled))
+        #expect(old.settings == oldSettings)
+        #expect(current.settings == currentSettings)
+        app.teardown() // Synchronous generation change, before any observer can arm.
+        #expect(SettingsPaneEntry.notifications(in: app) == nil)
+        #expect(!old.isSubscribed); #expect(!current.isSubscribed)
+    }
+}
+```
+
+The scene stays open across profile changes; `.id(app.activationGeneration)` recreates its pane
+content. The removed AppKit watcher no longer exists, so retaining its watcher-count assertions
+would test obsolete behavior. S0 also adds an isolated UI check for one Settings window under
+repeated ⌘, and no legacy Notifications menu item. The stream's source-only build does not prove
+this migration; the integrated full unit suite below is a required gate.
+
 S0 adds this policy seam and delivery method **inside** `NotificationsModel`, then replaces its
 existing `handle` method with the complete replacement shown next. This preserves permission,
 focus, cooldown and real-send latching while letting S12 filter all native intents:
 
 ```swift
-static var intentPolicy: @MainActor (NotificationIntent,Bool) -> Bool = {_,_ in true}
+@ObservationIgnored var intentPolicy: @MainActor (NotificationIntent,Bool) -> Bool = {_,_ in true}
 func deliver(_ intent: NotificationIntent, evaluatedReady: Bool = false) async -> Bool {
-    guard !isTornDown, !Task.isCancelled, Self.intentPolicy(intent,evaluatedReady) else {return false}
+    guard !isTornDown, !Task.isCancelled, intentPolicy(intent,evaluatedReady) else {return false}
     let t = now()
     guard gate.allows(intent,at:t,settings:settings,windowFocused:windowFocused,
         authorized:authorization == .granted) else {return false}
@@ -3513,8 +3602,26 @@ func handle(_ event: ServerEvent) async {
 }
 ```
 
-S0 runs the existing notification focus/cooldown/latch/teardown tests plus S12's rule tests after
-this change. S6's raw `session:ready` intent is filtered while reduced mode is enabled; only the
+In S0's **live** `NotificationsModel.init(store:app:)`, after stored properties have been
+initialized, assign this instance policy. Leave the existing offline/test initializer's default
+allow policy intact; a process-global static policy would make S6's tests depend on whether the
+host app had already installed S12.
+
+```swift
+intentPolicy = { [weak app] intent, evaluated in
+    let reduced = app?.extension(SettingsModel.self)?.snapshot?.settings.reducedPushMode ?? true
+    return SettingsReadyRules.allows(kind: intent.kind.id, reduced: reduced, evaluatedReady: evaluated)
+}
+```
+
+S0 runs the full unit bundle, including the migrated suite and the existing notification
+focus/cooldown/latch/teardown/badge-race tests, after this change:
+
+```bash
+./native/scripts/test-app.sh -only-testing:ShepherdTests
+```
+
+S6's raw `session:ready` intent is filtered while reduced mode is enabled; only the
 new evaluator may pass `evaluatedReady:true`. Until settings have loaded, the conservative reduced
 policy prevents a notification burst. Keep the web allowlist names even where S6 has no producer
 for a kind yet; this feature does not invent notification sources.
@@ -3526,7 +3633,7 @@ for a kind yet; this feature does not invent notification sources.
 ```
 
 ```bash
-rg 'NotificationSettingsWindow' native/Apps/ShepherdMac/Sources || true
+rg 'NotificationSettingsWindow' native/Apps/ShepherdMac/Sources native/Apps/ShepherdMac/Tests || true
 rg 'import AppKit|NSWindow|\.toolbar' native/Apps/ShepherdMac/Sources/Settings || true
 git add native/Apps/ShepherdMac/Sources/Settings/SettingsFeature.swift native/Apps/ShepherdMac/Tests/SettingsRegistrationTests.swift
 git commit -m "feat(mac): settings panes menu commands and command palette"
@@ -3902,7 +4009,7 @@ swift test --package-path native
 git checkout -- native/Package.resolved
 git diff --check
 git diff --name-only origin/main
-rg 'NotificationSettingsWindow' native/Apps/ShepherdMac/Sources || true
+rg 'NotificationSettingsWindow' native/Apps/ShepherdMac/Sources native/Apps/ShepherdMac/Tests || true
 rg 'import AppKit|NSWindow|\.toolbar' native/Apps/ShepherdMac/Sources/Settings || true
 ```
 

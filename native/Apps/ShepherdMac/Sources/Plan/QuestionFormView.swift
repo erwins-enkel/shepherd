@@ -12,8 +12,16 @@ struct QuestionAnswerContext: Equatable {
 struct QuestionFormWriter: Sendable {
     var send: @MainActor @Sendable (String, [RawAnswer]) async throws -> AnswerPlanQuestionsResult
 
-    static func live(_ client: ShepherdClient) -> Self {
-        Self { id, answers in try await client.answerPlanQuestions(sessionID: id, answers: answers) }
+    var isCurrent: @MainActor @Sendable () -> Bool = { true }
+
+    @MainActor
+    static func live(session: Session, store: SessionStore, app: AppModel) -> Self {
+        Self(send: { id, answers in
+            try await store.client.answerPlanQuestions(sessionID: id, answers: answers)
+        }, isCurrent: { [weak app] in
+            guard let app else { return false }
+            return ActionBarView.isCurrent(session: session, store: store, app: app)
+        })
     }
 }
 
@@ -101,16 +109,18 @@ final class QuestionFormModel {
         // isPresented, proves consent. Consume it before awaiting so it cannot be used twice.
         let consent = pending
         cancelConfirmation()
-        guard let consent, canSubmit, let writer,
+        guard let consent, canSubmit, let writer, writer.isCurrent(),
               consent.sessionID == answerContext?.sessionID, consent.answers == buildAnswers() else { return }
         submitting = true
         errored = false
         defer { submitting = false }
         do {
             let result = try await writer.send(consent.sessionID, consent.answers)
+            guard writer.isCurrent() else { return }
             delivered = result.delivered
             submitted = true
         } catch {
+            guard writer.isCurrent() else { return }
             errored = true
         }
     }

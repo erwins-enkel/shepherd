@@ -69,7 +69,7 @@ never an error. Form instances are keyed by block/session, and changed block con
 4. The Task 7 brief names no commit subject; used `feat(mac): add the plan question form`.
 5. Context7 is not exposed in this session's available tools. Used local patterns and Apple's
    [radioGroup](https://developer.apple.com/documentation/swiftui/pickerstyle/radiogroup) and
-   [confirmationDialog](https://developer.apple.com/documentation/swiftui/view/confirmationdialog(_:ispresented:titlevisibility:actions:message:))
+   [confirmationDialog](<https://developer.apple.com/documentation/swiftui/view/confirmationdialog(_:ispresented:titlevisibility:actions:message:)>)
    documentation as the API reference.
 6. No contract changes, hand-written payload Codable, AppKit view dependencies, toolbar, unsafe
    concurrency annotations, registration edits, or other-stream source edits. Existing dependencies
@@ -95,24 +95,24 @@ exec /private/tmp/claude-501/-Users-kai-osthoff-githubrepos-shepherd/183763ce-2e
 
 No live-variable values were printed or written. No automation-mode timeout or process killing.
 
-| Exact command | Result line / exit |
-| --- | --- |
-| `bash .superpowers/sdd/run-task-7-app-tests.sh > .superpowers/sdd/task-5-review-red.log 2>&1` | `Test run with 671 tests in 73 suites failed after 8.425 seconds with 16 issues.`; expected exit 65 |
-| `bash .superpowers/sdd/run-task-7-app-tests.sh > .superpowers/sdd/task-5-review-green.log 2>&1` | `Test run with 671 tests in 73 suites passed after 8.015 seconds.`; `** TEST SUCCEEDED **`; exit 0 |
-| `bash .superpowers/sdd/run-task-7-app-tests.sh > .superpowers/sdd/task-5-review-mutation.log 2>&1` | `Test run with 671 tests in 73 suites failed after 7.233 seconds with 16 issues.`; expected exit 65; source restored |
-| `bash .superpowers/sdd/run-task-7-app-tests.sh > .superpowers/sdd/task-7-red.log 2>&1` | `error: cannot find type 'QuestionFormWriter' in scope`; expected exit 65 before implementation |
-| `bash .superpowers/sdd/run-task-7-app-tests.sh > .superpowers/sdd/task-7-green.log 2>&1` | `Test run with 681 tests in 74 suites passed after 9.084 seconds.`; `** TEST SUCCEEDED **`; exit 0 |
-| `bash .superpowers/sdd/run-task-7-app-tests.sh > .superpowers/sdd/task-7-final-app.log 2>&1` | `Test run with 683 tests in 74 suites passed after 8.254 seconds.`; `** TEST SUCCEEDED **`; exit 0 |
-| `bun run native/scripts/gen-strings.ts` | `Wrote .../Localizable.xcstrings (430 keys, en + de).`; exit 0 |
-| `bun run check:strings > .superpowers/sdd/task-7-strings.log 2>&1` | `Localizable.xcstrings is up to date (430 keys).`; exit 0 |
-| `bun run typecheck > .superpowers/sdd/task-7-typecheck.log 2>&1` | `$ tsc --noEmit`; exit 0 |
-| `bun run lint > .superpowers/sdd/task-7-lint.log 2>&1` | `$ eslint --cache --cache-strategy content --cache-location .cache/eslint --no-error-on-unmatched-pattern src test examples ui/src ci/onboarding-harness deploy 'scripts/**/*.ts'`; exit 0 |
-| `bun run test:contract > .superpowers/sdd/task-7-contract.log 2>&1` | `144 pass`, `0 fail`, `1209 expect() calls`, `Ran 144 tests across 9 files. [5.33s]`; exit 0 |
-| `swift test --package-path native > .superpowers/sdd/task-7-swift-test.log 2>&1` | `Test run with 341 tests in 34 suites passed after 3.257 seconds.`; exit 0 |
-| `git checkout -- native/Package.resolved` | Executed immediately after swift test; exit 0; no Package.resolved diff |
-| `bash ./native/scripts/build-app.sh > .superpowers/sdd/task-7-build.log 2>&1` | `** BUILD SUCCEEDED **`; Release Shepherd.app built; exit 0 |
-| `bun run test > .superpowers/sdd/task-7-test.log 2>&1` | `10432 pass`, `41 skip`, `33 fail`, `7 errors`, `Ran 10506 tests across 465 files. [317.47s]`; exit 1 |
-| `git diff --check` | No output; exit 0 |
+| Exact command                                                                                      | Result line / exit                                                                                                                                                                         |
+| -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `bash .superpowers/sdd/run-task-7-app-tests.sh > .superpowers/sdd/task-5-review-red.log 2>&1`      | `Test run with 671 tests in 73 suites failed after 8.425 seconds with 16 issues.`; expected exit 65                                                                                        |
+| `bash .superpowers/sdd/run-task-7-app-tests.sh > .superpowers/sdd/task-5-review-green.log 2>&1`    | `Test run with 671 tests in 73 suites passed after 8.015 seconds.`; `** TEST SUCCEEDED **`; exit 0                                                                                         |
+| `bash .superpowers/sdd/run-task-7-app-tests.sh > .superpowers/sdd/task-5-review-mutation.log 2>&1` | `Test run with 671 tests in 73 suites failed after 7.233 seconds with 16 issues.`; expected exit 65; source restored                                                                       |
+| `bash .superpowers/sdd/run-task-7-app-tests.sh > .superpowers/sdd/task-7-red.log 2>&1`             | `error: cannot find type 'QuestionFormWriter' in scope`; expected exit 65 before implementation                                                                                            |
+| `bash .superpowers/sdd/run-task-7-app-tests.sh > .superpowers/sdd/task-7-green.log 2>&1`           | `Test run with 681 tests in 74 suites passed after 9.084 seconds.`; `** TEST SUCCEEDED **`; exit 0                                                                                         |
+| `bash .superpowers/sdd/run-task-7-app-tests.sh > .superpowers/sdd/task-7-final-app.log 2>&1`       | `Test run with 683 tests in 74 suites passed after 8.254 seconds.`; `** TEST SUCCEEDED **`; exit 0                                                                                         |
+| `bun run native/scripts/gen-strings.ts`                                                            | `Wrote .../Localizable.xcstrings (430 keys, en + de).`; exit 0                                                                                                                             |
+| `bun run check:strings > .superpowers/sdd/task-7-strings.log 2>&1`                                 | `Localizable.xcstrings is up to date (430 keys).`; exit 0                                                                                                                                  |
+| `bun run typecheck > .superpowers/sdd/task-7-typecheck.log 2>&1`                                   | `$ tsc --noEmit`; exit 0                                                                                                                                                                   |
+| `bun run lint > .superpowers/sdd/task-7-lint.log 2>&1`                                             | `$ eslint --cache --cache-strategy content --cache-location .cache/eslint --no-error-on-unmatched-pattern src test examples ui/src ci/onboarding-harness deploy 'scripts/**/*.ts'`; exit 0 |
+| `bun run test:contract > .superpowers/sdd/task-7-contract.log 2>&1`                                | `144 pass`, `0 fail`, `1209 expect() calls`, `Ran 144 tests across 9 files. [5.33s]`; exit 0                                                                                               |
+| `swift test --package-path native > .superpowers/sdd/task-7-swift-test.log 2>&1`                   | `Test run with 341 tests in 34 suites passed after 3.257 seconds.`; exit 0                                                                                                                 |
+| `git checkout -- native/Package.resolved`                                                          | Executed immediately after swift test; exit 0; no Package.resolved diff                                                                                                                    |
+| `bash ./native/scripts/build-app.sh > .superpowers/sdd/task-7-build.log 2>&1`                      | `** BUILD SUCCEEDED **`; Release Shepherd.app built; exit 0                                                                                                                                |
+| `bun run test > .superpowers/sdd/task-7-test.log 2>&1`                                             | `10432 pass`, `41 skip`, `33 fail`, `7 errors`, `Ran 10506 tests across 465 files. [317.47s]`; exit 1                                                                                      |
+| `git diff --check`                                                                                 | No output; exit 0                                                                                                                                                                          |
 
 Ownership/constraint checks passed. JSON comparison verified every existing EN/DE key/value was
 preserved, and stripping the one KEYS_PLAN insertion reproduces the original strings generator.
@@ -121,18 +121,18 @@ preserved, and stripping the one KEYS_PLAN insertion reproduces the original str
 
 The full repository suite is not green. Its 33 failures are in untouched files:
 
-| File | Failed tests |
-| --- | ---: |
-| `test/setup-test-env.test.ts` | 1 |
-| `test/shepherd-exclude.test.ts` | 1 |
-| `test/herdr-recovery.test.ts` | 17 |
-| `test/validate.test.ts` | 2 |
-| `test/backlog.test.ts` | 1 |
-| `test/server-backlog.test.ts` | 1 |
-| `test/update-discard-scope.test.ts` | 1 |
-| `test/herdr-socket-client.test.ts` | 7 |
-| `test/landing-rebase.test.ts` | 1 |
-| `test/pty-bridge.test.ts` | 1 |
+| File                                | Failed tests |
+| ----------------------------------- | -----------: |
+| `test/setup-test-env.test.ts`       |            1 |
+| `test/shepherd-exclude.test.ts`     |            1 |
+| `test/herdr-recovery.test.ts`       |           17 |
+| `test/validate.test.ts`             |            2 |
+| `test/backlog.test.ts`              |            1 |
+| `test/server-backlog.test.ts`       |            1 |
+| `test/update-discard-scope.test.ts` |            1 |
+| `test/herdr-socket-client.test.ts`  |            7 |
+| `test/landing-rebase.test.ts`       |            1 |
+| `test/pty-bridge.test.ts`           |            1 |
 
 `.superpowers/sdd/task-6-report.md` already records the same totals (10432 pass, 41 skip,
 33 fail, 7 errors). Comparing failed names: 32 match exactly. Task 6 timed out in
@@ -162,3 +162,23 @@ because all explicit gates and both hook tasks had already run. Its automatic ba
 `43f0d57a0f682792fead68c70dd6265c2cad9d79` was left untouched; no manual stash command was used.
 
 The S0 session-phase patch and Task 8's tab/install wiring remain their already-planned work.
+
+## Task 9 review closure
+
+The question writer now binds the original session and store through
+`ActionBarView.isCurrent(session:store:app:)`. Both success and failure completions recheck
+store identity and live selection after awaiting. The plan tab supplies that bound writer.
+Four regression cases suspend the request, switch session or replace the store (keeping the
+same session id), and then resume a success or error. Test AppModels use throwaway defaults
+and InMemoryCredentialStore, with teardown and defaults cleanup.
+
+- Red: `bash .superpowers/sdd/run-task-8-tests.sh > .superpowers/sdd/task-7-review-red.log 2>&1`:
+  `Test run with 700 tests in 75 suites failed after 7.860 seconds with 6 issues.`
+- Green: `bash .superpowers/sdd/run-task-8-tests.sh > .superpowers/sdd/task-7-review-green.log 2>&1`:
+  `Test run with 700 tests in 75 suites passed after 7.865 seconds.`; `** TEST SUCCEEDED **`.
+- Mutation: removed only both post-await identity guards, retaining the preflight guard.
+  `bash .superpowers/sdd/run-task-8-tests.sh > .superpowers/sdd/task-7-review-mutation.log 2>&1`:
+  `Test run with 700 tests in 75 suites failed after 8.002 seconds with 6 issues.`
+  Restored the exact green source with `cp` and verified it with `cmp`.
+- Formatting: `bun x prettier --ignore-path /dev/null --write .superpowers/sdd/task-7-report.md`.
+  Corrected the command/result table formatting and the Markdown link.

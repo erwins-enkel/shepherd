@@ -31,7 +31,7 @@ struct PlanDetailTab: DetailTab {
         guard let model = app.extension(PlanModel.self) else { return AnyView(EmptyView()) }
         let activation = app.activationGeneration
         return AnyView(PlanTabView(
-            session: session, model: model, writer: .live(store.client), answerWriter: .live(store.client),
+            session: session, model: model, writer: .live(store.client), answerWriter: .live(session: session, store: store, app: app),
             isCurrent: { [weak app] in app?.activationGeneration == activation }))
     }
 }

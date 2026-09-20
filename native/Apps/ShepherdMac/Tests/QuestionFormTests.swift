@@ -165,6 +165,50 @@ struct QuestionFormTests {
         #expect(m.submitted && !m.submitting)
     }
 
+    @Test(arguments: ["session", "store"], [false, true])
+    func dropsCompletionAfterIdentityChanges(change: String, fails: Bool) async throws {
+        let suite = "QuestionFormTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        let app = AppModel(defaults: defaults, credentials: InMemoryCredentialStore())
+        defer {
+            app.teardown()
+            defaults.removePersistentDomain(forName: suite)
+        }
+        let profile = try app.addRemoteProfile(name: "fixture", address: "http://127.0.0.1:1")
+        await app.activate(profile)
+        let store = try #require(app.store)
+        store.stop()
+        app.selectedSessionID = "s1"
+        let fake = QuestionFormFakeClient()
+        fake.suspended = true
+        fake.fails = fails
+        fake.delivered = false
+        var writer = QuestionFormWriter.live(session: PreviewData.session(id: "s1"), store: store, app: app)
+        writer.send = fake.writer.send
+        #expect(writer.isCurrent())
+        let m = QuestionFormModel(block: block(), answerContext: context, writer: writer)
+        fill(m)
+        m.requestConfirmation()
+        let sending = Task { await m.confirmSubmission() }
+        for _ in 0..<1_000 {
+            if !fake.calls.isEmpty { break }
+            await Task.yield()
+        }
+        #expect(fake.calls.count == 1)
+        if change == "session" {
+            app.selectedSessionID = "s2"
+        } else {
+            await app.activate(profile)
+            app.store?.stop()
+            app.selectedSessionID = "s1" // Same id on another store must still be rejected.
+        }
+        #expect(!writer.isCurrent())
+        fake.resume()
+        await sending.value
+        #expect(!m.submitted && !m.errored && m.delivered)
+        #expect(!m.submitting && m.footerMessage == nil)
+    }
+
     @Test func failedWriteKeepsAnswersAndRequiresFreshConfirmationToRetry() async {
         let fake = QuestionFormFakeClient()
         fake.fails = true

@@ -42,11 +42,19 @@ struct SessionDetailView: View {
                 only.makeView(session: session, store: store, app: model)
             }
         case .tabbed:
-            TabView {
-                ForEach(registered, id: \.id) { tab in
-                    tab.makeView(session: session, store: store, app: model)
-                        .tabItem { Label(tab.title, systemImage: tab.systemImage) }
+            // NSTabView's preferred size for the terminal can exceed the window.
+            // Do not let that preference become NavigationSplitView's minimum:
+            // the header and action bar keep their space, and the tabs receive
+            // exactly the remaining viewport. Their lists/scroll views and the
+            // terminal then resize within it instead of pushing chrome offscreen.
+            GeometryReader { geometry in
+                TabView {
+                    ForEach(registered, id: \.id) { tab in
+                        tab.makeView(session: session, store: store, app: model)
+                            .tabItem { Label(tab.title, systemImage: tab.systemImage) }
+                    }
                 }
+                .frame(width: geometry.size.width, height: geometry.size.height)
             }
         }
     }
@@ -55,6 +63,7 @@ struct SessionDetailView: View {
         HStack(spacing: 8) {
             Text(verbatim: session.desig).font(.title3.monospaced().weight(.semibold))
             Text(verbatim: session.name).font(.title3)
+                .lineLimit(1)
             Spacer()
             Text(verbatim: L.t("native_detail_status_label"))
                 .font(.caption)

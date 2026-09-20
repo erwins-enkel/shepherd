@@ -191,13 +191,13 @@ struct ActionsModelTests {
         session.claudeSessionId = "claude-1"
         #expect(m.actions(for: session).contains(.relaunch))
 
-        m.gitMerged = ["s1"]
+        m.gitMerged = { $0 == "s1" }
         #expect(!m.actions(for: session).contains(.relaunch), "a merged PR hides relaunch")
 
         var blocked = PreviewData.session(id: "s2", status: SessionStatus(known: .blocked))
         blocked.claudeSessionId = "claude-2"
         #expect(!m.actions(for: blocked).contains(.stop))
-        m.workingBlocked = ["s2": true]
+        m.workingBlocked = { ["s2": true] }
         #expect(m.actions(for: blocked).contains(.stop))
     }
 

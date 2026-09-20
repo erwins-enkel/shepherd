@@ -36,13 +36,19 @@ final class ActionsModel: AppExtension {
     private(set) var recaps: [String: Recap] = [:]
     private(set) var amendments: [String: [TaskAmendment]] = [:]
 
-    /// S3's `GET /api/working-blocked`. Empty until the integration lane assigns it; empty is
-    /// the conservative answer (a blocked session reads as blocked, so Stop stays hidden).
-    var workingBlocked: [String: Bool] = [:]
-    /// Session ids whose PR has merged — S2's `GET /api/sessions/{id}/git`. Empty until the
-    /// integration lane assigns it; empty means Relaunch stays offered, matching the web's
-    /// behaviour before its own git snapshot arrives.
-    var gitMerged: Set<String> = []
+    /// S3's `GET /api/working-blocked`, read through the integration lane's `SessionSignals`
+    /// seam — S3's `SidebarModel` already keeps that map current, so the bar costs no second
+    /// request. A closure rather than a stored copy so the answer is read at render time and a
+    /// flag that flips is seen without anything pushing it here. Answers `[:]` until the seam is
+    /// connected, which is the conservative reading (a blocked session reads as blocked, so Stop
+    /// stays hidden). Overridden per instance by the tests.
+    var workingBlocked: @MainActor () -> [String: Bool] = { SessionSignals.workingBlocked() }
+    /// Whether this session's PR has merged — S2's `GET /api/sessions/{id}/git`, read through
+    /// the same seam from `DetailModel`'s git cache rather than re-read here. `false` until the
+    /// seam is connected, and for a session whose git state nobody has read yet, which means
+    /// Relaunch stays offered — matching the web's behaviour before its own git snapshot
+    /// arrives.
+    var gitMerged: @MainActor (String) -> Bool = { SessionSignals.gitMerged($0) }
 
     /// Whether the event tap is still running. Read by the tests; `teardown()` clears it.
     private(set) var isSubscribed = false
@@ -164,8 +170,8 @@ final class ActionsModel: AppExtension {
     func actions(for session: Session) -> [SessionAction] {
         ActionRules.available(
             for: session,
-            workingBlocked: workingBlocked,
-            gitMerged: gitMerged.contains(session.id),
+            workingBlocked: workingBlocked(),
+            gitMerged: gitMerged(session.id),
             now: now())
     }
 

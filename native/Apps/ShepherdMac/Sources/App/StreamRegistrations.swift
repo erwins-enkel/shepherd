@@ -18,5 +18,8 @@ enum StreamRegistrations {
         SidebarInstall.run(app)             // S3: SidebarSlot + AppExtension
         ActionsStream.install(app)          // S4: ActionBarSlot.content + AppExtension
         LocalServerFeature.install(app)     // S5: WelcomeSlots.localPanel + AppExtension
+        // Cross-stream seams, after every install: S4 reads S3's working-blocked flags and
+        // S2's git snapshot through `SessionSignals` rather than reading the server again.
+        SessionSignals.connect(app)
     }
 }

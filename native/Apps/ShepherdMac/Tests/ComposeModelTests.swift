@@ -1,5 +1,6 @@
 import Foundation
 import ShepherdKit
+import SwiftUI
 import Testing
 @testable import Shepherd
 
@@ -625,25 +626,97 @@ import Testing
         let usage = try limits(#", "observed":{"week":{"pct":7,"resetAt":2000,"scrapedAt":1}}"#)
         var stale = usage
         stale.stale = true
-        #expect(ComposeCapacity.selected(stale, provider: .claude)?.stale == true)
+        for (value, opacity) in [(usage, 1.0), (stale, 0.55)] {
+            let line = CapacityLine(provider: .claude, usageLimits: { value })
+            #expect(try #require(line.state.selected).opacity == opacity)
+            #expect(line.state.rows[0].opacity == opacity)
+            #expect(line.state.rows[1].opacity == 1, "Claude staleness must not dim Codex")
+        }
     }
 
-    @Test func severityBoundariesUseUsedCapacity() {
-        for (used, expected) in [(0.0, ComposeCapacity.Tone.muted), (50, .muted), (50.01, .amber),
-                                 (90, .amber), (90.01, .red), (100, .red)] {
-            #expect(ComposeCapacity.Window(key: "WK", pct: used, resetAt: 0).tone == expected)
+    @Test func severityBoundariesUseUsedCapacity() throws {
+        for (used, expected) in [(0.0, Color.secondary), (50, .secondary), (50.01, .orange),
+                                 (90, .orange), (90.01, .red), (100, .red)] {
+            let usage = try limits(", \"week\":{\"pct\":\(used),\"resetAt\":0}")
+            let line = CapacityLine(provider: .claude, usageLimits: { usage })
+            #expect(try #require(line.state.selected).window.tint == expected)
+            #expect(try #require(line.state.rows[0].windows.first).tint == expected)
         }
+    }
+
+    @Test func reconnectRereadRendersFivePercentFreeAfterAnOlderSevenPercentPush() async throws {
+        let suite = "ComposeCapacityTests.\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let app = AppModel(defaults: defaults, credentials: InMemoryCredentialStore())
+        let store = try SessionStore(
+            profile: .init(name: "capacity", baseURL: URL(string: "https://capacity.invalid")!, mode: .remote),
+            credentials: InMemoryCredentialStore())
+        let sidebar = SidebarModel(store: store, app: app)
+        let old = try limits(#", "week":{"pct":7,"resetAt":0}"#)
+        let fresh = try limits(#", "week":{"pct":95,"resetAt":0}"#)
+        // Replace reads before yielding to bootstrap; the store is never started.
+        sidebar.reads = SidebarReads(workingBlocked: { [:] }, holds: { [:] }, blocks: { [:] },
+                                     usage: { .init(limits: old, projections: []) })
+        defer { sidebar.teardown(); app.teardown() }
+        func settle(_ predicate: () -> Bool) async throws {
+            let deadline = ContinuousClock.now + .seconds(3)
+            while !predicate(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(1)) }
+            try #require(predicate())
+        }
+        try await settle { sidebar.usage != nil }
+        let connection = ConnectionBox()
+        var observed: ConnectionState?
+        sidebar.watchConnection { observed = connection.state; return connection.state }
+        try await settle { observed == .idle }
+        connection.state = .live
+        try await settle { observed == .live }
+        store.apply(.usageLimits(old))
+
+        // Exercise the default cross-stream reader without keeping process-wide test state
+        // installed across an await (other seam suites can run while this test suspends).
+        func throughSeam<T>(_ read: () throws -> T) rethrows -> T {
+            let previous = SessionSignals.usageLimits
+            SessionSignals.usageLimits = { sidebar.limits }
+            defer { SessionSignals.usageLimits = previous }
+            return try read()
+        }
+        let line = throughSeam { CapacityLine(provider: .claude) }
+        let initial = try throughSeam { try #require(line.state.selected) }
+        #expect(initial.window.remainingPct == 93)
+        connection.state = .offline(message: "disconnected")
+        try await settle { observed == connection.state }
+        sidebar.reads.usage = { .init(limits: fresh, projections: []) }
+        connection.state = .live
+        try await settle { sidebar.usage?.limits.week?.pct == 95 }
+
+        let reconciled = try throughSeam { try #require(line.state.selected) }
+        #expect(reconciled.code == "CC·WK")
+        #expect(reconciled.window.remainingPct == 5)
+        #expect(reconciled.window.freeCopy == L.t("newtask_provider_capacity_free", "5"))
+        #expect(reconciled.window.tint == .red)
+        store.apply(.usageLimits(old))
+        #expect(try throughSeam { try #require(line.state.selected) }.window.remainingPct == 93)
     }
 
     @Test func engineBindingHonorsCommandConstraintAndUnlocksWhenRemoved() {
         let model = ComposeModelTests.composer()
+        defer { model.teardown() }
         let picker = EnginePicker(model: model)
+        model.selectProviderManually(.claude)
+        #expect(picker.selection.wrappedValue == .claude)
         picker.selection.wrappedValue = .codex
         #expect(model.provider == .codex)
+        #expect(picker.selection.wrappedValue == .codex)
+        picker.selection.wrappedValue = .claude
+        #expect(model.provider == .claude)
         model.pickCommand(.init(name: "ship", description: "Ship", scope: .init(known: .project), providers: [.claude]))
         picker.selection.wrappedValue = .codex
         #expect(model.provider == .claude)
         model.prompt = "new task"
+        #expect(model.allowsProvider(.codex))
+        model.selectProviderManually(.claude)
+        #expect(model.provider == .claude)
         picker.selection.wrappedValue = .codex
         #expect(model.provider == .codex)
     }

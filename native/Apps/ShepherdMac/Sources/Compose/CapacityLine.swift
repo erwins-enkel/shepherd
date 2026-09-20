@@ -2,7 +2,8 @@ import ShepherdKit
 import SwiftUI
 
 /// Display projection only: the generated contract remains the sole payload type source.
-/// Task 9 passes SidebarModel.limits so pushed usage updates supersede the bootstrap read.
+/// Task 9 uses CapacityLine(provider:); SessionSignals.usageLimits supplies S3's reconciled
+/// REST/push state. Do not retain a bootstrap snapshot or build a separate push cache.
 enum ComposeCapacity {
     enum Tone { case muted, amber, red }
 
@@ -22,6 +23,16 @@ enum ComposeCapacity {
         // usage thresholds, with red > 90%, amber > 50%, and muted otherwise.
         var tone: Tone { usedPct > 90 ? .red : usedPct > 50 ? .amber : .muted }
 
+        var tint: Color {
+            switch tone {
+            case .muted: .secondary
+            case .amber: .orange
+            case .red: .red
+            }
+        }
+
+        var freeCopy: String { L.t("newtask_provider_capacity_free", remainingPct.formatted(.number)) }
+
         func copy(now: Date = Date()) -> String {
             let pct = remainingPct.formatted(.number)
             let reset = Date(timeIntervalSince1970: Double(resetAt) / 1000)
@@ -37,6 +48,7 @@ enum ComposeCapacity {
         let provider: AgentProvider
         let windows: [Window]
         let stale: Bool
+        var opacity: Double { stale ? 0.55 : 1 }
     }
 
     struct Selected {
@@ -44,6 +56,7 @@ enum ComposeCapacity {
         let window: Window
         let stale: Bool
         var code: String { ComposeCapacity.code(provider, key: window.key) }
+        var opacity: Double { stale ? 0.55 : 1 }
     }
 
     static func code(_ provider: AgentProvider, key: String) -> String {
@@ -98,12 +111,25 @@ enum ComposeCapacity {
 }
 
 struct CapacityLine: View {
-    let limits: UsageLimits?
     let provider: AgentProvider
+    private let usageLimits: @MainActor () -> UsageLimits?
     @State private var allPresented = false
 
+    init(provider: AgentProvider,
+         usageLimits: @escaping @MainActor () -> UsageLimits? = { SessionSignals.usageLimits() }) {
+        self.provider = provider
+        self.usageLimits = usageLimits
+    }
+
+    /// The rendering values consumed by both the compact line and its all-windows popover.
+    /// Read inside SwiftUI's observation scope so reconciliation and pushes invalidate the view.
+    var state: (selected: ComposeCapacity.Selected?, rows: [ComposeCapacity.Row]) {
+        let limits = usageLimits()
+        return (ComposeCapacity.selected(limits, provider: provider), ComposeCapacity.rows(limits))
+    }
+
     var body: some View {
-        if let capacity = ComposeCapacity.selected(limits, provider: provider) {
+        if let capacity = state.selected {
             HStack(spacing: 8) {
                 meter(provider: provider, window: capacity.window, showReset: false)
                 Button(L.t("newtask_capacity_all"), systemImage: "chevron.down") {
@@ -116,7 +142,7 @@ struct CapacityLine: View {
             }
             .font(.caption)
             .monospacedDigit()
-            .opacity(capacity.stale ? 0.55 : 1)
+            .opacity(capacity.opacity)
             .accessibilityIdentifier("compose.capacity")
         }
     }
@@ -124,7 +150,7 @@ struct CapacityLine: View {
     private var allWindows: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(verbatim: L.t("newtask_provider_capacity_title")).font(.headline)
-            ForEach(ComposeCapacity.rows(limits), id: \.provider) { row in
+            ForEach(state.rows, id: \.provider) { row in
                 VStack(alignment: .leading, spacing: 6) {
                     Text(verbatim: EnginePicker.name(row.provider)).fontWeight(.medium)
                     if row.windows.isEmpty {
@@ -136,7 +162,7 @@ struct CapacityLine: View {
                         }
                     }
                 }
-                .opacity(row.stale ? 0.55 : 1)
+                .opacity(row.opacity)
             }
         }
         .font(.caption)
@@ -152,20 +178,13 @@ struct CapacityLine: View {
             Text(verbatim: ComposeCapacity.code(provider, key: window.key))
                 .font(.system(.caption, design: .monospaced))
             ProgressView(value: window.remainingPct, total: 100)
-                .tint(color(window.tone))
+                .tint(window.tint)
                 .frame(width: 64)
                 .accessibilityLabel(L.t("newtask_provider_capacity_meter_window_aria",
                                        EnginePicker.name(provider), window.key, window.remainingPct.formatted(.number)))
-            Text(verbatim: showReset ? window.copy() : L.t("newtask_provider_capacity_free", window.remainingPct.formatted(.number)))
+            Text(verbatim: showReset ? window.copy() : window.freeCopy)
         }
         .foregroundStyle(.secondary)
     }
 
-    private func color(_ tone: ComposeCapacity.Tone) -> Color {
-        switch tone {
-        case .muted: .secondary
-        case .amber: .orange
-        case .red: .red
-        }
-    }
 }

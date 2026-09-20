@@ -1,14 +1,24 @@
 import ShepherdKit
 import SwiftUI
 
-// Task 7 fills this in: `AmendSubmission` (the character cap, validation and the
-// recorded/steered notes) and the real sheet body with its editor, steer toggle,
-// `SessionCommandState` gate and `NoticeBar`.
-//
-// It exists here only so `ActionBarView`'s `.sheet(item:)` — which presents it by name — compiles
-// and the action bar's own gates can run. Nothing else references it; the stored properties and
-// the `onDone` signature are exactly the ones Task 7's brief specifies, so that task replaces
-// this file wholesale rather than editing around a placeholder.
+/// Pure rules for the amend sheet.
+enum AmendSubmission {
+    /// `AMENDMENT_MAX_CHARS` in `src/task-amendments.ts`. Enforced here so the counter and the
+    /// server agree; the server still re-checks.
+    static let maxCharacters = 2_000
+
+    static func validate(_ raw: String) -> Bool {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !trimmed.isEmpty && trimmed.count <= maxCharacters
+    }
+
+    /// The amendment is persisted before it is steered, so a delivery that did not land is still
+    /// a recorded amendment — and must not read as a failure.
+    static func note(steered: Bool) -> String {
+        steered ? L.t("amend_recorded_and_steered") : L.t("amend_recorded_not_steered")
+    }
+}
+
 struct AmendSheet: View {
     let session: Session
     let store: SessionStore
@@ -16,16 +26,97 @@ struct AmendSheet: View {
     let onDone: (String) -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @State private var text = ""
+    @State private var steer = true
+    @State private var command = SessionCommandState()
+    @FocusState private var textFocused: Bool
+
+    private var remaining: Int {
+        AmendSubmission.maxCharacters - text.trimmingCharacters(in: .whitespacesAndNewlines).count
+    }
+
+    /// See `RenameSheet.isCurrent`: store identity catches a profile switch, the selection
+    /// catches the operator's selection moving off this session while the amendment is in
+    /// flight.
+    private var isCurrent: Bool {
+        app.store === store && app.selectedSessionID == session.id
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text(verbatim: L.t("amend_title", session.name)).font(.headline)
+            if let message = command.message {
+                NoticeBar(message: message) { command.clear() }
+            }
+            GroupBox(L.t("amend_original_task")) {
+                ScrollView {
+                    Text(verbatim: session.prompt)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
+                }
+                .frame(maxHeight: 120)
+            }
+            TextEditor(text: $text)
+                .font(.body)
+                .frame(minHeight: 120)
+                .focused($textFocused)
+                .overlay(alignment: .topLeading) {
+                    if text.isEmpty {
+                        Text(verbatim: L.t("amend_placeholder"))
+                            .foregroundStyle(.tertiary)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 8)
+                            .allowsHitTesting(false)
+                    }
+                }
+                .accessibilityIdentifier("amend-field")
+            HStack {
+                Toggle(isOn: $steer) {
+                    Text(verbatim: L.t("amend_steer_label"))
+                }
+                Spacer()
+                Text(verbatim: "\(remaining)")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(remaining < 0 ? .red : .secondary)
+            }
             HStack {
                 Spacer()
-                Button(L.t("common_cancel"), role: .cancel) { dismiss() }
+                Button(L.t("common_cancel")) { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                    .disabled(command.busy)
+                Button(command.busy ? L.t("amend_sending") : L.t("amend_submit"), action: submit)
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(!AmendSubmission.validate(text) || command.busy)
+                    .accessibilityIdentifier("amend-submit")
             }
         }
         .padding(20)
         .frame(width: 520)
+        .onAppear { textFocused = true }
+        // Mirrors the Cancel button's .disabled(command.busy): the sheet's own close affordance
+        // (Esc, click-outside) must not out-run the in-flight amendment either — see
+        // RenameSheet's identical guard.
+        .interactiveDismissDisabled(command.busy)
+    }
+
+    private func submit() {
+        guard AmendSubmission.validate(text) else { return }
+        let typed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let alsoSteer = steer
+        Task {
+            var created: AmendmentCreated?
+            let ok = await command.run(
+                {
+                    created = try await store.client.amend(
+                        sessionID: session.id, text: typed, steer: alsoSteer)
+                },
+                failureCopy: { _ in L.t("amend_failed") },
+                isCurrent: { isCurrent })
+            guard ok, let created else { return }
+            // Not steering at all is a clean "recorded"; asking to steer and missing is the
+            // case the operator has to hear about.
+            onDone(alsoSteer ? AmendSubmission.note(steered: created.steered) : L.t("amend_recorded"))
+        }
     }
 }

@@ -92,6 +92,33 @@ struct ActionBarTests {
                 == L.t("native_actions_failed", "gone"))
     }
 
+    @Test func renameRejectsABlankNameAndReportsAPinnedBranch() {
+        #expect(!RenameSubmission.validate(""))
+        #expect(!RenameSubmission.validate("   "))
+        #expect(RenameSubmission.validate("fresh name"))
+
+        let moved = Components.Schemas.RenameResult(
+            session: PreviewData.session(id: "s1", status: SessionStatus(known: .idle)),
+            branchRenamed: true)
+        var pinned = moved
+        pinned.branchRenamed = false
+        #expect(RenameSubmission.note(for: moved) == L.t("toast_renamed", moved.session.name))
+        #expect(
+            RenameSubmission.note(for: pinned) == L.t("viewport_rename_branch_kept"),
+            "a display-only rename must say the branch stayed put")
+    }
+
+    @Test func amendRejectsBlankAndOverLongTextAndReportsDelivery() {
+        #expect(!AmendSubmission.validate(""))
+        #expect(!AmendSubmission.validate("  \n "))
+        #expect(AmendSubmission.validate("Also cover the admin route."))
+        #expect(!AmendSubmission.validate(String(repeating: "x", count: AmendSubmission.maxCharacters + 1)))
+        #expect(AmendSubmission.validate(String(repeating: "x", count: AmendSubmission.maxCharacters)))
+
+        #expect(AmendSubmission.note(steered: true) == L.t("amend_recorded_and_steered"))
+        #expect(AmendSubmission.note(steered: false) == L.t("amend_recorded_not_steered"))
+    }
+
     /// A throwaway suite so the test never reads or writes the operator's own profiles. Pair it
     /// with `InMemoryCredentialStore()` at every call site: `AppModel.init` defaults `credentials`
     /// to `KeychainCredentialStore()`, and that is the unattended-run stall this plan's "No

@@ -118,28 +118,55 @@ struct NotificationTriggerTests {
 
     /// The hook is total: only a `.usageLimit` intent can latch. The natural Task 6 call site is
     /// `trigger.usageWarningPosted(for: intent)` regardless of which kind was just posted, so a
-    /// `.done` or `.blocked` intent passed by mistake must be a no-op, not a latch on `0`.
+    /// `.done` or `.blocked` intent passed by mistake must be a no-op, not a latch on its
+    /// `resetAt`. The `.done` intent below deliberately carries a non-`nil`, *future* `resetAt`
+    /// (`openWindow`, not `0`): with a `nil` `resetAt` the optional bind alone would already
+    /// reject it, so the kind check itself would never be exercised. With a real `resetAt`,
+    /// dropping `intent.kind == .usageLimit` from the guard would still latch the window, which
+    /// the assertion below catches by seeing the next in-window frame wrongly suppressed.
     @Test func postingANonUsageLimitIntentDoesNotLatch() {
         var t = trigger()
         #expect(t.intents(for: .usageLimits(limits(pct: 83))).map(\.kind) == [.usageLimit])
         t.usageWarningPosted(
-            for: NotificationIntent(kind: .done, sessionID: "s1", subject: "TASK-07"))
+            for: NotificationIntent(
+                kind: .done, sessionID: "s1", subject: "TASK-07", resetAt: Self.openWindow))
         #expect(
             t.intents(for: .usageLimits(limits(pct: 91))).map(\.kind) == [.usageLimit],
-            "a non-usage-limit intent must not latch the usage window")
+            "a non-usage-limit intent must not latch the usage window, even with a real resetAt")
     }
 
-    /// Self-guarding: a `.usageLimit` intent with `resetAt == nil` must not latch either — the
-    /// old `usageWarningPosted(resetAt: Int)` signature made `intent.resetAt ?? 0` type-check at
-    /// the call site and would have set `warnedUntil = 0`, permanently disabling the warning.
+    /// Self-guarding: a `.usageLimit` intent with `resetAt == nil` must not latch, and — starting
+    /// from a *real*, already-confirmed latch rather than an unlatched trigger — an invalid
+    /// confirmation must not erase that existing latch either. A body that unconditionally
+    /// assigned `warnedUntil = intent.resetAt` (skipping the guard entirely) would pass the old,
+    /// unlatched version of this test — `resetAt` is `nil` either way — but would silently wipe
+    /// out a real suppression the moment a `.done`/`.blocked` intent, or a `.usageLimit` intent
+    /// missing its `resetAt`, was passed to `usageWarningPosted` afterwards. Note the actual
+    /// failure direction of such a mistake: `warnedUntil = 0` would *not* "permanently disable"
+    /// the warning — `now() < 0` is false for any real wall clock, so the suppression guard would
+    /// never trigger and the warning would fire on *every* subsequent frame instead.
     @Test func postingAUsageLimitIntentWithoutAResetAtDoesNotLatch() {
         var t = trigger()
-        #expect(t.intents(for: .usageLimits(limits(pct: 83))).map(\.kind) == [.usageLimit])
+        let valid = t.intents(for: .usageLimits(limits(pct: 83)))
+        #expect(valid.map(\.kind) == [.usageLimit])
+        t.usageWarningPosted(for: valid.first!)
+        #expect(
+            t.intents(for: .usageLimits(limits(pct: 90))).isEmpty,
+            "the valid confirmation latches the window")
+
+        // Invalid confirmation #1: the right kind, but no resetAt.
         t.usageWarningPosted(
             for: NotificationIntent(kind: .usageLimit, sessionID: nil, subject: "5h"))
         #expect(
-            t.intents(for: .usageLimits(limits(pct: 91))).map(\.kind) == [.usageLimit],
-            "a usageLimit intent with no resetAt must not latch the usage window")
+            t.intents(for: .usageLimits(limits(pct: 91))).isEmpty,
+            "a usageLimit intent with no resetAt must not latch — nor erase the existing latch")
+
+        // Invalid confirmation #2: the wrong kind, no resetAt either.
+        t.usageWarningPosted(
+            for: NotificationIntent(kind: .done, sessionID: "s1", subject: "TASK-07"))
+        #expect(
+            t.intents(for: .usageLimits(limits(pct: 92))).isEmpty,
+            "a non-usage-limit intent must not erase the existing latch either")
     }
 
     /// The threshold is read off the constant so re-tuning `usageWarnPercent` cannot leave a

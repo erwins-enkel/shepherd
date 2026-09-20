@@ -24,6 +24,19 @@ struct HerdGroupView: View {
                         SessionRow(session: display(session))
                         // Row predicates read the raw session, matching UnitRowRight;
                         // the display-status upgrade belongs only to SessionRow.
+                        if let plan = app.extension(PlanModel.self) {
+                            HStack {
+                                PlanGateBadgeView(session: session, model: plan, allowView: false)
+                                if SessionSignals.planQuestionsUnanswered(session.id) {
+                                    Button(L.t("hold_cta_answer")) {
+                                        app.selectedSessionID = session.id
+                                        plan.openPlan(session.id)
+                                    }
+                                    .help(L.t("hold_cta_answer_title"))
+                                    .accessibilityIdentifier("plan-answer-\(session.id)")
+                                }
+                            }
+                        }
                         HerdRowSignals(session: session, block: block(session.id), showCli: showCli)
                     }
                     .tag(session.id)

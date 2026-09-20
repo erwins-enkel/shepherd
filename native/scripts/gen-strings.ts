@@ -464,6 +464,8 @@ export const KEYS_HERD: readonly string[] = [
 /** S8 — plan gates: the badge chips, the plan panel, the visual-block renderer and the
  *  question form. */
 export const KEYS_PLAN: readonly string[] = [
+  "hold_cta_answer",
+  "hold_cta_answer_title",
   "plangate_changes",
   "plangate_edited",
   "plangate_error",

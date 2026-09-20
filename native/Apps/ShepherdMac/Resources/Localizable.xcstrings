@@ -2882,6 +2882,40 @@
         }
       }
     },
+    "hold_cta_answer": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antworten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Answer"
+          }
+        }
+      }
+    },
+    "hold_cta_answer_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan öffnen, um offene Fragen zu beantworten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open the plan to answer its open questions"
+          }
+        }
+      }
+    },
     "hold_quota_error": {
       "extractionState": "manual",
       "localizations": {

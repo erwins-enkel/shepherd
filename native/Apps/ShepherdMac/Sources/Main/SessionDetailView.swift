@@ -19,8 +19,8 @@ struct SessionDetailView: View {
             VStack(alignment: .leading, spacing: 16) {
                 header(session)
                 tabs(session, store)
-                    .onChange(of: model.extension(PlanModel.self)?.openPlanTick[session.id]) { _, _ in
-                        selectedTab = "plan"
+                    .onChange(of: model.extension(PlanModel.self)?.openPlanTick[session.id], initial: true) { _, tick in
+                        if tick != nil { selectedTab = "plan" }
                     }
             }
             .padding(24)

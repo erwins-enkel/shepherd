@@ -1269,19 +1269,44 @@ components:
       type: object
       additionalProperties: true
       description: A critic verdict for one session. The documented subset of src/types.ts:790-815 the herd reads.
-      required: [sessionId, headSha, decision, summary, body, findings, addressRound, addressCap, finalRoundPending, finalRoundTimeoutMs, updatedAt]
+      required:
+        [
+          sessionId,
+          headSha,
+          decision,
+          summary,
+          body,
+          findings,
+          addressRound,
+          addressCap,
+          finalRoundPending,
+          finalRoundTimeoutMs,
+          updatedAt,
+        ]
       properties:
         sessionId: { type: string }
-        headSha: { type: string, description: The commit this verdict judged. Compare against GitState.headSha before tinting anything. }
+        headSha:
+          {
+            type: string,
+            description: The commit this verdict judged. Compare against GitState.headSha before tinting anything.,
+          }
         decision: { $ref: "#/components/schemas/ReviewDecision" }
         summary: { type: string }
         body: { type: string, description: Markdown. }
         findings: { type: array, items: { type: string } }
         addressRound: { type: integer }
-        addressCap: { type: integer, description: The cap this run used. Read it; never mirror a config value.  }
+        addressCap:
+          {
+            type: integer,
+            description: The cap this run used. Read it; never mirror a config value.,
+          }
         finalRoundPending: { type: boolean }
         finalRoundTimeoutMs: { type: integer }
-        dismissed: { type: boolean, description: 'Absent ⇒ false. The operator took this rework over by hand.' }
+        dismissed:
+          {
+            type: boolean,
+            description: "Absent ⇒ false. The operator took this rework over by hand.",
+          }
         url: { type: string }
         updatedAt: { type: integer }
     ReviewVerdictMap:

@@ -1981,7 +1981,8 @@ components:
         sandboxProfile:
           { "oneOf": [{ "$ref": "#/components/schemas/SandboxProfile" }, { "type": "null" }] }
         plain: { "type": "boolean" }
-        force: { "type": "boolean", "description": "Bypass the usage-hold gate and spawn immediately." }
+        force:
+          { "type": "boolean", "description": "Bypass the usage-hold gate and spawn immediately." }
         mergeTrainPrs:
           {
             "type": "array",
@@ -1990,7 +1991,10 @@ components:
           }
         issueRef: { "$ref": "#/components/schemas/IssueRef" }
         research:
-          { "type": "boolean", "description": "Start in research mode — no worktree writes, no PR." }
+          {
+            "type": "boolean",
+            "description": "Start in research mode — no worktree writes, no PR.",
+          }
         epicAuthoring: { "type": "boolean", "description": "Start in epic-authoring mode." }
         attachmentNames:
           {
@@ -2252,7 +2256,15 @@ components:
       $ref: "#/components/schemas/ReviveResult"
     RestoreConflictReason:
       type: "string"
-      enum: ["in_progress", "not_archived", "cannot_restore", "branch_gone", "branch_in_use", "spawn_refused"]
+      enum:
+        [
+          "in_progress",
+          "not_archived",
+          "cannot_restore",
+          "branch_gone",
+          "branch_in_use",
+          "spawn_refused",
+        ]
       x-shepherd-open-enum: true
     RestoreConflict:
       type: "object"
@@ -3440,7 +3452,9 @@ paths:
         {
           "required": false,
           "content":
-            { "application/json": { "schema": { "$ref": "#/components/schemas/HeldSpawnRequest" } } },
+            {
+              "application/json": { "schema": { "$ref": "#/components/schemas/HeldSpawnRequest" } },
+            },
         }
       responses:
         "201":
@@ -3524,18 +3538,25 @@ paths:
           "required": true,
           "content":
             {
-              "application/json": { "schema": { "$ref": "#/components/schemas/UpNextStartRequest" } },
+              "application/json":
+                { "schema": { "$ref": "#/components/schemas/UpNextStartRequest" } },
             },
         }
       responses:
         "201":
           description: "At least one session created (held items and errors may coexist)."
           content:
-            { "application/json": { "schema": { "$ref": "#/components/schemas/UpNextStartResult" } } }
+            {
+              "application/json":
+                { "schema": { "$ref": "#/components/schemas/UpNextStartResult" } },
+            }
         "200":
           description: "No sessions created; at least one item held (errors may coexist)."
           content:
-            { "application/json": { "schema": { "$ref": "#/components/schemas/UpNextStartResult" } } }
+            {
+              "application/json":
+                { "schema": { "$ref": "#/components/schemas/UpNextStartResult" } },
+            }
         "400":
           description: "Invalid body."
           content: { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
@@ -3547,7 +3568,10 @@ paths:
         "502":
           description: "Every item errored; still the same result body."
           content:
-            { "application/json": { "schema": { "$ref": "#/components/schemas/UpNextStartResult" } } }
+            {
+              "application/json":
+                { "schema": { "$ref": "#/components/schemas/UpNextStartResult" } },
+            }
   /api/halt:
     post:
       operationId: "haltHerd"
@@ -3555,7 +3579,8 @@ paths:
       responses:
         "200":
           description: "Success."
-          content: { "application/json": { "schema": { "$ref": "#/components/schemas/HaltResult" } } }
+          content:
+            { "application/json": { "schema": { "$ref": "#/components/schemas/HaltResult" } } }
         "401":
           $ref: "#/components/responses/Unauthorized"
         "405":
@@ -3590,7 +3615,8 @@ paths:
           description: "Success."
           content:
             {
-              "application/json": { "schema": { "$ref": "#/components/schemas/StrandedSessionIds" } },
+              "application/json":
+                { "schema": { "$ref": "#/components/schemas/StrandedSessionIds" } },
             }
         "401":
           $ref: "#/components/responses/Unauthorized"
@@ -3621,7 +3647,8 @@ paths:
           content: { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
         "409":
           description: "Conflict code: in_progress, not_archived, cannot_restore, branch_gone, branch_in_use, or spawn_refused."
-          content: { "application/json": { "schema": { "$ref": "#/components/schemas/RestoreConflict" } } }
+          content:
+            { "application/json": { "schema": { "$ref": "#/components/schemas/RestoreConflict" } } }
   /api/sessions/{id}/usage:
     parameters: [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }]
     get:
@@ -3645,7 +3672,9 @@ paths:
         {
           "required": true,
           "content":
-            { "application/json": { "schema": { "$ref": "#/components/schemas/BroadcastRequest" } } },
+            {
+              "application/json": { "schema": { "$ref": "#/components/schemas/BroadcastRequest" } },
+            },
         }
       responses:
         "200":

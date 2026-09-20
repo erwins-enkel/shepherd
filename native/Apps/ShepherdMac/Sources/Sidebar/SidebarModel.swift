@@ -198,7 +198,8 @@ final class SidebarModel: AppExtension {
             workingBlocked: workingBlocked)
     }
 
-    /// The `usage:limits` push the store applies wins over this model's bootstrap read: it is newer.
+    /// Reconciled usage for the meter and cross-stream consumers: accepted REST reads and pushes
+    /// replace the same store value in receipt order. With no store, use the preview/test read.
     var limits: UsageLimits? { store?.usageLimits ?? usage?.limits }
 
     /// The store's map when there is one — kept live by `session:block` — else the bootstrap read.
@@ -270,6 +271,9 @@ final class SidebarModel: AppExtension {
             holds = loaded.1
             blocks = loaded.2
             usage = loaded.3
+            // No server timestamp exists. Commit the accepted REST snapshot over the stale push
+            // in the same main-actor turn; a subsequent connected push takes over immediately.
+            store?.reconcileUsageLimits(loaded.3.limits)
         } catch {
             Log.ui.debug(
                 "sidebar snapshot read failed: \(String(describing: error), privacy: .public)")

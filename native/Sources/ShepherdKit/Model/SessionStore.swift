@@ -46,6 +46,7 @@ public final class SessionStore {
   public private(set) var repos: [Repo] = []
   /// Auto-merge state keyed by `repoPath`, like the web store's `autoMerge`.
   public private(set) var autoMerge: [String: Components.Schemas.AutoMergeStatus] = [:]
+  /// Latest applied usage push or accepted REST reconciliation, in local receipt order.
   public private(set) var usageLimits: Components.Schemas.UsageLimits?
   /// The last command failure, for a banner. Cleared by the next success.
   public private(set) var lastError: ShepherdError?
@@ -506,6 +507,14 @@ public final class SessionStore {
   }
 
   // MARK: - Events
+
+  /// Installs an accepted usage re-read over any older push. The sidebar owns that REST route;
+  /// this seam lets it reconcile the read-only cache without fabricating a socket event.
+  /// Callers must reject superseded refreshes/activations before calling. Both this write and
+  /// `applyNow(.usageLimits)` run synchronously on the main actor, so the next push wins again.
+  public func reconcileUsageLimits(_ limits: Components.Schemas.UsageLimits) {
+    usageLimits = limits
+  }
 
   /// Drains `events` until it finishes or the calling task is cancelled. The
   /// app never calls this itself: `start()` runs it in the task it owns.

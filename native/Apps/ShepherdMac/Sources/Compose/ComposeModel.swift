@@ -118,7 +118,7 @@ final class ComposeModel {
         do {
             let result = try await fetchEpics(repo)
             guard mine == generation else { return }
-            epicParents = Set(result.epics.map(\.number)); subIssues = Set(result.subIssues)
+            epicParents = Set(result.epics.map(\.parentIssueNumber)); subIssues = Set(result.subIssues)
         } catch { /* Best effort: absent epic data leaves the sub-issue filter open. */ }
     }
 
@@ -141,7 +141,7 @@ final class ComposeModel {
         do {
             let result = try await fetchCommands(repo, engine)
             guard mine == generation else { return }
-            commandListings[engine] = result.commands
+            commandListings[engine] = result.commands.filter(Self.isInsertable)
         } catch {
             guard mine == generation else { return }
             commandErrors[engine] = ShepherdErrorCopy.message(error)
@@ -213,9 +213,18 @@ final class ComposeModel {
         return nil
     }
     static func commandMatches(_ commands: [SlashCommand], query: String) -> [SlashCommand] {
-        let query = query.lowercased()
-        return commands.filter { $0.name.lowercased().hasPrefix(query) }
-            + commands.filter { !$0.name.lowercased().hasPrefix(query) && $0.name.lowercased().contains(query) }
+        let query = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let insertable = commands.filter(isInsertable)
+        return insertable.filter { $0.name.lowercased().hasPrefix(query) }
+            + insertable.filter {
+                !$0.name.lowercased().hasPrefix(query)
+                    && ($0.name.lowercased().contains(query) || $0.description.lowercased().contains(query))
+            }
+    }
+
+    private static func isInsertable(_ command: SlashCommand) -> Bool {
+        guard let invocations = command.invocations else { return true }
+        return invocations.additionalProperties.values.contains { !$0.isEmpty }
     }
 
     @discardableResult
@@ -223,7 +232,13 @@ final class ComposeModel {
         let trigger = caret.flatMap { Self.trigger(in: prompt, caret: $0) }
         let providers = command.providers.flatMap { $0.isEmpty ? nil : $0 } ?? [.claude]
         let preferred: AgentProvider = trigger?.symbol == "$" ? .codex : trigger?.symbol == "/" ? .claude : provider
-        provider = providers.contains(preferred) ? preferred : providers[0]
+        let selected = providers.contains(preferred) ? preferred : providers[0]
+        // An explicit map is authoritative. Plugin rows may have no invocation at all.
+        if let invocations = command.invocations,
+           invocations.additionalProperties[selected.rawValue]?.isEmpty != false {
+            return caret ?? prompt.endIndex
+        }
+        provider = selected
         let name = command.invocationName ?? command.name
         let token = command.invocations?.additionalProperties[provider.rawValue] ?? (provider == .codex ? "$" : "/") + name
         let insertionOffset: Int

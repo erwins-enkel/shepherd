@@ -3486,6 +3486,15 @@ components:
           items:
             type: integer
           description: Still-open issues blocking this one. Attached best-effort — the route fails OPEN, so absent does not mean unblocked.
+    IssueFetchTransport:
+      anyOf:
+        - $ref: "#/components/schemas/IssueFetchTransportKnown"
+        - type: string
+    IssueFetchTransportKnown:
+      type: string
+      enum:
+        - cli
+        - rest
     IssueFetchAttempt:
       type: object
       additionalProperties: true
@@ -3496,10 +3505,7 @@ components:
         - detail
       properties:
         transport:
-          type: string
-          enum:
-            - cli
-            - rest
+          $ref: "#/components/schemas/IssueFetchTransport"
         reason:
           anyOf:
             - type: string
@@ -3581,7 +3587,7 @@ components:
     SlashCommand:
       type: object
       additionalProperties: true
-      description: One installed slash command or skill (src/commands.ts:16). `invocations` is how a command is typed per engine; fall back to "/name" for claude and "$name" for codex.
+      description: One installed slash command or skill (src/commands.ts:16). `invocations` is how a command is typed per engine; an empty map is non-insertable. Only when the map is absent, fall back to "/name" for claude and "$name" for codex.
       required:
         - name
         - description
@@ -3633,12 +3639,12 @@ components:
       additionalProperties: true
       description: Enough of an epic to tag an issue row and to build the sub-issue filter's parent set. The epic PANEL is out of scope for milestone 3.
       required:
-        - number
-        - title
+        - parentIssueNumber
+        - parentTitle
       properties:
-        number:
+        parentIssueNumber:
           type: integer
-        title:
+        parentTitle:
           type: string
     EpicListing:
       type: object

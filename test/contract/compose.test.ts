@@ -145,6 +145,27 @@ describe("create from an issue", () => {
 });
 
 describe("epics", () => {
+  test("non-empty epics match the actual emitter payload", async () => {
+    const previousDrain = s.deps.drain;
+    // This list route only checks drain presence; it never invokes a drain method.
+    s.deps.drain = {} as NonNullable<typeof s.deps.drain>;
+    s.stubs.resolveForge.forge = fx.fakeForge({
+      listSubIssueSummaries: async () => ({
+        summaries: new Map([[412, { total: 2, completed: 0 }]]),
+        subIssueNumbers: [413, 414],
+        childrenByParent: new Map([[412, [413, 414]]]),
+      }),
+    });
+    try {
+      const ok = await get(`/api/epics?repo=${encodeURIComponent(s.validRepo)}`);
+      expect(ok.status).toBe(200);
+      expect(await validateResponse("GET", "/api/epics", ok)).toEqual(fx.epicListing);
+    } finally {
+      s.deps.drain = previousDrain;
+      s.stubs.resolveForge.forge = null;
+    }
+  });
+
   test("answers an empty listing without a drain, 400 on an invalid repo, and 401", async () => {
     const ok = await get(`/api/epics?repo=${encodeURIComponent(s.validRepo)}`);
     expect(ok.status).toBe(200);

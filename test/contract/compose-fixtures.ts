@@ -90,3 +90,22 @@ export function fakeForge(overrides: Record<string, unknown> = {}): unknown {
     ...overrides,
   };
 }
+
+/** The full native-summary payload emitted by buildEpicSummaries in src/server.ts. */
+export const epicListing = {
+  epics: [
+    {
+      parentIssueNumber: 412,
+      parentTitle: "Rate-limit the admin route",
+      total: 2,
+      merged: 0,
+      status: "idle",
+      source: "native",
+      inFlight: 0,
+      inFlightBy: [],
+      assignedOthers: [],
+      authoredByOther: null,
+    },
+  ],
+  subIssues: [413, 414],
+};

@@ -17,13 +17,14 @@ import Testing
     private func model(
         defaults: UserDefaults? = nil,
         issues: @escaping (String) async throws -> IssueListing = { _ in IssueListing(issues: []) },
-        commands: @escaping (String, AgentProvider) async throws -> CommandListing = { _, _ in CommandListing(commands: []) }
+        commands: @escaping (String, AgentProvider) async throws -> CommandListing = { _, _ in CommandListing(commands: []) },
+        epics: @escaping (String) async throws -> EpicListing = { _ in EpicListing(epics: [], subIssues: []) }
     ) -> ComposeModel {
         ComposeModel(defaults: defaults ?? self.defaults(), repoBranches: RepoBranchModel(
             loadBranches: { _ in .init(branches: []) },
             loadStatus: { _, _ in .init(behind: 0, ahead: 0, diverged: false, hasUpstream: false, localExists: false) },
             repair: { _, branch in .init(branch: branch) }), loadIssues: issues, loadCommands: commands,
-                     loadEpics: { _ in EpicListing(epics: [], subIssues: []) })
+                     loadEpics: epics)
     }
     private func command(_ name: String, providers: [AgentProvider] = [.claude, .codex]) -> SlashCommand {
         SlashCommand(name: name, description: "Command", scope: .init(known: .project), providers: providers)
@@ -61,12 +62,23 @@ import Testing
         #expect(IssueFilter.apply([blockedByOnly], viewer: nil, epicParents: [], subIssues: [], state: .init()).visible.count == 1)
     }
 
+    @Test func emittedEpicParentStaysVisibleWhenItIsAlsoASubIssue() async throws {
+        let payload = Data(#"{"epics":[{"parentIssueNumber":412,"parentTitle":"Parent"}],"subIssues":[412,413]}"#.utf8)
+        let listing = try JSONDecoder().decode(EpicListing.self, from: payload)
+        let rows = [issue(), issue(413)]
+        let m = model(issues: { _ in .init(issues: rows) }, epics: { _ in listing })
+        m.repoPath = "/repo"; await m.loadSources()
+        #expect(m.epicParents == [412])
+        #expect(m.filteredIssues.visible.map(\.number) == [412])
+        m.teardown()
+    }
+
     @Test func filterCountAndPersistence() {
         var state = IssueFilterState()
         #expect(state.activeCount(hasViewer: true) == 3)
         #expect(state.activeCount(hasViewer: false) == 2)
         state.hideActive = true; state.author = "operator"; state.labels = ["bug", "urgent"]
-        #expect(state.activeCount(hasViewer: true) == 6)
+        #expect(state.activeCount(hasViewer: true) == 7)
         let prefs = defaults()
         let first = model(defaults: prefs)
         first.filter = state
@@ -100,6 +112,32 @@ import Testing
     @Test func commandMatchesRankPrefixesBeforeSubstringsStably() {
         let rows = [command("pre-ship"), command("SHIP-it"), command("ship"), command("unrelated")]
         #expect(ComposeModel.commandMatches(rows, query: "ship").map(\.name) == ["SHIP-it", "ship", "pre-ship"])
+    }
+
+    @Test func commandPanelSearchTrimsAndMatchesDescriptions() {
+        var described = command("release")
+        described.description = "Ship the changes"
+        let rows = [command("pre-ship"), described, command("ship"), command("unrelated")]
+        #expect(ComposeModel.commandMatches(rows, query: "  SHIP \n").map(\.name) == ["ship", "pre-ship", "release"])
+        #expect(ComposeModel.commandMatches(rows, query: " \n ").map(\.name) == rows.map(\.name))
+    }
+
+    @Test func nonInsertablePluginsAreHiddenAndCannotChangeThePrompt() async {
+        var plugin = command("plugin", providers: [.codex])
+        plugin.kind = .init(known: .plugin)
+        plugin.invocations = .init(additionalProperties: [:])
+        let rows = [plugin, command("ship")]
+        let m = model(commands: { _, _ in .init(commands: rows) })
+        m.repoPath = "/repo"; m.provider = .codex
+        await m.loadSources()
+        #expect(m.commands.map(\.name) == ["ship"])
+        #expect(ComposeModel.commandMatches(rows, query: "").map(\.name) == ["ship"])
+        m.prompt = "keep $plug text"
+        let caret = m.prompt.range(of: " text")!.lowerBound
+        let returned = m.pickCommand(plugin, caret: caret)
+        #expect(m.prompt == "keep $plug text")
+        #expect(returned == caret)
+        #expect(m.provider == .codex && m.providerConstraint == nil)
     }
 
     @Test func attachmentSeedsOnlyAnEmptyPromptAndNeverLeaksAcrossRepos() throws {

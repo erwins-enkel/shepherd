@@ -41,12 +41,23 @@ struct ShepherdClientComposeTests {
         defer { server.tearDown() }
         server.stub("GET", "/api/issues", status: 200, json: Data("""
             {"slug":"owner/repo","webUrl":"https://example.test","issues":[],"viewer":null,
-            "error":"fetch_failed","attempts":[{"transport":"rest","reason":"future_reason","detail":"oops"}]}
+            "error":"fetch_failed","attempts":[{"transport":"future_transport","reason":"future_reason","detail":"oops"}]}
             """.utf8))
         let result = try await makeClient(server).issues(repoPath: "/repo")
         #expect(result.issues.isEmpty)
         #expect(result.error == "fetch_failed")
         #expect(result.attempts?.first?.reason.rawValue == "future_reason")
+        #expect(result.attempts?.first?.transport.rawValue == "future_transport")
+        #expect(result.attempts?.first?.transport.known == nil)
+    }
+
+    @Test(arguments: ["cli", "rest", "future_transport"])
+    func transportValuesRoundTrip(_ raw: String) throws {
+        let payload = Data("\"\(raw)\"".utf8)
+        let value = try JSONDecoder().decode(Components.Schemas.IssueFetchTransport.self, from: payload)
+        #expect(value.rawValue == raw)
+        #expect(value.known?.rawValue == (raw == "future_transport" ? nil : raw))
+        #expect(try JSONEncoder().encode(value) == payload)
     }
 
     @Test("unknown command scopes and kinds survive decoding")
@@ -67,10 +78,13 @@ struct ShepherdClientComposeTests {
         let server = FakeShepherdServer()
         defer { server.tearDown() }
         server.stub("GET", "/api/epics", status: 200, json: Data("""
-            {"epics":[{"number":412,"title":"Parent"}],"subIssues":[413,414]}
+            {"epics":[{"parentIssueNumber":412,"parentTitle":"Parent","total":2,"merged":0,
+            "status":"idle","source":"native","inFlight":0,"inFlightBy":[],
+            "assignedOthers":[],"authoredByOther":null}],"subIssues":[413,414]}
             """.utf8))
         let result = try await makeClient(server).epics(repoPath: "/repo")
-        #expect(result.epics.first?.number == 412)
+        #expect(result.epics.first?.parentIssueNumber == 412)
+        #expect(result.epics.first?.parentTitle == "Parent")
         #expect(result.subIssues == [413, 414])
     }
 

@@ -14,6 +14,8 @@ public typealias CommandListing = Components.Schemas.CommandListing
 public typealias EpicSummary = Components.Schemas.EpicSummary
 public typealias EpicListing = Components.Schemas.EpicListing
 
+extension Components.Schemas.IssueFetchTransport: OpenEnum {}
+
 extension Components.Schemas.SlashCommandScope: OpenEnum {}
 extension Components.Schemas.SlashCommandKind: OpenEnum {}
 extension Components.Schemas.IssueFetchAttempt.ReasonPayload: OpenEnum {}

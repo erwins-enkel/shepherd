@@ -2301,13 +2301,17 @@ components:
           type: array
           items: { type: integer }
           description: Still-open issues blocking this one. Attached best-effort — the route fails OPEN, so absent does not mean unblocked.
+    IssueFetchTransport:
+      type: string
+      x-shepherd-open-enum: true
+      enum: [cli, rest]
     IssueFetchAttempt:
       type: object
       additionalProperties: true
       description: One failed transport attempt, for the "why did issues not load" detail. Copied from src/types.ts:315.
       required: [transport, reason, detail]
       properties:
-        transport: { type: string, enum: [cli, rest] }
+        transport: { $ref: "#/components/schemas/IssueFetchTransport" }
         reason:
           type: string
           x-shepherd-open-enum: true
@@ -2350,7 +2354,7 @@ components:
     SlashCommand:
       type: object
       additionalProperties: true
-      description: One installed slash command or skill (src/commands.ts:16). `invocations` is how a command is typed per engine; fall back to "/name" for claude and "$name" for codex.
+      description: One installed slash command or skill (src/commands.ts:16). `invocations` is how a command is typed per engine; an empty map is non-insertable. Only when the map is absent, fall back to "/name" for claude and "$name" for codex.
       required: [name, description, scope]
       properties:
         id: { type: string }
@@ -2383,10 +2387,10 @@ components:
       type: object
       additionalProperties: true
       description: Enough of an epic to tag an issue row and to build the sub-issue filter's parent set. The epic PANEL is out of scope for milestone 3.
-      required: [number, title]
+      required: [parentIssueNumber, parentTitle]
       properties:
-        number: { type: integer }
-        title: { type: string }
+        parentIssueNumber: { type: integer }
+        parentTitle: { type: string }
     EpicListing:
       type: object
       additionalProperties: true

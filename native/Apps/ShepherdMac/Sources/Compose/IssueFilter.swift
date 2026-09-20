@@ -16,7 +16,7 @@ struct IssueFilterState: Equatable, Sendable {
         if hideSubIssues { count += 1 }
         if hideBlocked { count += 1 }
         if author != nil { count += 1 }
-        if !labels.isEmpty { count += 1 }
+        count += labels.count
         return count
     }
 }

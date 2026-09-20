@@ -360,6 +360,96 @@ struct SidebarModelTests {
         #expect(model.limits?.session5h?.pct == 7, "a failed read cannot replace the last receipt")
     }
 
+    @Test(arguments: [7.0, 99.0])
+    func aPushAfterUsageReceiptWinsWhileHoldsIsStillPending(newerPct: Double) async throws {
+        let (model, store, app, _) = try live()
+        defer {
+            model.teardown()
+            app.teardown()
+        }
+        try #require(await settle(until: { model.usage != nil }))
+        let stale = UsageLimits(
+            session5h: .init(pct: 7, resetAt: 1_800_000_000_000),
+            perModelWeek: [], stale: false, subscriptionOnly: false)
+        store.apply(.usageLimits(stale))
+
+        let holdsGate = Signal()
+        let usageGate = Signal()
+        var reads = SidebarReads.stub
+        reads.holds = {
+            await holdsGate.wait()
+            return [:]
+        }
+        reads.usage = {
+            await usageGate.wait()
+            var limits = stale
+            limits.session5h?.pct = 95
+            return UsageLimitsResponse(limits: limits, projections: [])
+        }
+        model.reads = reads
+        let receipts = model.usageReadCount
+        let refresh = Task { await model.refresh() }
+        // Wait for the actual main-actor receipt, not merely for the usage closure to return.
+        await usageGate.open()
+        let received = await settle(until: { model.usageReadCount == receipts + 1 })
+        #expect(received, "usage receipt is processed independently of the gated holds route")
+        #expect(model.limits?.session5h?.pct == 7, "no flicker while holds is pending")
+
+        var newer = stale
+        newer.session5h?.pct = newerPct
+        store.apply(.usageLimits(newer))
+        #expect(model.limits?.session5h?.pct == newerPct)
+        await holdsGate.open()
+        await refresh.value
+        #expect(model.usage?.limits.session5h?.pct == 95, "the REST snapshot was accepted")
+        #expect(store.usageLimits?.session5h?.pct == newerPct)
+        #expect(model.limits?.session5h?.pct == newerPct)
+        #expect(UsageMeter.bars(try #require(model.limits)).first?.pct == newerPct)
+    }
+
+    @Test(arguments: [false, true])
+    func usageReceiptAfterAPushIsCommittedOnlyIfHoldsSucceeds(holdsFails: Bool) async throws {
+        let (model, store, app, _) = try live()
+        defer {
+            model.teardown()
+            app.teardown()
+        }
+        try #require(await settle(until: { model.usage != nil }))
+        let holdsGate = Signal()
+        let usageGate = Signal()
+        let entered = ReadLedger()
+        var reads = SidebarReads.stub
+        reads.holds = {
+            await holdsGate.wait()
+            if holdsFails { throw CancellationError() }
+            return [:]
+        }
+        reads.usage = {
+            await entered.bump()
+            await usageGate.wait()
+            return UsageLimitsResponse(
+                limits: UsageLimits(
+                    session5h: .init(pct: 95, resetAt: 1_800_000_000_000),
+                    perModelWeek: [], stale: false, subscriptionOnly: false),
+                projections: [])
+        }
+        model.reads = reads
+        let receipts = model.usageReadCount
+        let refresh = Task { await model.refresh() }
+        #expect(await settle(until: { await entered.count == 1 }))
+        // This push arrives after refresh starts but before REST usage returns.
+        store.apply(.usageLimits(UsageLimits(
+            session5h: .init(pct: 7, resetAt: 1_800_000_000_000),
+            perModelWeek: [], stale: false, subscriptionOnly: false)))
+        await usageGate.open()
+        #expect(await settle(until: { model.usageReadCount == receipts + 1 }))
+        #expect(model.limits?.session5h?.pct == 7, "do not publish a partially read snapshot")
+        await holdsGate.open()
+        await refresh.value
+        #expect(store.usageLimits?.session5h?.pct == (holdsFails ? 7 : 95))
+        #expect(model.limits?.session5h?.pct == (holdsFails ? 7 : 95))
+    }
+
     /// The sidebar reconciles on the same signal the store does. `SessionStore` re-reads its own
     /// snapshot on every reconnect; these four snapshots ride along on the connection entering
     /// `.live`, so a `working-blocked` flag that flipped while the socket was down cannot stay

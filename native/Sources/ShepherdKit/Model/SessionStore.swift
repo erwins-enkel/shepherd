@@ -48,6 +48,9 @@ public final class SessionStore {
   public private(set) var autoMerge: [String: Components.Schemas.AutoMergeStatus] = [:]
   /// Latest applied usage push or accepted REST reconciliation, in local receipt order.
   public private(set) var usageLimits: Components.Schemas.UsageLimits?
+  /// Changes on every usage write, even an equal push. A REST reader captures this on receipt
+  /// to detect newer usage while it waits for unrelated reads before accepting its snapshot.
+  @ObservationIgnored public private(set) var usageLimitsRevision: UInt64 = 0
   /// The last command failure, for a banner. Cleared by the next success.
   public private(set) var lastError: ShepherdError?
   /// Where the server conversation stands. `@Observable`-tracked like every
@@ -510,9 +513,11 @@ public final class SessionStore {
 
   /// Installs an accepted usage re-read over any older push. The sidebar owns that REST route;
   /// this seam lets it reconcile the read-only cache without fabricating a socket event.
-  /// Callers must reject superseded refreshes/activations before calling. Both this write and
+  /// Callers must reject superseded refreshes/activations and check that `usageLimitsRevision`
+  /// still matches the revision captured on REST receipt before calling. Both this write and
   /// `applyNow(.usageLimits)` run synchronously on the main actor, so the next push wins again.
   public func reconcileUsageLimits(_ limits: Components.Schemas.UsageLimits) {
+    usageLimitsRevision &+= 1
     usageLimits = limits
   }
 
@@ -580,6 +585,7 @@ public final class SessionStore {
     case .automergeStatus(let status):
       autoMerge[status.repoPath] = status
     case .usageLimits(let limits):
+      usageLimitsRevision &+= 1
       usageLimits = limits
     case .unknown(let name, _):
       ShepherdLog.store.debug("ignoring event \(name, privacy: .public)")

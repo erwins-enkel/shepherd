@@ -132,6 +132,29 @@ describe("swift-openapi-generator derivation", () => {
   });
 });
 
+test("explicit null write scalars remain required opaque generated values", async () => {
+  const input = `openapi: 3.1.0
+info: {title: Fixture, version: '1'}
+paths: {}
+components:
+  schemas:
+    Override:
+      type: object
+      required: [enabled]
+      properties:
+        enabled:
+          type: [boolean, 'null']
+          x-shepherd-explicit-null: true
+`;
+  const result = Bun.YAML.parse(await deriveSwiftSpec(input)) as {
+    components: {
+      schemas: { Override: { required: string[]; properties: { enabled: { type?: unknown } } } };
+    };
+  };
+  expect(result.components.schemas.Override.required).toEqual(["enabled"]);
+  expect(result.components.schemas.Override.properties.enabled.type).toBeUndefined();
+});
+
 /** Minimal document the unit cases below hang their one interesting schema off. */
 function doc(schemas: string): string {
   return [

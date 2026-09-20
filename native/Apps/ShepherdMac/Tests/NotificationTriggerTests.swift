@@ -25,8 +25,10 @@ struct NotificationTriggerTests {
             stale: false, calibratedAt: nil, subscriptionOnly: false)
     }
 
-    /// A `session:new` frame's payload. Only the *required* properties of
-    /// `#/components/schemas/Session` are passed; every optional keeps its generated default.
+    /// A `session:new` frame's payload. `#/components/schemas/Session` lists ~30 required
+    /// properties; this fixture passes only the 20 that are also **non-nullable** — the other
+    /// ~10 required properties are nullable, so the generator already defaults them to `nil`,
+    /// same as the genuinely optional ones.
     private func session(id: String) -> Session {
         Session(
             id: id, desig: "TASK-07", name: "session", prompt: "do the thing",
@@ -108,10 +110,36 @@ struct NotificationTriggerTests {
         #expect(first.first?.sessionID == nil)
 
         // `if (sent) store.setSetting(USAGE_WARNED_KEY, …)`: the poster confirms delivery.
-        t.usageWarningPosted(resetAt: Self.openWindow)
+        t.usageWarningPosted(for: first.first!)
         #expect(
             t.intents(for: .usageLimits(limits(pct: 91))).isEmpty,
             "one warning per 5-hour window, while the clock is still inside it")
+    }
+
+    /// The hook is total: only a `.usageLimit` intent can latch. The natural Task 6 call site is
+    /// `trigger.usageWarningPosted(for: intent)` regardless of which kind was just posted, so a
+    /// `.done` or `.blocked` intent passed by mistake must be a no-op, not a latch on `0`.
+    @Test func postingANonUsageLimitIntentDoesNotLatch() {
+        var t = trigger()
+        #expect(t.intents(for: .usageLimits(limits(pct: 83))).map(\.kind) == [.usageLimit])
+        t.usageWarningPosted(
+            for: NotificationIntent(kind: .done, sessionID: "s1", subject: "TASK-07"))
+        #expect(
+            t.intents(for: .usageLimits(limits(pct: 91))).map(\.kind) == [.usageLimit],
+            "a non-usage-limit intent must not latch the usage window")
+    }
+
+    /// Self-guarding: a `.usageLimit` intent with `resetAt == nil` must not latch either — the
+    /// old `usageWarningPosted(resetAt: Int)` signature made `intent.resetAt ?? 0` type-check at
+    /// the call site and would have set `warnedUntil = 0`, permanently disabling the warning.
+    @Test func postingAUsageLimitIntentWithoutAResetAtDoesNotLatch() {
+        var t = trigger()
+        #expect(t.intents(for: .usageLimits(limits(pct: 83))).map(\.kind) == [.usageLimit])
+        t.usageWarningPosted(
+            for: NotificationIntent(kind: .usageLimit, sessionID: nil, subject: "5h"))
+        #expect(
+            t.intents(for: .usageLimits(limits(pct: 91))).map(\.kind) == [.usageLimit],
+            "a usageLimit intent with no resetAt must not latch the usage window")
     }
 
     /// The threshold is read off the constant so re-tuning `usageWarnPercent` cannot leave a
@@ -149,8 +177,9 @@ struct NotificationTriggerTests {
     /// later real scrape replaces, and value equality would re-arm and warn twice.
     @Test func aResetAtThatMovesInsideTheWarnedWindowDoesNotWarnAgain() {
         var t = trigger()
-        #expect(t.intents(for: .usageLimits(limits(pct: 83))).map(\.kind) == [.usageLimit])
-        t.usageWarningPosted(resetAt: Self.openWindow)
+        let posted = t.intents(for: .usageLimits(limits(pct: 83)))
+        #expect(posted.map(\.kind) == [.usageLimit])
+        t.usageWarningPosted(for: posted.first!)
         #expect(
             t.intents(for: .usageLimits(limits(pct: 90, resetAt: Self.openWindow + 900_000)))
                 .isEmpty,
@@ -162,8 +191,9 @@ struct NotificationTriggerTests {
     @Test func anElapsedWindowWarnsAgainEvenAtTheSameResetAt() {
         // A clock already past `openWindow`.
         var t = trigger(now: Self.openWindow + 1)
-        #expect(t.intents(for: .usageLimits(limits(pct: 83))).map(\.kind) == [.usageLimit])
-        t.usageWarningPosted(resetAt: Self.openWindow)
+        let posted = t.intents(for: .usageLimits(limits(pct: 83)))
+        #expect(posted.map(\.kind) == [.usageLimit])
+        t.usageWarningPosted(for: posted.first!)
         #expect(
             t.intents(for: .usageLimits(limits(pct: 83))).map(\.kind) == [.usageLimit],
             "now() >= warned: the window is over, so it warns again")

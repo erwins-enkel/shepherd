@@ -1536,6 +1536,159 @@
         }
       }
     },
+    "hold_blocked_awaiting_input": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wartet auf Ihre Eingabe."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting on your input."
+          }
+        }
+      }
+    },
+    "hold_blocked_generic": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wartet auf Ihre Eingabe."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting on your input."
+          }
+        }
+      }
+    },
+    "hold_blocked_menu": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wartet auf eine Menüauswahl."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting on a menu choice."
+          }
+        }
+      }
+    },
+    "hold_blocked_stall": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ruhig — keine aktuelle Aktivität; möglicherweise hängt der Prozess."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quiet — no recent activity; may be stuck."
+          }
+        }
+      }
+    },
+    "hold_blocked_yes_no": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wartet auf eine Ja/Nein-Antwort."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting on a yes/no."
+          }
+        }
+      }
+    },
+    "hold_quota_error": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kritiker kann diesen PR nicht prüfen — Ihre Eingabe erforderlich."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Critic can't review this PR — needs you."
+          }
+        }
+      }
+    },
+    "hold_quota_plan": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan-Review steckt fest — fordert weiterhin Änderungen an."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan review stuck — keeps requesting changes."
+          }
+        }
+      }
+    },
+    "hold_quota_review": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kritiker findet weiterhin Probleme — automatische Review pausiert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Critic keeps finding issues — auto-review paused."
+          }
+        }
+      }
+    },
+    "hold_quota_rework": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto-Korrektur hat ihr Limit erreicht — offene Befunde benötigen Sie."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto-fix hit its limit — open findings still need you."
+          }
+        }
+      }
+    },
     "login_busy": {
       "extractionState": "manual",
       "localizations": {
@@ -2928,6 +3081,372 @@
         }
       }
     },
+    "native_notify_blocked_title": {
+      "comment": "%1$@ = name",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ — braucht dich"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ — needs you"
+          }
+        }
+      }
+    },
+    "native_notify_done_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent hat seinen Zug beendet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent finished its turn."
+          }
+        }
+      }
+    },
+    "native_notify_done_title": {
+      "comment": "%1$@ = name",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ — wartet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ — waiting"
+          }
+        }
+      }
+    },
+    "native_notify_manual_steps_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bereit zum Mergen, aber zurückgehalten, bis du die manuellen Schritte bestätigst."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ready to merge, but held until you ack the manual steps it needs."
+          }
+        }
+      }
+    },
+    "native_notify_manual_steps_title": {
+      "comment": "%1$@ = name",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ — manuelle Schritte"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ — manual steps"
+          }
+        }
+      }
+    },
+    "native_notify_merge_error_body": {
+      "comment": "%1$@ = desig",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: der Merge-Train braucht deine Hilfe"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: the merge train needs your help"
+          }
+        }
+      }
+    },
+    "native_notify_merge_error_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge fehlgeschlagen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge failed"
+          }
+        }
+      }
+    },
+    "native_notify_ready_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wartet seit 5s auf dich — du bist dran."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting on you for 5s — your turn."
+          }
+        }
+      }
+    },
+    "native_notify_ready_title": {
+      "comment": "%1$@ = name",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ — du bist dran"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ — your turn"
+          }
+        }
+      }
+    },
+    "native_notify_rebase_cap_body": {
+      "comment": "%1$@ = desig",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: zu viele Rebase-Versuche — du bist dran"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: too many rebase attempts — over to you"
+          }
+        }
+      }
+    },
+    "native_notify_rebase_cap_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rebase-Limit erreicht"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rebase limit reached"
+          }
+        }
+      }
+    },
+    "native_notify_settings_enabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Über diesen Server benachrichtigen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notify me about this server"
+          }
+        }
+      }
+    },
+    "native_notify_settings_menu_item": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Benachrichtigungen…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifications…"
+          }
+        }
+      }
+    },
+    "native_notify_settings_permission_ask": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Benachrichtigungen erlauben"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow notifications"
+          }
+        }
+      }
+    },
+    "native_notify_settings_permission_denied": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS lässt Shepherd keine Benachrichtigungen senden. Aktiviere sie in Systemeinstellungen › Mitteilungen › Shepherd."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS is not letting Shepherd post notifications. Turn them on in System Settings › Notifications › Shepherd."
+          }
+        }
+      }
+    },
+    "native_notify_settings_quiet_hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solange das Shepherd-Fenster im Vordergrund ist, wird nichts angezeigt — die Liste vor dir sagt es bereits."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing is shown while the Shepherd window is focused — the list in front of you already says it."
+          }
+        }
+      }
+    },
+    "native_notify_settings_scope": {
+      "comment": "%1$@ = name",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Einstellungen gelten nur für %1$@."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "These settings apply to %1$@ only."
+          }
+        }
+      }
+    },
+    "native_notify_settings_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Benachrichtigungen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifications"
+          }
+        }
+      }
+    },
+    "native_notify_usage_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Limit fast erreicht."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Approaching the usage cap."
+          }
+        }
+      }
+    },
+    "native_notify_usage_body_reset": {
+      "comment": "%1$@ = time",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Limit fast erreicht — Reset um %1$@."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Approaching the usage cap — resets at %1$@."
+          }
+        }
+      }
+    },
+    "native_notify_usage_title": {
+      "comment": "%1$@ = pct",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5-Stunden-Limit bei %1$@ %%"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5-hour limit at %1$@%%"
+          }
+        }
+      }
+    },
     "native_sidebar_empty": {
       "extractionState": "manual",
       "localizations": {
@@ -4258,6 +4777,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Needs you"
+          }
+        }
+      }
+    },
+    "settings_push_cat_agent": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent-Aktivität (wartet, braucht Eingabe)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent activity (waiting, needs input)"
+          }
+        }
+      }
+    },
+    "settings_push_cat_ci": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CI-Status"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CI status"
           }
         }
       }

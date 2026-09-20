@@ -326,8 +326,41 @@ export const KEYS_LOCALSERVER: readonly string[] = [
   "native_local_stop",
 ];
 
-/** S6 — notification titles and bodies. */
-export const KEYS_NOTIFICATIONS: readonly string[] = [];
+/** S6 — notification titles and bodies. Keep alphabetical. */
+export const KEYS_NOTIFICATIONS: readonly string[] = [
+  "hold_blocked_awaiting_input",
+  "hold_blocked_generic",
+  "hold_blocked_menu",
+  "hold_blocked_stall",
+  "hold_blocked_yes_no",
+  "hold_quota_error",
+  "hold_quota_plan",
+  "hold_quota_review",
+  "hold_quota_rework",
+  "native_notify_blocked_title",
+  "native_notify_done_body",
+  "native_notify_done_title",
+  "native_notify_manual_steps_body",
+  "native_notify_manual_steps_title",
+  "native_notify_merge_error_body",
+  "native_notify_merge_error_title",
+  "native_notify_ready_body",
+  "native_notify_ready_title",
+  "native_notify_rebase_cap_body",
+  "native_notify_rebase_cap_title",
+  "native_notify_settings_enabled",
+  "native_notify_settings_menu_item",
+  "native_notify_settings_permission_ask",
+  "native_notify_settings_permission_denied",
+  "native_notify_settings_quiet_hint",
+  "native_notify_settings_scope",
+  "native_notify_settings_title",
+  "native_notify_usage_body",
+  "native_notify_usage_body_reset",
+  "native_notify_usage_title",
+  "settings_push_cat_agent",
+  "settings_push_cat_ci",
+];
 
 /**
  * The manifest the catalog is generated from. Order here does not reach the

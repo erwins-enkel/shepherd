@@ -357,6 +357,8 @@ describe("detail: events", () => {
   test("typed fixtures for session:git and session:activity match the contract", async () => {
     const emits: [string, unknown][] = [
       ["session:git", fx.gitEvent],
+      ["session:git", fx.reviewBlockedGitEvent],
+      ["session:git", fx.undatedReviewBlockedGitEvent],
       ["session:activity", fx.activityEvent],
     ];
     const frames = await collectEvents(s, token, async () => {

@@ -9,14 +9,13 @@ import ShepherdKit
 /// calls `connect(_:)` right after the installs, and every reader goes through the closures here
 /// rather than issuing its own request.
 ///
-/// **No second read per session.** Both closures answer from state another extension is already
-/// keeping current — S3's `SidebarModel` (one `GET /api/working-blocked` plus its own event-driven
+/// **No second read per session.** The connected closures answer from state another extension
+/// keeps current — S3's `SidebarModel` (one `GET /api/working-blocked` plus its own event-driven
 /// re-reads and reconnect refresh) and S2's `DetailModel` git cache (filled when the git tab
 /// loads, kept current by `session:git` pushes). Nothing here calls the server.
 ///
-/// Both default to the conservative answer, which is also what a launch reads before
-/// `connect(_:)` runs and what a still-inactive `AppModel` reads afterwards: no session is
-/// working-blocked, and no PR has merged.
+/// Every seam defaults to the conservative answer. The plan and merge seams stay at their
+/// defaults until S8 and S9 land; `connect(_:)` only wires the two existing extensions.
 @MainActor
 enum SessionSignals {
     /// S3's `GET /api/working-blocked` — session id to "this `blocked` session is in fact still
@@ -28,7 +27,24 @@ enum SessionSignals {
     /// what the web does before its own snapshot arrives — Relaunch stays offered.
     static var gitMerged: @MainActor (String) -> Bool = { _ in false }
 
-    /// Points both seams at the extensions `StreamRegistrations` just installed.
+    /// S8's plan-gate model: does this session have a `question-form` block with an unanswered
+    /// question? The web's `planQuestionsUnanswered` (`ui/src/lib/tab-signal.svelte.ts:36-47`),
+    /// which is drift-locked against the server's twin by `test/fixtures/plan-question-parity.json`.
+    ///
+    /// Read by S7's row badge and by `NotificationsModel.extraAttention` — the second of the two
+    /// thirds of the web's badge count the notifications stream documented as missing. `false`
+    /// until S8 lands, which is the conservative answer: no phantom badge.
+    static var planQuestionsUnanswered: @MainActor (String) -> Bool = { _ in false }
+
+    /// S9's merge model: session id to the number of outstanding post-merge manual steps, from
+    /// `GET /api/manual-steps/outstanding`. Only rows with `clearedAt IS NULL` appear
+    /// (`src/store.ts:4084`), so a key's presence IS the "you still owe this repo a step" fact.
+    ///
+    /// Read by S10's `owed` lens. `[:]` until S9 lands — an empty lens is right, a wrong one is
+    /// not.
+    static var manualStepsOutstanding: @MainActor () -> [String: Int] = { [:] }
+
+    /// Points the two existing seams at the extensions `StreamRegistrations` just installed.
     ///
     /// The `AppModel` is captured **weakly**: these closures live for the process, and a strong
     /// capture would keep a dropped model — and the store behind it — alive for good. They
@@ -57,5 +73,7 @@ enum SessionSignals {
     static func reset() {
         workingBlocked = { [:] }
         gitMerged = { _ in false }
+        planQuestionsUnanswered = { _ in false }
+        manualStepsOutstanding = { [:] }
     }
 }

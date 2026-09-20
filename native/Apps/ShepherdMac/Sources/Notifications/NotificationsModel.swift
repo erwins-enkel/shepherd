@@ -90,6 +90,30 @@ final class NotificationsModel: AppExtension {
     /// call's suspension and compared after it, so only the newest answer is kept. See
     /// `refreshAuthorization()`.
     @ObservationIgnored private var authorizationGeneration = 0
+
+    /// Monotonic, bumped by every badge write. Captured before the round trip and compared after,
+    /// so only the newest write commits `lastBadge`.
+    ///
+    /// Three callers reach `refreshBadge()` from their own `Task` — the per-frame `handle(_:)`, the
+    /// `extraAttention` didSet and `setWindowFocused` — so two writes can be in flight at once.
+    /// Without this, an older count resuming last records itself as the truth about a Dock badge
+    /// showing the newer one, and every later refresh that computes that number is elided against
+    /// it. The icon then stays wrong until the count changes twice. Same pattern as
+    /// `authorizationGeneration`, for the same reason.
+    @ObservationIgnored private var badgeGeneration = 0
+
+    /// The newest count asked for while its write is still in flight.
+    ///
+    /// The elision must compare against THIS and not `lastBadge`, or the generation stamp leaks a
+    /// reversal: with `lastBadge == 0` and a write of 7 still in flight, a fresh request for 0
+    /// matches `lastBadge` and returns early **without taking a generation** — so the in-flight 7
+    /// still wins its own comparison and commits over the newer intent. `badgeDesired` closes
+    /// that: every distinct intent takes a generation, including one that reverts to the cached
+    /// value. The winning completion clears this slot so `lastBadge` resumes governing elision:
+    /// a rejected write must be retryable, and `clearBadge()` must still force a write by dropping
+    /// `lastBadge`, even when the last successful count was already zero.
+    @ObservationIgnored private var badgeDesired: Int?
+
     @ObservationIgnored private weak var store: SessionStore?
     @ObservationIgnored private var badgeSource: @MainActor () -> [Session] = { [] }
 
@@ -191,6 +215,23 @@ final class NotificationsModel: AppExtension {
         center.onSelectSession = select
         center.start()
     }
+
+    #if DEBUG
+        /// Uses the offline initializer and a throwaway defaults suite; never asks macOS for
+        /// notification permission or installs focus observers.
+        static func forTesting(center: any NotificationCenterClient) -> NotificationsModel {
+            let suite = "run.shepherd.mac.badgerace.\(UUID().uuidString)"
+            let defaults = UserDefaults(suiteName: suite)!
+            defaults.removePersistentDomain(forName: suite)
+            return NotificationsModel(
+                center: center,
+                settingsStore: NotificationSettingsStore(defaults: defaults),
+                profileID: UUID(), now: { 0 }, subjectFor: { _ in nil }, select: { _ in })
+        }
+
+        func setBadgeForTesting(_ count: Int) async { await writeBadge(count) }
+        var lastBadgeForTesting: Int? { lastBadge }
+    #endif
 
     // MARK: - Events
 
@@ -389,8 +430,18 @@ final class NotificationsModel: AppExtension {
     /// outgoing profile's number recorded as the truth about a Dock badge that is global and
     /// has already been cleared.
     private func writeBadge(_ count: Int) async {
-        guard lastBadge != count else { return }
+        // Against the newest INTENT, not the last landed value — see `badgeDesired`.
+        guard (badgeDesired ?? lastBadge) != count else { return }
+        badgeDesired = count
+        badgeGeneration &+= 1
+        let mine = badgeGeneration
         let landed = await center.setBadgeCount(count)
+        // A write that was superseded while in flight commits nothing — not `lastBadge = count`
+        // (it would be a lie about the Dock) and not `lastBadge = nil` either (that would force the
+        // winner's count to be rewritten on the next refresh, one needless XPC round trip per
+        // race).
+        guard mine == badgeGeneration else { return }
+        badgeDesired = nil
         guard landed, !isTornDown else {
             lastBadge = nil
             return

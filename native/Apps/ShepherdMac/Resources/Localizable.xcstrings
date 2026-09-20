@@ -3117,6 +3117,23 @@
         }
       }
     },
+    "native_menu_session": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sitzung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session"
+          }
+        }
+      }
+    },
     "native_newsession_held": {
       "extractionState": "manual",
       "localizations": {
@@ -3513,6 +3530,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "5-hour limit at %1$@%%"
+          }
+        }
+      }
+    },
+    "native_settings_placeholder_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Einstellungsbereiche kommen mit dem Settings-Stream."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Settings panes arrive with the settings stream."
+          }
+        }
+      }
+    },
+    "native_settings_placeholder_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noch nichts einzustellen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing to configure yet"
           }
         }
       }

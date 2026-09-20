@@ -38,8 +38,9 @@ and commit the regenerated `openapi.swift.yaml` alongside your change.
 
 ## Stream blocks — three per stream
 
-Milestone 2 is built by four parallel streams (`terminal`, `detail`, `sidebar`, `actions`), and
-each owns a marked block in **all three** extensible sections of `openapi.yaml`:
+Milestone 2 was built by four parallel streams (`terminal`, `detail`, `sidebar`, `actions`) and
+milestone 3 adds six more (`herd`, `plan`, `merge`, `queues`, `compose`, `settings`). Each owns a
+marked block in **all three** extensible sections of `openapi.yaml`:
 
 | Section               | What goes in the block         |
 | --------------------- | ------------------------------ |
@@ -52,12 +53,12 @@ each owns a marked block in **all three** extensible sections of `openapi.yaml`:
 # ── /stream: sidebar ──
 ```
 
-One grammar for all three: a single literal space at each gap, the four streams always in the
+One grammar for all three: a single literal space at each gap, the ten streams always in the
 order above, the blocks last in their section. Appending inside your own block turns two branches
 that both add surface into an insertion conflict resolved by keeping both blocks, rather than a
 fight over the same trailing lines. `test/contract/stream-blocks.ts` parses them out of the raw
 text (a YAML parse drops comments) and `test/contract/stream-blocks.test.ts` guards the markers:
-they must be balanced, never nested, and every one of the twelve pairs must be present and in
+they must be balanced, never nested, and every one of the thirty pairs must be present and in
 order. **Never edit another stream's block, and never add surface outside one if you are a
 stream.**
 

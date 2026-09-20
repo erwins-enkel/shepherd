@@ -320,6 +320,24 @@ components:
         force:
           type: boolean
           description: Bypass the usage-hold gate and spawn immediately.
+        mergeTrainPrs:
+          type: array
+          items: { type: integer }
+          description: PR numbers for a merge-train kickoff. Present ⇒ this create is a train, not an ordinary task.
+        issueRef:
+          $ref: "#/components/schemas/IssueRef"
+        research:
+          type: boolean
+          description: Start in research mode — no worktree writes, no PR.
+        epicAuthoring:
+          type: boolean
+          description: Start in epic-authoring mode.
+        attachmentNames:
+          type: array
+          items: { type: string }
+          description: Display names for `images`, positionally. The server rejects a length mismatch with 400 (src/validate.ts:287-291).
+        launchUiState:
+          $ref: "#/components/schemas/LaunchUiState"
     HeldTask:
       type: object
       additionalProperties: true
@@ -442,6 +460,8 @@ components:
         stale: { type: boolean }
         calibratedAt: { type: [integer, "null"] }
         subscriptionOnly: { type: boolean }
+        observed:
+          $ref: "#/components/schemas/ObservedLimitWindows"
     EventName:
       type: string
       enum:
@@ -505,6 +525,76 @@ components:
       properties:
         id: { type: string }
         ready: { type: boolean }
+    ObservedLimitWindow:
+      type: object
+      additionalProperties: true
+      description: A window the provider actually reported, as opposed to Shepherd's local estimate. Copied from ObservedLimitWindow in src/usage-limits.ts.
+      required: [pct, resetAt, scrapedAt]
+      properties:
+        pct: { type: number }
+        resetAt: { type: integer }
+        scrapedAt: { type: integer, description: ms epoch of the scrape this sample came from. }
+    ObservedLimitWindows:
+      type: object
+      additionalProperties: true
+      description: >-
+        UsageLimits.observed (src/usage-limits.ts:288-291). The measured counterpart to session5h/week,
+        which remain local budget estimates. The web meter PREFERS these when present
+        (ui/src/lib/components/usage-gauges.ts:21-53), so a client that ignores them shows different
+        numbers from the web for the same server.
+      required: [session5h, week]
+      properties:
+        session5h:
+          oneOf:
+            - $ref: "#/components/schemas/ObservedLimitWindow"
+            - type: "null"
+        week:
+          oneOf:
+            - $ref: "#/components/schemas/ObservedLimitWindow"
+            - type: "null"
+    IssueRef:
+      type: object
+      additionalProperties: false
+      description: CreateSessionRequest.issueRef — the forge issue a task was started from. Bounds copied from validateIssueRef (src/validate.ts:230-246).
+      required: [number, url, title, body]
+      properties:
+        number: { type: integer, description: Positive. }
+        url: { type: string, description: An http(s) URL, at most 2048 characters. }
+        title: { type: string, maxLength: 500 }
+        body:
+          type: string
+          maxLength: 100000
+          description: >-
+            REQUIRED, not optional. validateIssueRef (src/validate.ts:245) rejects a missing or
+            non-string body with 400; "" is the legal empty value. A client that omits it gets a
+            400 the generated types would have called legal.
+    LaunchUiState:
+      type: object
+      additionalProperties: false
+      description: >-
+        CreateSessionRequest.launchUiState — composer checkbox state replayed onto the relaunch
+        sheet. validateLaunchUiState (src/validate.ts) requires the three original booleans,
+        accepts the two newer optional booleans, and rejects unknown keys.
+      required: [researchChecked, planGateChecked, autopilotChecked]
+      properties:
+        researchChecked: { type: boolean }
+        planGateChecked: { type: boolean }
+        autopilotChecked: { type: boolean }
+        epicAuthoringChecked: { type: boolean }
+        plainChecked: { type: boolean }
+    PrHandoff:
+      type: string
+      x-shepherd-open-enum: true
+      enum: [reviewer, merger]
+    PrReviewBlock:
+      type: object
+      additionalProperties: true
+      description: PrReviewBlock (src/forge/types.ts:151-155). Present ⇒ a reviewer has requested changes and nothing merges until it clears.
+      required: [reviewer, state]
+      properties:
+        reviewer: { type: string }
+        state: { type: string, enum: [changes_requested] }
+        latestAt: { type: [integer, "null"] }
     # ── stream: terminal ──
     ReplyRequest:
       type: object
@@ -717,6 +807,19 @@ components:
         isDraft: { type: boolean }
         isFork: { type: boolean }
         noCi: { type: boolean }
+        handoff:
+          $ref: "#/components/schemas/PrHandoff"
+          description: >-
+            GitState.handoff (src/forge/types.ts:262). Who the PR is waiting on. ABSENT means it is
+            waiting on the operator, which is the third state and has no member here.
+        handoffWho:
+          type: string
+          description: The responsible login; absent for a fork waiting on unnamed maintainers.
+        reviewBlock:
+          $ref: "#/components/schemas/PrReviewBlock"
+        headSha:
+          type: string
+          description: Head commit SHA of the PR branch; undefined when there is no PR. Drives review-once dedup and the stepper's verdict freshness.
         authorLogin: { type: string }
         requestedReviewers: { type: array, items: { type: string } }
         latestReview:
@@ -1032,6 +1135,18 @@ components:
         id: { type: string }
         amendments: { type: array, items: { $ref: "#/components/schemas/TaskAmendment" } }
     # ── /stream: actions ──
+    # ── stream: herd ──
+    # ── /stream: herd ──
+    # ── stream: plan ──
+    # ── /stream: plan ──
+    # ── stream: merge ──
+    # ── /stream: merge ──
+    # ── stream: queues ──
+    # ── /stream: queues ──
+    # ── stream: compose ──
+    # ── /stream: compose ──
+    # ── stream: settings ──
+    # ── /stream: settings ──
   responses:
     Unauthorized:
       description: Missing or invalid credential.
@@ -1239,6 +1354,18 @@ paths:
     post:
       operationId: createSession
       description: Creates and spawns a session, or answers 200 with a held task when the usage hold trips (force overrides the hold).
+      parameters:
+        - name: X-Shepherd-Spawn-Id
+          in: header
+          required: false
+          description: >-
+            Client-chosen correlation id for this create. With a valid one the caller receives live
+            `spawn:progress` frames and may cancel through POST /api/spawns/{id}/cancel; without
+            one the spawn still runs and is still measured. Deliberately a header and not a body
+            field (src/server.ts:2400-2404) — a usage hold persists the BODY, so a spawn id there
+            would be replayed stale when the held task is finally spawned. Header names are
+            case-insensitive; the server compares lowercase.
+          schema: { type: string }
       requestBody:
         required: true
         content:
@@ -1930,6 +2057,18 @@ paths:
               schema: { $ref: "#/components/schemas/RecapMap" }
         "401": { $ref: "#/components/responses/Unauthorized" }
   # ── /stream: actions ──
+  # ── stream: herd ──
+  # ── /stream: herd ──
+  # ── stream: plan ──
+  # ── /stream: plan ──
+  # ── stream: merge ──
+  # ── /stream: merge ──
+  # ── stream: queues ──
+  # ── /stream: queues ──
+  # ── stream: compose ──
+  # ── /stream: compose ──
+  # ── stream: settings ──
+  # ── /stream: settings ──
 x-shepherd-events:
   description: 'WebSocket /events. Same auth gate as HTTP (send Authorization on the upgrade). Every frame is an EventEnvelope: {"event": string, "data": object}. Client may send {"type":"presence","active":boolean}; the server never replies to it.'
   envelope:
@@ -1994,6 +2133,18 @@ x-shepherd-events:
     description: A session's amendment list changed. Always the FULL current list, so an empty array is a genuine all-clear.
     schema: { $ref: "#/components/schemas/SessionAmendmentsEvent" }
   # ── /stream: actions ──
+  # ── stream: herd ──
+  # ── /stream: herd ──
+  # ── stream: plan ──
+  # ── /stream: plan ──
+  # ── stream: merge ──
+  # ── /stream: merge ──
+  # ── stream: queues ──
+  # ── /stream: queues ──
+  # ── stream: compose ──
+  # ── /stream: compose ──
+  # ── stream: settings ──
+  # ── /stream: settings ──
 x-shepherd-pty:
   description: WebSocket /pty/{id}?cols=&rows=. Same auth gate and origin check as HTTP; the bearer goes on the upgrade request. An unknown session id is answered 404 before the upgrade. cols/rows set the attach size so the first paint matches the client's viewport. On attach the server replays the pane's scrollback, so a client must clear its own buffer on every (re)attach rather than appending. Server→client frames are raw terminal bytes (binary or text). Client→server text frames are keystrokes, except frames starting with resizePrefix which carry "<cols>:<rows>\n". One owner per terminal id; a new attach closes the previous socket with closeCodes.superseded and the loser must NOT reconnect (both would bump each other forever). closeCodes.gone means the session no longer has a live agent and no reattach can succeed. Any other close is transient; clients retry with backoff.
   path: /pty/{id}

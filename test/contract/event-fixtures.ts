@@ -53,6 +53,10 @@ export const automergeEvent: AutoMergeStatus = {
 };
 
 export const usageEvent: UsageLimits = {
+  observed: {
+    session5h: { pct: 40, resetAt: 1_800_000_000_000, scrapedAt: 1_799_999_000_000 },
+    week: { pct: 9, resetAt: 1_800_500_000_000, scrapedAt: 1_799_999_000_000 },
+  },
   session5h: { pct: 42, resetAt: 1_800_000_000_000 },
   week: { pct: 10, resetAt: 1_800_500_000_000 },
   perModelWeek: [
@@ -62,4 +66,10 @@ export const usageEvent: UsageLimits = {
   stale: false,
   calibratedAt: 1_799_000_000_000,
   subscriptionOnly: false,
+};
+
+/** No provider sample yet; both observed windows are explicitly null on the wire. */
+export const unobservedUsageEvent: UsageLimits = {
+  ...usageEvent,
+  observed: { session5h: null, week: null },
 };

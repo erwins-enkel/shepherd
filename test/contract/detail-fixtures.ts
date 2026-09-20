@@ -78,6 +78,39 @@ export const gitEvent: { id: string; git: GitState } = {
     requestedReviewers: ["octocat"],
     authorLogin: "shepherd-bot",
     latestReview: { state: "approved", author: "octocat", submittedAt: 1_800_000_100_000 },
+    handoff: "merger",
+    handoffWho: "hubot",
+    headSha: "0123456789abcdef0123456789abcdef01234567",
+  },
+};
+
+/** A reviewer has requested changes, so the author must address the block before handoff. */
+export const reviewBlockedGitEvent: { id: string; git: GitState } = {
+  id: gitEvent.id,
+  git: {
+    ...gitEvent.git,
+    handoff: undefined,
+    handoffWho: undefined,
+    mergeStateStatus: "blocked",
+    latestReview: {
+      state: "changes_requested",
+      author: "octocat",
+      submittedAt: 1_800_000_100_000,
+    },
+    reviewBlock: {
+      reviewer: "octocat",
+      state: "changes_requested",
+      latestAt: 1_800_000_100_000,
+    },
+  },
+};
+
+/** Some forges cannot supply the timestamp of the blocking review. */
+export const undatedReviewBlockedGitEvent: { id: string; git: GitState } = {
+  id: gitEvent.id,
+  git: {
+    ...reviewBlockedGitEvent.git,
+    reviewBlock: { reviewer: "octocat", state: "changes_requested", latestAt: null },
   },
 };
 

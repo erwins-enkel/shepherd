@@ -4243,5 +4243,8 @@
   "native_notify_settings_scope": "Diese Einstellungen gelten nur für {name}.",
   "native_notify_settings_quiet_hint": "Solange das Shepherd-Fenster im Vordergrund ist, wird nichts angezeigt — die Liste vor dir sagt es bereits.",
   "native_notify_settings_permission_ask": "Benachrichtigungen erlauben",
-  "native_notify_settings_permission_denied": "macOS lässt Shepherd keine Benachrichtigungen senden. Aktiviere sie in Systemeinstellungen › Mitteilungen › Shepherd."
+  "native_notify_settings_permission_denied": "macOS lässt Shepherd keine Benachrichtigungen senden. Aktiviere sie in Systemeinstellungen › Mitteilungen › Shepherd.",
+  "native_menu_session": "Sitzung",
+  "native_settings_placeholder_body": "Die Einstellungsbereiche kommen mit dem Settings-Stream.",
+  "native_settings_placeholder_title": "Noch nichts einzustellen"
 }

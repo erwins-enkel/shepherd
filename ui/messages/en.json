@@ -4243,5 +4243,8 @@
   "native_notify_settings_scope": "These settings apply to {name} only.",
   "native_notify_settings_quiet_hint": "Nothing is shown while the Shepherd window is focused — the list in front of you already says it.",
   "native_notify_settings_permission_ask": "Allow notifications",
-  "native_notify_settings_permission_denied": "macOS is not letting Shepherd post notifications. Turn them on in System Settings › Notifications › Shepherd."
+  "native_notify_settings_permission_denied": "macOS is not letting Shepherd post notifications. Turn them on in System Settings › Notifications › Shepherd.",
+  "native_menu_session": "Session",
+  "native_settings_placeholder_body": "Settings panes arrive with the settings stream.",
+  "native_settings_placeholder_title": "Nothing to configure yet"
 }

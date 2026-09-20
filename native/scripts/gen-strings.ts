@@ -74,8 +74,11 @@ export const KEYS_CORE: readonly string[] = [
   "native_firstrun_title",
   "native_interrupt_failed",
   "native_login_sheet_title",
+  "native_menu_session",
   "native_newsession_held",
   "native_newsession_provider_label",
+  "native_settings_placeholder_body",
+  "native_settings_placeholder_title",
   "native_sidebar_empty",
   "native_sidebar_title",
   "native_signout_failed",
@@ -366,6 +369,26 @@ export const KEYS_NOTIFICATIONS: readonly string[] = [
   "settings_push_cat_ci",
 ];
 
+/** S7 — the herd classifier: lifecycle group headings the sidebar already has live in
+ *  KEYS_SIDEBAR; this array is for the stepper, the row badges and the CI/review banners. */
+export const KEYS_HERD: readonly string[] = [];
+
+/** S8 — plan gates: the badge chips, the plan panel, the visual-block renderer and the
+ *  question form. */
+export const KEYS_PLAN: readonly string[] = [];
+
+/** S9 — merge, automation and post-merge steps. */
+export const KEYS_MERGE: readonly string[] = [];
+
+/** S10 — held tasks, up-next, done/recaps, halt and retry. */
+export const KEYS_QUEUES: readonly string[] = [];
+
+/** S11 — the composer: create fields, slash commands, steers, attachments. */
+export const KEYS_COMPOSE: readonly string[] = [];
+
+/** S12 — the settings panes, the command menu and the usage gauges. */
+export const KEYS_SETTINGS: readonly string[] = [];
+
 /**
  * The manifest the catalog is generated from. Order here does not reach the
  * output — `build()` sorts before emitting — but is fixed so the concatenation
@@ -379,6 +402,12 @@ export const KEYS: readonly string[] = [
   ...KEYS_ACTIONS,
   ...KEYS_LOCALSERVER,
   ...KEYS_NOTIFICATIONS,
+  ...KEYS_HERD,
+  ...KEYS_PLAN,
+  ...KEYS_MERGE,
+  ...KEYS_QUEUES,
+  ...KEYS_COMPOSE,
+  ...KEYS_SETTINGS,
 ];
 
 /**

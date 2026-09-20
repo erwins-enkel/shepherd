@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { makeContractDeps } from "./deps";
 import {
   eventsForStream,
   operationsForStream,
@@ -27,7 +28,7 @@ const CONTRACT = readFileSync(
   "utf8",
 );
 const LINES = CONTRACT.split("\n").map((line) => line.trim());
-const STREAMS = ["terminal", "detail", "sidebar", "actions"] as const;
+const STREAMS = STREAM_NAMES;
 
 const first = (needle: string) => LINES.indexOf(needle);
 const last = (needle: string) => LINES.lastIndexOf(needle);
@@ -253,7 +254,7 @@ describe("the real contract's stream blocks", () => {
     ["events", blocks.events],
   ] as const;
 
-  test("every section names exactly the four streams", () => {
+  test("every section names exactly the registered streams", () => {
     for (const [label, map] of sections) {
       expect([...map.keys()].sort(), label).toEqual([...STREAM_NAMES].sort());
     }
@@ -286,6 +287,54 @@ describe("the real contract's stream blocks", () => {
     for (const stream of STREAM_NAMES) {
       const owned = blocks.events.get(stream) ?? [];
       expect([...eventsForStream(stream)].sort(), stream).toEqual([...owned].sort());
+    }
+  });
+});
+
+/** The thirteen optional AppDeps the milestone-3 routes read. Absent, every one of those routes
+ *  answers its empty value and a stream cannot exercise the payload it declared — which is the
+ *  whole point of the drift test. Asserted here rather than in a stream's file because `deps.ts`
+ *  is shared and no stream may edit it. */
+describe("the contract harness wires the milestone-3 deps", () => {
+  test("every optional dep the new blocks read is present and seedable", () => {
+    const ctx = makeContractDeps();
+    try {
+      for (const key of [
+        "prCache",
+        "activity",
+        "claudeAlive",
+        "stranded",
+        "workingBlocked",
+        "blocks",
+        "holds",
+        "reviewCache",
+        "planGateCache",
+        "recapCache",
+        "autoMerge",
+        "resolveForge",
+        "shapeTask",
+      ] as const) {
+        expect(ctx.deps[key], key).toBeDefined();
+        expect(ctx.stubs[key], `stubs.${key}`).toBeDefined();
+      }
+      ctx.stubs.prCache.rows["sess_x"] = {
+        kind: "github",
+        state: "open",
+        checks: "success",
+        deployConfigured: false,
+      };
+      expect(ctx.deps.prCache?.snapshot()["sess_x"]?.state).toBe("open");
+      ctx.stubs.stranded.ids = ["sess_x"];
+      expect(ctx.deps.stranded?.ids()).toEqual(["sess_x"]);
+      // S11's two: an absent resolveForge makes GET /api/issues answer an empty listing on
+      // every call, and an absent shapeTask makes POST /api/shape answer 503.
+      ctx.stubs.resolveForge.forge = { listIssues: async () => [], slug: "o/r" } as never;
+      expect(ctx.deps.resolveForge?.(ctx.validRepo)).not.toBeNull();
+      // And the repo the harness hands out must be a real git repository, because
+      // GET /api/branches shells out to git against it.
+      expect(existsSync(join(ctx.validRepo, ".git"))).toBe(true);
+    } finally {
+      ctx.cleanup();
     }
   });
 });

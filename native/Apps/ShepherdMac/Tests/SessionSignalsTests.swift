@@ -33,6 +33,20 @@ struct SessionSignalsTests {
         #expect(!SessionSignals.gitMerged("s1"))
     }
 
+    @Test func theTwoNewSeamsDefaultToTheConservativeAnswer() {
+        SessionSignals.reset()
+        #expect(SessionSignals.planQuestionsUnanswered("sess_x") == false)
+        #expect(SessionSignals.manualStepsOutstanding().isEmpty)
+    }
+
+    @Test func resetRestoresTheShippedDefaultsAfterAnAssignment() {
+        SessionSignals.planQuestionsUnanswered = { _ in true }
+        SessionSignals.manualStepsOutstanding = { ["sess_x": 3] }
+        SessionSignals.reset()
+        #expect(SessionSignals.planQuestionsUnanswered("sess_x") == false)
+        #expect(SessionSignals.manualStepsOutstanding().isEmpty)
+    }
+
     /// Only a `.ready` entry holding a merged PR is a merge. Everything else — no entry at all,
     /// a read in flight, a failed read, and the contract's "no forge, or no PR" `nil` — reads as
     /// not merged, so Relaunch stays offered rather than vanishing on a missing answer.

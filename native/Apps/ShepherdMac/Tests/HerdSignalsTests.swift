@@ -5,6 +5,161 @@ import Testing
 
 @testable import Shepherd
 
+/// The installer owns lifecycle wiring, including models rebuilt after a profile switch.
+@MainActor
+@Suite(.serialized)
+struct HerdStreamTests {
+    private func withApp(_ body: (AppModel) async throws -> Void) async throws {
+        let suite = "HerdStreamTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        let app = AppModel(defaults: defaults, credentials: InMemoryCredentialStore())
+        app.health = { _ in throw CancellationError() }
+        defer {
+            app.teardown()
+            defaults.removePersistentDomain(forName: suite)
+        }
+        app.register(SidebarModel.self)
+        app.register(NotificationsModel.self)
+        try await body(app)
+    }
+
+    private func activate(_ app: AppModel, name: String) async throws {
+        let profile = try app.addRemoteProfile(name: name, address: "https://\(name).invalid")
+        await app.activate(profile)
+        // No credentials or live endpoint: the real lifecycle builds a store, with fake reads.
+        app.extension(SidebarModel.self)?.reads = SidebarReads(
+            workingBlocked: { [:] }, holds: { [:] }, blocks: { [:] },
+            usage: { throw CancellationError() })
+    }
+
+    private func seed(_ app: AppModel, state: String = "open", checks: String = "failure") throws -> HerdSignals {
+        let herd = try #require(app.extension(HerdSignals.self))
+        let payload: [String: Any] = ["state": state, "checks": checks, "deployConfigured": false]
+        let git = try JSONDecoder().decode(GitState.self,
+            from: JSONSerialization.data(withJSONObject: payload))
+        herd.reads = .stub(git: ["a": git])
+        herd.applyForTesting(name: "session:git", payload: ["id": "a", "git": payload])
+        return herd
+    }
+
+    @Test func installingIntoAnActiveStoreWiresTheSidebarAndMergedSeam() async throws {
+        try await withApp { app in
+            try await activate(app, name: "active")
+            SessionSignals.connect(app)
+            HerdStream.install(app)
+            let sidebar = try #require(app.extension(SidebarModel.self))
+            let herd = try seed(app)
+            let session = PreviewData.session(id: "a", status: .init(known: .idle))
+            #expect(sidebar.gitStage(session) == .ciFailed)
+            #expect(!sidebar.inReview(session))
+            herd.applyForTesting(name: "session:reviewing", payload: ["id": "a", "reviewing": true])
+            #expect(sidebar.inReview(session))
+            #expect(sidebar.gitStage(session) == .reviewerRunning)
+            _ = try seed(app, state: "merged", checks: "success")
+            #expect(SessionSignals.gitMerged("a"))
+            #expect(!SessionSignals.gitMerged("missing"))
+            app.teardown()
+            #expect(!SessionSignals.gitMerged("a"))
+            #expect(sidebar.gitStage(session) == nil)
+            #expect(!sidebar.inReview(session))
+        }
+    }
+
+    @Test func installingBeforeActivationWiresEveryNewInstance() async throws {
+        try await withApp { app in
+            SessionSignals.connect(app)
+            HerdStream.install(app)
+            let merged = SessionSignals.gitMerged
+            #expect(!merged("a"))
+            #expect(app.extension(HerdSignals.self) == nil)
+            try await activate(app, name: "first")
+            let firstSidebar = try #require(app.extension(SidebarModel.self))
+            let firstHerd = try seed(app, state: "merged", checks: "success")
+            let firstNotifications = try #require(app.extension(NotificationsModel.self))
+            let session = PreviewData.session(id: "a", status: .init(known: .idle))
+            #expect(firstSidebar.gitStage(session) == .merged)
+            #expect(merged("a"))
+
+            try await activate(app, name: "second")
+            let secondSidebar = try #require(app.extension(SidebarModel.self))
+            let secondHerd = try seed(app)
+            let secondNotifications = try #require(app.extension(NotificationsModel.self))
+            #expect(secondHerd !== firstHerd)
+            #expect(secondSidebar !== firstSidebar)
+            #expect(secondSidebar.gitStage(session) == .ciFailed)
+            #expect(firstSidebar.gitStage(session) == .ciFailed, "retained closures resolve the current activation")
+            #expect(!merged("a"))
+            secondHerd.applyForTesting(name: "session:reviewing", payload: ["id": "a", "reviewing": true])
+            #expect(secondSidebar.inReview(session))
+            #expect(firstSidebar.inReview(session))
+            #expect(await herdSettle(until: { secondNotifications.extraAttention == ["a"] }))
+            #expect(firstNotifications.extraAttention.isEmpty)
+        }
+    }
+
+    @Test func repeatedInstallKeepsTheLiveInstancesAndSubscriptions() async throws {
+        try await withApp { app in
+            HerdStream.install(app)
+            try await activate(app, name: "twice")
+            let herd = try seed(app)
+            let sidebar = try #require(app.extension(SidebarModel.self))
+            let keys = app.extensionFactories.map(\.key)
+            let instances = app.liveExtensions.map { ObjectIdentifier($0.value) }
+            HerdStream.install(app)
+            #expect(app.extensionFactories.map(\.key) == keys)
+            #expect(app.liveExtensions.map { ObjectIdentifier($0.value) } == instances)
+            #expect(app.extension(HerdSignals.self) === herd)
+            #expect(herd.isSubscribed)
+            #expect(sidebar.gitStage(PreviewData.session(id: "a", status: .init(known: .idle))) == .ciFailed)
+        }
+    }
+
+    @Test func ciRedFeedsNotificationsAndClearsOnRecovery() async throws {
+        try await withApp { app in
+            HerdStream.install(app)
+            try await activate(app, name: "ci")
+            let herd = try seed(app)
+            let notifications = try #require(app.extension(NotificationsModel.self))
+            #expect(await herdSettle(until: { notifications.extraAttention == ["a"] }))
+            _ = try seed(app, checks: "success")
+            #expect(await herdSettle(until: { notifications.extraAttention.isEmpty }))
+            // A queued observation from the old activation must never write after teardown.
+            herd.applyForTesting(name: "session:git", payload: [
+                "id": "late", "git": ["state": "open", "checks": "failure", "deployConfigured": false],
+            ])
+            app.teardown()
+            for _ in 0..<20 { await Task.yield() }
+            #expect(notifications.extraAttention.isEmpty)
+        }
+    }
+
+    @Test func fullAndGitOnlyCandidatesGiveTheSamePartition() async throws {
+        try await withApp { app in
+            HerdStream.install(app)
+            try await activate(app, name: "partition")
+            let herd = try seed(app)
+            let sidebar = try #require(app.extension(SidebarModel.self))
+            for status in [SessionStatus.Known.idle, .running] {
+                var session = PreviewData.session(id: "a", status: .init(known: status))
+                for ready in [false, true] {
+                    session.readyToMerge = ready
+                    for reviewing in [false, true] {
+                        herd.applyForTesting(name: "session:reviewing", payload: ["id": "a", "reviewing": reviewing])
+                        let full = HerdPartition.stageOf(session, now: 0,
+                            gitStage: sidebar.gitStage, inReview: sidebar.inReview)
+                        let gitOnly = HerdPartition.stageOf(session, now: 0, gitStage: { session in
+                            let stage = herd.stage(for: session)
+                            return [.active, .merging, .ready, .reviewerRunning].contains(stage) ? nil : stage
+                        }, inReview: sidebar.inReview)
+                        #expect(full == gitOnly)
+                        #expect(full == herd.stage(for: session))
+                    }
+                }
+            }
+        }
+    }
+}
+
 private actor HerdReadLedger {
     private(set) var counts: [String: Int] = [:]
     func bump(_ key: String) { counts[key, default: 0] += 1 }

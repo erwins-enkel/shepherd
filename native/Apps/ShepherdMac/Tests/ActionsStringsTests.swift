@@ -14,7 +14,8 @@ struct ActionsStringsTests {
             "cardmenu_amend", "cardmenu_relaunch", "cardmenu_rename", "cardmenu_resume",
             "cardmenu_stop", "cardmenu_stop_title", "gitrail_ready", "gitrail_ready_aria",
             "gitrail_ready_off_title", "gitrail_ready_on_title", "native_actions_bar_label",
-            "native_actions_ready_off", "native_actions_relaunch_confirm_action",
+            "native_actions_ready_off", "native_actions_ready_on", "native_actions_recap_requested",
+            "native_actions_relaunch_confirm_action",
             "native_actions_relaunch_confirm_body", "native_actions_relaunch_confirm_title",
             "recap_open_items", "recap_regenerate", "recap_regenerate_failed",
             "recap_verdict_needs_attention", "recap_verdict_parked", "recap_verdict_ready",
@@ -32,10 +33,16 @@ struct ActionsStringsTests {
     @Test func argumentCarryingKeysInterpolate() {
         let keys: [StaticString] = [
             "amend_title", "cardmenu_resume_failed", "cardmenu_stop_failed",
-            "cardmenu_stop_toast", "native_actions_failed", "relaunch_done", "toast_renamed",
+            "cardmenu_stop_toast", "native_actions_failed", "native_actions_open_items",
+            "native_actions_resumed", "relaunch_done", "toast_renamed",
         ]
         for key in keys {
             #expect(L.t(key, "MARKER").contains("MARKER"), "key \(key) dropped its argument")
         }
+    }
+
+    @Test func openItemsFormatsTheCountWithoutLeavingAPlaceholder() {
+        let text = L.t("native_actions_open_items", "2")
+        #expect(["Open items: 2", "Offene Punkte: 2"].contains(text))
     }
 }

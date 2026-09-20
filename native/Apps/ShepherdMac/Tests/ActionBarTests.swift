@@ -188,6 +188,72 @@ struct ActionBarTests {
         #expect(ActionBarView.intent(for: .regenerateRecap) == .execute)
     }
 
+    @Test func resumeConfirmsTheSessionNameWithSuccessTone() async throws {
+        let outcome = ActionBarOutcome()
+        let session = PreviewData.session(id: "s1", name: "TASK-07")
+        var calls = 0
+        await outcome.run(
+            .resume, session: session, command: SessionCommandState(),
+            operation: { calls += 1 }, failureCopy: { $0 }, isCurrent: { true })
+        #expect(calls == 1)
+        let note = try #require(outcome.note)
+        #expect(note.text == L.t("native_actions_resumed", "TASK-07"))
+        #expect(note.text.contains("TASK-07"))
+        #expect(note.tone == .success)
+    }
+
+    @Test(arguments: [false, true])
+    func readyConfirmsBothResultingStatesWithSuccessTone(wasReady: Bool) async throws {
+        let outcome = ActionBarOutcome()
+        var session = PreviewData.session(id: "s1")
+        session.readyToMerge = wasReady
+        var calls = 0
+        await outcome.run(
+            .toggleReady, session: session, command: SessionCommandState(),
+            operation: { calls += 1 }, failureCopy: { $0 }, isCurrent: { true })
+        #expect(calls == 1)
+        let note = try #require(outcome.note)
+        #expect(note.text == L.t(wasReady ? "native_actions_ready_off" : "native_actions_ready_on"))
+        #expect(note.tone == .success)
+    }
+
+    @Test func recapConfirmsTheRequestWithSuccessTone() async throws {
+        let outcome = ActionBarOutcome()
+        var calls = 0
+        await outcome.run(
+            .regenerateRecap, session: PreviewData.session(id: "s1"), command: SessionCommandState(),
+            operation: { calls += 1 }, failureCopy: { $0 }, isCurrent: { true })
+        #expect(calls == 1)
+        let note = try #require(outcome.note)
+        #expect(note.text == L.t("native_actions_recap_requested"))
+        #expect(note.tone == .success)
+    }
+
+    @Test(arguments: [SessionAction.resume, .toggleReady, .regenerateRecap])
+    func staleCompletionsDoNotWriteANote(action: SessionAction) async {
+        let outcome = ActionBarOutcome()
+        let command = SessionCommandState()
+        var current = true
+        await outcome.run(
+            action, session: PreviewData.session(id: "s1"), command: command,
+            operation: { current = false }, failureCopy: { $0 }, isCurrent: { current })
+        #expect(!current, "the operation ran before its completion became stale")
+        #expect(outcome.note == nil)
+        #expect(command.message == nil)
+    }
+
+    @Test(arguments: [SessionAction.resume, .toggleReady, .regenerateRecap])
+    func failedCompletionsDoNotWriteASuccessNote(action: SessionAction) async {
+        let outcome = ActionBarOutcome()
+        let command = SessionCommandState()
+        await outcome.run(
+            action, session: PreviewData.session(id: "s1"), command: command,
+            operation: { throw ShepherdError.notFound },
+            failureCopy: { L.t("native_actions_failed", $0) }, isCurrent: { true })
+        #expect(outcome.note == nil)
+        #expect(command.message == L.t("native_actions_failed", ShepherdErrorCopy.message(ShepherdError.notFound)))
+    }
+
     @Test func isCurrentDropsACompletionAfterTheOperatorSelectedAnotherSession() async throws {
         let app = AppModel(defaults: Self.scratchDefaults(), credentials: InMemoryCredentialStore())
         let profile = try app.addRemoteProfile(

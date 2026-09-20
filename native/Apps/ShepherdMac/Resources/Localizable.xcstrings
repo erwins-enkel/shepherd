@@ -1826,6 +1826,24 @@
         }
       }
     },
+    "native_actions_open_items": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offene Punkte: %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open items: %1$@"
+          }
+        }
+      }
+    },
     "native_actions_ready_off": {
       "extractionState": "manual",
       "localizations": {
@@ -1839,6 +1857,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Not ready"
+          }
+        }
+      }
+    },
+    "native_actions_ready_on": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Als bereit zum Mergen markiert"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Marked ready to merge"
+          }
+        }
+      }
+    },
+    "native_actions_recap_requested": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zusammenfassung angefordert"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recap requested"
           }
         }
       }
@@ -1890,6 +1942,24 @@
           "stringUnit": {
             "state": "translated",
             "value": "Relaunch this session?"
+          }
+        }
+      }
+    },
+    "native_actions_resumed": {
+      "comment": "%1$@ = name",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ fortgesetzt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resumed %1$@"
           }
         }
       }

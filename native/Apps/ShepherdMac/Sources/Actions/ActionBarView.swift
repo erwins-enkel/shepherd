@@ -1,3 +1,4 @@
+import Observation
 import ShepherdKit
 import SwiftUI
 
@@ -58,6 +59,38 @@ struct ActionNote: Equatable, Sendable {
 
     static func success(_ text: String) -> ActionNote { ActionNote(text: text, tone: .success) }
     static func warning(_ text: String) -> ActionNote { ActionNote(text: text, tone: .warning) }
+}
+
+/// The bar's actual outcome state, shared by the command closures and tests. Keeping the
+/// guarded note writes here lets tests drive completion without hosting SwiftUI.
+@Observable
+@MainActor
+final class ActionBarOutcome {
+    var note: ActionNote?
+
+    func run(
+        _ action: SessionAction,
+        session: Session,
+        command: SessionCommandState,
+        operation: () async throws -> Void,
+        failureCopy: (String) -> String,
+        isCurrent: () -> Bool
+    ) async {
+        let ok = await command.run(
+            operation, failureCopy: failureCopy, isCurrent: isCurrent)
+        guard ok else { return }
+        switch action {
+        case .resume:
+            note = .success(L.t("native_actions_resumed", session.name))
+        case .toggleReady:
+            note = .success(
+                !session.readyToMerge ? L.t("native_actions_ready_on") : L.t("native_actions_ready_off"))
+        case .regenerateRecap:
+            note = .success(L.t("native_actions_recap_requested"))
+        case .stop, .rename, .amend, .relaunch:
+            assertionFailure("No inline outcome for \(action.id)")
+        }
+    }
 }
 
 /// The quick-action bar under the detail pane.
@@ -141,7 +174,7 @@ struct ActionBarView: View {
     /// A one-line outcome note (renamed, relaunched, amendment recorded) that fades on the next
     /// command. Separate from `command.message`, which is only ever a failure — and unlike it,
     /// this one carries its own tone, because most but not all of these are good news.
-    @State private var note: ActionNote?
+    @State private var outcome = ActionBarOutcome()
 
     private var actions: [SessionAction] { model.actions(for: session) }
 
@@ -151,8 +184,8 @@ struct ActionBarView: View {
                 NoticeBar(message: message) { command.clear() }
                     .accessibilityIdentifier("action-bar-error")
             }
-            if let note {
-                NoticeBar(message: note.text, tone: note.tone) { self.note = nil }
+            if let note = outcome.note {
+                NoticeBar(message: note.text, tone: note.tone) { outcome.note = nil }
                     .accessibilityIdentifier("action-bar-note")
             }
             if let recap = RecapLine.content(for: model.recap(for: session.id)) {
@@ -178,12 +211,12 @@ struct ActionBarView: View {
             switch which {
             case .rename:
                 RenameSheet(session: session, store: store, app: app) { renamed in
-                    note = .success(renamed)
+                    outcome.note = .success(renamed)
                     sheet = nil
                 }
             case .amend:
                 AmendSheet(session: session, store: store, app: app) { recorded in
-                    note = .success(recorded)
+                    outcome.note = .success(recorded)
                     sheet = nil
                 }
             }
@@ -208,7 +241,7 @@ struct ActionBarView: View {
 
     private func resetForSessionChange() {
         command.clear()
-        note = nil
+        outcome.note = nil
         sheet = nil
         confirmingRelaunch = false
     }
@@ -219,7 +252,7 @@ struct ActionBarView: View {
         // Only an *archiving* relaunch records one, and only on its own success — see
         // `relaunchOutcomeNote(_:)`, which is where that pairing is decided.
         if let pending = model.consumeOutcomeNote(forSessionID: session.id) {
-            note = .success(pending)
+            outcome.note = .success(pending)
         }
     }
 
@@ -238,7 +271,7 @@ struct ActionBarView: View {
                 .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
             if content.openItems > 0 {
-                Text(verbatim: "\(L.t("recap_open_items")): \(content.openItems)")
+                Text(verbatim: L.t("native_actions_open_items", String(content.openItems)))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -301,15 +334,16 @@ struct ActionBarView: View {
                 { try await store.interrupt(id: session.id) },
                 failureCopy: { _ in L.t("cardmenu_stop_failed", name) },
                 isCurrent: { isCurrent })
-            if ok { note = .success(L.t("cardmenu_stop_toast", name)) }
+            if ok { outcome.note = .success(L.t("cardmenu_stop_toast", name)) }
         }
     }
 
     private func resume() {
         let name = session.name
         Task {
-            await command.run(
-                { _ = try await store.client.resume(sessionID: session.id) },
+            await outcome.run(
+                .resume, session: session, command: command,
+                operation: { _ = try await store.client.resume(sessionID: session.id) },
                 failureCopy: { _ in L.t("cardmenu_resume_failed", name) },
                 isCurrent: { isCurrent })
         }
@@ -318,8 +352,9 @@ struct ActionBarView: View {
     private func toggleReady() {
         let next = !session.readyToMerge
         Task {
-            await command.run(
-                { try await store.client.setReadyToMerge(sessionID: session.id, ready: next) },
+            await outcome.run(
+                .toggleReady, session: session, command: command,
+                operation: { try await store.client.setReadyToMerge(sessionID: session.id, ready: next) },
                 failureCopy: { L.t("native_actions_failed", $0) },
                 isCurrent: { isCurrent })
         }
@@ -327,8 +362,9 @@ struct ActionBarView: View {
 
     private func regenerateRecap() {
         Task {
-            await command.run(
-                { _ = try await store.client.regenerateRecap(sessionID: session.id) },
+            await outcome.run(
+                .regenerateRecap, session: session, command: command,
+                operation: { _ = try await store.client.regenerateRecap(sessionID: session.id) },
                 failureCopy: { _ in L.t("recap_regenerate_failed") },
                 isCurrent: { isCurrent })
         }
@@ -372,7 +408,7 @@ struct ActionBarView: View {
             } else {
                 // Nothing moved: the original is still on the list and still selected, so the
                 // bar showing it right now is still the right place for the note.
-                note = outcomeNote
+                self.outcome.note = outcomeNote
             }
         }
     }

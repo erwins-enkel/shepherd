@@ -5624,6 +5624,21 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       ...telemetrySettings(deps.telemetry),
     });
   }
+  if (req.method === "PATCH") {
+    const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+    if (
+      !body ||
+      Array.isArray(body) ||
+      typeof body !== "object" ||
+      Object.keys(body).length !== 1
+    ) {
+      return json({ error: "exactly one setting is required" }, 400);
+    }
+    const field = Object.keys(body)[0]!;
+    const handler = SETTING_PATCHES.find(([key]) => key === field)?.[1];
+    if (!handler) return json({ error: "unknown setting" }, 400);
+    return handler(body[field], deps);
+  }
   if (req.method === "PUT") {
     const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
     // A standalone field patch carries exactly one setting and no repoRoot; dispatch by

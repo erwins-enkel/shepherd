@@ -147,6 +147,137 @@ const put = (app: ReturnType<typeof makeApp>, body: unknown) =>
     }),
   );
 
+const patch = (app: ReturnType<typeof makeApp>, body: unknown) =>
+  app.fetch(
+    new Request("http://x/api/settings", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  );
+
+test("PATCH /api/settings persists one setting, returns a partial response, and refreshes via GET", async () => {
+  config.repoRoot = tmp;
+  const { app, store } = harness();
+  for (const value of [true, false]) {
+    const res = await patch(app, { reducedPushMode: value });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ reducedPushMode: value });
+    expect(config.reducedPushMode).toBe(value);
+    expect(store.getSetting("reducedPushMode")).toBe(value ? "1" : "0");
+    const got = await (await app.fetch(new Request("http://x/api/settings"))).json();
+    expect(got.reducedPushMode).toBe(value);
+    expect(got.repoRoot).toBe(tmp);
+  }
+  expect(store.getSetting("repoRoot")).toBeNull();
+});
+
+test("PATCH /api/settings reuses setting validation and numeric clamping", async () => {
+  config.reducedPushMode = false;
+  const { app, store } = harness();
+  const bad = await patch(app, { reducedPushMode: "true" });
+  expect(bad.status).toBe(400);
+  expect(await bad.json()).toEqual({ error: "reducedPushMode must be a boolean" });
+  expect(config.reducedPushMode).toBe(false);
+  expect(store.getSetting("reducedPushMode")).toBeNull();
+
+  const capped = await patch(app, { prReviewCyclesCap: 99 });
+  expect(capped.status).toBe(200);
+  expect(await capped.json()).toEqual({ prReviewCyclesCap: PR_REVIEW_CYCLES_MAX });
+  expect(config.prReviewCyclesCap).toBe(PR_REVIEW_CYCLES_MAX);
+  expect(store.getSetting("prReviewCyclesCap")).toBe(String(PR_REVIEW_CYCLES_MAX));
+});
+
+test("PATCH /api/settings rejects malformed, non-object, empty, and multi-field bodies without writes", async () => {
+  config.remoteControlAtStartup = false;
+  config.reducedPushMode = false;
+  const { app, store } = harness();
+  for (const body of [
+    "",
+    "{",
+    "null",
+    "true",
+    "42",
+    '"reducedPushMode"',
+    "[]",
+    '[{"reducedPushMode":true}]',
+    "{}",
+    '{"reducedPushMode":true,"remoteControlAtStartup":true}',
+    '{"reducedPushMode":true,"unknown":true}',
+    JSON.stringify({ reducedPushMode: true, repoRoot: join(tmp, "child") }),
+  ]) {
+    const res = await app.fetch(
+      new Request("http://x/api/settings", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body,
+      }),
+    );
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "exactly one setting is required" });
+  }
+  expect(config.remoteControlAtStartup).toBe(false);
+  expect(config.reducedPushMode).toBe(false);
+  expect(config.repoRoot).toBe(savedRoot);
+  for (const key of ["remoteControlAtStartup", "reducedPushMode", "repoRoot", "unknown"]) {
+    expect(store.getSetting(key)).toBeNull();
+  }
+});
+
+test("PATCH /api/settings rejects unknown, read-only, and repoRoot fields", async () => {
+  const { app, store } = harness();
+  for (const field of ["unknown", "repoRoot", "firstRunPending", "constructor", "__proto__"]) {
+    const res = await patch(app, { [field]: join(tmp, "child") });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "unknown setting" });
+    expect(store.getSetting(field)).toBeNull();
+  }
+  expect(config.repoRoot).toBe(savedRoot);
+});
+
+test("PATCH /api/settings requires authentication before parsing or mutating settings", async () => {
+  const savedToken = config.token;
+  config.token = "settings-test-token";
+  config.reducedPushMode = false;
+  const { app, store } = harness();
+  try {
+    for (const body of [{ reducedPushMode: true }, {}]) {
+      const res = await patch(app, body);
+      expect(res.status).toBe(401);
+      expect(await res.json()).toEqual({ error: "unauthorized" });
+    }
+    expect(config.reducedPushMode).toBe(false);
+    expect(store.getSetting("reducedPushMode")).toBeNull();
+    const authenticated = await app.fetch(
+      new Request("http://x/api/settings", {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer settings-test-token",
+        },
+        body: JSON.stringify({ reducedPushMode: true }),
+      }),
+    );
+    expect(authenticated.status).toBe(200);
+    expect(await authenticated.json()).toEqual({ reducedPushMode: true });
+    expect(store.getSetting("reducedPushMode")).toBe("1");
+  } finally {
+    config.token = savedToken;
+  }
+});
+
+test("PUT /api/settings retains legacy first-match dispatch for multiple settings", async () => {
+  config.remoteControlAtStartup = false;
+  config.reducedPushMode = false;
+  const { app, store } = harness();
+  const res = await put(app, { reducedPushMode: true, remoteControlAtStartup: true });
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ remoteControlAtStartup: true });
+  expect(store.getSetting("remoteControlAtStartup")).toBe("1");
+  expect(config.reducedPushMode).toBe(false);
+  expect(store.getSetting("reducedPushMode")).toBeNull();
+});
+
 test("GET /api/settings returns the current repo root and remote-control flag", async () => {
   config.repoRoot = tmp;
   config.remoteControlAtStartup = false;

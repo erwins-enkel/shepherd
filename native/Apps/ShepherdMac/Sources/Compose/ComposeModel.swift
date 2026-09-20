@@ -1,0 +1,240 @@
+import Foundation
+import Observation
+import ShepherdKit
+
+/// One presentation, one issue listing shared by the panel and the prompt's # menu.
+@Observable @MainActor
+final class ComposeModel {
+    var repoPath = "" {
+        didSet {
+            guard oldValue != repoPath else { return }
+            generation += 1
+            listing = nil; issues = []; commandListings = [:]; commandErrors = [:]; epicParents = []; subIssues = []
+            viewer = viewers[repoPath]; issuesFailed = false
+            filter.author = nil; filter.labels = []; expanded = false
+            loading = false
+        }
+    }
+    var provider: AgentProvider = .claude
+    var prompt = "" {
+        didSet {
+            if let constraint = providerConstraint, !prompt.contains(constraint.token) {
+                providerConstraint = nil
+            }
+        }
+    }
+    var filter: IssueFilterState {
+        didSet {
+            if filter.hideBlocked != oldValue.hideBlocked {
+                filter.labels.formIntersection(Set(labels))
+            }
+            persistFilter()
+        }
+    }
+    var source: SourceToggle.Source = .issues
+    var expanded = false
+    private(set) var listing: IssueListing?
+    private(set) var issues: [Issue] = []
+    private var commandListings: [AgentProvider: [SlashCommand]] = [:]
+    var commands: [SlashCommand] { commands(for: provider) }
+    private(set) var viewer: String?
+    private(set) var epicParents: Set<Int> = []
+    private(set) var subIssues: Set<Int> = []
+    private(set) var loading = false
+    private(set) var issuesFailed = false
+    private var commandErrors: [AgentProvider: String] = [:]
+    var commandsError: String? { commandErrors[provider] }
+    private(set) var attached: Issue?
+    private var attachedRepoPath: String?
+
+    struct ProviderConstraint: Equatable {
+        let token: String
+        let provider: AgentProvider
+    }
+    private(set) var providerConstraint: ProviderConstraint?
+    @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored private let fetchIssues: (String) async throws -> IssueListing
+    @ObservationIgnored private let fetchCommands: (String, AgentProvider) async throws -> CommandListing
+    @ObservationIgnored private let fetchEpics: (String) async throws -> EpicListing
+    private var generation = 0
+    private var loadedGeneration: Int?
+    private var commandGenerations: [AgentProvider: Int] = [:]
+    private var viewers: [String: String] = [:]
+
+    convenience init(client: ShepherdClient, defaults: UserDefaults = .standard) {
+        self.init(defaults: defaults, loadIssues: { try await client.issues(repoPath: $0) },
+                  loadCommands: { try await client.commands(repoPath: $0, provider: $1) },
+                  loadEpics: { try await client.epics(repoPath: $0) })
+    }
+
+    init(defaults: UserDefaults, loadIssues: @escaping (String) async throws -> IssueListing,
+         loadCommands: @escaping (String, AgentProvider) async throws -> CommandListing,
+         loadEpics: @escaping (String) async throws -> EpicListing) {
+        self.defaults = defaults
+        fetchIssues = loadIssues; fetchCommands = loadCommands; fetchEpics = loadEpics
+        filter = IssueFilterState(
+            hideOthers: defaults.object(forKey: "shepherd:issues-hide-others") as? Bool ?? true,
+            hideActive: defaults.bool(forKey: "shepherd:issues-hide-active"),
+            hideSubIssues: defaults.object(forKey: "shepherd:issues-hide-subissues") as? Bool ?? true,
+            hideBlocked: defaults.object(forKey: "shepherd:issues-hide-blocked") as? Bool ?? true)
+    }
+
+    private func persistFilter() {
+        defaults.set(filter.hideOthers, forKey: "shepherd:issues-hide-others")
+        defaults.set(filter.hideActive, forKey: "shepherd:issues-hide-active")
+        defaults.set(filter.hideSubIssues, forKey: "shepherd:issues-hide-subissues")
+        defaults.set(filter.hideBlocked, forKey: "shepherd:issues-hide-blocked")
+    }
+
+    func loadSources() async {
+        guard !repoPath.isEmpty, loadedGeneration != generation else { return }
+        let mine = generation, repo = repoPath
+        loadedGeneration = mine
+        loading = true
+        async let issueLoad: Void = loadIssueListing(repo, generation: mine)
+        async let epicLoad: Void = loadEpicListing(repo, generation: mine)
+        async let commandLoad: Void = loadCommands()
+        _ = await (issueLoad, epicLoad, commandLoad)
+        if mine == generation { loading = false }
+    }
+
+    private func loadIssueListing(_ repo: String, generation mine: Int) async {
+        do {
+            let result = try await fetchIssues(repo)
+            guard mine == generation else { return }
+            listing = result; issues = result.issues; issuesFailed = result.error != nil
+            // A failed fetch must not evict a viewer cached for THIS repo.
+            if !issuesFailed { viewers[repo] = result.viewer; viewer = result.viewer }
+        } catch {
+            guard mine == generation else { return }
+            issuesFailed = true
+        }
+    }
+
+    private func loadEpicListing(_ repo: String, generation mine: Int) async {
+        do {
+            let result = try await fetchEpics(repo)
+            guard mine == generation else { return }
+            epicParents = Set(result.epics.map(\.number)); subIssues = Set(result.subIssues)
+        } catch { /* Best effort: absent epic data leaves the sub-issue filter open. */ }
+    }
+
+    func commands(for provider: AgentProvider) -> [SlashCommand] { commandListings[provider] ?? [] }
+
+    func commandProvider(at caret: String.Index) -> AgentProvider {
+        switch Self.trigger(in: prompt, caret: caret)?.symbol {
+        case "/": .claude
+        case "$": .codex
+        default: provider
+        }
+    }
+
+    /// Cache separately per engine: a $ menu may load Codex while the panel stays on Claude.
+    func loadCommands(provider requestedProvider: AgentProvider? = nil) async {
+        let repo = repoPath, engine = requestedProvider ?? provider, mine = generation
+        guard !repo.isEmpty, commandGenerations[engine] != mine else { return }
+        commandGenerations[engine] = mine
+        commandErrors[engine] = nil
+        do {
+            let result = try await fetchCommands(repo, engine)
+            guard mine == generation else { return }
+            commandListings[engine] = result.commands
+        } catch {
+            guard mine == generation else { return }
+            commandErrors[engine] = ShepherdErrorCopy.message(error)
+        }
+    }
+
+    func teardown() {
+        generation += 1
+    }
+
+    var openCount: Int? { listing?.slug != nil && !issuesFailed ? issues.count : nil }
+    var activeIssue: Issue? { attachedRepoPath == repoPath ? attached : nil }
+    var filteredIssues: (visible: [Issue], emptiedBy: IssueFilter.Stage?) {
+        IssueFilter.apply(issues, viewer: viewer, epicParents: epicParents, subIssues: subIssues, state: filter)
+    }
+    var authors: [String] { Array(Set(issues.compactMap(\.author))).sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending } }
+    var labels: [String] {
+        Array(Set(issues.flatMap(\.labels))).filter {
+            $0 != "shepherd:active" && (!filter.hideBlocked || !IssueFilter.isBlocked($0))
+        }.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    func pickIssue(_ issue: Issue) {
+        attached = issue; attachedRepoPath = repoPath
+        if prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            prompt = L.t("newtask_issue_prompt_template", String(issue.number), issue.title)
+        }
+    }
+    func removeIssue() { attached = nil; attachedRepoPath = nil }
+    func pickIssueFromSearch(_ issue: Issue, caret: String.Index) {
+        if let trigger = Self.trigger(in: prompt, caret: caret), trigger.symbol == "#" {
+            prompt.removeSubrange(trigger.range)
+        }
+        pickIssue(issue)
+    }
+    func issueMatches(_ query: String) -> [Issue] {
+        Array(issues.filter { String($0.number).hasPrefix(query) || $0.title.localizedCaseInsensitiveContains(query) || query.isEmpty }.prefix(20))
+    }
+
+    struct Trigger {
+        let symbol: String
+        let query: String
+        let range: Range<String.Index>
+    }
+    static func trigger(in text: String, caret: String.Index) -> Trigger? {
+        let before = String(text[..<caret])
+        for pattern in [#"(^|\s)(#)([^\s#]*)$"#, #"(^|\s)([/\$])(\S*)$"#] {
+            guard let regex = try? NSRegularExpression(pattern: pattern),
+                  let match = regex.firstMatch(in: before, range: NSRange(before.startIndex..., in: before)),
+                  let symbolRange = Range(match.range(at: 2), in: text),
+                  let queryRange = Range(match.range(at: 3), in: text) else { continue }
+            return Trigger(symbol: String(text[symbolRange]), query: String(text[queryRange]), range: symbolRange.lowerBound..<caret)
+        }
+        return nil
+    }
+    static func commandMatches(_ commands: [SlashCommand], query: String) -> [SlashCommand] {
+        let query = query.lowercased()
+        return commands.filter { $0.name.lowercased().hasPrefix(query) }
+            + commands.filter { !$0.name.lowercased().hasPrefix(query) && $0.name.lowercased().contains(query) }
+    }
+
+    @discardableResult
+    func pickCommand(_ command: SlashCommand, caret: String.Index? = nil) -> String.Index {
+        let trigger = caret.flatMap { Self.trigger(in: prompt, caret: $0) }
+        let providers = command.providers.flatMap { $0.isEmpty ? nil : $0 } ?? [.claude]
+        let preferred: AgentProvider = trigger?.symbol == "$" ? .codex : trigger?.symbol == "/" ? .claude : provider
+        provider = providers.contains(preferred) ? preferred : providers[0]
+        let name = command.invocationName ?? command.name
+        let token = command.invocations?.additionalProperties[provider.rawValue] ?? (provider == .codex ? "$" : "/") + name
+        let insertionOffset: Int
+        if let trigger {
+            let head = String(prompt[..<trigger.range.lowerBound]), tail = String(prompt[trigger.range.upperBound...])
+            if provider == .claude {
+                prompt = token + " " + (head + tail).trimmingCharacters(in: .whitespacesAndNewlines)
+                insertionOffset = token.count + 1
+            } else {
+                prompt = head + token + " " + tail.drop(while: \.isWhitespace)
+                insertionOffset = head.count + token.count + 1
+            }
+        } else {
+            prompt = token + " "
+            insertionOffset = prompt.count
+        }
+        providerConstraint = providers.count == 1 ? ProviderConstraint(token: token, provider: provider) : nil
+        return prompt.index(prompt.startIndex, offsetBy: insertionOffset)
+    }
+    func allowsProvider(_ provider: AgentProvider) -> Bool {
+        providerConstraint == nil || providerConstraint?.provider == provider
+    }
+    func createRequest(baseBranch: String) -> CreateSessionRequest? {
+        guard !repoPath.isEmpty, !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              allowsProvider(provider) else { return nil }
+        var request = CreateSessionRequest(repoPath: repoPath, baseBranch: baseBranch, prompt: prompt, agentProvider: provider)
+        if let issue = activeIssue {
+            request.issueRef = .init(number: issue.number, url: issue.url, title: issue.title, body: issue.body)
+        }
+        return request
+    }
+}

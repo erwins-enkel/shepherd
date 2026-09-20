@@ -1,0 +1,166 @@
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import * as fx from "./compose-fixtures";
+import {
+  bearer,
+  coverage,
+  login,
+  mintToken,
+  restoreAuth,
+  startContractServer,
+  validateResponse,
+  withAuth,
+  type ContractServer,
+} from "./harness";
+import { eventsForStream, operationsForStream } from "./stream-blocks";
+
+const OPERATIONS = operationsForStream("compose");
+const EVENTS = eventsForStream("compose");
+let s: ContractServer;
+let token: string;
+async function get(path: string, auth = true): Promise<Response> {
+  return fetch(`${s.baseUrl}${path}`, { headers: auth ? bearer(token) : {} });
+}
+beforeAll(async () => {
+  await withAuth();
+  s = startContractServer();
+  ({ token } = await mintToken(s, await login(s), "compose contract test"));
+});
+afterAll(() => {
+  try {
+    s?.stop();
+  } finally {
+    restoreAuth();
+  }
+});
+
+describe("issues", () => {
+  test("answers the listing with the viewer, and 400 on a repo outside the root", async () => {
+    s.stubs.resolveForge.forge = fx.fakeForge();
+    try {
+      const ok = await get(`/api/issues?repo=${encodeURIComponent(s.validRepo)}`);
+      expect(ok.status).toBe(200);
+      const body = (await validateResponse("GET", "/api/issues", ok)) as {
+        slug: string | null;
+        issues: unknown[];
+        viewer: string | null;
+        lightweight?: boolean;
+      };
+      expect(body.slug).toBe("owner/repo");
+      expect(body.issues.length).toBe(4);
+      // `viewer` is what the "mine & unassigned" filter fails open on when null, so it is
+      // asserted rather than assumed.
+      expect(body.viewer).toBe("operator");
+      expect(body.lightweight).toBe(false);
+    } finally {
+      s.stubs.resolveForge.forge = null;
+    }
+
+    // A repo path outside config.repoRoot is the only 400 this route has.
+    const bad = await get("/api/issues?repo=/etc");
+    expect(bad.status).toBe(400);
+    await validateResponse("GET", "/api/issues", bad);
+  });
+
+  test("a repo with no forge is a 200 empty listing, not an error", async () => {
+    // resolveForge returns null by default in the harness, which is exactly the real
+    // "this repo has no GitHub upstream" case the picker shows `promptsources_no_github` for.
+    const ok = await get(`/api/issues?repo=${encodeURIComponent(s.validRepo)}`);
+    expect(ok.status).toBe(200);
+    const body = (await validateResponse("GET", "/api/issues", ok)) as {
+      slug: string | null;
+      issues: unknown[];
+    };
+    expect(body.slug).toBeNull();
+    expect(body.issues).toEqual([]);
+  });
+
+  test("a throwing listing answers 200 with error: fetch_failed", async () => {
+    s.stubs.resolveForge.forge = fx.fakeForge({
+      listIssues: async () => {
+        throw new Error("rate limited");
+      },
+    });
+    try {
+      const ok = await get(`/api/issues?repo=${encodeURIComponent(s.validRepo)}`);
+      // NEVER a 5xx: the picker renders `common_issues_load_failed` from this body, and a
+      // client that treated it as a transport failure would show the wrong message.
+      expect(ok.status).toBe(200);
+      const body = (await validateResponse("GET", "/api/issues", ok)) as { error?: string };
+      expect(body.error).toBe("fetch_failed");
+    } finally {
+      s.stubs.resolveForge.forge = null;
+    }
+  });
+
+  test("401 without a credential", async () => {
+    const anon = await get(`/api/issues?repo=${encodeURIComponent(s.validRepo)}`, false);
+    expect(anon.status).toBe(401);
+    await validateResponse("GET", "/api/issues", anon);
+  });
+});
+
+describe("commands", () => {
+  test("answers a list, 400 on a bad provider, and 401", async () => {
+    // No dep to seed: handleCommands reads the real filesystem (the repo dir, ~/.claude,
+    // $CODEX_HOME). An empty list is a legitimate answer and the schema must allow it.
+    const ok = await get(`/api/commands?repo=${encodeURIComponent(s.validRepo)}&provider=claude`);
+    expect(ok.status).toBe(200);
+    const body = (await validateResponse("GET", "/api/commands", ok)) as { commands: unknown[] };
+    expect(Array.isArray(body.commands)).toBe(true);
+
+    const bad = await get(`/api/commands?repo=${encodeURIComponent(s.validRepo)}&provider=nope`);
+    expect(bad.status).toBe(400);
+    await validateResponse("GET", "/api/commands", bad);
+
+    const anon = await get("/api/commands", false);
+    expect(anon.status).toBe(401);
+    await validateResponse("GET", "/api/commands", anon);
+  });
+});
+
+describe("create from an issue", () => {
+  test("a create carrying issueRef is accepted and the session records it", async () => {
+    const res = await fetch(`${s.baseUrl}/api/sessions`, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...bearer(token) },
+      body: JSON.stringify({
+        repoPath: s.validRepo,
+        baseBranch: "main",
+        prompt: "Bearbeite Issue #412: Rate-limit the admin route",
+        issueRef: {
+          number: 412,
+          url: "https://example.test/i/412",
+          title: "Rate-limit the admin route",
+          body: "The admin route bypasses the limiter entirely.",
+        },
+      }),
+    });
+    expect(res.status).toBe(201);
+    const session = (await res.json()) as { id: string; issueNumber: number | null };
+    // The whole point of the field: the session remembers which issue it came from, which is
+    // what the row's issue badge and the drain's claim label read.
+    expect(session.issueNumber).toBe(412);
+  });
+});
+
+describe("epics", () => {
+  test("answers an empty listing without a drain, 400 on an invalid repo, and 401", async () => {
+    const ok = await get(`/api/epics?repo=${encodeURIComponent(s.validRepo)}`);
+    expect(ok.status).toBe(200);
+    expect(await validateResponse("GET", "/api/epics", ok)).toEqual({ epics: [], subIssues: [] });
+    const bad = await get("/api/epics?repo=/etc");
+    expect(bad.status).toBe(400);
+    await validateResponse("GET", "/api/epics", bad);
+    const anon = await get(`/api/epics?repo=${encodeURIComponent(s.validRepo)}`, false);
+    expect(anon.status).toBe(401);
+    await validateResponse("GET", "/api/epics", anon);
+  });
+});
+
+describe("compose coverage gate", () => {
+  test("every compose operation and event was exercised", () => {
+    const { operations, events } = coverage();
+    expect(OPERATIONS.filter((o) => !operations.has(o))).toEqual([]);
+    expect(EVENTS.filter((e) => !events.has(e))).toEqual([]);
+  });
+});

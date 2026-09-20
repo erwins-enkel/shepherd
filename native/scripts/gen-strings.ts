@@ -726,7 +726,42 @@ export const KEYS_QUEUES: readonly string[] = [
 ];
 
 /** S11 — the composer: create fields, slash commands, steers, attachments. */
-export const KEYS_COMPOSE: readonly string[] = [];
+export const KEYS_COMPOSE: readonly string[] = [
+  "common_issues_lightweight",
+  "common_no_open_issues",
+  "issue_filter_button",
+  "issue_filter_button_aria",
+  "issue_filter_heading",
+  "issues_filter_active_label",
+  "issues_filter_active_title",
+  "issues_filter_all_assigned_to_others",
+  "issues_filter_all_blocked",
+  "issues_filter_all_in_progress",
+  "issues_filter_all_sub_issues",
+  "issues_filter_author_all",
+  "issues_filter_author_heading",
+  "issues_filter_blocked_label",
+  "issues_filter_blocked_title",
+  "issues_filter_labels_heading",
+  "issues_filter_mine_label",
+  "issues_filter_mine_title",
+  "issues_filter_no_match",
+  "issues_filter_subissues_label",
+  "issues_filter_subissues_title",
+  "newtask_issue_prompt_template",
+  "newtask_issue_remove_aria",
+  "newtask_provider_constraint_body",
+  "newtask_provider_constraint_title",
+  "promptsources_collapse_row",
+  "promptsources_commands_filter",
+  "promptsources_commands_tab",
+  "promptsources_issues_tab",
+  "promptsources_more_row",
+  "promptsources_no_commands",
+  "promptsources_no_github",
+  "promptsources_open_count",
+  "promptsources_title",
+];
 
 /** S12 — the settings panes, the command menu and the usage gauges. */
 export const KEYS_SETTINGS: readonly string[] = [];

@@ -998,6 +998,23 @@
         }
       }
     },
+    "common_issues_lightweight": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lightweight-Modus (nur lokal) ist für dieses Repo aktiv — kein Forge, keine Issues. Umschaltbar unter Automatisierung."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lightweight (local-only) mode is on for this repo — no forge, no issues. Change it under Automation."
+          }
+        }
+      }
+    },
     "common_issues_load_failed": {
       "extractionState": "manual",
       "localizations": {
@@ -1028,6 +1045,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "loading…"
+          }
+        }
+      }
+    },
+    "common_no_open_issues": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "keine offenen Issues"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no open issues"
           }
         }
       }
@@ -3020,6 +3054,58 @@
         }
       }
     },
+    "issue_filter_button": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filter"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filters"
+          }
+        }
+      }
+    },
+    "issue_filter_button_aria": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Issue-Filter, %1$@ aktiv"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Issue filters, %1$@ active"
+          }
+        }
+      }
+    },
+    "issue_filter_heading": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Issues filtern"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filter issues"
+          }
+        }
+      }
+    },
     "issuebadge_label": {
       "comment": "%1$@ = number",
       "extractionState": "manual",
@@ -3070,6 +3156,278 @@
           "stringUnit": {
             "state": "translated",
             "value": "Spawned for issue #%1$@"
+          }
+        }
+      }
+    },
+    "issues_filter_active_label": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "in Arbeit ausblenden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "hide in progress"
+          }
+        }
+      }
+    },
+    "issues_filter_active_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Issues ausblenden, die bereits bearbeitet werden (shepherd:active)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide issues already being worked on (shepherd:active)"
+          }
+        }
+      }
+    },
+    "issues_filter_all_assigned_to_others": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle offenen Issues sind anderen zugewiesen — zum Anzeigen ausschalten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All open issues are assigned to others — toggle off to see them"
+          }
+        }
+      }
+    },
+    "issues_filter_all_blocked": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle passenden Issues sind blockiert — zum Anzeigen ausschalten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All matching issues are blocked — toggle off to see them"
+          }
+        }
+      }
+    },
+    "issues_filter_all_in_progress": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle passenden Issues werden bearbeitet — zum Anzeigen ausschalten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All matching issues are in progress — toggle off to see them"
+          }
+        }
+      }
+    },
+    "issues_filter_all_sub_issues": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle passenden Issues sind Epic-Unteraufgaben — zum Anzeigen ausschalten oder einen Epic-Drain starten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All matching issues are epic sub-issues — toggle off to see them, or start an epic drain"
+          }
+        }
+      }
+    },
+    "issues_filter_author_all": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle Autoren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All authors"
+          }
+        }
+      }
+    },
+    "issues_filter_author_heading": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autor"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Author"
+          }
+        }
+      }
+    },
+    "issues_filter_blocked_label": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "blockierte ausblenden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "hide blocked"
+          }
+        }
+      }
+    },
+    "issues_filter_blocked_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Issues mit einem blocked-Label ausblenden (z. B. blocked-upstream)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide issues with a blocked label (e.g. blocked-upstream)"
+          }
+        }
+      }
+    },
+    "issues_filter_labels_heading": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Labels"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Labels"
+          }
+        }
+      }
+    },
+    "issues_filter_mine_label": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "meine & nicht zugewiesen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mine & unassigned"
+          }
+        }
+      }
+    },
+    "issues_filter_mine_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Issues ausblenden, die anderen zugewiesen sind"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide issues assigned to other people"
+          }
+        }
+      }
+    },
+    "issues_filter_no_match": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "keine Issues entsprechen den aktiven Filtern"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no issues match the active filters"
+          }
+        }
+      }
+    },
+    "issues_filter_subissues_label": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unteraufgaben ausblenden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "hide sub-issues"
+          }
+        }
+      }
+    },
+    "issues_filter_subissues_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Native Unteraufgaben (Kinder eines Epics) ausblenden — stattdessen einen Epic-Drain starten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide native sub-issues (children of an epic) — start an epic drain instead"
           }
         }
       }
@@ -5859,6 +6217,41 @@
         }
       }
     },
+    "newtask_issue_prompt_template": {
+      "comment": "%1$@ = number, %2$@ = title",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bearbeite Issue #%1$@: %2$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Work on issue #%1$@: %2$@"
+          }
+        }
+      }
+    },
+    "newtask_issue_remove_aria": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angehängtes Issue entfernen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove attached issue"
+          }
+        }
+      }
+    },
     "newtask_model_default": {
       "extractionState": "manual",
       "localizations": {
@@ -5923,6 +6316,41 @@
           "stringUnit": {
             "state": "translated",
             "value": "Describe the feature, fix, or task…"
+          }
+        }
+      }
+    },
+    "newtask_provider_constraint_body": {
+      "comment": "%1$@ = provider, %2$@ = token",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd hat auf %1$@ umgestellt und inkompatible Engines deaktiviert, solange %2$@ im Prompt steht."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd switched to %1$@ and disabled incompatible engines while %2$@ is in the prompt."
+          }
+        }
+      }
+    },
+    "newtask_provider_constraint_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Engine-Verfügbarkeit"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Engine availability"
           }
         }
       }
@@ -7700,6 +8128,161 @@
           "stringUnit": {
             "state": "translated",
             "value": "Reviewer commented"
+          }
+        }
+      }
+    },
+    "promptsources_collapse_row": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "↑ einklappen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "↑ collapse"
+          }
+        }
+      }
+    },
+    "promptsources_commands_filter": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Befehle filtern…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "filter commands…"
+          }
+        }
+      }
+    },
+    "promptsources_commands_tab": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Befehle"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Commands"
+          }
+        }
+      }
+    },
+    "promptsources_issues_tab": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Issues"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Issues"
+          }
+        }
+      }
+    },
+    "promptsources_more_row": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "↓ %1$@ weitere — # im Prompt tippen zum Suchen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "↓ %1$@ more — type # in the prompt to search"
+          }
+        }
+      }
+    },
+    "promptsources_no_commands": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "keine installierten Befehle"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no installed commands"
+          }
+        }
+      }
+    },
+    "promptsources_no_github": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "kein GitHub-Upstream"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no GitHub upstream"
+          }
+        }
+      }
+    },
+    "promptsources_open_count": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ offen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ open"
+          }
+        }
+      }
+    },
+    "promptsources_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mit einem Issue starten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start from an issue"
           }
         }
       }

@@ -8618,6 +8618,40 @@
         }
       }
     },
+    "vblock_native_not_rendered": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hier nicht dargestellt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not rendered here"
+          }
+        }
+      }
+    },
+    "vblock_native_wireframe_omitted": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wireframe ausgelassen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wireframe omitted"
+          }
+        }
+      }
+    },
     "vblock_wireframe_mockup_label": {
       "extractionState": "manual",
       "localizations": {

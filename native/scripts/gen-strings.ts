@@ -577,6 +577,8 @@ export const KEYS_PLAN: readonly string[] = [
   "vblock_inferred",
   "vblock_mermaid_error",
   "vblock_mermaid_expand",
+  "vblock_native_not_rendered",
+  "vblock_native_wireframe_omitted",
   "vblock_wireframe_mockup_label",
   "vblock_wireframe_surface_browser",
   "vblock_wireframe_surface_desktop",

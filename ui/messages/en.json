@@ -4246,5 +4246,7 @@
   "native_notify_settings_permission_denied": "macOS is not letting Shepherd post notifications. Turn them on in System Settings › Notifications › Shepherd.",
   "native_menu_session": "Session",
   "native_settings_placeholder_body": "Settings panes arrive with the settings stream.",
-  "native_settings_placeholder_title": "Nothing to configure yet"
+  "native_settings_placeholder_title": "Nothing to configure yet",
+  "vblock_native_not_rendered": "Not rendered here",
+  "vblock_native_wireframe_omitted": "Wireframe omitted"
 }

@@ -162,6 +162,11 @@ final class NotificationsModel: AppExtension {
             now: clock)
         self.store = store
         self.badgeSource = { [weak store] in store?.sessions ?? [] }
+        intentPolicy = { [weak app] intent, evaluated in
+            let reduced = app?.extension(SettingsModel.self)?.snapshot?.settings.reducedPushMode ?? true
+            return SettingsReadyRules.allows(kind: intent.kind.id, reduced: reduced, evaluatedReady: evaluated)
+        }
+
 
         center.onSelectSession = { [weak app] id in
             // The seam, not an edit: `selectedSessionID` is `AppModel`'s own published property,
@@ -249,53 +254,23 @@ final class NotificationsModel: AppExtension {
         }
     }
 
-    /// One frame in; zero or one banner out, plus a badge refresh.
+    @ObservationIgnored var intentPolicy: @MainActor (NotificationIntent,Bool) -> Bool = {_,_ in true}
+    func deliver(_ intent: NotificationIntent, evaluatedReady: Bool = false) async -> Bool {
+        guard !isTornDown, !Task.isCancelled, intentPolicy(intent,evaluatedReady) else {return false}
+        let t = now()
+        guard gate.allows(intent,at:t,settings:settings,windowFocused:windowFocused,
+            authorized:authorization == .granted) else {return false}
+        let sent = await center.post(NotificationRequest.make(title:NotificationCopy.title(intent),
+            body:NotificationCopy.body(intent),threadIdentifier:intent.threadIdentifier,sessionID:intent.sessionID))
+        guard !isTornDown, !Task.isCancelled else {return false}
+        if sent {gate.posted(intent,at:t);trigger.usageWarningPosted(for:intent)}
+        return sent
+    }
     func handle(_ event: ServerEvent) async {
-        // The whole frame, not just the branch that posts. The guard used to sit after the
-        // post, which the loop only reaches when the gate allowed something — so a cancelled
-        // tap carrying a frame with no intent (`session:activity`, `session:git`) or one the
-        // gate refused still fell through to `refreshBadge()` below and wrote the outgoing
-        // profile's count over the Dock badge, which is global.
-        guard !Task.isCancelled else { return }
-        for intent in trigger.intents(for: event) {
-            // One sample, asked with and stamped with — `const t = this.now()` in
-            // `PushService.notify`, which also stamps the timestamp it took before delivering.
-            let t = now()
-            guard
-                gate.allows(
-                    intent, at: t, settings: settings, windowFocused: windowFocused,
-                    authorized: authorization == .granted)
-            else { continue }
-            let sent = await center.post(
-                NotificationRequest.make(
-                    title: NotificationCopy.title(intent),
-                    body: NotificationCopy.body(intent),
-                    threadIdentifier: intent.threadIdentifier,
-                    sessionID: intent.sessionID))
-            // Both clocks start here and only here, on the branch where a banner really reached
-            // the operator — the web's
-            // `if (sent && cooldownMs > 0) this.lastNotified.set(key, t)` and
-            // `if (sent) store.setSetting(USAGE_WARNED_KEY, …)`.
-            //
-            // The cooldown: `notificationd` rejects `add(_:)` often enough that stamping before
-            // the post would let one rejected banner swallow this session's next 120 s — the
-            // agent sits blocked and nobody is told. Nothing races us into a double post: the
-            // tap above is a strictly serial `for await`, so the next frame cannot start until
-            // this call has returned.
-            //
-            // The usage window: latching a rejected delivery would suppress the rest of a
-            // 5-hour window with nothing delivered; not latching at all would let the server's
-            // ~30 s `usage:limits` frames hand the operator a "5-hour limit" banner every two
-            // minutes for the rest of it. A no-op for every other kind.
-            if sent {
-                gate.posted(intent, at: t)
-                trigger.usageWarningPosted(for: intent)
-                // The kind, never the body: a body can name the operator's own work.
-                Log.ui.info("posted a \(intent.kind.id, privacy: .public) notification")
-            }
-            // Honest about cancellation: today `intents(for:)` returns at most one intent, but
-            // a second one must not be posted after the tap that is driving this was cancelled.
-            guard !Task.isCancelled else { return }
+        guard !isTornDown, !Task.isCancelled else {return}
+        for intent in trigger.intents(for:event) {
+            _ = await deliver(intent)
+            guard !isTornDown, !Task.isCancelled else {return}
         }
         await refreshBadge()
     }

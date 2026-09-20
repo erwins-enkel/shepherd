@@ -523,6 +523,7 @@ describe("realtime /events", () => {
       ["session:ready", fx.readyEvent],
       ["automerge:status", fx.automergeEvent],
       ["usage:limits", fx.usageEvent],
+      ["usage:limits", fx.unobservedUsageEvent],
     ];
     const frames = await collectEvents(s, token, async () => {
       for (const [name, data] of emits) s.deps.events.emit(name, data);

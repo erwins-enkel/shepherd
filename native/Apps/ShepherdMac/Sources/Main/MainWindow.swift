@@ -132,9 +132,13 @@ struct MainWindow: View {
         // A session archived anywhere else arrives as an event that removes the
         // row; the selection has to follow it out, or the toolbar keeps offering
         // commands for a session that is gone.
-        .onChange(of: sessions.map(\.id)) { _, ids in model.reconcileSelection(against: ids) }
+        .onChange(of: sessions.map(\.id)) { _, ids in
+            model.reconcileSelection(against: ids)
+            if selectedSession == nil { confirmingArchive = false }
+        }
+        .onChange(of: model.selectedSessionID) { _, _ in confirmingArchive = false }
         // The notice names a command against the profile being left.
-        .onChange(of: model.activeProfile?.id) { _, _ in command.clear() }
+        .onChange(of: model.activeProfile?.id) { _, _ in command.clear(); confirmingArchive = false }
     }
 
     private var sessions: [Session] { model.store?.sessions ?? [] }
@@ -267,19 +271,6 @@ struct MainWindow: View {
     }
 
     static func openComposer(_ model: AppModel) { model.sheet = .newSession }
-
-    private func archiveSelected() {
-        guard let store = model.store, let id = model.selectedSessionID else { return }
-        Task {
-            let archived = await command.run(
-                { try await store.archive(id: id) },
-                failureCopy: { L.t("native_archive_failed", $0) },
-                isCurrent: { model.store === store })
-            // Only clear the selection once the row is actually gone; a failed
-            // archive must leave the operator where they were.
-            if archived, model.selectedSessionID == id { model.selectedSessionID = nil }
-        }
-    }
 
     private func interruptSelected() {
         guard let store = model.store, let id = model.selectedSessionID else { return }

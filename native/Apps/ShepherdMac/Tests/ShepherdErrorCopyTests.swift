@@ -19,6 +19,7 @@ struct ShepherdErrorCopyTests {
         .conflict(code: "name_taken", message: "name taken"),
         .unprocessable("no such ref"),
         .upstreamFailure("git exploded"),
+        .upstreamFailure(code: "issue_unresolved", message: "could not re-resolve linked issue"),
         .contractMismatch(route: "listSessions", underlying: "keyNotFound"),
         .insecureProfile(.insecureRemoteURL("box.example.com")),
         .transport("connection lost"),
@@ -44,6 +45,12 @@ struct ShepherdErrorCopyTests {
             ShepherdError.conflict(code: "name_taken", message: "name taken")) == "name taken")
         #expect(ShepherdErrorCopy.message(ShepherdError.unprocessable("no such ref")) == "no such ref")
         #expect(ShepherdErrorCopy.message(ShepherdError.upstreamFailure("git exploded")) == "git exploded")
+        // A 502 that now carries a code still renders exactly its message here: the code is for
+        // callers that branch (`ActionErrorCopy`), and this copy's behaviour is unchanged.
+        #expect(
+            ShepherdErrorCopy.message(
+                ShepherdError.upstreamFailure(code: "issue_unresolved", message: "no issue"))
+                == "no issue")
     }
 
     @Test func theUrlPolicyErrorReusesTheWelcomeCopy() {

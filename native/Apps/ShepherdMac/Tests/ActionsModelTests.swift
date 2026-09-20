@@ -4,8 +4,13 @@ import Testing
 
 @testable import Shepherd
 
+/// Serialized with the seams reset: `ActionsModel`'s `workingBlocked`/`gitMerged` defaults read
+/// `SessionSignals`, which is per-process state another suite fills and never restores.
 @MainActor
+@Suite(.serialized)
 struct ActionsModelTests {
+    init() { resetStreamSeams() }
+
     /// Driven through the injectable reads rather than the network: Task 2 proves the HTTP
     /// mapping, this suite is about state.
     private func model(_ reads: ActionReads = .stub) -> ActionsModel {
@@ -191,13 +196,13 @@ struct ActionsModelTests {
         session.claudeSessionId = "claude-1"
         #expect(m.actions(for: session).contains(.relaunch))
 
-        m.gitMerged = ["s1"]
+        m.gitMerged = { $0 == "s1" }
         #expect(!m.actions(for: session).contains(.relaunch), "a merged PR hides relaunch")
 
         var blocked = PreviewData.session(id: "s2", status: SessionStatus(known: .blocked))
         blocked.claudeSessionId = "claude-2"
         #expect(!m.actions(for: blocked).contains(.stop))
-        m.workingBlocked = ["s2": true]
+        m.workingBlocked = { ["s2": true] }
         #expect(m.actions(for: blocked).contains(.stop))
     }
 

@@ -257,6 +257,13 @@ struct ShepherdClientActionsTests {
         ShepherdError.conflict(code: "in_progress", message: "relaunch in progress")
       ),
       (502, "git exploded", nil, ShepherdError.upstreamFailure("git exploded")),
+      // The one 502 the app branches on: the code has to survive the mapping, or
+      // `ActionErrorCopy` is back to matching the server's sentence.
+      (
+        502, "could not re-resolve linked issue", "issue_unresolved",
+        ShepherdError.upstreamFailure(
+          code: "issue_unresolved", message: "could not re-resolve linked issue")
+      ),
       (
         500, "boom", nil,
         ShepherdError.contractMismatch(

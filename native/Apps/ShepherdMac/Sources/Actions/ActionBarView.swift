@@ -45,6 +45,21 @@ enum RecapLine {
     }
 }
 
+/// One line the bar shows above the recap, and how it should read.
+///
+/// The bar is the one surface in the app that reports success as well as failure — "Stopped
+/// TASK-07", "Renamed…", "Relaunched as TASK-08" — so the text alone is not enough: rendered in
+/// `NoticeBar`'s default chrome every one of them arrived under a warning triangle. Pairing the
+/// text with its `NoticeTone` at the point the outcome is known keeps the decision where the
+/// outcome is, rather than in the view body.
+struct ActionNote: Equatable, Sendable {
+    let text: String
+    let tone: NoticeTone
+
+    static func success(_ text: String) -> ActionNote { ActionNote(text: text, tone: .success) }
+    static func warning(_ text: String) -> ActionNote { ActionNote(text: text, tone: .warning) }
+}
+
 /// The quick-action bar under the detail pane.
 ///
 /// Every action goes through `SessionCommandState` — the same type, and the same rules,
@@ -87,6 +102,19 @@ struct ActionBarView: View {
         }
     }
 
+    /// What a finished relaunch says, and in which tone. Static and pure, so the one note in
+    /// this file that is NOT good news is pinned by a test rather than read off the view body.
+    ///
+    /// `archived == true` is the whole relaunch: the replacement is up and the original is gone.
+    /// `false` means only half of it happened — the replacement exists, the original is still
+    /// there and still needs closing by hand — so it keeps the warning chrome even though the
+    /// command itself did not throw.
+    static func relaunchOutcomeNote(_ outcome: RelaunchResult) -> ActionNote {
+        outcome.archived
+            ? .success(L.t("relaunch_done", outcome.session.desig))
+            : .warning(L.t("relaunch_archive_failed"))
+    }
+
     /// Whether a completion started for `session`/`store` may still touch the bar that started
     /// it. Store identity catches a profile switch; the selection catches the operator's
     /// selection moving off this session while the command was in flight — a remote
@@ -110,9 +138,10 @@ struct ActionBarView: View {
     @State private var command = SessionCommandState()
     @State private var sheet: Sheet?
     @State private var confirmingRelaunch = false
-    /// A one-line success note (renamed, relaunched, amendment recorded) that fades on the next
-    /// command. Separate from `command.message`, which is only ever a failure.
-    @State private var note: String?
+    /// A one-line outcome note (renamed, relaunched, amendment recorded) that fades on the next
+    /// command. Separate from `command.message`, which is only ever a failure — and unlike it,
+    /// this one carries its own tone, because most but not all of these are good news.
+    @State private var note: ActionNote?
 
     private var actions: [SessionAction] { model.actions(for: session) }
 
@@ -123,7 +152,7 @@ struct ActionBarView: View {
                     .accessibilityIdentifier("action-bar-error")
             }
             if let note {
-                NoticeBar(message: note) { self.note = nil }
+                NoticeBar(message: note.text, tone: note.tone) { self.note = nil }
                     .accessibilityIdentifier("action-bar-note")
             }
             if let recap = RecapLine.content(for: model.recap(for: session.id)) {
@@ -149,12 +178,12 @@ struct ActionBarView: View {
             switch which {
             case .rename:
                 RenameSheet(session: session, store: store, app: app) { renamed in
-                    note = renamed
+                    note = .success(renamed)
                     sheet = nil
                 }
             case .amend:
                 AmendSheet(session: session, store: store, app: app) { recorded in
-                    note = recorded
+                    note = .success(recorded)
                     sheet = nil
                 }
             }
@@ -187,8 +216,10 @@ struct ActionBarView: View {
     /// Takes this session's outcome note from the model, if one is waiting — see
     /// `ActionsModel.recordOutcomeNote(_:forSessionID:)`.
     private func consumePendingOutcomeNote() {
+        // Only an *archiving* relaunch records one, and only on its own success — see
+        // `relaunchOutcomeNote(_:)`, which is where that pairing is decided.
         if let pending = model.consumeOutcomeNote(forSessionID: session.id) {
-            note = pending
+            note = .success(pending)
         }
     }
 
@@ -270,7 +301,7 @@ struct ActionBarView: View {
                 { try await store.interrupt(id: session.id) },
                 failureCopy: { _ in L.t("cardmenu_stop_failed", name) },
                 isCurrent: { isCurrent })
-            if ok { note = L.t("cardmenu_stop_toast", name) }
+            if ok { note = .success(L.t("cardmenu_stop_toast", name)) }
         }
     }
 
@@ -330,21 +361,18 @@ struct ActionBarView: View {
                 // for: see `relaunchIsCurrent(session:store:app:)`.
                 isCurrent: { Self.relaunchIsCurrent(session: session, store: store, app: app) })
             guard ok, let outcome else { return }
-            let text =
-                outcome.archived
-                ? L.t("relaunch_done", outcome.session.desig)
-                : L.t("relaunch_archive_failed")
+            let outcomeNote = Self.relaunchOutcomeNote(outcome)
             if outcome.archived {
                 // This bar is about to unmount — the archive event already moved, or is about
                 // to move, the selection off `session.id`. The model outlives that; the
                 // replacement is where the note belongs once it becomes the selection, the same
                 // way `NewSessionSheet` selects the session it just created.
-                model.recordOutcomeNote(text, forSessionID: outcome.session.id)
+                model.recordOutcomeNote(outcomeNote.text, forSessionID: outcome.session.id)
                 app.selectedSessionID = outcome.session.id
             } else {
                 // Nothing moved: the original is still on the list and still selected, so the
                 // bar showing it right now is still the right place for the note.
-                note = text
+                note = outcomeNote
             }
         }
     }

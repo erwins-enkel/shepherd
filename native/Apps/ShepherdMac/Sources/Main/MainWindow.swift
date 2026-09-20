@@ -48,16 +48,51 @@ final class SessionCommandState {
     }
 }
 
+/// What a notice is telling the operator. Only the chrome differs — the bar's
+/// layout, dismissal and accessibility identifier are the same either way.
+///
+/// The default everywhere is `.warning`, because that is what every notice in
+/// the app was before the action bar arrived: a command failure, or a sign-out
+/// whose token revoke did not go through. `.success` exists so the action bar's
+/// one-line confirmations ("Stopped TASK-07", "Renamed…") stop reading as
+/// something having gone wrong.
+///
+/// A plain enum with two computed properties rather than a `ViewModifier`, so
+/// the mapping is assertable without hosting SwiftUI — `NoticeToneTests`.
+enum NoticeTone: Equatable, Sendable {
+    case warning
+    case success
+
+    var systemImage: String {
+        switch self {
+        case .warning: "exclamationmark.triangle.fill"
+        case .success: "checkmark.circle.fill"
+        }
+    }
+
+    var tint: Color {
+        switch self {
+        case .warning: .orange
+        case .success: .green
+        }
+    }
+}
+
 /// A dismissible one-line notice above a surface. Used for command failures
-/// here and for a failed sign-out revoke in `RootView`.
+/// here and for a failed sign-out revoke in `RootView`, and — with
+/// `tone: .success` — for the action bar's own confirmations.
+///
+/// `tone` defaults to `.warning`, so every call site that predates it keeps the
+/// chrome it had.
 struct NoticeBar: View {
     let message: String
+    var tone: NoticeTone = .warning
     let onDismiss: () -> Void
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.orange)
+            Image(systemName: tone.systemImage)
+                .foregroundStyle(tone.tint)
                 .accessibilityHidden(true)
             Text(verbatim: message)
                 .font(.callout)
@@ -70,7 +105,7 @@ struct NoticeBar: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.orange.opacity(0.12))
+        .background(tone.tint.opacity(0.12))
         .accessibilityIdentifier("notice-bar")
     }
 }

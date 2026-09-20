@@ -1,3 +1,5 @@
+import Foundation
+
 // Short names for the plan schemas. The contract remains the only payload type source.
 public typealias PlanDecision = Components.Schemas.PlanDecision
 public typealias PlanDecisionKnown = Components.Schemas.PlanDecisionKnown
@@ -44,6 +46,8 @@ public typealias SessionPlanGateEvent = Components.Schemas.SessionPlanGateEvent
 public typealias SessionPlanGateReviewingEvent = Components.Schemas.SessionPlanGateReviewingEvent
 public typealias SessionPlanGateActivityEvent = Components.Schemas.SessionPlanGateActivityEvent
 
+extension Components.Schemas.WireframeSurface: OpenEnum {}
+extension Components.Schemas.PlanGatePhase: OpenEnum {}
 extension Components.Schemas.PlanDecision: OpenEnum {}
 extension Components.Schemas.PlanSummaryCode: OpenEnum {}
 extension Components.Schemas.CalloutTone: OpenEnum {}
@@ -57,7 +61,10 @@ extension ShepherdClient {
   public func planGates() async throws -> [String: PlanGate] {
     do {
       switch try await generated.listPlanGates(.init()) {
-      case .ok(let ok): return try ok.body.json.additionalProperties
+      case .ok(let ok):
+        let gates = try ok.body.json.additionalProperties
+        for gate in gates.values { try gate.validateVisualBlocks() }
+        return gates
       case .unauthorized: throw ShepherdError.unauthenticated
       case .undocumented(let status, _):
         throw ShepherdError.fromUndocumented(statusCode: status, route: "listPlanGates")
@@ -149,5 +156,41 @@ extension ShepherdClient {
         throw ShepherdError.fromUndocumented(statusCode: status, route: "dismissPlanQuota")
       }
     } catch { throw ShepherdError.from(error, route: "dismissPlanQuota") }
+  }
+}
+
+extension Components.Schemas.PlanGate {
+  /// Validate after decoding HTTP snapshots AND event payloads. The generated anyOf decoder
+  /// ignores VisualBlockUnknown's exclusion pattern, so a malformed known block otherwise
+  /// slips into value14. Keep the truth contract strict and check the typed member here.
+  public func validateVisualBlocks() throws {
+    for block in blocks ?? [] { try block.validateKnownType() }
+  }
+}
+
+extension Components.Schemas.VisualBlock {
+  public func validateKnownType() throws {
+    guard let fallback = value14 else { return }
+    let valid: Bool
+    switch fallback._type {
+    case "rich-text": valid = value1 != nil
+    case "callout": valid = value2 != nil
+    case "file-tree": valid = value3 != nil
+    case "diff": valid = value4 != nil
+    case "code": valid = value5 != nil
+    case "annotated-code": valid = value6 != nil
+    case "data-model": valid = value7 != nil
+    case "api-endpoint": valid = value8 != nil
+    case "table": valid = value9 != nil
+    case "checklist": valid = value10 != nil
+    case "mermaid": valid = value11 != nil
+    case "wireframe": valid = value12 != nil
+    case "question-form": valid = value13 != nil
+    default: return // A genuinely new type remains forward-compatible.
+    }
+    guard valid else {
+      throw DecodingError.dataCorrupted(
+        .init(codingPath: [], debugDescription: "Invalid known visual block: \(fallback._type)"))
+    }
   }
 }

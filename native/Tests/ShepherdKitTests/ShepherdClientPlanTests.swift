@@ -83,6 +83,18 @@ struct ShepherdClientPlanTests {
     #expect(fallback.markdown == "Fallback **chart**")
   }
 
+  @Test("malformed known question forms cannot decode as unknown blocks")
+  func malformedKnownBlock() async throws {
+    let server = FakeShepherdServer()
+    defer { server.tearDown() }
+    server.stub(
+      "GET", "/api/plan-gates", status: 200,
+      json: gateJSON(blocks: #"[{"type":"question-form","id":"bad","questions":"not an array"}]"#))
+    await #expect(throws: ShepherdError.self) {
+      _ = try await makeClient(server).planGates()
+    }
+  }
+
   @Test("inflight reviews retain their environment, including null model and effort")
   func inflight() async throws {
     let server = FakeShepherdServer()
@@ -290,7 +302,7 @@ struct ShepherdClientPlanTests {
     #expect(blockJSON?["surface"] as? String == "spatial")
   }
 
-  @Test("all seven plan open enums retain unknown wire values")
+  @Test("all nine plan open enums retain unknown wire values")
   func openEnums() throws {
     func check<T: OpenEnum & Decodable>(_ type: T.Type, known: String) throws {
       let decoder = JSONDecoder()
@@ -301,6 +313,8 @@ struct ShepherdClientPlanTests {
       #expect(future.known == nil)
       #expect(future.rawValue == "future")
     }
+    try check(Components.Schemas.WireframeSurface.self, known: "browser")
+    try check(Components.Schemas.PlanGatePhase.self, known: "planning")
     try check(PlanDecision.self, known: "approved")
     try check(PlanSummaryCode.self, known: "no-verdict")
     try check(CalloutTone.self, known: "risk")

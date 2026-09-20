@@ -3,7 +3,7 @@ import Testing
 
 @testable import ShepherdKit
 
-@Suite("Usage provider contract")
+@Suite("Usage provider contract", .timeLimit(.minutes(1)))
 struct UsageProviderContractTests {
   private let legacy = #"""
     {"session5h":null,"week":null,"perModelWeek":[],"credits":null,

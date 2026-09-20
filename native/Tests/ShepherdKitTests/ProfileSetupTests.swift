@@ -3,7 +3,7 @@ import Testing
 
 @testable import ShepherdKit
 
-@Suite("ProfileSetup")
+@Suite("ProfileSetup", .timeLimit(.minutes(1)))
 struct ProfileSetupTests {
   private func profile(_ server: FakeShepherdServer) -> ServerProfile {
     ServerProfile(name: "fake", baseURL: server.baseURL, mode: .local, credentialKey: "k")

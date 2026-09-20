@@ -3,7 +3,7 @@ import Testing
 
 @testable import ShepherdKit
 
-@Suite("ShepherdClient sidebar reads")
+@Suite("ShepherdClient sidebar reads", .timeLimit(.minutes(1)))
 struct ShepherdClientBacklogTests {
   private func makeClient(_ server: FakeShepherdServer) throws -> ShepherdClient {
     let credentials = InMemoryCredentialStore()

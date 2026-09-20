@@ -5,7 +5,7 @@ import Testing
 
 @testable import ShepherdKit
 
-@Suite("Middlewares")
+@Suite("Middlewares", .timeLimit(.minutes(1)))
 struct MiddlewareTests {
   private let baseURL = URL(string: "http://localhost:7330")!
 

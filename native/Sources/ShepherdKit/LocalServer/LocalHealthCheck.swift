@@ -8,10 +8,12 @@ import Foundation
 public struct LocalHealthCheck: Sendable {
   public let url: URL
   private let session: URLSession
+  private let timeout: TimeInterval
 
-  public init(port: Int = 7330, session: URLSession = .shared) {
+  public init(port: Int = 7330, session: URLSession = .shared, timeout: TimeInterval = 1.5) {
     self.url = URL(string: "http://127.0.0.1:\(port)/api/health")!
     self.session = session
+    self.timeout = timeout
   }
 
   private struct Health: Decodable { let ok: Bool }
@@ -20,7 +22,7 @@ public struct LocalHealthCheck: Sendable {
   /// spinner. Any failure at all reads as "not healthy yet".
   public func callAsFunction() async -> Bool {
     var request = URLRequest(url: url)
-    request.timeoutInterval = 1.5
+    request.timeoutInterval = timeout
     request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
     do {
       let (data, response) = try await session.data(for: request)

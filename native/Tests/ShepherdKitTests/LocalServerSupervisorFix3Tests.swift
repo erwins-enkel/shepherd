@@ -36,7 +36,7 @@ actor ProbeGate {
 /// couple of instructions between `spawn()`'s `child.run()` and publishing
 /// `livePID`, and `start()`'s widened guard ending a crash-loop backoff early
 /// instead of leaving it be.
-@Suite(.serialized) struct LocalServerSupervisorFix3Tests {
+@Suite(.serialized, .timeLimit(.minutes(1))) struct LocalServerSupervisorFix3Tests {
   private func supervisor(
     _ launch: LocalServerLaunch, health: @escaping @Sendable () async -> Bool,
     clock: any SupervisorClock = TestClock(),
@@ -177,12 +177,21 @@ actor ProbeGate {
     let pipe = Pipe()
     child.standardOutput = pipe
     child.standardError = pipe
+    let (exits, exitSignal) = AsyncStream<Int32>.makeStream()
+    child.terminationHandler = { process in
+      exitSignal.yield(process.terminationStatus)
+      exitSignal.finish()
+    }
     try child.run()
+    defer { if child.isRunning { child.terminate() } }
     let lines = Mutex<[String]>([])
     await ProcessOutputPump.pump(pipe.fileHandleForReading) { line in
       lines.withLock { $0.append(line) }
     }
-    child.waitUntilExit()
+    // EOF does not imply Foundation has reported the exit yet. Suspending
+    // keeps the cooperative executor free to make progress in the meantime.
+    var exit = exits.makeAsyncIterator()
+    #expect(await exit.next() == 0)
     #expect(lines.withLock { $0 } == ["ready", "no trailing newline"])
   }
 

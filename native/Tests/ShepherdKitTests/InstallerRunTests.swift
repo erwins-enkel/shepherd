@@ -1,10 +1,9 @@
 #if os(macOS)
 import Foundation
-import Synchronization
 import Testing
 @testable import ShepherdKit
 
-@Suite(.serialized) struct InstallerRunTests {
+@Suite(.serialized, .timeLimit(.minutes(1))) struct InstallerRunTests {
   /// `Result<Void, LocalServerFailure>` is not `Equatable` — `Void` isn't — so the
   /// brief's `== .success(())` / `== .failure(...)` comparisons are rewritten as
   /// pattern matches here instead of changing `InstallerRun.run()`'s return type.
@@ -166,21 +165,17 @@ import Testing
     """.write(to: script, atomically: true, encoding: .utf8)
     try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
 
-    // The seam parks the operation inside the window; the test cancels while it
-    // is parked and only then lets it through to publish the pid.
-    let released = Mutex(false)
+    // Cancel this task at the exact seam, before the pid is published. Waiting
+    // here for another Task to release us deadlocks a constrained cooperative
+    // pool: that task needs the worker this synchronous hook is occupying.
     var run = InstallerRun(
       environment: LocalServerEnvironment(home: home), log: LogRing(capacity: 50),
       scriptOverride: script)
     run.testSeamAfterRun = {
-      while !released.withLock({ $0 }) { usleep(2000) }
+      withUnsafeCurrentTask { $0?.cancel() }
     }
-    let task = Task { await run.run() }
-    try await Task.sleep(for: .milliseconds(200))  // it is parked in the seam
-    task.cancel()  // `onCancel` runs here, finds no pid, and does nothing
-    released.withLock { $0 = true }
-
     let started = Date()
+    let task = Task { await run.run() }
     let outcome = await task.value
     // The script would otherwise run to completion, for twenty seconds.
     #expect(Date().timeIntervalSince(started) < 5)

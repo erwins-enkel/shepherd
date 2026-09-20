@@ -41,7 +41,7 @@ enum DetailFixtures {
     """.utf8)
 }
 
-@Suite("Generated detail contract types")
+@Suite("Generated detail contract types", .timeLimit(.minutes(1)))
 struct GeneratedDetailContractTests {
   @Test("open enums decode both a known and an unknown member")
   func openEnums() throws {

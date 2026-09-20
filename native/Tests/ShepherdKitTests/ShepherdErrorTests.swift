@@ -9,7 +9,7 @@ import Testing
 /// error enum is `internal`, so these build `ClientError` values by hand the
 /// way `UniversalClient.makeError` does: a cause description plus the root
 /// cause it already unwrapped, and a `response` when the exchange got that far.
-@Suite("ShepherdError")
+@Suite("ShepherdError", .timeLimit(.minutes(1)))
 struct ShepherdErrorTests {
   private func clientError(
     operationID: String = "listSessions",

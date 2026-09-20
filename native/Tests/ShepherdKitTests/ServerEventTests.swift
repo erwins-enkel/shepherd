@@ -3,7 +3,7 @@ import Testing
 
 @testable import ShepherdKit
 
-@Suite("ServerEvent")
+@Suite("ServerEvent", .timeLimit(.minutes(1)))
 struct ServerEventTests {
   private func decode(_ json: String) throws -> ServerEvent {
     try JSONDecoder().decode(ServerEvent.self, from: Data(json.utf8))

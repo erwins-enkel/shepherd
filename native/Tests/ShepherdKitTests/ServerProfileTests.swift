@@ -3,7 +3,7 @@ import Testing
 
 @testable import ShepherdKit
 
-@Suite("ServerProfile")
+@Suite("ServerProfile", .timeLimit(.minutes(1)))
 struct ServerProfileTests {
   @Test("credentialKey defaults to the profile id")
   func defaultCredentialKey() {

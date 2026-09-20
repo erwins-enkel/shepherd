@@ -2,7 +2,7 @@ import Foundation
 import ShepherdKit
 import Testing
 
-@Suite("Usage provider open enums")
+@Suite("Usage provider open enums", .timeLimit(.minutes(1)))
 struct UsageProviderOpenEnumTests {
   private func check<T: OpenEnum & Codable>(
     _ type: T.Type, known: T.Known, rawValue: String

@@ -4,7 +4,7 @@ import Testing
 @testable import ShepherdKit
 
 @MainActor
-@Suite("SessionStore")
+@Suite("SessionStore", .timeLimit(.minutes(1)))
 struct SessionStoreTests {
   /// A store with no event socket: `start()` bootstraps and returns, which is
   /// what makes the connection-state transitions testable without a listener.

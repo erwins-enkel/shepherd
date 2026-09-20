@@ -66,6 +66,13 @@ public struct InstallerRun: Sendable {
     process.environment = childEnvironment
     process.standardOutput = pipe
     process.standardError = pipe
+    // Register before launch: EOF can precede Foundation's exit notification.
+    // waitUntilExit() after an await can block a cooperative worker indefinitely.
+    let (exits, exitSignal) = AsyncStream<Int32>.makeStream()
+    process.terminationHandler = { child in
+      exitSignal.yield(child.terminationStatus)
+      exitSignal.finish()
+    }
 
     // The child must be killable and never outlive the app: if the caller's Task
     // is cancelled — e.g. the app is quitting mid-install — `onCancel` fires,
@@ -89,10 +96,16 @@ public struct InstallerRun: Sendable {
       if Task.isCancelled { Self.terminate(process.processIdentifier, gracePeriod: 2) }
 
       await ProcessOutputPump.pump(pipe.fileHandleForReading) { line in await log.append(line) }
-      process.waitUntilExit()
+      // A cancelled AsyncStream reader returns nil immediately. Keep this wait
+      // in an independent task so cancellation still waits for the killed child
+      // to be reaped before run() returns, without blocking a worker thread.
+      let code = await Task {
+        var exit = exits.makeAsyncIterator()
+        return await exit.next()
+      }.value
       livePID.withLock { $0 = nil }
 
-      let code = process.terminationStatus
+      guard let code else { return .failure(.installFailed(exitCode: 127)) }
       guard code == 0 else { return .failure(.installFailed(exitCode: code)) }
       Self.logger.info("installer finished")
       return .success(())

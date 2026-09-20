@@ -3,7 +3,7 @@ import Testing
 
 @testable import ShepherdKit
 
-@Suite("ShepherdClient terminal")
+@Suite("ShepherdClient terminal", .timeLimit(.minutes(1)))
 struct ShepherdClientTerminalTests {
   private func makeClient(_ server: FakeShepherdServer) throws -> ShepherdClient {
     let credentials = InMemoryCredentialStore(

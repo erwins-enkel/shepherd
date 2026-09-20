@@ -3,7 +3,7 @@ import Testing
 
 @testable import ShepherdKit
 
-@Suite("PTYConnection")
+@Suite("PTYConnection", .timeLimit(.minutes(1)))
 struct PTYConnectionTests {
   /// Network.framework handlers run on their own queue, so tests observe them
   /// by polling rather than by awaiting a continuation nobody resumes.

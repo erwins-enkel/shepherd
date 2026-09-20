@@ -46,6 +46,7 @@ enum StreamRegistrations {
         scene: {
             QueuesStream.installScene()
             MergeStream.installScene()
+            Wave2Seams.installPanels()
             // S12 adds `SettingsFeature.installScene()` here.
         },
         model: installModels)
@@ -91,5 +92,6 @@ enum StreamRegistrations {
         QueuesStream.install(app)           // S10: scene factories already registered
         ComposeStream.install(app)          // S11: composer and session actions
         MergeStream.install(app)            // S9: composes the sidebar and complete action bar
+        Wave2Seams.connect(app)
     }
 }

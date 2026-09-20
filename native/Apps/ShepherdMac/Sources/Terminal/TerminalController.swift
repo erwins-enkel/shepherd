@@ -45,6 +45,13 @@ final class TerminalController: AppExtension {
         return model
     }
 
+    /// Reading this seam never creates a terminal or attaches a socket.
+    func hasEnded(_ sessionID: String) -> Bool {
+        guard let model = models[sessionID] else { return false }
+        if case .ended = model.phase { return true }
+        return false
+    }
+
     /// Tears down models for sessions no longer in `ids` — a deleted, merged
     /// or expired session must not keep its socket, prompt draft or parked
     /// verdict alive for the rest of the app's run.

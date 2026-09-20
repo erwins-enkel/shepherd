@@ -138,6 +138,27 @@ struct StreamRegistrationsTests {
         }
     }
 
+    @Test func mergeSeamsResolveCurrentActivationAndKeepDefaultsBeforeBootstrap() async throws {
+        defer { resetStreamSeams() }
+        let app = scratchModel()
+        defer { app.teardown() }
+        StreamRegistrations.installAll(into: app)
+        #expect(SessionSignals.manualStepsOutstanding().isEmpty)
+        #expect(MergeInputs.git(app).isEmpty)
+        #expect(!MergeInputs.reviewing(app, "gone"))
+        #expect(MergeInputs.planReviewBlocked(app, "gone"))
+        #expect(MergeInputs.terminalEnded(app, "gone"))
+        let owed = try JSONDecoder().decode(PostMergeSteps.self, from: Data(#"{"sessionId":"gone","desig":"TASK-1","repoPath":"/a","prNumber":7,"prTitle":"Ship","steps":[{"id":"one","text":"Check","postMerge":true,"doneAt":null}],"trackingIssueUrl":null,"trackingIssueNumber":null,"createdAt":1,"updatedAt":1,"clearedAt":null}"#.utf8))
+        for count in [1, 0] {
+            let merge = MergeModel(reads: .init(snapshot: { .init(owed: count == 1 ? [owed] : []) }))
+            app.liveExtensions = [(ObjectIdentifier(MergeModel.self), merge)]
+            await merge.refresh()
+            #expect(SessionSignals.manualStepsOutstanding() == (count == 1 ? ["gone": 1] : [:]))
+            app.tearDownExtensions()
+            #expect(SessionSignals.manualStepsOutstanding().isEmpty)
+        }
+    }
+
     private func settle(until condition: () -> Bool) async -> Bool {
         for _ in 0..<1_000 {
             if condition() { return true }

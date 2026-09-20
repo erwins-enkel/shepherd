@@ -65,6 +65,28 @@ struct HerdStreamTests {
         }
     }
 
+    @Test func planReviewWithoutCriticReviewLeavesTheReadyLens() async throws {
+        try await withApp { app in
+            HerdStream.install(app)
+            try await activate(app, name: "plan-review")
+            let herd = try seed(app, state: "none", checks: "none")
+            let sidebar = try #require(app.extension(SidebarModel.self))
+            let session = PreviewData.session(id: "a", status: .init(known: .idle))
+            @MainActor func ready() -> [Session] {
+                HerdPartition.shown([session], lens: .ready, workingBlocked: [:], now: 0,
+                    gitStage: sidebar.gitStage, inReview: sidebar.inReview)
+            }
+            #expect(ready().map(\.id) == ["a"])
+            #expect(!herd.isReviewing(session.id))
+            herd.planReviewing = { _ in true }
+            #expect(herd.stage(for: session) == .reviewerRunning)
+            #expect(sidebar.inReview(session))
+            #expect(ready().isEmpty)
+            herd.planReviewing = { _ in false }
+            #expect(ready().map(\.id) == ["a"])
+        }
+    }
+
     @Test func installingBeforeActivationWiresEveryNewInstance() async throws {
         try await withApp { app in
             SessionSignals.connect(app)

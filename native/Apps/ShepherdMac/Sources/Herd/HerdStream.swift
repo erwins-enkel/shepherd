@@ -19,7 +19,8 @@ enum HerdStream {
                 app?.extension(HerdSignals.self)?.stage(for: session)
             }
             sidebar.inReview = { [weak app] session in
-                app?.extension(HerdSignals.self)?.isReviewing(session.id) ?? false
+                guard let herd = app?.extension(HerdSignals.self) else { return false }
+                return herd.isReviewing(session.id) || herd.planReviewing(session)
             }
         }
         SessionSignals.gitMerged = { [weak app] id in

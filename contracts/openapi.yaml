@@ -1577,6 +1577,13 @@ components:
         source: { type: string, description: At most MERMAID_SOURCE_MAX_CHARS (8000) characters. }
         caption: { type: string }
         inferred: { type: boolean }
+    WireframeSurfaceKnown:
+      type: string
+      enum: [browser, desktop, mobile, popover, panel]
+    WireframeSurface:
+      anyOf:
+        - $ref: "#/components/schemas/WireframeSurfaceKnown"
+        - type: string
     VisualBlockWireframe:
       type: object
       additionalProperties: true
@@ -1584,7 +1591,7 @@ components:
       properties:
         type: { type: string, enum: [wireframe] }
         id: { type: string }
-        surface: { type: string, enum: [browser, desktop, mobile, popover, panel] }
+        surface: { $ref: "#/components/schemas/WireframeSurface" }
         html: { type: string, description: At most WIREFRAME_HTML_MAX_CHARS (20000) characters. Untrusted — never rendered as markup by the native client. }
         caption: { type: string }
     VisualBlockApiEndpoint:
@@ -1677,12 +1684,16 @@ components:
       description: >-
         The catch-all member of VisualBlock, and the ONLY reason an unfamiliar block type does not
         cost the client the whole gate. Same idea as x-shepherd-open-enum for a string enum, one
-        level up: `type` is the discriminator with no enum on it, and `markdown` is the degraded
+        level up: `type` excludes all known discriminators, and `markdown` is the degraded
         rendering every server-side block carries. A renderer that reaches this member draws the
         markdown if there is one and skips the block otherwise.
       required: [type]
       properties:
-        type: { type: string }
+        type:
+          type: string
+          # A negative lookahead keeps this a string schema for swift-openapi-generator.
+          # A `not: { enum: [...] }` property is skipped by that generator entirely.
+          pattern: '^(?!(?:rich-text|callout|file-tree|diff|code|annotated-code|table|checklist|mermaid|wireframe|api-endpoint|data-model|question-form)$)'
         markdown: { type: string }
     VisualBlock:
       description: >-
@@ -1694,7 +1705,9 @@ components:
         the decode of the WHOLE PlanGate fails — the opposite of the degradation this description
         promises, and the failure mode `contracts/README.md`'s open-enum section exists to prevent.
         An `anyOf` decodes each member independently into optional properties, so the fourteenth
-        always matches and the gate survives. This is the same shape `x-shepherd-open-enum` already
+        matches only unfamiliar types and the gate survives. Malformed known blocks must fail
+        validation rather than slipping through the fallback. This is the same shape
+        `x-shepherd-open-enum` already
         produces (`anyOf: [{$ref: <Name>Known}, {type: string}]`), one level up. A `discriminator:`
         would be the other way to get an undocumented case, but nothing in this contract uses one
         and `scripts/gen-contract-swift.ts` has no handling for it — do not introduce one here.
@@ -1841,6 +1854,13 @@ components:
           description: >-
             Whether the steer reached the live planning pane. False is NOT an error — the answers are
             recorded either way — but the operator must be told, because the agent may have moved on.
+    PlanGatePhaseKnown:
+      type: string
+      enum: [planning, executing]
+    PlanGatePhase:
+      anyOf:
+        - $ref: "#/components/schemas/PlanGatePhaseKnown"
+        - type: string
     SessionPlanGateEvent:
       type: object
       additionalProperties: true
@@ -1852,7 +1872,7 @@ components:
       properties:
         id: { type: string }
         gate: { $ref: "#/components/schemas/PlanGate" }
-        planPhase: { type: string, enum: [planning, executing] }
+        planPhase: { $ref: "#/components/schemas/PlanGatePhase" }
     SessionPlanGateReviewingEvent:
       type: object
       additionalProperties: true

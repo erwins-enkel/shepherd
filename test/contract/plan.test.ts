@@ -293,6 +293,54 @@ describe("plan events", () => {
   });
 });
 
+describe("plan read-side schema regressions", () => {
+  test.each([
+    { type: "question-form", id: "bad-questions", questions: "not an array" },
+    { type: "question-form", id: "bad-question", questions: [{ id: "q1" }] },
+    { type: "file-tree", id: "bad-path", entries: [{ path: 42, change: "added" }] },
+    { type: "rich-text" },
+  ])("rejects malformed known block: %j", async (block) => {
+    await expect(
+      validateResponse(
+        "GET",
+        "/api/plan-gates",
+        Response.json({
+          [fx.gate.sessionId]: { ...fx.gate, blocks: [block] },
+        }),
+      ),
+    ).rejects.toThrow();
+  });
+
+  test("preserves a genuinely unknown block with markdown", async () => {
+    const body = {
+      [fx.gate.sessionId]: {
+        ...fx.gate,
+        blocks: [{ type: "future-chart", markdown: "Fallback chart" }],
+      },
+    };
+    expect(await validateResponse("GET", "/api/plan-gates", Response.json(body))).toEqual(body);
+  });
+
+  test("accepts an unknown wireframe surface", async () => {
+    const body = {
+      [fx.gate.sessionId]: {
+        ...fx.gate,
+        blocks: [{ type: "wireframe", id: "future", surface: "spatial", html: "<p>Plan</p>" }],
+      },
+    };
+    expect(await validateResponse("GET", "/api/plan-gates", Response.json(body))).toEqual(body);
+  });
+
+  test("accepts an unknown plan phase in an event", () => {
+    expect(() =>
+      validateEvent("session:plangate", {
+        id: "future-session",
+        planPhase: "verifying",
+      }),
+    ).not.toThrow();
+  });
+});
+
 // Stays LAST: every declared status/event must be driven by this file.
 describe("plan coverage gate", () => {
   test("every plan operation and event was exercised", () => {

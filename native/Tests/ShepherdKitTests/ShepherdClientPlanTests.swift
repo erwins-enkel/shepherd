@@ -274,6 +274,22 @@ struct ShepherdClientPlanTests {
     await #expect(throws: c.3) { try await c.0.call(client) }
   }
 
+  @Test("future plan phases and wireframe surfaces decode without losing their wire value")
+  func futureReadEnums() throws {
+    let decoder = JSONDecoder()
+    let event = try decoder.decode(
+      SessionPlanGateEvent.self,
+      from: Data(#"{"id":"s1","planPhase":"verifying"}"#.utf8))
+    let wireframe = try decoder.decode(
+      VisualBlockWireframe.self,
+      from: Data(#"{"type":"wireframe","id":"w1","surface":"spatial","html":"<p>Plan</p>"}"#.utf8))
+    let encoder = JSONEncoder()
+    let eventJSON = try JSONSerialization.jsonObject(with: encoder.encode(event)) as? [String: Any]
+    let blockJSON = try JSONSerialization.jsonObject(with: encoder.encode(wireframe)) as? [String: Any]
+    #expect(eventJSON?["planPhase"] as? String == "verifying")
+    #expect(blockJSON?["surface"] as? String == "spatial")
+  }
+
   @Test("all seven plan open enums retain unknown wire values")
   func openEnums() throws {
     func check<T: OpenEnum & Decodable>(_ type: T.Type, known: String) throws {

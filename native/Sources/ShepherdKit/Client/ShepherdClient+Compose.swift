@@ -28,6 +28,9 @@ public typealias CommandListing = Components.Schemas.CommandListing
 public typealias EpicSummary = Components.Schemas.EpicSummary
 public typealias EpicListing = Components.Schemas.EpicListing
 
+extension Components.Schemas.ShapeFailure._ErrorPayload: OpenEnum {}
+extension Components.Schemas.ShapeUnavailable._ErrorPayload: OpenEnum {}
+
 extension Components.Schemas.IssueFetchTransport: OpenEnum {}
 
 extension Components.Schemas.SlashCommandScope: OpenEnum {}

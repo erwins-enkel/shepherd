@@ -2480,13 +2480,13 @@ components:
       additionalProperties: true
       required: [error]
       properties:
-        error: { type: string, enum: [empty-prompt, spawn-failed, timeout, unavailable] }
+        error: { type: string, enum: [empty-prompt, spawn-failed, timeout, unavailable], x-shepherd-open-enum: true }
     ShapeUnavailable:
       type: object
       additionalProperties: true
       required: [error]
       properties:
-        error: { type: string, enum: [unavailable] }
+        error: { type: string, enum: [unavailable], x-shepherd-open-enum: true }
     SpawnPhase:
       type: string
       enum: [base, worktree, prompt, launch, agent]

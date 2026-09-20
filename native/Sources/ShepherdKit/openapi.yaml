@@ -3814,12 +3814,14 @@ components:
         - error
       properties:
         error:
-          type: string
-          enum:
-            - empty-prompt
-            - spawn-failed
-            - timeout
-            - unavailable
+          anyOf:
+            - type: string
+              enum:
+                - empty-prompt
+                - spawn-failed
+                - timeout
+                - unavailable
+            - type: string
     ShapeUnavailable:
       type: object
       additionalProperties: true
@@ -3827,9 +3829,11 @@ components:
         - error
       properties:
         error:
-          type: string
-          enum:
-            - unavailable
+          anyOf:
+            - type: string
+              enum:
+                - unavailable
+            - type: string
     SpawnPhase:
       type: string
       enum:

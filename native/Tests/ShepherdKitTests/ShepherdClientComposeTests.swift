@@ -30,6 +30,17 @@ struct ShepherdClientComposeTests {
         #expect(try await client.cancelSpawn(id: "compose-test-id") == false)
     }
 
+    @Test(arguments: [422, 503])
+    func shapePreservesUnknownWireError(_ status: Int) async throws {
+        let server = FakeShepherdServer()
+        defer { server.tearDown() }
+        server.stub("POST", "/api/shape", status: status, json: try Fixtures.errorJSON("future-slug"))
+        let client = try makeClient(server)
+        await #expect(throws: ComposeShapeError.failed("future-slug")) {
+            _ = try await client.shapeTask(.init(repoPath: "/repo", prompt: "Rough", provider: .codex))
+        }
+    }
+
     @Test func shapeAndBriefUseGeneratedPayloads() async throws {
         let server = FakeShepherdServer()
         defer { server.tearDown() }

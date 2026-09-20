@@ -439,6 +439,14 @@ struct SessionStoreTests {
 
     let runner = Task { await store.start() }
     #expect(await eventually { store.connection == .live })
+    // `store.connection == .live` only proves the HTTP bootstrap finished —
+    // the socket handshake to `events` runs concurrently with it and can
+    // still be in flight (a loaded machine widens that gap). Closing before
+    // the fake server has adopted the connection is a silent no-op, so the
+    // reconnect this test depends on would never happen. `connectionCount()`
+    // is monotonic once it reaches 1, so waiting for it has no window to
+    // miss, unlike polling for a transient state.
+    #expect(await eventually { events.connectionCount() == 1 })
     let afterBootstrap = http.requests().filter { $0.path == "/api/sessions" }.count
 
     // A socket that went away may have missed pushes — the stream keeps only
@@ -472,6 +480,12 @@ struct SessionStoreTests {
 
     let runner = Task { await store.start() }
     #expect(await eventually { store.connection == .live })
+    // As in `reconnectRefreshesTheSnapshot`: `.live` only proves bootstrap
+    // finished, not that the fake server has adopted the socket yet — those
+    // two race independently. Closing before it has is a silent no-op, so
+    // nothing would ever flip the store to `.connecting` and the assertion
+    // below would time out instead of failing fast.
+    #expect(await eventually { events.connectionCount() == 1 })
 
     events.closeCurrentConnection()
     // Nothing has failed for good: the stream is already reconnecting, so this

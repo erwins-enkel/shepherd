@@ -595,7 +595,34 @@ export const KEYS_PLAN: readonly string[] = [
 export const KEYS_MERGE: readonly string[] = [];
 
 /** S10 — held tasks, up-next, done/recaps, halt and retry. */
-export const KEYS_QUEUES: readonly string[] = [];
+export const KEYS_QUEUES: readonly string[] = [
+  "done_recap_finished",
+  "done_recap_panel_aria",
+  "donerecap_bringback",
+  "donerecap_bringback_confirm",
+  "herd_done_empty",
+  "recap_changed_files",
+  "recap_empty_legacy",
+  "recap_failed",
+  "recap_failure_auth_action",
+  "recap_failure_auth_headline",
+  "recap_failure_default_model",
+  "recap_failure_detail",
+  "recap_failure_details",
+  "recap_failure_invalid_result_headline",
+  "recap_failure_launch_headline",
+  "recap_failure_model",
+  "recap_failure_no_result_headline",
+  "recap_failure_provider",
+  "recap_failure_provider_action",
+  "recap_failure_source_action",
+  "recap_failure_source_headline",
+  "recap_failure_timeout_headline",
+  "recap_generating",
+  "recap_predates_feature",
+  "recap_unavailable",
+  "usage_prompt_tokens_unit",
+];
 
 /** S11 — the composer: create fields, slash commands, steers, attachments. */
 export const KEYS_COMPOSE: readonly string[] = [];

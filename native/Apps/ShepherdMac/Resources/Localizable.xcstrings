@@ -1189,6 +1189,76 @@
         }
       }
     },
+    "done_recap_finished": {
+      "comment": "%1$@ = ago",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vor %1$@ abgeschlossen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finished %1$@ ago"
+          }
+        }
+      }
+    },
+    "done_recap_panel_aria": {
+      "comment": "%1$@ = desig",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zusammenfassung für %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recap for %1$@"
+          }
+        }
+      }
+    },
+    "donerecap_bringback": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zurückholen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bring back"
+          }
+        }
+      }
+    },
+    "donerecap_bringback_confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zurückholen?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bring back?"
+          }
+        }
+      }
+    },
     "effort_default": {
       "extractionState": "manual",
       "localizations": {
@@ -1938,6 +2008,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "CI running (%1$@)"
+          }
+        }
+      }
+    },
+    "herd_done_empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noch keine abgeschlossenen Sitzungen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No finished sessions yet."
           }
         }
       }
@@ -7335,6 +7422,312 @@
         }
       }
     },
+    "recap_changed_files": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geänderte Dateien"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Changed files"
+          }
+        }
+      }
+    },
+    "recap_empty_legacy": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Es wurde kein Recap erstellt, weil diese Session keine Dateiänderungen enthielt. Ältere Shepherd-Versionen übersprangen solche Sessions, weil kein Diff existierte."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No recap was created because this session had no file changes. Older Shepherd versions skipped these sessions because there was no diff."
+          }
+        }
+      }
+    },
+    "recap_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zusammenfassung konnte nicht erstellt werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recap generation failed."
+          }
+        }
+      }
+    },
+    "recap_failure_auth_action": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konfiguriere die Authentifizierung des Recap-Anbieters, bevor du die Session neu startest."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configure authentication for the recap provider before relaunching the session."
+          }
+        }
+      }
+    },
+    "recap_failure_auth_headline": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Authentifizierung für das Recap war nicht verfügbar."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recap authentication was unavailable."
+          }
+        }
+      }
+    },
+    "recap_failure_default_model": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anbieter-Standard"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "provider default"
+          }
+        }
+      }
+    },
+    "recap_failure_detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fehler"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failure"
+          }
+        }
+      }
+    },
+    "recap_failure_details": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Technische Details"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Technical details"
+          }
+        }
+      }
+    },
+    "recap_failure_invalid_result_headline": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Recap-Agent hat ein unbrauchbares Ergebnis geliefert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The recap agent returned an unusable result."
+          }
+        }
+      }
+    },
+    "recap_failure_launch_headline": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Recap-Agent konnte nicht gestartet werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The recap agent could not be started."
+          }
+        }
+      }
+    },
+    "recap_failure_model": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modell"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Model"
+          }
+        }
+      }
+    },
+    "recap_failure_no_result_headline": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Recap-Agent hat kein Ergebnis geliefert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The recap agent returned no result."
+          }
+        }
+      }
+    },
+    "recap_failure_provider": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anbieter"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Provider"
+          }
+        }
+      }
+    },
+    "recap_failure_provider_action": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prüfe Recap-Anbieter und Modell, bevor du die Session neu startest."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check the recap provider and model before relaunching the session."
+          }
+        }
+      }
+    },
+    "recap_failure_source_action": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Halte Repository und Worktree bis zum Abschluss verfügbar und starte die Session neu, falls du weiterhin ein Recap benötigst."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep the repository and worktree available until completion, then relaunch the session if a recap is still needed."
+          }
+        }
+      }
+    },
+    "recap_failure_source_headline": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die für das Recap benötigten Session-Quellen waren nicht verfügbar."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The session sources needed for the recap were unavailable."
+          }
+        }
+      }
+    },
+    "recap_failure_timeout_headline": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Recap-Erstellung hat das Zeitlimit überschritten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recap generation timed out."
+          }
+        }
+      }
+    },
+    "recap_generating": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zusammenfassung wird erstellt…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Generating recap…"
+          }
+        }
+      }
+    },
     "recap_open_items": {
       "extractionState": "manual",
       "localizations": {
@@ -7348,6 +7741,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Open items"
+          }
+        }
+      }
+    },
+    "recap_predates_feature": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Sitzung wurde abgeschlossen, bevor Sitzungs-Zusammenfassungen verfügbar waren – daher wurde keine erstellt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This session finished before session recaps were available, so none was recorded."
           }
         }
       }
@@ -7382,6 +7792,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Regenerate failed. Please try again."
+          }
+        }
+      }
+    },
+    "recap_unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Für diese Session existiert kein Recap-Datensatz; der Grund wurde nicht erfasst."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No recap record exists for this session; the reason was not recorded."
           }
         }
       }
@@ -8275,6 +8702,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Weekly window"
+          }
+        }
+      }
+    },
+    "usage_prompt_tokens_unit": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tokens"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tokens"
           }
         }
       }

@@ -52,7 +52,7 @@ import Testing
 
     await sut.stop(gracePeriod: 0.5)
     #expect(!processIsAlive(pid))
-    #expect(processCommandCount(containing: launch.arguments[0]) == 0)
+    try await waitUntil { processCommandCount(containing: launch.arguments[0]) == 0 }
   }
 
   /// C1b. Exit is not EOF. The real server spawns agents, git and bun workers
@@ -68,15 +68,18 @@ import Testing
         sleep 30
       else
         : > ran
-        sleep 8 &
+        sleep 30 &
         echo "holder=$!"
         echo 'first child is up'
+        while [ ! -f release-first ]; do sleep 0.01; done
         exit 3
       fi
       """)
     defer { cleanup() }
     let clock = TestClock()
     let sut = supervisor(launch, health: { true }, clock: clock)
+    // The file barrier must not leave a child parked if an earlier require fails.
+    defer { sut.terminateNow(gracePeriod: 0) }
     await sut.start()
     let first = try #require(await sut.state.pid)
     try await waitUntil { await sut.logLines().contains("first child is up") }
@@ -84,8 +87,11 @@ import Testing
     let holder = try #require(Int32(holderLine.dropFirst("holder=".count)))
     defer { kill(holder, SIGKILL) }
 
+    // Release only after observing the original PID and the pipe holder.
+    try Data().write(to: launch.workingDirectory.appendingPathComponent("release-first"))
+
     // The child is gone but its `sleep` still owns the write end, so no EOF is
-    // coming for another eight seconds. The exit itself has to be what the
+    // coming before the assertion's deadline. The exit itself has to be what the
     // supervisor acts on — the short timeout is the assertion.
     try await waitUntil(timeout: 3) { await sut.logLines().contains("replacement is up") }
     #expect(kill(holder, 0) == 0)  // and it really was still holding the pipe
@@ -95,7 +101,7 @@ import Testing
     #expect(await clock.slept.contains(1))  // the crash backoff really ran
 
     await sut.stop(gracePeriod: 0.5)
-    #expect(processCommandCount(containing: launch.arguments[0]) == 0)
+    try await waitUntil { processCommandCount(containing: launch.arguments[0]) == 0 }
   }
 
   /// I1. SIGTERM goes to the process *group*, but the grace loop and the
@@ -141,7 +147,11 @@ import Testing
     defer { cleanup() }
     let sut = supervisor(launch, health: { true })
     await sut.start()
-    try await waitUntil(timeout: 10) { await sut.capturedPassword == password }
+    try await waitUntil(timeout: 10) {
+      let captured = await sut.capturedPassword == password
+      let redacted = await sut.logLines().contains { $0.contains(LogRing.placeholder) }
+      return captured && redacted
+    }
     let lines = await sut.logLines()
     #expect(lines.allSatisfy { !$0.contains(password) })
     #expect(lines.contains { $0.contains(LogRing.placeholder) })

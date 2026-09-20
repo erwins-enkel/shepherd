@@ -36,6 +36,15 @@ struct UpNextGroup: Identifiable {
 enum UpNextPresentation {
     enum Phase { case computing, failed, empty, ready }
 
+    static func updated(_ milliseconds: Int, now: Date) -> String {
+        let formatter = DateComponentsFormatter()
+        formatter.unitsStyle = .abbreviated
+        formatter.allowedUnits = [.hour, .minute, .second]
+        formatter.maximumUnitCount = 1
+        let age = max(0, now.timeIntervalSince1970 - Double(milliseconds) / 1_000)
+        return L.t("upnext_updated_ago", formatter.string(from: age) ?? "—")
+    }
+
     static func key(_ item: UpNextItem) -> String { "\(item.repoPath)#\(item.number)" }
 
     static func labels(_ item: UpNextItem) -> [String] {
@@ -231,6 +240,12 @@ struct UpNextView: View {
                 }
                 .disabled(model == nil || model?.isRefreshing == true)
             }
+            if let snapshot = model?.upNext {
+                TimelineView(.periodic(from: .now, by: 30)) { context in
+                    Text(verbatim: UpNextPresentation.updated(snapshot.generatedAt, now: context.date))
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
             if let message = command.message {
                 NoticeBar(message: message, onDismiss: command.clear)
             }
@@ -301,7 +316,16 @@ struct UpNextView: View {
                 get: { state.selected.contains(UpNextPresentation.key(item)) }, set: { _ in state.toggle(item) }))
                 .labelsHidden().toggleStyle(.checkbox)
             VStack(alignment: .leading, spacing: 4) {
-                Text(verbatim: "#\(item.number) \(item.title)").font(.body.weight(.medium))
+                if let url = SessionBadges.safeURL(item.url) {
+                    Link(destination: url) { Text(verbatim: "#\(item.number) \(item.title)") }
+                        .font(.body.weight(.medium))
+                } else {
+                    Text(verbatim: "#\(item.number) \(item.title)").font(.body.weight(.medium))
+                }
+                if let parent = item.epicParent {
+                    Label("#\(parent.number) \(parent.title)", systemImage: "square.stack.3d.up")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 Text(verbatim: item.repoLabel.isEmpty ? DonePresentation.repoBasename(item.repoPath) : item.repoLabel)
                     .font(.caption).foregroundStyle(.secondary)
                 HStack {

@@ -26,7 +26,11 @@ struct SettingsPaneEntry: SettingsPane {
                         Toggle(L.t("native_settings_reduced_push"),isOn:Binding(
                             get:{settings.snapshot?.settings.reducedPushMode == true},
                             set:{settings.patch(.init(reducedPushMode:$0),client:client)}))
-                            .disabled(settings.busy)
+                            .disabled(settings.busy || settings.snapshot == nil)
+                        if let error = settings.error {
+                            Text(verbatim: error).foregroundStyle(.red)
+                                .accessibilityIdentifier("settings-notification-error")
+                        }
                     }
                 }.padding()
             } else if let model = app.extension(SettingsModel.self), let store = app.store {

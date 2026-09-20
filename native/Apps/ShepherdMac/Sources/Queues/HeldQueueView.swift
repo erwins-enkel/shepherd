@@ -7,9 +7,9 @@ import SwiftUI
 enum HeldQueuePresentation {
     static func reasonKey(_ reason: HeldReason?) -> StaticString {
         switch reason?.known {
-        case .usage: "topbar_held_reason_usage"
-        case .capacity: "topbar_held_reason_capacity"
-        case nil: "topbar_held_reason_unknown"
+        case .usage: "native_held_reason_usage"
+        case .capacity: "native_held_reason_capacity"
+        case nil: "native_held_reason_unknown"
         }
     }
 
@@ -235,7 +235,7 @@ private struct HeldQueueRow: View {
         }
         .disabled(busy)
         .accessibilityIdentifier("queues-held-row-\(entry.id)")
-        .confirmationDialog(L.t("topbar_held_discard_confirm"), isPresented: Binding(
+        .confirmationDialog(L.t("native_held_discard_confirm"), isPresented: Binding(
             get: { discardConfirmation.isPresented },
             set: { if !$0 { discardConfirmation.cancel() } }), titleVisibility: .visible) {
                 Button(L.t("topbar_held_discard"), role: .destructive) {

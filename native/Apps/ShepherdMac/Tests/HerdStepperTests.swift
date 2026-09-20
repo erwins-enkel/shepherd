@@ -46,7 +46,7 @@ struct HerdStepperTests {
         let model = stepper(git: git(checks: .pending))
         #expect(model.segments.map(\.state) == [.done, .done, .active, .pending, .pending])
         #expect(model.segments.map(\.tint) == [nil, nil, .ciPending, nil, nil])
-        #expect(model.segments[2].color == SessionStatusStyle.tint(.init(known: .running)))
+        #expect(model.segments[2].color == .orange)
         #expect(model.accessibilityLabel.contains(L.t("activity_ci_status", L.t("activity_ci_pending"))))
     }
 
@@ -101,11 +101,11 @@ struct HerdStepperTests {
         #expect(model.segments[0].accessibilityLabel.contains(L.t("stepper_legend_skipped")))
     }
 
-    @Test func reviewInFlightUsesTheRunningPalette() {
+    @Test func reviewInFlightUsesAmberRatherThanApprovalGreen() {
         let model = stepper(git: git(), reviewing: true)
         #expect(model.segments[3].state == .active)
         #expect(model.segments[3].tint == .reviewing)
-        #expect(model.segments[3].color == SessionStatusStyle.tint(.init(known: .running)))
+        #expect(model.segments[3].color == .orange)
         #expect(model.segments[3].outlineWidth == 0)
     }
 

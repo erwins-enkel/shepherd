@@ -255,7 +255,6 @@ export const KEYS_SIDEBAR: readonly string[] = [
 
 /** S4 — the quick-action bar and the "Handlungsbedarf" recap line. Keep alphabetical. */
 export const KEYS_ACTIONS: readonly string[] = [
-  "feat_visual_recap_title",
   "amend_failed",
   "amend_original_task",
   "amend_placeholder",
@@ -276,6 +275,7 @@ export const KEYS_ACTIONS: readonly string[] = [
   "cardmenu_stop_failed",
   "cardmenu_stop_title",
   "cardmenu_stop_toast",
+  "feat_visual_recap_title",
   "gitrail_ready",
   "gitrail_ready_aria",
   "gitrail_ready_off_title",
@@ -733,15 +733,15 @@ export const KEYS_QUEUES: readonly string[] = [
   "toast_sessions_stranded",
   "topbar_held_badge",
   "topbar_held_discard",
-  "topbar_held_discard_confirm",
+  "native_held_discard_confirm",
   "topbar_held_discard_failed",
   "topbar_held_discarding",
   "topbar_held_edit",
   "topbar_held_empty",
   "topbar_held_original_cli",
-  "topbar_held_reason_usage",
-  "topbar_held_reason_capacity",
-  "topbar_held_reason_unknown",
+  "native_held_reason_usage",
+  "native_held_reason_capacity",
+  "native_held_reason_unknown",
   "topbar_held_spawn_cli_label",
   "topbar_held_spawn_failed",
   "topbar_held_spawn_now",
@@ -782,6 +782,8 @@ export const KEYS_QUEUES: readonly string[] = [
 
 /** S11 — the composer: create fields, slash commands, steers, attachments. */
 export const KEYS_COMPOSE: readonly string[] = [
+  "recommend_copy",
+  "recommend_copied",
   "issuespanel_filter_placeholder",
   "issuespanel_no_match",
   "leftover_desc",
@@ -1043,6 +1045,21 @@ export const KEYS_COMPOSE: readonly string[] = [
 
 /** S12 — the settings panes, the command menu and the usage gauges. */
 export const KEYS_SETTINGS: readonly string[] = [
+  "native_settings_search",
+  "settings_auth_mode_subscription",
+  "settings_auth_mode_apikey",
+  "settings_auth_mode_hint",
+  "settings_access_created",
+  "settings_access_last_used",
+  "settings_access_never_used",
+  "settings_access_expires",
+  "settings_access_expires_never",
+  "settings_access_expired",
+  "settings_access_scope_unknown",
+  "settings_access_scope_read_hint",
+  "settings_access_scope_submit_hint",
+  "settings_access_scope_full_hint",
+
   "diagnostics_all_ok",
   "diagnostics_doc_link",
   "diagnostics_fix",

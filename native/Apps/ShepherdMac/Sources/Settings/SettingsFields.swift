@@ -10,6 +10,27 @@ struct SettingsField: Identifiable {
     let value: (Components.Schemas.Settings) -> String
     let patch: (String) -> SettingsPatch?
     let cli: Bool
+
+    var choices: [String] {
+        switch id {
+        case "defaultAgentProvider": ["claude", "codex"]
+        case "authMode": ["subscription", "api-key"]
+        case "operatorLanguage": ["en", "de"]
+        default: id.hasSuffix("Cli") ? ["", "claude", "codex"] : []
+        }
+    }
+    func choiceLabel(_ value: String) -> String {
+        switch value {
+        case "": L.t("newtask_model_default")
+        case "claude": "Claude Code"
+        case "codex": "Codex"
+        case "en": "English"
+        case "de": "Deutsch"
+        case "subscription": L.t("settings_auth_mode_subscription")
+        case "api-key": L.t("settings_auth_mode_apikey")
+        default: value
+        }
+    }
 }
 @MainActor enum SettingsFields {
     static let all: [SettingsField] = [
@@ -103,9 +124,19 @@ struct SettingsFieldRow: View {
                     draft.submit(field: field, model: model, save: save)
                 }))
             } else {
-                TextField(L.t(field.title), text: $draft.text)
-                    .onAppear { draft.text = field.value(payload) }
-                    .onChange(of: field.value(payload)) { draft.text = field.value(payload) }
+                Group {
+                    if field.choices.isEmpty {
+                        TextField(L.t(field.title), text: $draft.text)
+                    } else {
+                        Picker(L.t(field.title), selection: $draft.text) {
+                            // Preserve a future server value until the operator changes it.
+                            let choices = field.choices.contains(draft.text) ? field.choices : field.choices + [draft.text]
+                            ForEach(choices, id: \.self) { Text(verbatim: field.choiceLabel($0)).tag($0) }
+                        }
+                    }
+                }
+                .onAppear { draft.text = field.value(payload) }
+                .onChange(of: field.value(payload)) { draft.text = field.value(payload) }
                 Button(L.t("common_save")) { draft.submit(field: field, model: model, save: save) }
                     .disabled(!draft.canSave(field: field, payload: payload))
             }
@@ -116,19 +147,22 @@ struct SettingsGeneralView: View {
     let model: SettingsModel
     let client: ShepherdClient
     var cli = false
+    @State private var query = ""
     @State private var apiKey = ""
     @State private var confirmKey = false
     var body: some View {
         Form {
+            TextField(L.t("native_settings_search"), text: $query)
             if let error = model.error { Text(verbatim:error).foregroundStyle(.red) }
             if let payload = model.snapshot?.settings {
-                ForEach(SettingsFields.all.filter { $0.cli == cli }) { field in
+                ForEach(SettingsFields.all.filter { $0.cli == cli && (query.isEmpty || L.t($0.title).localizedCaseInsensitiveContains(query)) }) { field in
                     SettingsFieldRow(field:field,payload:payload,model:model) { patch in
                         _ = try await client.patchSettings(body: patch)
                         return try await client.settings()
                     }
                 }
                 if cli {
+                    Text(L.t("settings_auth_mode_hint")).font(.caption).foregroundStyle(.secondary)
                     Text(payload.hasApiKey == true ? L.t("native_settings_key_present") : L.t("native_settings_key_absent"))
                     SecureField(L.t("native_settings_api_key"),text:$apiKey)
                     Button(L.t("native_settings_key_save")) { confirmKey = true }

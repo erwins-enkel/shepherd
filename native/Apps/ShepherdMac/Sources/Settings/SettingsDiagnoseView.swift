@@ -16,9 +16,13 @@ struct SettingsDiagnoseView: View {
                 ForEach(model.snapshot?.diagnostics.checks ?? [],id:\.id) { check in
                     GroupBox {
                         VStack(alignment:.leading) {
-                            Text(verbatim:check.id + " · " + check.state.rawValue)
+                            Text(verbatim: SettingsDiagnosticCopy.label(check.id) + " · "
+                                + SettingsDiagnosticCopy.state(check.state.rawValue))
                             Text(SettingsDiagnosticCopy.text(check.hintKey,params:check.hintParams?.additionalProperties ?? [:]))
-                            if check.remediation != nil || check.fixActionKey != nil {
+                            if let url = SettingsDiagnosticCopy.documentation(check.hintKey) {
+                                Link(L.t("diagnostics_doc_link"), destination: url)
+                            }
+                            if check.state.known != .ok && (check.remediation != nil || check.fixActionKey != nil) {
                                 Button(L.t("native_settings_fix")) { fix = check }
                             }
                         }

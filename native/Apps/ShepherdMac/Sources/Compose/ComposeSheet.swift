@@ -76,7 +76,8 @@ struct ComposeSheetContent: View {
             ComposeFooter(readiness: readiness, repoName: repo?.name, branch: model.repoBranches, held: revealing, submit: submit)
         }
         .environment(\.composeReveal, revealing)
-        .padding(20).frame(width: 740, height: 780)
+        .padding(20).frame(width: 740)
+        .frame(minHeight: 500, idealHeight: 780, maxHeight: 780)
         .background { shortcuts }
         .onModifierKeysChanged(mask: .command) { _, keys in revealing = keys.contains(.command) }
         .onKeyPress(characters: CharacterSet(charactersIn: "?")) { _ in
@@ -158,9 +159,21 @@ struct ComposeSheetContent: View {
             Text(verbatim: L.t("newtask_spawn_slow")).font(.headline)
             if let progress = submission.progress {
                 ForEach(progress.completed.indices, id: \.self) { i in
-                    Label { Text(verbatim: ComposeSubmission.phaseCopy(progress.completed[i].phase)) } icon: { Image(systemName: "checkmark") }
+                    Label {
+                        Text(verbatim: ComposeSubmission.phaseCopy(progress.completed[i].phase))
+                        Text(Duration.milliseconds(progress.completed[i].ms).formatted(.time(pattern: .minuteSecond)))
+                            .monospacedDigit().foregroundStyle(.secondary)
+                    } icon: { Image(systemName: "checkmark") }
                 }
-                HStack { ProgressView().controlSize(.small); Text(verbatim: ComposeSubmission.phaseCopy(progress.phase)) }
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    HStack {
+                        ProgressView().controlSize(.small)
+                        Text(verbatim: ComposeSubmission.phaseCopy(progress.phase))
+                        Text(Duration.seconds(max(0, context.date.timeIntervalSince1970 - Double(progress.startedAt) / 1_000))
+                            .formatted(.time(pattern: .minuteSecond)))
+                            .monospacedDigit().foregroundStyle(.secondary)
+                    }
+                }
             } else { Text(verbatim: L.t("newtask_spawning")) }
             Button(submission.canceling || submission.cancelRequested ? L.t("newtask_spawn_canceling") : L.t("newtask_spawn_cancel")) {
                 Task { await submission.cancel(using: { try await store.client.cancelSpawn(id: $0) }, isCurrent: { current }) }

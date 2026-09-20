@@ -8681,6 +8681,74 @@
         }
       }
     },
+    "native_held_discard_confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese zurückgehaltene Aufgabe verwerfen?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Discard this held task?"
+          }
+        }
+      }
+    },
+    "native_held_reason_capacity": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zurückgehalten, weil kein Konto Kapazität hat."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Held because no account has capacity."
+          }
+        }
+      }
+    },
+    "native_held_reason_unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zurückgehalten — Grund nicht verfügbar."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Held — reason unavailable."
+          }
+        }
+      }
+    },
+    "native_held_reason_usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zurückgehalten, weil die Nutzung hoch ist."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Held because usage is high."
+          }
+        }
+      }
+    },
     "native_herd_counter_active": {
       "extractionState": "manual",
       "localizations": {
@@ -10627,13 +10695,13 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "docAgent CLI"
+            "value": "Dokumentation CLI"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "docAgent CLI"
+            "value": "Documentation CLI"
           }
         }
       }
@@ -10644,13 +10712,13 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "docAgent Aufwand"
+            "value": "Dokumentation Aufwand"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "docAgent effort"
+            "value": "Documentation effort"
           }
         }
       }
@@ -10661,13 +10729,13 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "docAgent Modell"
+            "value": "Dokumentation Modell"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "docAgent model"
+            "value": "Documentation model"
           }
         }
       }
@@ -12527,6 +12595,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Submit tasks"
+          }
+        }
+      }
+    },
+    "native_settings_search": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einstellungen suchen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search settings"
           }
         }
       }
@@ -17916,6 +18001,40 @@
         }
       }
     },
+    "recommend_copied": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopiert"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copied"
+          }
+        }
+      }
+    },
+    "recommend_copy": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prompt kopieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy prompt"
+          }
+        }
+      }
+    },
     "recommend_err_no_history": {
       "extractionState": "manual",
       "localizations": {
@@ -18583,6 +18702,230 @@
           "stringUnit": {
             "state": "translated",
             "value": "Autopilot is waiting for an unambiguous task conversation."
+          }
+        }
+      }
+    },
+    "settings_access_created": {
+      "comment": "%1$@ = date",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angelegt %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Created %1$@"
+          }
+        }
+      }
+    },
+    "settings_access_expired": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abgelaufen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expired"
+          }
+        }
+      }
+    },
+    "settings_access_expires": {
+      "comment": "%1$@ = date",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Läuft ab am %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expires %1$@"
+          }
+        }
+      }
+    },
+    "settings_access_expires_never": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Läuft nie ab"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Never expires"
+          }
+        }
+      }
+    },
+    "settings_access_last_used": {
+      "comment": "%1$@ = date",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zuletzt benutzt %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Last used %1$@"
+          }
+        }
+      }
+    },
+    "settings_access_never_used": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie benutzt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Never used"
+          }
+        }
+      }
+    },
+    "settings_access_scope_full_hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Derselbe Zugriff wie du, das laufende Terminal eingeschlossen — damit lässt sich in jeden laufenden Agenten tippen. Wähle das nur für einen Client, der Arbeit wirklich steuern muss."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The same access you have, the live terminal included — it can type into any running agent. Pick this only for a client that genuinely needs to drive work."
+          }
+        }
+      }
+    },
+    "settings_access_scope_read_hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Darf die Herde lesen — Sitzungen, Wartepunkte, Git-Status — und live mitverfolgen. Kann keine Arbeit starten und kein Terminal erreichen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Can read the herd — sessions, holds, git status — and follow live updates. Cannot start work, and cannot reach a terminal."
+          }
+        }
+      }
+    },
+    "settings_access_scope_submit_hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alles wie bei „Lesen“, dazu Arbeit einreichen: eine Sitzung starten, eine wartende Aufgabe einstellen oder freigeben, einen Screenshot anhängen, ein Issue anlegen. Kann eine laufende Sitzung nicht steuern und kein Terminal erreichen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Everything Read can do, plus handing work in: start a session, queue or release a held task, attach a screenshot, file an issue. Cannot steer a running session or reach a terminal."
+          }
+        }
+      }
+    },
+    "settings_access_scope_unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unbekannt — kein Zugriff"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown — no access"
+          }
+        }
+      }
+    },
+    "settings_auth_mode_apikey": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anthropic-API-Schlüssel"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anthropic API key"
+          }
+        }
+      }
+    },
+    "settings_auth_mode_hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wie Claude-Code-Sessions sich authentifizieren. Der API-Schlüssel-Modus rechnet API-Nutzung zu Verbrauchspreisen unter den Commercial Terms ab statt über dein Abonnement."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How Claude Code sessions authenticate. API-key mode bills metered API rates under the Commercial Terms instead of your subscription."
+          }
+        }
+      }
+    },
+    "settings_auth_mode_subscription": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abonnement (OAuth)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subscription (OAuth)"
           }
         }
       }
@@ -19651,23 +19994,6 @@
         }
       }
     },
-    "topbar_held_discard_confirm": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Diese zurückgehaltene Aufgabe verwerfen?"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Discard this held task?"
-          }
-        }
-      }
-    },
     "topbar_held_discard_failed": {
       "extractionState": "manual",
       "localizations": {
@@ -19750,57 +20076,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Held for %1$@"
-          }
-        }
-      }
-    },
-    "topbar_held_reason_capacity": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zurückgehalten, weil kein Konto Kapazität hat."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Held because no account has capacity."
-          }
-        }
-      }
-    },
-    "topbar_held_reason_unknown": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zurückgehalten — Grund nicht verfügbar."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Held — reason unavailable."
-          }
-        }
-      }
-    },
-    "topbar_held_reason_usage": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zurückgehalten, weil die Nutzung hoch ist."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Held because usage is high."
           }
         }
       }

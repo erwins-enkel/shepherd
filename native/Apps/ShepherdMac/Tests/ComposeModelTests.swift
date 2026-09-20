@@ -231,6 +231,17 @@ import Testing
         #expect(actions.recommendation == "ready")
     }
 
+    @Test func issueSearchIsScopedToTheSelectedRepository() {
+        let model = Self.composer()
+        defer { model.teardown() }
+        model.repoPath = "/first"
+        model.issueQuery = "old issue"
+        model.repoPath = "/first"
+        #expect(model.issueQuery == "old issue")
+        model.repoPath = "/second"
+        #expect(model.issueQuery.isEmpty)
+    }
+
     static func composer(attachments: AttachmentModel? = nil, shaping: ShapeRoundModel? = nil) -> ComposeModel {
         ComposeModel(defaults: UserDefaults(suiteName: "ComposeModeTests.\(UUID())")!,
                      repoBranches: RepoBranchModel(

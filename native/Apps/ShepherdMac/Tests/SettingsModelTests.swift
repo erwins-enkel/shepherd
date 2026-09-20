@@ -4,7 +4,7 @@ import ShepherdKit
 @testable import Shepherd
 actor SettingsReadLatch {
     var waiting = false
-    var continuation: CheckedContinuation<SettingsSnapshot, Error>?
+    var continuation: CheckedContinuation<SettingsSnapshot, any Error>?
     func read() async throws -> SettingsSnapshot {
         try await withCheckedThrowingContinuation { continuation = $0; waiting = true }
     }

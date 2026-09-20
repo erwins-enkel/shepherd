@@ -1,3 +1,4 @@
+import AppKit
 import ShepherdKit
 import SwiftUI
 
@@ -8,6 +9,7 @@ struct ComposeActionSheet: View {
     let app: AppModel
     let activation: Int
     @Environment(\.dismiss) private var dismiss
+    @State private var copiedPrompt: String?
     @State private var actions: ComposeActions
 
     init(mode: ComposeActions.Action, session: Session?, store: SessionStore, app: AppModel, activation: Int) {
@@ -47,6 +49,10 @@ struct ComposeActionSheet: View {
                                               apply: { _ in dismiss() }, isCurrent: { current })
                         }
                     }.disabled(actions.busy)
+                    Button(L.t(copiedPrompt == prompt ? "recommend_copied" : "recommend_copy")) {
+                        NSPasteboard.general.clearContents()
+                        if NSPasteboard.general.setString(prompt, forType: .string) { copiedPrompt = prompt }
+                    }
                     ShareLink(item: prompt) { Text(verbatim: L.t("native_compose_share_prompt")) }
                 }
             }

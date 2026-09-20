@@ -200,20 +200,16 @@ struct PTYConnectionTests {
     await connection.start()
     #expect(try await eventually { server.connectionCount() == 1 })
 
-    // Force the interleaving the capture point exists for. Blocking the actor
-    // lets the test queue `stop()` ahead of the receive loop's resumption: the
-    // socket is closed with 4000 while the actor is busy, `stop()` then cancels
-    // it with `.goingAway` (1001), and only afterwards does the close handler
-    // run. Anything that read `socket.closeCode` at that point would see 1001.
-    let blocker = Task { await connection.blockForTests(seconds: 0.4) }
-    try await Task.sleep(for: .milliseconds(50))
-    let stopper = Task { await connection.stop() }
-    try await Task.sleep(for: .milliseconds(50))
+    // Capture the real close frame, then explicitly park its handler until
+    // stop() has completed. No ordering depends on thread speed or actor FIFO.
+    let gate = CloseHandlingGate()
+    await connection.installCloseBarrier { await gate.wait() }
+    defer { Task { await gate.release(); await connection.stop() } }
     server.close(code: 4000)
-    #expect(try await eventually { server.sawPeerClose() })
-
-    _ = await blocker.value
-    _ = await stopper.value
+    try #require(try await eventuallyAsync { await gate.entered })
+    await connection.stop()
+    #expect(await connection.lastCloseCode == 0)
+    await gate.release()
     #expect(try await eventuallyAsync { await connection.lastCloseCode == 4000 })
   }
 
@@ -722,10 +718,25 @@ struct PTYConnectionTests {
 }
 
 extension PTYConnection {
-  /// Test-only: occupy the actor's executor so the test can control what runs
-  /// on it next. Blocks the thread on purpose — a suspension would let the
-  /// actor interleave, which is the opposite of what the close-code race needs.
-  func blockForTests(seconds: TimeInterval) {
-    Thread.sleep(forTimeInterval: seconds)
+  func installCloseBarrier(_ barrier: @escaping @Sendable () async -> Void) {
+    beforeHandlingClose = barrier
+  }
+}
+
+private actor CloseHandlingGate {
+  private(set) var entered = false
+  private var released = false
+  private var continuation: CheckedContinuation<Void, Never>?
+
+  func wait() async {
+    entered = true
+    guard !released else { return }
+    await withCheckedContinuation { continuation = $0 }
+  }
+
+  func release() {
+    released = true
+    continuation?.resume()
+    continuation = nil
   }
 }

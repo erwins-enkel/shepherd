@@ -4,7 +4,6 @@ import SwiftUI
 struct IssuePickerView: View {
     @Bindable var model: ComposeModel
     @State private var commandQuery = ""
-    @State private var issueQuery = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -30,7 +29,7 @@ struct IssuePickerView: View {
                 }
             }
             if model.source == .issues {
-                TextField(L.t("issuespanel_filter_placeholder"), text: $issueQuery)
+                TextField(L.t("issuespanel_filter_placeholder"), text: $model.issueQuery)
                     .focusedValue(\.composeEditingText, true)
                     .accessibilityIdentifier("compose.issue-search")
                 issueList
@@ -62,15 +61,15 @@ struct IssuePickerView: View {
         } else {
             let result = model.filteredIssues
             let visible = result.visible.filter {
-                issueQuery.isEmpty || $0.title.localizedCaseInsensitiveContains(issueQuery)
-                    || String($0.number).contains(issueQuery.trimmingCharacters(in: CharacterSet(charactersIn: "#")))
+                model.issueQuery.isEmpty || $0.title.localizedCaseInsensitiveContains(model.issueQuery)
+                    || String($0.number).contains(model.issueQuery.trimmingCharacters(in: CharacterSet(charactersIn: "#")))
             }
             if visible.isEmpty {
-                Text(verbatim: issueQuery.isEmpty ? (result.emptiedBy?.message ?? L.t("common_no_open_issues")) : L.t("issuespanel_no_match"))
+                Text(verbatim: model.issueQuery.isEmpty ? (result.emptiedBy?.message ?? L.t("common_no_open_issues")) : L.t("issuespanel_no_match"))
                     .foregroundStyle(.secondary)
             } else {
                 ForEach(Array(visible.prefix(model.expanded ? visible.count : 3)), id: \.number) { issue in
-                    Button { model.pickIssue(issue) } label: { IssuePickerRow(issue: issue) }
+                    Button { model.pickIssue(issue) } label: { IssuePickerRow(issue: issue, epic: model.epicParents.contains(issue.number)) }
                         .buttonStyle(.plain)
                         .accessibilityIdentifier("compose.issue.\(issue.number)")
                 }
@@ -147,13 +146,22 @@ struct IssuePickerView: View {
 
 private struct IssuePickerRow: View {
     let issue: Issue
+    var epic = false
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
             Text(verbatim: "#\(issue.number)").monospacedDigit().foregroundStyle(.secondary)
             VStack(alignment: .leading, spacing: 3) {
                 Text(verbatim: issue.title).lineLimit(2)
-                if !issue.labels.isEmpty {
-                    Text(verbatim: issue.labels.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary)
+                HStack {
+                    if epic { Label(L.t("upnext_pill_epic"), systemImage: "square.stack.3d.up").font(.caption) }
+                    ForEach(issue.labels, id: \.self) { label in
+                        Text(verbatim: label).font(.caption).padding(.horizontal, 5)
+                            .background(.quaternary, in: Capsule())
+                    }
+                }
+                if let blockers = issue.blockedBy, !blockers.isEmpty {
+                    Label(blockers.map { "#\($0)" }.joined(separator: ", "), systemImage: "lock")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
             }
             Spacer(minLength: 0)
@@ -222,7 +230,7 @@ struct ComposePromptEditor: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 6) {
                         ForEach(Array(issueMatches.enumerated()), id: \.element.number) { index, issue in
-                            Button { pickMatch(index) } label: { IssuePickerRow(issue: issue) }
+                            Button { pickMatch(index) } label: { IssuePickerRow(issue: issue, epic: model.epicParents.contains(issue.number)) }
                                 .buttonStyle(.plain).padding(4)
                                 .background(index == selectedMatch ? Color.accentColor.opacity(0.12) : .clear)
                         }

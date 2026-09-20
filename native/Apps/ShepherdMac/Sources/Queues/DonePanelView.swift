@@ -21,6 +21,8 @@ final class DonePanelState {
     private(set) var isLoading = false
     private(set) var error: String?
     private var generation = 0
+    private var lifetime = 0
+    private var activation: Int?
 
     func reload(_ reads: DoneReads, isCurrent: () -> Bool = { true }) async {
         generation &+= 1
@@ -32,9 +34,14 @@ final class DonePanelState {
             let summaries = try await reads.recaps()
             guard mine == generation, !Task.isCancelled, isCurrent() else { return }
             sessions = DonePresentation.sorted(rows)
-            // session:archived drops the store's recap; the post-archive session:recap
-            // finalise frame adds it back. Never blacklist archived ids from this map.
-            recaps = summaries
+            // A live finalisation may arrive during a read or outlive S4's pruning.
+            // Keep the newest recap in our own snapshot, bounded by the Done rows.
+            var merged = summaries
+            for (id, cached) in recaps where cached.updatedAt >= (merged[id]?.updatedAt ?? -1) {
+                merged[id] = cached
+            }
+            let ids = Set(rows.map(\.id))
+            recaps = merged.filter { ids.contains($0.key) }
         } catch {
             guard mine == generation, !Task.isCancelled, isCurrent() else { return }
             self.error = ShepherdErrorCopy.message(error)
@@ -43,17 +50,40 @@ final class DonePanelState {
     }
 
     func recap(for id: String, actions: ActionsModel?) -> Recap? {
-        // S4 is the sole live recap source. Read its observable map at render time so a
-        // post-archive finalise frame invalidates both the row and the selected detail.
-        // Keep the Done snapshot as fallback: S4 prunes archived ids on snapshot refresh.
+        // S4 may deliver first, but our independent tap retains finalisations after
+        // its live-only map prunes archived ids on reconnect.
         let snapshot = recaps[id]
         guard let live = actions?.recaps[id] else { return snapshot }
         if let snapshot, snapshot.updatedAt > live.updatedAt { return snapshot }
         return live
     }
 
+    func prepare(activation next: Int) {
+        guard activation != next else { return }
+        close()
+        activation = next
+    }
+
+    func follow(_ events: AsyncStream<ServerEvent>, isCurrent: () -> Bool = { true }) async {
+        let mine = lifetime
+        for await event in events {
+            guard mine == lifetime, !Task.isCancelled, isCurrent() else { return }
+            apply(event)
+        }
+    }
+
+    func apply(_ event: ServerEvent) {
+        guard case .unknown(let name, let payload) = event, name == "session:recap",
+              let payload,
+              let frame = try? JSONDecoder().decode(Components.Schemas.SessionRecapEvent.self,
+                                                    from: payload),
+              frame.recap.updatedAt >= (recaps[frame.id]?.updatedAt ?? -1) else { return }
+        recaps[frame.id] = frame.recap
+    }
+
     func close() {
         generation &+= 1
+        lifetime &+= 1
         isLoading = false
         sessions = []
         recaps = [:]
@@ -216,10 +246,20 @@ struct DonePanelView: View {
         // .task runs again on every appearance, even if the activation/refresh ids did not change.
         .task(id: "\(app.activationGeneration):\(refreshID)") {
             let generation = app.activationGeneration
+            state.prepare(activation: generation)
             guard let client = app.store?.client else { state.close(); return }
             await state.reload(.live(client), isCurrent: { app.activationGeneration == generation })
             guard !Task.isCancelled, app.activationGeneration == generation else { return }
             doneSelectedID = DonePresentation.nextSelectedID(shownSessions, selectedID: doneSelectedID)
+        }
+        .task(id: app.activationGeneration) {
+            let generation = app.activationGeneration
+            state.prepare(activation: generation)
+            guard let store = app.store else { return }
+            await state.follow(store.events(), isCurrent: { app.activationGeneration == generation })
+        }
+        .onChange(of: app.store?.connection) { _, connection in
+            if connection == .live { refreshID &+= 1 }
         }
         .onChange(of: shownSessions.map(\.id)) { _, _ in
             doneSelectedID = DonePresentation.nextSelectedID(shownSessions, selectedID: doneSelectedID)

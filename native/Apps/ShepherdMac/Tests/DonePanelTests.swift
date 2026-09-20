@@ -85,8 +85,79 @@ struct DonePanelTests {
         let updated = state.recap(for: "a", actions: actions)
         #expect(DonePresentation.snippet(state.sessions[0], recap: updated) == "Shipped")
         #expect(DonePresentation.verdict(updated)?.known == .ready)
-        // Without S4 registered (or after it prunes archived ids), retain the Done snapshot.
-        #expect(state.recap(for: "a", actions: nil)?.state.known == .generating)
+        state.apply(.unknown(name: "session:recap", payload: try JSONEncoder().encode(
+            Components.Schemas.SessionRecapEvent(id: "a", recap: recap()))))
+        // Done owns the final frame even after S4 prunes the archived id.
+        #expect(state.recap(for: "a", actions: nil)?.state.known == .ready)
+    }
+
+    @Test func finalArchivedRecapSurvivesReconnectPruningWithAnotherLiveSession() async throws {
+        let suite = "DonePanelTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        let app = AppModel(defaults: defaults, credentials: InMemoryCredentialStore())
+        let store = try SessionStore(
+            profile: ServerProfile(name: "done", baseURL: URL(string: "https://done.invalid")!,
+                                   mode: .remote), credentials: InMemoryCredentialStore())
+        store.apply(.sessionNew(session("b")))
+        let actions = ActionsModel(store: store, app: app)
+        var ready = recap()
+        ready.updatedAt = 2
+        let finalRecap = ready
+        actions.reads = .init(recaps: { ["a": finalRecap] })
+        defer {
+            actions.teardown()
+            store.stop()
+            app.teardown()
+            defaults.removePersistentDomain(forName: suite)
+        }
+        let state = DonePanelState()
+        var listReads = 0
+        var recapReads = 0
+        var initial = recap(.generating)
+        initial.headline = ""
+        initial.body = ""
+        initial.verdict = nil
+        let reads = DoneReads(sessions: { listReads += 1; return [self.session("a", archivedAt: 1)] },
+                              recaps: { recapReads += 1; return ["a": initial] })
+        await state.reload(reads)
+        let frame = ServerEvent.unknown(name: "session:recap", payload: try JSONEncoder().encode(
+            Components.Schemas.SessionRecapEvent(id: "a", recap: ready)))
+        actions.apply(frame)
+        state.apply(frame)
+        #expect(state.recap(for: "a", actions: actions)?.state.known == .ready)
+        // Reconnect reconciles the live map against B, pruning archived A.
+        await actions.refresh()
+        #expect(await settleDetail(until: { actions.recaps["a"] == nil }))
+        #expect(state.recap(for: "a", actions: actions) == ready)
+        await state.reload(reads)
+        #expect(listReads == 2 && recapReads == 2)
+        #expect(state.recap(for: "a", actions: actions) == ready)
+        #expect(DonePresentation.snippet(state.sessions[0], recap: state.recaps["a"]) == "Shipped")
+        #expect(DonePresentation.verdict(state.recaps["a"])?.known == .ready)
+        #expect(state.recaps["a"]?.body == "**Result**")
+    }
+
+    @Test func ownTapRetainsFinalFramesAndCloseRejectsBufferedFrames() async throws {
+        let state = DonePanelState()
+        let (events, signal) = AsyncStream<ServerEvent>.makeStream()
+        let frame = ServerEvent.unknown(name: "session:recap", payload: try JSONEncoder().encode(
+            Components.Schemas.SessionRecapEvent(id: "a", recap: recap())))
+        let watching = Task { await state.follow(events) }
+        signal.yield(frame)
+        #expect(await settleDetail(until: { state.recaps["a"]?.state.known == .ready }))
+        state.close()
+        signal.yield(frame)
+        signal.finish()
+        await watching.value
+        #expect(state.recaps.isEmpty)
+    }
+
+    @Test func activationChangeClearsTheArchivedSnapshot() async {
+        let state = DonePanelState()
+        state.prepare(activation: 1)
+        await state.reload(.init(sessions: { [self.session("a")] }, recaps: { ["a": self.recap()] }))
+        state.prepare(activation: 2)
+        #expect(state.recaps.isEmpty && state.sessions.isEmpty)
     }
 
     @Test func repositoryFilterScopesRowsAndSelection() {

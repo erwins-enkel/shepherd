@@ -151,6 +151,7 @@ final class LiveSmokeUITests: XCTestCase {
             XCTAssertTrue(button.waitForExistence(timeout: 15))
             XCTAssertTrue(button.isEnabled)
             button.click()
+            XCTAssertTrue(button.isSelected, "the complete lens button frame must be clickable")
             XCTAssertTrue(app.descendants(matching: .any)[panel].waitForExistence(timeout: 30))
         }
         app.buttons["herd-lens-all"].click()
@@ -294,9 +295,12 @@ final class LiveSmokeUITests: XCTestCase {
         return app.descendants(matching: .any)["session-detail"].waitForExistence(timeout: 30)
     }
 
-    /// The detail tab bar's buttons, in registry order.
+    /// Current macOS exposes AX tabs as `.tab`; older toolchains used radio buttons.
+    /// Keep registry order without depending on unnamed native tab labels.
     private var tabButtons: [XCUIElement] {
-        app.tabGroups.firstMatch.radioButtons.allElementsBoundByIndex
+        let group = app.tabGroups.firstMatch
+        let tabs = group.children(matching: .tab).allElementsBoundByIndex
+        return tabs.isEmpty ? group.radioButtons.allElementsBoundByIndex : tabs
     }
 
     /// Clicks the tab at `index`. See `testEveryDetailTabLoadsForASelectedSession` for why this

@@ -245,6 +245,7 @@ struct DonePanelView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("queues-done-panel")
         .safeAreaInset(edge: .top) { QueueActionNotices(state: restore) }
         .onChange(of: app.activationGeneration) { _, _ in presentation &+= 1; restore.clear() }

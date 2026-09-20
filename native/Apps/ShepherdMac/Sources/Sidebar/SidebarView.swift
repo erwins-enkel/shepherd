@@ -42,7 +42,7 @@ struct SidebarView: View {
             if model.showsRepoRail(chips) { repoRail(chips) }
             Divider()
             if let panel = QueuesPanels.panel(for: model.lens) {
-                panel()
+                panel().id(model.lens)
             } else {
                 list(groups, selection: $app.selectedSessionID)
             }
@@ -62,9 +62,11 @@ struct SidebarView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 5)
                     .background(model.lens == lens ? Color.orange.opacity(0.16) : .clear)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .disabled(!lens.isAvailable)
+                .accessibilityAddTraits(model.lens == lens ? .isSelected : [])
                 .help(L.t(lens.titleKey))
                 .accessibilityIdentifier("herd-lens-\(lens.rawValue)")
             }

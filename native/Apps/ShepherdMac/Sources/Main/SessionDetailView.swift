@@ -19,15 +19,27 @@ struct SessionDetailView: View {
             VStack(alignment: .leading, spacing: 16) {
                 header(session)
                 tabs(session, store)
-                    .onChange(of: model.extension(PlanModel.self)?.openPlanTick[session.id], initial: true) { _, tick in
-                        if tick != nil { selectedTab = "plan" }
+                    .onChange(of: planRequest(for: session.id), initial: true) { _, request in
+                        if request != nil { selectedTab = "plan" }
                     }
             }
             .padding(24)
+            .accessibilityElement(children: .contain)
             .accessibilityIdentifier("session-detail")
         } else {
             ContentUnavailableView(L.t("native_detail_no_selection"), systemImage: "sidebar.left")
         }
+    }
+
+    private struct PlanRequest: Equatable {
+        let sessionID: String
+        let tick: Int
+    }
+
+    private func planRequest(for id: String) -> PlanRequest? {
+        // Two sessions can have the same tick. Include identity so clicking either badge
+        // selects Plan even when both happen to be their session's first request.
+        model.extension(PlanModel.self)?.openPlanTick[id].map { PlanRequest(sessionID: id, tick: $0) }
     }
 
     /// The registered tabs, or — while the built-in prompt tab is the only one —

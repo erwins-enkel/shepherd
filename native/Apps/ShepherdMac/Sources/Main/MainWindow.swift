@@ -243,7 +243,7 @@ struct MainWindow: View {
 
         ToolbarItemGroup {
             Button {
-                model.sheet = .newSession
+                Self.openComposer(model)
             } label: {
                 Label(L.t("native_toolbar_new_session"), systemImage: "plus")
             }
@@ -269,6 +269,8 @@ struct MainWindow: View {
             .accessibilityIdentifier("toolbar-archive")
         }
     }
+
+    static func openComposer(_ model: AppModel) { model.sheet = .newSession }
 
     private func archiveSelected() {
         guard let store = model.store, let id = model.selectedSessionID else { return }

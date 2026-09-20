@@ -48,7 +48,8 @@ public final class ShepherdClient: Sendable {
     profile: ServerProfile,
     credentials: any CredentialStore,
     urlSession: URLSession = .shared,
-    longRunningRequestTimeout: TimeInterval = 300
+    longRunningRequestTimeout: TimeInterval = 300,
+    readOnlyAudit: ReadOnlyRequestAudit? = nil
   ) throws {
     precondition(longRunningRequestTimeout.isFinite && longRunningRequestTimeout > 0)
     let validated = try profile.validated()
@@ -72,7 +73,8 @@ public final class ShepherdClient: Sendable {
     longRunningURLSession = URLSession(configuration: configuration)
 
     // Both paths use the same credential store and publish to the same stream.
-    let middlewares: [any ClientMiddleware] = [auth, RetryingMiddleware()]
+    var middlewares: [any ClientMiddleware] = [auth, RetryingMiddleware()]
+    if let readOnlyAudit { middlewares.insert(ReadOnlyRequestMiddleware(audit: readOnlyAudit), at: 0) }
     longRunning = Client(
       serverURL: validated.baseURL,
       transport: URLSessionTransport(configuration: .init(session: longRunningURLSession)),

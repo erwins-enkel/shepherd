@@ -74,6 +74,7 @@ struct RootView: View {
             if let isolatedLaunchError = model.isolatedLaunchError {
                 NoticeBar(message: isolatedLaunchError) { model.isolatedLaunchError = nil }
             }
+            if let audit = model.liveRequestAudit { LiveRequestAuditView(audit: audit) }
             Group {
                 if model.store == nil {
                     WelcomeView()
@@ -114,6 +115,19 @@ struct RootView: View {
             case .newSession:
                 NewSessionSheet()
             }
+        }
+    }
+}
+
+/// Isolated-test diagnostics contain counts only and are absent from normal launches.
+struct LiveRequestAuditView: View {
+    let audit: ReadOnlyRequestAudit
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 0.5)) { _ in
+            let counts = audit.counts
+            Text(verbatim: "Live audit: \(counts.reads) reads; \(counts.rejected) rejected")
+                .font(.caption2)
+                .accessibilityIdentifier("live-request-audit")
         }
     }
 }

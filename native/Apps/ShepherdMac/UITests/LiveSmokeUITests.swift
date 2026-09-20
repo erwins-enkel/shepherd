@@ -87,6 +87,48 @@ final class LiveSmokeUITests: XCTestCase {
         app = nil
     }
 
+    /// Production entry point; all reads hit the configured server. Never press the CTA.
+    func testSidebarPlusOpensComposerAndPrefillsALiveIssue() {
+        XCTAssertTrue(waitForMainWindow())
+        app.buttons["toolbar-new-session"].click()
+        let composer = app.descendants(matching: .any)["compose.sheet"]
+        XCTAssertTrue(composer.waitForExistence(timeout: 20), "S11 must replace the fallback form")
+        let rows = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "compose.issue."))
+        // Some configured repositories intentionally have no forge/issues. Select a real listing.
+        if !rows.firstMatch.waitForExistence(timeout: 20) {
+            app.buttons["compose.repo"].click()
+            let options = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "compose.repo.option."))
+            let count = options.count
+            app.typeKey(.escape, modifierFlags: [])
+            for index in 0..<count {
+                app.buttons["compose.repo"].click()
+                app.buttons["compose.repo.option.\(index)"].click()
+                if rows.firstMatch.waitForExistence(timeout: 12) { break }
+            }
+        }
+        XCTAssertTrue(rows.firstMatch.exists, "a live repository must list a real issue")
+        let issueNumber = rows.firstMatch.identifier.replacingOccurrences(of: "compose.issue.", with: "")
+        rows.firstMatch.click()
+        let prompt = app.textViews["compose.prompt"]
+        XCTAssertTrue(prompt.waitForExistence(timeout: 10))
+        let prefilled = (prompt.value as? String ?? "").contains("#" + issueNumber)
+        XCTAssertTrue(prefilled, "selecting the real issue must prefill its number in the draft")
+        for id in ["compose.engine", "compose.model", "compose.effort", "compose.capacity"] {
+            XCTAssertTrue(app.descendants(matching: .any)[id].waitForExistence(timeout: 15), "\(id) must render")
+        }
+        XCTAssertTrue(app.buttons["compose.submit"].exists || app.buttons["compose.hold"].exists)
+        assertReadOnlyAudit()
+        app.typeKey(.escape, modifierFlags: [])
+    }
+
+    private func assertReadOnlyAudit() {
+        let audit = app.staticTexts.matching(identifier: "live-request-audit").firstMatch
+        XCTAssertTrue(audit.waitForExistence(timeout: 5))
+        let label = audit.label
+        XCTAssertTrue(label.hasSuffix("; 0 rejected"), "live smoke must attempt zero non-GET or branch-status requests")
+        XCTAssertFalse(label.hasPrefix("Live audit: 0 reads;"), "live smoke must actually read the server")
+    }
+
     // MARK: - Gate 2: the app still comes up on a real server
 
     func testLiveLaunchLandsOnTheSessionList() {
@@ -176,8 +218,8 @@ final class LiveSmokeUITests: XCTestCase {
         XCTAssertTrue(selectFirstSession(), "a live server should offer a session to select")
 
         XCTAssertEqual(
-            tabButtons.count, 7,
-            "terminal, activity, diff, files, git, plan and the built-in prompt tab should all be registered")
+            tabButtons.count, 8,
+            "terminal, activity, diff, files, git, plan, merge and the built-in prompt tab should all be registered")
 
         for (index, identifier) in [
             (0, "detail-tab-terminal"),

@@ -25,7 +25,9 @@ struct ComposeSheetContent: View {
     init(app: AppModel, store: SessionStore, activation: Int, model: ComposeModel? = nil) {
         self.app = app; self.store = store; self.activation = activation
         let defaults = ComposeRunConfig.defaults(from: store.settings)
-        _model = State(initialValue: model ?? ComposeModel(client: store.client, runDefaults: defaults))
+        let composer = model ?? ComposeModel(client: store.client, runDefaults: defaults)
+        composer.repoBranches.allowsStatusProbe = app.liveRequestAudit == nil
+        _model = State(initialValue: composer)
     }
     private var current: Bool { app.store === store && app.activationGeneration == activation && app.sheet == .newSession }
     private var repos: [Repo] { store.repos.filter { !$0.hidden } }
@@ -68,6 +70,7 @@ struct ComposeSheetContent: View {
                 .disabled(submission.busy)
                 .opacity(revealing ? 0.6 : 1)
             }
+            if let audit = app.liveRequestAudit { LiveRequestAuditView(audit: audit) }
             if submission.slow { spawnPanel }
             if let message = submission.message { Text(verbatim: message).font(.callout).textSelection(.enabled) }
             ComposeFooter(readiness: readiness, repoName: repo?.name, branch: model.repoBranches, held: revealing, submit: submit)

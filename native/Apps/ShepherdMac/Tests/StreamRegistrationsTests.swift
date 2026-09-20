@@ -10,6 +10,17 @@ import Testing
 struct StreamRegistrationsTests {
     init() { resetStreamSeams() }
 
+    @Test func sidebarPlusRoutesThroughTheInstalledComposer() {
+        defer { resetStreamSeams() }
+        let app = scratchModel()
+        defer { app.teardown() }
+        StreamRegistrations.installAll(into: app)
+        MainWindow.openComposer(app)
+        #expect(app.sheet == .newSession)
+        #expect(NewSessionSlot.resolution == .slot)
+        #expect(NewSessionSlot.content?(app) != nil)
+    }
+
     @Test func isolatedLiveLaunchDisablesWritesBeforeInstallingStreams() throws {
         defer { resetStreamSeams() }
         let launch = IsolatedLaunch(configuration: .init(

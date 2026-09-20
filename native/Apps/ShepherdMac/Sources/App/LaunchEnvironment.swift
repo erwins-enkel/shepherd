@@ -240,6 +240,7 @@ final class IsolatedLaunch {
     /// as soon as it has moved.
     func makeModel() -> AppModel {
         let model = AppModel(defaults: defaults, credentials: credentials)
+        model.liveRequestAudit = configuration.live == nil ? nil : ReadOnlyRequestAudit()
         model.allowsQueueRecomputation = configuration.live == nil
         model.allowsTerminalInput = configuration.live == nil
         if openFailed {

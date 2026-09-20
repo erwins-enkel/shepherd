@@ -65,6 +65,28 @@ import Testing
         model.repoPath = "/other"
         #expect(model.createRequest(baseBranch: "main") == nil)
     }
+
+    @Test func pickingAnIssueSubmitsItsContextAndReturnsTheStartedSession() async throws {
+        let model = composer()
+        let submission = ComposeSubmission()
+        defer { model.teardown(); submission.teardown() }
+        model.repoPath = "/repo"
+        model.pickIssue(.init(number: 12, title: "Fix", body: "Details",
+                              url: "https://example.com/12", labels: [], createdAt: 0, assignees: []))
+        let result = await submission.submit(model: model, repoResolved: true, holdLikely: false,
+            create: { request, correlation in
+                #expect(request.repoPath == "/repo")
+                #expect(request.prompt == L.t("newtask_issue_prompt_template", "12", "Fix"))
+                #expect(request.issueRef?.number == 12)
+                #expect(request.issueRef?.url == "https://example.com/12")
+                #expect(request.issueRef?.body == "Details")
+                #expect(!correlation.isEmpty)
+                return .created(PreviewData.session(id: "started-issue-12"))
+            }, isCurrent: { true })
+        #expect(try #require(result).id == "started-issue-12")
+        #expect(!submission.busy)
+    }
+
     @Test func submitDefaultsToHoldAndFencesLateCompletion() async throws {
         let model = composer()
         defer { model.teardown() }
@@ -117,6 +139,38 @@ import Testing
         _ = await task.value
     }
 
+    @Test func teardownFinishesTheSpawnProgressConsumer() async throws {
+        let submission = ComposeSubmission()
+        let model = composer()
+        defer { model.teardown(); submission.teardown() }
+        model.repoPath = "/repo"; model.prompt = "Fix"
+        let (events, continuation) = AsyncStream<ServerEvent>.makeStream()
+        let (termination, finished) = AsyncStream<Void>.makeStream()
+        continuation.onTermination = { _ in finished.yield(()); finished.finish() }
+        var pending: CheckedContinuation<CreateOutcome, any Error>?
+        let task = Task {
+            await submission.submit(model: model, repoResolved: true, holdLikely: false, events: events,
+                create: { _, _ in try await withCheckedThrowingContinuation { pending = $0 } },
+                isCurrent: { true })
+        }
+        try await eventually { pending != nil }
+        submission.teardown()
+        // Bound the wait so a mutation that merely drops the task handle fails, not hangs.
+        let timeout = Task {
+            try? await Task.sleep(for: .seconds(2))
+            finished.finish()
+        }
+        var iterator = termination.makeAsyncIterator()
+        let terminated = await iterator.next() != nil
+        timeout.cancel()
+        #expect(terminated)
+        if case .terminated = continuation.yield(.sessionNew(PreviewData.session())) {} else {
+            Issue.record("The spawn progress watcher is still receiving events after teardown")
+        }
+        pending?.resume(throwing: ShepherdError.cancelled)
+        _ = await task.value
+    }
+
     @Test func unknownSpawnPhaseUsesLocalizedFallback() {
         #expect(ComposeSubmission.phaseCopy(.init(unknown: "future-phase")) == L.t("newtask_spawning"))
         #expect(ComposeSubmission.phaseCopy(.init(known: .agent)) == L.t("newtask_spawn_phase_agent"))
@@ -159,6 +213,38 @@ import Testing
         #expect(ActionBarSlot.resolution == .slot)
         NewSessionSlot.content = nil
         #expect(NewSessionSlot.resolution == .fallback)
+    }
+
+    @Test func installationRecapturesTheActionBarAfterSharedSeamReset() throws {
+        resetStreamSeams()
+        defer { resetStreamSeams() }
+        let suite = "ComposeReinstallTests.\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let app = AppModel(defaults: defaults, credentials: InMemoryCredentialStore())
+        defer { app.teardown() }
+        let store = try SessionStore(profile: .init(name: "fixture", baseURL: URL(string: "https://compose.invalid")!, mode: .remote),
+                                     credentials: InMemoryCredentialStore())
+        defer { store.stop() }
+        let session = PreviewData.session(id: "fixture")
+        var oldRenders = 0, newRenders = 0
+        ActionBarSlot.content = { _, _, _ in oldRenders += 1; return AnyView(EmptyView()) }
+        ComposeStream.install(app)
+        ComposeStream.install(app)
+        _ = ActionBarSlot.content?(session, store, app)
+        #expect(oldRenders == 1)
+        resetStreamSeams() // No composer-specific reset call should be necessary.
+        ActionBarSlot.content = { _, _, _ in newRenders += 1; return AnyView(EmptyView()) }
+        ComposeStream.install(app)
+        _ = ActionBarSlot.content?(session, store, app)
+        #expect(oldRenders == 1)
+        #expect(newRenders == 1)
+        if case .slot = NewSessionSheet.resolveBody(app: app, extras: NewSessionExtras()) {} else {
+            Issue.record("The new-session presentation must resolve the composer slot")
+        }
+        resetStreamSeams()
+        #expect(NewSessionSlot.resolution == .fallback)
+        #expect(ActionBarSlot.resolution == .fallback)
     }
 
     @Test func forceIsExplicitAndHeldResetsDraft() async {

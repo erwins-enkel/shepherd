@@ -75,6 +75,26 @@ final class ComposeActions {
         }
     }
 
+    /// Replace keeps the ID. A sessionNew event cannot update an already-populated store.
+    /// Refresh through the store so buffered status/ready events retain their ordering.
+    @discardableResult
+    func replace(id: String, choice: ComposeReplaceRequest, store: SessionStore,
+                 select: (Session) -> Void, isCurrent: () -> Bool) async -> Bool {
+        let stamp = generation
+        return await run(operation: {
+            let session = try await store.client.replaceSessionAgent(id: id, choice: choice)
+            guard active, generation == stamp, isCurrent(), !Task.isCancelled else {
+                throw ShepherdError.cancelled
+            }
+            try await store.refresh()
+            return session
+        }, apply: select, isCurrent: isCurrent)
+    }
+
+    static func matchesSelection(sessionID: String?, selectedID: String?) -> Bool {
+        sessionID == nil || sessionID == selectedID
+    }
+
     func teardown() { active = false; generation += 1; busy = false }
 
     private static func message(_ error: any Error) -> String {

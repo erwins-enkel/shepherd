@@ -149,6 +149,29 @@ struct ShepherdClientComposeTests {
         }
     }
 
+    @Test func recommendationOutlastsOrdinaryTimeout() async throws {
+        let server = FakeShepherdServer()
+        defer { server.tearDown() }
+        server.on("POST", "/api/sessions/original/recommend-prompt") { request in
+            #expect(request.headers.first { $0.key.lowercased() == "authorization" }?.value == "Bearer shp_test")
+            return FakeResponse(body: Data(#"{"prompt":"Delayed recommendation"}"#.utf8), delay: 1)
+        }
+        let session = server.urlSession(requestTimeout: 0.5)
+        defer { session.invalidateAndCancel() }
+        let credentials = InMemoryCredentialStore()
+        try credentials.save(.init(token: "shp_test", tokenId: "tok"), for: "k")
+        let client = try ShepherdClient(
+            profile: .init(name: "fake", baseURL: server.baseURL, mode: .local, credentialKey: "k"),
+            credentials: credentials, urlSession: session, longRunningRequestTimeout: 3)
+        await #expect(throws: (any Error).self) {
+            _ = try await client.generated.recommendPrompt(.init(path: .init(id: "original"),
+                body: .json(.init(provider: .codex, model: "gpt-6-astra"))))
+        }
+        #expect(try await client.recommendPrompt(id: "original", provider: .codex, model: "gpt-6-astra")
+                == "Delayed recommendation")
+        #expect(server.requests().map(\.path) == Array(repeating: "/api/sessions/original/recommend-prompt", count: 2))
+    }
+
     @Test func shapingRoundOutlastsOrdinaryTimeout() async throws {
         let server = FakeShepherdServer()
         defer { server.tearDown() }

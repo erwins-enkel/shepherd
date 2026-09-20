@@ -49,7 +49,7 @@ import Testing
                 repoBranches: RepoBranchModel(loadBranches: { _ in .init(branches: ["main"]) },
                     loadStatus: { _, _ in .init(behind: 0, ahead: 0, diverged: false, hasUpstream: true, localExists: true) },
                     repair: { _, branch in .init(branch: branch) }),
-                loadIssues: { _ in .init(issues: [
+                loadIssues: { _ in .init(slug: "example/storefront", issues: [
                     .init(number: 121, title: "Wishlist button on product cards", body: "Add a wishlist button.",
                           url: "https://example.com/issues/121", labels: [], createdAt: 0, assignees: []),
                     .init(number: 122, title: "Empty-cart illustration", body: "Illustrate the empty cart.",
@@ -108,6 +108,63 @@ import Testing
         #expect(model.provider == .claude)
         #expect(model.model == "sonnet")
         #expect(model.effort == "high")
+    }
+
+    @Test func replacementRefreshesAnAlreadyPopulatedStore() async throws {
+        var original = PreviewData.session(id: "replace-existing")
+        original.agentProvider = .claude
+        original.model = "opus"
+        original.effort = "high"
+        original.readyToMerge = true
+        var replacement = original
+        replacement.agentProvider = .codex
+        replacement.model = "gpt-6-astra"
+        replacement.effort = "ultra"
+        replacement.readyToMerge = false
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ComposeReplacementProtocol.self]
+        configuration.httpAdditionalHeaders = ["X-Compose-Fixture": try JSONEncoder().encode(replacement).base64EncodedString()]
+        let transport = URLSession(configuration: configuration)
+        defer { transport.invalidateAndCancel() }
+        let client = try ShepherdClient(profile: .init(name: "fixture", baseURL: URL(string: "https://compose.invalid")!,
+            mode: .remote), credentials: InMemoryCredentialStore(), urlSession: transport)
+        let store = SessionStore(client: client)
+        defer { store.stop() }
+        store.apply(.sessionNew(original))
+        #expect(store.session(id: original.id)?.agentProvider == .claude)
+        let actions = ComposeActions(provider: .codex)
+        defer { actions.teardown() }
+        var selected: String?
+        let success = await actions.replace(id: original.id,
+            choice: .init(agentProvider: .codex, model: "gpt-6-astra", effort: "ultra"), store: store,
+            select: { selected = $0.id }, isCurrent: { true })
+        #expect(success)
+        #expect(selected == original.id)
+        #expect(store.sessions.count == 1)
+        let updated = try #require(store.session(id: original.id))
+        #expect(updated.agentProvider == .codex)
+        #expect(updated.model == "gpt-6-astra")
+        #expect(updated.effort == "ultra")
+        #expect(!updated.readyToMerge)
+    }
+
+    @Test func recommendationDropsCompletionOnSessionSwitchBeforeDisappearance() async throws {
+        let actions = ComposeActions(provider: .claude)
+        defer { actions.teardown() }
+        var selectedID: String? = "original"
+        var pending: CheckedContinuation<String, Never>?
+        let task = Task { await actions.run(operation: {
+            await withCheckedContinuation { pending = $0 }
+        }, apply: { actions.recommendation = $0 }, isCurrent: {
+            ComposeActions.matchesSelection(sessionID: "original", selectedID: selectedID)
+        }) }
+        try await eventually { pending != nil }
+        selectedID = "other"
+        pending?.resume(returning: "Stale recommendation")
+        #expect(await task.value == false)
+        #expect(actions.recommendation == nil)
+        #expect(ComposeActions.matchesSelection(sessionID: nil, selectedID: "other"))
+        #expect(!ComposeActions.matchesSelection(sessionID: "original", selectedID: nil))
     }
 
     @Test func actionSelectionResetsAcrossProvidersAndKeepsHandoff() {
@@ -971,6 +1028,37 @@ private final class ComposeBootstrapProtocol: URLProtocol {
             httpVersion: nil, headerFields: ["Content-Type": "application/json"]) else { return }
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: Data(body.utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}
+
+/// Fixture responses for the production replacement -> store refresh path; no shared state.
+private final class ComposeReplacementProtocol: URLProtocol {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        guard let encoded = request.value(forHTTPHeaderField: "X-Compose-Fixture"),
+              let session = Data(base64Encoded: encoded), let url = request.url else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+            return
+        }
+        let body: Data
+        switch url.path {
+        case "/api/sessions/replace-existing/replace":
+            body = Data("{\"session\":".utf8) + session + Data("}".utf8)
+        case "/api/sessions": body = Data("[".utf8) + session + Data("]".utf8)
+        case "/api/settings":
+            body = Data(#"{"repoRoot":"/repo","repoRootDisplay":"repo","firstRunPending":false,"defaultModel":"auto","defaultEffort":"default","defaultAgentProvider":"claude","authMode":"subscription","operatorLanguage":"en"}"#.utf8)
+        case "/api/repos": body = Data(#"{"recentWindowDays":7,"repos":[]}"#.utf8)
+        default:
+            client?.urlProtocol(self, didFailWithError: URLError(.unsupportedURL))
+            return
+        }
+        let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil,
+                                       headerFields: ["Content-Type": "application/json"])!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: body)
         client?.urlProtocolDidFinishLoading(self)
     }
     override func stopLoading() {}

@@ -117,7 +117,7 @@ extension ShepherdClient {
 
     public func recommendPrompt(id: String, provider: AgentProvider, model: String) async throws -> String {
         do {
-            switch try await generated.recommendPrompt(.init(path: .init(id: id), body: .json(.init(provider: provider, model: model)))) {
+            switch try await longRunning.recommendPrompt(.init(path: .init(id: id), body: .json(.init(provider: provider, model: model)))) {
             case .ok(let ok): return try ok.body.json.prompt
             case .badRequest(let bad): throw ShepherdError.badRequest(try bad.body.json.error)
             case .unauthorized: throw ShepherdError.unauthenticated

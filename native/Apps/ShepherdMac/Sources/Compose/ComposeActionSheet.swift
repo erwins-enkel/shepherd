@@ -14,7 +14,10 @@ struct ComposeActionSheet: View {
         self.mode = mode; self.session = session; self.store = store; self.app = app; self.activation = activation
         _actions = State(initialValue: ComposeActions(provider: session?.agentProvider ?? .claude))
     }
-    private var current: Bool { app.store === store && app.activationGeneration == activation }
+    private var current: Bool {
+        app.store === store && app.activationGeneration == activation
+            && ComposeActions.matchesSelection(sessionID: session?.id, selectedID: app.selectedSessionID)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -161,7 +164,7 @@ struct ComposeActionSheet: View {
             await actions.run(operation: { try await store.client.startVariant(id: session.id, choice: request) }, apply: select, isCurrent: { current })
         case .replace:
             let request = actions.replaceRequest
-            await actions.run(operation: { try await store.client.replaceSessionAgent(id: session.id, choice: request) }, apply: select, isCurrent: { current })
+            await actions.replace(id: session.id, choice: request, store: store, select: select, isCurrent: { current })
         case .recommend:
             let provider = actions.provider, model = actions.model
             await actions.run(operation: { try await store.client.recommendPrompt(id: session.id, provider: provider, model: model) }, apply: {
@@ -175,6 +178,8 @@ struct ComposeActionSheet: View {
         }
     }
     private func select(_ session: Session) {
-        store.apply(.sessionNew(session)); app.selectedSessionID = session.id; dismiss()
+        if mode == .variant { store.apply(.sessionNew(session)) }
+        app.selectedSessionID = store.session(id: session.id)?.id
+        dismiss()
     }
 }

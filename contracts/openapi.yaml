@@ -462,6 +462,83 @@ components:
         subscriptionOnly: { type: boolean }
         observed:
           $ref: "#/components/schemas/ObservedLimitWindows"
+        providers:
+          type: array
+          description: Per-engine snapshots for the composer engine picker. Absent on older servers.
+          items:
+            $ref: "#/components/schemas/UsageProviderSnapshot"
+    UsageProviderSnapshot:
+      description: The two wire variants of UsageProviderSnapshot in src/usage-limits.ts.
+      oneOf:
+        - $ref: "#/components/schemas/ClaudeUsageProviderSnapshot"
+        - $ref: "#/components/schemas/CodexUsageProviderSnapshot"
+    ClaudeUsageProviderSnapshot:
+      type: object
+      additionalProperties: true
+      required: [provider, kind, session5h, week, perModelWeek, credits, stale, calibratedAt, subscriptionOnly]
+      properties:
+        provider:
+          type: string
+          enum: [claude]
+          x-shepherd-open-enum: true
+        kind:
+          type: string
+          enum: [limits]
+          x-shepherd-open-enum: true
+        observed:
+          $ref: "#/components/schemas/ObservedLimitWindows"
+        session5h:
+          oneOf:
+            - $ref: "#/components/schemas/LimitWindow"
+            - type: "null"
+        week:
+          oneOf:
+            - $ref: "#/components/schemas/LimitWindow"
+            - type: "null"
+        perModelWeek:
+          type: array
+          items:
+            $ref: "#/components/schemas/ModelWeekWindow"
+        credits:
+          oneOf:
+            - $ref: "#/components/schemas/CreditWindow"
+            - type: "null"
+        stale: { type: boolean }
+        calibratedAt: { type: [integer, "null"] }
+        subscriptionOnly: { type: boolean }
+    CodexUsageProviderSnapshot:
+      type: object
+      additionalProperties: true
+      required: [provider, kind, totalTokens, session5hTokens, weekTokens, updatedAt, stale, session5h, week]
+      properties:
+        provider:
+          type: string
+          enum: [codex]
+          x-shepherd-open-enum: true
+        kind:
+          type: string
+          enum: [tokens]
+          x-shepherd-open-enum: true
+        totalTokens: { type: number }
+        session5hTokens: { type: number }
+        weekTokens: { type: number }
+        updatedAt: { type: [integer, "null"] }
+        stale: { type: boolean }
+        session5h:
+          oneOf:
+            - $ref: "#/components/schemas/LimitWindow"
+            - type: "null"
+        week:
+          oneOf:
+            - $ref: "#/components/schemas/LimitWindow"
+            - type: "null"
+        rateLimitSource:
+          type: string
+          enum: [rollout, missing]
+          x-shepherd-open-enum: true
+        rateLimitCheckedAt: { type: integer }
+        rateLimitFilesScanned: { type: integer }
+        rateLimitLatestEventAt: { type: [integer, "null"] }
     EventName:
       type: string
       enum:

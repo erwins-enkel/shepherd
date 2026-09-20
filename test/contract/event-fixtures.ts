@@ -1,7 +1,7 @@
 import type { AutoMergeStatus } from "../../src/automerge";
 import type { BlockReason } from "../../src/blocked";
 import type { SessionStatus } from "../../src/types";
-import type { UsageLimits } from "../../src/usage-limits";
+import type { UsageLimits, UsageProviderSnapshot } from "../../src/usage-limits";
 
 /** Payloads for events the stubbed server cannot emit on its own. Each constant is annotated
  *  with the server's own type, so `bun run typecheck` fails if the server shape moves. The
@@ -73,3 +73,94 @@ export const unobservedUsageEvent: UsageLimits = {
   ...usageEvent,
   observed: { session5h: null, week: null },
 };
+
+const codexUsage: Extract<UsageProviderSnapshot, { provider: "codex" }> = {
+  provider: "codex",
+  kind: "tokens",
+  totalTokens: 120_000,
+  session5hTokens: 3_000,
+  weekTokens: 24_000,
+  updatedAt: 1_799_999_000_000,
+  stale: false,
+  session5h: { pct: 3, resetAt: 1_800_000_000_000 },
+  week: { pct: 7, resetAt: 1_800_500_000_000 },
+};
+
+/** Both engines, including the Codex weekly window behind the composer's CX·WK 93% free. */
+export const providerUsageEvent: UsageLimits = {
+  ...usageEvent,
+  providers: [
+    { provider: "claude", kind: "limits", ...usageEvent },
+    {
+      ...codexUsage,
+      rateLimitSource: "rollout",
+      rateLimitCheckedAt: 1_799_999_100_000,
+      rateLimitFilesScanned: 2,
+      rateLimitLatestEventAt: 1_799_999_000_000,
+    },
+  ],
+};
+
+/** No measured windows yet; Codex still supplies its raw token fallback. */
+export const missingProviderWindowsUsageEvent: UsageLimits = {
+  ...unobservedUsageEvent,
+  providers: [
+    {
+      provider: "claude",
+      kind: "limits",
+      ...unobservedUsageEvent,
+      session5h: null,
+      week: null,
+      perModelWeek: [],
+      calibratedAt: null,
+      stale: true,
+    },
+    {
+      ...codexUsage,
+      session5h: null,
+      week: null,
+      updatedAt: null,
+      stale: true,
+      rateLimitSource: "missing",
+      rateLimitCheckedAt: 1_799_999_100_000,
+      rateLimitFilesScanned: 0,
+      rateLimitLatestEventAt: null,
+    },
+  ],
+};
+
+/** Optional provider observations and Codex scrape metadata may be absent. */
+export const minimalProviderUsageEvent: UsageLimits = {
+  ...usageEvent,
+  providers: [
+    {
+      provider: "claude",
+      kind: "limits",
+      session5h: null,
+      week: null,
+      perModelWeek: [],
+      credits: {
+        pct: 5,
+        spent: 1,
+        cap: 20,
+        currency: "USD",
+        resetAt: null,
+        scrapedAt: 1_799_999_000_000,
+        stale: false,
+      },
+      stale: false,
+      calibratedAt: null,
+      subscriptionOnly: true,
+    },
+    codexUsage,
+  ],
+};
+
+/** Shared runtime cases for the read response and the bare usage:limits event. */
+export const usageCases = [
+  ["no providers (older server)", usageEvent],
+  ["unobserved without providers", unobservedUsageEvent],
+  ["both providers", providerUsageEvent],
+  ["missing provider windows", missingProviderWindowsUsageEvent],
+  ["optional provider fields absent", minimalProviderUsageEvent],
+] as const;

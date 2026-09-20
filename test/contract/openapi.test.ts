@@ -442,6 +442,47 @@ describe("sessions", () => {
   });
 });
 
+describe("usage snapshots", () => {
+  for (const [name, limits] of fx.usageCases) {
+    test(`GET /api/usage/limits: ${name}`, async () => {
+      const saved = s.stubs.usageLimits.limits;
+      s.stubs.usageLimits.limits = () => limits;
+      try {
+        const res = await fetch(`${s.baseUrl}/api/usage/limits`, { headers: bearer(token) });
+        expect(res.status).toBe(200);
+        expect(await validateResponse("GET", "/api/usage/limits", res)).toEqual({
+          limits,
+          projections: [],
+        });
+      } finally {
+        s.stubs.usageLimits.limits = saved;
+      }
+    });
+  }
+
+  test("provider fields are validated, not merely accepted as extra properties", () => {
+    const invalid = [
+      { ...fx.usageEvent, providers: null },
+      { ...fx.usageEvent, providers: [{ provider: "codex", kind: "tokens" }] },
+      {
+        ...fx.providerUsageEvent,
+        providers: fx.providerUsageEvent.providers!.map((p) =>
+          p.provider === "codex" ? { ...p, week: { pct: "7", resetAt: 1_800_500_000_000 } } : p,
+        ),
+      },
+      {
+        ...fx.providerUsageEvent,
+        providers: fx.providerUsageEvent.providers!.map((p) =>
+          p.provider === "codex" ? { ...p, kind: "limits" } : p,
+        ),
+      },
+    ];
+    for (const limits of invalid) {
+      expect(() => validateEvent("usage:limits", limits)).toThrow("violates contract");
+    }
+  });
+});
+
 describe("repos", () => {
   test("GET /api/repos lists the fake repo", async () => {
     const res = await fetch(`${s.baseUrl}/api/repos`, { headers: bearer(token) });
@@ -522,8 +563,7 @@ describe("realtime /events", () => {
       ["session:block", fx.unblockEvent],
       ["session:ready", fx.readyEvent],
       ["automerge:status", fx.automergeEvent],
-      ["usage:limits", fx.usageEvent],
-      ["usage:limits", fx.unobservedUsageEvent],
+      ...fx.usageCases.map(([, data]): [string, unknown] => ["usage:limits", data]),
     ];
     const frames = await collectEvents(s, token, async () => {
       for (const [name, data] of emits) s.deps.events.emit(name, data);

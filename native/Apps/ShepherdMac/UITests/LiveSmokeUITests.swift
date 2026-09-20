@@ -47,8 +47,6 @@ enum LiveUITestEnvironment {
 ///       native/scripts/test-app.sh -only-testing:ShepherdUITests
 final class LiveSmokeUITests: XCTestCase {
     private var app: XCUIApplication!
-    private var baseURL: String!
-    private var password: String!
 
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -59,8 +57,6 @@ final class LiveSmokeUITests: XCTestCase {
                 "set SHEPHERD_LIVE_BASE_URL and SHEPHERD_LIVE_PASSWORD (or their "
                     + "TEST_RUNNER_-prefixed spellings) to run the live UI smoke test")
         }
-        self.baseURL = baseURL
-        self.password = password
 
         app = XCUIApplication()
         app.launchArguments = [
@@ -130,8 +126,12 @@ final class LiveSmokeUITests: XCTestCase {
         XCTAssertTrue(
             anySessionRow.waitForExistence(timeout: 60),
             "the operator's herd should list sessions")
-        let groups = elements(withIdentifierPrefix: "herd-group-")
-        XCTAssertGreaterThan(groups.count, 0, "a non-empty herd should render at least one group")
+
+        // Deliberately no assertion on `herd-group-<stage>`. That identifier is on the group
+        // *header*, and `HerdStage.active` returns `nil` from `headingKey()` on purpose — the
+        // active group renders headerless, exactly as the web does. A herd whose sessions are
+        // all active therefore renders perfectly and carries no group identifier at all. The
+        // sidebar, the tallies and the rows above are what prove it rendered.
 
         // The repo chip rail is derived from the sessions themselves, so it is
         // only meaningful once the herd spans more than one repo.
@@ -172,10 +172,11 @@ final class LiveSmokeUITests: XCTestCase {
             let body = app.descendants(matching: .any)[identifier]
             XCTAssertTrue(
                 body.waitForExistence(timeout: 30), "\(identifier) should render its own body")
-            // A feed that failed puts `detail-state-error` in the body. A feed still loading is
-            // fine — it is the error that is a failure.
+            // Give the feed a bounded chance to answer before judging it, then look for the
+            // error state *inside this tab's own body*.
+            waitForBodyToResolve(body, timeout: 30)
             XCTAssertFalse(
-                app.descendants(matching: .any)["detail-state-error"].exists,
+                body.descendants(matching: .any)["detail-state-error"].exists,
                 "\(identifier) should not land on the error state")
         }
     }
@@ -280,6 +281,41 @@ final class LiveSmokeUITests: XCTestCase {
                 buttons[index].click()
                 return true
             }
+            Thread.sleep(forTimeInterval: 0.25)
+        } while Date() < deadline
+        return false
+    }
+
+    /// Waits for one detail tab's body to leave `detail-state-loading`.
+    ///
+    /// Two things make the naive check — assert the instant the body exists — useless. The body
+    /// container appears *before* the feed answers, because `DetailStateView` renders the
+    /// spinner inside that same body, so an assertion made there passes before there is
+    /// anything to judge. And `TabView` keeps every visited child alive, so an app-wide query
+    /// for `detail-state-error` would still see a *previous* tab's failure and pin it on this
+    /// one — which is why the caller scopes its query to `body` and this helper waits on
+    /// `body`'s own spinner.
+    ///
+    /// Returns whether the body resolved (content, `detail-state-empty` or `detail-state-error`)
+    /// within `timeout`. A still-loading body at the deadline is **not** a failure: it is the
+    /// error state that must not appear, and it cannot appear while the spinner is up. The
+    /// caller asserts that separately, so the result is discardable.
+    @discardableResult
+    private func waitForBodyToResolve(_ body: XCUIElement, timeout: TimeInterval) -> Bool {
+        let loading = body.descendants(matching: .any)["detail-state-loading"]
+        let resolved = [
+            body.descendants(matching: .any)["detail-state-empty"],
+            body.descendants(matching: .any)["detail-state-error"],
+        ]
+        // Let the body lay its children out first: a container whose subtree has not been
+        // built yet has no spinner either, and would read as "resolved" the moment it appeared.
+        let armed = Date().addingTimeInterval(2)
+        while Date() < armed, !loading.exists, !resolved.contains(where: { $0.exists }) {
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if !loading.exists { return true }
             Thread.sleep(forTimeInterval: 0.25)
         } while Date() < deadline
         return false

@@ -8,23 +8,45 @@ import Testing
 /// event in, zero or one intents out.
 @MainActor
 struct NotificationTriggerTests {
-    private func trigger() -> NotificationTrigger {
-        NotificationTrigger(subjectFor: { id in id == "s1" ? "TASK-07" : nil })
+    /// The wall clock every test starts from, in ms since the epoch — the unit of `resetAt`
+    /// (`src/usage-limits.ts`: `resetAt: number; // ms epoch of window reset`).
+    private static let nowMs = 1_800_000_000_000
+    /// One hour past `nowMs`: a 5-hour window that has *not* elapsed yet.
+    private static let openWindow = 1_800_003_600_000
+
+    private func trigger(now: Int = nowMs) -> NotificationTrigger {
+        NotificationTrigger(subjectFor: { id in id == "s1" ? "TASK-07" : nil }, now: { now })
     }
 
-    private func limits(pct: Double?, resetAt: Int = 1_800_003_600_000) -> UsageLimits {
+    private func limits(pct: Double?, resetAt: Int = openWindow) -> UsageLimits {
         UsageLimits(
             session5h: pct.map { .init(pct: $0, resetAt: resetAt) },
             week: nil, perModelWeek: [], credits: nil,
             stale: false, calibratedAt: nil, subscriptionOnly: false)
     }
 
+    /// A `session:new` frame's payload. Only the *required* properties of
+    /// `#/components/schemas/Session` are passed; every optional keeps its generated default.
+    private func session(id: String) -> Session {
+        Session(
+            id: id, desig: "TASK-07", name: "session", prompt: "do the thing",
+            repoPath: "/repos/demo", baseBranch: "main", worktreePath: "/repos/demo-\(id)",
+            isolated: false, herdrSession: "herdr-\(id)", herdrAgentId: "agent-\(id)",
+            claudeSessionId: "claude-\(id)", readyToMerge: false, autopilotPaused: false,
+            autopilotComplete: false, auto: false, status: SessionStatus(known: .running),
+            lastState: Components.Schemas.HerdrState(known: .working),
+            createdAt: 1_700_000_000, updatedAt: 1_700_000_001, manualSteps: [])
+    }
+
     // attachPush: `if (status !== "done") return;`
     @Test func onlyADoneStatusNotifies() {
         var t = trigger()
-        #expect(
-            t.intents(for: .sessionStatus(.init(id: "s1", status: SessionStatus(known: .done))))
-                .map(\.kind) == [.done])
+        let done = t.intents(
+            for: .sessionStatus(.init(id: "s1", status: SessionStatus(known: .done))))
+        #expect(done.map(\.kind) == [.done])
+        // `store.get(id)?.name ?? id`: the resolver is really consulted. Without this the banner
+        // could read a raw session UUID and every other assertion would still pass.
+        #expect(done.first?.subject == "TASK-07")
         for status: SessionStatusKnown in [.running, .idle, .blocked, .archived] {
             #expect(
                 t.intents(for: .sessionStatus(.init(id: "s1", status: SessionStatus(known: status))))
@@ -39,6 +61,7 @@ struct NotificationTriggerTests {
         let intents = t.intents(for: .sessionBlock(.init(id: "s1", block: block)))
         #expect(intents.map(\.kind) == [.blocked])
         #expect(intents.first?.blockShape == .yesNo)
+        #expect(intents.first?.subject == "TASK-07")
         #expect(t.intents(for: .sessionBlock(.init(id: "s1", block: nil))).isEmpty)
     }
 
@@ -84,12 +107,74 @@ struct NotificationTriggerTests {
         #expect(first.first?.pct == 83)
         #expect(first.first?.sessionID == nil)
 
+        // `if (sent) store.setSetting(USAGE_WARNED_KEY, …)`: the poster confirms delivery.
+        t.usageWarningPosted(resetAt: Self.openWindow)
         #expect(
             t.intents(for: .usageLimits(limits(pct: 91))).isEmpty,
-            "one warning per 5-hour window, keyed by resetAt")
+            "one warning per 5-hour window, while the clock is still inside it")
+    }
+
+    /// The threshold is read off the constant so re-tuning `usageWarnPercent` cannot leave a
+    /// test asserting the old number. `>` instead of `>=` would make the warning arrive at 81 %.
+    @Test func theUsageThresholdIsInclusiveAndComparesTheRawValue() {
+        let warn = Double(NotificationTrigger.usageWarnPercent)
+        var t = trigger()
+        #expect(t.intents(for: .usageLimits(limits(pct: warn - 1))).isEmpty, "just below")
+        // The web compares the raw number (`session5h.pct < USAGE_WARN_PCT`); rounding first
+        // would fire here. `clampPct` already rounds upstream, so today nothing sends this —
+        // the assertion pins the semantics, not the producer.
+        #expect(t.intents(for: .usageLimits(limits(pct: warn - 0.5))).isEmpty, "raw, not rounded")
+        let atThreshold = t.intents(for: .usageLimits(limits(pct: warn)))
+        #expect(atThreshold.map(\.kind) == [.usageLimit], "exactly the threshold warns")
+        #expect(atThreshold.first?.pct == NotificationTrigger.usageWarnPercent)
+    }
+
+    /// The latch belongs to the poster, not to the intent. `notify()` in `src/push.ts` returns
+    /// `false` — it does not throw — when the app is focused or the cooldown is open, and the
+    /// web writes `USAGE_WARNED_KEY` only inside `.then((sent) => …)`. A banner the gate dropped
+    /// must therefore leave the window un-warned so a later frame can still deliver it.
+    @Test func aWarningNobodyPostedDoesNotBurnTheWindow() {
+        var t = trigger()
+        #expect(t.intents(for: .usageLimits(limits(pct: 83))).map(\.kind) == [.usageLimit])
+        // No `usageWarningPosted` — the gate suppressed it.
         #expect(
-            !t.intents(for: .usageLimits(limits(pct: 83, resetAt: 1_800_020_000_000))).isEmpty,
-            "a new window warns again")
+            t.intents(for: .usageLimits(limits(pct: 92))).map(\.kind) == [.usageLimit],
+            "an unposted warning must not silence the rest of the window")
+        #expect(
+            t.intents(for: .usageLimits(limits(pct: 99))).map(\.kind) == [.usageLimit])
+    }
+
+    /// `if (now() < warned) return;` — the suppression is a wall clock. `resetAt` can *move*
+    /// inside one window: `src/usage-limits.ts` derives a synthetic `now + period` anchor that a
+    /// later real scrape replaces, and value equality would re-arm and warn twice.
+    @Test func aResetAtThatMovesInsideTheWarnedWindowDoesNotWarnAgain() {
+        var t = trigger()
+        #expect(t.intents(for: .usageLimits(limits(pct: 83))).map(\.kind) == [.usageLimit])
+        t.usageWarningPosted(resetAt: Self.openWindow)
+        #expect(
+            t.intents(for: .usageLimits(limits(pct: 90, resetAt: Self.openWindow + 900_000)))
+                .isEmpty,
+            "a scrape that nudges resetAt is the same window, not a new one")
+    }
+
+    /// The other half of the wall clock: once the window has genuinely elapsed, the *same*
+    /// `resetAt` must warn again. Value equality would suppress it forever.
+    @Test func anElapsedWindowWarnsAgainEvenAtTheSameResetAt() {
+        // A clock already past `openWindow`.
+        var t = trigger(now: Self.openWindow + 1)
+        #expect(t.intents(for: .usageLimits(limits(pct: 83))).map(\.kind) == [.usageLimit])
+        t.usageWarningPosted(resetAt: Self.openWindow)
+        #expect(
+            t.intents(for: .usageLimits(limits(pct: 83))).map(\.kind) == [.usageLimit],
+            "now() >= warned: the window is over, so it warns again")
+    }
+
+    /// The contract types `pct` as a bare `number` with no bounds, and `Int(_:)` traps on a
+    /// Double outside `Int`'s range — a server that stopped clamping would crash the app.
+    @Test func anOutOfRangePercentIsClampedRatherThanTrapping() {
+        var t = trigger()
+        #expect(t.intents(for: .usageLimits(limits(pct: 1e30))).first?.pct == 100)
+        #expect(t.intents(for: .usageLimits(limits(pct: .infinity))).first?.pct == 100)
     }
 
     @Test func anEventForAnUnknownSessionStillNotifiesUnderItsId() {
@@ -100,8 +185,20 @@ struct NotificationTriggerTests {
         #expect(intent?.subject == "ghost")
     }
 
+    /// Repeats are deliberate. `attachPush` is stateless too: de-duplication is the gate's 120 s
+    /// cooldown (`PushService.withinCooldown`, keyed `done:<id>`), which Task 6 owns. Do not
+    /// "fix" this by adding a last-status map to the trigger — that would swallow a genuine
+    /// second completion after the cooldown had expired.
+    @Test func repeatedIdenticalFramesEachProduceAnIntent() {
+        var t = trigger()
+        let frame = ServerEvent.sessionStatus(.init(id: "s1", status: SessionStatus(known: .done)))
+        #expect(t.intents(for: frame).map(\.kind) == [.done])
+        #expect(t.intents(for: frame).map(\.kind) == [.done])
+    }
+
     @Test func everyOtherFrameIsIgnored() {
         var t = trigger()
+        #expect(t.intents(for: .sessionNew(session(id: "s1"))).isEmpty)
         #expect(t.intents(for: .sessionArchived(.init(id: "s1"))).isEmpty)
         #expect(t.intents(for: .sessionRenamed(.init(id: "s1", name: "n", branch: nil))).isEmpty)
         #expect(t.intents(for: .unknown(name: "session:recap", payload: nil)).isEmpty)

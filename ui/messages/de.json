@@ -4538,5 +4538,8 @@
   "topbar_codex_reset_outcome_nothingToReset": "Codex kann das Kontingent noch nicht zurücksetzen",
   "topbar_codex_reset_outcome_noCredit": "Kein Reset-Guthaben verfügbar",
   "topbar_codex_reset_feature_title": "Automatische Codex-Resets",
-  "topbar_codex_reset_feature_body": "Verdiente Resets im Nutzungspanel ansehen, manuell einlösen oder Kapazitätsschutz und sinnvolle Einlösung vor Verfall aktivieren. Automatische Arbeit wartet bei fehlender Kapazität."
+  "topbar_codex_reset_feature_body": "Verdiente Resets im Nutzungspanel ansehen, manuell einlösen oder Kapazitätsschutz und sinnvolle Einlösung vor Verfall aktivieren. Automatische Arbeit wartet bei fehlender Kapazität.",
+  "viewport_codex_questions_open": "Fragen öffnen · Alt + ↑",
+  "feat_codex_mobile_questions_title": "Codex-Fragen auf dem Smartphone öffnen",
+  "feat_codex_mobile_questions_body": "Wenn Codex Alt + ↑ zum Beantworten wartender Fragen anbietet, öffnet ein Button über den mobilen Terminaltasten die Fragen per Touch."
 }

@@ -4538,5 +4538,8 @@
   "topbar_codex_reset_outcome_nothingToReset": "Codex has no allowance to reset yet",
   "topbar_codex_reset_outcome_noCredit": "No reset credit available",
   "topbar_codex_reset_feature_title": "Codex reset automation",
-  "topbar_codex_reset_feature_body": "See earned resets in the usage panel, redeem one manually or enable capacity protection and useful redemption before expiry. Automatic work waits when capacity is unavailable."
+  "topbar_codex_reset_feature_body": "See earned resets in the usage panel, redeem one manually or enable capacity protection and useful redemption before expiry. Automatic work waits when capacity is unavailable.",
+  "viewport_codex_questions_open": "Open questions · Alt + ↑",
+  "feat_codex_mobile_questions_title": "Open Codex questions on your phone",
+  "feat_codex_mobile_questions_body": "When Codex offers Alt + ↑ to answer queued questions, a button above the mobile terminal keys opens them with a tap."
 }

@@ -54,6 +54,7 @@
   import { shouldForwardEscape } from "$lib/terminalEscape";
   import { altComboKey, isPtySuppressedChord } from "./herd-keynav";
   import { detectNotesKey } from "$lib/notesAffordance";
+  import { hasCodexQuestionsHint } from "$lib/codexQuestionsAffordance";
   import { isScrolledAwayFromBottom, SCROLL_UP_PX } from "$lib/scrollAffordance";
   import { pollWhileVisible } from "$lib/visibility";
   import TodoPanel from "$lib/components/TodoPanel.svelte";
@@ -472,6 +473,7 @@
   // the painted screen (null when the prompt isn't offering it). On a phone
   // there's no keyboard to press it, so we surface a tappable control row button.
   let notesKey = $state<string | null>(null);
+  let codexQuestions = $state(false);
   let uploading = $state(false);
   let uploadFailed = $state(false);
   // platform-correct modifier for the "force local selection" hint: xterm uses
@@ -1619,6 +1621,8 @@
     scrolledUp = false; // fresh terminal starts pinned to the bottom
     clearAgentScrollState();
     notesKey = null; // no prompt scraped yet on this fresh terminal
+    codexQuestions = false;
+    let hasFreshOutput = false;
 
     // initial palette: non-reactive DOM read so this effect doesn't depend on
     // theme.resolved (which would recreate the whole terminal — and its PTY —
@@ -1697,10 +1701,15 @@
       id,
       term.cols,
       term.rows,
-      (d) => term.write(d),
+      (d) => {
+        hasFreshOutput = true;
+        term.write(d);
+      },
       // reconnected (e.g. after a mobile app-switch dropped the socket): refit in
       // case the layout changed while away, then resize to repaint the attach
       () => {
+        hasFreshOutput = false;
+        codexQuestions = false;
         refit();
       },
       // another device took over this terminal — park and offer to take it back
@@ -2201,6 +2210,18 @@
         text += (b.getLine(b.viewportY + i)?.translateToString(true) ?? "") + "\n";
       }
       notesKey = detectNotesKey(text);
+      // Read the live screen, not the user's scrollback position. Rejoin soft
+      // wraps so narrow phones don't split the hint's words. Reconnects wait for
+      // fresh output before an old painted hint can become actionable again.
+      let liveText = "";
+      if (mobile && effectiveAgentProvider === "codex" && hasFreshOutput) {
+        for (let i = 0; i < term.rows; i++) {
+          const line = b.getLine(b.baseY + i);
+          liveText +=
+            (line?.isWrapped ? "" : "\n") + (line?.translateToString(false, 0, term.cols) ?? "");
+        }
+      }
+      codexQuestions = hasCodexQuestionsHint(liveText);
     };
     const renderSub = term.onRender(scanNotesAffordance);
 
@@ -2218,6 +2239,7 @@
 
     return () => {
       disposed = true; // stops a pending document.fonts.ready remeasure after teardown
+      codexQuestions = false;
       window.removeEventListener("keydown", onWindowKeydown, true);
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("pageshow", onPageShow);
@@ -3155,6 +3177,7 @@
       conn?.send(seq);
     }}
     {notesKey}
+    codexQuestions={codexQuestions && effectiveAgentProvider === "codex" && !parked && !ended}
     {enter}
     {uploading}
     {uploadFailed}

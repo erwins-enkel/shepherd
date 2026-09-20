@@ -823,6 +823,486 @@ components:
         text:
           type: string
           description: Operator free text, delivered verbatim to the agent pane.
+    ReviewCodeError:
+      type: object
+      additionalProperties: true
+      description: The review-request family answers with a machine code rather than prose.
+      required:
+        - code
+      properties:
+        code:
+          type: string
+        error:
+          type: string
+    ActivityStatus:
+      anyOf:
+        - $ref: "#/components/schemas/ActivityStatusKnown"
+        - type: string
+    ActivityStatusKnown:
+      type: string
+      enum:
+        - ok
+        - error
+        - pending
+    ActivityEntry:
+      type: object
+      additionalProperties: true
+      description: One tool-use line of the agent transcript (src/activity.ts).
+      required:
+        - ts
+        - tool
+        - summary
+        - status
+      properties:
+        ts:
+          type: integer
+          description: Epoch ms of the tool-use message.
+        tool:
+          type: string
+          description: Raw tool name, e.g. "Edit".
+        summary:
+          type: string
+        status:
+          $ref: "#/components/schemas/ActivityStatus"
+    ActivityList:
+      type: array
+      description: Oldest first, capped server-side (30 by default).
+      items:
+        $ref: "#/components/schemas/ActivityEntry"
+    SessionActivitySignal:
+      type: object
+      additionalProperties: true
+      description: The poller's per-session heartbeat (src/activity-signal.ts).
+      required:
+        - lastActivityTs
+        - summary
+        - recentTs
+        - recentErrTs
+      properties:
+        lastActivityTs:
+          type: integer
+          description: Epoch ms of the newest record; 0 when there is none.
+        summary:
+          type:
+            - string
+            - "null"
+        recentTs:
+          type: array
+          items:
+            type: integer
+        recentErrTs:
+          type: array
+          items:
+            type: integer
+        runtimeModel:
+          type: string
+        runtimeEffort:
+          type: string
+    SessionActivityEvent:
+      type: object
+      additionalProperties: true
+      required:
+        - id
+        - activity
+      properties:
+        id:
+          type: string
+        activity:
+          $ref: "#/components/schemas/SessionActivitySignal"
+    DiffFileStatus:
+      anyOf:
+        - $ref: "#/components/schemas/DiffFileStatusKnown"
+        - type: string
+    DiffFileStatusKnown:
+      type: string
+      enum:
+        - added
+        - modified
+        - deleted
+        - renamed
+    DiffFile:
+      type: object
+      additionalProperties: true
+      required:
+        - path
+        - status
+        - additions
+        - deletions
+        - binary
+      properties:
+        path:
+          type: string
+          description: New path; the /dev/null side is resolved away.
+        oldPath:
+          type: string
+          description: Set only when the file was renamed.
+        status:
+          $ref: "#/components/schemas/DiffFileStatus"
+        additions:
+          type: integer
+        deletions:
+          type: integer
+        binary:
+          type: boolean
+        truncated:
+          type: boolean
+          description: Over the line cap; no patch is sent.
+        patch:
+          type: string
+          description: Raw unified git patch block. This route strips the parsed hunks (src/diff.ts toSessionDiff) and sends the patch text instead; absent for binary and truncated files.
+    DiffResult:
+      type: object
+      additionalProperties: true
+      required:
+        - base
+        - baseRef
+        - head
+        - fetchFailed
+        - truncated
+        - files
+      properties:
+        base:
+          type: string
+          description: Logical base branch, e.g. "main".
+        baseRef:
+          type: string
+          description: Ref actually diffed against, e.g. "origin/main".
+        head:
+          type:
+            - string
+            - "null"
+          description: Session branch; null when not isolated.
+        fetchFailed:
+          type: boolean
+          description: git fetch failed; the local base was used.
+        truncated:
+          type: boolean
+        files:
+          type: array
+          items:
+            $ref: "#/components/schemas/DiffFile"
+    DiffNoteKind:
+      anyOf:
+        - $ref: "#/components/schemas/DiffNoteKindKnown"
+        - type: string
+    DiffNoteKindKnown:
+      type: string
+      enum:
+        - agent
+        - review
+    DiffNoteSide:
+      anyOf:
+        - $ref: "#/components/schemas/DiffNoteSideKnown"
+        - type: string
+    DiffNoteSideKnown:
+      type: string
+      enum:
+        - additions
+        - deletions
+    DiffNote:
+      type: object
+      additionalProperties: true
+      description: An annotation on the diff. `agent` notes carry side+lineNumber+tool; `review` notes are file-level (path) or panel-level (path is the empty string).
+      required:
+        - path
+        - kind
+        - text
+      properties:
+        path:
+          type: string
+        kind:
+          $ref: "#/components/schemas/DiffNoteKind"
+        text:
+          type: string
+        side:
+          $ref: "#/components/schemas/DiffNoteSide"
+        lineNumber:
+          type: integer
+        tool:
+          type: string
+    DiffAnnotations:
+      type: object
+      additionalProperties: true
+      required:
+        - notes
+      properties:
+        notes:
+          type: array
+          items:
+            $ref: "#/components/schemas/DiffNote"
+    BrowseEntryType:
+      anyOf:
+        - $ref: "#/components/schemas/BrowseEntryTypeKnown"
+        - type: string
+    BrowseEntryTypeKnown:
+      type: string
+      enum:
+        - file
+        - dir
+    BrowseEntry:
+      type: object
+      additionalProperties: true
+      required:
+        - name
+        - type
+        - path
+      properties:
+        name:
+          type: string
+        type:
+          $ref: "#/components/schemas/BrowseEntryType"
+        path:
+          type: string
+          description: Relative to the root, forward slashes, no leading slash.
+        createdMs:
+          type: number
+          description: Birth time when recorded, else mtime; absent when stat failed; milliseconds since the epoch, may carry a fractional part.
+        linkOutside:
+          type: boolean
+          description: Worktree only — a symlink resolving outside the root.
+        attachments:
+          type: boolean
+          description: Scratchpad only — the synthetic Attachments folder.
+    BrowseListing:
+      type: object
+      additionalProperties: true
+      required:
+        - path
+        - parent
+        - entries
+      properties:
+        path:
+          type: string
+          description: The directory listed, relative to the root ("" is the root).
+        parent:
+          type:
+            - string
+            - "null"
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/BrowseEntry"
+    ForgeKind:
+      anyOf:
+        - $ref: "#/components/schemas/ForgeKindKnown"
+        - type: string
+    ForgeKindKnown:
+      type: string
+      enum:
+        - github
+        - gitea
+        - local
+    PrState:
+      anyOf:
+        - $ref: "#/components/schemas/PrStateKnown"
+        - type: string
+    PrStateKnown:
+      type: string
+      enum:
+        - none
+        - open
+        - merged
+        - closed
+    ChecksState:
+      anyOf:
+        - $ref: "#/components/schemas/ChecksStateKnown"
+        - type: string
+    ChecksStateKnown:
+      type: string
+      enum:
+        - none
+        - pending
+        - success
+        - failure
+    MergeStateStatus:
+      anyOf:
+        - $ref: "#/components/schemas/MergeStateStatusKnown"
+        - type: string
+    MergeStateStatusKnown:
+      type: string
+      enum:
+        - behind
+        - blocked
+        - clean
+        - dirty
+        - draft
+        - has_hooks
+        - unknown
+        - unstable
+    PrReviewState:
+      anyOf:
+        - $ref: "#/components/schemas/PrReviewStateKnown"
+        - type: string
+    PrReviewStateKnown:
+      type: string
+      enum:
+        - approved
+        - changes_requested
+        - commented
+    PrReview:
+      type: object
+      additionalProperties: true
+      required:
+        - state
+        - author
+        - submittedAt
+      properties:
+        state:
+          $ref: "#/components/schemas/PrReviewState"
+        author:
+          type: string
+        submittedAt:
+          type: integer
+    GitState:
+      type: object
+      additionalProperties: true
+      description: PR + forge state for one session. GET /git and ready/draft/close answer the full object; POST /git/pr and /git/merge answer the bare PR status, which carries no `kind` (the web UI re-attaches it client-side). Treat `kind` as optional.
+      required:
+        - state
+        - checks
+        - deployConfigured
+      properties:
+        kind:
+          $ref: "#/components/schemas/ForgeKind"
+        state:
+          $ref: "#/components/schemas/PrState"
+        number:
+          type: integer
+        url:
+          type: string
+        title:
+          type: string
+        createdAt:
+          type: integer
+        mergeable:
+          type:
+            - boolean
+            - "null"
+          description: null while the host is still computing.
+        checks:
+          $ref: "#/components/schemas/ChecksState"
+        mergeStateStatus:
+          $ref: "#/components/schemas/MergeStateStatus"
+        isDraft:
+          type: boolean
+        isFork:
+          type: boolean
+        noCi:
+          type: boolean
+        authorLogin:
+          type: string
+        requestedReviewers:
+          type: array
+          items:
+            type: string
+        latestReview:
+          $ref: "#/components/schemas/PrReview"
+        issueUrl:
+          type: string
+        deployConfigured:
+          type: boolean
+    SessionGitEvent:
+      type: object
+      additionalProperties: true
+      required:
+        - id
+        - git
+      properties:
+        id:
+          type: string
+        git:
+          $ref: "#/components/schemas/GitState"
+    PrReviewerOptions:
+      type: object
+      additionalProperties: true
+      required:
+        - logins
+        - unavailable
+        - prNumber
+        - repoSlug
+        - isFork
+        - requestedReviewers
+        - authorLogin
+        - defaultReviewer
+        - isDraft
+      properties:
+        logins:
+          type: array
+          items:
+            type: string
+        unavailable:
+          type: boolean
+          description: The host refused the list, or the forge has none.
+        prNumber:
+          type: integer
+        repoSlug:
+          type:
+            - string
+            - "null"
+        isFork:
+          type: boolean
+        requestedReviewers:
+          type: array
+          items:
+            type: string
+        authorLogin:
+          type:
+            - string
+            - "null"
+        defaultReviewer:
+          type:
+            - string
+            - "null"
+        isDraft:
+          type: boolean
+    ReviewRequestAck:
+      type: object
+      additionalProperties: true
+      required:
+        - ok
+      properties:
+        ok:
+          type: boolean
+        refreshPending:
+          type: boolean
+          description: Requested, but the server's follow-up status read failed; re-read GET /git.
+    ReviewRequestBody:
+      type: object
+      additionalProperties: false
+      required:
+        - prNumber
+        - reviewer
+      properties:
+        prNumber:
+          type: integer
+          minimum: 1
+        reviewer:
+          type: string
+          pattern: ^[A-Za-z\d](?:[A-Za-z\d]|-(?=[A-Za-z\d])){0,38}$
+    OpenPrBody:
+      type: object
+      additionalProperties: false
+      description: Both optional; the server falls back to the session's name and prompt.
+      properties:
+        title:
+          type: string
+        body:
+          type: string
+    MergeMethod:
+      type: string
+      enum:
+        - merge
+        - squash
+        - rebase
+    MergePrBody:
+      type: object
+      additionalProperties: false
+      description: Both optional; the server falls back to the forge default and deleteBranch true.
+      properties:
+        method:
+          $ref: "#/components/schemas/MergeMethod"
+        deleteBranch:
+          type: boolean
   responses:
     Unauthorized:
       description: Missing or invalid credential.
@@ -1202,6 +1682,497 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /api/sessions/{id}/activity:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getSessionActivity
+      description: Recent tool use from the agent transcript. An unreadable transcript is an empty list.
+      responses:
+        "200":
+          description: Activity, oldest first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActivityList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Unknown id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/sessions/{id}/diff:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getSessionDiff
+      description: The session branch against its base. Files carry `patch`, not parsed hunks.
+      responses:
+        "200":
+          description: Diff.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiffResult"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Unknown id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: git failed (missing worktree, unresolvable base).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/sessions/{id}/diff/annotations:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getSessionDiffAnnotations
+      description: Agent and review notes on the diff. Best effort — any failure answers an empty list.
+      responses:
+        "200":
+          description: Notes.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiffAnnotations"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Unknown id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/sessions/{id}/scratchpad:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: path
+        in: query
+        required: false
+        description: Directory relative to the scratchpad root; omitted lists the root.
+        schema:
+          type: string
+    get:
+      operationId: getSessionScratchpad
+      responses:
+        "200":
+          description: One directory of the scratchpad.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BrowseListing"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Unknown or archived session, or a path that is not a directory under the root.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/sessions/{id}/worktree:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: path
+        in: query
+        required: false
+        description: Directory relative to the worktree root; omitted lists the root.
+        schema:
+          type: string
+    get:
+      operationId: getSessionWorktree
+      description: Read-only worktree listing. `.git` is hidden; symlinks out of the root are marked.
+      responses:
+        "200":
+          description: One directory of the worktree.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BrowseListing"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Unknown or archived session, or a path that is not a directory under the root.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/sessions/{id}/git:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getSessionGit
+      description: PR and forge state. 404 covers both an unknown session and a repo with no forge.
+      responses:
+        "200":
+          description: Git state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GitState"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Unknown id, or no forge for this repo.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          description: The forge failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/sessions/{id}/git/pr:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: openPullRequest
+      description: Opens a PR for the session branch. Answers the bare PR status — no `kind`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OpenPrBody"
+      responses:
+        "200":
+          description: PR opened.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GitState"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Unknown id, or no forge for this repo.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: No commits to merge.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          description: The forge failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/sessions/{id}/git/merge:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: mergePullRequest
+      description: Merges the open PR. Answers the bare PR status — no `kind`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MergePrBody"
+      responses:
+        "200":
+          description: Merged.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GitState"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Unknown id, or no forge for this repo.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: No open PR, a merge conflict, or a busy base checkout (see the error text).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          description: The forge failed, or the host only enqueued the merge (see `code`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/sessions/{id}/git/ready:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: setPullRequestReady
+      description: Marks the PR ready for review. Idempotent when it already is.
+      responses:
+        "200":
+          description: Git state after the change.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GitState"
+        "400":
+          description: This forge cannot change draft state (no `markReady`, e.g. LocalForge).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Unknown id, or no forge for this repo.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "No open PR, or draft mode still awaiting sign-off (`code: draft_awaiting_signoff`)."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          description: The forge failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/sessions/{id}/git/draft:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: setPullRequestDraft
+      description: Converts the PR back to a draft. Idempotent when it already is one.
+      responses:
+        "200":
+          description: Git state after the change.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GitState"
+        "400":
+          description: This forge cannot change draft state (no `convertToDraft`, e.g. LocalForge).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Unknown id, or no forge for this repo.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: No open PR.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          description: The forge failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/sessions/{id}/git/close:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: closePullRequest
+      responses:
+        "200":
+          description: Git state after the close.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GitState"
+        "400":
+          description: This forge cannot close PRs (no `closePr`, e.g. LocalForge).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Unknown id, or no forge for this repo.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: No open PR.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          description: The forge failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/sessions/{id}/git/reviewers:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getPullRequestReviewers
+      description: Candidate reviewers for the open PR. GitHub only.
+      responses:
+        "200":
+          description: Reviewer options.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PrReviewerOptions"
+        "400":
+          description: "This forge cannot request reviews (`code: review_request_unsupported`)."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewCodeError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Unknown id, or no forge for this repo.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "No open PR to request a review on (`code: review_request_stale`)."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewCodeError"
+        "502":
+          description: "The forge failed (`code: review_request_failed`)."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewCodeError"
+  /api/sessions/{id}/git/request-review:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: requestPullRequestReview
+      description: Requests a human review. GitHub only; an already-requested reviewer is a no-op success.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewRequestBody"
+      responses:
+        "200":
+          description: Requested.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewRequestAck"
+        "400":
+          description: Unsupported forge, or an invalid body/reviewer (`code`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewCodeError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: "The host forbids this review request (`code: review_request_forbidden`)."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewCodeError"
+        "404":
+          description: Unknown id, or no forge for this repo.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: The PR is stale or still a draft (`code`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewCodeError"
+        "422":
+          description: "The host rejects the reviewer login (`code: review_request_invalid_reviewer`)."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewCodeError"
+        "502":
+          description: "The forge failed (`code: review_request_failed`)."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewCodeError"
 x-shepherd-events:
   description: 'WebSocket /events. Same auth gate as HTTP (send Authorization on the upgrade). Every frame is an EventEnvelope: {"event": string, "data": object}. Client may send {"type":"presence","active":boolean}; the server never replies to it.'
   envelope:
@@ -1233,6 +2204,14 @@ x-shepherd-events:
   usage:limits:
     schema:
       $ref: "#/components/schemas/UsageLimits"
+  session:git:
+    description: PR/forge state for one session changed (poller push, or a PR action).
+    schema:
+      $ref: "#/components/schemas/SessionGitEvent"
+  session:activity:
+    description: The agent transcript heartbeat moved.
+    schema:
+      $ref: "#/components/schemas/SessionActivityEvent"
 x-shepherd-pty:
   description: WebSocket /pty/{id}?cols=&rows=. Same auth gate and origin check as HTTP; the bearer goes on the upgrade request. An unknown session id is answered 404 before the upgrade. cols/rows set the attach size so the first paint matches the client's viewport. On attach the server replays the pane's scrollback, so a client must clear its own buffer on every (re)attach rather than appending. Server→client frames are raw terminal bytes (binary or text). Client→server text frames are keystrokes, except frames starting with resizePrefix which carry "<cols>:<rows>\n". One owner per terminal id; a new attach closes the previous socket with closeCodes.superseded and the loser must NOT reconnect (both would bump each other forever). closeCodes.gone means the session no longer has a live agent and no reattach can succeed. Any other close is transient; clients retry with backoff.
   path: /pty/{id}

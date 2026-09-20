@@ -167,11 +167,12 @@ runs alongside S7 and S8 instead of behind them, and it is built in the web's ow
 usage meter → model · effort · cost row → Aufwand and Sandbox → Leitplanken (Plan-Gate, Autopilot bis
 zum PR) → Anhängen / Schärfen / mic → footer hints and ERSTELLEN & STARTEN IN &lt;repo&gt;.**
 
-A `compose` block declares `GET /api/issues`, `GET /api/issues/{number}`, `GET /api/commands`,
+A `compose` block declares `GET /api/issues`, `GET /api/commands`, `GET /api/epics`,
 `POST /api/uploads`, `POST /api/shape`, `POST /api/shape/brief`, `GET /api/branches`,
-`GET /api/branch-status`, `GET`/`PUT /api/steers`,
-`POST /api/sessions/{id}/{variant,replace,recommend-prompt,leftovers}` and
-`POST /api/spawns/{id}/cancel`.
+`GET /api/branch-status`, `POST /api/repos/init-empty-commit`, `GET`/`PUT /api/steers`,
+`POST /api/sessions/{id}/{variant,replace,recommend-prompt}`,
+`GET /api/sessions/{id}/leftovers` and `POST /api/spawns/{id}/cancel`.
+`GET /api/issues/{number}` is **not** claimed — see Appendix A.5.
 
 The app side owns a new `Sources/Compose/**` sheet registered through S0-prep-2's `NewSessionSlot`,
 so `MainWindow`'s "+" opens the composer when the slot is filled and the milestone-1 sheet
@@ -268,7 +269,7 @@ what made four concurrent lanes cost no merge churn:
    `GET /api/git` answers `{}`, `GET /api/activity` answers `{}` and `GET /api/stranded` answers
    `[]`. A stream can prove the status codes but not the payload shape, which is exactly what the
    drift test exists to prove. `deps.ts` is a shared harness file streams must not edit, so
-   **S0-prep-2 wires the eleven optional deps once** and exposes them through `ContractDeps.stubs`,
+   **S0-prep-2 wires the thirteen optional deps once** and exposes them through `ContractDeps.stubs`,
    following the existing "swap one method for the duration of a single request, restore what you
    replace" contract.
 3. **`native/README.md`'s "Parallel streams: seams and rules" now carries the milestone-2 lessons**,
@@ -289,18 +290,25 @@ Phase A  (4 h)   S0-prep-2 PR ────────────────�
 Phase B  (2 h)   planners: S0-prep-2, S7, S8, S10, S11 are written; S9 and S12 are planned here
 Phase C  (≈10 h) implement in parallel:  S11 ─┐   S7 ─┐   S8 ─┐
                                               ▼       ▼       ▼
-                 merges in priority order:   S11  →  S7   →  S8    (S0-int after each)
+                 merges in dependency order:  S7  →  S8   →  S11   (S0-int after each)
 Phase D  (≈10 h) implement in parallel:  S10 ─┐   S9 ─┐      (S9 starts only after S7 merges)
                                               ▼       ▼
                  merges:                     S10  →  S9        (S0-int after each)
 Phase E  (≈8 h)  S12 alone ───────────────────────────────────────────────▶ merge; final live smoke
 ```
 
-Order: **S0-prep-2 → S11 ‖ S7 ‖ S8 → S10 ‖ S9 → S12**, with the integration lane running after each
-merge. S11 leads Phase C on operator feedback: the create dialog is the app's most-used surface and
-the furthest from the web. S7 merges next because every other stream's list rendering reads better
-once the stages are alive, and S8's `/go` plus `/answer-plan-questions` are the two actions that
-unblock an agent. S9 waits for S7 — its `merging` / `awaitingMerge` semantics are meaningless
+Order: **S0-prep-2 → S7 ‖ S8 ‖ S11 → S10 ‖ S9 → S12**, with the integration lane running after each
+merge. All three of Phase C's streams are *implemented* in parallel and S11 still starts first on
+operator feedback — the create dialog is the app's most-used surface and the furthest from the web —
+but the **merge** order is fixed by the cross-block `$ref` chain and cannot be chosen freely:
+`compose` `$ref`s `plan`'s `VisualBlockQuestionForm` and `RawAnswer` (Appendix A.5), and `plan`
+`$ref`s `herd`'s `ReviewerEnv` (Appendix A.2). A `$ref` into a block that is not yet on `main`
+fails `bun run test:contract`, and "rebase onto it" is not available when the target has not
+merged. So **S7 → S8 → S11**: the classifier lands first, the plan block lands onto it, and the
+composer rebases onto both. An earlier draft of this plan said S11 → S7 → S8, which is the cycle
+read backwards and is not implementable.
+
+S9 waits for S7 — its `merging` / `awaitingMerge` semantics are meaningless
 without the classifier — and S10's `owed` lens waits for S9's manual steps, which is why it merges
 first inside Phase D and picks up the lens in the integration commit. S12 is alone in Phase E
 because it is the only stream with an approved core-path edit.
@@ -328,7 +336,7 @@ sequential worker.
 
 ## 6. Inventory corrections
 
-The inventory is the requirements source, and five of its concrete claims did not survive the code.
+The inventory is the requirements source, and seven of its concrete claims did not survive the code.
 Each stream's plan carries the correction it is affected by; they are collected here so nobody
 re-derives them.
 
@@ -347,18 +355,28 @@ re-derives them.
    genuinely in `ALLOWED_KEYS` (`src/validate.ts:42-61`) and land in S0-prep-2.
 4. **Six, not seven, `CreateSessionRequest` fields are already server-supported:** `mergeTrainPrs`,
    `issueRef`, `research`, `epicAuthoring`, `attachmentNames`, `launchUiState`. See (3).
-5. **The contract's `GitState` is missing five fields the classifier needs.** The server's
-   `GitState` (`src/forge/types.ts:247-271`) carries `noCi`, `handoff` (`"reviewer" | "merger"`),
-   `handoffWho`, `reviewBlock` (`{reviewer, state, latestAt}`) and `headSha`; the contract's
-   version, in S2's `detail` block, declares none of them, because the per-session Git tab did not
-   need them. The web's cascade reads `noCi` (through `checksCleared`), `reviewBlock`
-   (`needsRework`), `mergeStateStatus === "blocked"` (`branchProtectionBlocked`) and
-   `handoff` / `isDraft` (the three handoff stages), and the stepper reads `headSha` (verdict
-   freshness). **S7 declares its own `HerdGitState` inside the `herd` block** — the same wire object
-   with those five fields spelled out — rather than editing S2's schema, and `GitStateMap` is keyed
-   on that. Both descriptions are legal because both carry `additionalProperties: true`.
+5. **The contract's `GitState` is missing four fields the classifier needs — and the fix is to
+   extend it, not to declare a second one.** The server's `GitState`
+   (`src/forge/types.ts:247-271`, extending `PrStatus` at `:199-246`) carries `handoff`
+   (`"reviewer" | "merger"`), `handoffWho`, `reviewBlock` (`{reviewer, state, latestAt}`) and
+   `headSha`, none of which the contract declares. `noCi` — which the inventory also listed — **is
+   already declared** (`contracts/openapi.yaml:719`); only four are genuinely missing. The web's
+   cascade reads `noCi` (through `checksCleared`), `reviewBlock` (`needsRework`),
+   `mergeStateStatus === "blocked"` (`branchProtectionBlocked`) and `handoff` / `isDraft` (the
+   three handoff stages), and the stepper reads `headSha` (verdict freshness).
+
+   An earlier draft had S7 declare a parallel `HerdGitState` inside the `herd` block. That is
+   **wrong**, and this plan does not do it. `GET /api/git` answers `deps.prCache.snapshot()`
+   (`src/server.ts:1061-1066`), which is `Record<string, GitState>` — byte-for-byte the same object
+   `GET /api/sessions/{id}/git` answers, as `src/forge/types.ts:279-281` says in as many words
+   ("the GET /api/sessions/:id/git payload **and** the value cached/pushed for the list overview").
+   Two names for one wire object would give the generated Swift two unrelated structs for the same
+   bytes and would leave the `detail` tab permanently blind to `handoff`. **S0-prep-2 therefore adds
+   the four missing properties to the existing `GitState`** (Task 4, beside `UsageLimits.observed` —
+   both are additive, optional, and change no declared status), and S7's `GitStateMap` `$ref`s
+   `#/components/schemas/GitState`, exactly as Appendix A.1 already says.
 6. **`GET /api/up-next` answers the JSON literal `null`** when nothing is cached
-   (`src/server.ts:1201-1214`), so it cannot be declared at all — see Appendix A.4 for what S10
+   (`src/server.ts:1262-1273`), so it cannot be declared at all — see Appendix A.4 for what S10
    does instead.
 7. **Two wire fields no TypeScript UI type declares, which a Swift model must still tolerate:**
    `HeldTask.reason` (`"usage" | "capacity"`, `src/types.ts:1537-1545`) and `Recap.base`
@@ -426,17 +444,21 @@ Existing claims on `origin/main`, for the disjointness check:
 | Path | Method | Statuses | Note |
 | --- | --- | --- | --- |
 | `/api/git` | GET | 200, 401 | bulk `Record<sessionId, GitState>`; `$ref`s `detail`'s `GitState` |
-| `/api/activity` | GET | 200, 401 | bulk `Record<sessionId, SessionActivity>` |
+| `/api/activity` | GET | 200, 401 | bulk `Record<sessionId, SessionActivitySignal>`; `$ref`s `detail`'s existing `SessionActivitySignal` (`contracts/openapi.yaml:547`) rather than declaring a second name for the same payload |
 | `/api/claude-alive` | GET | 200, 401 | bulk `Record<sessionId, boolean>` |
 | `/api/reviews` | GET | 200, 401 | `Record<sessionId, ReviewVerdict>` |
 | `/api/reviews/inflight` | GET | 200, 401 | in-flight critic runs with their reviewer env |
 | `/api/sessions/{id}/review-pr` | POST | 202, 401, 404, 502 | trigger a critic review; **202**, body `{ok, status}`. Two distinct 404 bodies (`not found`, `no forge for this repo`) |
 
 Events: `session:review`, `session:reviewing`, `session:critic-activity`, `session:claude-alive`.
-Schemas: `GitStateMap`, `SessionActivity`, `ActivityMap`, `ClaudeAliveMap`, `ReviewVerdict`,
-`ReviewDecision`, `ReviewVerdictMap`, `ReviewerEnv`, `ReviewerInflightEntry`, `PrReviewTrigger`,
-`PrReviewResult`, and the three event payloads. `GitStateMap` `$ref`s `detail`'s `GitState`, so the
-`herd` block depends on the `detail` block already being on `main` — it is.
+Schemas: `GitStateMap`, `ActivityMap`, `ClaudeAliveMap`, `ReviewVerdict`, `ReviewDecision`,
+`ReviewVerdictMap`, `ReviewerEnv`, `ReviewerInflightEntry`, `PrReviewTrigger`, `PrReviewResult`,
+and the three event payloads. **Two maps `$ref` schemas the `detail` block already owns and this
+block does not redeclare:** `GitStateMap` → `GitState` (extended by S0-prep-2 with the four fields
+of §6.5) and `ActivityMap` → `SessionActivitySignal`. The `herd` block therefore depends on the
+`detail` block already being on `main` — it is — and on S0-prep-2 having merged, which §5 already
+requires. No `HerdGitState` and no `SessionActivity`: a second name for the same wire object gives
+the generated Swift two unrelated structs for the same bytes.
 
 ### A.2 — `plan` (S8)
 
@@ -453,7 +475,7 @@ Schemas: `GitStateMap`, `SessionActivity`, `ActivityMap`, `ClaudeAliveMap`, `Rev
 Events: `session:plangate` (polymorphic — `{id, gate}` **or** `{id, planPhase}`; both keys optional),
 `session:plangate-reviewing`, `session:plangate-activity`.
 Schemas: `PlanGate`, `PlanDecision`, `PlanSummaryCode`, `PlanReviewTrigger`,
-`PlanQuotaResumeStatus`, `PlanQuotaDismissStatus`, `RawAnswer`, `AnswerPlanQuestionsRequest`,
+`PlanQuotaStatus`, `PlanQuotaResult`, `RawAnswer`, `AnswerPlanQuestionsRequest`,
 `PlanGateMap`, `VisualBlock` and its thirteen member schemas.
 
 **`ReviewerEnv` is S7's.** Both streams need the same `{provider, model, effort}` triple; a schema
@@ -476,8 +498,8 @@ one optional property after S8 merges, which is what unlocks C15's full recap pa
 | `/api/sessions/{id}/git/redeploy` | POST | 200, 401, 404, 409 | adjacent to `detail`'s `/git/*`, a distinct template |
 | `/api/sessions/clear-merged` | GET, POST | 200, 401 | literal path; the server matches it before `/api/sessions/{id}` |
 | `/api/manual-steps/outstanding` | GET | 200, 401 | fills the `owed` lens |
-| `/api/manual-steps/{id}/done` | POST | 200, 401, 404 | |
-| `/api/manual-steps/{id}/skip` | POST | 200, 401, 404 | |
+| `/api/manual-steps/{id}/steps/{stepId}` | POST | 200, 400, 401, 404 | **the real shape** — `handleManualSteps` (`src/server.ts:1239-1250`) dispatches `POST /api/manual-steps/{sessionId}/steps/{stepId}` with `{done: boolean}`. There is no `/done` and no `/skip` route |
+| `/api/manual-steps/{id}/dismiss` | POST | 200, 401, 404 | dismiss the whole panel for a session (`src/server.ts:1249`) |
 | `/api/sessions/{id}/ack-manual-steps` | POST | 200, 401, 404 | |
 | `/api/drain` | GET | 200, 401 | |
 | `/api/drain/queue` | GET | 200, 401 | |
@@ -492,15 +514,16 @@ Events: `session:automerge`, `session:autopilot`, `session:merging`, `mergetrain
 | Path | Method | Statuses | Note |
 | --- | --- | --- | --- |
 | `/api/held` | GET | 200, 401 | the held-task list; **not** the core `HeldTask` schema (§6.1) |
-| `/api/held/{id}` | PATCH, DELETE | 200, 400, 401, 404 | `PATCH`, not `PUT` (§6.2). `DELETE` never 404s — it answers `{ok:true}` for an unknown id too |
+| `/api/held/{id}` | PATCH | 200, 400 ×2, 401, 404 | `PATCH`, not `PUT` (§6.2); a `PUT` falls through to the terminal 404 |
+| `/api/held/{id}` | DELETE | 200, 401 | **never 404s** — `heldDiscard` removes unconditionally and answers `{ok:true}` for an unknown id too (`src/server.ts:6217-6221`) |
 | `/api/held/{id}/spawn` | POST | **201**, 400, 401, 403, 404, 409, 422, 502 | answers the created `Session`; the create-failure ladder is `createErrorResponse`'s |
 | `/api/up-next/refresh` | POST | **202**, 401, 503 | |
 | `/api/up-next/start` | POST | **201**, 200, 400, 401, 409, 502 | one body shape for 201/200/502; the status encodes created / held-only / all-errors |
-| `/api/halt` | POST | 200, 401 | `{halted}`. A herdr-unreachable halt is a genuine 500 by design; undeclared like every other 5xx |
+| `/api/halt` | POST | 200, 401, 405 | `{halted}`. **405** on any other verb — this route does not fall through to the terminal 404 (`src/server.ts:6293`). A herdr-unreachable halt is a genuine 500 by design; undeclared like every other 5xx |
 | `/api/retry` | POST | 200, 400, 401 | `{resumed, steered, total}`; `total` is the **requested** id count |
 | `/api/stranded` | GET | 200, 401 | ids only; the liveness map is `herd`'s `/api/claude-alive` |
 | `/api/revive-stranded` | POST | 200, 401 | `{revived, failed}`; no 4xx — the server computes the target set |
-| `/api/sessions/{id}/restore` | POST | 200, 401, 404, 409 | **S10's, not S11's** — the Done panel's "Bring back". Four distinct 409 `code`s |
+| `/api/sessions/{id}/restore` | POST | 200, 401, 404, 409 | **S10's, not S11's** — the Done panel's "Bring back". **Six** distinct 409 `code`s: `in_progress`, `not_archived`, `cannot_restore`, `branch_gone`, `branch_in_use`, `spawn_refused` |
 | `/api/sessions/{id}/usage` | GET | 200, 401, 404 | per-session usage on a done row |
 | `/api/broadcast` | POST | 200, 400, 401 | G17 |
 
@@ -508,7 +531,7 @@ Events: `upnext:snapshot`, `halt:done`, `session:halt`, `session:hold`, `app:ses
 `app:auto-revived`.
 
 **`GET /api/up-next` is deliberately not declared.** `handleUpNextGet` answers the JSON literal
-`null` when no snapshot is cached (`src/server.ts:1201-1214`), and a whole-body `null` cannot be
+`null` when no snapshot is cached (`src/server.ts:1262-1273`), and a whole-body `null` cannot be
 expressed in a response position: `scripts/gen-contract-swift.ts:225-233` throws for a nullable
 union outside a property schema, and swift-openapi-generator cannot make a nullable *object* an
 optional response body. S3 hit and documented exactly this in milestone 2. S10 therefore bootstraps
@@ -530,19 +553,20 @@ current. The cost is a "computing…" state on a cold open, which is what `refre
 | `/api/shape` | POST | 200, 400 ×2, 401, 422, 503 | 8 — Schärfen. **503** when the server has no shaper |
 | `/api/shape/brief` | POST | 200, 400, 401 | 8 |
 | `/api/steers` | GET, PUT | 200, 400, 401 | 10 |
-| `/api/sessions/{id}/variant` | POST | 201, 400, 401, 404 | 10 |
-| `/api/sessions/{id}/replace` | POST | 201, 400, 401, 404 | 10 |
-| `/api/sessions/{id}/recommend-prompt` | POST | 200, 401, 404 | 10 |
-| `/api/sessions/{id}/leftovers` | GET | 200, 401, 404 | 10 |
+| `/api/sessions/{id}/variant` | POST | 201, 400, 401, 404, 409 ×2, 502 | 10 — 409 `in_progress` (`src/server.ts:3771`) and `already archived` (`:3827`); 502 at `:3838` |
+| `/api/sessions/{id}/replace` | POST | **200**, 400, 401, 404, 409 ×2, 502 ×2 | 10 — **not 201**: `handleSessionReplace` answers `json({session}, 200)` (`src/server.ts:3762`) |
+| `/api/sessions/{id}/recommend-prompt` | POST | 200, 400, 401, 422, 503 | 10 — **no 404**: the handler never touches the store, and an unknown session becomes a 422 `no-history` (`src/server.ts:2953-2966`, `src/index.ts:3372-3375`) |
+| `/api/sessions/{id}/leftovers` | GET | 200, 401 | 10 — **no 404**: `service.leftovers` answers `[]` for an unknown id (`src/service.ts:6156-6160`) |
 | `/api/spawns/{id}/cancel` | POST | 200, 400, 401, 404 | 9 (slow-spawn cancel) |
 
 Event: `spawn:progress` (Task 9). Exact statuses are pinned in the per-task plan against the
 handlers; the rows above are what the block claims, and no other stream claims any of them.
 
 Two schemas are **`$ref`'d, not declared**: `VisualBlockQuestionForm` and `RawAnswer` belong to
-S8's `plan` block, and `POST /api/shape` answers one of each. Both streams are in the first wave; if
-S8 has not merged, the reference fails loudly at `bun run test:contract` and the answer is to
-rebase, never to declare a second copy.
+S8's `plan` block, and `POST /api/shape` answers one of each. This is **why S11 merges last in
+Phase C** (§5): the reference only resolves once `plan` is on `main`, and `bun run test:contract`
+fails loudly until it is. S11 rebases onto the merged `plan` block; it never declares a second
+copy, and it never merges ahead of S8.
 
 Explicitly **not** claimed: `/api/sessions/{id}/reply` (S1's — the composer sends through it and
 declares nothing), `POST /api/sessions/{id}/restore` (S10's), `/api/sessions/{id}/relaunch` and
@@ -580,10 +604,13 @@ existing `/api/settings` path plus the `Settings` schema's ~24 operator fields, 
 
 Not in any block, because they extend core schemas two streams would otherwise both edit:
 
-| Schema | Add | For |
+| Schema / path | Add | For |
 | --- | --- | --- |
 | `UsageLimits` | `observed` (`ObservedLimitWindows`: `{session5h, week}` of `{pct, resetAt, scrapedAt}` or `null`) | A5, rendered by S12 |
-| `CreateSessionRequest` | `mergeTrainPrs`, `issueRef`, `research`, `epicAuthoring`, `attachmentNames`, `launchUiState` | S9's merge train (D5), S11's L3/F3 |
+| `CreateSessionRequest` | `mergeTrainPrs`, `issueRef` (whose `body` is **required** — `src/validate.ts:245`), `research`, `epicAuthoring`, `attachmentNames`, `launchUiState` | S9's merge train (D5), S11's L3/F3 |
+| `GitState` (in `detail`) | `handoff`, `handoffWho`, `reviewBlock`, `headSha`, plus the `PrHandoff` and `PrReviewBlock` schemas they `$ref` | S7's classifier (§6.5). `noCi` is already declared; only four are missing |
+| `POST /api/sessions` | the `X-Shepherd-Spawn-Id` **header parameter** (`src/server.ts:2404`) | S11's slow-spawn panel and its cancel button. A header, not a body key: a usage hold persists the body and would replay a stale id |
 
-Both are additive and optional, so no declared status changes and the core coverage gate in
-`openapi.test.ts` is unaffected.
+All four are additive and optional, so no declared status changes and the core coverage gate in
+`openapi.test.ts` is unaffected. `GitState` is in S2's `detail` block rather than outside every
+block, which is exactly why it is **S0's** to extend and not S7's to duplicate.

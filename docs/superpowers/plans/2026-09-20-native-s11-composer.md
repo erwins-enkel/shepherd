@@ -121,11 +121,12 @@ grep -c "── stream: compose ──" contracts/openapi.yaml \
   && grep -q "resolveForge" test/contract/deps.ts \
   && grep -q "shapeTask" test/contract/deps.ts \
   && grep -q "issueRef" contracts/openapi.yaml \
+  && grep -qi "x-shepherd-spawn-id" contracts/openapi.yaml \
   && grep -qE "^\s+(internal )?let generated: Client" native/Sources/ShepherdKit/Client/ShepherdClient.swift \
   && echo OK || echo "S0-prep-2 MISSING — stop and tell the orchestrator"
 ```
 
-Expected: `3` then `OK`. Four of those deserve spelling out.
+Expected: `3` then `OK`. Five of those deserve spelling out.
 
 1. **`NewSessionSlot.swift` must exist**, with both `content` and `options`. This stream uses
    `content`; `options` is the additive path S0-prep-2 built for the case where this stream had
@@ -134,7 +135,11 @@ Expected: `3` then `OK`. Four of those deserve spelling out.
    every call and Task 1 — the whole reason this stream is in the first wave — is declared and
    unproven. Do not edit `deps.ts`; it is shared.
 3. **`deps.ts` must wire `shapeTask`.** Without it `POST /api/shape` answers **503**.
-4. **`issueRef` must already be on `CreateSessionRequest`.** S0-prep-2 declared it along with
+4. **The `X-Shepherd-Spawn-Id` header parameter must already be on `POST /api/sessions`.** It is a
+   parameter on a **core** path, so S0-prep-2 declares it, not this stream — see Task 9. If the
+   grep fails, Task 9's progress panel ships without the correlation id rather than editing the
+   core path from here.
+5. **`issueRef` must already be on `CreateSessionRequest`.** S0-prep-2 declared it along with
    `mergeTrainPrs`, `research`, `epicAuthoring`, `attachmentNames` and `launchUiState`, because S9
    needs one of them and this stream needs the other five. If the grep fails, the create payload
    cannot carry an issue and Task 1 stops at the picker.
@@ -338,7 +343,7 @@ present:
 ```ts
 describe("issues", () => {
   test("answers the listing with the viewer, and 400 on a repo outside the root", async () => {
-    s.deps.stubs.resolveForge.forge = fx.fakeForge();
+    s.stubs.resolveForge.forge = fx.fakeForge();
     try {
       const ok = await get(`/api/issues?repo=${encodeURIComponent(s.validRepo)}`);
       expect(ok.status).toBe(200);
@@ -352,7 +357,7 @@ describe("issues", () => {
       expect(body.viewer).toBe("operator");
       expect(body.lightweight).toBe(false);
     } finally {
-      s.deps.stubs.resolveForge.forge = null;
+      s.stubs.resolveForge.forge = null;
     }
 
     // A repo path outside config.repoRoot is the only 400 this route has.
@@ -374,7 +379,7 @@ describe("issues", () => {
   });
 
   test("a throwing listing answers 200 with error: fetch_failed", async () => {
-    s.deps.stubs.resolveForge.forge = fx.fakeForge({
+    s.stubs.resolveForge.forge = fx.fakeForge({
       listIssues: async () => {
         throw new Error("rate limited");
       },
@@ -387,7 +392,7 @@ describe("issues", () => {
       const body = (await validateResponse("GET", "/api/issues", ok)) as { error?: string };
       expect(body.error).toBe("fetch_failed");
     } finally {
-      s.deps.stubs.resolveForge.forge = null;
+      s.stubs.resolveForge.forge = null;
     }
   });
 
@@ -705,7 +710,16 @@ struct IssueFilterState: Equatable, Sendable {
     /// What the Filter chip's badge shows. `hideOthers` counts only when there is a viewer to
     /// compare against — with none, the stage fails open and counting it would claim a filter
     /// that is not applied.
-    func activeCount(hasViewer: Bool) -> Int { … }
+    func activeCount(hasViewer: Bool) -> Int {
+        var count = 0
+        if hideOthers, hasViewer { count += 1 }
+        if hideActive { count += 1 }
+        if hideSubIssues { count += 1 }
+        if hideBlocked { count += 1 }
+        if author != nil { count += 1 }
+        if !labels.isEmpty { count += 1 }
+        return count
+    }
 }
 
 enum IssueFilter {
@@ -820,7 +834,13 @@ Mode is **derived, not stored** (`NewTask.svelte:~801`):
     /// `research ? .research : epicAuthoring ? .epic : plain ? .plain : .code`. Derived rather
     /// than stored because the three booleans are what the wire carries, and a stored enum would
     /// be a second source of truth that can disagree with them.
-    var mode: ComposeMode { … }
+    var mode: ComposeMode {
+        if research { return .research }
+        if epicAuthoring { return .epic }
+        if plain { return .plain }
+        return .code
+    }
+
     var modeLocked: Bool { research || epicAuthoring || plain }
     var sandboxLocked: Bool { research || epicAuthoring }
 ```
@@ -835,7 +855,17 @@ Mode is **derived, not stored** (`NewTask.svelte:~801`):
     /// Returning to Code deliberately does NOT restore them. The web does the same: once the
     /// operator has been shown "no guards", silently re-enabling them on a mode flip would be a
     /// guard they never agreed to.
-    func setMode(_ next: ComposeMode) { … }
+    func setMode(_ next: ComposeMode) {
+        research = next == .research
+        epicAuthoring = next == .epic
+        plain = next == .plain
+        guard next != .code else { return }
+        planGateEnabled = false
+        planGateTouched = true
+        autopilotEnabled = false
+        autopilotTouched = true
+        if sandboxLocked, sandboxProfile == .autonomous { sandboxProfile = nil }
+    }
 ```
 
 The `/design` pre-selection ships too: a prompt whose trimmed start matches `^/design(\s|$)` selects
@@ -1076,9 +1106,27 @@ Hold-to-reveal (⌘ held dims the sheet and shows key caps) is ported; it is pur
 **`spawn:progress`** is declared in the compose block's event markers in this task: a slow spawn
 (over ten seconds) shows the phase panel and a cancel button over
 `POST /api/spawns/{id}/cancel`. The frame is `{spawnId, phase, startedAt, completed[]}` with phases
-`base`, `worktree`, `prompt`, `launch`, `agent`, and the create carries the spawn id in the
-`x-shepherd-spawn-id` header — **a header the generated client must send**, which the kit adds as an
-explicit operation parameter in the contract rather than as an out-of-band `URLRequest` edit.
+`base`, `worktree`, `prompt`, `launch`, `agent`.
+
+**The spawn id rides the `X-Shepherd-Spawn-Id` request header on `POST /api/sessions`**
+(`ui/src/lib/api.ts:293`, server `src/server.ts:2404`) — it is deliberately *not* a body key, because
+`ALLOWED_KEYS` would reject it. That makes it a **parameter on a core path**, and a core path is
+outside this stream's ownership: adding `parameters:` under `/api/sessions` here would edit a
+schema-adjacent core section two streams share, which is exactly what §4's ownership rules forbid
+and what S0-prep-2 exists to prevent.
+
+So it splits, and the split is a **precondition on this task**:
+
+- **S0-prep-2 declares the header parameter** on `POST /api/sessions` (optional, `schema: {type:
+  string}`), beside `UsageLimits.observed` and the six create fields it already adds there, and
+  exposes a create path that accepts it. The existing `ShepherdClient.createSession` wrapper does
+  not take one.
+- **This stream declares only `spawn:progress` and `POST /api/spawns/{id}/cancel`**, both of which
+  are unambiguously `compose`'s.
+
+If the parameter is not on `main` when this task starts, the progress panel ships **without** the
+correlation id — the sheet shows a generic "starting…" state and no cancel button — and the cancel
+affordance lands in the integration lane. It does not ship by editing the core path from here.
 
 ---
 

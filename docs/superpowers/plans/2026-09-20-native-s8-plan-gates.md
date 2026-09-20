@@ -154,6 +154,19 @@ must survive review.
    A stream that edited the other stream's row would guarantee the rebase conflict the whole
    protocol exists to avoid.
 
+6. **`Session.planPhase` is not patched locally after `/go`, and that is a gap this stream must
+   NOT paper over.** `SessionStore.swift` treats `session:plangate` as an `.unknown` event
+   (`SessionStore.swift:575`) and no stream may edit the store, so after a successful `/go` the
+   local session still reads `planPhase == .planning` until the next full refresh — and
+   `canRelease(session:gate:)` is `gate.approved && planPhase == .planning`, so the button stays
+   offered for a gate that is already released. This stream handles it the only way it can without
+   touching an S0 file: `PlanModel` keeps its **own** `releasedGates: Set<String>`, stamped
+   optimistically on a 200 from `/go` and cleared by the next `session:plangate` frame carrying a
+   `planPhase`, and `canRelease` is read through `PlanModel` rather than off the session. The real
+   fix — teaching `SessionStore` to patch `planPhase` and `haltReason` from the two frames that
+   carry them — is an **S0 integration-lane task**, recorded here and in the PR body, and S10 needs
+   the same thing for `haltReason`.
+
 **Known parity gap, documented not fixed.** The web's plan-gate badge shows a spawn-notice pip
 (`spawnNotices.for(id, "plan")`, a corner marker for a clamped or failed reviewer launch) and the
 plan panel renders `SpawnFailureNotice`. `GET /api/spawn-notices` and `session:spawn-notices` are in
@@ -189,7 +202,8 @@ did not complete. Recorded for a later stream.
   second copy); `harness.ts`'s helpers; `deps.ts`'s `ContractDeps.stubs.planGateCache`.
 - Produces: schemas `PlanDecision`, `PlanSummaryCode`, `VisualBlock` and its thirteen member
   schemas plus `CalloutTone`, `FileTreeChange`, `FileTreeEntry`, `DiffAnnotation`, `PlanQuestion`,
-  `QuestionKind`; `PlanGate`, `PlanGateMap`, `PlanGateInflightEntry`, `PlanReviewTrigger`,
+  `QuestionKind`, `VisualBlockUnknown`; `PlanGate`, `PlanGateMap`, `PlanGateInflightEntry`,
+  `PlanReviewTrigger`,
   `PlanReviewResult`, `PlanQuotaStatus`, `PlanQuotaResult`, `RawAnswer`,
   `AnswerPlanQuestionsRequest`, `AnswerPlanQuestionsResult`, `SessionPlanGateEvent`,
   `SessionPlanGateReviewingEvent`, `SessionPlanGateActivityEvent`; operations `listPlanGates`,
@@ -299,8 +313,8 @@ each pins a status or body a naive port gets wrong:
 describe("plan gates", () => {
   test("the map and the in-flight list answer, and both 401", async () => {
     const id = await createSession("plan me");
-    s.deps.stubs.planGateCache.rows[id] = { ...fx.gate, sessionId: id };
-    s.deps.stubs.planGateCache.inflight = [{ ...fx.inflight, id }];
+    s.stubs.planGateCache.rows[id] = { ...fx.gate, sessionId: id };
+    s.stubs.planGateCache.inflight = [{ ...fx.inflight, id }];
     try {
       const map = await get("/api/plan-gates");
       expect(map.status).toBe(200);
@@ -318,8 +332,8 @@ describe("plan gates", () => {
       const rows = (await validateResponse("GET", "/api/plan-gates/inflight", flight)) as any[];
       expect(rows[0].effort).toBe("high");
     } finally {
-      delete s.deps.stubs.planGateCache.rows[id];
-      s.deps.stubs.planGateCache.inflight = [];
+      delete s.stubs.planGateCache.rows[id];
+      s.stubs.planGateCache.inflight = [];
     }
     for (const path of ["/api/plan-gates", "/api/plan-gates/inflight"]) {
       const anon = await get(path, false);
@@ -687,12 +701,38 @@ unfamiliar `type` as "render its markdown if it has one, otherwise skip", exactl
         type: { type: string, enum: [question-form] }
         id: { type: string }
         questions: { type: array, items: { $ref: "#/components/schemas/PlanQuestion" } }
+    VisualBlockUnknown:
+      type: object
+      additionalProperties: true
+      description: >-
+        The catch-all member of VisualBlock, and the ONLY reason an unfamiliar block type does not
+        cost the client the whole gate. Same idea as x-shepherd-open-enum for a string enum, one
+        level up: `type` is the discriminator with no enum on it, and `markdown` is the degraded
+        rendering every server-side block carries. A renderer that reaches this member draws the
+        markdown if there is one and skips the block otherwise.
+      required: [type]
+      properties:
+        type: { type: string }
+        markdown: { type: string }
     VisualBlock:
       description: >-
-        The thirteen typed plan/recap blocks (src/visual-blocks.ts:10-107), discriminated on `type`.
-        Shared by plan gates and recaps. A client that meets an unfamiliar `type` must degrade to the
-        block's own markdown where it has one and skip it otherwise — never fail the whole decode.
-      oneOf:
+        The thirteen typed plan/recap blocks (src/visual-blocks.ts:10-107), discriminated on `type`,
+        plus VisualBlockUnknown. Shared by plan gates and recaps.
+
+        **`anyOf`, deliberately not `oneOf`.** swift-openapi-generator renders a `oneOf` as a closed
+        Swift enum: thirteen cases and nothing else, so an unfamiliar `type` matches no member and
+        the decode of the WHOLE PlanGate fails — the opposite of the degradation this description
+        promises, and the failure mode `contracts/README.md`'s open-enum section exists to prevent.
+        An `anyOf` decodes each member independently into optional properties, so the fourteenth
+        always matches and the gate survives. This is the same shape `x-shepherd-open-enum` already
+        produces (`anyOf: [{$ref: <Name>Known}, {type: string}]`), one level up. A `discriminator:`
+        would be the other way to get an undocumented case, but nothing in this contract uses one
+        and `scripts/gen-contract-swift.ts` has no handling for it — do not introduce one here.
+
+        Before writing the renderer, run `bun run gen:contract-swift` and READ the generated
+        `Types.swift` for `VisualBlock`: assert against the property names the generator actually
+        produced, never against a guessed `.undocumented` case.
+      anyOf:
         - $ref: "#/components/schemas/VisualBlockRichText"
         - $ref: "#/components/schemas/VisualBlockCallout"
         - $ref: "#/components/schemas/VisualBlockFileTree"
@@ -706,6 +746,7 @@ unfamiliar `type` as "render its markdown if it has one, otherwise skip", exactl
         - $ref: "#/components/schemas/VisualBlockMermaid"
         - $ref: "#/components/schemas/VisualBlockWireframe"
         - $ref: "#/components/schemas/VisualBlockQuestionForm"
+        - $ref: "#/components/schemas/VisualBlockUnknown"
     PlanGate:
       type: object
       additionalProperties: true
@@ -1137,9 +1178,11 @@ and
 ```
 
 The other five follow the shape `ShepherdClient+Herd.swift` established. Tests assert: the gate map
-decodes with six block types; an **unknown** block `type` still decodes the surrounding gate (the
-generated `oneOf` enum has an undocumented case — read `Types.swift` for its spelling and assert the
-gate's other fields survive); `releasePlanGate` returns `false` for a 409 and does not throw;
+decodes with six block types; an **unknown** block `type` still decodes the surrounding gate — it
+lands on `VisualBlockUnknown`, the fourteenth `anyOf` member, and the test asserts both that the
+gate's other fields survive and that the unknown block's `markdown` is reachable. Read the generated
+`Types.swift` for the exact property spelling before writing that assertion; do not guess at an
+`.undocumented` case, which a bare `oneOf` would not have produced either; `releasePlanGate` returns `false` for a 409 and does not throw;
 `answerPlanQuestions` returns `delivered: false` without throwing; every read maps 401 to
 `.unauthenticated`; and the three 202 routes decode `.accepted`, not `.ok`.
 

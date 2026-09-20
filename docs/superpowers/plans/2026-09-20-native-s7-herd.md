@@ -110,22 +110,29 @@ grep -c "── stream: herd ──" contracts/openapi.yaml \
   && grep -q "KEYS_HERD" native/scripts/gen-strings.ts \
   && grep -q "planQuestionsUnanswered" native/Apps/ShepherdMac/Sources/App/SessionSignals.swift \
   && grep -q "prCache" test/contract/deps.ts \
+  && grep -q "PrReviewBlock" contracts/openapi.yaml \
+  && grep -q "handoffWho" contracts/openapi.yaml \
   && grep -qE "^\s+(internal )?let generated: Client" native/Sources/ShepherdKit/Client/ShepherdClient.swift \
   && grep -q "var gitStage" native/Apps/ShepherdMac/Sources/Sidebar/SidebarModel.swift \
   && echo OK || echo "S0-prep-2 MISSING — stop and tell the orchestrator"
 ```
 
-Expected: `3` then `OK`. Four of those greps deserve spelling out.
+Expected: `3` then `OK`. Five of those greps deserve spelling out.
 
 1. **Three markers** must exist — one in `components.schemas`, one in `paths`, one in
    `x-shepherd-events`. Without the third, appending an event guarantees a rebase conflict with
    every other milestone-3 stream.
-2. **`test/contract/deps.ts` must wire `prCache`.** Without S0-prep-2's harness task, `GET /api/git`
+2. **`GitState` must already carry `handoff`, `handoffWho`, `reviewBlock` and `headSha`**, and
+   `PrHandoff` / `PrReviewBlock` must exist beside it. S0-prep-2 added all six as core-schema work
+   (master plan §6.5). Without them this stream has no classifier inputs, and declaring a parallel
+   `HerdGitState` to work around it is explicitly forbidden — it would give the generated Swift two
+   unrelated structs for one wire object. If the greps fail, stop and tell the orchestrator.
+3. **`test/contract/deps.ts` must wire `prCache`.** Without S0-prep-2's harness task, `GET /api/git`
    answers `{}` and this stream can prove the status code but not the payload — which is the one
    thing the drift test exists for. Do not edit `deps.ts` to fix it; it is shared.
-3. **`ShepherdClient.generated` is `internal` on purpose** so a same-module extension can reach it
+4. **`ShepherdClient.generated` is `internal` on purpose** so a same-module extension can reach it
    (guarded by `GeneratedClientVisibilityTests`). Do not build a second `Client`.
-4. **`SidebarModel.gitStage` still exists.** It is the whole point of this stream. If the grep
+5. **`SidebarModel.gitStage` still exists.** It is the whole point of this stream. If the grep
    fails, somebody else already assigned it — stop and reconcile.
 
 ### Deliberate deviations from the stream brief
@@ -133,14 +140,20 @@ Expected: `3` then `OK`. Four of those greps deserve spelling out.
 The brief came from the parity inventory; reading the web and the server changed six things. Each
 is intentional and must survive review.
 
-1. **This stream declares its own `HerdGitState`, not S2's `GitState`.** The server's `GitState`
-   (`src/forge/types.ts:247-271`) carries five fields the contract's copy omits, and the classifier
-   needs every one of them: `noCi` (`checksCleared`), `reviewBlock` (`needsRework`), `handoff` and
-   `handoffWho` (the two waiting stages), and `headSha` (verdict freshness on the stepper). S2's
-   `GitState` lives in the `detail` block and is not this stream's to edit, so `herd` declares the
-   fuller description under its own name and `GitStateMap` is keyed on that. Both are legal
-   descriptions of the same wire object because both carry `additionalProperties: true`; the
-   duplication is the price of hard block ownership and is documented at the declaration.
+1. **This stream reuses `detail`'s `GitState`; it does NOT declare a second one.** The classifier
+   needs four fields the contract's copy omits — `reviewBlock` (`needsRework`), `handoff` and
+   `handoffWho` (the two waiting stages) and `headSha` (verdict freshness on the stepper).
+   (`noCi`, which the inventory also listed, is **already declared** at
+   `contracts/openapi.yaml:719`; only four are real.) An earlier draft had this stream declare a
+   parallel `GitState`. That was wrong: `GET /api/git` answers
+   `deps.prCache.snapshot()` (`src/server.ts:1061-1066`), which is `Record<string, GitState>` — the
+   *identical* object `GET /api/sessions/{id}/git` answers, as `src/forge/types.ts:279-281` states
+   outright. Two names for one wire object give the generated Swift two unrelated structs for the
+   same bytes and leave the `detail` tab permanently blind to `handoff`.
+   **S0-prep-2 adds the four properties (plus `PrHandoff` and `PrReviewBlock`) to the existing
+   `GitState`**, outside every marked block, as part of its Task 4 core-schema work; this stream's
+   `GitStateMap` simply `$ref`s `#/components/schemas/GitState`, exactly as the master plan's
+   Appendix A.1 always said. Verify it in the preconditions before Task 1.
 2. **`ReviewerEnv` is declared here**, because S7 merges before S8 and a schema name may appear in
    exactly one block. S8's plan `$ref`s `#/components/schemas/ReviewerEnv` rather than redeclaring
    it.
@@ -205,8 +218,7 @@ purpose in the web too.
   `startContractServer`, `login`, `mintToken`, `bearer`, `collectEvents`, `validateResponse`,
   `validateEvent`, `withAuth`, `restoreAuth`, `type ContractServer`; `deps.ts`'s
   `ContractDeps.stubs.{prCache,activity,claudeAlive,reviewCache}`.
-- Produces: schemas `HerdGitState`, `PrHandoff`, `PrReviewBlock`, `GitStateMap`, `SessionActivity`,
-  `ActivityMap`, `ClaudeAliveMap`, `ReviewDecision`, `ReviewVerdict`, `ReviewVerdictMap`,
+- Produces: schemas `GitStateMap`, `ActivityMap`, `ClaudeAliveMap`, `ReviewDecision`, `ReviewVerdict`, `ReviewVerdictMap`,
   `ReviewerEnv`, `ReviewerInflightEntry`, `PrReviewTrigger`, `PrReviewResult`, `SessionReviewEvent`,
   `SessionReviewingEvent`, `SessionCriticActivityEvent`, `SessionClaudeAliveEvent`; operations
   `gitStates`, `activityStates`, `claudeAliveStates`, `listReviews`, `listReviewsInflight`,
@@ -230,9 +242,10 @@ import type { SessionActivity } from "../../src/activity-signal";
 import type { ReviewVerdict } from "../../src/types";
 
 /** Every field the classifier reads, on one row, so a rename in src/forge/types.ts breaks
- *  `bun run typecheck` before it can drift past the contract. Typed with the SERVER's GitState —
- *  the contract's `detail` copy omits noCi/handoff/handoffWho/reviewBlock/headSha, which is
- *  exactly why this stream declares its own `HerdGitState`. */
+ *  `bun run typecheck` before it can drift past the contract. Typed with the SERVER's GitState,
+ *  which is the same object the contract's `detail` block describes — S0-prep-2 added the four
+ *  properties it was missing (handoff/handoffWho/reviewBlock/headSha) to that schema, so there is
+ *  exactly one description of this payload. */
 export const gitOpenGreenHandedOff: GitState = {
   kind: "github",
   state: "open",
@@ -286,6 +299,13 @@ export const verdict: ReviewVerdict = {
   finalRoundPending: false,
   finalRoundTimeoutMs: 900_000,
   updatedAt: 1_800_000_060_000,
+  // `ReviewVerdict` (src/types.ts:851-882) makes these five REQUIRED. Omitting any of them fails
+  // `bun run typecheck`, which is a gate on this branch, before a single contract test runs.
+  patchId: "",
+  streakReviews: 1,
+  reviewedPatchIds: [],
+  errorRound: 0,
+  seenNoteIds: [],
 };
 
 export const reviewerEnv = {
@@ -356,23 +376,23 @@ describe("bulk git", () => {
     const id = await createSession("classify me");
     // Seeded through the harness dep S0-prep-2 wired: without it the route answers {} and the
     // schema is declared-but-unproven. Restored at the end of the test, per the stubs contract.
-    s.deps.stubs.prCache.rows[id] = fx.gitOpenGreenHandedOff;
+    s.stubs.prCache.rows[id] = fx.gitOpenGreenHandedOff;
     try {
       const ok = await get("/api/git");
       expect(ok.status).toBe(200);
       const body = (await validateResponse("GET", "/api/git", ok)) as Record<string, unknown>;
       const row = body[id] as Record<string, unknown>;
-      // Each of the five is a field the contract's `detail` GitState omits and the cascade needs.
+      // Four of these are the properties S0-prep-2 added to `GitState`; `noCi` was already there.
       expect(row.noCi).toBe(false);
       expect(row.handoff).toBe("reviewer");
       expect(row.handoffWho).toBe("reviewer-one");
       expect(row.headSha).toBe(fx.gitOpenGreenHandedOff.headSha);
-      s.deps.stubs.prCache.rows[id] = fx.gitChangesRequested;
+      s.stubs.prCache.rows[id] = fx.gitChangesRequested;
       const second = await get("/api/git");
       const blocked = ((await validateResponse("GET", "/api/git", second)) as Record<string, any>)[id];
       expect(blocked.reviewBlock.state).toBe("changes_requested");
     } finally {
-      delete s.deps.stubs.prCache.rows[id];
+      delete s.stubs.prCache.rows[id];
     }
   });
 
@@ -386,8 +406,8 @@ describe("bulk git", () => {
 describe("bulk activity and liveness", () => {
   test("both answer maps and both 401", async () => {
     const id = await createSession("активность");
-    s.deps.stubs.activity.rows[id] = fx.activity;
-    s.deps.stubs.claudeAlive.rows[id] = true;
+    s.stubs.activity.rows[id] = fx.activity;
+    s.stubs.claudeAlive.rows[id] = true;
     try {
       const act = await get("/api/activity");
       expect(act.status).toBe(200);
@@ -400,8 +420,8 @@ describe("bulk activity and liveness", () => {
       const aliveBody = (await validateResponse("GET", "/api/claude-alive", alive)) as Record<string, boolean>;
       expect(aliveBody[id]).toBe(true);
     } finally {
-      delete s.deps.stubs.activity.rows[id];
-      delete s.deps.stubs.claudeAlive.rows[id];
+      delete s.stubs.activity.rows[id];
+      delete s.stubs.claudeAlive.rows[id];
     }
 
     for (const path of ["/api/activity", "/api/claude-alive"]) {
@@ -415,8 +435,8 @@ describe("bulk activity and liveness", () => {
 describe("reviews", () => {
   test("the verdict map and the in-flight list both answer, and both 401", async () => {
     const id = await createSession("review me");
-    s.deps.stubs.reviewCache.rows[id] = { ...fx.verdict, sessionId: id };
-    s.deps.stubs.reviewCache.inflight = [{ ...fx.reviewerEnv, id }];
+    s.stubs.reviewCache.rows[id] = { ...fx.verdict, sessionId: id };
+    s.stubs.reviewCache.inflight = [{ ...fx.reviewerEnv, id }];
     try {
       const verdicts = await get("/api/reviews");
       expect(verdicts.status).toBe(200);
@@ -430,8 +450,8 @@ describe("reviews", () => {
       expect(rows[0].id).toBe(id);
       expect(rows[0].provider).toBe("claude");
     } finally {
-      delete s.deps.stubs.reviewCache.rows[id];
-      s.deps.stubs.reviewCache.inflight = [];
+      delete s.stubs.reviewCache.rows[id];
+      s.stubs.reviewCache.inflight = [];
     }
 
     for (const path of ["/api/reviews", "/api/reviews/inflight"]) {
@@ -488,25 +508,33 @@ describe("review-pr trigger", () => {
 
 describe("events", () => {
   test("the four herd frames validate against their declared schemas", async () => {
-    const frames = collectEvents(s, EVENTS);
-    s.deps.events.emit("session:review", { id: "sess_fixture", review: fx.verdict });
-    s.deps.events.emit("session:reviewing", {
-      id: "sess_fixture",
-      reviewing: true,
-      env: { provider: "claude", model: "claude-opus-5", effort: "high" },
+    // `collectEvents(server, token, drive)` — it opens the socket, runs `drive`, then settles.
+    // Emitting before it is listening loses the frames.
+    const frames = await collectEvents(s, token, async () => {
+      s.deps.events.emit("session:review", { id: "sess_fixture", review: fx.verdict });
+      s.deps.events.emit("session:reviewing", {
+        id: "sess_fixture",
+        reviewing: true,
+        env: { provider: "claude", model: "claude-opus-5", effort: "high" },
+      });
+      s.deps.events.emit("session:critic-activity", {
+        id: "sess_fixture",
+        summary: "reading src/limiter.ts",
+      });
+      s.deps.events.emit("session:claude-alive", { id: "sess_fixture", alive: false });
     });
-    s.deps.events.emit("session:critic-activity", {
-      id: "sess_fixture",
-      summary: "reading src/limiter.ts",
-    });
-    s.deps.events.emit("session:claude-alive", { id: "sess_fixture", alive: false });
-    for (const frame of await frames) await validateEvent(frame);
+    for (const frame of frames) validateEvent(frame.event, frame.data);
   });
 });
 
-describe("coverage", () => {
-  test("every declared herd operation and event was exercised", () => {
-    expect(coverage(OPERATIONS, EVENTS)).toEqual([]);
+// Stays LAST in this file, like every other stream's gate.
+describe("herd coverage gate", () => {
+  test("every operation and event in the herd block was exercised", () => {
+    // `coverage()` takes no arguments and returns `{operations, events}` as Sets — the same
+    // shape `detail.test.ts:397-403` and `actions.test.ts:302` use. Do not invent a signature.
+    const { operations, events } = coverage();
+    expect(OPERATIONS.filter((o) => !operations.has(o))).toEqual([]);
+    expect(EVENTS.filter((e) => !events.has(e))).toEqual([]);
   });
 });
 ```
@@ -525,84 +553,30 @@ the block exists but holds nothing yet.
 Paste between `# ── stream: herd ──` and `# ── /stream: herd ──` in `components.schemas:`
 (four-space indent):
 
+**`PrHandoff` and `PrReviewBlock` are NOT declared here.** They are properties of the core
+`GitState`, which S0-prep-2 extended (its Task 4), so they live beside it outside every marked
+block. This stream `$ref`s them through `GitState` and declares neither. The preconditions check
+for them.
+
 ```yaml
-    PrHandoff:
-      type: string
-      x-shepherd-open-enum: true
-      description: >-
-        GitState.handoff (src/forge/types.ts:262). Who the PR is waiting on. ABSENT means it is
-        waiting on the operator, which is the third state and has no member here.
-      enum: [reviewer, merger]
-    PrReviewBlock:
-      type: object
-      additionalProperties: true
-      description: PrReviewBlock (src/forge/types.ts:151-155). Present ⇒ a reviewer has requested changes and nothing merges until it clears.
-      required: [reviewer, state]
-      properties:
-        reviewer: { type: string }
-        state: { type: string, enum: [changes_requested] }
-        latestAt: { type: [integer, "null"] }
-    HerdGitState:
-      type: object
-      additionalProperties: true
-      description: >-
-        GET /api/git's per-session PR state. The SAME wire object as the detail block's `GitState`,
-        described more fully: the herd classifier reads five fields the per-session Git tab never
-        needed — noCi, handoff, handoffWho, reviewBlock and headSha — and a stream may not edit
-        another stream's schema. Both descriptions carry additionalProperties: true, so both are
-        true of the same payload. Ported rule-for-rule from src/forge/types.ts:199-271.
-      required: [state, checks, deployConfigured]
-      properties:
-        kind: { $ref: "#/components/schemas/ForgeKind" }
-        state: { $ref: "#/components/schemas/PrState" }
-        number: { type: integer }
-        url: { type: string }
-        title: { type: string }
-        createdAt: { type: integer }
-        mergeable: { type: [boolean, "null"], description: null while the host is still computing. }
-        checks: { $ref: "#/components/schemas/ChecksState" }
-        mergeStateStatus: { $ref: "#/components/schemas/MergeStateStatus" }
-        isDraft: { type: boolean, description: 'Absent ⇒ false. A green idle DRAFT outranks every handoff (herd-partition.ts:156-161).' }
-        isFork: { type: boolean }
-        noCi:
-          type: boolean
-          description: >-
-            Absent ⇒ false. The repo has no CI workflows at all, which is what makes checks "none"
-            a CLEARED state rather than a pending one (ui/src/lib/checks-cleared.ts:7-9). Without
-            this field an open PR on a CI-less repo can never leave the active group.
-        authorLogin: { type: string }
-        requestedReviewers: { type: array, items: { type: string } }
-        latestReview: { $ref: "#/components/schemas/PrReview" }
-        handoff: { $ref: "#/components/schemas/PrHandoff" }
-        handoffWho:
-          type: string
-          description: The single person a handoff names. Fills {who} in the waiting-group headings; absent ⇒ the "_multi" heading.
-        reviewBlock: { $ref: "#/components/schemas/PrReviewBlock" }
-        headSha:
-          type: string
-          description: Head commit the PR currently points at. A critic verdict whose headSha differs is STALE and must not tint the stepper (ui/src/lib/verdict-freshness.ts:23-33).
-        issueUrl: { type: string }
-        deployConfigured: { type: boolean }
     GitStateMap:
       type: object
-      additionalProperties: { $ref: "#/components/schemas/HerdGitState" }
-      description: GET /api/git. Session id -> PR state. Absent means this session has no PR state cached, which the classifier treats as "no git-decided stage".
-    SessionActivity:
-      type: object
-      additionalProperties: true
-      description: Copied from SessionActivity in src/activity-signal.ts:6-21. The transcript heartbeat one session's row draws.
-      required: [lastActivityTs, summary, recentTs, recentErrTs]
-      properties:
-        lastActivityTs: { type: integer, description: 0 when nothing has happened yet. }
-        summary: { type: [string, "null"] }
-        recentTs: { type: array, items: { type: integer }, description: Oldest first. }
-        recentErrTs: { type: array, items: { type: integer }, description: A subset of recentTs that errored. }
-        runtimeModel: { type: string }
-        runtimeEffort: { type: string }
+      additionalProperties: { $ref: "#/components/schemas/GitState" }
+      description: >-
+        GET /api/git. Session id -> PR state. Absent means this session has no PR state cached,
+        which the classifier treats as "no git-decided stage". `$ref`s the `detail` block's
+        `GitState` — the SAME wire object (src/forge/types.ts:279-281), carrying the four
+        properties S0-prep-2 added for this classifier (handoff, handoffWho, reviewBlock, headSha)
+        plus the `noCi` that was already there. Never a second copy: two names for one payload give
+        the generated Swift two unrelated structs.
     ActivityMap:
       type: object
-      additionalProperties: { $ref: "#/components/schemas/SessionActivity" }
-      description: GET /api/activity. Session id -> heartbeat. Absent means no activity has been recorded.
+      additionalProperties: { $ref: "#/components/schemas/SessionActivitySignal" }
+      description: >-
+        GET /api/activity. Session id -> heartbeat. Absent means no activity has been recorded.
+        `$ref`s the `detail` block's existing `SessionActivitySignal` (contracts/openapi.yaml:547),
+        which already describes this exact payload; declaring a second `SessionActivity` beside it
+        would be the same mistake as a second git state.
     ClaudeAliveMap:
       type: object
       additionalProperties: { type: boolean }
@@ -622,7 +596,7 @@ Paste between `# ── stream: herd ──` and `# ── /stream: herd ──`
       required: [sessionId, headSha, decision, summary, body, findings, addressRound, addressCap, finalRoundPending, finalRoundTimeoutMs, updatedAt]
       properties:
         sessionId: { type: string }
-        headSha: { type: string, description: The commit this verdict judged. Compare against HerdGitState.headSha before tinting anything. }
+        headSha: { type: string, description: The commit this verdict judged. Compare against GitState.headSha before tinting anything. }
         decision: { $ref: "#/components/schemas/ReviewDecision" }
         summary: { type: string }
         body: { type: string, description: Markdown. }
@@ -868,11 +842,11 @@ git commit -m "feat(contract): bulk git, activity, liveness and critic reviews"
   `ShepherdError.from(_:route:)`, `.fromUndocumented(statusCode:route:)`, `.unauthenticated`,
   `.notFound`; `FakeShepherdServer`, `InMemoryCredentialStore`, `StoredCredential`, `ServerProfile`;
   `OpenEnum` from `Model/OpenEnum.swift`.
-- Produces on `ShepherdClient`: `gitStates() -> [String: HerdGitState]`,
-  `activityStates() -> [String: SessionActivity]`, `claudeAliveStates() -> [String: Bool]`,
+- Produces on `ShepherdClient`: `gitStates() -> [String: GitState]`,
+  `activityStates() -> [String: SessionActivitySignal]`, `claudeAliveStates() -> [String: Bool]`,
   `reviews() -> [String: ReviewVerdict]`, `reviewsInflight() -> [ReviewerInflightEntry]`,
-  `reviewPr(sessionID:) -> PrReviewResult`; the public typealiases `HerdGitState`, `PrHandoff`,
-  `PrHandoffKnown`, `PrReviewBlock`, `SessionActivity`, `ReviewVerdict`, `ReviewDecision`,
+  `reviewPr(sessionID:) -> PrReviewResult`; the public typealiases `PrHandoff`,
+  `PrHandoffKnown`, `PrReviewBlock`, `ReviewVerdict`, `ReviewDecision`,
   `ReviewDecisionKnown`, `ReviewerEnv`, `ReviewerInflightEntry`, `PrReviewTrigger`,
   `PrReviewTriggerKnown`, `PrReviewResult`, and the three `OpenEnum` conformances.
 
@@ -886,8 +860,8 @@ that must be present, because each is a mapping this stream gets wrong if it is 
 ```swift
     @Test func gitStatesDecodesTheFiveFieldsTheClassifierNeeds() async throws {
         let server = FakeShepherdServer()
-        server.route("GET", "/api/git") { _ in
-            (200, """
+        server.on("GET", "/api/git") { _ in
+            FakeResponse(statusCode: 200, body: Data("""
             {"sess_a":{"kind":"github","state":"open","checks":"success","noCi":false,
              "handoff":"reviewer","handoffWho":"r1","headSha":"abc","deployConfigured":false,
              "reviewBlock":{"reviewer":"r1","state":"changes_requested","latestAt":1}}}
@@ -904,7 +878,7 @@ that must be present, because each is a mapping this stream gets wrong if it is 
 
     @Test func anUnknownHandoffStillDecodes() async throws {
         let server = FakeShepherdServer()
-        server.route("GET", "/api/git") { _ in
+        server.on("GET", "/api/git") { _ in
             (200, #"{"sess_a":{"state":"open","checks":"none","deployConfigured":false,"handoff":"triager"}}"#)
         }
         let row = try #require(try await makeClient(server).gitStates()["sess_a"])
@@ -917,7 +891,7 @@ that must be present, because each is a mapping this stream gets wrong if it is 
     @Test func reviewPrMapsBothFourOhFourBodiesToNotFound() async throws {
         for body in [#"{"error":"not found"}"#, #"{"error":"no forge for this repo"}"#] {
             let server = FakeShepherdServer()
-            server.route("POST", "/api/sessions/sess_a/review-pr") { _ in (404, body) }
+            server.on("POST", "/api/sessions/sess_a/review-pr") { _ in (404, body) }
             await #expect(throws: ShepherdError.notFound) {
                 _ = try await makeClient(server).reviewPr(sessionID: "sess_a")
             }
@@ -926,7 +900,7 @@ that must be present, because each is a mapping this stream gets wrong if it is 
 
     @Test func reviewPrAcceptsTheTwoOhTwo() async throws {
         let server = FakeShepherdServer()
-        server.route("POST", "/api/sessions/sess_a/review-pr") { _ in
+        server.on("POST", "/api/sessions/sess_a/review-pr") { _ in
             (202, #"{"ok":true,"status":"started"}"#)
         }
         let result = try await makeClient(server).reviewPr(sessionID: "sess_a")
@@ -936,7 +910,7 @@ that must be present, because each is a mapping this stream gets wrong if it is 
     @Test func everyReadMapsFourOhOneToUnauthenticated() async throws {
         for path in ["/api/git", "/api/activity", "/api/claude-alive", "/api/reviews", "/api/reviews/inflight"] {
             let server = FakeShepherdServer()
-            server.route("GET", path) { _ in (401, #"{"error":"unauthorized"}"#) }
+            server.on("GET", path) { _ in (401, #"{"error":"unauthorized"}"#) }
             let client = try makeClient(server)
             await #expect(throws: ShepherdError.unauthenticated) {
                 switch path {
@@ -958,7 +932,7 @@ swift test --package-path native --filter ShepherdClientHerd 2>&1 | tail -5
 git checkout -- native/Package.resolved
 ```
 
-Expected: compile failures naming `gitStates`, `HerdGitState` and the rest.
+Expected: compile failures naming `gitStates`, `GitState` and the rest.
 
 - [ ] **Step 3: Write the extension**
 
@@ -969,11 +943,10 @@ import Foundation
 
 // Short names for the herd schemas, alongside Model/PublicTypes.swift. Typealiases, not wrappers:
 // one definition of each type, still from the contract.
-public typealias HerdGitState = Components.Schemas.HerdGitState
 public typealias PrHandoff = Components.Schemas.PrHandoff
 public typealias PrHandoffKnown = Components.Schemas.PrHandoffKnown
 public typealias PrReviewBlock = Components.Schemas.PrReviewBlock
-public typealias SessionActivity = Components.Schemas.SessionActivity
+public typealias SessionActivitySignal = Components.Schemas.SessionActivitySignal
 public typealias ReviewVerdict = Components.Schemas.ReviewVerdict
 public typealias ReviewDecision = Components.Schemas.ReviewDecision
 public typealias ReviewDecisionKnown = Components.Schemas.ReviewDecisionKnown
@@ -1002,7 +975,7 @@ extension ShepherdClient {
     /// `GET /api/git`. Session id to PR state, for every session the poller has state for.
     /// A session absent from the map has no cached PR state, which the classifier reads as "no
     /// git-decided stage" — not as "no PR".
-    public func gitStates() async throws -> [String: HerdGitState] {
+    public func gitStates() async throws -> [String: GitState] {
         do {
             switch try await generated.gitStates(.init()) {
             case .ok(let ok): return try ok.body.json.additionalProperties
@@ -1014,7 +987,7 @@ extension ShepherdClient {
     }
 
     /// `GET /api/activity`. Session id to transcript heartbeat.
-    public func activityStates() async throws -> [String: SessionActivity] {
+    public func activityStates() async throws -> [String: SessionActivitySignal] {
         do {
             switch try await generated.activityStates(.init()) {
             case .ok(let ok): return try ok.body.json.additionalProperties
@@ -1169,7 +1142,7 @@ git commit -m "feat(mac): herd catalog keys"
 `native/Apps/ShepherdMac/Tests/HerdClassifierTests.swift`.
 
 **Interfaces:**
-- Consumes: `Session`, `HerdGitState`, `ReviewVerdict`, `HerdStage` and `HerdPartition` (both
+- Consumes: `Session`, `GitState`, `ReviewVerdict`, `HerdStage` and `HerdPartition` (both
   already in `Sources/Sidebar/`).
 - Produces: `HerdClassifier.checksCleared(_:noCi:)`, `.terminalStage(…)`, `.stageOf(…)`,
   `.handoffStage(_:)`, `.isReworkRunning(…)`, `.verdictStale(_:git:)`, `.prReadinessBlock(_:)`,
@@ -1178,7 +1151,7 @@ git commit -m "feat(mac): herd catalog keys"
 
 **This is the stream's risk.** `HerdPartition.stageOf` already exists and already ranks candidates
 by `precedence` — that machinery is right and stays. What is missing is the thing that *produces* a
-candidate from a `HerdGitState`, and the web's producer is a flat first-match cascade with five
+candidate from a `GitState`, and the web's producer is a flat first-match cascade with five
 git-free checks interleaved among the git-decided ones. Every rule below is quoted from the web at
 the declaration, and every one gets a test.
 
@@ -1279,6 +1252,17 @@ backwards:
         #expect(!HerdClassifier.isReworkRunning(running, verdict: dismissed, now: 1, planRework: false))
         // The plan half is S8's and is injected; true alone is enough.
         #expect(HerdClassifier.isReworkRunning(running, verdict: nil, now: 1, planRework: true))
+        // The `workingBlocked` default is `[:]`, so a call that forgets to pass `ctx.workingBlocked`
+        // silently drops every working-while-blocked session out of `reworkRunning` — the exact
+        // case `displayStatus` exists for. Both `stage` call sites pass it; this asserts why.
+        let blockedButWorking = Fixtures.session(status: "blocked")
+        #expect(
+            !HerdClassifier.isReworkRunning(
+                blockedButWorking, verdict: fresh, now: 1, planRework: false))
+        #expect(
+            HerdClassifier.isReworkRunning(
+                blockedButWorking, verdict: fresh, now: 1, planRework: false,
+                workingBlocked: [blockedButWorking.id: true]))
     }
 ```
 
@@ -1330,7 +1314,7 @@ struct HerdContext: Sendable {
 /// `HerdPartition` (S3's, already shipped) keeps the *ranking* — it takes candidate stages and
 /// picks the lowest `precedence`, which reproduces "first match wins" in whatever order candidates
 /// are produced. What was missing, and what this type is, is the producer: the cascade that turns
-/// a `HerdGitState` into a candidate.
+/// a `GitState` into a candidate.
 enum HerdClassifier {
     /// `checksCleared` (`ui/src/lib/checks-cleared.ts:7-9`), drift-locked to `src/checks-gate.ts`.
     ///
@@ -1349,19 +1333,21 @@ enum HerdClassifier {
     /// omitting either files a live rework under "changes requested" where the operator would read
     /// it as their turn.
     static func isIdleOpenCleared(
-        _ session: Session, git: HerdGitState?, ctx: HerdContext
+        _ session: Session, git: GitState?, ctx: HerdContext
     ) -> Bool {
         guard let git, git.state.known == .open else { return false }
         guard checksCleared(git.checks, noCi: git.noCi ?? false) else { return false }
         guard session.status.known != .running, session.status.known != .blocked else { return false }
         guard !ctx.reviewing else { return false }
-        return !isReworkRunning(session, verdict: ctx.verdict, now: ctx.now, planRework: ctx.planRework)
+        return !isReworkRunning(
+            session, verdict: ctx.verdict, now: ctx.now, planRework: ctx.planRework,
+            workingBlocked: ctx.workingBlocked)
     }
 
     /// `terminalStage` (`herd-partition.ts:116-135`), in order. `nil` means "fall through to the
     /// handoff/active branch".
     static func terminalStage(
-        _ session: Session, git: HerdGitState?, ctx: HerdContext
+        _ session: Session, git: GitState?, ctx: HerdContext
     ) -> HerdStage? {
         if git?.state.known == .merged { return .merged }
         if HerdPartition.isMerging(session, now: ctx.now) { return .merging }
@@ -1373,7 +1359,9 @@ enum HerdClassifier {
         // No git requirement at all: a readyToMerge session with no PR is still Ready.
         if session.readyToMerge { return .ready }
         if ctx.reviewing { return .reviewerRunning }
-        if isReworkRunning(session, verdict: ctx.verdict, now: ctx.now, planRework: ctx.planRework) {
+        if isReworkRunning(
+            session, verdict: ctx.verdict, now: ctx.now, planRework: ctx.planRework,
+            workingBlocked: ctx.workingBlocked) {
             return .reworkRunning
         }
         if git?.state.known == .open, git?.checks.known == .pending { return .ciRunning }
@@ -1382,7 +1370,7 @@ enum HerdClassifier {
     }
 
     /// `handoffStage` (`herd-partition.ts:156-161`). Draft outranks both named handoffs.
-    static func handoffStage(_ git: HerdGitState) -> HerdStage {
+    static func handoffStage(_ git: GitState) -> HerdStage {
         if git.isDraft == true { return .draftAwaitingSignoff }
         switch git.handoff?.known {
         case .reviewer: return .waitingOnReviewer
@@ -1396,7 +1384,7 @@ enum HerdClassifier {
     /// `greenIdle` reads the RAW `session.status`, never `displayStatus` — the web says so outright
     /// at `:174-176`. The working-while-blocked upgrade is display-only; a classifier that used it
     /// would file a session that is still producing output under a handoff group.
-    static func stage(_ session: Session, git: HerdGitState?, ctx: HerdContext) -> HerdStage {
+    static func stage(_ session: Session, git: GitState?, ctx: HerdContext) -> HerdStage {
         if let terminal = terminalStage(session, git: git, ctx: ctx) { return terminal }
         guard let git, git.state.known == .open,
             checksCleared(git.checks, noCi: git.noCi ?? false),
@@ -1614,9 +1602,17 @@ Three ordering facts this task must respect, and which its tests assert:
 1. **`install(_:)` may run before any activation.** `AppModel.register(_:)` builds the extension
    immediately only if a store already exists. The closure assignments above must therefore not
    assume `app.extension(…)` is non-nil at install time — `SessionSignals.gitMerged` resolves
-   lazily and is fine; the `SidebarModel` and `NotificationsModel` branches are guarded and are
-   re-run by the integration lane's `SessionSignals.connect(app)` call, which already runs after
-   every install.
+   lazily and is fine. The `SidebarModel` and `NotificationsModel` branches, however, are **not**
+   re-run by `SessionSignals.connect(app)` — read the file: `connect` assigns only its own two
+   closures (`workingBlocked` and `gitMerged`, the latter from S2's detail cache), and nothing
+   else. `AppModel.makeExtensions` also rebuilds extensions per activation without re-running any
+   of this. So `HerdStream.install(app)` must **not** capture an extension instance: every one of
+   the assignments here resolves `app.extension(…)` lazily, inside the closure, on every call —
+   the same weak-capture-and-resolve-late discipline `SessionSignals.connect` itself uses and for
+   the same reason. A test asserts the closures still answer correctly after a second activation.
+   The PR body records that the integration lane must place `HerdInstall.run(app)` **after**
+   `SidebarInstall.run(app)` and `NotificationsStream.install(app)` but that this is an ordering
+   nicety, not a correctness requirement, precisely because nothing is captured.
 2. **Registration order in `StreamRegistrations` matters for the two guarded branches.**
    `SidebarInstall.run(app)` and `NotificationsStream.install(app)` both run before this line in
    the list the integration lane will produce; the PR body says so explicitly so the lane places it
@@ -1679,8 +1675,8 @@ plus the status chip. This task adds the seven that are this stream's and leaves
 | Badge | Trigger | Source |
 | --- | --- | --- |
 | CLI | `showCli` — false when every visible session shares one provider | `session.agentProvider` |
-| Issue | `session.issueNumber != nil`; interactive when a URL resolves | `HerdGitState.issueUrl` ?? `session` |
-| PR | `prBadgeLabel(git)`: open → `#n`, merged, closed, none → no badge. Sub-markers: a CI dot when open and `checks != .none`, a review marker from `latestReview`, DRAFT when open and `isDraft`, a stale marker for `behind`/`conflict` | `HerdGitState` |
+| Issue | `session.issueNumber != nil`; interactive when a URL resolves | `GitState.issueUrl` ?? `session` |
+| PR | `prBadgeLabel(git)`: open → `#n`, merged, closed, none → no badge. Sub-markers: a CI dot when open and `checks != .none`, a review marker from `latestReview`, DRAFT when open and `isDraft`, a stale marker for `behind`/`conflict` | `GitState` |
 | Critic | `reviewing` → the reviewing chip, else a verdict label. Round counter `min(addressRound, addressCap)/addressCap` with the stall status | `HerdSignals.verdicts`, `.reviewing` |
 | Heartbeat | `activity.recentTs`, with `recentErrTs` tinted | `HerdSignals.activity` |
 | Autopilot | rendered only when **not** reviewing — REVIEWING outranks it; then paused → complete → unavailable | `session.autopilot*` |
@@ -1695,7 +1691,7 @@ Build-queue and plan-gate badges are **not** this stream's: the first is S9's, t
 `HerdSignals` exposes nothing for either; S8's badge registers through S8's own view.
 
 `HerdRowGit.swift` is the inline git rail (inventory D3): PR number, state, CI dot and the merge
-blockers, as a compact row under the session name, rendered only when a `HerdGitState` exists.
+blockers, as a compact row under the session name, rendered only when a `GitState` exists.
 
 Tests: one per badge trigger, one asserting the status chip is mutually exclusive, and one
 asserting the CLI badge disappears when every visible session shares a provider.
@@ -1829,7 +1825,7 @@ are reachable, and the Ready lens is correct.
   cache, and `NotificationsModel.extraAttention` gets its ci-red feed.
 
 ## Deliberate deviations
-- **`HerdGitState` is declared here rather than reusing S2's `GitState`.** The classifier needs
+- **`GitState` is declared here rather than reusing S2's `GitState`.** The classifier needs
   `noCi`, `handoff`, `handoffWho`, `reviewBlock` and `headSha`, none of which the `detail` block's
   schema declares — and a stream may not edit another stream's block. Both descriptions carry
   `additionalProperties: true` and both are true of the same payload.
@@ -1887,14 +1883,16 @@ named where it appears: `HerdContext.planRework` (S8's), the generated case name
 (read `Types.swift`), `Fixtures.session(…)`'s real signature (read `PreviewData.swift`), and
 `ShepherdError`'s 5xx case name (read `ShepherdError.swift`).
 
-**Type consistency.** `HerdGitState` is one schema, one typealias, and the same type in the kit,
+**Type consistency.** `GitState` is one schema, one typealias, and the same type in the kit,
 `HerdSignals.git`, `HerdClassifier`'s every signature and the badge table. `HerdContext`'s five
 members are the same five in `isIdleOpenCleared`, `terminalStage`, `stage` and the tests.
 `HerdStage` is S3's existing fourteen-case enum and is never redeclared; `StepperStage` is a
 separate five-case enum and the plan says so twice, because the web has two `STAGE_ORDER`s.
-`ReviewVerdict`, `ReviewerEnv`, `ReviewerInflightEntry`, `PrReviewResult`, `PrHandoff` and
-`SessionActivity` are each declared once in Task 1, typealiased once in Task 2, and consumed by name
-everywhere after. `HerdReads`'s five closures are the same five in `.live`, in `.stub` and in
+`ReviewVerdict`, `ReviewerEnv`, `ReviewerInflightEntry` and `PrReviewResult` are each declared once
+in Task 1, typealiased once in Task 2, and consumed by name everywhere after. `GitState`,
+`SessionActivitySignal`, `PrHandoff` and `PrReviewBlock` are **not** declared by this stream at all:
+the first two are the `detail` block's, the last two are core properties of `GitState` that
+S0-prep-2 added, and this block only `$ref`s them. `HerdReads`'s five closures are the same five in `.live`, in `.stub` and in
 `refresh()`.
 
 **No duplicate path claims.** The six paths this block adds — `/api/git`, `/api/activity`,

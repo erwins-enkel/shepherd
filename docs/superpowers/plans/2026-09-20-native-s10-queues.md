@@ -133,7 +133,7 @@ Reading the web and the server changed six things. Each is intentional and must 
    lenses now have one; enabling them is a **two-line integration-lane commit** after both merge.
    That is strictly better than two streams editing one enum, and the PR body says so. The panels
    are reachable and testable meanwhile through their own accessibility identifiers.
-2. **`GET /api/up-next` is not declared.** `handleUpNextGet` (`src/server.ts:1201-1214`) answers the
+2. **`GET /api/up-next` is not declared.** `handleUpNextGet` (`src/server.ts:1262-1273`) answers the
    JSON literal `null` when no snapshot is cached, and a whole-body `null` cannot be expressed in a
    response position: `scripts/gen-contract-swift.ts:225-233` throws for a nullable union outside a
    property schema, and swift-openapi-generator cannot make a nullable *object* an optional response
@@ -171,7 +171,7 @@ re-reads it in `resync()`.
 
 | # | Task | Key files |
 | --- | --- | --- |
-| 1 | Contract: twelve operations, six events | `contracts/openapi.yaml`, `test/contract/queues{,-fixtures}.ts` |
+| 1 | Contract: thirteen operations, six events | `contracts/openapi.yaml`, `test/contract/queues{,-fixtures}.ts` |
 | 2 | **The Done panel** — no contract work needed | `Sources/Queues/{DonePanelView,DoneRecapView}.swift` |
 | 3 | Kit: `ShepherdClient+Queues.swift` | `ShepherdClient+Queues.swift` |
 | 4 | Strings: `KEYS_QUEUES` + the web's existing keys | `gen-strings.ts`, `ui/messages/*.json` |
@@ -190,9 +190,12 @@ re-reads it in `resync()`.
 `test/contract/queues-fixtures.ts`, `test/contract/queues.test.ts`; regenerate the derived files.
 
 **Interfaces:**
-- Consumes: the core block's `Session`, `Ok`, `Error`, `HoldReason`, `AgentProvider`,
-  `#/components/responses/Unauthorized`; the `sidebar` block's `HoldReason` if that is where it
-  lives — check before `$ref`ing; `harness.ts`'s helpers; `deps.ts`'s `stubs.stranded`.
+- Consumes: the core block's `Session`, `Ok`, `Error`, `AgentProvider`, `CreateSessionRequest`,
+  `IssueRef` (S0-prep-2's) and `#/components/responses/Unauthorized`; `harness.ts`'s helpers;
+  `deps.ts`'s `stubs.{stranded,holds,recapCache}`. **`HoldReason` is the `sidebar` block's** — it
+  backs S3's `GET /api/holds` — so `$ref` `#/components/schemas/HoldReason` and do not declare a
+  second one. (`HeldReason` below is a *different* enum for a different route; the near-identical
+  names are the server's, not this plan's.)
 - Produces: schemas `HeldReason`, `HeldQueueEntry`, `HeldSpawnRequest`, `UpNextKind`,
   `UpNextIssueRef`, `UpNextItem`, `UpNextSection`, `UpNextSnapshot`, `UpNextStartItem`,
   `UpNextStartRequest`, `UpNextStartHeld`, `UpNextStartError`, `UpNextStartResult`, `HaltResult`,
@@ -271,7 +274,7 @@ than redeclared.
 byModel}`, copied from `src/server.ts:625-635`, with the comment that **`available: false` means "no
 resolvable data source"** while a real zero is `available: true, total: 0`.
 
-- [ ] **Step 3: Add the twelve operations**
+- [ ] **Step 3: Add the thirteen operations**
 
 Each with the statuses its handler actually sends. The table the implementer works from:
 
@@ -280,14 +283,14 @@ Each with the statuses its handler actually sends. The table the implementer wor
 | `/api/held` | GET | 200, 401 | `HeldQueueEntry[]` |
 | `/api/held/{id}/spawn` | POST | **201**, 400 ×3, 401, 403, 404, 409 ×2, 422, 502 | answers the created `Session`; the create-failure ladder is `createErrorResponse`'s |
 | `/api/held/{id}` | PATCH | 200, 400, 401, 404 | body is a full `CreateSessionRequest`; answers the updated entry |
-| `/api/held/{id}` | DELETE | 200, 401 | `{ok: true}` — **no 404**, even for an unknown id |
+| `/api/held/{id}` | DELETE | 200, 401 | `{ok: true}` — **no 404** and no 400, even for an unknown id (`src/server.ts:6217-6221`) |
 | `/api/up-next/refresh` | POST | **202**, 401, 503 | fire-and-forget; 503 when the dep is unwired |
 | `/api/up-next/start` | POST | **201**, 200, 400 ×3, 401, 409, 502 | one body for 201/200/502 |
-| `/api/halt` | POST | 200, 401 | `{halted}` |
+| `/api/halt` | POST | 200, 401, 405 | `{halted}`. **405** on any other verb: `handleHalt` answers `method not allowed` (`src/server.ts:6293`) instead of falling through to the terminal 404, so the coverage gate needs it declared and exercised |
 | `/api/retry` | POST | 200, 400, 401 | `{resumed, steered, total}` |
 | `/api/stranded` | GET | 200, 401 | `string[]` |
 | `/api/revive-stranded` | POST | 200, 401 | `{revived, failed}` |
-| `/api/sessions/{id}/restore` | POST | 200, 401, 404, 409 ×4 | four distinct `code`s |
+| `/api/sessions/{id}/restore` | POST | 200, 401, 404, 409 ×6 | **six** distinct `code`s, not four — see below |
 | `/api/sessions/{id}/usage` | GET | 200, 401, 404 | |
 | `/api/broadcast` | POST | 200, 400, 401 | |
 
@@ -302,9 +305,12 @@ them wrong:
 - **`/api/retry`**: *"`total` is the number of ids REQUESTED, not the number screened — unknown ids
   and terminal sessions are dropped silently and still counted."*
 
-`/api/sessions/{id}/restore`'s 409 gets one schema and a description naming all four `code`s:
-`in_progress`, `not_archived` / `cannot_restore`, `branch_gone` / `branch_in_use`, and
-`spawn_refused`. `Error` already has an optional `code`; check it before adding one.
+`/api/sessions/{id}/restore`'s 409 gets one schema and a description naming all **six** `code`s:
+`in_progress` (`src/server.ts:3877`), `not_archived` and `cannot_restore` (`RestoreError`,
+`src/service.ts:152-157`), `branch_gone` and `branch_in_use` (`WorktreeRestoreError`,
+`src/worktree.ts:49-54`) and `spawn_refused` (`src/server.ts:3896`). The brief said four; six is
+what the handlers send. The core `Error` schema **already carries an optional `code`**
+(verified on `origin/main`) — `$ref` it and add nothing.
 
 - [ ] **Step 4: Add the six events, regenerate, sync, commit**
 
@@ -553,6 +559,25 @@ enum QueuesStream {
 
 `QueuesPanels` is this stream's own registry in `Sources/Queues/`, keyed by `HerdLens` — reading
 that enum is fine; **writing** its `isAvailable` is not.
+
+**`OwedPanelView` is built in Task 8**, alongside the other `SessionSignals`-fed surfaces: it
+renders `SessionSignals.manualStepsOutstanding()`, which answers `[:]` until S9 lands, so it ships
+as an honest empty list with its own accessibility identifier. It is named here only because this
+is where it is registered.
+
+**Registering a panel is not enough to render one, and the integration commit is therefore three
+lines, not two.** `SidebarView` renders herd groups unconditionally today; with the lens buttons
+merely enabled, `.next` and `.owed` would show empty group lists and `.done` would show live
+sessions. So the integration-lane commit after S7 and S10 have both merged does all of:
+
+1. flip `HerdLens.isAvailable` for the three lenses that now have a panel;
+2. add the `if let panel = QueuesPanels.panel(for: lens) { panel() } else { herdGroups }` branch at
+   the top of `SidebarView`'s content; and
+3. assert both in `SidebarViewTests`.
+
+Until it lands, the three panels are reachable and fully testable through their own accessibility
+identifiers, which is what this stream's own tests drive. Recorded in the PR body so the lane does
+not ship half of it.
 
 ---
 

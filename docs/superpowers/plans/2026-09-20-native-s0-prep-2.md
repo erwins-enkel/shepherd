@@ -14,7 +14,7 @@ on #2396.
 `CommandRegistry.swift`, `NewSessionSlot.swift`), a two-phase `StreamRegistrations` (a model-free
 `installScene()` called from `ShepherdApp.init()`, and the existing model-bound
 `installAll(into:)`), a `Settings` scene added to `ShepherdApp.body`, a `.commands { }` modifier on
-the `WindowGroup`, eleven optional deps wired into `test/contract/deps.ts` behind the existing
+the `WindowGroup`, thirteen optional deps wired into `test/contract/deps.ts` behind the existing
 `stubs` contract, and two additive core-schema changes in `contracts/openapi.yaml`.
 
 **Tech Stack:** Bun + ajv (contract drift test), OpenAPI 3.1, swift-openapi-generator 1.13.1,
@@ -112,7 +112,9 @@ grep -c "── stream: " contracts/openapi.yaml \
   && echo OK || echo "baseline MOVED — stop and tell the orchestrator"
 ```
 
-Expected: `24` (twelve open + twelve close markers), a count ≥ `16`, then `OK`.
+Expected: `12` (the four milestone-2 streams × three sections — the pattern matches the OPEN
+marker only; `── /stream: ` is a different string), a count of `14`, then `OK`. Both numbers were
+checked against `origin/main`; a different number means the baseline moved.
 
 ### Task order
 
@@ -375,9 +377,11 @@ Append to `test/contract/stream-blocks.test.ts` — it is the only test file S0 
 imports nothing stream-specific:
 
 ```ts
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { makeContractDeps } from "./deps";
 
-/** The eleven optional AppDeps the milestone-3 routes read. Absent, every one of those routes
+/** The thirteen optional AppDeps the milestone-3 routes read. Absent, every one of those routes
  *  answers its empty value and a stream cannot exercise the payload it declared — which is the
  *  whole point of the drift test. Asserted here rather than in a stream's file because `deps.ts`
  *  is shared and no stream may edit it. */
@@ -496,7 +500,21 @@ and, inside `makeContractDeps()` before the `deps` literal:
 and add to the `deps` literal:
 
 ```ts
-    prCache: { snapshot: () => prCache.rows } as any,
+    // A WHOLE `PrCache` (src/pr-poller.ts:14-20), not just `snapshot()`. `resolveGitState`
+    // calls `deps.prCache?.get(id)` and `.set(id, git)` on the /review-pr, /git and PR-open
+    // paths (src/server.ts:4206, 4213, 4351, 4358, 4569); a present-but-partial stub makes those
+    // routes throw and answer 500/502 instead of the status the stream declared, which is worse
+    // than leaving the dep absent.
+    prCache: {
+      snapshot: () => prCache.rows,
+      get: (id: string) => prCache.rows[id],
+      set: (id: string, git: unknown) => {
+        prCache.rows[id] = git;
+      },
+      drop: (id: string) => {
+        delete prCache.rows[id];
+      },
+    } as any,
     activity: { snapshot: () => activity.rows } as any,
     claudeAlive: { snapshot: () => claudeAlive.rows },
     workingBlocked: { snapshot: () => workingBlocked.rows },
@@ -580,7 +598,7 @@ git commit -m "test(contract): wire the snapshot deps the milestone-3 routes rea
 
 ---
 
-### Task 4: Cross-stream contract — `UsageLimits.observed` and six create fields
+### Task 4: Cross-stream contract — `UsageLimits.observed`, six create fields, four `GitState` properties and the spawn-id header
 
 **Files:** modify `contracts/openapi.yaml` (core sections, **outside** every marked block),
 `test/contract/openapi.test.ts`; regenerate `contracts/openapi.swift.yaml` and
@@ -588,11 +606,13 @@ git commit -m "test(contract): wire the snapshot deps the milestone-3 routes rea
 
 **Interfaces:**
 - Consumes: `UsageLimits`, `CreateSessionRequest`, `LimitWindow`.
-- Produces: schemas `ObservedLimitWindow`, `ObservedLimitWindows`, `IssueRef`, `LaunchUiState`;
-  `UsageLimits.observed`; `CreateSessionRequest.{mergeTrainPrs,issueRef,research,epicAuthoring,
-  attachmentNames,launchUiState}`.
+- Produces: schemas `ObservedLimitWindow`, `ObservedLimitWindows`, `IssueRef`, `LaunchUiState`,
+  `PrHandoff`, `PrReviewBlock`; `UsageLimits.observed`;
+  `CreateSessionRequest.{mergeTrainPrs,issueRef,research,epicAuthoring,attachmentNames,
+  launchUiState}`; `GitState.{handoff,handoffWho,reviewBlock,headSha}`; and the
+  `X-Shepherd-Spawn-Id` header parameter on `POST /api/sessions`.
 
-**Why here and not in a stream.** Both are core schemas that two streams need. `UsageLimits` feeds
+**Why here and not in a stream.** All four changes touch schemas or paths that two streams need. `UsageLimits` feeds
 S12's gauges and is already rendered by S3's merged header, and `CreateSessionRequest` is needed by
 S9 (`mergeTrainPrs`) **and** S11 (the other five). A schema outside a marked block may only be
 edited by S0, and doing it once is what keeps S9 and S11 from colliding.
@@ -633,12 +653,18 @@ In `components.schemas:`, beside the existing core schemas (before the `terminal
       type: object
       additionalProperties: false
       description: CreateSessionRequest.issueRef — the forge issue a task was started from. Bounds copied from validateIssueRef (src/validate.ts:230-246).
-      required: [number, url, title]
+      required: [number, url, title, body]
       properties:
         number: { type: integer, description: Positive. }
         url: { type: string, description: An http(s) URL, at most 2048 characters. }
         title: { type: string, maxLength: 500 }
-        body: { type: string, maxLength: 100000 }
+        body:
+          type: string
+          maxLength: 100000
+          description: >-
+            REQUIRED, not optional. validateIssueRef (src/validate.ts:245) rejects a missing or
+            non-string body with 400; "" is the legal empty value. A client that omits it gets a
+            400 the generated types would have called legal.
     LaunchUiState:
       type: object
       additionalProperties: true
@@ -655,6 +681,50 @@ Then, inside the existing `UsageLimits` schema, add one property (leave `require
         observed:
           $ref: "#/components/schemas/ObservedLimitWindows"
 ```
+
+Then add the four properties the herd classifier needs to the existing core-adjacent `GitState`
+schema in the **`detail`** block (see the master plan §6.5). All four are optional and additive, so
+no declared status changes and S2's own tests are unaffected — and the alternative, a second
+`HerdGitState` naming the same wire object, would give the generated Swift two unrelated structs
+for identical bytes:
+
+```yaml
+        handoff:
+          $ref: "#/components/schemas/PrHandoff"
+        handoffWho:
+          type: string
+          description: The responsible login; absent for a fork waiting on unnamed maintainers.
+        reviewBlock:
+          $ref: "#/components/schemas/PrReviewBlock"
+        headSha:
+          type: string
+          description: Head commit SHA of the PR branch; undefined when there is no PR. Drives review-once dedup and the stepper's verdict freshness.
+```
+
+with `PrHandoff` and `PrReviewBlock` declared beside the other core schemas (outside every marked
+block, because two streams read them):
+
+```yaml
+    PrHandoff:
+      type: string
+      x-shepherd-open-enum: true
+      description: >-
+        GitState.handoff (src/forge/types.ts:262). Who the PR is waiting on. ABSENT means it is
+        waiting on the operator, which is the third state and has no member here.
+      enum: [reviewer, merger]
+    PrReviewBlock:
+      type: object
+      additionalProperties: true
+      description: PrReviewBlock (src/forge/types.ts:151-155). Present ⇒ a reviewer has requested changes and nothing merges until it clears.
+      required: [reviewer, state]
+      properties:
+        reviewer: { type: string }
+        state: { type: string, enum: [changes_requested] }
+        latestAt: { type: [integer, "null"] }
+```
+
+`noCi` is **already declared** on `GitState` (`contracts/openapi.yaml:719`) — the inventory listed
+five missing fields and only four are real. Do not add it twice.
 
 And inside `CreateSessionRequest`'s `properties:` (leave `required` alone; `additionalProperties`
 stays `false`):
@@ -718,6 +788,37 @@ never proven legal. Add to the existing create `describe` in `test/contract/open
 
 Adding no status to `POST /api/sessions` leaves the coverage gate's arithmetic untouched.
 
+- [ ] **Step 2b: Declare the spawn-id request header on `POST /api/sessions`**
+
+S11's slow-spawn progress panel and its cancel button both key on a spawn id, and the server takes
+it as a **request header**, not a body field: `SPAWN_ID_HEADER = "x-shepherd-spawn-id"`
+(`src/server.ts:2404`), read by `spawnTrackerFor` at `:2408`. The comment at `:2400-2403` says why —
+a spawn id in the body would be persisted by a usage hold and replayed stale when the held task is
+finally spawned. `ALLOWED_KEYS` rejects it as a body key for the same reason.
+
+That makes it a **parameter on a core path**, which only S0 may add. Under the existing
+`/api/sessions` `post:` operation:
+
+```yaml
+      parameters:
+        - name: X-Shepherd-Spawn-Id
+          in: header
+          required: false
+          description: >-
+            Client-chosen correlation id for this create. With a valid one the caller receives live
+            `spawn:progress` frames and may cancel through POST /api/spawns/{id}/cancel; without
+            one the spawn still runs and is still measured. Deliberately a header and not a body
+            field (src/server.ts:2400-2404) — a usage hold persists the BODY, so a spawn id there
+            would be replayed stale when the held task is finally spawned. Header names are
+            case-insensitive; the server compares lowercase.
+          schema: { type: string }
+```
+
+A `parameters:` addition changes no declared status, so the coverage gate's arithmetic is unmoved.
+Exercise it once in the same `describe` as Step 2 by sending the header on a create and asserting
+the 201 still validates — an undeclared header is not an error, so the only thing that could regress
+here is the generated client losing the parameter.
+
 - [ ] **Step 3: Regenerate, sync, prove freshness**
 
 ```bash
@@ -738,7 +839,7 @@ throws with a JSON pointer into `ObservedLimitWindows`, an extra keyword crept i
 ```bash
 git add contracts/openapi.yaml contracts/openapi.swift.yaml \
   native/Sources/ShepherdKit/openapi.yaml test/contract/openapi.test.ts
-git commit -m "feat(contract): observed usage windows and six declared create fields"
+git commit -m "feat(contract): observed usage windows, create fields, git handoff and spawn id"
 ```
 
 ---
@@ -773,6 +874,8 @@ where it is. `NotificationsStream.install(app)` must stay in the second half —
 `native/Apps/ShepherdMac/Tests/CommandRegistryTests.swift`:
 
 ```swift
+import Foundation
+import ShepherdKit
 import Testing
 
 @testable import Shepherd
@@ -814,9 +917,20 @@ struct CommandRegistryTests {
         #expect(CommandRegistry.commands(in: .view).isEmpty)
     }
 
+    /// `AppModel()`'s defaults are `(.standard, KeychainCredentialStore())` — a bare `AppModel()`
+    /// in a test reaches the login Keychain, which the Global Constraints forbid. Every one of the
+    /// 31 existing `AppModel(` test sites passes a throwaway suite and an
+    /// `InMemoryCredentialStore`; so does every construction in this plan.
+    private static func scratchModel() -> AppModel {
+        let suite = UUID().uuidString
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+        return AppModel(defaults: defaults, credentials: InMemoryCredentialStore())
+    }
+
     @Test func enablementDefaultsToAlwaysOn() {
         fresh()
-        let model = AppModel()
+        let model = Self.scratchModel()
         CommandRegistry.register(.init(id: "s", menu: .session, order: 0, titleKey: "common_close") { _ in })
         #expect(CommandRegistry.commands(in: .session)[0].isEnabled(model))
     }
@@ -869,6 +983,8 @@ struct SettingsSceneTests {
 `native/Apps/ShepherdMac/Tests/StreamRegistrationsTests.swift`:
 
 ```swift
+import Foundation
+import ShepherdKit
 import Testing
 
 @testable import Shepherd
@@ -891,7 +1007,11 @@ struct StreamRegistrationsTests {
     }
 
     @Test func installAllIsStillIdempotentOverAModel() {
-        let model = AppModel()
+        // Never a bare `AppModel()` — its default credential store is the real Keychain.
+        let suite = UUID().uuidString
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+        let model = AppModel(defaults: defaults, credentials: InMemoryCredentialStore())
         StreamRegistrations.installAll(into: model)
         StreamRegistrations.installAll(into: model)
         // `AppModel.register(_:)` is keyed by type and a slot assignment is an overwrite, so a
@@ -1012,7 +1132,11 @@ enum CommandRegistry {
 /// list of five identical lines and a stream never has to touch it.
 struct MenuCommandItems: View {
     let menu: MenuCommand.Menu
-    @Environment(AppModel.self) private var app
+    /// Passed in, **not** read from `@Environment`. A `Scene`'s `.commands { }` builder is not
+    /// inside the `WindowGroup`'s content, so `.environment(model)` applied to `RootView` never
+    /// reaches it and `@Environment(AppModel.self)` would trap at the first menu render. The model
+    /// is in hand at `ShepherdApp.body` anyway, so handing it over is both simpler and checkable.
+    let app: AppModel
 
     var body: some View {
         ForEach(CommandRegistry.commands(in: menu)) { command in
@@ -1177,11 +1301,11 @@ struct SettingsSceneView: View {
         .defaultSize(width: 1100, height: 720)
         .windowResizability(.contentMinSize)
         .commands {
-            CommandGroup(after: .newItem) { MenuCommandItems(menu: .file) }
-            CommandGroup(after: .toolbar) { MenuCommandItems(menu: .view) }
-            CommandMenu(L.t("native_menu_session")) { MenuCommandItems(menu: .session) }
-            CommandGroup(after: .windowArrangement) { MenuCommandItems(menu: .window) }
-            CommandGroup(replacing: .help) { MenuCommandItems(menu: .help) }
+            CommandGroup(after: .newItem) { MenuCommandItems(menu: .file, app: model) }
+            CommandGroup(after: .toolbar) { MenuCommandItems(menu: .view, app: model) }
+            CommandMenu(L.t("native_menu_session")) { MenuCommandItems(menu: .session, app: model) }
+            CommandGroup(after: .windowArrangement) { MenuCommandItems(menu: .window, app: model) }
+            CommandGroup(replacing: .help) { MenuCommandItems(menu: .help, app: model) }
         }
 
         Settings {
@@ -1191,12 +1315,12 @@ struct SettingsSceneView: View {
     }
 ```
 
-`MenuCommandItems` reads `AppModel` from the environment, and a `Scene`'s `.commands` builder does
-**not** inherit the `WindowGroup`'s environment — so each of the five call sites is inside a view
-that SwiftUI hosts in the menu bar with the app's environment. On macOS 15 a `.commands` view does
-receive `@Environment` values injected on the scene, which is why `.environment(model)` is applied
-to `RootView` **and** to `SettingsSceneView`; if a menu item ever reads a nil model, move
-`.environment(model)` onto the `WindowGroup` itself rather than onto its content.
+A `Scene`'s `.commands { }` builder is **not** inside the `WindowGroup`'s content, so
+`.environment(model)` applied to `RootView` does not reach a view hosted in the menu bar. That is
+why `MenuCommandItems` takes the model as a stored property instead of reading `@Environment`: the
+model is already in hand at `ShepherdApp.body`, and an explicit hand-off is both correct and
+assertable. `SettingsSceneView` keeps `@Environment(AppModel.self)` because it **is** scene content
+and `.environment(model)` is applied to it directly.
 
 - [ ] **Step 5: Add the three placeholder strings**
 
@@ -1602,7 +1726,8 @@ until the count changes twice. The model already has the right pattern for this 
 
 **Interfaces:**
 - Consumes: `NotificationCenterClient.setBadgeCount(_:)`, the existing `lastBadge` / `isTornDown`.
-- Produces: a `badgeGeneration` counter and a `badgeWrites` debug hook so the race is assertable.
+- Produces: a `badgeGeneration` counter, a `badgeDesired` slot and the `#if DEBUG` hooks so both
+  orderings are assertable.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1629,6 +1754,19 @@ struct NotificationsBadgeRaceTests {
         _ = await (slow, fast)
         #expect(centre.written.last == 7)
         #expect(model.lastBadgeForTesting == 7)
+    }
+
+    /// The reversal case: the newest intent is the count already cached. Comparing against
+    /// `lastBadge` alone would drop it silently and let the older in-flight write commit.
+    @Test func aRevertToTheCachedCountStillSupersedesAnInFlightWrite() async {
+        let centre = ReorderingCenter()
+        let model = NotificationsModel.forTesting(center: centre)
+        await model.setBadgeForTesting(0)
+        centre.delayNext = true
+        async let slow: Void = model.setBadgeForTesting(7)
+        async let revert: Void = model.setBadgeForTesting(0)
+        _ = await (slow, revert)
+        #expect(model.lastBadgeForTesting == 0)
     }
 
     @Test func aWriteThatLostItsRaceIsNotEvenSent() async {
@@ -1669,13 +1807,25 @@ Add beside `authorizationGeneration`:
     /// it. The icon then stays wrong until the count changes twice. Same pattern as
     /// `authorizationGeneration`, for the same reason.
     @ObservationIgnored private var badgeGeneration = 0
+
+    /// The newest count any caller has asked for, landed or not.
+    ///
+    /// The elision must compare against THIS and not `lastBadge`, or the generation stamp leaks a
+    /// reversal: with `lastBadge == 0` and a write of 7 still in flight, a fresh request for 0
+    /// matches `lastBadge` and returns early **without taking a generation** — so the in-flight 7
+    /// still wins its own comparison and commits over the newer intent. `badgeDesired` closes
+    /// that: every distinct intent takes a generation, including one that reverts to the cached
+    /// value.
+    @ObservationIgnored private var badgeDesired: Int?
 ```
 
 and rewrite `writeBadge(_:)`:
 
 ```swift
     private func writeBadge(_ count: Int) async {
-        guard lastBadge != count else { return }
+        // Against the newest INTENT, not the last landed value — see `badgeDesired`.
+        guard (badgeDesired ?? lastBadge) != count else { return }
+        badgeDesired = count
         badgeGeneration &+= 1
         let mine = badgeGeneration
         let landed = await center.setBadgeCount(count)
@@ -1780,8 +1930,13 @@ Stream S0-prep-2. Everything the six milestone-3 streams would otherwise fight o
   Without them `GET /api/git` answers `{}`, `GET /api/issues` answers an empty listing,
   `POST /api/shape` answers 503 and `GET /api/branches` fails on a directory that is not a
   repository — a stream could prove a status code but not the payload it declared.
-- **Contract:** `UsageLimits.observed` and the six `CreateSessionRequest` fields that are already in
-  the server's `ALLOWED_KEYS`. Both are core schemas two streams need, so neither stream edits them.
+- **Contract:** `UsageLimits.observed`; the six `CreateSessionRequest` fields that are already in
+  the server's `ALLOWED_KEYS`; the four `GitState` properties the herd classifier needs
+  (`handoff`, `handoffWho`, `reviewBlock`, `headSha` — `noCi` was already declared), so S7 reuses
+  one schema instead of declaring a second name for the same wire object; and the
+  `X-Shepherd-Spawn-Id` header parameter on `POST /api/sessions`, which S11's cancel affordance
+  needs and which no stream may add to a core path. Every one of them is additive and optional, so
+  no declared status changes.
 - **App seams:** a SwiftUI `Settings` scene over a `SettingsPaneRegistry`, a `CommandRegistry` +
   `MenuCommandItems` over five `CommandGroup`s, and `NewSessionSlot` with an additive `options` hook
   and a replacement `content` hook. `StreamRegistrations` splits into a model-free `installScene()`
@@ -1841,11 +1996,12 @@ tests. `SettingsPane`'s four requirements match `DetailTab`'s spelling exactly (
 `SidebarSlot.Resolution`'s two-case shape. `NewSessionExtras`'s six fields are the same six in
 `apply(to:)`, in the tests and in the `CreateSessionRequest` properties Task 4 leaves alone (all six
 were already declared; Task 4 adds a different six). `SessionSignals`'s four seams are declared,
-defaulted and reset in one place each. The eleven harness stub names in Task 3's interface, its
-assertion list and its `stubs` literal are the same eleven.
+defaulted and reset in one place each. The thirteen harness stub names in Task 3's interface, its
+assertion list and its `stubs` literal are the same thirteen.
 
 **No duplicate claims.** This branch adds no path template and no event name to any block — Task 4's
 two changes are property additions to existing core schemas, and Task 1's eighteen markers are
 empty. The only new `components.schemas` entries are `ObservedLimitWindow`, `ObservedLimitWindows`,
-`IssueRef` and `LaunchUiState`, all outside every marked block, and none of them is a name any
-stream's appendix row claims.
+`IssueRef`, `LaunchUiState`, `PrHandoff` and `PrReviewBlock`, all outside every marked block, and
+none of them is a name any stream's appendix row claims — S7's plan explicitly `$ref`s the last
+two through `GitState` rather than declaring them.

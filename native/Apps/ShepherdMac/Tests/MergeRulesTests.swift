@@ -3,6 +3,15 @@ import Testing
 import ShepherdKit
 @testable import Shepherd
 struct MergeRulesTests {
+    @Test func confirmationUsesGateAndActualTargetRatherThanHerdHandoff() throws {
+        let git = try JSONDecoder().decode(GitState.self, from: Data(#"{"state":"open","checks":"pending","number":7,"deployConfigured":false,"headSha":"head-a","baseRefName":"release","handoff":"reviewer","handoffWho":"wrong","mergeGate":{"handoff":"merger","handoffWho":"owner","reviewBlockBy":"reviewer"}}"#.utf8))
+        let confirm = MergeConfirmationRules.payload(git)
+        #expect(confirm.headSha == "head-a")
+        #expect(confirm.baseRefName == "release")
+        #expect(confirm.handoff?.rawValue == "merger")
+        #expect(confirm.handoffWho == "owner")
+        #expect(confirm.reviewBlockBy == "reviewer")
+    }
     func queue(_ statuses: [String], approved: Bool = true) throws -> BuildQueue {
         let rows = statuses.enumerated().map { ["id": String($0.offset), "title": "Step",
             "detail": "", "status": $0.element, "position": $0.offset] as [String: Any] }

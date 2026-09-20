@@ -5422,6 +5422,1371 @@
         }
       }
     },
+    "plangate_changes": {
+      "comment": "%1$@ = round, %2$@ = cap",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "REWORK · %1$@/%2$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "REWORK · %1$@/%2$@"
+          }
+        }
+      }
+    },
+    "plangate_edited": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PLAN GEÄNDERT"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PLAN EDITED"
+          }
+        }
+      }
+    },
+    "plangate_error": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PRÜFFEHLER"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "REVIEW ERR"
+          }
+        }
+      }
+    },
+    "plangate_menu_editor_label": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Steuertext zum Senden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Steer to send"
+          }
+        }
+      }
+    },
+    "plangate_menu_editor_reset": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zurücksetzen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset"
+          }
+        }
+      }
+    },
+    "plangate_menu_editor_send": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Senden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send"
+          }
+        }
+      }
+    },
+    "plangate_menu_label": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktionen für gestoppten Plan"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stalled plan actions"
+          }
+        }
+      }
+    },
+    "plangate_menu_open_plan": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan öffnen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open plan"
+          }
+        }
+      }
+    },
+    "plangate_menu_rereview": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan erneut prüfen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Re-review plan"
+          }
+        }
+      }
+    },
+    "plangate_menu_send_changes": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Steuertext vorbereiten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prepare steer"
+          }
+        }
+      }
+    },
+    "plangate_menu_why": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warum gestoppt?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Why stalled?"
+          }
+        }
+      }
+    },
+    "plangate_menu_why_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die automatische Plan-Review-Schleife hat ihr Rundenlimit erreicht. Die Ausführung bleibt gesperrt, bis der Agent .shepherd-plan.md aktualisiert und der Plan freigegeben ist."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The automatic plan-review loop reached its round limit. Execution stays locked until the agent updates .shepherd-plan.md and the plan is approved."
+          }
+        }
+      }
+    },
+    "plangate_planning": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PLANUNG"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PLANNING"
+          }
+        }
+      }
+    },
+    "plangate_ready": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "BEREIT ✓"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "READY ✓"
+          }
+        }
+      }
+    },
+    "plangate_repair_no_findings": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bearbeite die angeforderten Plan-Review-Änderungen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Address the requested plan-review changes."
+          }
+        }
+      }
+    },
+    "plangate_repair_send_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan-Änderungen konnten nicht an den Agenten gesendet werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't send the plan changes to the agent."
+          }
+        }
+      }
+    },
+    "plangate_repair_sent": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan-Änderungen an den Agenten gesendet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan changes sent to the agent."
+          }
+        }
+      }
+    },
+    "plangate_repair_steer": {
+      "comment": "%1$@ = findings",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktualisiere .shepherd-plan.md anhand der folgenden Plan-Review-Befunde. Beginne noch nicht mit der Implementierung. Wenn die Plan-Datei aktualisiert ist, halte an und sag mir, dass sie für eine erneute Plan-Prüfung bereit ist.\n\nAngeforderte Änderungen:\n%1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update .shepherd-plan.md to address the plan-review findings below. Do not start implementation yet. When the plan file is updated, stop and tell me it is ready for another plan review.\n\nRequested changes:\n%1$@"
+          }
+        }
+      }
+    },
+    "plangate_review_at_cap": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan-Prüfung gestartet, aber das Überarbeitungsbudget ist aufgebraucht: Verlangt der Prüfer Änderungen, werden diese Befunde nicht an den Agenten gesendet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan review started, but the rework budget is spent: if it requests changes, those findings won't be sent to the agent."
+          }
+        }
+      }
+    },
+    "plangate_review_skipped_stalled": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Planprüfung konnte gerade nicht gestartet werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't start a plan review right now."
+          }
+        }
+      }
+    },
+    "plangate_review_spends_round": {
+      "comment": "%1$@ = round, %2$@ = cap",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine erneute Prüfung sendet die Befunde an den Agenten und verbraucht eine Überarbeitungsrunde (%1$@/%2$@ verbraucht)."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Re-reviews send the findings back to the agent and spend a rework round (%1$@/%2$@ used)."
+          }
+        }
+      }
+    },
+    "plangate_review_started": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan-Prüfung gestartet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan review started."
+          }
+        }
+      }
+    },
+    "plangate_reviewing": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PRÜFUNG…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "REVIEWING…"
+          }
+        }
+      }
+    },
+    "plangate_tip_changes": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ausführung wartet auf eine freigegebene Überarbeitung."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Execution waits for an approved revision."
+          }
+        }
+      }
+    },
+    "plangate_tip_changes_stalled": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan ist blockiert; öffne den Plan, um fortzusetzen oder zu verwerfen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan is stalled; open the plan to resume or dismiss it."
+          }
+        }
+      }
+    },
+    "plangate_tip_edited": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Plan wurde nach der Freigabe geändert — zum Prüfen der Änderung öffnen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The plan was edited after it was approved — open to review the change."
+          }
+        }
+      }
+    },
+    "plangate_tip_error": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prüfung wurde nicht abgeschlossen; vor der Ausführung erneut starten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review did not complete; re-run it before execution."
+          }
+        }
+      }
+    },
+    "plangate_tip_planning": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Planprüfung vor der Ausführung erforderlich."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan review required before execution."
+          }
+        }
+      }
+    },
+    "plangate_tip_ready": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan freigegeben; Ausführung kann starten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan approved; execution can start."
+          }
+        }
+      }
+    },
+    "plangate_tip_reviewing": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Planprüfung läuft."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan review is running."
+          }
+        }
+      }
+    },
+    "plangate_tip_reviewing_env": {
+      "comment": "%1$@ = env",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Planprüfung läuft · %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan review is running · %1$@"
+          }
+        }
+      }
+    },
+    "plangate_tip_view": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ausführung hat begonnen; Plan ist schreibgeschützt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Execution has started; plan is read-only."
+          }
+        }
+      }
+    },
+    "plangate_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan-Gate vor der Ausführung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pre-execution plan gate"
+          }
+        }
+      }
+    },
+    "plangate_view": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PLAN"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PLAN"
+          }
+        }
+      }
+    },
+    "planpanel_back_aria": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zurück zur Session"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Back to session"
+          }
+        }
+      }
+    },
+    "planpanel_edited_note": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unten steht der FREIGEGEBENE Plan. Die aktive .shepherd-plan.md wurde seitdem geändert und nicht geprüft."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shown below is the plan that was APPROVED. The live .shepherd-plan.md has been edited since and has not been reviewed."
+          }
+        }
+      }
+    },
+    "planpanel_empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noch kein Plan geschrieben."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No plan written yet."
+          }
+        }
+      }
+    },
+    "planpanel_env_aria": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coding-Umgebung für Plan und Prüfung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan and review coding environment"
+          }
+        }
+      }
+    },
+    "planpanel_env_docs_link": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konfigurationsdoku öffnen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open configuration docs"
+          }
+        }
+      }
+    },
+    "planpanel_env_help_aria": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wo sich die Coding-Umgebungen für Plan und Prüfung ändern lassen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Where to change plan and review coding environments"
+          }
+        }
+      }
+    },
+    "planpanel_env_plan": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan"
+          }
+        }
+      }
+    },
+    "planpanel_env_popover_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan zeigt Coding-CLI, Modell und Reasoning Effort der Task-Session. Prüfung zeigt den Plan-Gate-Reviewer, der diesen Plan geprüft hat. Task-Defaults änderst du in Neuer Task, in Repo-Defaults oder globalen Defaults; den Reviewer unter Einstellungen -> CLIs -> Planer (Plan-Reviewer)."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan shows the task session's coding CLI, model and reasoning effort. Review shows the Plan Gate reviewer that checked this plan. Change task defaults in New Task, repo defaults or global defaults; change the reviewer under Settings -> CLIs -> Planner (plan reviewer)."
+          }
+        }
+      }
+    },
+    "planpanel_env_popover_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coding-Umgebung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coding environment"
+          }
+        }
+      }
+    },
+    "planpanel_env_review": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prüfung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review"
+          }
+        }
+      }
+    },
+    "planpanel_env_unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "nicht verfügbar"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "unavailable"
+          }
+        }
+      }
+    },
+    "planpanel_findings": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angeforderte Änderungen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Requested changes"
+          }
+        }
+      }
+    },
+    "planpanel_go": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los: Ausführung starten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Go: start execution"
+          }
+        }
+      }
+    },
+    "planpanel_membrane_launch": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Plan-Prüfer ist nie gestartet: Sein Agent-Programm lässt sich auf diesem Host nicht in Shepherds Sandbox-Membran starten. Siehe Diagnose-Panel."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The plan reviewer never started: its agent program does not launch inside Shepherd's sandbox membrane on this host. Check the Diagnose panel."
+          }
+        }
+      }
+    },
+    "planpanel_no_verdict": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Plan-Prüfer hat kein Urteil abgegeben."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The plan reviewer did not produce a verdict."
+          }
+        }
+      }
+    },
+    "planpanel_plan_unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noch kein prüfbarer Plan vorhanden. Der Planungs-Agent wartet möglicherweise noch auf deine Antwort. Kehre zum Task zurück, beantworte eine offene Planungsfrage und prüfe erneut, nachdem der Agent .shepherd-plan.md geschrieben hat."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No reviewable plan yet. The planning agent may still be waiting for your answer. Return to the task, answer any open planning question, then review again after the agent writes .shepherd-plan.md."
+          }
+        }
+      }
+    },
+    "planpanel_proposed_caption": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vorschlag — noch nicht umgesetzt · der Plantext unten ist maßgeblich"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proposed — not yet built · the plan text below is authoritative"
+          }
+        }
+      }
+    },
+    "planpanel_quota_dismiss": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stall verwerfen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dismiss stall"
+          }
+        }
+      }
+    },
+    "planpanel_quota_dismissing": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwerfe…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dismissing…"
+          }
+        }
+      }
+    },
+    "planpanel_quota_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der blockierte Plan konnte nicht aktualisiert werden. Bitte erneut versuchen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't update the stalled plan. Please try again."
+          }
+        }
+      }
+    },
+    "planpanel_quota_not_stalled": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Plan ist nicht mehr blockiert. Aktualisiere oder prüfe erneut, falls der Status veraltet wirkt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This plan is no longer stalled. Refresh or review again if the state looks stale."
+          }
+        }
+      }
+    },
+    "planpanel_quota_resume": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mit Befunden fortsetzen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resume with findings"
+          }
+        }
+      }
+    },
+    "planpanel_quota_resuming": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Setze fort…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resuming…"
+          }
+        }
+      }
+    },
+    "planpanel_quota_unreachable": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Planungsbereich war nicht erreichbar. Der Plan wurde nicht fortgesetzt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't reach the planning pane. The plan was not resumed."
+          }
+        }
+      }
+    },
+    "planpanel_review_already_approved": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan bereits freigegeben; bereit zum Start."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan already approved; ready to start."
+          }
+        }
+      }
+    },
+    "planpanel_review_at_cap": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erneute Prüfung am Überarbeitungslimit. Der Prüfer kann den Plan weiterhin freigeben, aber falls er erneut Änderungen verlangt, werden diese Befunde nicht an den Planungs-Agenten gesendet. Mit „Mit Befunden fortsetzen“ das Budget zurücksetzen und erneut senden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Re-reviewing at the rework cap. The reviewer can still approve the plan, but if it requests changes again those findings will not be sent to the planning agent. Use “Resume with findings” to reset the budget and re-send them."
+          }
+        }
+      }
+    },
+    "planpanel_review_at_cap_no_resume": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erneute Prüfung am Überarbeitungslimit. Der Prüfer kann den Plan weiterhin freigeben. Verlangt er stattdessen Änderungen, werden diese Befunde nicht an den Planungs-Agenten gesendet – „Mit Befunden fortsetzen“ erscheint dann hier, um das Budget zurückzusetzen und sie erneut zu senden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Re-reviewing at the rework cap. The reviewer can still approve the plan. If it requests changes instead, those findings will not be sent to the planning agent — “Resume with findings” then appears here to reset the budget and re-send them."
+          }
+        }
+      }
+    },
+    "planpanel_review_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prüfung konnte nicht gestartet werden. Bitte erneut versuchen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't start the review. Please try again."
+          }
+        }
+      }
+    },
+    "planpanel_review_failed_auth": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Für die Prüfung wird ein API-Schlüssel benötigt, es ist aber keiner konfiguriert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review needs an API key, but none is configured."
+          }
+        }
+      }
+    },
+    "planpanel_review_failed_spawn": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start des Prüfers fehlgeschlagen. Bitte erneut versuchen; falls das Problem bleibt, prüfe die Shepherd-Logs."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reviewer launch failed. Try again; if the problem continues, check Shepherd's logs."
+          }
+        }
+      }
+    },
+    "planpanel_review_failed_worktree": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prüf-Workspace konnte nicht erstellt werden. Speicherplatz und Git prüfen, dann erneut versuchen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't create the review workspace. Check disk space and git, then retry."
+          }
+        }
+      }
+    },
+    "planpanel_review_nothing_to_review": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Planprüfung konnte gerade nicht gestartet werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't start a plan review right now."
+          }
+        }
+      }
+    },
+    "planpanel_review_now": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan jetzt prüfen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review plan now"
+          }
+        }
+      }
+    },
+    "planpanel_review_plan_unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prüfung nicht gestartet, weil .shepherd-plan.md fehlt, leer oder nicht lesbar ist. Kehre zum Task zurück und beantworte eine noch offene Planungsfrage; prüfe erneut, sobald die Datei geschrieben ist."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review did not start because .shepherd-plan.md is missing, empty, or unreadable. Return to the task and answer any pending planning question, then review again after the file is written."
+          }
+        }
+      }
+    },
+    "planpanel_reviewing": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prüfe Plan…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reviewing…"
+          }
+        }
+      }
+    },
+    "planpanel_reviewing_env": {
+      "comment": "%1$@ = env",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prüfe Plan · %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reviewing · %1$@"
+          }
+        }
+      }
+    },
+    "planpanel_status_changes": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prüfung hat Änderungen angefordert. Los wird erst nach Überarbeitung und Freigabe aktiv."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review requested changes. Go unlocks after the plan is revised and approved."
+          }
+        }
+      }
+    },
+    "planpanel_status_changes_stalled": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prüfung hat Änderungen angefordert und Shepherd markiert diesen Plan als blockiert. Setze den Planner mit den Befunden fort oder verwirf den Stall, um selbst zu übernehmen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review requested changes and Shepherd marked this plan stalled. Resume the planner with the findings or dismiss the stall to take over."
+          }
+        }
+      }
+    },
+    "planpanel_status_edited": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Plandatei hat sich seit der Freigabe geändert. Eine erneute Prüfung lässt die Änderung kritisch gegenlesen — verlangt der Prüfer Änderungen, kehrt die Session in die Planungsphase zurück und der Agent hört auf zu implementieren."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The plan file has changed since this was approved. Re-review it to have the edit adversarially checked — if the reviewer requests changes, the session returns to planning and the agent stops implementing."
+          }
+        }
+      }
+    },
+    "planpanel_status_error": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prüfung wurde nicht abgeschlossen. Vor der Ausführung erneut starten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review did not complete. Re-run it before execution."
+          }
+        }
+      }
+    },
+    "planpanel_status_planning": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prüfe den Plan, bevor die Ausführung starten kann."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review the plan before execution can start."
+          }
+        }
+      }
+    },
+    "planpanel_status_ready": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan freigegeben. Starte die Ausführung, wenn bereit."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan approved. Start execution when ready."
+          }
+        }
+      }
+    },
+    "planpanel_status_reviewing": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Planprüfung läuft. Ausführung wartet auf Freigabe."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan review is running. Execution waits for approval."
+          }
+        }
+      }
+    },
+    "planpanel_status_view": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ausführung hat bereits begonnen. Dieser Plan ist schreibgeschützt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Execution has already started. This plan is read-only."
+          }
+        }
+      }
+    },
+    "planpanel_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan vor der Ausführung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pre-execution plan"
+          }
+        }
+      }
+    },
+    "planpanel_verdict": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prüfer-Urteil"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reviewer verdict"
+          }
+        }
+      }
+    },
     "prbadge_behind": {
       "extractionState": "manual",
       "localizations": {
@@ -5726,6 +7091,176 @@
           "stringUnit": {
             "state": "translated",
             "value": "Request review"
+          }
+        }
+      }
+    },
+    "qform_freeform_placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Freitextantwort"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Free-text answer"
+          }
+        }
+      }
+    },
+    "qform_kind_freeform": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Freie Antwort"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Free response"
+          }
+        }
+      }
+    },
+    "qform_kind_multi": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle zutreffenden auswählen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Select all that apply"
+          }
+        }
+      }
+    },
+    "qform_kind_multi_optional": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle zutreffenden auswählen (optional)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Select all that apply (optional)"
+          }
+        }
+      }
+    },
+    "qform_kind_single": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine Option wählen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Select one"
+          }
+        }
+      }
+    },
+    "qform_sent": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antworten an den Planungsagenten gesendet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Answers sent to the planning agent."
+          }
+        }
+      }
+    },
+    "qform_sent_undelivered": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Planungsagent nicht erreichbar – er ist möglicherweise bereits weitergezogen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't reach the planning agent — it may have already moved on."
+          }
+        }
+      }
+    },
+    "qform_submit": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antworten an Planungsagent senden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send answers to planning agent"
+          }
+        }
+      }
+    },
+    "qform_submit_error": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antworten konnten nicht gesendet werden. Bitte erneut versuchen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't send answers. Please try again."
+          }
+        }
+      }
+    },
+    "qform_submitting": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wird gesendet…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sending…"
           }
         }
       }
@@ -6687,6 +8222,500 @@
           "stringUnit": {
             "state": "translated",
             "value": "Usage tracking is subscription-only — see the Anthropic Console."
+          }
+        }
+      }
+    },
+    "vblock_apiendpoint_deprecated": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "veraltet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "deprecated"
+          }
+        }
+      }
+    },
+    "vblock_apiendpoint_params": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parameter"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parameters"
+          }
+        }
+      }
+    },
+    "vblock_apiendpoint_required": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "erforderlich"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "required"
+          }
+        }
+      }
+    },
+    "vblock_apiendpoint_responses": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antworten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Responses"
+          }
+        }
+      }
+    },
+    "vblock_callout_decision": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entscheidung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Decision"
+          }
+        }
+      }
+    },
+    "vblock_callout_info": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Info"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Info"
+          }
+        }
+      }
+    },
+    "vblock_callout_risk": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Risiko"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Risk"
+          }
+        }
+      }
+    },
+    "vblock_callout_success": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erfolg"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Success"
+          }
+        }
+      }
+    },
+    "vblock_callout_warning": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warnung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warning"
+          }
+        }
+      }
+    },
+    "vblock_code_truncated": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "abgeschnitten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "truncated"
+          }
+        }
+      }
+    },
+    "vblock_datamodel_fk": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FK"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FK"
+          }
+        }
+      }
+    },
+    "vblock_datamodel_nullable": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NOT NULL"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NOT NULL"
+          }
+        }
+      }
+    },
+    "vblock_datamodel_pk": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PK"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PK"
+          }
+        }
+      }
+    },
+    "vblock_datamodel_relations": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beziehungen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relations"
+          }
+        }
+      }
+    },
+    "vblock_datamodel_was": {
+      "comment": "%1$@ = was",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "war: %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "was: %1$@"
+          }
+        }
+      }
+    },
+    "vblock_diff_highlighted_heading": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hervorgehobene Änderungen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Highlighted changes"
+          }
+        }
+      }
+    },
+    "vblock_filetree_added": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hinzugefügt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Added"
+          }
+        }
+      }
+    },
+    "vblock_filetree_modified": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geändert"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modified"
+          }
+        }
+      }
+    },
+    "vblock_filetree_removed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entfernt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Removed"
+          }
+        }
+      }
+    },
+    "vblock_filetree_renamed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Umbenannt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Renamed"
+          }
+        }
+      }
+    },
+    "vblock_inferred": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "abgeleitet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "inferred"
+          }
+        }
+      }
+    },
+    "vblock_mermaid_error": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diagramm konnte nicht gerendert werden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diagram could not be rendered"
+          }
+        }
+      }
+    },
+    "vblock_mermaid_expand": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diagramm vergrößern"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enlarge diagram"
+          }
+        }
+      }
+    },
+    "vblock_wireframe_mockup_label": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Illustrative Skizze — nicht aus dem Code generiert"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Illustrative mockup — not generated from code"
+          }
+        }
+      }
+    },
+    "vblock_wireframe_surface_browser": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser-Skizze"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser mockup"
+          }
+        }
+      }
+    },
+    "vblock_wireframe_surface_desktop": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desktop-Skizze"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desktop mockup"
+          }
+        }
+      }
+    },
+    "vblock_wireframe_surface_mobile": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mobile Skizze"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mobile mockup"
+          }
+        }
+      }
+    },
+    "vblock_wireframe_surface_panel": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Panel-Skizze"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Panel mockup"
+          }
+        }
+      }
+    },
+    "vblock_wireframe_surface_popover": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Popover-Skizze"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Popover mockup"
           }
         }
       }

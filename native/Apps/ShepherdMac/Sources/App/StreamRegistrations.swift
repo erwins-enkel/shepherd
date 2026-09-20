@@ -13,9 +13,9 @@ import SwiftUI
 @MainActor
 enum StreamRegistrations {
     static func installAll(into app: AppModel) {
-        // Streams add one line each, e.g.
-        //   TerminalStream.install(app)   // S1: DetailTab + AppExtension
-        //   SidebarStream.install(app)    // S3: SidebarSlot
-        _ = app
+        TerminalInstall.install(into: app)  // S1: DetailTab "terminal" + AppExtension
+        DetailFeature.install(app)          // S2: DetailTabs activity/diff/files/git + AppExtension
+        SidebarInstall.run(app)             // S3: SidebarSlot + AppExtension
+        LocalServerFeature.install(app)     // S5: WelcomeSlots.localPanel + AppExtension
     }
 }

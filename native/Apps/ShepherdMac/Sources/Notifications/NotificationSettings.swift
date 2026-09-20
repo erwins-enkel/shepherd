@@ -61,7 +61,7 @@ extension NotificationSettings: Codable {
     /// An unknown key inside `categories` needs no special handling at all: `Dictionary`'s own
     /// `Decodable` conformance keeps it, and only `NotificationCategory.allCases` ever reads the
     /// map back out, so a category this build has never heard of just rides along unread.
-    init(from decoder: Decoder) throws {
+    init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
         categories = try container.decodeIfPresent([String: Bool].self, forKey: .categories) ?? [:]

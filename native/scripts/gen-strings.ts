@@ -255,7 +255,6 @@ export const KEYS_SIDEBAR: readonly string[] = [
 
 /** S4 — the quick-action bar and the "Handlungsbedarf" recap line. Keep alphabetical. */
 export const KEYS_ACTIONS: readonly string[] = [
-  "feat_visual_recap_title",
   "amend_failed",
   "amend_original_task",
   "amend_placeholder",
@@ -276,6 +275,7 @@ export const KEYS_ACTIONS: readonly string[] = [
   "cardmenu_stop_failed",
   "cardmenu_stop_title",
   "cardmenu_stop_toast",
+  "feat_visual_recap_title",
   "gitrail_ready",
   "gitrail_ready_aria",
   "gitrail_ready_off_title",

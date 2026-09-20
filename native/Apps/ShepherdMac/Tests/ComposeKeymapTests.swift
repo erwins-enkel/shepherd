@@ -188,7 +188,11 @@ import Testing
                                  credits: nil, stale: false, calibratedAt: nil, subscriptionOnly: true)
         #expect(ComposeReadiness.holdLikely(limits: limits, settings: settings))
         #expect(!ComposeReadiness.holdLikely(limits: nil, settings: settings))
-        settings.additionalProperties.value["usageHoldEnabled"] = false
+        settings.usageHoldPct = 81
+        #expect(!ComposeReadiness.holdLikely(limits: limits, settings: settings))
+        settings.usageHoldPct = nil
+        #expect(ComposeReadiness.holdLikely(limits: limits, settings: settings))
+        settings.usageHoldEnabled = false
         #expect(!ComposeReadiness.holdLikely(limits: limits, settings: settings))
     }
 

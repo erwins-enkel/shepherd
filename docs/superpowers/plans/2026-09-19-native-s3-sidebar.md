@@ -100,7 +100,7 @@ Expected: `OK`. Three parts of that deserve spelling out.
 
 ### Deliberate deviations from the stream brief
 
-The brief came from the route inventory; reading the web UI changed five things. Each is intentional
+The brief came from the route inventory; reading the web UI changed six things. Each is intentional
 and must survive review.
 
 1. **The sidebar is session-driven, not backlog-driven.** `GET /api/backlog` feeds the *Backlog
@@ -125,6 +125,19 @@ and must survive review.
    hangs on that group's header; both land when S0-int assigns `SidebarModel.gitStage`.
 5. **No search field and no ⌘K** — ⌘K opens the web UI's *global command bar*
    (`ui/src/lib/components/CommandBar.svelte`); the sidebar has no search input.
+6. **The `Erledigt` (Done) lens ships disabled too**, alongside `Nächstes` and `Offen`. It was
+   enabled in the first cut, which was wrong: `done` is not a live-list filter in the web either —
+   `ui/src/lib/components/herd-partition.ts:64-66` says so outright (`"done" is NOT a live-list
+   filter — the page swaps in a dedicated panel and shownSessions falls through to the live set for
+   it.`), and `shownSessions` returns the sessions unchanged for it. The web gets away with that
+   because the page swaps in a dedicated Done panel; this build has none, and one needs
+   `ShepherdClient.doneSessions()`, which is outside this stream's route list. Enabled, the button
+   simply relabelled the All list — `SidebarModel.liveSessions` already drops archived sessions, so
+   the Done lens showed running and blocked sessions and no finished ones. `HerdPartition.shown`
+   keeps the web's fallthrough verbatim (it is still asserted), only `HerdLens.isAvailable` changed,
+   and the `herd_done_title` tooltip is retained like the other two panel-only lenses. With the
+   lens unreachable, `herd_done_empty` — the web's Done-*panel* line — has no call site and is out
+   of `KEYS_SIDEBAR`; it stays in `ui/messages/{en,de}.json`, where the web still uses it.
 
 **Known parity gap, documented not fixed:** the web meter prefers `limits.observed`
 (`ui/src/lib/components/usage-gauges.ts:21-53`), and `observed`/`providers`/`refresh` are not

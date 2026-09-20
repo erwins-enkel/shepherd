@@ -35,8 +35,11 @@ struct SidebarViewTests {
         #expect(SidebarCopy.empty(lens: .ready, repos: []) == L.t("herd_ready_empty"))
     }
 
-    @Test func emptyCopyIsTheDoneLensLineWithNoRepoFilter() {
-        #expect(SidebarCopy.empty(lens: .done, repos: []) == L.t("herd_done_empty"))
+    /// `herd_done_empty` is the web's Done-PANEL line, and the Done lens is panel-only in the web
+    /// too — this build ships no panel and disables the button, so the line has no reachable call
+    /// site and the lens falls back with the other panel-only ones.
+    @Test func emptyCopyFallsBackForTheDoneLensWhichIsPanelOnly() {
+        #expect(SidebarCopy.empty(lens: .done, repos: []) == L.t("native_sidebar_empty"))
     }
 
     /// Every other lens — and a filter on more than one repo, which is not the single-repo case
@@ -62,6 +65,42 @@ struct SidebarViewTests {
         let model = SidebarModel(reads: .stub, now: { 0 })
         model.install(sessions: [session("a", repo: "/repos/one"), session("b", repo: "/repos/two")])
         #expect(model.chips.count == 2)
+        #expect(model.showsRepoRail(model.chips))
+    }
+
+    /// The stranded-filter case: with A and B on the rail and A selected, archiving A's last
+    /// session drops A's chip. The rail used to disappear with it — one chip is below the gate —
+    /// while `selectedRepos` still held A, leaving a permanently empty list and no control to clear
+    /// it. The filter is now inert the moment its chip is gone, and the rail stays up whenever a
+    /// filter is actually applied.
+    @Test func aVanishedRepoChipCannotStrandTheFilter() {
+        let model = SidebarModel(reads: .stub, now: { 0 })
+        model.install(sessions: [session("a", repo: "/repos/one"), session("b", repo: "/repos/two")])
+        model.toggleRepo("/repos/one", additive: false)
+        #expect(model.activeRepos == ["/repos/one"])
+        #expect(model.sessions.map(\.id) == ["a"])
+        #expect(model.showsRepoRail(model.chips))
+
+        // `/repos/one`'s last session is archived: its chip is gone, the selection is not.
+        model.install(sessions: [session("b", repo: "/repos/two")])
+        #expect(model.chips.map(\.path) == ["/repos/two"])
+        #expect(model.selectedRepos == ["/repos/one"], "the raw selection is untouched")
+        #expect(model.activeRepos.isEmpty, "a filter with no chip left to clear it must be inert")
+        #expect(model.sessions.map(\.id) == ["b"], "the list must not be stranded empty")
+        #expect(
+            model.tallies == HerdTallies(active: 1, idle: 0, blocked: 0, total: 1),
+            "the tallies follow the same effective filter as the list")
+    }
+
+    /// The other half of the same gesture: a filter on the one repo that DOES still have a chip
+    /// keeps the rail up even though a single chip is below the web's two-chip gate, so the click
+    /// that clears it is always reachable.
+    @Test func aLiveFilterKeepsTheRailUpBelowTheTwoChipGate() {
+        let model = SidebarModel(reads: .stub, now: { 0 })
+        model.install(sessions: [session("a", repo: "/repos/one")])
+        #expect(!model.showsRepoRail(model.chips), "one chip and no filter stays below the gate")
+        model.toggleRepo("/repos/one", additive: false)
+        #expect(model.showsRepoRail(model.chips))
     }
 
     // MARK: - Collapse wiring (`HerdGroupView(isCollapsed: model.collapsedStages.contains(...))`)

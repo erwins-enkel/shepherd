@@ -11,7 +11,7 @@ struct SidebarStringsTests {
             "herd_lenses_label", "herd_seg_all", "herd_seg_ready", "herd_seg_done",
             "herd_seg_next", "herd_seg_owed", "herd_all_title", "herd_ready_title",
             "herd_done_title", "herd_next_title", "herd_owed_title", "herd_ready_empty",
-            "herd_done_empty", "herd_stage_name_active", "repo_switcher_label",
+            "herd_stage_name_active", "repo_switcher_label",
             "research_badge_label", "terminal_badge_label", "session_autopilot_paused_label",
             "unitrow_quota_rework", "unitrow_quota_review", "unitrow_quota_error",
             "usage_limits_window_5h", "usage_limits_window_week", "usage_limits_no_data",

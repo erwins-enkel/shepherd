@@ -2,8 +2,15 @@ import Foundation
 import ShepherdKit
 
 /// The five lenses of the web's lens strip (`HerdFilter`,
-/// `ui/src/lib/components/herd-partition.ts:67`). `next` and `owed` render separate panels, so
-/// `shown` returns nothing for them — as the web does — and this build disables their buttons.
+/// `ui/src/lib/components/herd-partition.ts:67`). Three of the five — `next`, `owed` and `done` —
+/// are panel-only lenses in the web: the page swaps in a dedicated panel instead of narrowing the
+/// session list. `shown` returns nothing for `next`/`owed` — as the web does — and falls through to
+/// the live set for `done`, also as the web does, which the web's own comment spells out
+/// (`herd-partition.ts:64-66`: `"done" is NOT a live-list filter — the page swaps in a dedicated
+/// panel and shownSessions falls through to the live set for it.`). That fallthrough is safe only
+/// with a Done panel in front of it, and this build has none — a Done panel needs
+/// `ShepherdClient.doneSessions()`, outside this stream's route list — so all three buttons ship
+/// disabled with their web tooltips.
 enum HerdLens: String, CaseIterable, Sendable {
     case next, all, ready, done, owed
 
@@ -39,7 +46,9 @@ enum HerdLens: String, CaseIterable, Sendable {
         }
     }
 
-    var isAvailable: Bool { self == .all || self == .ready || self == .done }
+    /// Only the two lenses that genuinely narrow the live list. `next`, `owed` and `done` each
+    /// render a panel this build does not ship; enabling `done` would relabel the All list.
+    var isAvailable: Bool { self == .all || self == .ready }
 }
 
 /// The fourteen lifecycle stages of `stageOf` (`herd-partition.ts:48-62, 116-183`), declared in
@@ -140,6 +149,13 @@ enum HerdPartition {
 
     /// `ui/src/lib/display-status.ts:11-16`: a session the poller called blocked but which is still
     /// producing output reads as running. Nothing else is repainted.
+    ///
+    /// This is "the single source of truth for everything that RENDERS a status"
+    /// (`display-status.ts:3-10`), and the same comment's other half is just as binding: the upgrade
+    /// is **display-only**, so everything that DECIDES something — `stageOf`, the archived filter,
+    /// the Ready lens' own exclusion — keeps reading the raw `session.status`. `SidebarModel.rendered`
+    /// applies this to the copy it hands `SessionRow`, so the row's label and tint agree with the
+    /// tallies instead of contradicting them.
     static func displayStatus(_ session: Session, workingBlocked: [String: Bool]) -> SessionStatus {
         guard session.status.known == .blocked, workingBlocked[session.id] == true else {
             return session.status
@@ -178,6 +194,12 @@ enum HerdPartition {
     ]
 
     /// `shownSessions` (`herd-partition.ts:93-111`).
+    ///
+    /// `done` falls through to the full set here because the web does exactly that — it is not a
+    /// live-list filter at all, and the web's page renders a dedicated Done panel instead
+    /// (`herd-partition.ts:64-66`). This build ships no such panel, so `HerdLens.done.isAvailable`
+    /// is false and this branch is unreachable from the UI; it stays faithful to the web rather
+    /// than inventing a different fallthrough for a lens that cannot be selected.
     ///
     /// `inReview` is the web's own `inReview(s.id)` — a critic run in flight for this session — and
     /// the Ready lens tests it SEPARATELY from the stage check (`:96-101`), because

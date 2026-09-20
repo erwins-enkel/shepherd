@@ -6,6 +6,11 @@ import ShepherdKit
 struct HerdGroupView: View {
     let group: HerdGroup
     let isCollapsed: Bool
+    /// `SidebarModel.rendered` — the session as it must render, with `HerdPartition.displayStatus`
+    /// applied. `SessionRow` is another stream's file and paints whatever `status` it is handed, so
+    /// the display-status upgrade has to happen on the way in or the row contradicts the tallies
+    /// and the Ready lens, which both already go through `displayStatus`.
+    let display: (Session) -> Session
     let block: (String) -> BlockReason?
     let onToggle: () -> Void
 
@@ -14,7 +19,10 @@ struct HerdGroupView: View {
             if !isCollapsed {
                 ForEach(group.sessions, id: \.id) { session in
                     VStack(alignment: .leading, spacing: 3) {
-                        SessionRow(session: session)
+                        SessionRow(session: display(session))
+                        // Badges read the RAW session: none of them is a status, and the
+                        // display-status upgrade is display-only by contract
+                        // (`ui/src/lib/display-status.ts:3-10`).
                         SessionBadgeStack(
                             badges: SessionBadges.items(for: session, block: block(session.id)))
                     }

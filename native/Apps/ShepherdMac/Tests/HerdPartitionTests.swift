@@ -129,6 +129,28 @@ struct HerdPartitionTests {
         }
     }
 
+    /// `herd-partition.ts:64-66` says it outright: `"done" is NOT a live-list filter — the page
+    /// swaps in a dedicated panel and shownSessions falls through to the live set for it.` So the
+    /// fallthrough below is correct parity, and it is exactly why the lens must stay DISABLED here:
+    /// this build ships no Done panel (one needs `ShepherdClient.doneSessions()`, outside this
+    /// stream's route list), so an enabled Done button would relabel the All list.
+    @Test func onlyTheTwoLiveListLensesAreSelectable() {
+        #expect(HerdLens.all.isAvailable)
+        #expect(HerdLens.ready.isAvailable)
+        #expect(!HerdLens.done.isAvailable, "done is panel-only in the web and has no panel here")
+        #expect(!HerdLens.next.isAvailable)
+        #expect(!HerdLens.owed.isAvailable)
+
+        let sessions = [session("a"), session("b", status: SessionStatus(known: .idle))]
+        #expect(
+            HerdPartition.shown(
+                sessions, lens: .done, workingBlocked: [:], now: now, gitStage: noGit,
+                inReview: noReview
+            ).count == 2,
+            "the web's fallthrough is reproduced verbatim; the button, not the rule, is what changes"
+        )
+    }
+
     /// `merge-train.ts:11-17` (`MERGE_MARK_BACKSTOP_MS = 24 * 60 * 60_000`, `isMerging`).
     @Test func mergingIsAMarkInsideTheBackstopWindow() {
         #expect(HerdPartition.isMerging(session("a", mergingSince: now - 1_000), now: now))

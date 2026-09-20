@@ -35,6 +35,8 @@ final class SidebarModel: AppExtension {
     private(set) var usage: UsageLimitsResponse?
 
     var lens: HerdLens = .all
+    /// The repo chips the operator clicked. Raw — read `activeRepos` for the filter that is
+    /// actually applied; a selection can outlive the chip that made it.
     var selectedRepos: Set<String> = []
     var collapsedStages: Set<HerdStage> = []
 
@@ -64,6 +66,9 @@ final class SidebarModel: AppExtension {
         @ObservationIgnored private var staleOnce = false
     #endif
     @ObservationIgnored private var watcher: Task<Void, Never>?
+    /// Re-reads all four snapshots every time the store's connection (re-)enters `.live`. Stored
+    /// alongside `watcher` so `teardown()` cancels it with everything else.
+    @ObservationIgnored private var connectionWatcher: Task<Void, Never>?
     /// The one-shot bootstrap refresh the production initializer fires. Stored so `teardown()` can
     /// cancel it — previously it ran to completion even after the model was torn down.
     @ObservationIgnored private var bootstrap: Task<Void, Never>?
@@ -87,6 +92,14 @@ final class SidebarModel: AppExtension {
         // (`held:changed`, `session:working-blocked`) only as signals to re-read; it never calls
         // `setActive`, so it sends no presence frame and cannot fight the store's.
         subscribe(store)
+        // Reconciliation after a gap, which `SessionStore.events()` spells out as the price of a
+        // tap: a tap is not a guaranteed-complete log, so anything derived from frames must be
+        // re-derivable from a fresh read. The store re-reads its own snapshot on every reconnect;
+        // this watcher is how these four snapshots ride along, and it is the ONLY retry the
+        // bootstrap below has — a bootstrap that failed (one flaky route discards all four reads)
+        // is picked up by the next `.live` transition instead of leaving the header blank until a
+        // tap frame happens to arrive.
+        watchConnection { [weak store] in store?.connection }
         // Also the reconciliation `AppModel.register(_:)` demands of an extension built late: this
         // model derives nothing from the frames it may have missed, it re-reads all four snapshots
         // from scratch.
@@ -105,12 +118,28 @@ final class SidebarModel: AppExtension {
         (store?.sessions ?? offlineSessions).filter { $0.status.known != .archived }
     }
 
+    /// The repo paths that still have a chip — the same set `repoChips` is built from, minus the
+    /// sort and the counts.
+    private var chippedRepos: Set<String> { Set(liveSessions.map(\.repoPath)) }
+
+    /// The repo filter as it actually applies: only paths that still have a chip to clear them
+    /// with. Archiving a repo's last session drops its chip, and a selection left pointing at that
+    /// repo would otherwise filter the list down to nothing with no control left to undo it — an
+    /// invisible, unclearable filter. Intersecting here makes the stranded entry inert instead;
+    /// `toggleRepo` drops it on the next click, and the web's click-to-replace / shift-to-toggle
+    /// gesture is untouched.
+    ///
+    /// Short-circuited on the common "no filter" path so the usual render pays nothing for it.
+    var activeRepos: Set<String> {
+        selectedRepos.isEmpty ? [] : selectedRepos.intersection(chippedRepos)
+    }
+
     /// Non-archived sessions, narrowed by the repo filter and then by the lens. `HerdPartition`'s
     /// `gitStage`/`inReview` parameters are themselves `@MainActor` closures, so `gitStage` and
     /// `inReview` pass straight through with no isolation bridging.
     var sessions: [Session] {
         HerdPartition.shown(
-            HerdPartition.filter(liveSessions, repos: selectedRepos),
+            HerdPartition.filter(liveSessions, repos: activeRepos),
             lens: lens, workingBlocked: workingBlocked, now: now(), gitStage: gitStage,
             inReview: inReview)
     }
@@ -118,13 +147,37 @@ final class SidebarModel: AppExtension {
     /// Built from the unfiltered list, so a repo whose sessions the lens hides keeps its chip.
     var chips: [HerdRepoChip] { HerdPartition.repoChips(store?.sessions ?? offlineSessions) }
 
+    /// The web shows the rail only once there is something to choose between — plus, here, whenever
+    /// a filter is actually applied, so the control that clears it can never be the thing that
+    /// disappears. Takes the caller's already-computed chips rather than recomputing them: the view
+    /// reads `chips` exactly once per render and this must not be a second pass.
+    func showsRepoRail(_ chips: [HerdRepoChip]) -> Bool {
+        chips.count >= 2 || !activeRepos.isEmpty
+    }
+
+    /// The session as it must RENDER: `HerdPartition.displayStatus` applied on top, so a blocked
+    /// session that is in fact still producing output paints as running in the row exactly as it
+    /// already counts as running in the tallies and in the Ready lens. `display-status.ts:3-10`
+    /// calls that function "the single source of truth for everything that RENDERS a status"; the
+    /// row used to be handed the raw session and contradict it.
+    ///
+    /// Display-only, per the same comment: nothing that *decides* anything reads this. `stageOf`,
+    /// the archived filter in `liveSessions` and the Ready lens' own exclusion all keep reading the
+    /// raw `session.status`, and this copy never reaches them — it is produced at the view boundary
+    /// and nowhere else.
+    func rendered(_ session: Session) -> Session {
+        var copy = session
+        copy.status = HerdPartition.displayStatus(session, workingBlocked: workingBlocked)
+        return copy
+    }
+
     var groups: [HerdGroup] {
         HerdPartition.groups(sessions, now: now(), gitStage: gitStage, inReview: inReview)
     }
 
     var tallies: HerdTallies {
         HerdPartition.tallies(
-            HerdPartition.filter(liveSessions, repos: selectedRepos),
+            HerdPartition.filter(liveSessions, repos: activeRepos),
             workingBlocked: workingBlocked)
     }
 
@@ -132,6 +185,13 @@ final class SidebarModel: AppExtension {
     var limits: UsageLimits? { store?.usageLimits ?? usage?.limits }
 
     /// The store's map when there is one — kept live by `session:block` — else the bootstrap read.
+    ///
+    /// The `??` is only ever a *first-paint* fallback, and it can only stay one because `subscribe`
+    /// mirrors `session:block` into this model's own `blocks` too. Without that mirror the two maps
+    /// drift the moment a block clears: `SessionStore.apply` clears by writing `blocks[id] = nil`,
+    /// the `??` then falls through to a bootstrap snapshot that still has the entry, and the quota
+    /// badge stays on forever — neither `held:changed` nor `session:working-blocked` is emitted for
+    /// a block clear, so nothing would ever re-read it away.
     func block(for id: String) -> BlockReason? { store?.blocks[id] ?? blocks[id] }
 
     // MARK: - Commands
@@ -202,6 +262,8 @@ final class SidebarModel: AppExtension {
     func teardown() {
         watcher?.cancel()
         watcher = nil
+        connectionWatcher?.cancel()
+        connectionWatcher = nil
         bootstrap?.cancel()
         bootstrap = nil
         refreshTask?.cancel()
@@ -209,17 +271,24 @@ final class SidebarModel: AppExtension {
         refreshPending = false
     }
 
-    /// Both frames arrive as `ServerEvent.unknown(name:payload:)`: the contract declares them under
-    /// this stream's `x-shepherd-events` block but deliberately not in `EventName`, so the store
-    /// hands them back as the raw name plus the undecoded `data` bytes. The sidebar only needs the
-    /// name — a re-read is cheap and both frames exist solely to trigger one — so `payload` is
-    /// discarded here rather than decoded through `HeldChangedEvent`/`SessionWorkingBlockedEvent`.
-    /// No other frame is matched: everything else that moves a session between partitions
-    /// (`session:new`, `session:status`, `session:archived`, `session:block`, `usage:limits`) the
-    /// store already applies to state this model reads through, so `@Observable` republishes the
-    /// derived groups with no read at all.
+    /// The tap does two different jobs, and the difference matters.
     ///
-    /// A matching frame calls `requestRefresh()`, not `refresh()` directly: consuming the loop must
+    /// **Two frames are re-read signals.** `held:changed` and `session:working-blocked` arrive as
+    /// `ServerEvent.unknown(name:payload:)`: the contract declares them under this stream's
+    /// `x-shepherd-events` block but deliberately not in `EventName`, so the store hands them back
+    /// as the raw name plus the undecoded `data` bytes. The sidebar only needs the name — a re-read
+    /// is cheap and both frames exist solely to trigger one — so `payload` is discarded here rather
+    /// than decoded through `HeldChangedEvent`/`SessionWorkingBlockedEvent`.
+    ///
+    /// **Two frames are mirrored into `blocks`.** `session:block` and `session:archived` are the
+    /// only frames this model keeps state from, and only because `block(for:)` falls back to this
+    /// model's own map: `SessionStore.apply` clears a block by writing `blocks[id] = nil`, and
+    /// without the mirror a stale bootstrap entry would win that fallback for good. Everything else
+    /// that moves a session between partitions (`session:new`, `session:status`, `usage:limits`)
+    /// the store already applies to state this model reads through, so `@Observable` republishes
+    /// the derived groups with no read and no local copy at all.
+    ///
+    /// A re-read frame calls `requestRefresh()`, not `refresh()` directly: consuming the loop must
     /// stay cheap so a burst of buffered frames drains fast and collapses into one follow-up read
     /// rather than blocking the loop on a full network round trip per frame.
     ///
@@ -232,10 +301,78 @@ final class SidebarModel: AppExtension {
         watcher = Task { @MainActor [weak self] in
             for await event in frames {
                 guard let self else { return }
-                guard case .unknown(let name, _) = event,
-                    name == "held:changed" || name == "session:working-blocked"
-                else { continue }
-                self.requestRefresh()
+                switch event {
+                case .unknown(let name, _)
+                where name == "held:changed" || name == "session:working-blocked":
+                    self.requestRefresh()
+                // Mirrored, not re-read: `block(for:)` falls back to this model's own `blocks` map
+                // when the store has no entry, and a block CLEAR is exactly "the store has no
+                // entry". A stale bootstrap entry would win that `??` and keep the quota badge lit
+                // for good. Applied straight from the frame rather than through `requestRefresh()`
+                // because a clear has to land immediately — a network round trip later is a badge
+                // the operator watches linger after the block is gone.
+                case .sessionBlock(let payload):
+                    self.blocks[payload.id] = payload.block
+                // The store clears a block on archive too (`apply`, `.sessionArchived`), so the
+                // fallback map has to follow it there as well.
+                case .sessionArchived(let payload):
+                    self.blocks[payload.id] = nil
+                default:
+                    continue
+                }
+            }
+        }
+    }
+
+    /// Re-reads all four snapshots every time the connection (re-)enters `.live`.
+    ///
+    /// This is the sidebar's half of the reconciliation `SessionStore` already does for itself — it
+    /// re-reads its own snapshot on every reconnect — and it covers two failures at once. A
+    /// bootstrap that lost one of its four routes discarded all four and had no retry; and a
+    /// `working-blocked` flag that flipped while the socket was down stayed wrong indefinitely,
+    /// because the tap only listens for two frame names and a dropped frame is never redelivered.
+    ///
+    /// `ConnectionState` is `@Observable`-tracked on `SessionStore`, so this suspends on
+    /// `withObservationTracking` and wakes on the next write — no timer, no missed transition.
+    /// `withObservationTracking` fires `onChange` exactly once, which is why the loop re-arms on
+    /// every pass. The shape is `AppModel.watchConnection`'s, deliberately: same contract, same
+    /// re-arm, same weak read so the watcher can never be the reason a store outlives its
+    /// activation.
+    ///
+    /// Internal, not private: the unit tests drive it with their own reader, which is the only way
+    /// to exercise a reconnect without a server.
+    func watchConnection(_ read: @escaping @MainActor () -> ConnectionState?) {
+        connectionWatcher?.cancel()
+        connectionWatcher = Task { @MainActor [weak self] in
+            // `nil` until the first pass reads a state, so whatever the connection is at arm time
+            // is the baseline and only a LATER arrival at `.live` reconciles. In production that
+            // baseline is always `.idle`: `AppModel.activate` calls `makeExtensions(store:)` — and
+            // so this initializer — before it calls `store.start()`. So the first real `.live`
+            // counts as an entry and re-reads, which is what retries a failed bootstrap.
+            var wasLive: Bool?
+            while !Task.isCancelled {
+                // Read in its own scope: a `self` still bound across the suspension below would
+                // make this watcher the reason a dropped model never deinits.
+                do {
+                    guard let self else { return }
+                    // Arming an observation on a store that is gone would park this task on a
+                    // continuation no write can ever resume.
+                    guard let state = read() else { return }
+                    let isLive = state == .live
+                    if isLive, wasLive != true { self.requestRefresh() }
+                    wasLive = isLive
+                }
+
+                await withCheckedContinuation { continuation in
+                    withObservationTracking {
+                        _ = read()
+                    } onChange: {
+                        continuation.resume()
+                    }
+                }
+                // `onChange` runs just before the property is written, so yield once to let the
+                // writer finish before the next pass reads it.
+                await Task.yield()
             }
         }
     }

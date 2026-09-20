@@ -112,6 +112,31 @@ struct SidebarModelTests {
         #expect(m.sessions.map(\.id) == ["a"])
     }
 
+    /// `ui/src/lib/display-status.ts:3-10` — `displayStatus` is "the single source of truth for
+    /// everything that RENDERS a status". The tallies and the Ready lens already went through it;
+    /// the row did not, so a blocked-but-working session was counted active in the header and
+    /// painted "Blockiert" one line below. `rendered` is what the group view hands `SessionRow`.
+    @Test func aBlockedSessionFlaggedWorkingRendersAsRunning() async {
+        let m = model()
+        await m.refresh()
+        #expect(m.workingBlocked == ["s1": true])
+
+        let flagged = PreviewData.session(id: "s1", status: SessionStatus(known: .blocked))
+        #expect(m.rendered(flagged).status.known == .running)
+        #expect(m.rendered(flagged).id == "s1", "only the status is repainted")
+
+        let unflagged = PreviewData.session(id: "s2", status: SessionStatus(known: .blocked))
+        #expect(m.rendered(unflagged).status.known == .blocked)
+
+        // "The flag only ever upgrades blocked — a stale entry on a non-blocked session is inert."
+        let idle = PreviewData.session(id: "s1", status: SessionStatus(known: .idle))
+        #expect(m.rendered(idle).status.known == .idle)
+
+        // The whole point of the fix: the row and the header now say the same thing.
+        m.install(sessions: [flagged])
+        #expect(m.tallies == HerdTallies(active: 1, idle: 0, blocked: 0, total: 1))
+    }
+
     // MARK: - The event tap
 
     /// Counts `workingBlocked()` only, so the ledger counts refreshes, not reads.
@@ -233,6 +258,112 @@ struct SidebarModelTests {
         model.teardown()
         _ = store
         _ = app
+    }
+
+    /// A block CLEAR is `blocks[id] = nil` in `SessionStore.apply`, and `block(for:)` falls back to
+    /// this model's own map when the store has none — so without mirroring the frame, a bootstrap
+    /// snapshot that still carried the block would win that fallback and keep the quota badge lit
+    /// forever. Neither `held:changed` nor `session:working-blocked` is emitted for a block clear,
+    /// so no re-read would ever wash it out either.
+    @Test func aClearedBlockIsNotResurrectedFromTheBootstrapSnapshot() async throws {
+        let (model, store, app, ledger) = try live()
+        #expect(await settle(until: { await ledger.count >= 1 }))
+
+        let reason = BlockReason(
+            shape: .init(value1: .quota), options: [], tail: [], quotaKind: .init(value1: .rework))
+
+        // A bootstrap read that saw the block — the stale snapshot the `??` used to fall back to.
+        model.reads = SidebarReads(
+            workingBlocked: { [:] }, holds: { [:] }, blocks: { ["s1": reason] },
+            usage: {
+                UsageLimitsResponse(
+                    limits: UsageLimits(perModelWeek: [], stale: false, subscriptionOnly: false),
+                    projections: [])
+            })
+        await model.refresh()
+        #expect(model.blocks["s1"] != nil, "the snapshot carries the block")
+        #expect(model.block(for: "s1") != nil)
+
+        // The socket confirms it, then clears it.
+        store.apply(.sessionBlock(Components.Schemas.SessionBlockEvent(id: "s1", block: reason)))
+        #expect(await settle(until: { model.blocks["s1"] != nil }))
+        #expect(model.block(for: "s1") != nil)
+
+        store.apply(.sessionBlock(Components.Schemas.SessionBlockEvent(id: "s1", block: nil)))
+        #expect(
+            await settle(until: { model.block(for: "s1") == nil }),
+            "a cleared block must not be resurrected from the bootstrap snapshot")
+        #expect(store.blocks["s1"] == nil)
+        #expect(model.blocks["s1"] == nil, "the fallback map follows the clear")
+
+        model.teardown()
+        _ = app
+    }
+
+    // MARK: - Reconciliation on reconnect
+
+    /// The sidebar reconciles on the same signal the store does. `SessionStore` re-reads its own
+    /// snapshot on every reconnect; these four snapshots ride along on the connection entering
+    /// `.live`, so a `working-blocked` flag that flipped while the socket was down cannot stay
+    /// wrong indefinitely.
+    @Test func enteringLiveTriggersExactlyOneReRead() async {
+        let ledger = ReadLedger()
+        let m = SidebarModel(reads: counting(ledger), now: { 0 })
+        let box = ConnectionBox()
+        m.watchConnection { box.state }
+
+        #expect(
+            !(await settle(until: { await ledger.count >= 1 }, yields: 50)),
+            "the state at arm time is the baseline, not a transition")
+
+        box.state = .connecting
+        #expect(!(await settle(until: { await ledger.count >= 1 }, yields: 50)))
+
+        box.state = .live
+        #expect(await settle(until: { await ledger.count >= 1 }))
+        #expect(await ledger.count == 1)
+
+        // Still live: a write that does not change the answer re-reads nothing.
+        box.state = .live
+        #expect(!(await settle(until: { await ledger.count >= 2 }, yields: 50)))
+        #expect(await ledger.count == 1)
+
+        // A drop and a genuine RE-entry is a second reconciliation. The two writes need a turn
+        // between them: `withObservationTracking` reports that *something* changed, not what it
+        // changed to, so two writes in one main-actor turn coalesce and the watcher would only ever
+        // see the newer value. A real drop and reconnect are always turns apart.
+        box.state = .offline(message: "down")
+        _ = await settle(until: { false }, yields: 20)
+        box.state = .live
+        #expect(await settle(until: { await ledger.count >= 2 }))
+        #expect(await ledger.count == 2)
+
+        m.teardown()
+        box.state = .offline(message: "down")
+        _ = await settle(until: { false }, yields: 20)
+        box.state = .live
+        #expect(!(await settle(until: { await ledger.count >= 3 }, yields: 50)))
+        #expect(await ledger.count == 2, "teardown() cancels the connection watcher too")
+    }
+
+    /// The other half of the same mechanism: one flaky route discards all four reads, and before
+    /// this the failure had no retry at all — a failed bootstrap left the header with no usage
+    /// meter and no badges until a tap frame happened to arrive, possibly never.
+    @Test func aFailedBootstrapIsRetriedOnTheNextLiveTransition() async {
+        let m = SidebarModel(reads: .failing, now: { 0 })
+        await m.refresh()
+        #expect(m.workingBlocked.isEmpty, "the bootstrap read failed")
+        #expect(m.usage == nil)
+
+        let box = ConnectionBox()
+        m.watchConnection { box.state }
+        m.reads = .stub
+        box.state = .live
+
+        #expect(await settle(until: { !m.workingBlocked.isEmpty }))
+        #expect(m.workingBlocked == ["s1": true])
+        #expect(m.usage?.limits.session5h?.pct == 42)
+        m.teardown()
     }
 
     /// Gated reads: the closure signals `entered` before parking on `gate`, so a test can pin a

@@ -204,7 +204,8 @@ export const KEYS_SIDEBAR: readonly string[] = [
   "herd_changes_requested_group",
   "herd_ci_failed_group",
   "herd_ci_running_group",
-  "herd_done_empty",
+  // `herd_done_empty` is the web's Done-PANEL line. The Done lens is panel-only in the web
+  // and ships disabled here (`HerdLens.isAvailable`), so nothing in this build can render it.
   "herd_done_title",
   "herd_draft_awaiting_signoff_group",
   "herd_lenses_label",

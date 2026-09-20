@@ -20,8 +20,9 @@ struct SidebarView: View {
         return VStack(spacing: 0) {
             HeaderStrip(model: model)
             lensStrip
-            // The web shows the rail only once there is something to choose between.
-            if chips.count >= 2 { repoRail(chips) }
+            // Shown once there is something to choose between — or whenever a filter is actually
+            // applied, so the rail can never be the control that vanishes while its filter stays.
+            if model.showsRepoRail(chips) { repoRail(chips) }
             Divider()
             list(groups, selection: $app.selectedSessionID)
         }
@@ -89,7 +90,7 @@ struct SidebarView: View {
     private func list(_ groups: [HerdGroup], selection: Binding<String?>) -> some View {
         if groups.isEmpty {
             ContentUnavailableView(
-                SidebarCopy.empty(lens: model.lens, repos: model.selectedRepos),
+                SidebarCopy.empty(lens: model.lens, repos: model.activeRepos),
                 systemImage: "tray")
         } else {
             List(selection: selection) {
@@ -97,6 +98,7 @@ struct SidebarView: View {
                     HerdGroupView(
                         group: group,
                         isCollapsed: model.collapsedStages.contains(group.stage),
+                        display: { model.rendered($0) },
                         block: { model.block(for: $0) },
                         onToggle: { model.toggleCollapsed(group.stage) })
                 }

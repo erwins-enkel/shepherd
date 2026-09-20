@@ -9,9 +9,12 @@ enum SidebarCopy {
         if repos.count == 1, let repo = repos.first {
             return L.t("herd_repo_filter_empty", (repo as NSString).lastPathComponent)
         }
+        // Only `ready` gets a line of its own: it is the only lens besides `all` this build lets
+        // the operator select (`HerdLens.isAvailable`). `done` is panel-only in the web and ships
+        // disabled here, so `herd_done_empty` — the web's Done-panel line — has no reachable call
+        // site and is deliberately not in `KEYS_SIDEBAR`.
         switch lens {
         case .ready: return L.t("herd_ready_empty")
-        case .done: return L.t("herd_done_empty")
         default: return L.t("native_sidebar_empty")
         }
     }

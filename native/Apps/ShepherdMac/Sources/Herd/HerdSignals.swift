@@ -67,6 +67,10 @@ final class HerdSignals: AppExtension {
     @ObservationIgnored private var connectionSignal: AsyncStream<Void>.Continuation?
     @ObservationIgnored private var connectionWatcherToken = 0
     @ObservationIgnored private(set) var isWatchingConnection = false
+    @ObservationIgnored private var sessionsWatcher: Task<Void, Never>?
+    @ObservationIgnored private var sessionsSignal: AsyncStream<Void>.Continuation?
+    @ObservationIgnored private var hasLoadedSessionList = false
+    @ObservationIgnored private(set) var isWatchingSessions = false
 
     var isSubscribed: Bool { watcher != nil }
     private var isCurrent: Bool {
@@ -80,6 +84,7 @@ final class HerdSignals: AppExtension {
         reads = .live(store.client)
         now = { Int(Date().timeIntervalSince1970 * 1_000) }
         subscribe(store)
+        watchSessions()
         watchConnection { [weak store] in store?.connection }
         bootstrap = Task { [weak self] in await self?.refresh() }
     }
@@ -166,7 +171,7 @@ final class HerdSignals: AppExtension {
                 sequence == readStates[map]?.sequence,
                 activationSnapshot == app?.activationGeneration else { return }
             install(loaded, readStates[map]?.eventIDs ?? [])
-            if let store, !store.sessions.isEmpty { prune(to: Set(store.sessions.map(\.id))) }
+            if let ids = liveSessionIDs() { prune(to: ids) }
         } catch {
             Log.ui.debug("herd snapshot read failed: \(String(describing: error), privacy: .public)")
         }
@@ -196,13 +201,45 @@ final class HerdSignals: AppExtension {
     }
 
     func prune(to live: Set<String>) {
-        git = git.filter { live.contains($0.key) }
-        activity = activity.filter { live.contains($0.key) }
-        claudeAlive = claudeAlive.filter { live.contains($0.key) }
-        verdicts = verdicts.filter { live.contains($0.key) }
-        reviewing.formIntersection(live)
-        reviewerEnv = reviewerEnv.filter { live.contains($0.key) }
-        criticActivity = criticActivity.filter { live.contains($0.key) }
+        let known = Set(git.keys).union(activity.keys).union(claudeAlive.keys)
+            .union(verdicts.keys).union(reviewing).union(reviewerEnv.keys).union(criticActivity.keys)
+        // Reconciliation removals are overlays too: a slower map cannot resurrect them.
+        for id in known.subtracting(live) { archive(id) }
+    }
+
+    /// settings is installed with the initial sessions snapshot. Before that, an empty list
+    /// is unknown; afterwards (or after observing sessions), empty is authoritative too.
+    private func liveSessionIDs() -> Set<String>? {
+        guard let store else { return nil }
+        if store.settings != nil || !store.sessions.isEmpty { hasLoadedSessionList = true }
+        guard hasLoadedSessionList else { return nil }
+        return Set(store.sessions.filter { $0.status.known != .archived }.map(\.id))
+    }
+
+    /// The session list can reconcile after our snapshots, including when every herd read
+    /// fails. Observe it independently so a missed archive never requires a successful read.
+    private func watchSessions() {
+        let (changes, signal) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        sessionsSignal = signal
+        isWatchingSessions = true
+        sessionsWatcher = Task { @MainActor [weak self] in
+            defer { self?.isWatchingSessions = false }
+            var iterator = changes.makeAsyncIterator()
+            while !Task.isCancelled {
+                do {
+                    guard let self, self.isCurrent else { return }
+                    let ids = withObservationTracking {
+                        self.liveSessionIDs()
+                    } onChange: {
+                        signal.yield()
+                    }
+                    if let ids { self.prune(to: ids) }
+                }
+                // Release self before parking, and sample after Observation's willSet edge.
+                guard await iterator.next() != nil else { return }
+                await Task.yield()
+            }
+        }
     }
 
     func teardown() {
@@ -215,6 +252,10 @@ final class HerdSignals: AppExtension {
         connectionWatcher = nil
         connectionSignal?.finish()
         connectionSignal = nil
+        sessionsSignal?.finish()
+        sessionsSignal = nil
+        sessionsWatcher?.cancel()
+        sessionsWatcher = nil
         bootstrap?.cancel()
         bootstrap = nil
         refreshTask?.cancel()
@@ -277,6 +318,8 @@ final class HerdSignals: AppExtension {
                 }
             default: return
             }
+            // A late producer frame for an already-removed id must not repopulate the maps.
+            if let ids = liveSessionIDs() { prune(to: ids) }
         } catch {
             Log.ui.debug("ignoring malformed herd event \(name, privacy: .public)")
         }

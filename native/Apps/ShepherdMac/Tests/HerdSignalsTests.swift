@@ -482,9 +482,10 @@ struct HerdSignalsTests {
 
     @Test func teardownRejectsBufferedFrames() async throws {
         try await withLiveModel { model, store, _ in
+            #expect(model.isWatchingSessions)
             store.apply(try event("session:claude-alive", ["id": "late", "claudeAlive": true, "liveness": "alive"]))
             model.teardown()
-            #expect(await herdSettle(until: { !model.isWatchingConnection }))
+            #expect(await herdSettle(until: { !model.isWatchingConnection && !model.isWatchingSessions }))
             #expect(model.claudeAlive.isEmpty)
         }
     }
@@ -626,6 +627,71 @@ struct HerdSignalsTests {
             #expect(await herdSettle(until: { model.git.isEmpty }))
             await gate.open()
             await refresh.value
+            #expect(model.git.isEmpty)
+            #expect(model.activity.isEmpty)
+            #expect(model.claudeAlive.isEmpty)
+            #expect(model.verdicts.isEmpty)
+            #expect(model.reviewing.isEmpty)
+            #expect(model.reviewerEnv.isEmpty)
+            #expect(model.criticActivity.isEmpty)
+        }
+    }
+
+    @Test func sessionListChangesPruneEvenWhenAllHerdReadsFail() async throws {
+        try await withLiveModel { model, store, _ in
+            model.reads = .stub(git: ["gone": redGit],
+                activity: ["gone": .init(lastActivityTs: 0, summary: "old", recentTs: [], recentErrTs: [])],
+                claudeAlive: ["gone": true], verdicts: ["gone": try verdict],
+                reviewing: [.init(id: "gone", model: "old")])
+            // Before the session bootstrap is known, an empty list must not discard snapshots.
+            try #require(await herdSettle(until: {
+                model.git["gone"] != nil && model.activity["gone"] != nil
+                    && model.claudeAlive["gone"] == true && model.verdicts["gone"] != nil
+                    && model.isReviewing("gone")
+            }))
+            model.applyForTesting(name: "session:critic-activity", payload: ["id": "gone", "summary": "old"])
+            struct Failed: Error {}
+            model.reads = HerdReads(git: { throw Failed() }, activity: { throw Failed() },
+                claudeAlive: { throw Failed() }, verdicts: { throw Failed() }, reviewing: { throw Failed() })
+            // A later authoritative list is itself a reconciliation trigger. No successful
+            // herd read or archive frame exists to do the pruning for this missed session.
+            store.apply(.sessionNew(PreviewData.session(id: "live")))
+            try #require(await herdSettle(until: { model.git.isEmpty }))
+            await model.refresh()
+            #expect(model.activity.isEmpty)
+            #expect(model.claudeAlive.isEmpty)
+            #expect(model.verdicts.isEmpty)
+            #expect(model.reviewing.isEmpty)
+            #expect(model.reviewerEnv.isEmpty)
+            #expect(model.criticActivity.isEmpty)
+            // A late producer frame cannot put a removed id back into the CI seam either.
+            model.applyForTesting(name: "session:git", payload: [
+                "id": "gone", "git": ["state": "open", "checks": "failure", "deployConfigured": false],
+            ])
+            #expect(model.ciRed.isEmpty)
+        }
+    }
+
+    @Test func theLastArchivedSessionCannotReturnFromALaterCachedSnapshot() async throws {
+        try await withLiveModel { model, store, _ in
+            model.reads = .stub(git: ["a": redGit],
+                activity: ["a": .init(lastActivityTs: 0, summary: "old", recentTs: [], recentErrTs: [])],
+                claudeAlive: ["a": true], verdicts: ["a": try verdict],
+                reviewing: [.init(id: "a", model: "old")])
+            try #require(await herdSettle(until: {
+                model.git["a"] != nil && model.activity["a"] != nil
+                    && model.claudeAlive["a"] == true && model.verdicts["a"] != nil
+                    && model.isReviewing("a")
+            }))
+            store.apply(.sessionNew(PreviewData.session(id: "a")))
+            await model.refresh()
+            store.apply(.sessionArchived(.init(id: "a")))
+            try #require(await herdSettle(until: { model.git.isEmpty && model.reviewing.isEmpty }))
+            #expect(store.sessions.isEmpty)
+            // A known empty list is different from the not-yet-loaded list at activation.
+            // These cached snapshots were requested AFTER the archive, so event overlays
+            // alone cannot prevent the resurrection.
+            await model.refresh()
             #expect(model.git.isEmpty)
             #expect(model.activity.isEmpty)
             #expect(model.claudeAlive.isEmpty)

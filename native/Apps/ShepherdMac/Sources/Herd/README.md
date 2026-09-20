@@ -1,5 +1,18 @@
 # Herd row integration
 
+Install `HerdStream` after `SidebarInstall`, `NotificationsStream`, and
+`SessionSignals.connect(app)`; the latter still assigns S2's sparse git cache.
+The integration lane owns this registration and the per-activation S8/S12 bindings.
+
+The sidebar samples its partition every twenty seconds, like the row's display clock,
+so final-review and merge deadlines expire even without a server frame. This only
+recomputes presentation; it does not poll any route.
+
+`HerdSignals` observes the session list independently of its five snapshot reads.
+An empty list is unknown until bootstrap, then authoritative even when all herd reads
+fail. Reconciliation removals overlay in-flight reads, and late frames for removed ids
+are pruned. Teardown finishes both observation streams and cancels the event tap.
+
 `HerdRowSignals.presentation` is the row's production presentation path. Its critic flag
 comes only from `HerdSignals.isReviewing`. `HerdStream` separately combines critic and plan
 review for `SidebarModel.inReview`, including Ready-lens exclusion.

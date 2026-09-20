@@ -44,6 +44,7 @@ final class QueuesModel: AppExtension {
 
     @ObservationIgnored var reads: QueuesReads
     @ObservationIgnored private weak var app: AppModel?
+    @ObservationIgnored private var store: SessionStore?
     @ObservationIgnored private let activationGeneration: Int?
     // Lifecycle and read ordering are separate: starting a newer read must not end the tap.
     @ObservationIgnored private var generation = 0
@@ -68,9 +69,15 @@ final class QueuesModel: AppExtension {
     init(store: SessionStore, app: AppModel) {
         reads = .live(store.client)
         self.app = app
+        self.store = store
         activationGeneration = app.activationGeneration
         subscribe(store)
-        watchConnection { [weak store] in store?.connection }
+        watchConnection { [weak store] in
+            // The same finished observation stream also reconciles a newly installed session
+            // snapshot, even when no archive frame survived a disconnect.
+            _ = store?.sessions
+            return store?.connection
+        }
         // Bootstrap shares the coalescing loop with events, including late registration
         // against an already-live store. There is no second bootstrap task to race it.
         requestRefresh(recomputeUpNext: true)
@@ -120,6 +127,7 @@ final class QueuesModel: AppExtension {
         if case .success(let ids) = results.3, strandedVersion == strandedRevision {
             stranded = Set(ids)
         }
+        pruneStranded()
         if recomputeUpNext, upNextVersion == upNextRevision {
             switch results.4 {
             case .success: upNextLoadFailed = false
@@ -153,6 +161,7 @@ final class QueuesModel: AppExtension {
     }
 
     func teardown() {
+        store = nil
         isTornDown = true
         generation &+= 1
         watcher?.cancel()
@@ -182,10 +191,28 @@ final class QueuesModel: AppExtension {
         }
     }
 
+    private func pruneStranded() {
+        // An empty list may still be pre-bootstrap. Held tasks and Up Next issues have
+        // different identities from sessions, so they must never be pruned with session IDs.
+        guard let sessions = store?.sessions, !sessions.isEmpty else { return }
+        stranded.formIntersection(sessions.map(\.id))
+    }
+
     private func apply(_ event: ServerEvent) {
+        if case .sessionArchived(let frame) = event {
+            stranded.remove(frame.id)
+            strandedRevision &+= 1
+            requestRefresh()
+            return
+        }
         guard case .unknown(let name, let payload) = event, let payload else { return }
         let decoder = JSONDecoder()
         switch name {
+        case "session:claude-alive":
+            // The liveness schema belongs to S7. Treat the frame as an invalidation only;
+            // GET /api/stranded is the authoritative generated payload for this stream.
+            strandedRevision &+= 1
+            requestRefresh()
         case "held:changed":
             guard let frame = try? decoder.decode(Components.Schemas.HeldChangedEvent.self,
                                                   from: payload) else { return }
@@ -244,6 +271,7 @@ final class QueuesModel: AppExtension {
                     guard let self, self.isCurrent(mine),
                           activation == self.app?.activationGeneration,
                           self.connectionWatcherToken == token, let state = read() else { return }
+                    self.pruneStranded()
                     let isLive = state == .live
                     if isLive, wasLive != true { self.requestRefresh(recomputeUpNext: true) }
                     wasLive = isLive

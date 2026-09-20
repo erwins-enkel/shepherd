@@ -85,9 +85,13 @@ struct QueuesModelTests {
             from: Data("{\"event\":\"\(name)\",\"data\":\(json)}".utf8))
     }
 
-    private func snapshot(_ time: Int) throws -> ServerEvent {
-        try frame("upnext:snapshot", """
-            {"snapshot":{"generatedAt":\(time),"sections":[],"repoCount":\(time),
+    private func snapshot(_ time: Int, populated: Bool = false) throws -> ServerEvent {
+        let sections = populated ? """
+            [{"kind":"repo","repoPath":"/repo","repoSlug":null,"repoLabel":"Old",
+              "items":[],"totalCount":0}]
+            """ : "[]"
+        return try frame("upnext:snapshot", """
+            {"snapshot":{"generatedAt":\(time),"sections":\(sections),"repoCount":\(time),
              "fallback":null,"failedRepoCount":0}}
             """)
     }
@@ -159,12 +163,89 @@ struct QueuesModelTests {
         let f = try QueueFixture(reads)
         defer { f.close() }
         #expect(await queueSettle { f.model.upNextLoadFailed })
-        f.store.apply(try snapshot(1))
+        f.store.apply(try snapshot(1, populated: true))
         #expect(await queueSettle { f.model.upNext?.generatedAt == 1 })
+        #expect(f.model.upNext?.sections.first?.repoLabel == "Old")
         #expect(!f.model.upNextLoadFailed)
         f.store.apply(try snapshot(2))
         #expect(await queueSettle { f.model.upNext?.generatedAt == 2 })
         #expect(f.model.upNext?.repoCount == 2)
+        #expect(f.model.upNext?.sections.isEmpty == true)
+    }
+
+    @Test(arguments: [false, true])
+    func archiveAndOrdinaryRecoveryInvalidateLateStrandedReads(recovery: Bool) async throws {
+        var reads = empty
+        reads.stranded = { ["s1"] }
+        let f = try QueueFixture(reads)
+        defer { f.close() }
+        f.store.apply(.sessionNew(PreviewData.session(id: "s1")))
+        #expect(await queueSettle { !f.model.isRefreshing })
+        #expect(f.model.stranded == ["s1"])
+        let old = QueueReadGate()
+        let fresh = QueueReadGate()
+        f.model.reads.stranded = { await old.enter(); return ["s1"] }
+        let pending = Task { await f.model.refresh(recomputeUpNext: false) }
+        #expect(await queueSettle { await old.calls == 1 })
+        f.model.reads.stranded = { await fresh.enter(); return [] }
+        f.store.apply(try frame(recovery ? "session:claude-alive" : "session:archived",
+            recovery ? "{\"id\":\"s1\",\"claudeAlive\":true,\"liveness\":\"alive\"}" : "{\"id\":\"s1\"}"))
+        #expect(await queueSettle { await fresh.calls == 1 })
+        await fresh.open()
+        #expect(await queueSettle { f.model.stranded.isEmpty })
+        await old.open()
+        await pending.value
+        #expect(f.model.stranded.isEmpty)
+    }
+
+    @Test func archiveFencesTheSnapshotBeforeItsQueuedFollowUpCompletes() async throws {
+        let old = QueueReadGate()
+        let fresh = QueueReadGate()
+        var reads = empty
+        reads.stranded = { ["s1"] }
+        let f = try QueueFixture(reads)
+        defer { f.close() }
+        #expect(await queueSettle { !f.model.isRefreshing })
+        f.model.reads.stranded = { await old.enter(); return ["s1"] }
+        f.store.apply(try frame("app:sessions-stranded", "{\"count\":1}"))
+        #expect(await queueSettle { await old.calls == 1 })
+        f.model.reads.stranded = { await fresh.enter(); return [] }
+        f.store.apply(try frame("session:archived", "{\"id\":\"s1\"}"))
+        #expect(await queueSettle { f.model.stranded.isEmpty })
+        await old.open()
+        #expect(await queueSettle { await fresh.calls == 1 })
+        #expect(f.model.stranded.isEmpty)
+        await fresh.open()
+        #expect(await queueSettle { !f.model.isRefreshing })
+        #expect(f.model.stranded.isEmpty)
+    }
+
+    @Test func loadedSessionsPruneStrandedWithoutRemovingTaskOrIssueQueues() async throws {
+        var reads = empty
+        let row = try held("task-not-a-session")
+        reads.held = { [row] }
+        reads.stranded = { ["live", "archived"] }
+        let f = try QueueFixture(reads)
+        defer { f.close() }
+        #expect(await queueSettle { !f.model.isRefreshing })
+        // Empty means not bootstrapped: preserve until the store has a live list.
+        #expect(f.model.stranded == ["live", "archived"])
+        f.store.apply(.sessionNew(PreviewData.session(id: "live")))
+        #expect(await queueSettle { f.model.stranded == ["live"] })
+        await f.model.refresh(recomputeUpNext: false)
+        #expect(f.model.stranded == ["live"])
+        #expect(f.model.held == [row])
+    }
+
+    @Test func archiveRemovesImmediatelyEvenIfStrandedRereadFails() async throws {
+        var reads = empty
+        reads.stranded = { ["s1"] }
+        let f = try QueueFixture(reads)
+        defer { f.close() }
+        #expect(await queueSettle { !f.model.isRefreshing })
+        f.model.reads.stranded = { throw ShepherdError.unauthenticated }
+        f.store.apply(try frame("session:archived", "{\"id\":\"s1\"}"))
+        #expect(await queueSettle { f.model.stranded.isEmpty })
     }
 
     @Test func haltOnlyInvalidatesRetryPreselection() async throws {

@@ -51,6 +51,17 @@ enum NotificationKind: Sendable, Equatable {
     }
 
     /// `KIND_CATEGORY` in `src/push.ts`.
+    ///
+    /// Every kind rides its toggle, `ready` included — which is where this port deliberately
+    /// parts company with `PushService.notify`'s
+    /// `if (input.kind !== "ready" && !row.cats[category]) continue;`. The web's `ready` push is
+    /// fired by `ReadyNotifier.tick`, which returns immediately unless `config.reducedPushMode`
+    /// is on (`src/ready-notify.ts`); the exemption is what keeps that one reduced-mode signal
+    /// reaching a device whose toggles are already being ignored. This port has no reduced mode
+    /// and fires `ready` off the operator's **manual** ready-to-merge toggle
+    /// (`POST /api/sessions/{id}/ready`), so inheriting the exemption would hand an operator who
+    /// muted "Agent activity" an un-muteable banner announcing something they had just done
+    /// themselves.
     var category: NotificationCategory {
         switch self {
         case .done, .blocked, .ready, .usageLimit: .agent
@@ -58,10 +69,20 @@ enum NotificationKind: Sendable, Equatable {
         }
     }
 
-    /// The web lets `ready` past the per-device category filter unconditionally
-    /// (`if (input.kind !== "ready" && !row.cats[category]) continue;`) — it is the one signal
-    /// that must reach the operator whatever they muted.
-    var bypassesCategoryFilter: Bool { self == .ready }
+    /// The suffix a **host-global** intent's cooldown key carries — one that names no session.
+    /// The web has two such keys and they are distinct (`usage_limit:5h` and
+    /// `usage_limit:credits` in `src/push.ts`), so the suffix is derived per kind rather than
+    /// fixed: a second host-global kind must not silently share the usage warning's 120 s
+    /// window. Exhaustive on purpose — a new kind does not compile until someone decides.
+    var hostGlobalScope: String {
+        switch self {
+        case .usageLimit: "5h"
+        // None of these is ever host-global today — they all name a session — so the suffix is
+        // only a safe placeholder. It is deliberately not `"5h"`: the day one of them does
+        // arrive without a session id, it must not land in the 5-hour window's bucket.
+        case .done, .blocked, .ready, .mergeError, .rebaseCap, .manualSteps: "host"
+        }
+    }
 }
 
 /// Which hold line a `blocked` notification's body uses. A copy of `BlockShape` from
@@ -112,10 +133,11 @@ struct NotificationIntent: Equatable, Sendable {
         self.resetAt = resetAt
     }
 
-    /// `input.cooldownKey ?? \`${kind}:${sessionId}\`` in `PushService.notify`. The host-global
-    /// usage warning uses the web's own fixed key.
+    /// `input.cooldownKey ?? \`${kind}:${sessionId}\`` in `PushService.notify`. An intent with
+    /// no session id is host-global and takes its suffix from the kind — the usage warning gets
+    /// the web's own `usage_limit:5h`. See `NotificationKind.hostGlobalScope`.
     var cooldownKey: String {
-        guard let sessionID else { return "\(kind.id):5h" }
+        guard let sessionID else { return "\(kind.id):\(kind.hostGlobalScope)" }
         return "\(kind.id):\(sessionID)"
     }
 

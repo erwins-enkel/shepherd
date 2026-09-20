@@ -70,15 +70,30 @@ struct NotificationCopyTests {
                 == L.t("native_notify_rebase_cap_body", "TASK-07"))
     }
 
+    /// `resetAt` is **milliseconds** — the single most load-bearing unit in this stream. The
+    /// assertion is the exact string, built from the same ms→s conversion the copy does: the
+    /// machine's time zone is applied on both sides and cancels, so the only thing under test
+    /// is the unit.
+    ///
+    /// Anything weaker does not survive the mutation it exists to catch. Deleting the `/ 1_000`
+    /// puts the reset in the year 59,000 — still a perfectly well-formed, similarly long
+    /// `hour():minute()` string — so "longer than the plain body" and "different from the plain
+    /// body" both stay true while the banner tells the operator the wrong time. The two chosen
+    /// instants are nine hours apart in the day, so no time zone can make them format alike.
     @Test func theUsageBodyNamesTheResetTimeOnlyWhenItHasOne() {
         let plain = NotificationCopy.body(intent(.usageLimit, sessionID: nil, pct: 83))
         #expect(plain == L.t("native_notify_usage_body"))
 
+        let resetAt = 1_800_003_600_000
+        let locale = Locale(identifier: "en_US")
         let at = NotificationCopy.body(
-            intent(.usageLimit, sessionID: nil, pct: 83, resetAt: 1_800_003_600_000),
-            locale: Locale(identifier: "en_US"))
-        #expect(at != plain)
-        #expect(at.count > plain.count, "the reset-time variant names a time the plain one does not")
+            intent(.usageLimit, sessionID: nil, pct: 83, resetAt: resetAt), locale: locale)
+        let expected = L.t(
+            "native_notify_usage_body_reset",
+            Date(timeIntervalSince1970: Double(resetAt) / 1_000)
+                .formatted(.dateTime.hour().minute().locale(locale)))
+        #expect(at == expected)
+        #expect(at != plain, "and it is not the body that names no time at all")
     }
 
     @Test func blockShapeReadsTheOpenEnumAndItsQuotaKind() {
@@ -119,5 +134,23 @@ struct NotificationCopyTests {
         #expect(intent(.usageLimit, sessionID: nil).cooldownKey == "usage_limit:5h")
         #expect(intent(.done).threadIdentifier == "s1")
         #expect(intent(.usageLimit, sessionID: nil).threadIdentifier == "usage-5h")
+    }
+
+    /// The host-global suffix is the kind's, not a fixed `":5h"`. The web has two host-global
+    /// keys and keeps them apart (`usage_limit:5h` and `usage_limit:credits` in `src/push.ts`),
+    /// so a kind that arrives without a session id must not land in the 5-hour window's bucket
+    /// and silence the usage warning for two minutes — or be silenced by it.
+    @Test func aHostGlobalIntentDoesNotShareTheUsageWindowsKey() {
+        let usage = intent(.usageLimit, sessionID: nil).cooldownKey
+        #expect(usage == "usage_limit:5h")
+        for kind in [NotificationKind.done, .blocked, .ready, .mergeError, .rebaseCap,
+            .manualSteps]
+        {
+            let key = intent(kind, sessionID: nil).cooldownKey
+            #expect(key != usage)
+            #expect(
+                !key.hasSuffix(":5h"),
+                "only the usage warning's own window may be keyed on the 5-hour reset")
+        }
     }
 }

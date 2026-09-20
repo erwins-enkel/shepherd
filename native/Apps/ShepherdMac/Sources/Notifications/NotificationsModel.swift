@@ -190,9 +190,12 @@ final class NotificationsModel: AppExtension {
         // profile's count over the Dock badge, which is global.
         guard !Task.isCancelled else { return }
         for intent in trigger.intents(for: event) {
+            // One sample, asked with and stamped with — `const t = this.now()` in
+            // `PushService.notify`, which also stamps the timestamp it took before delivering.
+            let t = now()
             guard
                 gate.allows(
-                    intent, at: now(), settings: settings, windowFocused: windowFocused,
+                    intent, at: t, settings: settings, windowFocused: windowFocused,
                     authorized: authorization == .granted)
             else { continue }
             let sent = await center.post(
@@ -201,17 +204,23 @@ final class NotificationsModel: AppExtension {
                     body: NotificationCopy.body(intent),
                     threadIdentifier: intent.threadIdentifier,
                     sessionID: intent.sessionID))
-            // The port of `if (sent) store.setSetting(USAGE_WARNED_KEY, …)`, including the
-            // `sent`: the 5-hour window is latched only on the branch where a banner really
-            // reached the operator. Latching on a rejected delivery would suppress the rest of
-            // the window with nothing delivered; not latching at all would let the server's
+            // Both clocks start here and only here, on the branch where a banner really reached
+            // the operator — the web's
+            // `if (sent && cooldownMs > 0) this.lastNotified.set(key, t)` and
+            // `if (sent) store.setSetting(USAGE_WARNED_KEY, …)`.
+            //
+            // The cooldown: `notificationd` rejects `add(_:)` often enough that stamping before
+            // the post would let one rejected banner swallow this session's next 120 s — the
+            // agent sits blocked and nobody is told. Nothing races us into a double post: the
+            // tap above is a strictly serial `for await`, so the next frame cannot start until
+            // this call has returned.
+            //
+            // The usage window: latching a rejected delivery would suppress the rest of a
+            // 5-hour window with nothing delivered; not latching at all would let the server's
             // ~30 s `usage:limits` frames hand the operator a "5-hour limit" banner every two
             // minutes for the rest of it. A no-op for every other kind.
-            //
-            // The cooldown stamp deliberately stays where it is — synchronous, inside
-            // `NotificationGate.allows`. See the comment there: this success flag is not a
-            // reason to move it.
             if sent {
+                gate.posted(intent, at: t)
                 trigger.usageWarningPosted(for: intent)
                 // The kind, never the body: a body can name the operator's own work.
                 Log.ui.info("posted a \(intent.kind.id, privacy: .public) notification")
@@ -275,6 +284,13 @@ final class NotificationsModel: AppExtension {
         // must follow, whatever order the resumptions land in.
         if windowFocused {
             await clearBadge()
+            // Coming forward is the one moment this app can cheaply notice that the operator
+            // changed its permission behind its back: they read the denied-permission note in
+            // the panel, switched to System Settings, flipped the toggle, and came back.
+            // Without this re-read the launch task's answer is the only one this process ever
+            // has, so every banner stays suppressed until they relaunch — and macOS will not
+            // prompt a second time, so the panel's button cannot recover it either.
+            await refreshAuthorization()
         } else {
             await refreshBadge()
         }
@@ -372,8 +388,17 @@ final class NotificationsModel: AppExtension {
 
     // MARK: - Authorization and settings
 
-    private func refreshAuthorization() async {
-        authorization = await center.authorization()
+    /// Re-reads what macOS currently allows. Called at launch, whenever the app becomes active
+    /// and whenever the settings panel is opened — never by a path that could prompt, because
+    /// `authorization()` only reads the status.
+    ///
+    /// The answer is dropped if the model was torn down while macOS was thinking: a profile
+    /// switch mid-read must not write the outgoing activation's answer onto a model the panel
+    /// may still be holding.
+    func refreshAuthorization() async {
+        let status = await center.authorization()
+        guard !isTornDown else { return }
+        authorization = status
     }
 
     /// Asks macOS once. A denial is recorded and shown in the settings panel with the path to

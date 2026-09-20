@@ -2,6 +2,7 @@ import AppKit
 import Observation
 import ShepherdKit
 import SwiftUI
+import os
 
 /// The per-profile notification switches.
 ///
@@ -107,6 +108,10 @@ enum NotificationSettingsWindow {
     /// Watches for the profile switch that would otherwise leave an open panel bound to a
     /// torn-down model. See `watchActivation(of:generation:)`.
     private static var activationWatcher: Task<Void, Never>?
+    /// How many watcher tasks are currently parked on their observation. Tests only — it is the
+    /// only externally visible evidence that a cancelled watcher really let go of its
+    /// `AppModel` rather than staying suspended forever.
+    private(set) static var armedWatchers = 0
 
     /// Adds "Notifications…" to the application menu, once per process. A second call is a no-op,
     /// which matters because `StreamRegistrations.installAll(into:)` may run more than once.
@@ -163,6 +168,11 @@ enum NotificationSettingsWindow {
             created.showWindow(nil)
             window.makeKeyAndOrderFront(nil)
         }
+        // Opening the panel is the other moment the operator's macOS permission may have moved
+        // since this process last looked: the denied note they are about to read is what sends
+        // them to System Settings, and the note has to disappear when they come back to it.
+        // A read, never a prompt — `authorization()` only reports the status.
+        Task { await model.refreshAuthorization() }
         // Re-hosting above only helps the *next* call to `show(_:)` — it does nothing for a
         // panel the operator leaves open while switching profiles from the main window. Arm a
         // watcher for that case every time the panel is (re-)shown.
@@ -178,6 +188,15 @@ enum NotificationSettingsWindow {
     /// Mirrors `AppModel.watchConnection`'s `withObservationTracking` idiom: `onChange` fires
     /// exactly once, off the main actor, so the continuation hops back before touching AppKit
     /// state. One firing is all this needs — the panel is gone the moment it fires.
+    ///
+    /// The wait is cancellation-aware, which is not a nicety: `onChange` fires **at most once,
+    /// ever**, so a watcher whose generation never changes again has exactly one thing that can
+    /// resume it. Cancelling the task does not, by itself — a plain `withCheckedContinuation`
+    /// stays suspended, holding this `AppModel`, for the life of the process. The panel arms a
+    /// watcher on every `show(_:)`, so that is one stranded task and one retained model per
+    /// reopen, and `reset()` could not release an armed one at all. `withTaskCancellationHandler`
+    /// turns `cancel()` — which both `show(_:)` and `reset()` already call — into the second
+    /// resumption path.
     private static func watchActivation(of app: AppModel, generation: Int) {
         activationWatcher?.cancel()
         activationWatcher = Task { @MainActor in
@@ -188,15 +207,62 @@ enum NotificationSettingsWindow {
             // leaving the panel open on the outgoing profile's name and toggles.
             guard !Task.isCancelled else { return }
             guard app.activationGeneration == generation else { return closePanel() }
-            await withCheckedContinuation { continuation in
-                withObservationTracking {
-                    _ = app.activationGeneration
-                } onChange: {
-                    continuation.resume()
+            armedWatchers += 1
+            defer { armedWatchers -= 1 }
+            let wake = OneShotResume()
+            await withTaskCancellationHandler {
+                await withCheckedContinuation { continuation in
+                    // Handed over before observation is armed, so a cancellation that has
+                    // already fired resumes it here instead of being dropped on the floor.
+                    wake.attach(continuation)
+                    withObservationTracking {
+                        _ = app.activationGeneration
+                    } onChange: {
+                        wake.fire()
+                    }
                 }
+            } onCancel: {
+                wake.fire()
             }
             guard !Task.isCancelled, app.activationGeneration != generation else { return }
             closePanel()
+        }
+    }
+
+    /// A continuation that exactly one of its two callers gets to resume: the observation's
+    /// `onChange` or the task-cancellation handler, whichever arrives first. Both can run off
+    /// the main actor and either can arrive before the continuation exists, so the handover and
+    /// the resume share one lock. Resuming twice traps; never resuming leaks the task.
+    private final class OneShotResume: Sendable {
+        private struct State {
+            var continuation: CheckedContinuation<Void, Never>?
+            var resumed = false
+        }
+
+        private let state = OSAllocatedUnfairLock(initialState: State())
+
+        /// Called once, from inside `withCheckedContinuation`. Resumes immediately if a racing
+        /// `fire()` already claimed this wait.
+        func attach(_ continuation: CheckedContinuation<Void, Never>) {
+            let resumeNow = state.withLock { (state: inout State) -> Bool in
+                guard !state.resumed else { return true }
+                state.continuation = continuation
+                return false
+            }
+            if resumeNow { continuation.resume() }
+        }
+
+        /// Resumes the wait, or records that it is over if the continuation has not arrived yet.
+        /// A second call is a no-op.
+        func fire() {
+            let continuation = state.withLock {
+                (state: inout State) -> CheckedContinuation<Void, Never>? in
+                guard !state.resumed else { return nil }
+                state.resumed = true
+                defer { state.continuation = nil }
+                return state.continuation
+            }
+            continuation?.resume()
         }
     }
 
@@ -206,6 +272,11 @@ enum NotificationSettingsWindow {
     }
 
     /// Tests and previews only.
+    ///
+    /// The `cancel()` below really does release an armed watcher now that the wait handles
+    /// cancellation — the task wakes, sees `Task.isCancelled` and returns, dropping its
+    /// `AppModel`. It wakes on the main actor, so a caller that wants to see `armedWatchers`
+    /// back at zero has to yield once.
     static func reset() {
         activationWatcher?.cancel()
         activationWatcher = nil

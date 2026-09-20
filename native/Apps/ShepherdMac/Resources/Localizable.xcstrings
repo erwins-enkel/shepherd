@@ -1737,6 +1737,24 @@
         }
       }
     },
+    "files_upload_too_large": {
+      "comment": "%1$@ = name",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ist zu groß (max. 250 MB)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ is too large (max 250 MB)"
+          }
+        }
+      }
+    },
     "files_worktree_empty": {
       "extractionState": "manual",
       "localizations": {

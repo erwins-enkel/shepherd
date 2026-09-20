@@ -14,6 +14,113 @@ import Testing
                      loadEpics: { _ in .init(epics: [], subIssues: []) }, attachments: attachments)
     }
 
+    @Test func uploadReportsPartialBytesAndResetsForANewBatch() async throws {
+        var pending: [CheckedContinuation<String, any Error>] = []
+        var reports: [AttachmentModel.Progress] = []
+        let uploads = AttachmentModel(uploadWithProgress: { _, _, report in
+            reports.append(report)
+            return try await withCheckedThrowingContinuation { pending.append($0) }
+        })
+        defer { uploads.teardown() }
+        uploads.addFiles([.init(name: "first", data: Data(repeating: 1, count: 999))])
+        try await eventually { pending.count == 1 }
+        await reports[0](333)
+        #expect(uploads.progressPercent == 33)
+        pending[0].resume(returning: "/first")
+        try await eventually { !uploads.uploading }
+        uploads.addFiles([.init(name: "second", data: Data([1]))])
+        #expect(uploads.progressPercent == 0)
+        try await eventually { pending.count == 2 }
+        await reports[0](999) // A late callback cannot advance the new transfer.
+        #expect(uploads.progressPercent == 0)
+        await reports[1](1)
+        #expect(uploads.progressPercent == 99)
+        pending[1].resume(returning: "/second")
+        try await eventually { !uploads.uploading }
+        #expect(uploads.progressPercent == 100)
+    }
+
+    @Test func oversizedFileIsRejectedBeforeOpeningOrReading() throws {
+        var reads = 0
+        #expect(throws: AttachmentModel.FileError.tooLarge) {
+            try AttachmentModel.readBounded(size: AttachmentModel.maximumFileBytes + 1) { _ in
+                reads += 1
+                return Data([1])
+            }
+        }
+        #expect(reads == 0)
+    }
+
+    @Test func boundedReadRejectsGrowthWithoutAllocatingALimitSizedFixture() throws {
+        var remaining = 12
+        var largestRequest = 0
+        #expect(throws: AttachmentModel.FileError.tooLarge) {
+            try AttachmentModel.readBounded(size: 2, limit: 8) { count in
+                largestRequest = max(largestRequest, count)
+                let count = min(count, remaining)
+                remaining -= count
+                return Data(repeating: 1, count: count)
+            }
+        }
+        #expect(largestRequest <= 9)
+        #expect(remaining == 3)
+    }
+
+    @Test func sparseOversizedURLFailsTheAttributeCheck() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        FileManager.default.createFile(atPath: url.path, contents: nil)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let handle = try FileHandle(forWritingTo: url)
+        try handle.truncate(atOffset: UInt64(AttachmentModel.maximumFileBytes + 1))
+        try handle.close()
+        #expect(throws: AttachmentModel.FileError.tooLarge) { try AttachmentModel.readFile(url) }
+    }
+
+    @Test func uploadAdapterUsesTaskBytesAndGeneratedResponse() async throws {
+        let credentials = InMemoryCredentialStore()
+        try credentials.save(.init(token: "test-token", tokenId: "test"), for: "upload-test")
+        let client = try ShepherdClient(profile: .init(name: "test", baseURL: URL(string: "http://localhost/prefix/")!,
+                                                       mode: .local, credentialKey: "upload-test"), credentials: credentials)
+        let sent = Box(0)
+        let path = try await AttachmentTransfer.upload(client: client, data: Data(repeating: 1, count: 100),
+                                                       name: "a\"\r\n.txt", progress: { bytes in
+            await MainActor.run { sent.value = bytes }
+        }, send: { request, body, delegate in
+            #expect(request.url?.path == "/prefix/api/uploads")
+            #expect(request.url?.query == nil)
+            #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer test-token")
+            let wire = String(decoding: body, as: UTF8.self)
+            #expect(wire.contains("filename=\"a%22%0D%0A.txt\""))
+            let task = URLSession.shared.dataTask(with: request)
+            delegate.urlSession(.shared, task: task, didSendBodyData: 25,
+                                totalBytesSent: Int64(delegate.headerBytes + 25), totalBytesExpectedToSend: Int64(body.count))
+            return (Data(#"{"path":"/staged/test"}"#.utf8),
+                    HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+        })
+        #expect(path == "/staged/test")
+        try await eventually { sent.value == 25 }
+    }
+
+    @Test(arguments: [400, 401, 404, 413, 503])
+    func uploadAdapterMapsDeclaredErrors(_ status: Int) async throws {
+        let client = try ShepherdClient(profile: .init(name: "test", baseURL: URL(string: "http://localhost/")!,
+                                                       mode: .local), credentials: InMemoryCredentialStore())
+        do {
+            _ = try await AttachmentTransfer.upload(client: client, data: Data(), name: "empty", progress: { _ in },
+                                                    send: { request, _, _ in
+                (Data(#"{"error":"bad"}"#.utf8),
+                 HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!)
+            })
+            Issue.record("Expected upload failure")
+        } catch let error as ComposeUploadError {
+            #expect(status == 413 && error == .fileTooLarge("bad"))
+        } catch let error as ShepherdError {
+            let expected: ShepherdError = status == 400 ? .badRequest("bad") : status == 401 ? .unauthenticated
+                : status == 404 ? .notFound : .fromUndocumented(statusCode: status, route: "uploadFile")
+            #expect(error == expected)
+        }
+    }
+
     @Test func attachmentsDrainSeriallyWithWeightedProgressAndPairedPayload() async throws {
         var calls: [String] = []
         var pending: [CheckedContinuation<String, any Error>] = []

@@ -606,6 +606,60 @@ struct PlanTabTests {
         model.teardown()
     }
 
+    @Test(arguments: ["review", "release", "resume", "dismiss"], [false, true])
+    func sessionSwitchRejectsTabWritesAndLateCompletions(operation: String, fails: Bool) async throws {
+        let suite = "PlanTabSelectionTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        let app = AppModel(defaults: defaults, credentials: InMemoryCredentialStore())
+        defer { app.teardown(); defaults.removePersistentDomain(forName: suite) }
+        let profile = try app.addRemoteProfile(name: "fixture", address: "http://127.0.0.1:1")
+        await app.activate(profile)
+        let store = try #require(app.store)
+        store.stop()
+        app.selectedSessionID = "s1"
+        let (model, session) = await fixture(approved: operation == "release")
+        let latch = PlanReadLatch()
+        var calls = 0
+        let respond: @MainActor @Sendable () async throws -> Void = {
+            calls += 1
+            await latch.enter()
+            if fails { throw ShepherdError.notFound }
+        }
+        let writer = PlanTabWriter(
+            review: { _ in try await respond(); return .init(ok: true, status: .init(known: .skipped)) },
+            release: { _ in try await respond(); return true },
+            quota: { _, _ in try await respond(); return .init(ok: false, status: .init(known: .unreachable)) })
+        let current = PlanDetailTab.currentSelection(session: session, store: store, app: app)
+        let actions = PlanTabActions(session: session, model: model, writer: writer, isCurrent: current)
+        defer { actions.teardown(); model.teardown() }
+        let invoke: @MainActor () async -> Void = {
+            switch operation {
+            case "review": await actions.review()
+            case "release": actions.requestConfirmation(); await actions.release()
+            default: await actions.quota(resume: operation == "resume")
+            }
+        }
+        let pending = Task { await invoke() }
+        for _ in 0..<1_000 {
+            if await latch.count > 0 { break }
+            await Task.yield()
+        }
+        #expect(calls == 1)
+        // Selection changes synchronously, before SwiftUI delivers onDisappear.
+        app.selectedSessionID = "s2"
+        #expect(!current())
+        await latch.open()
+        await pending.value
+        #expect(actions.outcome == nil && actions.releaseNote == nil && actions.quotaOutcome == nil)
+        #expect(!model.releasedGates.contains(session.id))
+        await invoke()
+        #expect(calls == 1, "A queued tap must not write to the session the operator left")
+        app.selectedSessionID = "s1"
+        #expect(current())
+        app.teardown()
+        #expect(!current(), "The same session id cannot revive an outgoing activation")
+    }
+
     @Test func installRegistersTheTabAndConservativeWeakSignals() throws {
         let suite = "PlanTabTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))

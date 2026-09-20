@@ -193,13 +193,20 @@ struct VisualBlocksTests {
         ])
     }
 
-    @Test func planTabRendersEnvironmentVerdictFindingsAndEligibleControls() async throws {
+    @Test(arguments: [false, true])
+    func planTabRendersEnvironmentVerdictFindingsAndEligibleControls(withBlocks: Bool) async throws {
         var session = PreviewData.session(id: "s1")
         session.planPhase = .init(known: .planning)
-        let gate = PlanGate(sessionId: "s1", planHash: "hash", decision: .init(known: .approved),
+        var gate = PlanGate(sessionId: "s1", planHash: "hash", decision: .init(known: .approved),
                             summary: "Ready verdict", body: "Reviewer prose", findings: ["Keep rollback key"],
                             round: 1, cap: 3, approved: true, plan: "# Deployment", updatedAt: 1)
-        let model = PlanModel(reads: .init(gates: { ["s1": gate] }, inflight: { [] }))
+        if withBlocks {
+            gate.blocks = [.init(value13: .init(_type: .questionForm, id: "form", questions: [
+                .init(id: "q", prompt: "Which deployment region?", kind: .init(known: .freeform)),
+            ]))]
+        }
+        let snapshot = gate
+        let model = PlanModel(reads: .init(gates: { ["s1": snapshot] }, inflight: { [] }))
         await model.refresh()
         let writer = PlanTabWriter(review: { _ in .init(ok: true, status: .init(known: .skipped)) },
                                    release: { _ in true }, quota: { _, _ in .init(ok: false, status: .init(known: .notStalled)) })
@@ -210,6 +217,7 @@ struct VisualBlocksTests {
         for value in ["Deployment", "Ready verdict", "Reviewer prose", "Keep rollback key", L.t("planpanel_env_plan")] {
             #expect(text.contains(value))
         }
+        if withBlocks { #expect(text.contains("Which deployment region?")) }
         #expect(elements.contains { $0.id == "plan-go" })
         #expect(elements.contains { $0.id == "plan-review" })
         actions.requestConfirmation()

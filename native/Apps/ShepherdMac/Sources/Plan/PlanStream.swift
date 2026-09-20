@@ -7,6 +7,10 @@ enum PlanSignals {
 }
 
 enum PlanStream {
+    /// S0-int: install this in the model pass before assigning HerdSignals.planReviewing
+    /// from PlanSignals.planReviewing. That assignment copies the closure; doing it first
+    /// permanently copies the conservative default. Install notification/attention consumers
+    /// before their activation-scoped observer joins the S7 and S8 attention sets.
     @MainActor
     static func install(_ app: AppModel) {
         app.register(PlanModel.self)
@@ -29,9 +33,19 @@ struct PlanDetailTab: DetailTab {
     @MainActor
     func makeView(session: Session, store: SessionStore, app: AppModel) -> AnyView {
         guard let model = app.extension(PlanModel.self) else { return AnyView(EmptyView()) }
-        let activation = app.activationGeneration
         return AnyView(PlanTabView(
             session: session, model: model, writer: .live(store.client), answerWriter: .live(session: session, store: store, app: app),
-            isCurrent: { [weak app] in app?.activationGeneration == activation }))
+            isCurrent: Self.currentSelection(session: session, store: store, app: app)))
+    }
+
+    @MainActor
+    static func currentSelection(session: Session, store: SessionStore, app: AppModel) -> @MainActor () -> Bool {
+        let activation = app.activationGeneration
+        return { [weak app, weak store] in
+            guard let app, let store, app.activationGeneration == activation else { return false }
+            // Selection changes before SwiftUI delivers onDisappear. Guard both queued
+            // taps and suspended completions during that interval.
+            return ActionBarView.isCurrent(session: session, store: store, app: app)
+        }
     }
 }

@@ -199,3 +199,114 @@ At the first head, branch hygiene, title, eval prompts, both sites and CodeQL pa
 native jobs were still pending. The PR body/final handoff records observations on the final head.
 No app/kit rerun was needed for whitespace-only YAML with identical parsed data and no generated
 Swift diff. The prior 701 app, 341 kit and live results remain applicable.
+
+## Whole-branch review — 2026-09-20
+
+Reviewed only `1b7ff564..cb05a66c`; S7's contract implementation is excluded. The read-only
+review and all requested initial gates completed before edits, with a clean working tree at
+`cb05a66c00d3d99675851f372b39fdc82862d51c`. No rebase, merge, existing-commit rewrite, process
+kill, or Keychain-test opt-in. Context7 tools are unavailable; fixes reuse existing app APIs.
+
+### Findings fixed in the whole-branch commit
+
+- **Important: full plan hidden whenever blocks exist.** `PlanTabBody.plan` used `else if`,
+  replacing the reviewed plan with supplemental blocks. A question-only block list therefore
+  hid the plan behind Go. The web's `PlanPanel.svelte:453–470` renders both. Render blocks and
+  the full Markdown independently. This corrects Task 8's misleading "blocks or" wording in
+  favor of the requested web parity. A hosted accessibility test covers both with/without blocks.
+- **Important: queued writes and responses accepted after a selection switch.** The production
+  tab guard checked only activation, so selection could change before SwiftUI's `onDisappear`
+  invalidated the action generation. Review, Go, Resume and Dismiss now validate activation,
+  store identity and selected session before sending and after suspension. Eight regression
+  cases cover all four actions with success/error responses, including another queued tap.
+- Documented installer ordering beside `PlanStream.install` and in the integration handoff below.
+
+Regression red run: **703 tests, 24 issues** (23 selection assertions and one missing full-plan
+assertion). The initial extraction of the production current-selection closure retained the old
+activation-only behavior, so this run exercised the unfixed code rather than a fabricated guard.
+Logs: `/tmp/s8-review-logs/regression-red.log`; all app runs used the specified lock and the
+wrapper that unsets every `SHEPHERD_LIVE_*` and `TEST_RUNNER_SHEPHERD_LIVE_*` variable name.
+
+### Ledger closure, verified against the final tree
+
+The ledger contains ten substantive findings, plus one report-formatting Minor. Repeated/truncated
+Task 6 entries describe the same two findings and are not additional findings.
+
+| Ledger finding                                                | Final-tree evidence                                                                                  | Closure |
+| ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- | ------- |
+| Task 1 I1: unknown visual member masks malformed known blocks | Unknown discriminator exclusion; four negative AJV fixtures                                          | Closed  |
+| Task 1 I2: closed plan-phase/surface read enums               | `PlanGatePhase`/`WireframeSurface` open unions; future-value contract fixtures                       | Closed  |
+| Task 3 I1: Swift generator ignores fallback exclusion         | `validateKnownType`, called for HTTP maps and event gates; kit and model malformed-block tests       | Closed  |
+| Task 3 I2: missing OpenEnum conformances                      | Both conformances in `ShepherdClient+Plan.swift`; nine-enum regression                               | Closed  |
+| Task 5: stale/orphan session state                            | `pruneToLiveSessions` after snapshots and archives, with bootstrap preservation and map-by-map tests | Closed  |
+| Task 5: release suppression never reconciles                  | Missing/revoked gates clear suppression; approved snapshots preserve it; phase-frame regressions     | Closed  |
+| Task 6: Markdown boundaries disappear                         | `PlanMarkdownView` slices presentation intents; hosted heading/paragraph/list regression             | Closed  |
+| Task 6: deferred annotations discarded                        | Diff and annotated-code retain label/note; hosted safety-instruction regression                      | Closed  |
+| Task 7: stale answer completion after selection/store switch  | Production writer checks `ActionBarView.isCurrent` before/after send; four suspended-response cases  | Closed  |
+| Task 7 Minor: report formatting                               | Task 9's recorded formatting fix is present in the Task 7 report                                     | Closed  |
+| Task 8: transient review messages survive tab disappearance   | `teardown` clears outcome, cancels timers, advances generation; four outcome/return cases            | Closed  |
+
+All nine tasks are present: seven contract operations and three events; thin generated kit methods;
+EN/DE catalog; eight chip states and pure action rules; activation model; six supported block views
+and declared text fallbacks; confirmed question submission; tab/badge/installer; read-only live test.
+
+Lifecycle review verified one idempotent extension registration and tap per activation, independent
+snapshot/lifecycle generations, rejection of buffered frames and suspended reads after teardown,
+finished/re-armable connection streams, coalesced trailing reads, and reconnect reconciliation.
+Weak app signal closures resolve the current extension rather than retaining an outgoing model.
+The four-second review bridge and six-second transient timer are covered, including the cb05a66c
+teardown fix. Forms preserve answer ordering, optional empty multi answers, confirmations, review
+locks, delivered/undelivered messaging and read-only execution behavior.
+
+### Scope, hygiene and initial gate evidence
+
+- Exact comparison outside all three `plan` markers: unchanged. All declared statuses and events
+  are driven by `plan.test.ts` and its own coverage gate; no shared harness or SessionStore edit.
+- Existing EN/DE keys/values unchanged; six additions in each. Only `KEYS_PLAN` changed in the
+  generator. Both bundled locales and placeholder ordering pass app tests; i18n parity is 4253 keys.
+- Every S8 AppModel test uses UUID-scoped UserDefaults and InMemoryCredentialStore. All plan views
+  are AppKit-free and toolbar-free. Every S8 subject is conventional and lowercase.
+- `bun run typecheck`, `bun run lint`: exit 0.
+- `bun run test:contract`: 144 passed, zero failed.
+- `swift test --package-path native`: 341 passed; Package.resolved restored immediately afterward.
+- Locked, environment-cleared app unit bundle: 702 passed; Debug app build: succeeded.
+- `/tmp/s8-final` was created at cb05a66c. `gen:contract-swift`, contract sync and `gen:strings`
+  regenerated all checked-in derived files; `git diff --exit-code` passed. Checkout removed.
+- Locked `ShepherdTests/PlanLiveTests` with live environment unchanged: one passed; four gates,
+  zero inflight reviews, zero question forms. Token revocation verified by 401. Host: `<live-host>`.
+  Live coverage proves gate decoding, not live question content; fixtures cover that content.
+- Live output was redacted in memory before logging. No live values were printed or written.
+
+### Integration handoff and remaining Minor items
+
+Merge S7 (#2408) before S8, then S11. Install `PlanStream.install(app)` in the model pass, before
+copying `PlanSignals.planReviewing` into S7's reviewing seam; copying first captures the permanent
+false default. Install the provider/notification models before the integration-owned attention
+observer, including the late-install case on an already active AppModel. That observer must union
+S7 ci-red and S8 unanswered-question IDs into `NotificationsModel.extraAttention`, intersect live
+sessions, refresh on model changes and finish on teardown. S8 does not itself assign that property.
+Wire plan rework, row badge/Answer CTA, and `openPlanTick` to detail-tab selection in S0-int. Patch
+SessionStore's phase/halt events and add optional `Recap.blocks` inside S4's block there. No shared
+seam owner was edited to disguise unfinished integration.
+
+Remaining Minor items: the native badge lacks the web's tooltip/stall-specific decoration; approved
+Review is disabled rather than keyboard-focusable with an inert explanation; the unknown-block
+schema prose promises Markdown fallback while Task 6 intentionally omits unknown blocks. Existing
+explicit deferrals remain spawn-notice UI and richer block rendering. These do not prevent the S8
+implementation from merging in dependency order.
+
+The pinned branch retains the previously documented four S7 Prettier hunks outside the review
+range; integration/S7 must resolve that inherited CI prerequisite. No main-based merge or claim
+that those inherited checks are green is made by this review.
+
+### Final result
+
+**Fixed and ready (S8 scope; S7 merge/CI prerequisites above still apply).** Covering gates after
+both fixes: locked app unit bundle **703/703 passed**, including all eight selection cases and both
+hosted full-plan cases; Debug app **BUILD SUCCEEDED**; `git diff --check` passed. Unchanged contract,
+kit, generated artifacts and live routes retain the successful initial evidence above. App/Debug
+logs are `/tmp/s8-review-logs/app-final.log` and `build-final.log`.
+
+One commit uses the requested subject and Codex trailer. Commit hooks are bypassed to keep this
+review's explicitly scoped staging intact, following the recorded hook failure; the requested
+gates were run explicitly. Push uses `git push --no-verify origin feat/native-plan`.

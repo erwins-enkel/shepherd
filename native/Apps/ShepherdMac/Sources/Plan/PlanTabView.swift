@@ -305,7 +305,10 @@ struct PlanTabBody: View {
         if let blocks = actions.gate?.blocks, !blocks.isEmpty {
             Text(L.t("planpanel_proposed_caption")).font(.caption)
             VisualBlocksView(blocks: blocks, answerContext: actions.answerContext, answerWriter: answerWriter)
-        } else if let markdown = actions.gate?.plan, !markdown.isEmpty {
+        }
+        // Blocks supplement the reviewed plan (often with questions); they do not replace
+        // its full text. Match PlanPanel so Go never hides the plan it will release.
+        if let markdown = actions.gate?.plan, !markdown.isEmpty {
             PlanMarkdownView(source: markdown)
         } else {
             Text(actions.canReview && actions.gate == nil ? L.t("planpanel_plan_unavailable") : L.t("planpanel_empty"))

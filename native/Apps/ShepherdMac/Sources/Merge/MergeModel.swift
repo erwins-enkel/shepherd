@@ -25,7 +25,10 @@ struct MergeReads: Sendable {
 @Observable @MainActor
 final class MergeModel: AppExtension {
     private(set) var snapshot = MergeSnapshot()
-    private(set) var error: String?
+    private(set) var actionError: String?
+    private var refreshError: String?
+    // Every merge surface keeps the last action refusal visible across background reads.
+    var error: String? { actionError ?? refreshError }
     private(set) var busy = false
     private(set) var settled = false
     private(set) var watching = false
@@ -122,10 +125,10 @@ final class MergeModel: AppExtension {
                 if started != revision { pending = true; continue }
                 snapshot = value
                 if let store { prune(liveIDs: Set(store.sessions.map(\.id))) }
-                error = nil; settled = true
+                refreshError = nil; settled = true
             } catch {
                 guard valid(mine, activation), !Task.isCancelled else { return }
-                self.error = L.t("native_merge_load_failed"); settled = true
+                self.refreshError = L.t("native_merge_load_failed"); settled = true
             }
         } while pending && !stopped
     }
@@ -149,7 +152,7 @@ final class MergeModel: AppExtension {
         let previousWrite = busy ? writeTask : nil
         writeSequence &+= 1
         let sequence = writeSequence
-        busy = true; error = nil
+        busy = true; actionError = nil
         let mine = generation, activation = app?.activationGeneration
         writeTask = Task { [weak self] in
             await withTaskCancellationHandler {
@@ -167,7 +170,7 @@ final class MergeModel: AppExtension {
             } catch {
                 guard self.valid(mine, activation), !Task.isCancelled else { return }
                 if sequence == self.writeSequence { self.busy = false }
-                self.error = ShepherdErrorCopy.message(error)
+                self.actionError = ShepherdErrorCopy.message(error)
                 failure()
             }
         }

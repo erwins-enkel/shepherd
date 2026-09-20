@@ -12,6 +12,45 @@ actor MergeLatch {
     func release(_ value: MergeSnapshot) { continuation?.resume(returning: value); continuation = nil; waiting = false }
 }
 @Suite(.serialized) @MainActor struct MergeModelTests {
+    private func eventually(_ condition: () async -> Bool) async -> Bool {
+        let deadline = ContinuousClock.now + .seconds(2)
+        while !(await condition()), ContinuousClock.now < deadline { await Task.yield() }
+        return await condition()
+    }
+
+    @Test func mergeRefusalSurvivesConfirmationRefresh() async throws {
+        let latch = MergeLatch()
+        let model = MergeModel(reads: .init(snapshot: { await latch.read() }))
+        defer { model.teardown() }
+        var confirmationOpen = false
+        // Opening the confirmation through perform starts the background snapshot read.
+        model.perform(commit: { _ in confirmationOpen = true }) {}
+        let waiting = await eventually { await latch.waiting }
+        guard waiting else { Issue.record("confirmation refresh never started"); return }
+        #expect(confirmationOpen)
+        #expect(!model.busy)
+
+        let refusal = "The PR changed; review its current revision before merging."
+        model.perform(failure: { confirmationOpen = false }) {
+            throw ShepherdError.conflict(code: "merge_confirm_stale", message: refusal)
+        }
+        #expect(await eventually { !model.busy })
+        #expect(!confirmationOpen)
+        #expect(model.error == refusal)
+        #expect(!model.settled)
+
+        // The older read succeeds only after the 409 closed the confirmation.
+        await latch.release(.init())
+        #expect(await eventually { model.settled })
+        #expect(model.actionError == refusal)
+        #expect(model.error == refusal)
+
+        // A deliberate new action, unlike a refresh, clears the spent refusal.
+        model.perform {}
+        #expect(model.actionError == nil)
+        #expect(model.error == nil)
+    }
+
     @Test func queuedWriteDoesNotStartAfterTeardown() async {
         let model = MergeModel(reads: .init(snapshot: { .init() }))
         var actionCalls = 0

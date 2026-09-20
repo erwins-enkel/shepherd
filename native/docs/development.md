@@ -448,6 +448,36 @@ activation-bound attention and signal closures resolve conservative answers with
 `test/contract/native-open-enum.test.ts` rejects duplicate conformances by normalized type name
 across native sources, excluding generated build directories.
 
+### Wave-2 integration (S9, S11)
+
+The scene pass also registers the merge overview command and the replacement Owed panel.
+The model pass installs Compose after Queues, then Merge, then connects `Wave2Seams`.
+Both action-bar wrappers belong to their slot closures, so a complete reinstall for a second
+window preserves the base bar, compose actions, merge queue badge and sidebar launcher once.
+The sidebar “+” now resolves `NewSessionSlot.content` to `ComposeSheet`; the milestone-1 form
+remains only the empty-slot fallback for previews and tests.
+
+`MergeInputs` reads Herd git/review/liveness and Plan review/gate presence. The authoritative
+Herd `claudeAlive == false` signal gates queue actions even when no terminal tab was visited.
+Manual-step counts resolve the current MergeModel; the Owed panel and count share its
+repo-filtered records. HerdBindings unions owed attention with CI failures and plan questions;
+Notifications also counts archived ids when they still have an actionable owed record.
+The shared reset clears all four MergeInputs closures to conservative defaults.
+
+Recap blocks render in the action bar's disclosure. Relaunch sends only changed repo, branch
+and prompt overrides; other fields inherit the original session. Archive uses the composer's
+leftover probe and sends only explicitly selected keys in `reap`.
+
+The live composer smoke enters through `toolbar-new-session`, selects a real issue, checks
+prompt prefill and engine/model/effort/capacity, and stops before the spawn CTA. In isolated
+live mode the activated client's `ReadOnlyRequestAudit` rejects every non-GET operation and
+`getBranchStatus` (a GET that may fetch git refs). Compose also suppresses that automatic
+probe, and uses the isolated model's defaults for its filters. UI teardown and the S7–S11 live
+snapshot suites assert positive read counts and zero rejected requests. Authentication and
+revocation remain confined to ProfileSetup's separately named test-token clients. Counts
+contain no URL, payload or credential. The existing PTY-input/takeover and Up Next write
+blocks remain in force.
+
 ## ShepherdKit
 
 The Swift client for Shepherd's HTTP/WS API, and the package the Mac app is built on.

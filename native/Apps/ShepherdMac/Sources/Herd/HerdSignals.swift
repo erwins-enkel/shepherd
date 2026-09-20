@@ -40,10 +40,18 @@ final class HerdSignals: AppExtension {
     @ObservationIgnored var reads: HerdReads
     @ObservationIgnored private let now: @Sendable () -> Int
     @ObservationIgnored private weak var app: AppModel?
+    @ObservationIgnored private var store: SessionStore?
     @ObservationIgnored private let activationGeneration: Int?
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var tornDown = false
-    @ObservationIgnored private var refreshesInFlight = 0
+    private enum Snapshot: CaseIterable { case git, activity, alive, verdicts, reviewing }
+    private struct ReadState {
+        var sequence = 0
+        var inFlight = false
+        var eventIDs: Set<String> = []
+    }
+    @ObservationIgnored private var readStates: [Snapshot: ReadState] = [:]
+    @ObservationIgnored private var criticIDsWrittenByEvents: Set<String> = []
     @ObservationIgnored private var watcher: Task<Void, Never>?
     @ObservationIgnored private var bootstrap: Task<Void, Never>?
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
@@ -60,6 +68,7 @@ final class HerdSignals: AppExtension {
 
     init(store: SessionStore, app: AppModel) {
         self.app = app
+        self.store = store
         activationGeneration = app.activationGeneration
         reads = .live(store.client)
         now = { Int(Date().timeIntervalSince1970 * 1_000) }
@@ -86,42 +95,112 @@ final class HerdSignals: AppExtension {
             verdict: verdicts[session.id], planRework: planRework(session), now: now()))
     }
 
-    /// Same all-or-nothing read and generation fence as SidebarModel. A failed read keeps the
-    /// previous maps; the next `.live` transition retries all five, including reviewer identity.
+    /// Each map installs independently. Events received during its read overlay that snapshot,
+    /// including removals, so busy sessions cannot prevent quiet sessions from bootstrapping.
     func refresh() async {
         guard isCurrent else { return }
-        let activationSnapshot = app?.activationGeneration
-        generation &+= 1
-        let mine = generation
+        // Reserve every read before yielding: a frame between refresh() and a child task's
+        // first turn must already count as an overlay for that captured set of reads.
+        var sequences: [Snapshot: Int] = [:]
+        for map in Snapshot.allCases {
+            readStates[map, default: ReadState()].sequence &+= 1
+            sequences[map] = readStates[map]?.sequence
+            readStates[map]?.inFlight = true
+            readStates[map]?.eventIDs.removeAll()
+        }
+        criticIDsWrittenByEvents.removeAll()
         let reads = reads
-        refreshesInFlight += 1
-        defer { refreshesInFlight -= 1 }
-        do {
-            async let git = reads.git()
-            async let activity = reads.activity()
-            async let alive = reads.claudeAlive()
-            async let verdicts = reads.verdicts()
-            async let inflight = reads.reviewing()
-            let loaded = try await (git, activity, alive, verdicts, inflight)
-            guard isCurrent, !Task.isCancelled, mine == generation,
-                activationSnapshot == app?.activationGeneration else { return }
-            self.git = loaded.0
-            self.activity = loaded.1
-            claudeAlive = loaded.2
-            self.verdicts = loaded.3
-            reviewing = Set(loaded.4.map(\.id))
-            reviewerEnv = loaded.4.reduce(into: [:]) { env, row in
+        async let git: Void = readSnapshot(.git, sequence: sequences[.git]!, read: reads.git) { loaded, ids in
+            self.git = Self.overlay(loaded, with: self.git, ids: ids)
+        }
+        async let activity: Void = readSnapshot(.activity, sequence: sequences[.activity]!, read: reads.activity) { loaded, ids in
+            self.activity = Self.overlay(loaded, with: self.activity, ids: ids)
+        }
+        async let alive: Void = readSnapshot(.alive, sequence: sequences[.alive]!, read: reads.claudeAlive) { loaded, ids in
+            self.claudeAlive = Self.overlay(loaded, with: self.claudeAlive, ids: ids)
+        }
+        async let verdicts: Void = readSnapshot(.verdicts, sequence: sequences[.verdicts]!, read: reads.verdicts) { loaded, ids in
+            self.verdicts = Self.overlay(loaded, with: self.verdicts, ids: ids)
+        }
+        async let reviewing: Void = readSnapshot(.reviewing, sequence: sequences[.reviewing]!, read: reads.reviewing) { loaded, ids in
+            var reviewing = Set(loaded.map(\.id))
+            var env = loaded.reduce(into: [String: ReviewerEnv]()) { env, row in
                 env[row.id] = ReviewerEnv(provider: row.provider, model: row.model, effort: row.effort)
             }
-            // The snapshot has no historical feed. Never carry a prior run across a reconnect.
-            criticActivity = [:]
+            for id in ids {
+                if self.reviewing.contains(id) { reviewing.insert(id) } else { reviewing.remove(id) }
+                env[id] = self.reviewerEnv[id]
+            }
+            self.reviewing = reviewing
+            self.reviewerEnv = env
+            // There is no historical feed in the snapshot. Preserve only mid-read activity.
+            self.criticActivity = self.criticActivity.filter { self.criticIDsWrittenByEvents.contains($0.key) }
+        }
+        _ = await (git, activity, alive, verdicts, reviewing)
+    }
+
+    private func readSnapshot<Value: Sendable>(
+        _ map: Snapshot, sequence: Int, read: @Sendable () async throws -> Value,
+        install: @MainActor (Value, Set<String>) -> Void
+    ) async {
+        guard isCurrent, sequence == readStates[map]?.sequence else { return }
+        let mine = generation
+        let activationSnapshot = app?.activationGeneration
+        defer {
+            if readStates[map]?.sequence == sequence {
+                readStates[map]?.inFlight = false
+                readStates[map]?.eventIDs.removeAll()
+                if map == .reviewing { criticIDsWrittenByEvents.removeAll() }
+            }
+        }
+        do {
+            let loaded = try await read()
+            guard isCurrent, !Task.isCancelled, mine == generation,
+                sequence == readStates[map]?.sequence,
+                activationSnapshot == app?.activationGeneration else { return }
+            install(loaded, readStates[map]?.eventIDs ?? [])
+            if let store, !store.sessions.isEmpty { prune(to: Set(store.sessions.map(\.id))) }
         } catch {
             Log.ui.debug("herd snapshot read failed: \(String(describing: error), privacy: .public)")
         }
     }
 
+    private static func overlay<Value>(
+        _ loaded: [String: Value], with current: [String: Value], ids: Set<String>
+    ) -> [String: Value] {
+        var result = loaded
+        for id in ids { result[id] = current[id] }
+        return result
+    }
+
+    private func recordEvent(_ id: String, in map: Snapshot) {
+        if readStates[map]?.inFlight == true { readStates[map]?.eventIDs.insert(id) }
+    }
+
+    private func archive(_ id: String) {
+        for map in Snapshot.allCases { recordEvent(id, in: map) }
+        git[id] = nil
+        activity[id] = nil
+        claudeAlive[id] = nil
+        verdicts[id] = nil
+        reviewing.remove(id)
+        reviewerEnv[id] = nil
+        criticActivity[id] = nil
+    }
+
+    func prune(to live: Set<String>) {
+        git = git.filter { live.contains($0.key) }
+        activity = activity.filter { live.contains($0.key) }
+        claudeAlive = claudeAlive.filter { live.contains($0.key) }
+        verdicts = verdicts.filter { live.contains($0.key) }
+        reviewing.formIntersection(live)
+        reviewerEnv = reviewerEnv.filter { live.contains($0.key) }
+        criticActivity = criticActivity.filter { live.contains($0.key) }
+    }
+
     func teardown() {
         tornDown = true
+        store = nil
         generation &+= 1
         watcher?.cancel()
         watcher = nil
@@ -145,8 +224,11 @@ final class HerdSignals: AppExtension {
                 // even though teardown also cancels this task and unregisters the tap.
                 guard let self, self.isCurrent, !Task.isCancelled,
                     activationSnapshot == self.app?.activationGeneration else { return }
-                if case .unknown(let name, let payload) = event, let payload {
-                    self.apply(name: name, payload: payload)
+                switch event {
+                case .sessionArchived(let payload): self.archive(payload.id)
+                case .unknown(let name, let payload):
+                    if let payload { self.apply(name: name, payload: payload) }
+                default: break
                 }
             }
         }
@@ -160,15 +242,19 @@ final class HerdSignals: AppExtension {
             switch name {
             case "session:git":
                 let event = try decoder.decode(Components.Schemas.SessionGitEvent.self, from: payload)
+                recordEvent(event.id, in: .git)
                 git[event.id] = event.git
             case "session:activity":
                 let event = try decoder.decode(Components.Schemas.SessionActivityEvent.self, from: payload)
+                recordEvent(event.id, in: .activity)
                 activity[event.id] = event.activity
             case "session:claude-alive":
                 let event = try decoder.decode(Components.Schemas.SessionClaudeAliveEvent.self, from: payload)
+                recordEvent(event.id, in: .alive)
                 claudeAlive[event.id] = event.claudeAlive
             case "session:review":
                 let event = try decoder.decode(Components.Schemas.SessionReviewEvent.self, from: payload)
+                recordEvent(event.id, in: .verdicts)
                 verdicts[event.id] = event.review
                 // ReviewsStore.apply ends a run for both a landed verdict and its removal.
                 applyReviewing(event.id, on: false)
@@ -177,18 +263,12 @@ final class HerdSignals: AppExtension {
                 applyReviewing(event.id, on: event.reviewing, env: event.env)
             case "session:critic-activity":
                 let event = try decoder.decode(Components.Schemas.SessionCriticActivityEvent.self, from: payload)
+                if readStates[.reviewing]?.inFlight == true { criticIDsWrittenByEvents.insert(event.id) }
                 let feed = criticActivity[event.id] ?? []
                 if feed.last != event.summary {
                     criticActivity[event.id] = Array((feed + [event.summary]).suffix(2))
                 }
             default: return
-            }
-            // A frame arriving during a snapshot read must not be overwritten by the older read.
-            // Apply it now, fence that snapshot, and coalesce one reconciliation. Ordinary frames
-            // need no reads at all; only this race retries the potentially incomplete bootstrap.
-            if refreshesInFlight > 0 {
-                generation &+= 1
-                requestRefresh()
             }
         } catch {
             Log.ui.debug("ignoring malformed herd event \(name, privacy: .public)")
@@ -196,6 +276,7 @@ final class HerdSignals: AppExtension {
     }
 
     private func applyReviewing(_ id: String, on: Bool, env: ReviewerEnv? = nil) {
+        recordEvent(id, in: .reviewing)
         // Identity is written BEFORE the transition guard: repeated true can change the CLI.
         if on {
             if let env { reviewerEnv[id] = env }

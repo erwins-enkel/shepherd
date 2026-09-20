@@ -296,14 +296,14 @@ struct HerdSignalsTests {
         #expect(model.claudeAlive == ["new": true])
     }
 
-    @Test func aFailedReadRetainsTheWholePreviousSnapshot() async {
+    @Test func aFailedReadRetainsOnlyItsPreviousMap() async {
         struct Failed: Error {}
         let model = HerdSignals(reads: .stub(claudeAlive: ["old": true]), now: { 0 })
         await model.refresh()
         model.reads = .stub(claudeAlive: ["new": true])
         model.reads.git = { throw Failed() }
         await model.refresh()
-        #expect(model.claudeAlive == ["old": true])
+        #expect(model.claudeAlive == ["new": true])
     }
 
     @Observable @MainActor
@@ -477,28 +477,114 @@ struct HerdSignalsTests {
         #expect(await ledger.counts == ["git": 2, "activity": 2, "alive": 2, "verdicts": 2, "reviewing": 2])
     }
 
-    @Test func aFrameRacingABootstrapAppliesImmediatelyAndReconcilesOnce() async {
-        let oldGate = HerdReadGate()
-        var reads = HerdReads.stub()
-        reads.claudeAlive = { await oldGate.wait(); return ["a": false] }
+    @Test func sustainedFramesOverlaySnapshotsWithoutStarvingQuietSessions() async throws {
+        let gate = HerdReadGate()
+        let ledger = HerdReadLedger()
+        let snapshotVerdict = try verdict
+        let snapshotGit = redGit
+        let snapshotActivity = SessionActivitySignal(lastActivityTs: 10, summary: "snapshot", recentTs: [], recentErrTs: [])
+        let reads = HerdReads(
+            git: { await ledger.bump("git"); await gate.wait(); return ["a": snapshotGit, "b": snapshotGit] },
+            activity: { await ledger.bump("activity"); await gate.wait(); return ["a": snapshotActivity, "b": snapshotActivity] },
+            claudeAlive: { await ledger.bump("alive"); await gate.wait(); return ["a": false, "b": true] },
+            verdicts: { await ledger.bump("verdicts"); await gate.wait(); return ["a": snapshotVerdict, "b": snapshotVerdict] },
+            reviewing: { await ledger.bump("reviewing"); await gate.wait(); return [.init(id: "a"), .init(id: "b")] })
         let model = HerdSignals(reads: reads, now: { 0 })
         defer { model.teardown() }
-        let old = Task { await model.refresh() }
-        #expect(await herdSettle(until: { await oldGate.entered }))
-        let ledger = HerdReadLedger()
-        reads = counting(ledger)
-        reads.claudeAlive = { await ledger.bump("alive"); return ["a": true, "b": true] }
-        model.reads = reads
-        for _ in 0..<8 {
+        let refresh = Task { await model.refresh() }
+        #expect(await herdSettle(until: { await ledger.counts.values.reduce(0, +) == 5 }))
+        for _ in 0..<20 {
+            model.applyForTesting(name: "session:git", payload: ["id": "a", "git": ["state": "open", "checks": "success", "deployConfigured": false]])
+            model.applyForTesting(name: "session:activity", payload: ["id": "a", "activity": ["lastActivityTs": 20, "summary": "frame", "recentTs": [], "recentErrTs": []]])
             model.applyForTesting(name: "session:claude-alive", payload: ["id": "a", "claudeAlive": true, "liveness": "alive"])
+            model.applyForTesting(name: "session:review", payload: ["id": "a", "review": NSNull()])
+            model.applyForTesting(name: "session:critic-activity", payload: ["id": "a", "summary": "latest"])
         }
+        var finished = false
+        let frames = Task { @MainActor in
+            while !finished {
+                model.applyForTesting(name: "session:activity", payload: ["id": "a", "activity": ["lastActivityTs": 20, "summary": "frame", "recentTs": [], "recentErrTs": []]])
+                await Task.yield()
+            }
+        }
+        await gate.open()
+        await refresh.value
+        finished = true
+        await frames.value
+        #expect(model.git["b"] != nil)
+        #expect(model.activity["b"]?.summary == "snapshot")
+        #expect(model.claudeAlive["b"] == true)
+        #expect(model.verdicts["b"] != nil)
+        #expect(model.isReviewing("b"))
+        #expect(model.git["a"]?.checks.known == .success)
+        #expect(model.activity["a"]?.summary == "frame")
         #expect(model.claudeAlive["a"] == true)
-        await oldGate.open()
-        await old.value
-        #expect(await herdSettle(until: { model.claudeAlive["b"] == true }))
-        #expect(model.claudeAlive["a"] == true)
-        // One reconciliation plus at most one pending retry, independent of burst size.
-        #expect(await ledger.counts["alive", default: 0] <= 2)
+        #expect(model.verdicts["a"] == nil)
+        #expect(!model.isReviewing("a"))
+        #expect(model.criticActivity["a"] == ["latest"])
+        #expect(await ledger.counts == ["git": 1, "activity": 1, "alive": 1, "verdicts": 1, "reviewing": 1])
+    }
+
+    @Test func eachSnapshotPrunesToTheBootstrappedSessionList() async throws {
+        try await withLiveModel { model, store, _ in
+            store.apply(.sessionNew(PreviewData.session(id: "live")))
+            model.reads = .stub(git: ["gone": redGit, "live": redGit],
+                activity: ["gone": .init(lastActivityTs: 0, summary: "old", recentTs: [], recentErrTs: [])],
+                claudeAlive: ["gone": true, "live": true], verdicts: ["gone": try verdict],
+                reviewing: [.init(id: "gone", model: "old"), .init(id: "live")])
+            model.applyForTesting(name: "session:critic-activity", payload: ["id": "gone", "summary": "old"])
+            await model.refresh()
+            #expect(Set(model.git.keys) == ["live"])
+            #expect(model.activity.isEmpty)
+            #expect(model.claudeAlive == ["live": true])
+            #expect(model.verdicts.isEmpty)
+            #expect(model.reviewing == ["live"])
+            #expect(Set(model.reviewerEnv.keys) == ["live"])
+            #expect(model.criticActivity.isEmpty)
+        }
+    }
+
+    @Test func aSlowMapDoesNotDelayOtherSnapshotsOrLoseReviewerFrames() async {
+        let gate = HerdReadGate()
+        var reads = HerdReads.stub(claudeAlive: ["quiet": true])
+        reads.reviewing = { await gate.wait(); return [.init(id: "a", model: "old"), .init(id: "quiet")] }
+        let model = HerdSignals(reads: reads, now: { 0 })
+        let refresh = Task { await model.refresh() }
+        #expect(await herdSettle(until: { await gate.entered }))
+        #expect(await herdSettle(until: { model.claudeAlive["quiet"] == true }))
+        model.applyForTesting(name: "session:reviewing", payload: ["id": "a", "reviewing": true, "env": ["model": "new"]])
+        model.applyForTesting(name: "session:critic-activity", payload: ["id": "a", "summary": "reading"])
+        await gate.open()
+        await refresh.value
+        #expect(model.reviewing == ["a", "quiet"])
+        #expect(model.reviewerEnv["a"]?.model == "new")
+        #expect(model.criticActivity["a"] == ["reading"])
+    }
+
+    @Test func archivedSessionsDisappearAndCannotReturnFromAnInflightSnapshot() async throws {
+        try await withLiveModel { model, store, _ in
+            let snapshots = HerdReads.stub(git: ["a": redGit],
+                activity: ["a": .init(lastActivityTs: 10, summary: "working", recentTs: [], recentErrTs: [])],
+                claudeAlive: ["a": true], verdicts: ["a": try verdict], reviewing: [.init(id: "a", model: "old")])
+            model.reads = snapshots
+            #expect(await herdSettle(until: { model.isReviewing("a") }))
+            model.applyForTesting(name: "session:critic-activity", payload: ["id": "a", "summary": "reading"])
+            let gate = HerdReadGate()
+            model.reads.claudeAlive = { await gate.wait(); return ["a": true] }
+            let refresh = Task { await model.refresh() }
+            #expect(await herdSettle(until: { await gate.entered }))
+            store.apply(.sessionArchived(.init(id: "a")))
+            #expect(await herdSettle(until: { model.git.isEmpty }))
+            await gate.open()
+            await refresh.value
+            #expect(model.git.isEmpty)
+            #expect(model.activity.isEmpty)
+            #expect(model.claudeAlive.isEmpty)
+            #expect(model.verdicts.isEmpty)
+            #expect(model.reviewing.isEmpty)
+            #expect(model.reviewerEnv.isEmpty)
+            #expect(model.criticActivity.isEmpty)
+        }
     }
 
     @Test func malformedAndUnrelatedFramesLeaveStateAlone() {

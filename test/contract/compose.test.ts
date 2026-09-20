@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { clearBranchStatusCacheForTests } from "../../src/server";
 import * as fx from "./compose-fixtures";
 import {
   bearer,
@@ -154,6 +155,104 @@ describe("epics", () => {
     const anon = await get(`/api/epics?repo=${encodeURIComponent(s.validRepo)}`, false);
     expect(anon.status).toBe(401);
     await validateResponse("GET", "/api/epics", anon);
+  });
+});
+
+describe("repo and base branch", () => {
+  test("lists an unborn repo, rejects an invalid repo, and requires auth", async () => {
+    const ok = await get(`/api/branches?repo=${encodeURIComponent(s.validRepo)}`);
+    expect(ok.status).toBe(200);
+    expect(await validateResponse("GET", "/api/branches", ok)).toEqual({
+      branches: [],
+      current: null,
+      default: null,
+    });
+    const bad = await get("/api/branches?repo=/etc");
+    expect(bad.status).toBe(400);
+    expect(await validateResponse("GET", "/api/branches", bad)).toEqual({ error: "invalid repo" });
+    const anon = await get("/api/branches", false);
+    expect(anon.status).toBe(401);
+    await validateResponse("GET", "/api/branches", anon);
+  });
+
+  test("checks a local commitless repo without a remote, both 400 reasons, and 401", async () => {
+    clearBranchStatusCacheForTests();
+    try {
+      const ok = await get(
+        `/api/branch-status?repo=${encodeURIComponent(s.validRepo)}&branch=main`,
+      );
+      expect(ok.status).toBe(200);
+      expect(await validateResponse("GET", "/api/branch-status", ok)).toEqual({
+        behind: 0,
+        ahead: 0,
+        diverged: false,
+        hasUpstream: false,
+        localExists: false,
+      });
+      for (const [query, error] of [
+        ["repo=/etc&branch=main", "invalid repo"],
+        [`repo=${encodeURIComponent(s.validRepo)}&branch=-bad`, "invalid branch"],
+      ]) {
+        clearBranchStatusCacheForTests();
+        const bad = await get(`/api/branch-status?${query}`);
+        expect(bad.status).toBe(400);
+        expect(await validateResponse("GET", "/api/branch-status", bad)).toEqual({ error });
+      }
+      const anon = await get("/api/branch-status", false);
+      expect(anon.status).toBe(401);
+      await validateResponse("GET", "/api/branch-status", anon);
+    } finally {
+      clearBranchStatusCacheForTests();
+    }
+  });
+
+  test("repairs only the harness repo and covers invalid repo, invalid branch, and auth", async () => {
+    const post = (repo: string, branch: string, auth = true) =>
+      fetch(`${s.baseUrl}/api/repos/init-empty-commit`, {
+        method: "POST",
+        headers: { "content-type": "application/json", ...(auth ? bearer(token) : {}) },
+        body: JSON.stringify({ repo, branch }),
+      });
+    for (const [repo, branch, status, error] of [
+      ["/etc", "main", 400, "invalid repo"],
+      [s.validRepo, "-bad", 422, "invalid branch"],
+    ] as const) {
+      const bad = await post(repo, branch);
+      expect(bad.status).toBe(status);
+      expect(await validateResponse("POST", "/api/repos/init-empty-commit", bad)).toEqual({
+        error,
+      });
+    }
+    const anon = await post(s.validRepo, "main", false);
+    expect(anon.status).toBe(401);
+    await validateResponse("POST", "/api/repos/init-empty-commit", anon);
+    try {
+      const ok = await post(s.validRepo, "main");
+      expect(ok.status).toBe(200);
+      expect(await validateResponse("POST", "/api/repos/init-empty-commit", ok)).toEqual({
+        branch: "main",
+      });
+      clearBranchStatusCacheForTests();
+      const status = await get(
+        `/api/branch-status?repo=${encodeURIComponent(s.validRepo)}&branch=main`,
+      );
+      expect(status.status).toBe(200);
+      expect(await validateResponse("GET", "/api/branch-status", status)).toEqual({
+        behind: 0,
+        ahead: 0,
+        diverged: false,
+        hasUpstream: false,
+        localExists: true,
+      });
+      const branches = await get(`/api/branches?repo=${encodeURIComponent(s.validRepo)}`);
+      expect(await validateResponse("GET", "/api/branches", branches)).toEqual({
+        branches: ["main"],
+        current: "main",
+        default: null,
+      });
+    } finally {
+      clearBranchStatusCacheForTests();
+    }
   });
 });
 

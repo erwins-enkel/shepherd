@@ -3657,6 +3657,65 @@ components:
           items:
             type: integer
           description: Issue numbers that are children of an epic. The "hide sub-issues" filter removes these.
+    BranchListing:
+      type: object
+      additionalProperties: true
+      required:
+        - branches
+        - current
+        - default
+      properties:
+        branches:
+          type: array
+          items:
+            type: string
+        current:
+          type:
+            - string
+            - "null"
+        default:
+          type:
+            - string
+            - "null"
+          description: Repo default from origin/HEAD; may not be a local branch.
+    BranchStatus:
+      type: object
+      additionalProperties: true
+      required:
+        - behind
+        - ahead
+        - diverged
+        - hasUpstream
+        - localExists
+      properties:
+        behind:
+          type: integer
+        ahead:
+          type: integer
+        diverged:
+          type: boolean
+        hasUpstream:
+          type: boolean
+        localExists:
+          type: boolean
+    InitEmptyCommitRequest:
+      type: object
+      required:
+        - repo
+      properties:
+        repo:
+          type: string
+        branch:
+          type: string
+          description: Trimmed; defaults to main when absent or blank.
+    InitEmptyCommitResponse:
+      type: object
+      additionalProperties: true
+      required:
+        - branch
+      properties:
+        branch:
+          type: string
   responses:
     Unauthorized:
       description: Missing or invalid credential.
@@ -5501,6 +5560,92 @@ paths:
                 $ref: "#/components/schemas/Error"
         "401":
           $ref: "#/components/responses/Unauthorized"
+  /api/branches:
+    get:
+      operationId: listBranches
+      description: Local branches, current checkout and the repo default branch.
+      parameters:
+        - name: repo
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Branches, including an empty list for a repo with no commits.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BranchListing"
+        "400":
+          description: error is "invalid repo".
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/branch-status:
+    get:
+      operationId: getBranchStatus
+      description: Performs a bounded real git fetch and writes the origin tracking ref. The server caches results for ten seconds; clients debounce changes by 300 ms and discard stale replies.
+      parameters:
+        - name: repo
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: branch
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Local existence and upstream divergence, even when no remote exists.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BranchStatus"
+        "400":
+          description: error is "invalid repo" or "invalid branch".
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/repos/init-empty-commit:
+    post:
+      operationId: initEmptyCommit
+      description: Create the initial empty commit, or return the branch if it already resolves.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InitEmptyCommitRequest"
+      responses:
+        "200":
+          description: The repaired branch. Invalidates the server's branch-status cache.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InitEmptyCommitResponse"
+        "400":
+          description: error is "invalid repo".
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          description: Invalid branch or git failed to create the initial commit.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 x-shepherd-events:
   description: 'WebSocket /events. Same auth gate as HTTP (send Authorization on the upgrade). Every frame is an EventEnvelope: {"event": string, "data": object}. Client may send {"type":"presence","active":boolean}; the server never replies to it.'
   envelope:

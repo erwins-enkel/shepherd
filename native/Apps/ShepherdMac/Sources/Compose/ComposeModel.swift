@@ -5,9 +5,11 @@ import ShepherdKit
 /// One presentation, one issue listing shared by the panel and the prompt's # menu.
 @Observable @MainActor
 final class ComposeModel {
+    let repoBranches: RepoBranchModel
     var repoPath = "" {
         didSet {
             guard oldValue != repoPath else { return }
+            repoBranches.selectRepo(repoPath)
             generation += 1
             listing = nil; issues = []; commandListings = [:]; commandErrors = [:]; epicParents = []; subIssues = []
             viewer = viewers[repoPath]; issuesFailed = false
@@ -62,14 +64,15 @@ final class ComposeModel {
     private var viewers: [String: String] = [:]
 
     convenience init(client: ShepherdClient, defaults: UserDefaults = .standard) {
-        self.init(defaults: defaults, loadIssues: { try await client.issues(repoPath: $0) },
+        self.init(defaults: defaults, repoBranches: RepoBranchModel(client: client), loadIssues: { try await client.issues(repoPath: $0) },
                   loadCommands: { try await client.commands(repoPath: $0, provider: $1) },
                   loadEpics: { try await client.epics(repoPath: $0) })
     }
 
-    init(defaults: UserDefaults, loadIssues: @escaping (String) async throws -> IssueListing,
+    init(defaults: UserDefaults, repoBranches: RepoBranchModel, loadIssues: @escaping (String) async throws -> IssueListing,
          loadCommands: @escaping (String, AgentProvider) async throws -> CommandListing,
          loadEpics: @escaping (String) async throws -> EpicListing) {
+        self.repoBranches = repoBranches
         self.defaults = defaults
         fetchIssues = loadIssues; fetchCommands = loadCommands; fetchEpics = loadEpics
         filter = IssueFilterState(
@@ -146,7 +149,22 @@ final class ComposeModel {
     }
 
     func teardown() {
+        repoBranches.teardown()
         generation += 1
+    }
+
+    func openRepoPicker() { repoBranches.presentedPicker = .repo }
+    func openBranchPicker() { repoBranches.presentedPicker = .branch }
+    func cycleRepo(_ direction: Int, repos: [Repo]) {
+        let visible = repos.filter { !$0.hidden }
+        guard !visible.isEmpty else { return }
+        let next: Int
+        if let index = visible.firstIndex(where: { $0.path == repoPath }) {
+            next = (index + (direction < 0 ? -1 : 1) + visible.count) % visible.count
+        } else {
+            next = direction < 0 ? visible.count - 1 : 0
+        }
+        repoPath = visible[next].path
     }
 
     var openCount: Int? { listing?.slug != nil && !issuesFailed ? issues.count : nil }

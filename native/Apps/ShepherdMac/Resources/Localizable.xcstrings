@@ -6080,6 +6080,23 @@
         }
       }
     },
+    "newtask_base_missing": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repo hat noch keinen Commit. Initialen Commit erstellen, dann Task starten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repo has no commit yet. Create the initial commit, then run the task."
+          }
+        }
+      }
+    },
     "newtask_branch_label": {
       "extractionState": "manual",
       "localizations": {
@@ -6110,6 +6127,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "main"
+          }
+        }
+      }
+    },
+    "newtask_chip_from": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "von"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "from"
           }
         }
       }
@@ -6213,6 +6247,58 @@
           "stringUnit": {
             "state": "translated",
             "value": "Effort"
+          }
+        }
+      }
+    },
+    "newtask_init_commit": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Initialen Commit erstellen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create initial commit"
+          }
+        }
+      }
+    },
+    "newtask_init_commit_failed": {
+      "comment": "%1$@ = reason",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Initialer Commit fehlgeschlagen: %1$@."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Initial commit failed: %1$@."
+          }
+        }
+      }
+    },
+    "newtask_init_commit_running": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wird erstellt…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Creating…"
           }
         }
       }
@@ -6355,6 +6441,23 @@
         }
       }
     },
+    "newtask_readiness_base_missing": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Basis-Branch fehlt — oben reparieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "base branch missing — repair it above"
+          }
+        }
+      }
+    },
     "newtask_repo_label": {
       "extractionState": "manual",
       "localizations": {
@@ -6419,6 +6522,59 @@
           "stringUnit": {
             "state": "translated",
             "value": "New Task"
+          }
+        }
+      }
+    },
+    "newtask_upstream_behind": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ hinter origin — Aufgabe startet vom neuesten Stand"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ behind origin — task will start from latest"
+          }
+        }
+      }
+    },
+    "newtask_upstream_checking": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upstream wird geprüft…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking upstream…"
+          }
+        }
+      }
+    },
+    "newtask_upstream_diverged": {
+      "comment": "%1$@ = behind, %2$@ = ahead, %3$@ = base",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Von origin abgewichen (%1$@ hinter, %2$@ voraus) — Aufgabe startet von lokal %3$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diverged from origin (%1$@ behind, %2$@ ahead) — task will start from local %3$@"
           }
         }
       }

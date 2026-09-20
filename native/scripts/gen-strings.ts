@@ -727,6 +727,15 @@ export const KEYS_QUEUES: readonly string[] = [
 
 /** S11 — the composer: create fields, slash commands, steers, attachments. */
 export const KEYS_COMPOSE: readonly string[] = [
+  "newtask_base_missing",
+  "newtask_chip_from",
+  "newtask_init_commit",
+  "newtask_init_commit_failed",
+  "newtask_init_commit_running",
+  "newtask_readiness_base_missing",
+  "newtask_upstream_checking",
+  "newtask_upstream_behind",
+  "newtask_upstream_diverged",
   "common_issues_lightweight",
   "common_no_open_issues",
   "issue_filter_button",

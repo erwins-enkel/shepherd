@@ -19,7 +19,10 @@ import Testing
         issues: @escaping (String) async throws -> IssueListing = { _ in IssueListing(issues: []) },
         commands: @escaping (String, AgentProvider) async throws -> CommandListing = { _, _ in CommandListing(commands: []) }
     ) -> ComposeModel {
-        ComposeModel(defaults: defaults ?? self.defaults(), loadIssues: issues, loadCommands: commands,
+        ComposeModel(defaults: defaults ?? self.defaults(), repoBranches: RepoBranchModel(
+            loadBranches: { _ in .init(branches: []) },
+            loadStatus: { _, _ in .init(behind: 0, ahead: 0, diverged: false, hasUpstream: false, localExists: false) },
+            repair: { _, branch in .init(branch: branch) }), loadIssues: issues, loadCommands: commands,
                      loadEpics: { _ in EpicListing(epics: [], subIssues: []) })
     }
     private func command(_ name: String, providers: [AgentProvider] = [.claude, .codex]) -> SlashCommand {

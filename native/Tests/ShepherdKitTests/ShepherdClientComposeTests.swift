@@ -74,6 +74,56 @@ struct ShepherdClientComposeTests {
         #expect(result.subIssues == [413, 414])
     }
 
+    @Test func branchesAndStatusEncodeQueriesAndDecodeNullableDefaults() async throws {
+        let server = FakeShepherdServer()
+        defer { server.tearDown() }
+        server.stub("GET", "/api/branches", status: 200, json: Data(#"{"branches":[],"current":"trunk","default":null}"#.utf8))
+        server.stub("GET", "/api/branch-status", status: 200, json: Data(#"{"behind":2,"ahead":1,"diverged":true,"hasUpstream":true,"localExists":false}"#.utf8))
+        let client = try makeClient(server)
+        let listing = try await client.branches(repoPath: "/repos/a b")
+        #expect(listing.current == "trunk")
+        #expect(listing._default == nil)
+        #expect(listing.branches.isEmpty)
+        let status = try await client.branchStatus(repoPath: "/repos/a b", branch: "feature/my-branch")
+        #expect(status.behind == 2 && status.ahead == 1 && status.diverged)
+        #expect(status.hasUpstream && !status.localExists)
+        for request in server.requests() {
+            let query = URLComponents(string: "http://fake/?\(request.query ?? "")")?.queryItems
+            #expect(query?.first(where: { $0.name == "repo" })?.value == "/repos/a b")
+        }
+        let query = URLComponents(string: "http://fake/?\(server.requests().last?.query ?? "")")?.queryItems
+        #expect(query?.first(where: { $0.name == "branch" })?.value == "feature/my-branch")
+    }
+
+    @Test func initialCommitUsesTheDeclaredBody() async throws {
+        let server = FakeShepherdServer()
+        defer { server.tearDown() }
+        server.stub("POST", "/api/repos/init-empty-commit", status: 200, json: Data(#"{"branch":"trunk"}"#.utf8))
+        let result = try await makeClient(server).initEmptyCommit(repoPath: "/repo", branch: "trunk")
+        #expect(result.branch == "trunk")
+        let request = try #require(server.requests().last)
+        let body = try JSONDecoder().decode(Components.Schemas.InitEmptyCommitRequest.self, from: #require(request.body))
+        #expect(body.repo == "/repo" && body.branch == "trunk")
+    }
+
+    @Test(arguments: ["branches", "branch-status", "repos/init-empty-commit"], [400, 401, 422, 503])
+    func branchErrors(route: String, status: Int) async throws {
+        let server = FakeShepherdServer()
+        defer { server.tearDown() }
+        let repair = route == "repos/init-empty-commit"
+        server.stub(repair ? "POST" : "GET", "/api/\(route)", status: status, json: try Fixtures.errorJSON("bad"))
+        let client = try makeClient(server)
+        let operation = repair ? "initEmptyCommit" : route == "branches" ? "listBranches" : "getBranchStatus"
+        let expected: ShepherdError = status == 400 ? .badRequest("bad") : status == 401 ? .unauthenticated
+            : repair && status == 422 ? .unprocessable("bad")
+            : .contractMismatch(route: operation, underlying: "undocumented status \(status)")
+        await #expect(throws: expected) {
+            if repair { _ = try await client.initEmptyCommit(repoPath: "/repo", branch: "main") }
+            else if route == "branches" { _ = try await client.branches(repoPath: "/repo") }
+            else { _ = try await client.branchStatus(repoPath: "/repo", branch: "main") }
+        }
+    }
+
     @Test("all composer methods map documented errors and unknown statuses", arguments: ["issues", "commands", "epics"], [400, 401, 503])
     func errors(route: String, status: Int) async throws {
         let server = FakeShepherdServer()

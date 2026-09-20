@@ -79,6 +79,17 @@ public actor LocalServerSupervisor {
 
   private var process: Process?
   private var pump: Task<Void, Never>?
+  /// One child's death watch, and the **only** thing that declares a child
+  /// dead. Its signal is `Process.terminationHandler`, not the output pipe:
+  /// EOF and exit are two unrelated notifications and neither implies the
+  /// other. A child can `exec 1>&- 2>&-` and keep serving — EOF without exit,
+  /// which used to clear `livePID`/`process` and spawn a replacement, leaving
+  /// the first one alive and invisible to `stop()` *and* `terminateNow()`. And
+  /// the real server hands the pipe's write end to every agent, git and bun
+  /// worker it spawns, so its own exit brings no EOF for as long as any of
+  /// them lives — exit without EOF, which defeated the whole crash/backoff/
+  /// crash-loop policy. `stopChild()` cancels this alongside `pump`.
+  private var exitWatcher: Task<Void, Never>?
   /// The crash loop's pending backoff-then-relaunch. `stopChild()` is its
   /// only canceller — every deliberate teardown path reaches it either
   /// directly (`stop()`) or by routing through it (`restart()`) — which is
@@ -102,6 +113,11 @@ public actor LocalServerSupervisor {
   /// *its* pid and process and start a third one, leaving the second alive and
   /// unowned.
   private var spawnGeneration = 0
+
+  /// The generation whose death has already been through the crash accounting.
+  /// A latch, so no second report of the same exit can append a second entry to
+  /// `crashTimes` and walk the supervisor into a crash loop it never had.
+  private var reportedExit: Int?
 
   /// Set while the child is torn down on purpose, so the exit that follows is
   /// not read as a crash and restarted. It lives in a `Mutex` rather than in
@@ -319,6 +335,9 @@ public actor LocalServerSupervisor {
     supervision?.cancel()
     supervision = nil
     if let pid = livePID.withLock({ $0 }) {
+      // Read *before* the first signal: once the leader is reaped `getpgid`
+      // can no longer answer, and the group is what has to die.
+      let group = ownedGroup(of: pid)
       deliver(SIGTERM, to: pid)
       let deadline = Date().addingTimeInterval(gracePeriod)
       while Date() < deadline, kill(pid, 0) == 0 {
@@ -328,6 +347,12 @@ public actor LocalServerSupervisor {
         deliver(SIGKILL, to: pid)
         await reap(pid)
       }
+      // The leader dying is not the group dying. SIGTERM went to the whole
+      // group, so a member that ignored it is still there — and the loop above
+      // ends the moment the leader goes, which used to mean `kill(pid, 0) != 0`
+      // and no SIGKILL for anyone. Escalate against the group regardless of
+      // what the leader did.
+      if let group { killpg(group, SIGKILL) }
       // Only if it is still the pid this call set out to stop. Nothing else
       // may spawn a child while the lifecycle gate is held, so in practice it
       // always is; the guard keeps that a local fact rather than a global one.
@@ -335,6 +360,8 @@ public actor LocalServerSupervisor {
     }
     pump?.cancel()
     pump = nil
+    exitWatcher?.cancel()
+    exitWatcher = nil
     process = nil
     if case .failed = state {} else { state = .stopped }
   }
@@ -355,25 +382,35 @@ public actor LocalServerSupervisor {
     terminationEpoch.withLock { $0 += 1 }
     stopFlag.withLock { $0 = true }  // deliberate: the exit is not a crash
     guard let pid = livePID.withLock({ $0 }) else { return }
+    // Before the first signal, for the same reason as in `stopChild()`.
+    let group = ownedGroup(of: pid)
     deliver(SIGTERM, to: pid)
     let deadline = Date().addingTimeInterval(gracePeriod)
+    var leaderIsGone = false
     while Date() < deadline {
       if kill(pid, 0) != 0 {
-        livePID.withLock { if $0 == pid { $0 = nil } }
-        return
+        leaderIsGone = true
+        break
       }
       usleep(20_000)
     }
-    deliver(SIGKILL, to: pid)
-    // Foundation's own `Process` machinery usually wins this reap, so this
-    // loop most often finds nothing left to do; it stays in case it doesn't,
-    // so no zombie outlives us. A single `WNOHANG` call right after SIGKILL
-    // reaps nothing — the kernel has not processed the death yet.
-    var status: Int32 = 0
-    for _ in 0..<10 {
-      if waitpid(pid, &status, WNOHANG) == pid { break }
-      usleep(20_000)
+    if !leaderIsGone {
+      deliver(SIGKILL, to: pid)
+      // Foundation's own `Process` machinery usually wins this reap, so this
+      // loop most often finds nothing left to do; it stays in case it doesn't,
+      // so no zombie outlives us. A single `WNOHANG` call right after SIGKILL
+      // reaps nothing — the kernel has not processed the death yet.
+      var status: Int32 = 0
+      for _ in 0..<10 {
+        if waitpid(pid, &status, WNOHANG) == pid { break }
+        usleep(20_000)
+      }
     }
+    // Unconditional, exactly as in `stopChild()`: the leader going quietly says
+    // nothing about the agents, git and bun workers that shared its group and
+    // ignored the SIGTERM. Returning early here is how they used to outlive the
+    // app they were quitting with.
+    if let group { killpg(group, SIGKILL) }
     livePID.withLock { if $0 == pid { $0 = nil } }
   }
 
@@ -393,12 +430,24 @@ public actor LocalServerSupervisor {
   /// outliving the app. Falls back to the bare pid, and never signals the group
   /// this app itself is in.
   private nonisolated func deliver(_ signalNumber: Int32, to pid: Int32) {
-    let group = getpgid(pid)
-    if group == pid, group != getpgid(0) {
+    if let group = ownedGroup(of: pid) {
       killpg(group, signalNumber)
     } else {
       kill(pid, signalNumber)
     }
+  }
+
+  /// The child's own process group, when it leads one that is not this app's —
+  /// the condition `deliver(_:to:)` signals a group on. `nil` means there is no
+  /// group of ours to escalate against, so only the pid may be signalled.
+  ///
+  /// Callers must read this *before* signalling: `getpgid` answers for a live
+  /// or zombie pid, not for a reaped one, so asking again after the leader has
+  /// gone gets -1 and the group escapes.
+  private nonisolated func ownedGroup(of pid: Int32) -> Int32? {
+    let group = getpgid(pid)
+    guard group == pid, group != getpgid(0) else { return nil }
+    return group
   }
 
   /// A child that logs far faster than the actor can drain it (a runaway loop,
@@ -442,12 +491,22 @@ public actor LocalServerSupervisor {
     // that was never started.
     spawnGeneration += 1
     let generation = spawnGeneration
+    scanTail = ""
+    // The one-shot death signal this child's watcher parks on. Foundation
+    // invokes `terminationHandler` off any thread and only once
+    // `terminationStatus` is valid, so a `Sendable` stream continuation is what
+    // carries it back onto the actor.
+    let (exits, exitSignal) = AsyncStream<Int32>.makeStream()
     child.terminationHandler = { [weak self] proc in
-      self?.lastExitCode.withLock {
-        $0 = ChildExit(generation: generation, code: proc.terminationStatus)
-      }
+      let code = proc.terminationStatus
+      self?.lastExitCode.withLock { $0 = ChildExit(generation: generation, code: code) }
+      exitSignal.yield(code)
+      exitSignal.finish()
     }
-    try child.run()
+    do { try child.run() } catch {
+      exitSignal.finish()
+      throw error
+    }
     testSeamAfterChildRun?()
 
     process = child
@@ -466,50 +525,67 @@ public actor LocalServerSupervisor {
       ) { line in
         await self?.ingest(line)
       }
-      await self?.childStreamEnded(generation: generation)
+      // EOF and nothing else: the pump flushes what it has and ends. Whether
+      // the child is still there is `exitWatcher`'s question, not this one's.
+    }
+    exitWatcher?.cancel()
+    exitWatcher = Task { [weak self] in
+      for await code in exits {
+        await self?.childExited(generation: generation, code: code)
+        return
+      }
     }
     return generation
   }
 
+  /// `BootLineScanner` needs the whole `Operator password (shown ONCE): `
+  /// prefix inside one string, and the pump does not always deliver it that
+  /// way: it force-flushes a partial line at `maxPartialLineBytes`, and a
+  /// bounded buffering policy puts a `dropMarker` between the fragment that
+  /// ended at a hole and the one that resumes after it. Either can split the
+  /// prefix from the secret. The prefix is 32 bytes, so this much of the
+  /// previous fragment is plenty to join the two back together.
+  private static let scanCarryOver = 128
+  private var scanTail = ""
+
   /// One line of child output. Nothing here reaches os.Logger: the child may
   /// print anything, including the password we are about to redact.
+  ///
+  /// The scan runs against `scanTail + line`, never `line` alone. A match that
+  /// only appears once the two are joined still scrubs correctly: `LogRing`
+  /// rewrites what is already buffered, so the fragment appended first is
+  /// redacted retroactively, and this line is appended after `redact`.
   private func ingest(_ line: String) async {
-    if let password = BootLineScanner.generatedPassword(in: line) {
+    let joined = scanTail + line
+    if let password = BootLineScanner.generatedPassword(in: joined) {
       capturedPassword = password
       await log.redact(password)
+      // Consumed. A banner left in the carry-over makes the *next* line read as
+      // a continuation of the same secret — the scanner stops at the first
+      // character outside `[A-Za-z0-9_-]`, so the password would come back with
+      // that line's first word glued to its end.
+      scanTail = ""
+    } else if !ProcessOutputPump.isDropMarker(line) {
+      // A drop marker is the pump's own words, not the child's. Carrying it
+      // forward would push a banner fragment out of reach of the very next line
+      // — which is exactly where the secret lands when a drop is what split it.
+      scanTail = String(joined.suffix(Self.scanCarryOver))
     }
     await log.append(line)
   }
 
-  private func childStreamEnded(generation: Int) async {
+  /// The child this supervisor owns has exited, as reported by
+  /// `Process.terminationHandler` — the only notification that means it. Runs
+  /// at most once per generation (`reportedExit`), so nothing can put the same
+  /// death through the crash accounting twice.
+  private func childExited(generation: Int, code: Int32) async {
     guard generation == spawnGeneration, !stopping else { return }
-    let code = await exitCode(generation: generation)
-    // Again, on the way back: `exitCode()` waits on the termination handler,
-    // and a `restart()` landing in that window has already spawned the next
-    // child. Acting on this stale report would clear that child's pid and
-    // process — orphaning it — and then start a third one.
-    guard generation == spawnGeneration, !stopping else { return }
+    guard reportedExit != generation else { return }
+    reportedExit = generation
     livePID.withLock { $0 = nil }
     process = nil
     Self.logger.error("local server exited with \(code, privacy: .public)")
     await handleCrash(exitCode: code, generation: generation)
-  }
-
-  /// The child has already closed its pipe by the time this is called, so
-  /// `terminationHandler` firing is imminent, not a wait on a live process —
-  /// see `lastExitCode`'s doc comment for why this never reads
-  /// `terminationStatus` directly.
-  private func exitCode(generation: Int) async -> Int32 {
-    for _ in 0..<25 {
-      if let exit = lastExitCode.withLock({ $0 }), exit.generation == generation {
-        return exit.code
-      }
-      // Nothing left to wait for once this supervisor has moved past the child
-      // being asked about.
-      guard generation == spawnGeneration, !stopping else { return -1 }
-      try? await Task.sleep(for: .milliseconds(20))
-    }
-    return -1
   }
 
   /// Polls health for up to 30 s. Readiness is the health answer, not the ready
@@ -606,4 +682,15 @@ public actor LocalServerSupervisor {
     await startChild(epoch: epoch)
   }
 }
+
+#if DEBUG
+extension LocalServerSupervisor {
+  /// Test seam for the boot-line scanner's carry-over. `ingest(_:)` is private
+  /// and only ever fed by the pump, and one of the two ways a banner gets split
+  /// — a `dropMarker` line landing between the prefix and the secret — needs a
+  /// 4096-chunk buffer overflow to provoke through a real child. The fragments
+  /// go in here instead.
+  func ingestForTesting(_ line: String) async { await ingest(line) }
+}
+#endif
 #endif

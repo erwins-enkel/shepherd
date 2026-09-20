@@ -19,6 +19,14 @@ public enum ProcessOutputPump {
   /// printed. The log says what it lost instead.
   public static func dropMarker(_ chunks: Int) -> String { "[log dropped \(chunks) chunks]" }
 
+  /// Whether a line is one of this pump's own drop markers rather than child
+  /// output. A consumer that joins fragments back together across the pump's
+  /// line splits needs to tell the two apart — see
+  /// `LocalServerSupervisor.ingest(_:)`.
+  public static func isDropMarker(_ line: String) -> Bool {
+    line.hasPrefix("[log dropped ") && line.hasSuffix(" chunks]")
+  }
+
   /// `handle`'s readable bytes as ordered chunks, via `readabilityHandler` (see the
   /// type doc comment for why not `FileHandle.bytes`). `onTermination` detaches the
   /// handler when the consumer stops iterating, so the underlying `Pipe` deallocates

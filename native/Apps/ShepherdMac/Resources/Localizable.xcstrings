@@ -1982,6 +1982,385 @@
         }
       }
     },
+    "native_local_connect": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anmelden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in"
+          }
+        }
+      }
+    },
+    "native_local_error_bun_missing": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bun wurde nicht gefunden. Installiere es mit: curl -fsSL https://bun.sh/install | bash"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bun was not found. Install it with: curl -fsSL https://bun.sh/install | bash"
+          }
+        }
+      }
+    },
+    "native_local_error_crash_loop": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Server ist %1$@-mal hintereinander abgestürzt. Öffne das Log, um zu sehen, warum."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The server crashed %1$@ times in a row. Open the log to see why."
+          }
+        }
+      }
+    },
+    "native_local_error_exited": {
+      "comment": "%1$@ = code",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Server hat sich unerwartet beendet (Exit-Code %1$@)."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The server stopped unexpectedly (exit %1$@)."
+          }
+        }
+      }
+    },
+    "native_local_error_health_timeout": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Server wurde gestartet, hat aber nie auf Port 7330 geantwortet. Öffne das Log, um zu sehen, warum."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The server started but never answered on port 7330. Open the log to see why."
+          }
+        }
+      }
+    },
+    "native_local_error_install_failed": {
+      "comment": "%1$@ = code",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Installation ist fehlgeschlagen (Exit-Code %1$@). Öffne das Log, um zu sehen, warum."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The installer failed (exit %1$@). Open the log to see why."
+          }
+        }
+      }
+    },
+    "native_local_error_not_checkout": {
+      "comment": "%1$@ = path",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ existiert, ist aber kein Shepherd-Checkout. Verschiebe es und installiere erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ exists but is not a Shepherd checkout. Move it aside, then install again."
+          }
+        }
+      }
+    },
+    "native_local_install": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Install"
+          }
+        }
+      }
+    },
+    "native_local_log_hide": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Log ausblenden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide log"
+          }
+        }
+      }
+    },
+    "native_local_log_show": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Log anzeigen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show log"
+          }
+        }
+      }
+    },
+    "native_local_password_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wird nur einmal angezeigt. Melde dich jetzt an, oder setze SHEPHERD_PASSWORD in ~/.shepherd/env und starte den Server neu."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shown once. Sign in now, or set SHEPHERD_PASSWORD in ~/.shepherd/env and restart the server."
+          }
+        }
+      }
+    },
+    "native_local_password_copy": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passwort kopieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy password"
+          }
+        }
+      }
+    },
+    "native_local_password_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Server hat ein Passwort erzeugt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The server generated a password"
+          }
+        }
+      }
+    },
+    "native_local_restart": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neu starten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restart"
+          }
+        }
+      }
+    },
+    "native_local_start": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start"
+          }
+        }
+      }
+    },
+    "native_local_state_external": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf Port 7330 läuft ein Server, den du selbst gestartet hast."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A server you started yourself is running on port 7330."
+          }
+        }
+      }
+    },
+    "native_local_state_installing": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wird installiert…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installing…"
+          }
+        }
+      }
+    },
+    "native_local_state_not_installed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noch nicht installiert. „Installieren“ legt einen Checkout in ~/.shepherd/app an."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not installed yet. Install puts a checkout in ~/.shepherd/app."
+          }
+        }
+      }
+    },
+    "native_local_state_running": {
+      "comment": "%1$@ = pid",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Läuft (Prozess %1$@)."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Running (process %1$@)."
+          }
+        }
+      }
+    },
+    "native_local_state_starting": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wird gestartet…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starting…"
+          }
+        }
+      }
+    },
+    "native_local_state_stopped": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installiert, läuft nicht."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installed, not running."
+          }
+        }
+      }
+    },
+    "native_local_stop": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stoppen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop"
+          }
+        }
+      }
+    },
     "native_login_sheet_title": {
       "comment": "%1$@ = server",
       "extractionState": "manual",

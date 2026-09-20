@@ -254,7 +254,30 @@ export const KEYS_SIDEBAR: readonly string[] = [
 export const KEYS_ACTIONS: readonly string[] = [];
 
 /** S5 — local server detection, install, start/stop/restart and the log tail. */
-export const KEYS_LOCALSERVER: readonly string[] = [];
+export const KEYS_LOCALSERVER: readonly string[] = [
+  "native_local_connect",
+  "native_local_error_bun_missing",
+  "native_local_error_crash_loop",
+  "native_local_error_exited",
+  "native_local_error_health_timeout",
+  "native_local_error_install_failed",
+  "native_local_error_not_checkout",
+  "native_local_install",
+  "native_local_log_hide",
+  "native_local_log_show",
+  "native_local_password_body",
+  "native_local_password_copy",
+  "native_local_password_title",
+  "native_local_restart",
+  "native_local_start",
+  "native_local_state_external",
+  "native_local_state_installing",
+  "native_local_state_not_installed",
+  "native_local_state_running",
+  "native_local_state_starting",
+  "native_local_state_stopped",
+  "native_local_stop",
+];
 
 /** S6 — notification titles and bodies. */
 export const KEYS_NOTIFICATIONS: readonly string[] = [];

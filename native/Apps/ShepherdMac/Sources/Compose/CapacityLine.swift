@@ -144,6 +144,10 @@ struct CapacityLine: View {
             .monospacedDigit()
             .opacity(capacity.opacity)
             .accessibilityIdentifier("compose.capacity")
+        } else {
+            Text(L.t("newtask_provider_capacity_unavailable"))
+                .font(.caption).foregroundStyle(.secondary)
+                .accessibilityIdentifier("compose.capacity")
         }
     }
 

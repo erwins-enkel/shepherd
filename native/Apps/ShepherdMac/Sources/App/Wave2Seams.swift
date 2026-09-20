@@ -24,8 +24,8 @@ enum Wave2Seams {
             return plan.reviewing.contains(id) || plan.gates[id] != nil
         }
         MergeInputs.terminalEnded = { app, id in
-            guard let terminal = app.extension(TerminalController.self) else { return true }
-            return terminal.hasEnded(id)
+            guard let herd = app.extension(HerdSignals.self) else { return true }
+            return herd.claudeAlive[id] == false
         }
     }
 }

@@ -122,6 +122,11 @@ struct StreamRegistrationsTests {
             plan.receive(.unknown(name: "session:plangate", payload: try JSONEncoder().encode(
                 SessionPlanGateEvent(id: "a", gate: gate))))
             #expect(SessionSignals.planQuestionsUnanswered("a"))
+            #expect(MergeInputs.planReviewBlocked(app, "a"))
+            herd.applyForTesting(name: "session:claude-alive", payload: ["id": "a", "claudeAlive": false])
+            #expect(MergeInputs.terminalEnded(app, "a"))
+            herd.applyForTesting(name: "session:claude-alive", payload: ["id": "a", "claudeAlive": true])
+            #expect(!MergeInputs.terminalEnded(app, "a"))
             #expect(herd.planRework(session))
             #expect(sidebar.gitStage(session) == .reworkRunning)
             plan.receive(.unknown(name: "session:plangate-reviewing", payload: try JSONEncoder().encode(

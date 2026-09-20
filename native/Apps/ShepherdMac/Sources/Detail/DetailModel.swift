@@ -155,6 +155,12 @@ final class DetailModel: AppExtension {
     /// `load`/`poll` directly instead of pushing frames through a store.
     init(loaders: Loaders) { self.loaders = loaders }
 
+    /// False once `teardown()` has run — the store this model was built for is gone, and any
+    /// answer still in flight belongs to a server the operator has left. The detail equivalent of
+    /// `MainWindow`'s `model.store === store` check, and the one a command view passes to
+    /// `SessionCommandState.run` as `isCurrent`.
+    var isActive: Bool { alive }
+
     func teardown() {
         alive = false
         watcher?.cancel()

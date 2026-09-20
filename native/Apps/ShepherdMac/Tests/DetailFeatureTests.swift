@@ -47,8 +47,18 @@ struct DetailFeatureTests {
         let tab = DetailTabRegistry.tabs.first { $0.id == "files" }
         #expect(tab != nil)
         #expect(tab?.order == 30)
-        // Activity (10) before diff (20) before files (30) before the built-in prompt tab (1_000).
-        #expect(DetailTabRegistry.tabs.map(\.id) == ["activity", "diff", "files", "prompt"])
+    }
+
+    @Test func installRegistersTheGitTabAtOrderForty() {
+        let app = makeModel()
+        DetailFeature.install(app)
+
+        let tab = DetailTabRegistry.tabs.first { $0.id == "git" }
+        #expect(tab != nil)
+        #expect(tab?.order == 40)
+        // Activity (10) before diff (20) before files (30) before git (40) before the built-in
+        // prompt tab (1_000).
+        #expect(DetailTabRegistry.tabs.map(\.id) == ["activity", "diff", "files", "git", "prompt"])
     }
 
     @Test func installBuildsTheModelImmediatelyWhenAStoreIsAlreadyLive() async throws {
@@ -77,6 +87,7 @@ struct DetailFeatureTests {
         #expect(DetailTabRegistry.tabs.filter { $0.id == "activity" }.count == 1)
         #expect(DetailTabRegistry.tabs.filter { $0.id == "diff" }.count == 1)
         #expect(DetailTabRegistry.tabs.filter { $0.id == "files" }.count == 1)
+        #expect(DetailTabRegistry.tabs.filter { $0.id == "git" }.count == 1)
         #expect(DetailFeature.model(app) === first)
         app.teardown()
     }

@@ -15,6 +15,7 @@ enum DetailFeature {
         DetailTabRegistry.register(ActivityTab())
         DetailTabRegistry.register(DiffTab())
         DetailTabRegistry.register(FilesTab())
+        DetailTabRegistry.register(GitTab())
     }
 
     /// The model for the active store, or nil between activations. Every tab view starts here.
@@ -111,5 +112,18 @@ struct FilesTab: DetailTab {
     func makeView(session: Session, store: SessionStore, app: AppModel) -> AnyView {
         guard let model = DetailFeature.model(app) else { return AnyView(EmptyView()) }
         return AnyView(FilesTabView(session: session, model: model))
+    }
+}
+
+struct GitTab: DetailTab {
+    let id = "git"
+    var title: String { L.t("native_detail_tab_git") }
+    let systemImage = "arrow.triangle.pull"
+    let order = 40
+
+    @MainActor
+    func makeView(session: Session, store: SessionStore, app: AppModel) -> AnyView {
+        guard let model = DetailFeature.model(app) else { return AnyView(EmptyView()) }
+        return AnyView(GitTabView(session: session, model: model, store: store))
     }
 }

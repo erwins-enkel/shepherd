@@ -91,6 +91,15 @@ struct DetailModelTests {
         #expect(model.activity["s1"] == .loading)
     }
 
+    /// The PR tab passes `isActive` to `SessionCommandState.run` as its `isCurrent`, so a merge
+    /// that lands after a profile switch writes no notice about a server the operator has left.
+    @Test func isActiveFollowsTeardown() {
+        let model = DetailModel(loaders: .stubbed())
+        #expect(model.isActive)
+        model.teardown()
+        #expect(model.isActive == false)
+    }
+
     @Test func anOlderLoadNeverOverwritesANewerOne() async {
         let slow = LoadGate()
         var calls = 0

@@ -92,7 +92,7 @@ final class LiveSmokeUITests: XCTestCase {
     func testSidebarPlusOpensComposerAndPrefillsALiveIssue() {
         XCTAssertTrue(waitForMainWindow())
         app.buttons["toolbar-new-session"].click()
-        let composer = app.descendants(matching: .any)["compose.sheet"]
+        let composer = app.descendants(matching: .any).matching(identifier: "compose.sheet").firstMatch
         XCTAssertTrue(composer.waitForExistence(timeout: 20), "S11 must replace the fallback form")
         let rows = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "compose.issue."))
         // Some configured repositories intentionally have no forge/issues. Select a real listing.
@@ -115,7 +115,7 @@ final class LiveSmokeUITests: XCTestCase {
         let prefilled = (prompt.value as? String ?? "").contains("#" + issueNumber)
         XCTAssertTrue(prefilled, "selecting the real issue must prefill its number in the draft")
         for id in ["compose.engine", "compose.model", "compose.effort", "compose.capacity"] {
-            XCTAssertTrue(app.descendants(matching: .any)[id].waitForExistence(timeout: 15), "\(id) must render")
+            XCTAssertTrue(app.descendants(matching: .any).matching(identifier: id).firstMatch.waitForExistence(timeout: 15), "\(id) must render")
         }
         XCTAssertTrue(app.buttons["compose.submit"].exists || app.buttons["compose.hold"].exists)
         assertReadOnlyAudit()

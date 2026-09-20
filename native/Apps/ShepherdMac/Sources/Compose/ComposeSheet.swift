@@ -94,6 +94,7 @@ struct ComposeSheetContent: View {
         }
         .onChange(of: store.repos) { _, _ in seedRepo() }
         .onDisappear { submission.teardown(); model.teardown() }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("compose.sheet")
     }
 

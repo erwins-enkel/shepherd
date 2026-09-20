@@ -46,6 +46,7 @@ struct IssuePickerView: View {
         }
         .task(id: model.repoPath) { await model.loadSources() }
         .task(id: model.provider) { await model.loadCommands() }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("compose.sources")
     }
 

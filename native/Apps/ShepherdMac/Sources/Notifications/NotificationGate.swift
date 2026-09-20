@@ -10,8 +10,15 @@ import Foundation
 ///    does (`if (input.kind !== "ready" && !row.cats[category]) continue;`) — except that the
 ///    profile's master switch overrides even that, because an operator who turned a server off
 ///    did not mean "except sometimes".
-///  - **cooldown**: `withinCooldown(key, t, cooldownMs)` with the same 120 s default and the same
-///    "only a send starts the clock" rule. A notification nobody saw must not swallow the next.
+///  - **cooldown**: `withinCooldown(key, t, cooldownMs)` with the same 120 s default. The clock
+///    starts on the *allowed* branch, before the caller posts — not on a confirmed delivery.
+///    That is a deliberate difference from the usage latch, which this port's
+///    `NotificationCenterClient.post` made possible by answering `sent`: the latch holds a
+///    5-hour window open and branches on delivery, because latching a rejected banner would
+///    silence a whole afternoon; the cooldown holds 120 s and does not, because the stamp is
+///    the only thing serialising two frames a millisecond apart (see `allows` below). The
+///    cost is real and accepted — a banner macOS threw away still silences that session and
+///    kind for 120 s, and the operator learns it from the list instead.
 struct NotificationGate {
     /// `SHEPHERD_PUSH_COOLDOWN_MS`'s default in `src/config.ts`, in milliseconds.
     static let defaultCooldown = 120_000

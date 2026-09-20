@@ -183,6 +183,12 @@ final class NotificationsModel: AppExtension {
 
     /// One frame in; zero or one banner out, plus a badge refresh.
     func handle(_ event: ServerEvent) async {
+        // The whole frame, not just the branch that posts. The guard used to sit after the
+        // post, which the loop only reaches when the gate allowed something — so a cancelled
+        // tap carrying a frame with no intent (`session:activity`, `session:git`) or one the
+        // gate refused still fell through to `refreshBadge()` below and wrote the outgoing
+        // profile's count over the Dock badge, which is global.
+        guard !Task.isCancelled else { return }
         for intent in trigger.intents(for: event) {
             guard
                 gate.allows(
@@ -256,7 +262,18 @@ final class NotificationsModel: AppExtension {
         await store?.setActive(focused)
         // Re-checked after the suspension, for the same reason as the guard above.
         guard !isTornDown else { return }
-        if focused {
+        // The *live* `windowFocused`, never the captured `focused`. Two focus tasks can
+        // interleave at the suspension above — an actor makes no FIFO promise about which
+        // resumes first — and branching on the capture lets the loser decide the badge: the
+        // `false` task resumes first and refreshes to N, then the `true` task resumes and
+        // clears to 0 while the window is in the background with N sessions needing the
+        // operator. The de-duplication in `writeBadge(_:)` then makes that stick, because
+        // `lastBadge` is 0 and nothing rewrites it until the derived count moves.
+        //
+        // The synchronous assignment above is what makes this read correct: whichever task
+        // assigned last is the transition that really happened, so that is the one the badge
+        // must follow, whatever order the resumptions land in.
+        if windowFocused {
             await clearBadge()
         } else {
             await refreshBadge()
@@ -274,8 +291,16 @@ final class NotificationsModel: AppExtension {
     /// produce would drift for the rest of the session.
     func updateBadge(sessions: [Session]) async {
         guard !isTornDown else { return }
+        // `writeBadge`, not `clearBadge`: this is the ordinary per-frame path, and the
+        // operator spends most of their day here — window in front, several agents running,
+        // a `session:activity` / `session:claude-alive` / `session:git` frame every few
+        // hundred milliseconds. `clearBadge()` drops `lastBadge` first, so routing this
+        // branch through it meant the elision below could never fire and every one of those
+        // frames cost an XPC round trip to `notificationd`, which is precisely what the
+        // de-duplication exists to stop. The *transitions* that must not be elided —
+        // focusing the window, and `teardown()` — call `clearBadge()` themselves.
         guard !windowFocused else {
-            await clearBadge()
+            await writeBadge(0)
             return
         }
         var needing: Set<String> = []
@@ -297,7 +322,9 @@ final class NotificationsModel: AppExtension {
         await updateBadge(sessions: badgeSource())
     }
 
-    /// One XPC round trip to `notificationd` per *change*, not per frame.
+    /// One XPC round trip to `notificationd` per *change of the count this model wrote*, not
+    /// per frame. Every caller but the two named below goes through here and is elidable,
+    /// focused or not.
     ///
     /// `handle(_:)` refreshes the badge for every frame the tap delivers, including the
     /// high-rate ones this model ignores (`session:activity`, `session:claude-alive`,
@@ -305,6 +332,14 @@ final class NotificationsModel: AppExtension {
     /// `.bufferingNewest(64)`, so parking the consumer on a round trip per frame is how a burst
     /// of activity overflows that buffer — and the frame it drops can be the one `session:block`
     /// the banner depended on, invisibly, because the badge is re-derived and stays correct.
+    ///
+    /// The guarantee is about *this model's* writes only: `lastBadge` records the count that was
+    /// handed to the centre, and `NotificationCenterClient.setBadgeCount` returns `Void`,
+    /// logging and swallowing whatever `UNUserNotificationCenter` threw. So a write macOS
+    /// rejected is cached here as if it had landed, and the Dock stays wrong until the derived
+    /// count next moves. Telling the two apart needs `setBadgeCount` to answer the way `post`
+    /// does, which is a change to `NotificationCenterClient.swift`; until then the forced
+    /// clears below are what recover from it.
     private func writeBadge(_ count: Int) async {
         guard lastBadge != count else { return }
         lastBadge = count
@@ -314,6 +349,14 @@ final class NotificationsModel: AppExtension {
     /// Clears the badge, never elided. `lastBadge` is dropped first, so a clear goes through
     /// even when the last count this model wrote was already zero — the Dock badge is global,
     /// and something else (the outgoing profile, a previous run) may have left a number on it.
+    ///
+    /// Exactly two callers force a write this way, and they are the two moments where
+    /// `lastBadge` is not evidence about what is actually on the Dock: `setWindowFocused`
+    /// when the window comes forward (the operator is now looking, and whatever is up there
+    /// may have been written by the previous activation), and `teardown()`, which forces the
+    /// same clear inline because it must outlive this model. Every other path — the per-frame
+    /// refresh, focused or not — is an ordinary `writeBadge(_:)` and is elided when the count
+    /// has not changed.
     private func clearBadge() async {
         lastBadge = nil
         await writeBadge(0)

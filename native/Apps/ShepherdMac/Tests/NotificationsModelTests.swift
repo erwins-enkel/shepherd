@@ -282,7 +282,13 @@ struct NotificationsModelTests {
         await m.updateBadge(sessions: [blocked, ready, busy, archived])
         #expect(center.badge == 2)
 
+        // `extraAttention`'s `didSet` refreshes the badge on a `Task` hop of its own, from the
+        // model's own `badgeSource()` — which holds nothing in this seam. Let it land before
+        // the explicit `updateBadge` below, or the two race and the refresh can overwrite the
+        // count this test is asserting on. The `extraAttention` suite yields for the same
+        // reason.
         m.extraAttention = ["c"]
+        await Task.yield()
         await m.updateBadge(sessions: [blocked, ready, busy, archived])
         #expect(center.badge == 3, "the S2 seam adds ci-red sessions once it is assigned")
 
@@ -480,10 +486,13 @@ struct NotificationsModelTests {
         #expect(center.badge == 6, "and writes nothing over the next profile's badge")
     }
 
-    /// `handle(_:)` cannot consult the activation generation, so cancellation is what stops it.
-    /// Today `intents(for:)` returns at most one intent; the observable half of the guard is
-    /// that a cancelled tap does not go on to refresh the badge.
-    @Test func aCancelledTapStopsAfterTheBannerItAlreadyPosted() async {
+    /// `handle(_:)` cannot consult the activation generation, so cancellation is what stops it
+    /// — and it has to stop the *whole* frame. The guard used to sit after the post, inside the
+    /// branch the gate allowed, so the two cases that reach neither (a frame carrying no intent
+    /// at all, and one the gate refused) still fell through to the badge refresh at the end.
+    /// A tap is cancelled by `teardown()`, i.e. by a profile switch, and the Dock badge is
+    /// global: that refresh writes the outgoing profile's count over the incoming one's.
+    @Test func aCancelledTapRefreshesNothingNotEvenForAFrameThatPostsNothing() async {
         let center = FakeNotificationCenter()
         let m = await model(center: center)
         await m.setWindowFocused(false)
@@ -491,15 +500,31 @@ struct NotificationsModelTests {
             sessions: [PreviewData.session(id: "a", status: SessionStatus(known: .blocked))])
         #expect(center.badge == 1)
 
+        // `session:activity` — one of the high-rate frames this model ignores. It produces no
+        // intent, so the old guard was never reached and `refreshBadge()` ran anyway, deriving
+        // 0 from this seam's empty badge source.
+        let quiet = Task { @MainActor in
+            await m.handle(.unknown(name: "session:activity", payload: nil))
+        }
+        // Cancelled before the body can start: nothing in `handle` suspends until `task.value`.
+        quiet.cancel()
+        await quiet.value
+        #expect(center.badge == 1, "a cancelled tap refreshes nothing")
+
+        // And the branch that would have posted is stopped too.
         let block = BlockReason(shape: .init(value1: .stall), options: [], tail: [])
-        let task = Task { @MainActor in
+        let loud = Task { @MainActor in
             await m.handle(.sessionBlock(.init(id: "s1", block: block)))
         }
-        // Cancelled before the body can start: nothing below suspends until `task.value`.
-        task.cancel()
-        await task.value
-        #expect(center.posted.count == 1, "the banner the gate already allowed still goes out")
-        #expect(center.badge == 1, "a cancelled tap stops there; it does not refresh the badge")
+        loud.cancel()
+        await loud.value
+        #expect(center.posted.isEmpty, "a cancelled tap posts nothing either")
+        #expect(center.badge == 1)
+
+        // Uncancelled, the same frame does both — the guard stops a cancelled tap, not the tap.
+        await m.handle(.sessionBlock(.init(id: "s2", block: block)))
+        #expect(center.posted.count == 1, "an uncancelled tap still posts")
+        #expect(center.badge == 0, "and still refreshes the badge from the store")
     }
 
     /// The S0-int seam, held to two things: it may only count sessions that exist, and
@@ -528,6 +553,70 @@ struct NotificationsModelTests {
         m.extraAttention = []
         await Task.yield()
         #expect(center.badge == 0, "assigning the seam refreshes the badge itself")
+    }
+
+    /// The de-duplication has to hold in the state the operator is actually in most of the day:
+    /// window in front, several agents running, a `session:activity` / `session:claude-alive` /
+    /// `session:git` frame every few hundred milliseconds. The focused branch used to call
+    /// `clearBadge()`, which drops `lastBadge` before writing — so the elision could never fire
+    /// and every one of those frames cost an XPC round trip to `notificationd`. The serial tap
+    /// parks on that round trip, `bufferingNewest(64)` overflows, and the frame it drops can be
+    /// the one `session:block` the banner depended on — silently, because the badge still looks
+    /// right.
+    @Test func aFocusedWindowWritesTheZeroBadgeOnceNotOncePerFrame() async {
+        let center = FakeNotificationCenter()
+        let m = await model(center: center)
+        let blocked = PreviewData.session(id: "a", status: SessionStatus(known: .blocked))
+
+        await m.setWindowFocused(false)
+        await m.updateBadge(sessions: [blocked])
+        #expect(center.badge == 1)
+
+        // Coming forward is a transition, and a transition still forces the write through.
+        await m.setWindowFocused(true)
+        #expect(center.badge == 0, "focusing the window still clears the badge")
+
+        // A count on the Dock that this model did not write, put there behind its back. Every
+        // further focused refresh derives the same zero it already wrote, so none of them may
+        // reach the centre — if one did, the 7 would be gone.
+        await center.setBadgeCount(7)
+        for _ in 0..<5 { await m.updateBadge(sessions: [blocked]) }
+        #expect(center.badge == 7, "a focused refresh writes nothing once the zero is out")
+    }
+
+    /// `setWindowFocused` resumes after `store.setActive` on an actor hop, and an actor makes no
+    /// FIFO promise: two transitions in flight can resume in the opposite order from the one
+    /// they arrived in. The synchronous assignment decides which transition really happened, so
+    /// the badge branch has to read that live value rather than the one this call captured —
+    /// otherwise the loser writes last, and `writeBadge`'s elision makes it stick until the
+    /// derived count moves.
+    ///
+    /// The interleave itself cannot be forced here: this seam has no store, so
+    /// `await store?.setActive(focused)` does not suspend at all. What the test pins is the
+    /// invariant that holds for *every* resumption order once the branch reads the live value —
+    /// the badge always agrees with the focus the model records.
+    @Test func theBadgeFollowsTheLiveFocusValueNotTheOneTheCallCaptured() async {
+        let center = FakeNotificationCenter()
+        let m = await model(center: center)
+
+        await m.setWindowFocused(false)
+        await m.updateBadge(sessions: [])
+        #expect(center.badge == 0, "zero is now the last count this model wrote")
+
+        // A count on the Dock this model did not write. It is what tells the two branches
+        // apart: the focus-in clear is forced through and wipes it, while an unfocused refresh
+        // derives the same zero it already wrote and is elided, leaving it alone.
+        await center.setBadgeCount(7)
+
+        // Two transitions in flight at once, free to resume in either order.
+        async let resigned: Void = m.setWindowFocused(false)
+        async let activated: Void = m.setWindowFocused(true)
+        _ = await (resigned, activated)
+        for _ in 0..<5 { await Task.yield() }
+
+        #expect(
+            center.badge == (m.windowFocused ? 0 : 7),
+            "whichever transition landed last is the one the badge branch followed")
     }
 }
 

@@ -378,13 +378,13 @@ final class NotificationsModel: AppExtension {
     /// even when the last count this model wrote was already zero — the Dock badge is global,
     /// and something else (the outgoing profile, a previous run) may have left a number on it.
     ///
-    /// Exactly two callers force a write this way, and they are the two moments where
-    /// `lastBadge` is not evidence about what is actually on the Dock: `setWindowFocused`
-    /// when the window comes forward (the operator is now looking, and whatever is up there
-    /// may have been written by the previous activation), and `teardown()`, which forces the
-    /// same clear inline because it must outlive this model. Every other path — the per-frame
-    /// refresh, focused or not — is an ordinary `writeBadge(_:)` and is elided when the count
-    /// has not changed.
+    /// One caller forces a write this way: `setWindowFocused` when the window comes forward —
+    /// the operator is now looking, and whatever is up there may have been written by the
+    /// previous activation, so `lastBadge` is not evidence about the Dock. `teardown()` clears
+    /// too, but through the seam's synchronous `clearBadgeNow()` rather than here, because its
+    /// clear has to be ordered against the *next* model's first write and an `await` cannot
+    /// promise that; see there. Every other path — the per-frame refresh, focused or not — is an
+    /// ordinary `writeBadge(_:)` and is elided when the count has not changed.
     private func clearBadge() async {
         lastBadge = nil
         await writeBadge(0)
@@ -472,7 +472,22 @@ final class NotificationsModel: AppExtension {
         // A profile switch must not leave the outgoing server's count on the Dock icon. Forced
         // through `lastBadge`, which `clearBadge()` would drop anyway: a clear is never elided.
         lastBadge = nil
-        let center = self.center
-        Task { await center.setBadgeCount(0) }
+        // Synchronously, and deliberately NOT `Task { await center.setBadgeCount(0) }`.
+        //
+        // `AppModel.activate(_:)` calls `tearDownExtensions()` and then `makeExtensions(store:)`,
+        // and the incoming `NotificationsModel` writes its first badge from its own launch task.
+        // Both this clear and that write would be unstructured main-actor tasks, and nothing
+        // promises unstructured tasks resume in the order they were created — so the outgoing
+        // profile's zero could land *after* the incoming profile's count. The Dock would then
+        // read 0 with N sessions needing the operator, and stay there: the new model's
+        // `lastBadge` is N, so `writeBadge(_:)` elides every rewrite of N until the derived
+        // count happens to move. Issuing the clear before `teardown()` returns puts it ahead of
+        // anything the next model can queue, which is an ordering this file controls rather than
+        // one it hopes for.
+        //
+        // It is also why the centre no longer has to outlive this method for the badge's sake —
+        // only the weak `UNUserNotificationCenter.delegate` keeps it interesting, and
+        // `onSelectSession` was dropped above.
+        center.clearBadgeNow()
     }
 }

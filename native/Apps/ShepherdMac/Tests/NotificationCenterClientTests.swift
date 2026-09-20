@@ -50,6 +50,27 @@ struct NotificationCenterClientTests {
         #expect(center.badgeWrites == 2, "the attempt is still counted")
     }
 
+    /// `clearBadgeNow()` is the one badge call that is not `async`, because `teardown()` has to
+    /// put it ahead of whatever the incoming profile's model writes and an `await` cannot order
+    /// that. The fake must therefore land it without a hop of its own, and must record it
+    /// distinctly: `badge == 0` alone cannot tell a synchronous clear from an awaited
+    /// `setBadgeCount(0)`.
+    ///
+    /// `nextBadgeWriteSucceeds` does not apply. The real method answers nothing — a model that
+    /// has just torn itself down has nowhere to put an answer and nothing to retry with — so
+    /// there is no rejection to stage.
+    @Test func aSynchronousClearLandsWithoutAHopAndIsRecordedAsOne() async {
+        let center = FakeNotificationCenter()
+        await center.setBadgeCount(4)
+        #expect(center.badge == 4)
+
+        center.nextBadgeWriteSucceeds = false
+        center.clearBadgeNow()
+        #expect(center.badge == 0, "the clear landed on the call, not on a later turn")
+        #expect(center.synchronousClears == 1)
+        #expect(center.badgeWrites == 2, "it is a write like any other")
+    }
+
     @Test func theFakeRecordsTheBadgeAndTheAuthorizationRequest() async {
         let center = FakeNotificationCenter()
         center.nextAuthorization = .denied
@@ -140,6 +161,7 @@ struct NotificationCenterClientTests {
         #expect(center.posted.isEmpty)
         #expect(center.badge == 0)
         #expect(center.badgeWrites == 0)
+        #expect(center.synchronousClears == 0)
         #expect(center.authorizationRequests == 0)
         #expect(
             center.nextBadgeWriteSucceeds == false,

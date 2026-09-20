@@ -148,6 +148,17 @@ struct ActionBarTests {
         #expect(!AmendSubmission.validate(String(repeating: "x", count: AmendSubmission.maxCharacters + 1)))
         #expect(AmendSubmission.validate(String(repeating: "x", count: AmendSubmission.maxCharacters)))
 
+        // The limit is UTF-16 code units, because that is what `src/server.ts` and the web's
+        // AmendTaskDialog both count with JS `.length`. Counting graphemes instead would wave
+        // 1 001 emoji (2 002 code units) past the client gate and let the server answer 400
+        // with nothing but the generic `amend_failed` line to show for it.
+        #expect(
+            !AmendSubmission.validate(String(repeating: "😀", count: 1_001)),
+            "1 001 emoji are 2 002 UTF-16 code units — over the server's limit")
+        #expect(
+            AmendSubmission.validate(String(repeating: "😀", count: 1_000)),
+            "1 000 emoji are exactly 2 000 UTF-16 code units — at the limit, not over it")
+
         #expect(AmendSubmission.note(steered: true) == L.t("amend_recorded_and_steered"))
         #expect(AmendSubmission.note(steered: false) == L.t("amend_recorded_not_steered"))
     }
@@ -199,6 +210,60 @@ struct ActionBarTests {
         #expect(
             !ActionBarView.isCurrent(session: PreviewData.session(id: "s1"), store: otherStore, app: app),
             "a completion for a store the operator switched away from must be dropped")
+    }
+
+    /// Relaunch's looser guard, which has to tell two "the selection moved" cases apart: the
+    /// archive its own success caused (`AppModel.reconcileSelection` answers a vanished session
+    /// with `nil`), and the operator deliberately navigating to another session.
+    @Test func relaunchIsCurrentAcceptsTheArchivesNilSelectionButNotAnExplicitMove() async throws {
+        let app = AppModel(defaults: Self.scratchDefaults(), credentials: InMemoryCredentialStore())
+        let profile = try app.addRemoteProfile(
+            name: "action-bar-relaunch", address: "https://action-bar-relaunch.example.ts.net")
+        await app.activate(profile)
+        let store = try #require(app.store)
+        let session = PreviewData.session(id: "s1")
+        app.selectedSessionID = "s1"
+
+        #expect(ActionBarView.relaunchIsCurrent(session: session, store: store, app: app))
+
+        // The archive path: an archiving relaunch removes `s1`, and `reconcileSelection` clears
+        // the selection. That footprint is still "current" — dropping it here would make an
+        // archiving relaunch's own success unreachable.
+        app.selectedSessionID = nil
+        #expect(
+            ActionBarView.relaunchIsCurrent(session: session, store: store, app: app),
+            "a nil selection is the archive's own footprint and must stay current")
+
+        // The operator went somewhere else while the relaunch was in flight. A failure notice
+        // must not land under session B, and a success must not yank them back to A.
+        app.selectedSessionID = "s2"
+        #expect(
+            !ActionBarView.relaunchIsCurrent(session: session, store: store, app: app),
+            "an explicit move to another session must drop the relaunch's completion")
+    }
+
+    @Test func relaunchIsCurrentDropsACompletionAfterAProfileSwitch() async throws {
+        let app = AppModel(defaults: Self.scratchDefaults(), credentials: InMemoryCredentialStore())
+        let profile = try app.addRemoteProfile(
+            name: "action-bar-relaunch-two",
+            address: "https://action-bar-relaunch-two.example.ts.net")
+        await app.activate(profile)
+        let activeStore = try #require(app.store)
+        app.selectedSessionID = "s1"
+        #expect(
+            ActionBarView.relaunchIsCurrent(
+                session: PreviewData.session(id: "s1"), store: activeStore, app: app))
+
+        let otherClient = try ShepherdClient(
+            profile: ServerProfile(
+                name: "other", baseURL: URL(string: "http://127.0.0.1:1")!, mode: .local,
+                credentialKey: "action-bar-relaunch-other"),
+            credentials: InMemoryCredentialStore())
+        let otherStore = SessionStore(client: otherClient)
+        #expect(
+            !ActionBarView.relaunchIsCurrent(
+                session: PreviewData.session(id: "s1"), store: otherStore, app: app),
+            "a relaunch completion for a store the operator switched away from must be dropped")
     }
 
     /// A throwaway suite so the test never reads or writes the operator's own profiles. Pair it

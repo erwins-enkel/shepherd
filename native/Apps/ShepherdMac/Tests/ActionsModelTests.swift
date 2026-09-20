@@ -42,6 +42,74 @@ struct ActionsModelTests {
         #expect(m.recaps.isEmpty == false, "a later read must install normally")
     }
 
+    /// A frame that lands *while* a read is in flight must survive the snapshot install.
+    ///
+    /// The socket comes back, `watchConnection()` refreshes; while `GET /api/recaps` is in
+    /// flight the server pushes the freshly regenerated recap for `s7`. A wholesale
+    /// `recaps = loaded` would put the pre-regenerate recap back and leave it wrong until the
+    /// next frame for `s7` — which may never come.
+    @Test func aFrameThatLandsDuringAReadSurvivesTheSnapshot() async {
+        let gate = RecapGate()
+        let m = ActionsModel(reads: gate.reads, now: { 1_800_000_000_000 })
+        let reading = Task { await m.refresh() }
+        #expect(await settle(until: { gate.parkedCount == 1 }), "the read is in flight")
+
+        m.apply(recapFrame("s7", headline: "regenerated"))
+        // An archive frame in the same window: the snapshot must not resurrect what it cleared.
+        m.apply(recapFrame("s8", headline: "doomed"))
+        m.apply(.sessionArchived(.init(id: "s8")))
+
+        gate.release([
+            "s7": Self.recap("s7", headline: "stale"),
+            "s8": Self.recap("s8", headline: "also stale"),
+            "s9": Self.recap("s9", headline: "fresh"),
+        ])
+        await reading.value
+
+        #expect(m.recap(for: "s7")?.headline == "regenerated", "the in-flight frame wins")
+        #expect(m.recap(for: "s8") == nil, "a recap the archive frame cleared must not come back")
+        #expect(m.recap(for: "s9")?.headline == "fresh", "the rest of the snapshot still installs")
+    }
+
+    /// Two reads overlap — a slow bootstrap and a reconnect's read, say. The older one returning
+    /// last must drop its result rather than replace the newer map.
+    @Test func anOlderReadCompletingLastDoesNotOverwriteTheNewerSnapshot() async {
+        let gate = RecapGate()
+        let m = ActionsModel(reads: gate.reads, now: { 1_800_000_000_000 })
+        let older = Task { await m.refresh() }
+        #expect(await settle(until: { gate.parkedCount == 1 }))
+        let newer = Task { await m.refresh() }
+        #expect(await settle(until: { gate.parkedCount == 2 }))
+
+        gate.releaseNewest(["s2": Self.recap("s2", headline: "newer")])
+        await newer.value
+        gate.release(["s1": Self.recap("s1", headline: "older")])
+        await older.value
+
+        #expect(m.recap(for: "s2")?.headline == "newer", "the newer snapshot stands")
+        #expect(m.recap(for: "s1") == nil, "an older read landing late must be dropped")
+    }
+
+    private func recapFrame(_ id: String, headline: String) -> ServerEvent {
+        frame(
+            "session:recap",
+            #"{"id":"\#(id)","recap":{"sessionId":"\#(id)","state":"ready","headline":"\#(headline)","body":"b","openItems":[],"updatedAt":1}}"#
+        )
+    }
+
+    fileprivate static func recap(_ id: String, headline: String) -> Recap {
+        Recap(
+            sessionId: id,
+            state: RecapState(known: .ready),
+            verdict: nil,
+            headline: headline,
+            body: "b",
+            openItems: [],
+            changedFiles: [],
+            generatedAt: 1,
+            updatedAt: 1)
+    }
+
     /// The relaunch bar's own escape hatch: a note for a session that does not exist at the
     /// moment the command producing it completes (see `ActionBarView.relaunch()`).
     @Test func outcomeNoteIsOneShotAndOnlyAnswersItsOwnSessionID() {
@@ -214,6 +282,39 @@ final class ReadCounter {
     var count = 0
 }
 
+/// An `ActionReads` whose reads park until the test releases them by hand.
+///
+/// The only way to assert what happens *during* a read — a frame landing mid-flight, two reads
+/// overlapping — without a server or a timing guess. Main-actor isolated, so it is `Sendable`
+/// without a lock. Preferred over widening the `#if DEBUG` `armStaleGeneration` seam: these
+/// tests are about the ordering production reads actually have, not about a seam.
+@MainActor
+final class RecapGate {
+    private var parked: [CheckedContinuation<[String: Recap], Never>] = []
+
+    var reads: ActionReads { ActionReads(recaps: { [self] in await self.park() }) }
+
+    var parkedCount: Int { parked.count }
+
+    private func park() async -> [String: Recap] {
+        await withCheckedContinuation { continuation in
+            parked.append(continuation)
+        }
+    }
+
+    /// Releases the oldest parked read.
+    func release(_ snapshot: [String: Recap]) {
+        guard !parked.isEmpty else { return }
+        parked.removeFirst().resume(returning: snapshot)
+    }
+
+    /// Releases the newest parked read, which is how a *newer* read lands first.
+    func releaseNewest(_ snapshot: [String: Recap]) {
+        guard !parked.isEmpty else { return }
+        parked.removeLast().resume(returning: snapshot)
+    }
+}
+
 /// The store-backed half: the real `AppExtension` initialiser, the real `SessionStore.events()`
 /// tap, and the teardown that has to end it. Serialized because it builds an `AppModel`.
 @MainActor
@@ -315,7 +416,7 @@ struct ActionsModelTapTests {
         model.teardown()
     }
 
-    /// The two guards are separate facts. A read that lost its race bumps the reads' generation;
+    /// The two guards are separate facts. A read that lost its race only moves `readSequence`;
     /// that must not silently kill a perfectly live event tap — which is what one shared counter
     /// did, while `isSubscribed` went on claiming the tap was there.
     @Test func aStaleReadDoesNotKillTheEventTap() async throws {

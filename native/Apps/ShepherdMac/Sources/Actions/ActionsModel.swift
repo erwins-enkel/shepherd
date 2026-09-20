@@ -67,13 +67,31 @@ final class ActionsModel: AppExtension {
     /// command goes through `store.client`, never through the store's own state.
     @ObservationIgnored private var store: SessionStore?
 
-    /// Drops a snapshot whose **read** has been superseded. Bumped by `teardown()`, and compared
-    /// across every `await` in `refresh()`.
+    /// Drops a snapshot whose model has been torn down under it. Bumped by `teardown()` alone,
+    /// and compared across every `await` in `refresh()`.
     ///
     /// Deliberately not what the tap and the connection watcher check: a read losing its race is
     /// a routine, recoverable thing, and using one counter for both meant a stale read silently
     /// killed a perfectly live event tap. Teardown is a separate, one-way fact — `isTornDown`.
+    /// Ordering *between* reads is `readSequence`, not this.
     @ObservationIgnored private var generation = 0
+    /// Orders reads against each other. Bumped and captured at the top of every `refresh()`;
+    /// a read installs only if no newer read has started since, so an older snapshot returning
+    /// late — a slow bootstrap landing after a reconnect's read, say — drops its result instead
+    /// of replacing a fresher map. `generation` cannot do this job: teardown is its only bump,
+    /// so between two production reads it gave no ordering at all.
+    @ObservationIgnored private var readSequence = 0
+    /// Session ids `apply(_:)` has written into `recaps` since the current read started —
+    /// installed recaps *and* archive-driven removals.
+    ///
+    /// `refresh()` replaces the whole map, which on its own throws away every `session:recap`
+    /// frame that landed while the read was in flight: the socket comes back, the read starts,
+    /// the server pushes a freshly regenerated recap, and the older snapshot then puts the
+    /// pre-regenerate one back — wrong until the next frame for that session, which may never
+    /// come. So the ids collected here are re-applied on top of the snapshot from the *current*
+    /// map, which carries a removal as faithfully as a value: a recap an archive frame cleared
+    /// must not come back either.
+    @ObservationIgnored private var recapIDsWrittenByEvents: Set<String> = []
     /// One-way: set by `teardown()` and never cleared, because an extension is never revived.
     /// The tap and the connection watcher check this rather than `generation`.
     @ObservationIgnored private var isTornDown = false
@@ -153,11 +171,27 @@ final class ActionsModel: AppExtension {
 
     /// Re-reads the recap snapshot. A failure is logged and dropped: the bar keeps the last
     /// snapshot rather than blanking, because a missing recap line reads as "nothing to do".
+    ///
+    /// Two things guard the install, and they answer different questions.
+    ///
+    /// **Ordering** — `readSequence` is bumped and captured here, so a read that a newer one has
+    /// overtaken drops its result rather than replacing a fresher map. See `readSequence`.
+    ///
+    /// **Frames that landed mid-read** — the snapshot is a wholesale replacement, so every
+    /// `session:recap` entry `apply(_:)` installed while this read was in flight would be thrown
+    /// away by it. `recapIDsWrittenByEvents` is cleared here and collected during the await, and
+    /// those ids are re-applied from the *current* map on top of `loaded` — carrying an archive
+    /// frame's removal too, so a recap that was cleared does not come back. See that property.
     func refresh() async {
         let mine = generation
+        readSequence &+= 1
+        let sequence = readSequence
+        recapIDsWrittenByEvents.removeAll()
         do {
-            let loaded = try await reads.recaps()
-            guard mine == generation else { return }
+            var loaded = try await reads.recaps()
+            guard mine == generation, sequence == readSequence else { return }
+            for id in recapIDsWrittenByEvents { loaded[id] = recaps[id] }
+            recapIDsWrittenByEvents.removeAll()
             recaps = loaded
             pruneToLiveSessions()
         } catch {
@@ -200,16 +234,20 @@ final class ActionsModel: AppExtension {
 
     #if DEBUG
         /// Tests only: `armed` for exactly one flag, not one call to `reads.recaps()` — see
-        /// below. Read and cleared only on the main actor, alongside `generation` itself.
+        /// below. Read and cleared only on the main actor, alongside `readSequence` itself.
         @ObservationIgnored private var staleGenerationArmed = false
 
-        /// Make the *next* in-flight refresh look superseded, by moving the generation on
-        /// *while* that one read is in flight — which is the only way a real refresh loses its
-        /// race. One-shot: `staleGenerationArmed` is consumed by the first read that completes
-        /// after this call, so a second `refresh()` behaves normally again rather than being
-        /// permanently poisoned by a wrapper nothing ever unwraps. Wrapping `reads` rather than
-        /// branching inside `refresh()` keeps the seam out of the production path entirely, and
-        /// `#if DEBUG` keeps it out of the shipped binary, the way `PreviewData` is kept out.
+        /// Make the *next* in-flight refresh look superseded, by starting another read *while*
+        /// that one is in flight — which is the only way a real refresh loses its race.
+        ///
+        /// It moves `readSequence`, the counter production reads actually order themselves by,
+        /// rather than `generation`, which only teardown moves: a seam that armed a guard the
+        /// real code path does not have would be testing the seam. One-shot:
+        /// `staleGenerationArmed` is consumed by the first read that completes after this call,
+        /// so a second `refresh()` behaves normally again rather than being permanently poisoned
+        /// by a wrapper nothing ever unwraps. Wrapping `reads` rather than branching inside
+        /// `refresh()` keeps the seam out of the production path entirely, and `#if DEBUG` keeps
+        /// it out of the shipped binary, the way `PreviewData` is kept out.
         func armStaleGeneration() {
             staleGenerationArmed = true
             let inner = reads.recaps
@@ -218,7 +256,7 @@ final class ActionsModel: AppExtension {
                 await MainActor.run {
                     guard let self, self.staleGenerationArmed else { return }
                     self.staleGenerationArmed = false
-                    self.generation &+= 1
+                    self.readSequence &+= 1
                 }
                 return loaded
             })
@@ -333,6 +371,9 @@ final class ActionsModel: AppExtension {
         switch event {
         case .sessionArchived(let payload):
             recaps[payload.id] = nil
+            // A removal is a write like any other: an in-flight read's snapshot still lists this
+            // session, and must not be allowed to put its recap back. See `refresh()`.
+            recapIDsWrittenByEvents.insert(payload.id)
             amendments[payload.id] = nil
         case .unknown(let name, let payload):
             guard let payload else { return }
@@ -341,6 +382,9 @@ final class ActionsModel: AppExtension {
                 guard let frame = decode(Components.Schemas.SessionRecapEvent.self, payload, name)
                 else { return }
                 recaps[frame.id] = frame.recap
+                // Survives a snapshot that was already in flight when this frame landed — the
+                // regenerated-recap case `refresh()` documents.
+                recapIDsWrittenByEvents.insert(frame.id)
             case "session:amendments":
                 guard
                     let frame = decode(
@@ -380,6 +424,7 @@ final class ActionsModel: AppExtension {
     func teardown() {
         isTornDown = true
         generation &+= 1
+        recapIDsWrittenByEvents.removeAll()
         tap?.cancel()
         tap = nil
         bootstrap?.cancel()

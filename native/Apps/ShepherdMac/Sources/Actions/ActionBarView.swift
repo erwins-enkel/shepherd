@@ -47,10 +47,15 @@ enum RecapLine {
 
 /// The quick-action bar under the detail pane.
 ///
-/// Every action goes through `SessionCommandState` — the same gate `MainWindow`'s toolbar uses
-/// for archive and interrupt — so exactly one command runs at a time, a failure lands in a
-/// `NoticeBar` in the operator's language, and a completion for a store the operator has left
-/// touches nothing. The one destructive action is behind a `confirmationDialog`.
+/// Every action goes through `SessionCommandState` — the same type, and the same rules,
+/// `MainWindow`'s toolbar uses for archive and interrupt — so exactly one command runs at a time
+/// *per surface*, a failure lands in a `NoticeBar` in the operator's language, and a completion
+/// for a store the operator has left touches nothing. The one destructive action is behind a
+/// `confirmationDialog`.
+///
+/// The bar owns its own instance and the toolbar owns another, so the toolbar's Archive and
+/// Interrupt stay enabled while a bar command is in flight. Sharing one coordinator across both
+/// surfaces is an integration-lane (S0-int) item: `MainWindow` is not this stream's to change.
 struct ActionBarView: View {
     let session: Session
     let store: SessionStore
@@ -89,6 +94,17 @@ struct ActionBarView: View {
     /// is testable without hosting a view: `ActionBarView.isCurrent(session:store:app:)`.
     static func isCurrent(session: Session, store: SessionStore, app: AppModel) -> Bool {
         app.store === store && app.selectedSessionID == session.id
+    }
+
+    /// Relaunch's own guard, deliberately looser than `isCurrent` and deliberately not "store
+    /// identity only": an archiving success removes `session.id` from the store, and
+    /// `AppModel.reconcileSelection` answers that by setting the selection to nil — so nil is the
+    /// archive's own footprint and is still "current". An explicit move to ANOTHER session is
+    /// not, and a completion must not write its notice under that session or drag the operator
+    /// back to the one they left.
+    static func relaunchIsCurrent(session: Session, store: SessionStore, app: AppModel) -> Bool {
+        guard app.store === store else { return false }
+        return app.selectedSessionID == session.id || app.selectedSessionID == nil
     }
 
     @State private var command = SessionCommandState()
@@ -305,13 +321,14 @@ struct ActionBarView: View {
                     }
                 },
                 failureCopy: { ActionErrorCopy.relaunchFailure(thrown, fallback: $0) },
-                // Store identity only, deliberately weaker than `isCurrent`: an *archiving*
-                // success removes `session.id` from the store's list before this closure runs
-                // (the archive event reaches `MainWindow.reconcileSelection` while this call is
-                // still in flight), so gating success on `app.selectedSessionID == session.id`
-                // would make an archiving relaunch's own success unreachable. A profile switch
-                // is still the right thing to drop a completion for.
-                isCurrent: { app.store === store })
+                // Looser than `isCurrent`, but only by the one case the archive itself causes:
+                // an *archiving* success removes `session.id` from the store's list before this
+                // closure runs, and `AppModel.reconcileSelection` answers a vanished session by
+                // clearing the selection — so `nil` counts as still-current, or an archiving
+                // relaunch's own success would be unreachable. A profile switch and an explicit
+                // move to another session are both still the right thing to drop a completion
+                // for: see `relaunchIsCurrent(session:store:app:)`.
+                isCurrent: { Self.relaunchIsCurrent(session: session, store: store, app: app) })
             guard ok, let outcome else { return }
             let text =
                 outcome.archived

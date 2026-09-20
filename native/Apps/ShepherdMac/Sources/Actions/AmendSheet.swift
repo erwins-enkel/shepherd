@@ -5,11 +5,23 @@ import SwiftUI
 enum AmendSubmission {
     /// `AMENDMENT_MAX_CHARS` in `src/task-amendments.ts`. Enforced here so the counter and the
     /// server agree; the server still re-checks.
+    ///
+    /// The unit is **UTF-16 code units**, not Swift's grapheme clusters, because that is what
+    /// both halves of the existing product count: `src/server.ts` checks `text.length` on the
+    /// trimmed text and the web's `AmendTaskDialog.svelte` counts `trimmed.length`, and JS
+    /// `.length` is UTF-16. Counting graphemes would wave ~1 500 emoji (3 000 code units) past
+    /// this gate with the counter still showing headroom, and the operator would get nothing
+    /// back but the generic `amend_failed` line from the server's 400.
     static let maxCharacters = 2_000
+
+    /// The trimmed length in UTF-16 code units — see `maxCharacters`.
+    static func length(of raw: String) -> Int {
+        raw.trimmingCharacters(in: .whitespacesAndNewlines).utf16.count
+    }
 
     static func validate(_ raw: String) -> Bool {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        return !trimmed.isEmpty && trimmed.count <= maxCharacters
+        return !trimmed.isEmpty && trimmed.utf16.count <= maxCharacters
     }
 
     /// The amendment is persisted before it is steered, so a delivery that did not land is still
@@ -31,8 +43,10 @@ struct AmendSheet: View {
     @State private var command = SessionCommandState()
     @FocusState private var textFocused: Bool
 
+    /// Counted the way the gate counts — UTF-16 code units, see `AmendSubmission.maxCharacters`
+    /// — so the number on screen can never promise headroom `validate(_:)` would refuse.
     private var remaining: Int {
-        AmendSubmission.maxCharacters - text.trimmingCharacters(in: .whitespacesAndNewlines).count
+        AmendSubmission.maxCharacters - AmendSubmission.length(of: text)
     }
 
     /// See `RenameSheet.isCurrent`: the bar's own guard, called rather than re-declared. Store

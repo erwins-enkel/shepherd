@@ -111,6 +111,57 @@ struct GitPanelTests {
         #expect(GitPanelRules.preselectedReviewer(options(logins: ["ada"])) == nil)
     }
 
+    // MARK: - The Request Review gate
+
+    /// "Set ready for review" re-reads git but NOT the reviewer options, and the review box's
+    /// `.task(id:)` key does not change — so gating the button on the snapshot
+    /// `PrReviewerOptions.isDraft` left it permanently disabled with no way back inside the tab.
+    /// The fresh `GitState` is the authority.
+    @Test func theReviewRequestGateFollowsTheFreshGitStateNotTheCachedOptions() {
+        let stale = options(isDraft: true)  // loaded while the PR was still a draft
+        // Marked ready since: the button must be offered again.
+        #expect(
+            GitPanelRules.reviewRequestBlocked(
+                git(isDraft: false), chosen: "grace", busy: false) == false)
+        // And the inverse: marked draft since, so the click that would 409 is refused up front.
+        #expect(
+            GitPanelRules.reviewRequestBlocked(git(isDraft: true), chosen: "grace", busy: false))
+        #expect(stale.isDraft)  // the cached snapshot said otherwise in both directions
+    }
+
+    @Test func theReviewRequestGateAlsoRefusesABusyPanelAndAnEmptyPicker() {
+        #expect(GitPanelRules.reviewRequestBlocked(git(), chosen: "grace", busy: true))
+        #expect(GitPanelRules.reviewRequestBlocked(git(), chosen: nil, busy: false))
+        #expect(GitPanelRules.reviewRequestBlocked(git(), chosen: "grace", busy: false) == false)
+    }
+
+    /// A forge that does not say whether the PR is a draft is not a draft.
+    @Test func anAbsentDraftFlagDoesNotBlockTheRequest() {
+        #expect(
+            GitPanelRules.reviewRequestBlocked(
+                git(isDraft: nil), chosen: "grace", busy: false) == false)
+    }
+
+    // MARK: - A late answer belongs to the session it was asked for
+
+    /// `SessionDetailView` hosts the tabs in a `TabView` with no `.id(session.id)`, so the view
+    /// identity and its `@State` survive a session switch: an in-flight reviewer read for
+    /// session A would otherwise land in session B's picker, offering logins from another repo's
+    /// PR. The same gap let A's merge failure surface as a notice under B.
+    @Test func aLateAnswerIsOnlyAcceptedForTheSessionStillOnScreen() {
+        #expect(GitPanelRules.acceptsAnswer(modelIsActive: true, requested: "a", showing: "a"))
+        #expect(
+            GitPanelRules.acceptsAnswer(modelIsActive: true, requested: "a", showing: "b")
+                == false)
+        #expect(
+            GitPanelRules.acceptsAnswer(modelIsActive: true, requested: "a", showing: nil)
+                == false)
+        // A torn-down model is still refused whatever the session is.
+        #expect(
+            GitPanelRules.acceptsAnswer(modelIsActive: false, requested: "a", showing: "a")
+                == false)
+    }
+
     // MARK: - Phase
 
     @Test func aNullGitStateReadsAsEmptyRatherThanAnError() {

@@ -57,6 +57,32 @@ enum GitPanelRules {
         }
     }
 
+    /// Whether the Request Review button is refused.
+    ///
+    /// The draft check reads the **fresh** `GitState`, never the cached
+    /// `PrReviewerOptions.isDraft` the reviewer listing was loaded with. "Set ready for review"
+    /// re-reads git but not the reviewer options, and the review box's `.task(id:)` key does not
+    /// change either — so gating on the snapshot left the button disabled with no way back
+    /// inside the tab, and the inverse ("mark draft", then click) sent a request the server
+    /// answers 409 `review_request_draft`.
+    static func reviewRequestBlocked(_ git: GitState, chosen: String?, busy: Bool) -> Bool {
+        if busy { return true }
+        if chosen == nil { return true }
+        return git.isDraft == true
+    }
+
+    /// Whether a late answer still belongs on screen: the model must still belong to the active
+    /// store AND the panel must still be showing the session the read was made for.
+    ///
+    /// `SessionDetailView` hosts the tabs in a `TabView` with no `.id(session.id)`, so the view
+    /// identity — and its `@State` — survives a session switch. `model.isActive` alone therefore
+    /// let an in-flight reviewer read for session A overwrite session B's picker, offering the
+    /// operator logins from another repo's PR; the same gap let A's merge failure surface as a
+    /// notice under B.
+    static func acceptsAnswer(modelIsActive: Bool, requested: String, showing: String?) -> Bool {
+        modelIsActive && requested == showing
+    }
+
     /// The reviewer the picker starts on: the server's own suggestion when it is still a
     /// candidate, otherwise the first one.
     static func preselectedReviewer(_ options: PrReviewerOptions) -> String? {
@@ -89,6 +115,14 @@ struct GitTabView: View {
     /// loads immediately, so "not asked yet" and "asking" look the same to the operator.
     @State private var reviewers: Loaded<PrReviewerOptions> = .loading
     @State private var chosenReviewer: String?
+    /// The session this panel is currently armed for, written by both `.task(id:)`s.
+    ///
+    /// `@State`, deliberately: an unstructured `Task` captures a COPY of this view struct, so
+    /// `session` inside it is frozen at the moment the read was started, while `@State` reads
+    /// through to the live storage. `SessionDetailView` puts the tabs in a `TabView` with no
+    /// `.id(session.id)`, so that storage — and the view identity — outlives a session switch,
+    /// and this is the only thing that can tell a late answer which session it belongs to.
+    @State private var armedSession: String?
 
     private var state: Loaded<GitState?> { model.git[session.id] ?? .loading }
 
@@ -124,6 +158,7 @@ struct GitTabView: View {
             Text(verbatim: L.t("native_detail_close_confirm_body"))
         }
         .task(id: DetailTaskKey(session: session.id, model: model)) {
+            armedSession = session.id
             command.clear()
             reviewers = .loading
             chosenReviewer = nil
@@ -245,7 +280,9 @@ struct GitTabView: View {
                                 requestReview(number: number, login: login)
                             }
                         }
-                        .disabled(command.busy || chosenReviewer == nil || options.isDraft)
+                        .disabled(
+                            GitPanelRules.reviewRequestBlocked(
+                                git, chosen: chosenReviewer, busy: command.busy))
                         .accessibilityIdentifier("detail-git-request-review")
                     }
                 }
@@ -253,16 +290,27 @@ struct GitTabView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .task(id: DetailTaskKey(session: session.id, model: model)) { loadReviewers() }
+        .task(id: DetailTaskKey(session: session.id, model: model)) {
+            armedSession = session.id
+            loadReviewers()
+        }
     }
 
     // MARK: - Commands
 
-    /// True while the model this view was built for still belongs to the active store. Every
-    /// result is dropped when it does not: a merge that lands after a profile switch must not
-    /// write a notice about a server the operator has left. `DetailModel.teardown()` is the
-    /// signal — `AppModel` calls it immediately before it lets the store go.
-    private func isCurrent() -> Bool { model.isActive }
+    /// True while the model this view was built for still belongs to the active store **and**
+    /// the panel is still showing the session the call was made for. Every result is dropped
+    /// when either fails: a merge that lands after a profile switch must not write a notice
+    /// about a server the operator has left, and one that lands after the operator picked a
+    /// different row must not write a notice under that row's PR.
+    /// `DetailModel.teardown()` is the first signal — `AppModel` calls it immediately before it
+    /// lets the store go; `armedSession` is the second.
+    private func isCurrent() -> Bool { isCurrent(session.id) }
+
+    private func isCurrent(_ id: String) -> Bool {
+        GitPanelRules.acceptsAnswer(
+            modelIsActive: model.isActive, requested: id, showing: armedSession)
+    }
 
     /// Runs one PR action behind the shared gate, then re-reads git so the panel shows what the
     /// server now believes rather than what the action returned. `onSuccess` runs after that
@@ -317,16 +365,19 @@ struct GitTabView: View {
         }
     }
 
+    /// Reads the reviewer options for the session this view was rendered for, and drops the
+    /// answer unless that is still the session on screen — see `isCurrent(_:)`.
     private func loadReviewers() {
+        let id = session.id
         reviewers = .loading
         Task {
             do {
-                let options = try await store.client.reviewers(sessionID: session.id)
-                guard isCurrent() else { return }
+                let options = try await store.client.reviewers(sessionID: id)
+                guard isCurrent(id) else { return }
                 reviewers = .ready(options)
                 chosenReviewer = GitPanelRules.preselectedReviewer(options)
             } catch {
-                guard isCurrent() else { return }
+                guard isCurrent(id) else { return }
                 reviewers = .failed(ShepherdErrorCopy.message(error))
             }
         }

@@ -327,11 +327,26 @@ final class NotificationsModel: AppExtension {
 
     /// Asks macOS once. A denial is recorded and shown in the settings panel with the path to
     /// System Settings — asking again would do nothing, because macOS only prompts once.
+    ///
+    /// A no-op once torn down: the settings panel re-hosts against the current activation's
+    /// model on a profile switch, but a button tap already in flight when the switch happens
+    /// would otherwise resolve against the outgoing profile's model after the fact.
     func requestAuthorization() async {
+        guard !isTornDown else {
+            Log.app.error("ignored a notification permission request after teardown")
+            return
+        }
         authorization = await center.requestAuthorization()
     }
 
+    /// A no-op once torn down, logged rather than silent: a settings panel left open across a
+    /// profile switch still holds this instance, and a toggle flipped on it must not persist to
+    /// the profile that used to be active.
     func save(_ settings: NotificationSettings) {
+        guard !isTornDown else {
+            Log.app.error("ignored a notification-settings write after teardown")
+            return
+        }
         self.settings = settings
         settingsStore.save(settings, for: profileID)
     }

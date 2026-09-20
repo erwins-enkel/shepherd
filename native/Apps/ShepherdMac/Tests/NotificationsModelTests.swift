@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import ShepherdKit
 import Testing
@@ -422,6 +423,46 @@ struct NotificationsModelTests {
         #expect(center.posted.last?.title == L.t("native_notify_usage_title", "84"))
     }
 
+    /// The settings-panel half of the stale-model bug: a toggle flipped on a panel whose model
+    /// was already torn down (the operator switched profiles without closing the panel) must
+    /// not reach the store, and must not even change the in-memory `settings` the panel reads
+    /// back — a `save` that "succeeded" locally but never persisted would be its own, quieter
+    /// version of the same bug.
+    @Test func aSaveAfterTeardownDoesNotReachTheStoreOrTheModel() async {
+        let center = FakeNotificationCenter()
+        let suite = scratch()
+        let profileID = UUID()
+        let store = NotificationSettingsStore(defaults: suite)
+        let m = NotificationsModel(
+            center: center, settingsStore: store, profileID: profileID,
+            now: { 0 }, subjectFor: { _ in nil }, select: { _ in })
+        await m.requestAuthorization()
+        let before = m.settings
+        m.teardown()
+
+        m.save(before.settingEnabled(false))
+
+        #expect(m.settings == before, "a torn-down model must not update its own settings")
+        #expect(
+            store.load(for: profileID) == .default,
+            "and must not persist the write to the profile it used to belong to")
+    }
+
+    /// The same guard for the panel's "Allow notifications" button, which also calls into the
+    /// model after it may have been torn down.
+    @Test func requestAuthorizationAfterTeardownDoesNotAskAgain() async {
+        let center = FakeNotificationCenter()
+        center.nextAuthorization = .denied
+        let m = await model(center: center)
+        #expect(m.authorization == .denied)
+        m.teardown()
+
+        center.nextAuthorization = .granted
+        await m.requestAuthorization()
+
+        #expect(m.authorization == .denied, "a torn-down model does not ask macOS again")
+    }
+
     /// The focus observer's hop can resume after a profile switch. `setWindowFocused` is a
     /// no-op once torn down, so it cannot write the outgoing centre's badge over the count the
     /// incoming profile just set — the Dock badge is one badge for the whole app.
@@ -585,5 +626,55 @@ struct NotificationSettingsViewTests {
         #expect(NotificationSettingsView.showsAskButton(for: .notDetermined))
         #expect(!NotificationSettingsView.showsAskButton(for: .granted))
         #expect(!NotificationSettingsView.showsAskButton(for: .denied))
+    }
+
+    /// The other half of the stale-panel bug: an operator who switches the active profile from
+    /// the main window, without closing an already-open panel, must not go on seeing — or
+    /// writing to — the profile the panel was opened for. Closing (over re-hosting) is asserted
+    /// indirectly here: a closed panel cannot still be presenting a stale name at all.
+    @Test func theWindowClosesWhenTheActiveProfileChanges() async throws {
+        let app = scratchApp()
+        let first = try app.addRemoteProfile(
+            name: "panel-first", address: "https://panel-first.example.ts.net")
+        await app.activate(first)
+        NotificationSettingsWindow.show(app)
+
+        let second = try app.addRemoteProfile(
+            name: "panel-second", address: "https://panel-second.example.ts.net")
+        await app.activate(second)
+        for _ in 0..<5 { await Task.yield() }
+
+        #expect(
+            NotificationSettingsWindow.isOpen == false,
+            "a stale panel must not keep showing the previous profile's name or accept toggles")
+
+        app.teardown()
+    }
+
+    /// `reset()` must remove the item and separator `installMenuItem` inserted, not merely clear
+    /// the flag that gates a second insert — the flag alone lets a second test's `installMenuItem`
+    /// add a genuine duplicate, since the guard only stops re-insertion while the flag is still
+    /// `true`. Inspecting `NSApp.mainMenu` is what actually proves the regression is absent; the
+    /// suite's `init()` already calls `reset()` first, so this starts from zero items.
+    @Test func resetRemovesTheMenuItemAndSeparatorItInserted() {
+        let app = scratchApp()
+        NotificationSettingsWindow.installMenuItem(app)
+        NotificationSettingsWindow.installMenuItem(app)
+
+        #expect(
+            notificationsMenuItemCount() == 1,
+            "a second install call must not add a genuine duplicate")
+
+        NotificationSettingsWindow.reset()
+
+        #expect(
+            notificationsMenuItemCount() == 0,
+            "reset() must remove the item it inserted, not just clear the Boolean")
+    }
+
+    private func notificationsMenuItemCount() -> Int {
+        guard let appMenu = NSApp?.mainMenu?.items.first?.submenu else { return 0 }
+        let title = L.t("native_notify_settings_menu_item")
+        return appMenu.items.filter { $0.title == title }.count
     }
 }

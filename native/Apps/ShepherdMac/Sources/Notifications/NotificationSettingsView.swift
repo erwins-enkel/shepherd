@@ -1,4 +1,5 @@
 import AppKit
+import Observation
 import ShepherdKit
 import SwiftUI
 
@@ -29,7 +30,23 @@ struct NotificationSettingsView: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             if let note = Self.permissionNote(for: model.authorization) {
-                NoticeBar(message: note) {}
+                // Not `NoticeBar`: it always draws a close (×) button, and this notice has no
+                // state for a dismiss to clear — it is derived from `model.authorization` and
+                // reappears the moment macOS is asked again. A dead close button is worse than
+                // none, so this renders the same warning without one.
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                        .accessibilityHidden(true)
+                    Text(verbatim: note)
+                        .font(.callout)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.orange.opacity(0.12))
+                .accessibilityIdentifier("notify-permission-denied")
             }
             if Self.showsAskButton(for: model.authorization) {
                 Button(L.t("native_notify_settings_permission_ask")) {
@@ -79,6 +96,17 @@ struct NotificationSettingsView: View {
 enum NotificationSettingsWindow {
     private(set) static var menuItemInstalled = false
     private static var controller: NSWindowController?
+    /// Tests only: whether the panel is currently hosted. Never read by the app itself — `show`
+    /// and `watchActivation` are the only callers that need to know.
+    static var isOpen: Bool { controller != nil }
+    /// The item and separator `installMenuItem` inserted, so `reset()` can remove exactly those
+    /// two — by reference, not by index, since the menu may have grown or shrunk around them by
+    /// the time `reset()` runs.
+    private static var installedMenuItem: NSMenuItem?
+    private static var installedSeparator: NSMenuItem?
+    /// Watches for the profile switch that would otherwise leave an open panel bound to a
+    /// torn-down model. See `watchActivation(of:generation:)`.
+    private static var activationWatcher: Task<Void, Never>?
 
     /// Adds "Notifications…" to the application menu, once per process. A second call is a no-op,
     /// which matters because `StreamRegistrations.installAll(into:)` may run more than once.
@@ -100,8 +128,11 @@ enum NotificationSettingsWindow {
         let target = MenuTarget(app: app)
         item.target = target
         item.representedObject = target  // keeps the target alive with the item
+        let separator = NSMenuItem.separator()
         appMenu.insertItem(item, at: min(1, appMenu.items.count))
-        appMenu.insertItem(.separator(), at: min(2, appMenu.items.count))
+        appMenu.insertItem(separator, at: min(2, appMenu.items.count))
+        installedMenuItem = item
+        installedSeparator = separator
     }
 
     static func show(_ app: AppModel) {
@@ -118,21 +149,60 @@ enum NotificationSettingsWindow {
             (controller.window?.contentViewController
                 as? NSHostingController<NotificationSettingsView>)?.rootView = view
             controller.window?.makeKeyAndOrderFront(nil)
-            return
+        } else {
+            let hosting = NSHostingController(rootView: view)
+            let window = NSWindow(contentViewController: hosting)
+            window.title = L.t("native_notify_settings_title")
+            window.styleMask = [.titled, .closable]
+            let created = NSWindowController(window: window)
+            controller = created
+            created.showWindow(nil)
+            window.makeKeyAndOrderFront(nil)
         }
-        let hosting = NSHostingController(rootView: view)
-        let window = NSWindow(contentViewController: hosting)
-        window.title = L.t("native_notify_settings_title")
-        window.styleMask = [.titled, .closable]
-        let created = NSWindowController(window: window)
-        controller = created
-        created.showWindow(nil)
-        window.makeKeyAndOrderFront(nil)
+        // Re-hosting above only helps the *next* call to `show(_:)` — it does nothing for a
+        // panel the operator leaves open while switching profiles from the main window. Arm a
+        // watcher for that case every time the panel is (re-)shown.
+        watchActivation(of: app, generation: app.activationGeneration)
+    }
+
+    /// Closes the panel the instant the active profile changes underneath it, so the operator
+    /// can never toggle a switch, or read a profile name, that no longer belongs to the front
+    /// activation. Closing rather than re-hosting: it needs no logic to decide which of two live
+    /// models is "current," and it is the only correct answer when the new activation has no
+    /// `NotificationsModel` at all yet (no store, or one still starting up).
+    ///
+    /// Mirrors `AppModel.watchConnection`'s `withObservationTracking` idiom: `onChange` fires
+    /// exactly once, off the main actor, so the continuation hops back before touching AppKit
+    /// state. One firing is all this needs — the panel is gone the moment it fires.
+    private static func watchActivation(of app: AppModel, generation: Int) {
+        activationWatcher?.cancel()
+        activationWatcher = Task { @MainActor in
+            await withCheckedContinuation { continuation in
+                withObservationTracking {
+                    _ = app.activationGeneration
+                } onChange: {
+                    continuation.resume()
+                }
+            }
+            guard !Task.isCancelled, app.activationGeneration != generation else { return }
+            controller?.close()
+            controller = nil
+        }
     }
 
     /// Tests and previews only.
     static func reset() {
+        activationWatcher?.cancel()
+        activationWatcher = nil
         menuItemInstalled = false
+        if let item = installedMenuItem, let menu = item.menu {
+            menu.removeItem(item)
+        }
+        if let separator = installedSeparator, let menu = separator.menu {
+            menu.removeItem(separator)
+        }
+        installedMenuItem = nil
+        installedSeparator = nil
         controller?.close()
         controller = nil
     }

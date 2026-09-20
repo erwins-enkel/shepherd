@@ -280,7 +280,10 @@ final class LiveSmokeUITests: XCTestCase {
         }
 
         XCTAssertTrue(terminal.exists, "the emulator should still be hosted after a resize")
-        XCTAssertEqual(app.state, .runningForeground, "and the app should still be alive")
+        // Resizing can leave another window frontmost on a shared desktop.
+        // Liveness does not require stealing focus back from the operator.
+        XCTAssertTrue([XCUIApplication.State.runningForeground, .runningBackground].contains(app.state),
+            "and the app should still be alive")
     }
 
     // MARK: - Isolation

@@ -372,6 +372,8 @@ export const KEYS_NOTIFICATIONS: readonly string[] = [
 /** S7 — the herd classifier: lifecycle group headings the sidebar already has live in
  *  KEYS_SIDEBAR; this array is for the stepper, the row badges and the CI/review banners. */
 export const KEYS_HERD: readonly string[] = [
+  "herd_waiting_reviewer_group_maintainers",
+  "herd_waiting_merger_group_maintainers",
   "activity_active",
   "activity_ci_failure",
   "activity_ci_pending",
@@ -464,6 +466,8 @@ export const KEYS_HERD: readonly string[] = [
 /** S8 — plan gates: the badge chips, the plan panel, the visual-block renderer and the
  *  question form. */
 export const KEYS_PLAN: readonly string[] = [
+  "hold_cta_answer",
+  "hold_cta_answer_title",
   "plangate_changes",
   "plangate_edited",
   "plangate_error",

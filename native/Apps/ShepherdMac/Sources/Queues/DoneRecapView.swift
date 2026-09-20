@@ -150,8 +150,9 @@ struct DoneRecapView: View {
             if let recap {
                 if let verdict = DonePresentation.verdict(recap) { DoneVerdictChip(verdict: verdict) }
                 if !recap.headline.isEmpty { Text(verbatim: recap.headline).font(.title2) }
-                // S8's VisualBlock has not reached the generated Recap in this worktree.
-                // Markdown is the whole body renderer until that integration commit lands.
+                if let blocks = recap.blocks, !blocks.isEmpty {
+                    VisualBlocksView(blocks: blocks, inferred: true)
+                }
                 if !recap.body.isEmpty {
                     Text(DoneMarkdown.render(recap.body))
                         .accessibilityIdentifier("queues-done-markdown")

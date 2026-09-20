@@ -683,6 +683,32 @@ struct SessionStoreTests {
     #expect(store.sessions[0].name == "session")
   }
 
+  @Test func planAndHaltPushesPatchSharedSessionsWithoutClobberingOtherFields() async throws {
+    let server = FakeShepherdServer()
+    defer { server.tearDown() }
+    try stubBootstrap(server, sessions: [Fixtures.session(id: "a")])
+    let store = try makeStore(server)
+    try await store.bootstrap()
+    func push(_ name: String, _ json: String) {
+      store.apply(.unknown(name: name, payload: Data(json.utf8)))
+    }
+    push("session:plangate", #"{"id":"a","planPhase":"executing"}"#)
+    #expect(store.session(id: "a")?.planPhase?.known == .executing)
+    push("session:plangate", #"{"id":"a"}"#)
+    #expect(store.session(id: "a")?.planPhase?.known == .executing)
+    push("session:halt", #"{"id":"a","haltReason":"usage_limit","haltedAt":12}"#)
+    #expect(store.session(id: "a")?.haltReason?.known == .usageLimit)
+    #expect(store.session(id: "a")?.haltedAt == 12)
+    push("session:halt", #"{"id":"a","haltReason":"future","haltedAt":13}"#)
+    #expect(store.session(id: "a")?.haltReason?.rawValue == "future")
+    push("session:halt", #"{"id":"a","haltReason":null,"haltedAt":null}"#)
+    #expect(store.session(id: "a")?.haltReason == nil)
+    #expect(store.session(id: "a")?.haltedAt == nil)
+    push("session:plangate", #"{"id":"missing","planPhase":"planning"}"#)
+    #expect(store.sessions.count == 1)
+    #expect(store.session(id: "a")?.planPhase?.known == .executing)
+  }
+
   @Test("session:status patches status without clobbering the scratchpad flag")
   func applyStatusKeepsScratchpadFlag() async throws {
     let server = FakeShepherdServer()

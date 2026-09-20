@@ -185,6 +185,10 @@ final class AppModel {
     /// so unlike `signOutWarning` this is not in the catalogs, only in
     /// `RootView`'s notice bar for whoever reads the test's log or screenshot.
     var isolatedLaunchError: String?
+    /// Live UI smoke may read caches but must not start server-side recomputation.
+    var allowsQueueRecomputation = true
+    /// Emulator query replies are PTY input too, even when a live smoke test never types.
+    var allowsTerminalInput = true
 
     /// Bumped by every `activate(_:)`, every `teardown()`, and every
     /// `remove(_:)` of the profile that is currently active (via the

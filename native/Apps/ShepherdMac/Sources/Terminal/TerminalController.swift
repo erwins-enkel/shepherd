@@ -10,6 +10,7 @@ import ShepherdKit
 @Observable
 @MainActor
 final class TerminalController: AppExtension {
+    private let allowsInput: Bool
     private let store: SessionStore
     /// `@ObservationIgnored`: `TerminalTab.makeView` mutates this via
     /// `model(for:)` from inside a view's own body evaluation (`makeView` runs
@@ -27,6 +28,7 @@ final class TerminalController: AppExtension {
 
     required init(store: SessionStore, app: AppModel) {
         self.store = store
+        allowsInput = app.allowsTerminalInput
         pruneWatcher = TerminalController.watchSessions(store) { [weak self] ids in
             self?.prune(keeping: ids)
         }
@@ -38,7 +40,7 @@ final class TerminalController: AppExtension {
     /// was parked on.
     func model(for sessionID: String) -> TerminalSessionModel {
         if let existing = models[sessionID] { return existing }
-        let model = TerminalSessionModel(sessionID: sessionID, store: store)
+        let model = TerminalSessionModel(sessionID: sessionID, store: store, allowsInput: allowsInput)
         models[sessionID] = model
         return model
     }

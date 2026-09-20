@@ -49,7 +49,8 @@ struct SidebarLiveTests {
         } else {
             let password = try #require(LiveServerEnvironment.password)
             try await ProfileSetup.login(
-                profile: profile, password: password, credentials: credentials)
+                profile: profile, password: password, credentials: credentials,
+                tokenName: ProfileSetup.tokenName(prefix: "Shepherd UI test (", hostName: "sidebar-\(UUID().uuidString)"))
             minted = true
         }
 

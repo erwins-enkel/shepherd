@@ -25,6 +25,12 @@ struct TerminalHostView: NSViewRepresentable {
         // Claude Code turns mouse tracking on, which swallows drag-selection.
         // Option-drag is the standard escape hatch and must keep working.
         view.optionAsMetaKey = false
+        // SwiftTerm's macOS view inherits NSView's ignored accessibility state.
+        // Expose the hosted emulator, without claiming editable text semantics
+        // that its custom terminal renderer does not implement.
+        view.setAccessibilityElement(true)
+        view.setAccessibilityRole(.group)
+        view.setAccessibilityLabel(L.t("native_terminal_tab_title"))
         view.setAccessibilityIdentifier("terminal-view")
         context.coordinator.bind(view)
         return view

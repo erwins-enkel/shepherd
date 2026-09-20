@@ -587,8 +587,25 @@ public final class SessionStore {
     case .usageLimits(let limits):
       usageLimitsRevision &+= 1
       usageLimits = limits
-    case .unknown(let name, _):
-      ShepherdLog.store.debug("ignoring event \(name, privacy: .public)")
+    case .unknown(let name, let payload):
+      // Core owns Session mutations; stream taps observe the patched session below.
+      if name == "session:plangate", let payload,
+         let event = try? JSONDecoder().decode(Components.Schemas.SessionPlanGateEvent.self, from: payload),
+         let phase = event.planPhase {
+        patch(id: event.id) {
+          $0.planPhase = .init(value1: .init(rawValue: phase.rawValue), value2: phase.rawValue)
+        }
+      } else if name == "session:halt", let payload,
+                let event = try? JSONDecoder().decode(Components.Schemas.SessionHaltEvent.self, from: payload) {
+        patch(id: event.id) {
+          $0.haltReason = event.haltReason.map {
+            .init(value1: .init(rawValue: $0.rawValue), value2: $0.rawValue)
+          }
+          $0.haltedAt = event.haltedAt
+        }
+      } else {
+        ShepherdLog.store.debug("ignoring event \(name, privacy: .public)")
+      }
     }
 
     // Every frame the store applies, decoded or not, reaches the taps here —

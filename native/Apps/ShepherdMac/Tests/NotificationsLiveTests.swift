@@ -85,7 +85,7 @@ struct NotificationsLiveTests {
                 // app's real one. No sweep is requested, so nothing existing is revoked.
                 try await ProfileSetup.login(
                     profile: profile, password: password, credentials: credentials,
-                    tokenName: ProfileSetup.tokenName(prefix: "Shepherd live test ("))
+                    tokenName: ProfileSetup.tokenName(prefix: "Shepherd UI test (", hostName: "notifications-\(UUID().uuidString)"))
                 minted = true
             }
 

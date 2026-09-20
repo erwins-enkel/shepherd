@@ -1,16 +1,8 @@
 import Foundation
 import ShepherdKit
 
-/// The five lenses of the web's lens strip (`HerdFilter`,
-/// `ui/src/lib/components/herd-partition.ts:67`). Three of the five — `next`, `owed` and `done` —
-/// are panel-only lenses in the web: the page swaps in a dedicated panel instead of narrowing the
-/// session list. `shown` returns nothing for `next`/`owed` — as the web does — and falls through to
-/// the live set for `done`, also as the web does, which the web's own comment spells out
-/// (`herd-partition.ts:64-66`: `"done" is NOT a live-list filter — the page swaps in a dedicated
-/// panel and shownSessions falls through to the live set for it.`). That fallthrough is safe only
-/// with a Done panel in front of it, and this build has none — a Done panel needs
-/// `ShepherdClient.doneSessions()`, outside this stream's route list — so all three buttons ship
-/// disabled with their web tooltips.
+/// Live-list lenses plus panels registered by S10 before scene construction.
+/// Panel-only lenses remain disabled until their factory exists.
 enum HerdLens: String, CaseIterable, Sendable {
     case next, all, ready, done, owed
 
@@ -46,9 +38,9 @@ enum HerdLens: String, CaseIterable, Sendable {
         }
     }
 
-    /// Only the two lenses that genuinely narrow the live list. `next`, `owed` and `done` each
-    /// render a panel this build does not ship; enabling `done` would relabel the All list.
-    var isAvailable: Bool { self == .all || self == .ready }
+    @MainActor
+    var isAvailable: Bool { self == .all || self == .ready || QueuesPanels.panel(for: self) != nil }
+
 }
 
 /// The fourteen lifecycle stages of `stageOf` (`herd-partition.ts:48-62, 116-183`), declared in

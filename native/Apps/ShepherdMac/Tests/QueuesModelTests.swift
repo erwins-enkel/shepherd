@@ -73,6 +73,22 @@ struct QueuesModelTests {
                     refreshUpNext: {})
     }
 
+    @Test func readOnlyLiveSmokeReadsSnapshotsWithoutRecomputingUpNext() async throws {
+        let calls = QueueReadGate()
+        await calls.open()
+        var reads = empty
+        reads.refreshUpNext = { await calls.enter() }
+        let fixture = try QueueFixture(reads)
+        fixture.app.allowsQueueRecomputation = false
+        defer { fixture.close() }
+        #expect(await queueSettle { !fixture.model.isRefreshing })
+        await fixture.model.refresh()
+        #expect(await calls.calls == 0)
+        fixture.app.allowsQueueRecomputation = true
+        await fixture.model.refresh()
+        #expect(await calls.calls == 1)
+    }
+
     private func held(_ id: String) throws -> HeldQueueEntry {
         try JSONDecoder().decode(HeldQueueEntry.self, from: Data("""
             {"id":"\(id)","repoPath":"/repo",
@@ -306,7 +322,7 @@ struct QueuesModelTests {
         #expect(await queueSettle { f.model.stranded.isEmpty })
     }
 
-    @Test func haltOnlyInvalidatesRetryPreselection() async throws {
+    @Test func haltPatchesLiveStateAndInvalidatesRetryWithoutChangingDone() async throws {
         let session = PreviewData.session(id: "s1")
         var reads = empty
         reads.done = { [session] }
@@ -318,7 +334,8 @@ struct QueuesModelTests {
         f.store.apply(try frame("session:halt",
             "{\"id\":\"s1\",\"haltReason\":\"operator\",\"haltedAt\":1}"))
         #expect(await queueSettle { f.model.retrySelectionGeneration == before + 1 })
-        #expect(f.store.sessions == [session])
+        #expect(f.store.sessions.first?.haltReason?.rawValue == "operator")
+        #expect(f.store.sessions.first?.haltedAt == 1)
         #expect(f.model.done == [session])
         #expect(!f.model.isRefreshing)
     }
@@ -682,7 +699,8 @@ struct QueueActionsTests {
         let halt = try JSONDecoder().decode(ServerEvent.self, from: Data(#"{"event":"session:halt","data":{"id":"halted","haltReason":"usage_limit","haltedAt":2}}"#.utf8))
         fixture.store.apply(halt)
         #expect(await queueSettle { fixture.model.retrySelectionGeneration == 1 })
-        #expect(fixture.store.sessions.allSatisfy { $0.haltReason == nil })
+        #expect(fixture.store.session(id: "halted")?.haltReason?.known == .usageLimit)
+        #expect(fixture.store.session(id: "other")?.haltReason == nil)
         #expect(fixture.model.retrySessions.first { $0.id == "halted" }?.haltedAt == 2)
         #expect(fixture.model.retrySessions.first { $0.id == "halted" }?.haltReason?.rawValue == "usage_limit")
         var selection = QueueTargetSelection(sessions: fixture.model.retrySessions, preselectUsage: true)
@@ -697,7 +715,7 @@ struct QueueActionsTests {
         #expect(selection.ids(in: fixture.store.sessions).isEmpty)
     }
 
-    @Test func retrySuccessClearsPreselectionOnReopenDespiteStaleStore() async throws {
+    @Test func retrySuccessClearsSharedHaltAndPreselectionOnReopen() async throws {
         let empty = QueuesReads(held: { [] }, done: { [] }, recaps: { [:] }, stranded: { [] }, refreshUpNext: {})
         let fixture = try QueueFixture(empty)
         defer { fixture.close() }
@@ -711,14 +729,14 @@ struct QueueActionsTests {
         var api = commands
         api.retry = { ids, _ in
             #expect(ids == ["halted"])
-            // The successful server retry emits this clear; SessionStore ignores it.
+            // The successful retry clears both shared Session state and the queue overlay.
             fixture.store.apply(try JSONDecoder().decode(ServerEvent.self, from: Data(#"{"event":"session:halt","data":{"id":"halted","haltReason":null,"haltedAt":null}}"#.utf8)))
             return .init(resumed: 1, steered: 0, total: 1)
         }
         let state = QueueActionState()
         #expect(await state.run(.retry(selection.ids(in: fixture.store.sessions)), commands: api, isCurrent: { true }))
         #expect(await queueSettle { fixture.model.retrySelectionGeneration == 1 })
-        #expect(fixture.store.sessions.first?.haltReason?.rawValue == "usage_limit")
+        #expect(fixture.store.sessions.first?.haltReason == nil)
         #expect(fixture.model.retrySessions.first?.haltedAt == nil)
         #expect(fixture.model.retrySessions.first?.haltReason == nil)
         #expect(selection.selected == ["halted"])

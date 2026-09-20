@@ -435,6 +435,7 @@ struct OwedPanelView: View {
             }
         }
         .padding().frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("queues-owed-panel")
     }
 }

@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import ShepherdKit
+import SwiftTerm
 
 @testable import Shepherd
 
@@ -61,6 +62,36 @@ final class FakeAttachment: PTYAttaching {
 
 @MainActor
 struct TerminalStateTests {
+    @Test(arguments: [false, true])
+    func emulatorRepliesRespectLiveInputIsolation(allowsInput: Bool) async {
+        let attachment = FakeAttachment()
+        let replies = Counter()
+        let model = TerminalSessionModel(
+            sessionID: "s1", allowsInput: allowsInput,
+            reply: { _ in await replies.bump() }, makeAttachment: { _, _ in attachment })
+        let view = SwiftTerm.TerminalView(frame: .init(x: 0, y: 0, width: 640, height: 400))
+        let coordinator = TerminalHostView.Coordinator(model: model)
+        view.terminalDelegate = coordinator
+        coordinator.bind(view)
+        defer {
+            view.terminalDelegate = nil
+            coordinator.unbind()
+            model.detach()
+        }
+        // Real emulator parsing, no keyboard event: a cursor-position query in scrollback
+        // produces a reply through the same coordinator as operator keystrokes.
+        view.feed(byteArray: ArraySlice("\u{1b}[6n".utf8))
+        #expect(attachment.sent.isEmpty == !allowsInput)
+        model.promptText = "must not reach a live agent"
+        await model.submitPrompt()
+        #expect(replies.value == (allowsInput ? 1 : 0))
+        model.takeOver()
+        #expect(attachment.takeOverCount == (allowsInput ? 1 : 0))
+        model.resize(cols: 90, rows: 25)
+        #expect(attachment.sizes.last?.cols == 90)
+        #expect(attachment.startCount == 1)
+    }
+
     private func makeModel(
         _ attachment: FakeAttachment,
         reply: @escaping @Sendable (String) async throws -> Void = { _ in }

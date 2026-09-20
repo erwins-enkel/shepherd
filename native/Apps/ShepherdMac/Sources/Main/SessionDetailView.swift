@@ -8,6 +8,7 @@ import ShepherdKit
 /// and no stream has to touch `MainWindow` to hand them over.
 struct SessionDetailView: View {
     let session: Session?
+    @State private var selectedTab = "terminal"
     @Environment(AppModel.self) private var model
 
     var body: some View {
@@ -18,12 +19,27 @@ struct SessionDetailView: View {
             VStack(alignment: .leading, spacing: 16) {
                 header(session)
                 tabs(session, store)
+                    .onChange(of: planRequest(for: session.id), initial: true) { _, request in
+                        if request != nil { selectedTab = "plan" }
+                    }
             }
             .padding(24)
+            .accessibilityElement(children: .contain)
             .accessibilityIdentifier("session-detail")
         } else {
             ContentUnavailableView(L.t("native_detail_no_selection"), systemImage: "sidebar.left")
         }
+    }
+
+    private struct PlanRequest: Equatable {
+        let sessionID: String
+        let tick: Int
+    }
+
+    private func planRequest(for id: String) -> PlanRequest? {
+        // Two sessions can have the same tick. Include identity so clicking either badge
+        // selects Plan even when both happen to be their session's first request.
+        model.extension(PlanModel.self)?.openPlanTick[id].map { PlanRequest(sessionID: id, tick: $0) }
     }
 
     /// The registered tabs, or — while the built-in prompt tab is the only one —
@@ -48,9 +64,10 @@ struct SessionDetailView: View {
             // exactly the remaining viewport. Their lists/scroll views and the
             // terminal then resize within it instead of pushing chrome offscreen.
             GeometryReader { geometry in
-                TabView {
+                TabView(selection: $selectedTab) {
                     ForEach(registered, id: \.id) { tab in
                         tab.makeView(session: session, store: store, app: model)
+                            .tag(tab.id)
                             .tabItem { Label(tab.title, systemImage: tab.systemImage) }
                     }
                 }
@@ -65,6 +82,9 @@ struct SessionDetailView: View {
             Text(verbatim: session.name).font(.title3)
                 .lineLimit(1)
             Spacer()
+            if let plan = model.extension(PlanModel.self) {
+                PlanGateBadgeView(session: session, model: plan)
+            }
             Text(verbatim: L.t("native_detail_status_label"))
                 .font(.caption)
                 .foregroundStyle(.secondary)

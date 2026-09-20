@@ -28,13 +28,26 @@ struct SidebarView: View {
 
         return VStack(spacing: 0) {
             HeaderStrip(model: model)
+            if let queues = app.extension(QueuesModel.self) {
+                VStack(alignment: .leading, spacing: 6) {
+                    HeldQueueView(model: queues)
+                    QueueActionsView(model: queues)
+                }
+                .padding(.horizontal, 8)
+                .padding(.bottom, 6)
+            }
             lensStrip
             // Shown once there is something to choose between — or whenever a filter is actually
             // applied, so the rail can never be the control that vanishes while its filter stays.
             if model.showsRepoRail(chips) { repoRail(chips) }
             Divider()
-            list(groups, selection: $app.selectedSessionID)
+            if let panel = QueuesPanels.panel(for: model.lens) {
+                panel().id(model.lens)
+            } else {
+                list(groups, selection: $app.selectedSessionID)
+            }
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("herd-sidebar")
     }
 
@@ -49,9 +62,11 @@ struct SidebarView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 5)
                     .background(model.lens == lens ? Color.orange.opacity(0.16) : .clear)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .disabled(!lens.isAvailable)
+                .accessibilityAddTraits(model.lens == lens ? .isSelected : [])
                 .help(L.t(lens.titleKey))
                 .accessibilityIdentifier("herd-lens-\(lens.rawValue)")
             }

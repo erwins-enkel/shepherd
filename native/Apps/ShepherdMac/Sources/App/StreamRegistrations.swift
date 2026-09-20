@@ -34,6 +34,8 @@ enum StreamRegistrations {
             scene()
         }
 
+        func reset() { didInstallScene = false }
+
         func installAll(into app: AppModel) {
             installScene()
             model(app)
@@ -42,6 +44,7 @@ enum StreamRegistrations {
 
     private static let installation = Installation(
         scene: {
+            QueuesStream.installScene()
             // S12 adds `SettingsFeature.installScene()` here; S7–S11 add their command rows.
             // Empty until those streams land: Settings shows its placeholder, and Session
             // has no top-level menu.
@@ -71,6 +74,9 @@ enum StreamRegistrations {
         installation.installAll(into: app)
     }
 
+    /// Tests and previews reset the scene guard together with its registries.
+    static func reset() { installation.reset() }
+
     private static func installModels(into app: AppModel) {
         TerminalInstall.install(into: app)  // S1: DetailTab "terminal" + AppExtension
         DetailFeature.install(app)          // S2: DetailTabs activity/diff/files/git + AppExtension
@@ -81,5 +87,8 @@ enum StreamRegistrations {
         // Cross-stream seams, after every install: S4 reads S3's working-blocked flags and
         // S2's git snapshot through `SessionSignals` rather than reading the server again.
         SessionSignals.connect(app)
+        PlanStream.install(app)             // S8: plan tab and plan signal owners
+        HerdStream.install(app)             // S7: replaces the sparse S2 git seam
+        QueuesStream.install(app)           // S10: scene factories already registered
     }
 }

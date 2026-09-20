@@ -16,6 +16,9 @@ import Testing
 /// concurrent.
 @MainActor
 func resetStreamSeams() {
+    StreamRegistrations.reset()
+    QueuesPanels.reset()
+    PlanSignals.planReviewing = { _ in false }
     DetailTabRegistry.reset()
     SidebarSlot.reset()
     WelcomeSlots.reset()

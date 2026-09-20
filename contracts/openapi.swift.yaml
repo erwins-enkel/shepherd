@@ -1860,6 +1860,10 @@ components:
         body:
           type: string
           description: Markdown; "" until ready.
+        blocks:
+          type: array
+          items:
+            $ref: "#/components/schemas/VisualBlock"
         openItems:
           type: array
           items:
@@ -2619,7 +2623,7 @@ components:
     VisualBlockUnknown:
       type: object
       additionalProperties: true
-      description: "The catch-all member of VisualBlock, and the ONLY reason an unfamiliar block type does not cost the client the whole gate. Same idea as x-shepherd-open-enum for a string enum, one level up: `type` excludes all known discriminators, and `markdown` is the degraded rendering every server-side block carries. A renderer that reaches this member draws the markdown if there is one and skips the block otherwise."
+      description: "The catch-all member of VisualBlock, and the ONLY reason an unfamiliar block type does not cost the client the whole gate. Same idea as x-shepherd-open-enum for a string enum, one level up: `type` excludes all known discriminators, and `markdown` is the degraded rendering some server-side blocks carry. Clients preserve this member on decode. The native renderer intentionally omits unknown block types, including their markdown, while retaining the surrounding plan or recap body."
       required:
         - type
       properties:

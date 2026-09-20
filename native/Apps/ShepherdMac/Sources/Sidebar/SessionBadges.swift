@@ -70,7 +70,7 @@ enum SessionBadges {
         // Session's open contract preserves launch/archived metadata without a second wire type.
         let launch = session.additionalProperties.value["launchMetadata"] as? [String: any Sendable]
         let issue = launch?["issue"] as? [String: any Sendable]
-        let url = safeURL(git?.issueUrl, issue?["url"] as? String,
+        let url = safeURL(issue?["url"] as? String, git?.issueUrl,
             session.additionalProperties.value["issueUrl"] as? String)
         return .init(id: "issue", text: L.t("issuebadge_label", "\(number)"), tint: .secondary, url: url)
     }

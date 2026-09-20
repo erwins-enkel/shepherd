@@ -34,9 +34,7 @@ enum LiveUITestEnvironment {
 ///
 /// **Read-only against the operator's herd.** These tests never submit a prompt,
 /// never archive, stop or relaunch a session, and never trigger a PR action.
-/// The one thing they do write is keystrokes into a live PTY, which are erased
-/// with exactly as many backspaces and never followed by a newline — the same
-/// round trip PR #2389 did at kit level.
+/// No keystrokes are sent into a live PTY; the terminal test only attaches and resizes.
 ///
 /// Skipped wholesale — and so silent in CI, which has no server — unless
 /// `SHEPHERD_LIVE_BASE_URL` and `SHEPHERD_LIVE_PASSWORD` are both set:
@@ -60,6 +58,10 @@ final class LiveSmokeUITests: XCTestCase {
 
         app = XCUIApplication()
         app.launchArguments = [
+            // AppKit restoration is separate from the private profile defaults suite.
+            // Suppressing a restored no-window state lets RootView start the live seed.
+            "-ApplePersistenceIgnoreState", "YES",
+            "-NSQuitAlwaysKeepsWindows", "NO",
             "-AppleLanguages", "(en)",
             "-AppleLocale", "en_US",
             "-ShepherdIsolated", "1",
@@ -75,15 +77,13 @@ final class LiveSmokeUITests: XCTestCase {
     }
 
     override func tearDownWithError() throws {
-        // Ends the run. Note what it does NOT do: deliver
-        // `NSApplicationWillTerminate`, so the app's own quit handler — and with
-        // it the `-ShepherdRevokeOnExit 1` revocation — does not run here.
-        // Verified, including via SIGTERM first, which AppKit did not turn into
-        // a quit either. The handler is still right for a real quit (⌘Q), and
-        // the cost of it not firing is bounded and visible: one access token
-        // named "Shepherd UI test (<host>)" per live run, which the *next*
-        // run's `sweepPriorTokensNamed` revokes by name before minting its own.
-        app?.terminate()
+        // A real Quit delivers the isolated launch's token-revocation notification.
+        // terminate() alone kills the process without that notification.
+        if let app, app.state != .notRunning {
+            app.typeKey("q", modifierFlags: .command)
+            _ = app.wait(for: .notRunning, timeout: 10)
+            if app.state != .notRunning { app.terminate() }
+        }
         app = nil
     }
 
@@ -142,6 +142,22 @@ final class LiveSmokeUITests: XCTestCase {
         }
     }
 
+    /// Navigation only: selecting these lenses issues snapshot reads, never queue commands.
+    func testQueueLensesRenderTheirRegisteredPanels() {
+        XCTAssertTrue(waitForMainWindow())
+        for (lens, panel) in [("next", "queues-upnext-panel"), ("owed", "queues-owed-panel"),
+                              ("done", "queues-done-panel")] {
+            let button = app.buttons["herd-lens-\(lens)"]
+            XCTAssertTrue(button.waitForExistence(timeout: 15))
+            XCTAssertTrue(button.isEnabled)
+            button.click()
+            XCTAssertTrue(button.isSelected, "the complete lens button frame must be clickable")
+            XCTAssertTrue(app.descendants(matching: .any)[panel].waitForExistence(timeout: 30))
+        }
+        app.buttons["herd-lens-all"].click()
+        XCTAssertTrue(anySessionRow.waitForExistence(timeout: 30))
+    }
+
     // MARK: - S1 + S2: the detail tabs
 
     /// Every registered tab renders its own body and none of them lands on the error state.
@@ -160,8 +176,8 @@ final class LiveSmokeUITests: XCTestCase {
         XCTAssertTrue(selectFirstSession(), "a live server should offer a session to select")
 
         XCTAssertEqual(
-            tabButtons.count, 6,
-            "terminal, activity, diff, files, git and the built-in prompt tab should all be registered")
+            tabButtons.count, 7,
+            "terminal, activity, diff, files, git, plan and the built-in prompt tab should all be registered")
 
         for (index, identifier) in [
             (0, "detail-tab-terminal"),
@@ -169,6 +185,7 @@ final class LiveSmokeUITests: XCTestCase {
             (2, "detail-tab-diff"),
             (3, "detail-tab-files"),
             (4, "detail-tab-git"),
+            (5, "detail-tab-plan"),
         ] {
             XCTAssertTrue(selectTab(at: index), "tab \(index) should be in the tab bar")
             let body = app.descendants(matching: .any)[identifier]
@@ -210,6 +227,8 @@ final class LiveSmokeUITests: XCTestCase {
 
         let terminal = pane.descendants(matching: .any)["terminal-view"]
         XCTAssertTrue(terminal.waitForExistence(timeout: 30), "the emulator should be hosted")
+        XCTAssertEqual(pane.descendants(matching: .any).matching(identifier: "terminal-view").count, 1)
+        XCTAssertEqual(terminal.elementType, .other, "the emulator is a group, not editable text")
         XCTAssertTrue(
             pane.descendants(matching: .any)["terminal-prompt"].waitForExistence(timeout: 30),
             "the prompt bar should render under the emulator")
@@ -264,7 +283,11 @@ final class LiveSmokeUITests: XCTestCase {
         let sidebar = app.descendants(matching: .any)["herd-sidebar"]
         let flatSidebar = app.descendants(matching: .any)["session-sidebar"]
         let newSession = app.descendants(matching: .any)["toolbar-new-session"]
-        return waitForAny([sidebar, flatSidebar, newSession], timeout: 120)
+        let found = waitForAny([sidebar, flatSidebar, newSession], timeout: 120)
+        if !found {
+            XCTFail("live launch has \(app.windows.count) windows; welcome=\(app.descendants(matching: .any)["welcome-local-card"].exists); login=\(app.descendants(matching: .any)["login-password"].exists)")
+        }
+        return found
     }
 
     @discardableResult
@@ -274,9 +297,12 @@ final class LiveSmokeUITests: XCTestCase {
         return app.descendants(matching: .any)["session-detail"].waitForExistence(timeout: 30)
     }
 
-    /// The detail tab bar's buttons, in registry order.
+    /// Current macOS exposes AX tabs as `.tab`; older toolchains used radio buttons.
+    /// Keep registry order without depending on unnamed native tab labels.
     private var tabButtons: [XCUIElement] {
-        app.tabGroups.firstMatch.radioButtons.allElementsBoundByIndex
+        let group = app.tabGroups.firstMatch
+        let tabs = group.children(matching: .tab).allElementsBoundByIndex
+        return tabs.isEmpty ? group.radioButtons.allElementsBoundByIndex : tabs
     }
 
     /// Clicks the tab at `index`. See `testEveryDetailTabLoadsForASelectedSession` for why this

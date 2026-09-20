@@ -2743,6 +2743,24 @@
         }
       }
     },
+    "herd_waiting_merger_group_maintainers": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warten auf Merge durch Maintainer (%1$@)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting on maintainers to merge (%1$@)"
+          }
+        }
+      }
+    },
     "herd_waiting_merger_group_multi": {
       "comment": "%1$@ = count",
       "extractionState": "manual",
@@ -2775,6 +2793,24 @@
           "stringUnit": {
             "state": "translated",
             "value": "Waiting on %1$@'s review (%2$@)"
+          }
+        }
+      }
+    },
+    "herd_waiting_reviewer_group_maintainers": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warten auf Maintainer-Review (%1$@)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting on maintainer review (%1$@)"
           }
         }
       }
@@ -2878,6 +2914,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Waiting on a yes/no."
+          }
+        }
+      }
+    },
+    "hold_cta_answer": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antworten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Answer"
+          }
+        }
+      }
+    },
+    "hold_cta_answer_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan öffnen, um offene Fragen zu beantworten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open the plan to answer its open questions"
           }
         }
       }

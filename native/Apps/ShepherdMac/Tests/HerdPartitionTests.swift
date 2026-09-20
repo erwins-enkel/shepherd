@@ -134,7 +134,9 @@ struct HerdPartitionTests {
     /// fallthrough below is correct parity, and it is exactly why the lens must stay DISABLED here:
     /// this build ships no Done panel (one needs `ShepherdClient.doneSessions()`, outside this
     /// stream's route list), so an enabled Done button would relabel the All list.
-    @Test func onlyTheTwoLiveListLensesAreSelectable() {
+    @Test func onlyTheTwoLiveListLensesAreSelectableBeforeRegistration() {
+        QueuesPanels.reset()
+        defer { QueuesPanels.reset() }
         #expect(HerdLens.all.isAvailable)
         #expect(HerdLens.ready.isAvailable)
         #expect(!HerdLens.done.isAvailable, "done is panel-only in the web and has no panel here")

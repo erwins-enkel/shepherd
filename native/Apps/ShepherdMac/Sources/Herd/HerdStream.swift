@@ -23,6 +23,12 @@ enum HerdStream {
                 return herd.isReviewing(session.id) || herd.planReviewing(session)
             }
         }
+        if let herd = app.extension(HerdSignals.self) {
+            herd.planReviewing = { session in PlanSignals.planReviewing(session.id) }
+            herd.planRework = { [weak app] session in
+                app?.extension(PlanModel.self)?.isReworking(session) ?? false
+            }
+        }
         SessionSignals.gitMerged = { [weak app] id in
             app?.extension(HerdSignals.self)?.git[id]?.state.known == .merged
         }
@@ -31,7 +37,7 @@ enum HerdStream {
 
 /// AppModel rebuilds extensions without rerunning installers. Registered after HerdSignals and
 /// its consumers, this binding restores the seams on every activation, including the first one
-/// after an install with no store. It observes the existing ciRed derivation without another tap.
+/// after an install with no store. It observes CI failures and unanswered plan questions without another event tap.
 @MainActor
 private final class HerdBindings: AppExtension {
     private var watcher: Task<Void, Never>?
@@ -50,11 +56,16 @@ private final class HerdBindings: AppExtension {
                 do {
                     guard let app, app.activationGeneration == generation else { return }
                     let ids = withObservationTracking {
-                        app.extension(HerdSignals.self)?.ciRed ?? []
+                        let ci = app.extension(HerdSignals.self)?.ciRed ?? []
+                        let plan = app.extension(PlanModel.self)
+                        let questions = Set((plan?.gates.keys.map { $0 } ?? []).filter {
+                            plan?.questionsUnanswered($0) == true
+                        })
+                        return ci.union(questions)
                     } onChange: {
                         signal.yield()
                     }
-                    // NotificationsModel intersects these raw CI failures with live session ids.
+                    // NotificationsModel intersects the combined attention set with live session ids.
                     app.extension(NotificationsModel.self)?.extraAttention = ids
                 }
                 guard await iterator.next() != nil else { return }

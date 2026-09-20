@@ -12,6 +12,16 @@ actor MergeLatch {
     func release(_ value: MergeSnapshot) { continuation?.resume(returning: value); continuation = nil; waiting = false }
 }
 @Suite(.serialized) @MainActor struct MergeModelTests {
+    @Test func queuedWriteDoesNotStartAfterTeardown() async {
+        let model = MergeModel(reads: .init(snapshot: { .init() }))
+        var actionCalls = 0
+        model.perform { actionCalls += 1 }
+        model.teardown()
+        // Let the already-scheduled main-actor task run, even though it was cancelled.
+        for _ in 0..<20 { await Task.yield() }
+        #expect(actionCalls == 0)
+        #expect(!model.busy)
+    }
     @Test func lateReadAfterTeardownCannotPublish() async {
         let latch = MergeLatch()
         let model = MergeModel(reads: .init(snapshot: { await latch.read() }))

@@ -51,4 +51,50 @@ import ShepherdKit
             #expect(body[field.id] as? Bool == false)
         }
     }
+
+    @Test func successfulSaveAdoptsUnchangedNormalizedValue() async throws {
+        let field = try #require(SettingsFields.all.first { $0.id == "usageHoldPct" })
+        let settings = try settingsFixture()
+        let snapshot = SettingsSnapshot(settings: settings,
+            diagnostics: .init(checks: [], generatedAt: 1, overall: .init(known: .ok)), usage: nil, repos: [])
+        var reconciled = false
+        let model = SettingsModel(reads: .init(snapshot: { snapshot }, reconcile: { reconciled = true }))
+        defer { model.teardown() }
+        await model.load()
+        let draft = SettingsFieldDraft()
+        draft.text = "80.5"
+        #expect(draft.canSave(field: field, payload: settings))
+        draft.submit(field: field, model: model) { patch in
+            #expect(patch.usageHoldPct == 80.5)
+            return settings // PATCH floors to the same 80 already returned by GET.
+        }
+        while model.busy { await Task.yield() }
+        #expect(reconciled)
+        #expect(draft.text == field.value(settings))
+        #expect(!draft.canSave(field: field, payload: settings))
+    }
+
+    @Test(arguments: [false, true])
+    func rejectedSaveOrRefreshPreservesDraft(reconciliationFails: Bool) async throws {
+        let field = try #require(SettingsFields.all.first { $0.id == "usageHoldPct" })
+        let settings = try settingsFixture()
+        let model = SettingsModel(reads: .init(snapshot: { throw ShepherdError.notFound },
+            reconcile: { if reconciliationFails { throw ShepherdError.notFound } }))
+        defer { model.teardown() }
+        let draft = SettingsFieldDraft()
+        draft.text = "80.5"
+        draft.submit(field: field, model: model) { _ in
+            if !reconciliationFails { throw ShepherdError.badRequest("rejected") }
+            return settings
+        }
+        while model.busy { await Task.yield() }
+        #expect(model.error != nil)
+        #expect(draft.text == "80.5")
+        #expect(draft.canSave(field: field, payload: settings))
+    }
+
+    private func settingsFixture() throws -> Components.Schemas.Settings {
+        try JSONDecoder().decode(Components.Schemas.Settings.self, from: Data(#"{"repoRoot":"/repo","repoRootDisplay":"repo","firstRunPending":false,"defaultModel":"opus","defaultEffort":"default","defaultAgentProvider":"claude","authMode":"subscription","operatorLanguage":"en","usageHoldPct":80}"#.utf8))
+    }
+
 }

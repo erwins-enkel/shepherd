@@ -1,4 +1,5 @@
 import SwiftUI
+import Observation
 import ShepherdKit
 
 struct SettingsField: Identifiable {
@@ -70,23 +71,43 @@ struct SettingsField: Identifiable {
         .init(id:"autopilotEffort", title:"native_settings_field_autopiloteffort", kind:.text, value:{ $0.autopilotEffort ?? "" }, patch:{ .init(autopilotEffort: $0) }, cli:true),
     ]
 }
+@Observable @MainActor final class SettingsFieldDraft {
+    var text = ""
+
+    func canSave(field: SettingsField, payload: Components.Schemas.Settings) -> Bool {
+        text != field.value(payload) && field.patch(text) != nil
+    }
+
+    func submit(field: SettingsField, model: SettingsModel,
+                save: @escaping @Sendable (SettingsPatch) async throws -> Components.Schemas.Settings) {
+        guard let patch = field.patch(text) else { return }
+        model.run({ try await save(patch) }, commit: { [weak self] settings in
+            // A successful normalization can leave the server value unchanged.
+            // Commit only after the write, authoritative GET and store reconciliation succeed.
+            self?.text = field.value(settings)
+        })
+    }
+}
 struct SettingsFieldRow: View {
     let field: SettingsField
     let payload: Components.Schemas.Settings
-    let save: (SettingsPatch) -> Void
-    @State private var draft = ""
+    let model: SettingsModel
+    let save: @Sendable (SettingsPatch) async throws -> Components.Schemas.Settings
+    @State private var draft = SettingsFieldDraft()
     var body: some View {
+        @Bindable var draft = draft
         HStack {
             if field.kind == .toggle {
                 Toggle(L.t(field.title), isOn: Binding(get: { field.value(payload) == "true" }, set: {
-                    if let patch = field.patch($0 ? "true" : "false") { save(patch) }
+                    draft.text = $0 ? "true" : "false"
+                    draft.submit(field: field, model: model, save: save)
                 }))
             } else {
-                TextField(L.t(field.title), text: $draft)
-                    .onAppear { draft = field.value(payload) }
-                    .onChange(of: field.value(payload)) { draft = field.value(payload) }
-                Button(L.t("common_save")) { if let patch = field.patch(draft) { save(patch) } }
-                    .disabled(draft == field.value(payload) || field.patch(draft) == nil)
+                TextField(L.t(field.title), text: $draft.text)
+                    .onAppear { draft.text = field.value(payload) }
+                    .onChange(of: field.value(payload)) { draft.text = field.value(payload) }
+                Button(L.t("common_save")) { draft.submit(field: field, model: model, save: save) }
+                    .disabled(!draft.canSave(field: field, payload: payload))
             }
         }.accessibilityIdentifier("settings-" + field.id)
     }
@@ -102,7 +123,10 @@ struct SettingsGeneralView: View {
             if let error = model.error { Text(verbatim:error).foregroundStyle(.red) }
             if let payload = model.snapshot?.settings {
                 ForEach(SettingsFields.all.filter { $0.cli == cli }) { field in
-                    SettingsFieldRow(field:field,payload:payload) { model.patch($0,client:client) }
+                    SettingsFieldRow(field:field,payload:payload,model:model) { patch in
+                        _ = try await client.patchSettings(body: patch)
+                        return try await client.settings()
+                    }
                 }
                 if cli {
                     Text(payload.hasApiKey == true ? L.t("native_settings_key_present") : L.t("native_settings_key_absent"))

@@ -1959,6 +1959,297 @@ components:
     # ── stream: merge ──
     # ── /stream: merge ──
     # ── stream: queues ──
+    # Why this task is held (src/types.ts:1537-1545). usage is the usage gate; capacity is a plugin refusing for want of an account. The list is ordered ORDER BY (reason = 'capacity'), createdAt ASC — capacity holds sort last, everything else is FIFO.
+    HeldReason:
+      type: "string"
+      enum: ["usage", "capacity"]
+      x-shepherd-open-enum: true
+    HeldQueueInput:
+      type: "object"
+      additionalProperties: true
+      required: ["repoPath", "baseBranch", "prompt"]
+      properties:
+        repoPath: { "type": "string" }
+        baseBranch: { "type": "string" }
+        prompt: { "type": "string", "minLength": 1, "maxLength": 8000 }
+        agentProvider: { "$ref": "#/components/schemas/AgentProvider" }
+        model: { "type": ["string", "null"] }
+        effort: { "oneOf": [{ "$ref": "#/components/schemas/Effort" }, { "type": "null" }] }
+        images: { "type": "array", "items": { "type": "string" } }
+        planGateEnabled: { "type": ["boolean", "null"] }
+        autopilotEnabled: { "type": ["boolean", "null"] }
+        sandboxProfile:
+          { "oneOf": [{ "$ref": "#/components/schemas/SandboxProfile" }, { "type": "null" }] }
+        plain: { "type": "boolean" }
+        force: { "type": "boolean", "description": "Bypass the usage-hold gate and spawn immediately." }
+        mergeTrainPrs:
+          {
+            "type": "array",
+            "items": { "type": "integer" },
+            "description": "PR numbers for a merge-train kickoff. Present ⇒ this create is a train, not an ordinary task.",
+          }
+        issueRef: { "$ref": "#/components/schemas/IssueRef" }
+        research:
+          { "type": "boolean", "description": "Start in research mode — no worktree writes, no PR." }
+        epicAuthoring: { "type": "boolean", "description": "Start in epic-authoring mode." }
+        attachmentNames:
+          {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Display names for `images`, positionally. The server rejects a length mismatch with 400 (src/validate.ts:287-291).",
+          }
+        launchUiState: { "$ref": "#/components/schemas/LaunchUiState" }
+        auto: { "type": "boolean" }
+      description: "Stored StandardCreateInput. Mirrors the core create request fields, but also carries server-owned fields such as auto from Up Next. The core request is closed and cannot validate this stored response. PATCH still accepts the core CreateSessionRequest."
+    HeldQueueEntry:
+      type: "object"
+      additionalProperties: true
+      required: ["id", "repoPath", "input", "createdAt"]
+      properties:
+        id: { "type": "string" }
+        repoPath: { "type": "string" }
+        input: { "$ref": "#/components/schemas/HeldQueueInput" }
+        createdAt: { "type": "integer" }
+        reason: { "$ref": "#/components/schemas/HeldReason" }
+      description: "One row of GET /api/held. NOT the same object as the core HeldTask schema, which is the {held, id, count} answer POST /api/sessions gives when the gate trips. input is the create payload the task will spawn with, so editing a held task is editing this object."
+    HeldQueueList:
+      type: "array"
+      items: { "$ref": "#/components/schemas/HeldQueueEntry" }
+    StrandedSessionIds:
+      type: "array"
+      items: { "type": "string" }
+    HeldSpawnRequest:
+      type: "object"
+      additionalProperties: false
+      properties:
+        agentProvider: { "$ref": "#/components/schemas/AgentProvider" }
+    UpNextKind:
+      type: "string"
+      enum: ["epic", "bug", "feature"]
+      x-shepherd-open-enum: true
+    UpNextIssueRef:
+      $ref: "#/components/schemas/IssueRef"
+    UpNextItem:
+      type: "object"
+      additionalProperties: true
+      required:
+        [
+          "repoPath",
+          "repoSlug",
+          "repoLabel",
+          "number",
+          "title",
+          "url",
+          "kind",
+          "priority",
+          "createdAt",
+          "labels",
+          "issueRef",
+        ]
+      properties:
+        repoPath: { "type": "string" }
+        repoSlug: { "type": ["string", "null"] }
+        repoLabel: { "type": "string" }
+        number: { "type": "integer" }
+        title: { "type": "string" }
+        url: { "type": "string" }
+        kind: { "$ref": "#/components/schemas/UpNextKind" }
+        priority: { "type": "boolean" }
+        createdAt: { "type": "integer" }
+        labels: { "type": "array", "items": { "type": "string" } }
+        labelColors: { "type": "object", "additionalProperties": { "type": "string" } }
+        epicParent:
+          {
+            "type": "object",
+            "additionalProperties": true,
+            "required": ["number", "title"],
+            "properties": { "number": { "type": "integer" }, "title": { "type": "string" } },
+          }
+        issueRef: { "$ref": "#/components/schemas/IssueRef" }
+      description: "For an epic, number/title/url/issueRef describe the next-actionable child; createdAt is the parent age."
+    UpNextSection:
+      type: "object"
+      additionalProperties: true
+      required: ["kind", "repoPath", "repoSlug", "repoLabel", "items", "totalCount"]
+      properties:
+        kind: { "type": "string", "enum": ["priority", "repo"], "x-shepherd-open-enum": true }
+        repoPath: { "type": ["string", "null"] }
+        repoSlug: { "type": ["string", "null"] }
+        repoLabel: { "type": ["string", "null"] }
+        items: { "type": "array", "items": { "$ref": "#/components/schemas/UpNextItem" } }
+        totalCount: { "type": "integer" }
+    UpNextSnapshot:
+      type: "object"
+      additionalProperties: true
+      required: ["generatedAt", "sections", "repoCount", "fallback", "failedRepoCount"]
+      properties:
+        generatedAt: { "type": "integer" }
+        sections: { "type": "array", "items": { "$ref": "#/components/schemas/UpNextSection" } }
+        repoCount: { "type": "integer" }
+        fallback: { "type": ["string", "null"] }
+        failedRepoCount:
+          {
+            "type": "integer",
+            "description": 'Repos whose listing failed. Non-zero with an empty sections is the panel''s "could not load" state.',
+          }
+      description: "The Up Next queue. Delivered ONLY through the upnext:snapshot event — GET /api/up-next answers the JSON literal null when nothing is cached, which cannot be expressed in a response position, so it is deliberately undeclared and the client bootstraps with POST /api/up-next/refresh."
+    UpNextStartItem:
+      type: "object"
+      additionalProperties: true
+      required: ["repoPath", "issueRef"]
+      properties:
+        repoPath: { "type": "string" }
+        issueRef: { "$ref": "#/components/schemas/UpNextIssueRef" }
+    UpNextStartRequest:
+      type: "object"
+      additionalProperties: true
+      required: ["items"]
+      properties:
+        items:
+          {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/UpNextStartItem" },
+            "minItems": 1,
+          }
+        agentProvider: { "$ref": "#/components/schemas/AgentProvider" }
+        model: { "type": ["string", "null"] }
+        effort: { "type": ["string", "null"] }
+      description: "agentProvider is required when model or effort is supplied."
+    UpNextStartHeld:
+      type: "object"
+      additionalProperties: true
+      required: ["id", "repoPath", "number"]
+      properties:
+        id: { "type": "string" }
+        repoPath: { "type": "string" }
+        number: { "type": "integer" }
+        reused: { "type": "boolean" }
+    UpNextStartError:
+      type: "object"
+      additionalProperties: true
+      required: ["number", "error"]
+      properties:
+        number: { "type": "integer" }
+        error: { "type": "string" }
+    UpNextStartResult:
+      type: "object"
+      additionalProperties: true
+      required: ["created", "held", "errors"]
+      properties:
+        created: { "type": "array", "items": { "$ref": "#/components/schemas/Session" } }
+        held: { "type": "array", "items": { "$ref": "#/components/schemas/UpNextStartHeld" } }
+        errors: { "type": "array", "items": { "$ref": "#/components/schemas/UpNextStartError" } }
+    HaltResult:
+      type: "object"
+      additionalProperties: true
+      required: ["halted"]
+      properties:
+        halted: { "type": "integer" }
+    RetryRequest:
+      type: "object"
+      additionalProperties: true
+      required: ["text", "ids"]
+      properties:
+        text: { "type": "string", "minLength": 1 }
+        ids: { "type": "array", "items": { "type": "string" } }
+    RetryResult:
+      type: "object"
+      additionalProperties: true
+      required: ["resumed", "steered", "total"]
+      properties:
+        resumed: { "type": "integer" }
+        steered: { "type": "integer" }
+        total: { "type": "integer" }
+    ReviveResult:
+      type: "object"
+      additionalProperties: true
+      required: ["revived", "failed"]
+      properties:
+        revived: { "type": "integer" }
+        failed: { "type": "integer" }
+    UsageSource:
+      type: "string"
+      enum: ["live", "snapshot", "codex", "none"]
+      x-shepherd-open-enum: true
+    SessionUsage:
+      type: "object"
+      additionalProperties: true
+      required:
+        [
+          "available",
+          "source",
+          "total",
+          "input",
+          "output",
+          "cacheRead",
+          "cacheWrite",
+          "messageCount",
+          "byModel",
+        ]
+      properties:
+        available: { "type": "boolean" }
+        source: { "$ref": "#/components/schemas/UsageSource" }
+        total: { "type": "integer" }
+        input: { "type": ["integer", "null"] }
+        output: { "type": ["integer", "null"] }
+        cacheRead: { "type": ["integer", "null"] }
+        cacheWrite: { "type": ["integer", "null"] }
+        messageCount: { "type": ["integer", "null"] }
+        byModel: { "type": ["object", "null"], "additionalProperties": { "type": "integer" } }
+      description: 'available: false means "no resolvable data source", while a real zero is available: true, total: 0. Splits, messageCount and byModel are null when the source does not carry them. byModel is raw tokens per model, never weighted units.'
+    BroadcastRequest:
+      type: "object"
+      additionalProperties: true
+      required: ["text", "ids"]
+      properties:
+        text: { "type": "string", "minLength": 1 }
+        ids: { "type": "array", "items": { "type": "string" } }
+    BroadcastResult:
+      type: "object"
+      additionalProperties: true
+      required: ["delivered", "queued", "offline", "skipped", "total"]
+      properties:
+        delivered: { "type": "integer" }
+        queued: { "type": "integer" }
+        offline: { "type": "integer" }
+        skipped: { "type": "integer" }
+        total: { "type": "integer" }
+    UpNextSnapshotEvent:
+      type: "object"
+      additionalProperties: true
+      required: ["snapshot"]
+      properties:
+        snapshot: { "$ref": "#/components/schemas/UpNextSnapshot" }
+    HaltDoneEvent:
+      $ref: "#/components/schemas/HaltResult"
+    SessionHaltEvent:
+      type: "object"
+      additionalProperties: true
+      required: ["id", "haltReason", "haltedAt"]
+      properties:
+        id: { "type": "string" }
+        haltReason:
+          {
+            "type": ["string", "null"],
+            "enum": ["usage_limit", "completed", "operator", "error", null],
+            "x-shepherd-open-enum": true,
+          }
+        haltedAt: { "type": ["integer", "null"] }
+    SessionHoldEvent:
+      type: "object"
+      additionalProperties: true
+      required: ["id", "hold"]
+      properties:
+        id: { "type": "string" }
+        hold: { "oneOf": [{ "$ref": "#/components/schemas/HoldReason" }, { "type": "null" }] }
+    SessionsStrandedEvent:
+      type: "object"
+      additionalProperties: true
+      required: ["count"]
+      properties:
+        count: { "type": "integer" }
+    AutoRevivedEvent:
+      $ref: "#/components/schemas/ReviveResult"
     # ── /stream: queues ──
     # ── stream: compose ──
     # ── /stream: compose ──
@@ -3118,6 +3409,255 @@ paths:
   # ── stream: merge ──
   # ── /stream: merge ──
   # ── stream: queues ──
+  /api/held:
+    get:
+      operationId: "listHeld"
+      description: "Held inputs, with capacity holds last and FIFO within each group."
+      responses:
+        "200":
+          description: "Success."
+          content:
+            { "application/json": { "schema": { "$ref": "#/components/schemas/HeldQueueList" } } }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/held/{id}/spawn:
+    parameters: [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }]
+    post:
+      operationId: "spawnHeld"
+      description: "Release a held task immediately. A successful spawn removes the entry; a failed spawn leaves it held. Send no body or an optional provider override."
+      requestBody:
+        {
+          "required": false,
+          "content":
+            { "application/json": { "schema": { "$ref": "#/components/schemas/HeldSpawnRequest" } } },
+        }
+      responses:
+        "201":
+          description: "Session created."
+          content: { "application/json": { "schema": { "$ref": "#/components/schemas/Session" } } }
+        "400":
+          description: "Body is not an object, contains an unknown key, or has an invalid agentProvider."
+          content: { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: "Spawn refused by sandbox policy."
+          content: { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+        "404":
+          description: "Unknown id."
+          content: { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+        "409":
+          description: "First-run pending, herdr_restart_required, spawn_canceled, worktree occupied, or agent name already taken."
+          content: { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+        "422":
+          description: "Base ref does not resolve to a commit."
+          content: { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+        "502":
+          description: "Creation failed."
+          content: { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+  /api/held/{id}:
+    parameters: [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }]
+    patch:
+      operationId: "updateHeld"
+      description: "Replace the full create input while retaining queue membership. Requires application/json. The shared checkOrigin guard does not cover PATCH."
+      requestBody:
+        {
+          "required": true,
+          "content":
+            {
+              "application/json":
+                { "schema": { "$ref": "#/components/schemas/CreateSessionRequest" } },
+            },
+        }
+      responses:
+        "200":
+          description: "Success."
+          content:
+            { "application/json": { "schema": { "$ref": "#/components/schemas/HeldQueueEntry" } } }
+        "400":
+          description: "Invalid body."
+          content: { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: "Unknown id."
+          content: { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+        "415":
+          description: "Content type must be application/json."
+          content: { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+    delete:
+      operationId: "discardHeld"
+      description: "Idempotent discard: unknown ids also answer {ok: true}, never 404. Re-read the list after success."
+      responses:
+        "200":
+          description: "Success."
+          content: { "application/json": { "schema": { "$ref": "#/components/schemas/Ok" } } }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/up-next/refresh:
+    post:
+      operationId: "refreshUpNext"
+      description: "Fire-and-forget refresh; the snapshot arrives through upnext:snapshot."
+      responses:
+        "202":
+          description: "Accepted; computation runs in the background."
+          content: { "application/json": { "schema": { "$ref": "#/components/schemas/Ok" } } }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          description: "Up Next dependency is unwired."
+          content: { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+  /api/up-next/start:
+    post:
+      operationId: "startUpNext"
+      description: "Status encodes the outcome over one body shape: 201 when at least one session was created, 200 when everything was held instead, 502 when every item errored. A client must read all three arrays regardless of status."
+      requestBody:
+        {
+          "required": true,
+          "content":
+            {
+              "application/json": { "schema": { "$ref": "#/components/schemas/UpNextStartRequest" } },
+            },
+        }
+      responses:
+        "201":
+          description: "At least one session created (held items and errors may coexist)."
+          content:
+            { "application/json": { "schema": { "$ref": "#/components/schemas/UpNextStartResult" } } }
+        "200":
+          description: "No sessions created; at least one item held (errors may coexist)."
+          content:
+            { "application/json": { "schema": { "$ref": "#/components/schemas/UpNextStartResult" } } }
+        "400":
+          description: "Invalid body."
+          content: { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: "First-run setup is pending."
+          content: { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+        "502":
+          description: "Every item errored; still the same result body."
+          content:
+            { "application/json": { "schema": { "$ref": "#/components/schemas/UpNextStartResult" } } }
+        "415":
+          description: "Content type must be application/json."
+          content: { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+  /api/halt:
+    post:
+      operationId: "haltHerd"
+      description: "Interrupt every live working agent. A herdr that cannot be reached is a genuine 500, by design — a silent {halted: 0} would read as 'nothing was running'. Undeclared, like every other 5xx."
+      responses:
+        "200":
+          description: "Success."
+          content: { "application/json": { "schema": { "$ref": "#/components/schemas/HaltResult" } } }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "405":
+          description: "Method not allowed."
+          content: { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+  /api/retry:
+    post:
+      operationId: "retryHalted"
+      description: "total is the number of ids REQUESTED, not the number screened — unknown ids and terminal sessions are dropped silently and still counted."
+      requestBody:
+        {
+          "required": true,
+          "content":
+            { "application/json": { "schema": { "$ref": "#/components/schemas/RetryRequest" } } },
+        }
+      responses:
+        "200":
+          description: "Success."
+          content:
+            { "application/json": { "schema": { "$ref": "#/components/schemas/RetryResult" } } }
+        "400":
+          description: "Invalid body."
+          content: { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "415":
+          description: "Content type must be application/json."
+          content: { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+  /api/stranded:
+    get:
+      operationId: "listStranded"
+      description: "Currently stranded session ids, for client bootstrap."
+      responses:
+        "200":
+          description: "Success."
+          content:
+            {
+              "application/json": { "schema": { "$ref": "#/components/schemas/StrandedSessionIds" } },
+            }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/revive-stranded:
+    post:
+      operationId: "reviveStranded"
+      description: "Force-resume every currently stranded session; the server computes the target set."
+      responses:
+        "200":
+          description: "Success."
+          content:
+            { "application/json": { "schema": { "$ref": "#/components/schemas/ReviveResult" } } }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/sessions/{id}/restore:
+    parameters: [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }]
+    post:
+      operationId: "restoreSession"
+      description: "Restore an archived session and its conversation."
+      responses:
+        "200":
+          description: "Success."
+          content: { "application/json": { "schema": { "$ref": "#/components/schemas/Session" } } }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: "Unknown id."
+          content: { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+        "409":
+          description: "Conflict code: in_progress, not_archived, cannot_restore, branch_gone, branch_in_use, or spawn_refused."
+          content: { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+  /api/sessions/{id}/usage:
+    parameters: [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }]
+    get:
+      operationId: "sessionUsage"
+      description: "Resolve per-session token usage, distinguishing missing data from measured zero."
+      responses:
+        "200":
+          description: "Success."
+          content:
+            { "application/json": { "schema": { "$ref": "#/components/schemas/SessionUsage" } } }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: "Unknown id."
+          content: { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+  /api/broadcast:
+    post:
+      operationId: "broadcast"
+      description: "Send a steer to selected sessions, classifying delivered, queued, offline and skipped targets."
+      requestBody:
+        {
+          "required": true,
+          "content":
+            { "application/json": { "schema": { "$ref": "#/components/schemas/BroadcastRequest" } } },
+        }
+      responses:
+        "200":
+          description: "Success."
+          content:
+            { "application/json": { "schema": { "$ref": "#/components/schemas/BroadcastResult" } } }
+        "400":
+          description: "Invalid body."
+          content: { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "415":
+          description: "Content type must be application/json."
+          content: { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
   # ── /stream: queues ──
   # ── stream: compose ──
   # ── /stream: compose ──
@@ -3215,6 +3755,24 @@ x-shepherd-events:
   # ── stream: merge ──
   # ── /stream: merge ──
   # ── stream: queues ──
+  upnext:snapshot:
+    description: "A freshly computed Up Next queue. The ONLY delivery path for the snapshot — see UpNextSnapshot."
+    schema: { "$ref": "#/components/schemas/UpNextSnapshotEvent" }
+  halt:done:
+    description: "A herd halt finished. Broadcast to every client, so a client that did not issue it still learns."
+    schema: { "$ref": "#/components/schemas/HaltDoneEvent" }
+  session:halt:
+    description: "One session's halt flag moved. haltReason: null means it cleared."
+    schema: { "$ref": "#/components/schemas/SessionHaltEvent" }
+  session:hold:
+    description: "Why one session is parked, or null when it is not. Despite the name this is UNRELATED to the held-task queue."
+    schema: { "$ref": "#/components/schemas/SessionHoldEvent" }
+  app:sessions-stranded:
+    description: "The stranded set GREW. Fires on growth only, so the count is a prompt to re-read GET /api/stranded, not a running total."
+    schema: { "$ref": "#/components/schemas/SessionsStrandedEvent" }
+  app:auto-revived:
+    description: "The poller revived stranded sessions by itself. Totals for the current restart episode."
+    schema: { "$ref": "#/components/schemas/AutoRevivedEvent" }
   # ── /stream: queues ──
   # ── stream: compose ──
   # ── /stream: compose ──

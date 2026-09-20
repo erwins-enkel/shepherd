@@ -9,11 +9,14 @@ import ShepherdKit
 }
 struct MergeQueueView: View {
     let app: AppModel
-    let queue: BuildQueue
     let session: Session
     let store: SessionStore
     let model: MergeModel
     @State private var title = ""
+    private var queue: BuildQueue {
+        model.queueState(id: session.id).queue
+            ?? BuildQueue(sessionId: session.id, steps: [], approved: false)
+    }
     private var planning: Bool { session.planPhase?.rawValue == "planning" }
     private var ended: Bool { session.status.known == .archived || MergeInputs.terminalEnded(app, session.id) }
     var body: some View {
@@ -26,23 +29,25 @@ struct MergeQueueView: View {
                         Image(systemName: step.status.known == .done ? "checkmark.circle" :
                             step.status.known == .skipped ? "minus.circle" : "circle")
                         MergeStepEditor(step: step) { title, detail in
-                            var steps = queue.steps
-                            guard let index = steps.firstIndex(where: { $0.id == step.id }) else { return }
-                            steps[index].title = title; steps[index].detail = detail; write(steps)
+                            write { steps in
+                                guard let index = steps.firstIndex(where: { $0.id == step.id }) else { return }
+                                steps[index].title = title; steps[index].detail = detail
+                            }
                         }
                         Button { move(step.id, by: -1) } label: { Image(systemName: "arrow.up") }
                             .accessibilityLabel(L.t("native_merge_move_up"))
                         Button { move(step.id, by: 1) } label: { Image(systemName: "arrow.down") }
                             .accessibilityLabel(L.t("native_merge_move_down"))
-                        Button(L.t("native_merge_remove")) { write(queue.steps.filter { $0.id != step.id }) }
+                        Button(L.t("native_merge_remove")) { write { rows in rows.removeAll { $0.id == step.id } } }
                     }
                 }
                 TextField(L.t("native_merge_step"), text: $title)
                 Button(L.t("native_merge_add")) {
-                    var steps = queue.steps
-                    steps.append(.init(id: UUID().uuidString, title: title.trimmingCharacters(in: .whitespacesAndNewlines),
-                        detail: "", status: .init(known: .pending), position: steps.count))
-                    write(steps); title = ""
+                    write { steps in
+                        steps.append(.init(id: UUID().uuidString, title: title.trimmingCharacters(in: .whitespacesAndNewlines),
+                            detail: "", status: .init(known: .pending), position: steps.count))
+                    }
+                    title = ""
                 }.disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || title.count > 200 || queue.steps.count >= 100)
                 if MergeRules.canApprove(queue, status: session.status.rawValue, planning: planning,
                     reviewBlocked: MergeInputs.planReviewBlocked(app, session.id), ended: ended) {
@@ -56,21 +61,19 @@ struct MergeQueueView: View {
                         model.perform { try await store.client.replySession(id: session.id, text: L.t("buildqueue_start_steer")) }
                     }
                 }
-            }.disabled(model.busy || queue.steps.contains { $0.status.known == nil })
+            }.disabled(model.busy || model.queueState(id: session.id).queue == nil || queue.steps.contains { $0.status.known == nil })
         }
     }
     private func move(_ id: String, by offset: Int) {
-        var rows = queue.steps
-        guard let index = rows.firstIndex(where: { $0.id == id }), rows.indices.contains(index + offset) else { return }
-        rows.swapAt(index, index + offset); write(rows)
+        write { rows in
+            guard let index = rows.firstIndex(where: { $0.id == id }), rows.indices.contains(index + offset) else { return }
+            rows.swapAt(index, index + offset)
+        }
     }
-    private func write(_ steps: [BuildStep]) {
-        // Preserve the agent's stable IDs and statuses on replace. Unknown states are not edited.
-        guard !model.busy, queue.steps.allSatisfy({ $0.status.known != nil }),
-            steps.allSatisfy({ $0.status.known != nil }) else { return }
-        let rows = steps.map { BuildStepInput(id: $0.id, title: $0.title, detail: $0.detail,
-            status: .init(rawValue: $0.status.rawValue)) }
-        model.perform { _ = try await store.client.putBuildQueue(id: session.id, body: .init(steps: rows)) }
+    private func write(_ edit: (inout [BuildStep]) -> Void) {
+        model.editQueue(id: session.id, edit: edit) {
+            try await store.client.putBuildQueue(id: session.id, body: $0)
+        }
     }
 }
 struct MergeStepEditor: View {

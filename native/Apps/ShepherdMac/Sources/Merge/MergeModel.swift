@@ -8,6 +8,16 @@ struct MergeSnapshot: Sendable {
     var queues: [String: BuildQueue] = [:]
     var owed: [PostMergeSteps] = []
 }
+enum MergeQueueState {
+    case unloaded
+    case failed
+    case loaded(BuildQueue)
+
+    var queue: BuildQueue? {
+        guard case .loaded(let queue) = self else { return nil }
+        return queue
+    }
+}
 struct MergeReads: Sendable {
     var snapshot: @Sendable () async throws -> MergeSnapshot
     var sessionRows: @MainActor @Sendable () async throws -> Void = {}
@@ -131,6 +141,30 @@ final class MergeModel: AppExtension {
                 self.refreshError = L.t("native_merge_load_failed"); settled = true
             }
         } while pending && !stopped
+    }
+    func queueState(id: String) -> MergeQueueState {
+        guard !stopped, settled else { return .unloaded }
+        guard refreshError == nil else { return .failed }
+        // Only a successful bulk snapshot can prove that a queue is empty.
+        return .loaded(snapshot.queues[id] ?? .init(sessionId: id, steps: [], approved: false))
+    }
+    func editQueue(
+        id: String,
+        edit: (inout [BuildStep]) -> Void,
+        send: @escaping @MainActor (BuildQueueWrite) async throws -> BuildQueue
+    ) {
+        guard !busy, case .loaded(let queue) = queueState(id: id),
+              queue.steps.allSatisfy({ $0.status.known != nil }) else { return }
+        var steps = queue.steps
+        edit(&steps)
+        guard steps != queue.steps, steps.allSatisfy({ $0.status.known != nil }) else { return }
+        let rows = steps.map { BuildStepInput(id: $0.id, title: $0.title, detail: $0.detail,
+            status: .init(rawValue: $0.status.rawValue)) }
+        perform(commit: { [weak self] queue in
+            // perform commits synchronously before busy becomes false. Its invalidation
+            // also prevents an older, in-flight snapshot from undoing this response.
+            self?.snapshot.queues[id] = queue
+        }) { try await send(.init(steps: rows)) }
     }
     func prune(liveIDs: Set<String>) {
         snapshot.queues = snapshot.queues.filter { liveIDs.contains($0.key) }

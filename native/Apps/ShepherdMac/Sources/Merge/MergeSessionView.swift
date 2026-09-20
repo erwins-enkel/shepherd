@@ -59,9 +59,7 @@ private struct MergeSessionContent: View {
             Button(L.t("native_merge_ack")) {
                 model.perform { _ = try await store.client.ackManualSteps(id: session.id) }
             }.disabled(session.manualSteps.isEmpty)
-            let queue = model.snapshot.queues[session.id]
-                ?? BuildQueue(sessionId: session.id, steps: [], approved: false)
-            MergeQueueView(app: app, queue: queue, session: session, store: store, model: model)
+            MergeQueueView(app: app, session: session, store: store, model: model)
         }
         .padding().disabled(model.busy)
         .sheet(isPresented: $confirm) {

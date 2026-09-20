@@ -49,9 +49,12 @@ struct MergeOwedView: View {
     @State private var state: MergeOwedState
 
     init(model: MergeModel, client: ShepherdClient, repos: Set<String> = []) {
-        self.model = model
+        self.init(state: MergeOwedState(model: model, actions: .live(client)), repos: repos)
+    }
+    init(state: MergeOwedState, repos: Set<String> = []) {
+        self.model = state.model
         self.repos = repos
-        _state = State(initialValue: MergeOwedState(model: model, actions: .live(client)))
+        _state = State(initialValue: state)
     }
     var body: some View {
         ScrollView {

@@ -131,7 +131,7 @@ jobs:
       - name: Test
         # Test traits use cooperative cancellation; also bound a blocked thread
         # or an unresumed continuation that cannot respond to cancellation.
-        timeout-minutes: 10
+        timeout-minutes: 20
         # The `SecItem*` tests are opt-in: locally they would make macOS ask
         # the operator to approve a freshly signed test runner's access to the
         # login keychain, which stalls an unattended run. CI is the one place

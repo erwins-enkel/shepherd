@@ -2,8 +2,25 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { declaredEvents, declaredOperations } from "./harness";
 
-/** The streams that own a marked block, in the order S0-prep placed them. */
-export const STREAM_NAMES = ["terminal", "detail", "sidebar", "actions"] as const;
+/** The streams that own a marked block, in the order S0-prep placed them.
+ *
+ *  Milestone 2 placed the first four; S0-prep-2 appended the six milestone-3 streams. The order
+ *  here is the order the markers sit in each section, and `stream-blocks.test.ts` asserts the two
+ *  agree — a name added here without its three markers fails that test, and a marker placed for a
+ *  name that is not here throws `unknown stream` out of `parseStreamBlocks`. Both directions are
+ *  deliberate: a half-registered stream is worse than neither half. */
+export const STREAM_NAMES = [
+  "terminal",
+  "detail",
+  "sidebar",
+  "actions",
+  "herd",
+  "plan",
+  "merge",
+  "queues",
+  "compose",
+  "settings",
+] as const;
 export type StreamName = (typeof STREAM_NAMES)[number];
 
 export interface StreamBlocks {

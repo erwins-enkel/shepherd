@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import Ajv2020 from "ajv/dist/2020";
 import { config } from "../../src/config";
 import { firstRun } from "../../src/first-run";
 import { SESSION_COOKIE } from "../../src/operator-auth";
@@ -267,6 +268,68 @@ describe("sessions", () => {
     }
   });
 
+  test("accepts the six create fields milestone 3 declared", async () => {
+    const body = {
+      repoPath: s.validRepo,
+      baseBranch: "main",
+      prompt: "declared create fields",
+      research: false,
+      epicAuthoring: false,
+      mergeTrainPrs: [],
+      attachmentNames: [],
+      launchUiState: {
+        researchChecked: false,
+        planGateChecked: false,
+        autopilotChecked: false,
+      },
+      issueRef: { number: 1, url: "https://example.test/i/1", title: "t", body: "" },
+    };
+    // Validate the request too: the server already accepts these fields, so a 201 alone
+    // cannot catch a missing declaration in the generated client's contract.
+    const ajv = new Ajv2020({ strict: false, allErrors: true });
+    ajv.addSchema(loadContract() as unknown as object, "contract");
+    const validate = ajv.compile({ $ref: "contract#/components/schemas/CreateSessionRequest" });
+    expect(validate(body), JSON.stringify(validate.errors)).toBe(true);
+    expect(validate({ ...body, issueRef: { number: 1, url: body.issueRef.url, title: "t" } })).toBe(
+      false,
+    );
+    expect(validate({ ...body, launchUiState: { source: "contract-test" } })).toBe(false);
+
+    const res = await fetch(`${s.baseUrl}/api/sessions`, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...bearer(token) },
+      body: JSON.stringify(body),
+    });
+    // 201 proves ALLOWED_KEYS took every field; an unknown key would answer 400.
+    expect(res.status).toBe(201);
+    await validateResponse("POST", "/api/sessions", res);
+  });
+
+  test("declares and accepts the spawn-id request header", async () => {
+    expect(loadContract().paths["/api/sessions"]!.post).toMatchObject({
+      parameters: expect.arrayContaining([
+        {
+          name: "X-Shepherd-Spawn-Id",
+          in: "header",
+          required: false,
+          schema: { type: "string" },
+          description: expect.any(String),
+        },
+      ]),
+    });
+    const res = await fetch(`${s.baseUrl}/api/sessions`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...bearer(token),
+        "X-Shepherd-Spawn-Id": crypto.randomUUID(),
+      },
+      body: JSON.stringify({ repoPath: s.validRepo, baseBranch: "main", prompt: "spawn id" }),
+    });
+    expect(res.status).toBe(201);
+    await validateResponse("POST", "/api/sessions", res);
+  });
+
   // The usage-hold gate (config.usageHoldEnabled defaults on, usageHoldPct 80): shouldHold()
   // compares max(session5h.pct, week.pct) against the threshold, so lifting the stubbed 5h
   // window above it queues the task (200 HeldTask) instead of spawning. `force: true` is the
@@ -496,6 +559,48 @@ describe("realtime /pty protocol constants", () => {
 });
 
 describe("contract structure", () => {
+  test("declares observed usage windows and git handoff fields", () => {
+    const schemas = loadContract().components.schemas;
+    expect(schemas.UsageLimits).toMatchObject({
+      properties: { observed: { $ref: "#/components/schemas/ObservedLimitWindows" } },
+    });
+    expect(schemas.ObservedLimitWindow).toMatchObject({
+      required: ["pct", "resetAt", "scrapedAt"],
+      properties: {
+        pct: { type: "number" },
+        resetAt: { type: "integer" },
+        scrapedAt: { type: "integer" },
+      },
+    });
+    const window = {
+      oneOf: [{ $ref: "#/components/schemas/ObservedLimitWindow" }, { type: "null" }],
+    };
+    expect(schemas.ObservedLimitWindows).toMatchObject({
+      required: ["session5h", "week"],
+      properties: { session5h: window, week: window },
+    });
+    expect(schemas.GitState).toMatchObject({
+      properties: {
+        handoff: { $ref: "#/components/schemas/PrHandoff" },
+        handoffWho: { type: "string" },
+        reviewBlock: { $ref: "#/components/schemas/PrReviewBlock" },
+        headSha: { type: "string" },
+      },
+    });
+    expect(schemas.PrHandoff).toMatchObject({
+      "x-shepherd-open-enum": true,
+      enum: ["reviewer", "merger"],
+    });
+    expect(schemas.PrReviewBlock).toMatchObject({
+      required: ["reviewer", "state"],
+      properties: {
+        reviewer: { type: "string" },
+        state: { type: "string", enum: ["changes_requested"] },
+        latestAt: { type: ["integer", "null"] },
+      },
+    });
+  });
+
   test("every operation has an operationId and JSON responses reference component schemas", () => {
     const c = loadContract();
     for (const [template, methods] of Object.entries(c.paths)) {

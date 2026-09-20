@@ -4252,5 +4252,9 @@
   "qform_native_confirm_body": "Antworten auf {count} Fragen an den Planungsagenten senden? Diese Antworten steuern seine Arbeit.",
   "planpanel_native_go_confirm": "Ausführung für „{name}“ starten? Der Agent beginnt, in seinen Worktree zu schreiben.",
   "planpanel_native_go_failed": "Die Ausführung konnte nicht gestartet werden. Versuche es erneut.",
-  "planpanel_native_not_releasable": "Der Plan ist nicht freigegeben oder befindet sich nicht mehr in der Planungsphase."
+  "planpanel_native_not_releasable": "Der Plan ist nicht freigegeben oder befindet sich nicht mehr in der Planungsphase.",
+  "topbar_held_reason_usage": "Zurückgehalten, weil die Nutzung hoch ist.",
+  "topbar_held_reason_capacity": "Zurückgehalten, weil kein Konto Kapazität hat.",
+  "topbar_held_reason_unknown": "Zurückgehalten — Grund nicht verfügbar.",
+  "topbar_held_discard_confirm": "Diese zurückgehaltene Aufgabe verwerfen?"
 }

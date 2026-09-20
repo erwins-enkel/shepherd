@@ -19,6 +19,46 @@ struct HeldQueueTests {
         """#.utf8))
     }
 
+    @Test func discardCancelSendsNoRequestAndConfirmationSendsExactlyOne() async {
+        var calls: [String] = []
+        var pending: Task<Bool, Never>?
+        let commands = HeldQueueCommands(spawn: { _, _ in }, update: { _, _ in },
+            discard: { calls.append($0) }, reload: { calls.append("read") })
+        let perform = {
+            pending = Task { await commands.run(.discard, id: "a", gate: SessionCommandState(),
+                                                isCurrent: { true }) }
+        }
+        var confirmation = HeldDiscardConfirmation()
+        confirmation.request()
+        #expect(confirmation.isPresented && calls.isEmpty)
+        confirmation.cancel()
+        confirmation.confirm(perform: perform)
+        #expect(pending == nil && calls.isEmpty && !confirmation.isPresented)
+        confirmation.request()
+        confirmation.confirm(perform: perform)
+        confirmation.confirm(perform: perform)
+        #expect(await pending?.value == true)
+        #expect(calls == ["a", "read"] && !confirmation.isPresented)
+    }
+
+    @Test(arguments: ["en", "de"])
+    func heldReasonLabelsCoverKnownUnknownAndMissingValues(language: String) throws {
+        let path = try #require(Bundle.main.path(forResource: language, ofType: "lproj"))
+        let bundle = try #require(Bundle(path: path))
+        let expected = language == "en"
+            ? ["Held because usage is high.", "Held because no account has capacity.", "Held — reason unavailable."]
+            : ["Zurückgehalten, weil die Nutzung hoch ist.", "Zurückgehalten, weil kein Konto Kapazität hat.",
+               "Zurückgehalten — Grund nicht verfügbar."]
+        for (index, reason) in ["usage", "capacity", "future-reason"].enumerated() {
+            var row = try entry()
+            row.reason = try JSONDecoder().decode(HeldReason.self, from: JSONEncoder().encode(reason))
+            let key = HeldQueuePresentation.reasonKey(row.reason)
+            #expect(bundle.localizedString(forKey: "\(key)", value: nil, table: nil) == expected[index])
+            #expect(HeldQueuePresentation.reasonLabel(row.reason) == L.t(key))
+        }
+        #expect(HeldQueuePresentation.reasonLabel(nil) == L.t("topbar_held_reason_unknown"))
+    }
+
     @Test func badgeOnlyRendersForAPositiveHeldCount() {
         #expect(!HeldQueuePresentation.showsBadge(0))
         #expect(!HeldQueuePresentation.showsBadge(-1))

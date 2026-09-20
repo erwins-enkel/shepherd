@@ -5,6 +5,16 @@ import SwiftUI
 /// Presentation and the explicit stored-input -> writable-request boundary. Server-owned
 /// fields such as `auto` are not part of CreateSessionRequest and never go into PATCH.
 enum HeldQueuePresentation {
+    static func reasonKey(_ reason: HeldReason?) -> StaticString {
+        switch reason?.known {
+        case .usage: "topbar_held_reason_usage"
+        case .capacity: "topbar_held_reason_capacity"
+        case nil: "topbar_held_reason_unknown"
+        }
+    }
+
+    static func reasonLabel(_ reason: HeldReason?) -> String { L.t(reasonKey(reason)) }
+
     static func showsBadge(_ count: Int) -> Bool { count > 0 }
 
     static func originalProvider(_ entry: HeldQueueEntry) -> AgentProvider {
@@ -35,6 +45,18 @@ enum HeldQueuePresentation {
             && !request.baseBranch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && !request.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && request.prompt.count <= 8_000
+    }
+}
+
+/// The row's dialog routes cancellation and dismissal through the same no-command path.
+struct HeldDiscardConfirmation {
+    private(set) var isPresented = false
+    mutating func request() { isPresented = true }
+    mutating func cancel() { isPresented = false }
+    mutating func confirm(perform: () -> Void) {
+        guard isPresented else { return }
+        isPresented = false
+        perform()
     }
 }
 
@@ -176,6 +198,7 @@ private struct HeldQueueRow: View {
     let edit: () -> Void
     let perform: (HeldQueueAction) -> Void
     @State private var selectedProvider: AgentProvider?
+    @State private var discardConfirmation = HeldDiscardConfirmation()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -186,6 +209,9 @@ private struct HeldQueueRow: View {
                          HeldQueuePresentation.providerLabel(HeldQueuePresentation.originalProvider(entry))))
             }
             .font(.caption).foregroundStyle(.secondary)
+            Text(verbatim: HeldQueuePresentation.reasonLabel(entry.reason))
+                .font(.caption).foregroundStyle(.secondary)
+                .accessibilityIdentifier("queues-held-reason-\(entry.id)")
             Picker(L.t("topbar_held_spawn_cli_label"), selection: Binding(
                 get: { selectedProvider ?? HeldQueuePresentation.originalProvider(entry) },
                 set: { selectedProvider = $0 })) {
@@ -201,12 +227,21 @@ private struct HeldQueueRow: View {
                     perform(.spawn(HeldQueuePresentation.spawnOverride(entry, selected: selectedProvider)))
                 }
                 .accessibilityIdentifier("queues-held-spawn-\(entry.id)")
-                Button(L.t("topbar_held_discard"), role: .destructive) { perform(.discard) }
+                Button(L.t("topbar_held_discard"), role: .destructive) { discardConfirmation.request() }
                     .accessibilityIdentifier("queues-held-discard-\(entry.id)")
             }
         }
         .disabled(busy)
         .accessibilityIdentifier("queues-held-row-\(entry.id)")
+        .confirmationDialog(L.t("topbar_held_discard_confirm"), isPresented: Binding(
+            get: { discardConfirmation.isPresented },
+            set: { if !$0 { discardConfirmation.cancel() } }), titleVisibility: .visible) {
+                Button(L.t("topbar_held_discard"), role: .destructive) {
+                    discardConfirmation.confirm { perform(.discard) }
+                }
+                Button(L.t("common_cancel"), role: .cancel) { discardConfirmation.cancel() }
+        }
+        .onDisappear { discardConfirmation.cancel() }
     }
 }
 

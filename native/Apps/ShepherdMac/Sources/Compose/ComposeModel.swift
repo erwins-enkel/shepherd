@@ -5,11 +5,13 @@ import ShepherdKit
 /// One presentation, one issue listing shared by the panel and the prompt's # menu.
 @Observable @MainActor
 final class ComposeModel {
+    let shaping: ShapeRoundModel
     let attachments: AttachmentModel
     let repoBranches: RepoBranchModel
     var repoPath = "" {
         didSet {
             guard oldValue != repoPath else { return }
+            shaping.discard()
             repoBranches.selectRepo(repoPath)
             generation += 1
             listing = nil; issues = []; commandListings = [:]; commandErrors = [:]; epicParents = []; subIssues = []
@@ -18,14 +20,20 @@ final class ComposeModel {
             loading = false
         }
     }
-    var provider: AgentProvider = .claude { didSet { normalizeRunConfig() } }
-    var model = "default" { didSet { normalizeRunConfig() } }
+    var provider: AgentProvider = .claude { didSet {
+        if oldValue != provider { shaping.discard() }
+        normalizeRunConfig()
+    } }
+    var model = "default" { didSet {
+        if oldValue != model { shaping.discard() }
+        normalizeRunConfig()
+    } }
     var effort = "default" { didSet { normalizeRunConfig() } }
     var runDefaults: ComposeRunConfig.Defaults { didSet { normalizeRunConfig() } }
     @ObservationIgnored private var normalizingRunConfig = false
-    var research = false
-    var epicAuthoring = false
-    var plain = false
+    var research = false { didSet { if oldValue != research { shaping.discard() } } }
+    var epicAuthoring = false { didSet { if oldValue != epicAuthoring { shaping.discard() } } }
+    var plain = false { didSet { if oldValue != plain { shaping.discard() } } }
     var planGateEnabled = false
     var planGateTouched = false
     var autopilotEnabled = false
@@ -35,6 +43,7 @@ final class ComposeModel {
     private var designPreselected = false
     var prompt = "" {
         didSet {
+            if oldValue != prompt { shaping.discard() }
             updateDesignPreselection()
             if let constraint = providerConstraint, !prompt.contains(constraint.token) {
                 providerConstraint = nil
@@ -84,14 +93,17 @@ final class ComposeModel {
                      initialModel: String? = nil, initialEffort: String? = nil) {
         self.init(defaults: defaults, repoBranches: RepoBranchModel(client: client), loadIssues: { try await client.issues(repoPath: $0) },
                   loadCommands: { try await client.commands(repoPath: $0, provider: $1) },
-                  loadEpics: { try await client.epics(repoPath: $0) }, attachments: AttachmentModel(client: client),
+                  loadEpics: { try await client.epics(repoPath: $0) }, attachments: AttachmentModel(client: client), shaping: ShapeRoundModel(client: client),
                   runDefaults: runDefaults, initialModel: initialModel, initialEffort: initialEffort)
     }
 
     init(defaults: UserDefaults, repoBranches: RepoBranchModel, loadIssues: @escaping (String) async throws -> IssueListing,
          loadCommands: @escaping (String, AgentProvider) async throws -> CommandListing,
          loadEpics: @escaping (String) async throws -> EpicListing, attachments: AttachmentModel? = nil,
+         shaping: ShapeRoundModel? = nil,
          runDefaults: ComposeRunConfig.Defaults = .init(), initialModel: String? = nil, initialEffort: String? = nil) {
+        self.shaping = shaping ?? ShapeRoundModel(shape: { _ in throw ShepherdError.cancelled },
+                                                 brief: { _ in throw ShepherdError.cancelled })
         self.runDefaults = runDefaults
         self.attachments = attachments ?? AttachmentModel(upload: { _, _ in throw ShepherdError.cancelled })
         self.repoBranches = repoBranches
@@ -142,6 +154,22 @@ final class ComposeModel {
     var modeLocked: Bool { research || epicAuthoring || plain }
     var sandboxLocked: Bool { research || epicAuthoring }
     var shapingOffered: Bool { mode == .code }
+
+    var shapeBlocker: String? {
+        ShapeRoundModel.blocker(running: shaping.running || shaping.composing, mode: mode,
+                                repoPath: repoPath, prompt: prompt)
+    }
+
+    func startShaping() async {
+        normalizeRunConfig()
+        guard shapeBlocker == nil else { return }
+        await shaping.start(.init(repoPath: repoPath, prompt: prompt, provider: provider,
+                                  model: model == "default" ? nil : model))
+    }
+
+    func useBrief(_ answers: [RawAnswer]) async {
+        if let brief = await shaping.useBrief(answers) { prompt = brief }
+    }
 
     var guardExplanation: String? {
         switch mode {
@@ -251,6 +279,7 @@ final class ComposeModel {
     }
 
     func teardown() {
+        shaping.teardown()
         repoBranches.teardown()
         attachments.teardown()
         generation += 1

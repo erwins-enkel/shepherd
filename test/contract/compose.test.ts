@@ -338,6 +338,103 @@ describe("uploads", () => {
   });
 });
 
+describe("shaping round", () => {
+  async function post(path: string, body: unknown, auth = true) {
+    return fetch(`${s.baseUrl}${path}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...(auth ? bearer(token) : {}) },
+      body: JSON.stringify(body),
+    });
+  }
+  const request = () => ({
+    repoPath: s.validRepo,
+    prompt: "Add limits",
+    provider: "codex",
+    model: null,
+  });
+
+  test("200 carries the shared question form and accepts a default model", async () => {
+    s.stubs.shapeTask.impl = async (...args: unknown[]) => {
+      expect(args).toEqual([s.validRepo, "Add limits", "codex", null]);
+      return fx.shapeRound;
+    };
+    try {
+      const res = await post("/api/shape", request());
+      expect(res.status).toBe(200);
+      expect(await validateResponse("POST", "/api/shape", res)).toEqual(fx.shapeRound);
+    } finally {
+      s.stubs.shapeTask.impl = null;
+    }
+  });
+
+  test("both 400 reasons, all four 422 slugs, unwired 503, and 401", async () => {
+    for (const [body, error] of [
+      [
+        { ...request(), provider: "invalid" },
+        "body must be {repoPath, prompt, provider: 'claude'|'codex', model?: string}",
+      ],
+      [{ ...request(), repoPath: "/etc" }, "invalid repo"],
+    ] as const) {
+      const res = await post("/api/shape", body);
+      expect(res.status).toBe(400);
+      expect(await validateResponse("POST", "/api/shape", res)).toEqual({ error });
+    }
+    for (const error of ["empty-prompt", "spawn-failed", "timeout", "unavailable"] as const) {
+      s.stubs.shapeTask.impl = async () => ({ error });
+      try {
+        const res = await post("/api/shape", request());
+        expect(res.status).toBe(422);
+        expect(await validateResponse("POST", "/api/shape", res)).toEqual({ error });
+      } finally {
+        s.stubs.shapeTask.impl = null;
+      }
+    }
+    const previous = s.deps.shapeTask;
+    s.deps.shapeTask = undefined;
+    try {
+      const res = await post("/api/shape", request());
+      expect(res.status).toBe(503);
+      expect(await validateResponse("POST", "/api/shape", res)).toEqual({ error: "unavailable" });
+    } finally {
+      s.deps.shapeTask = previous;
+    }
+    const anon = await post("/api/shape", request(), false);
+    expect(anon.status).toBe(401);
+    await validateResponse("POST", "/api/shape", anon);
+  });
+
+  test("brief resolves answers, supports draft-only rounds, rejects an invalid round, and requires auth", async () => {
+    const answers = [
+      { blockId: "shape-questions", questionId: "scope", optionIndices: [0] },
+      { blockId: "shape-questions", questionId: "checks", optionIndices: [] },
+      { blockId: "shape-questions", questionId: "detail", text: "Preserve latency" },
+      { blockId: "wrong-block", questionId: "detail", text: "UNTRUSTED" },
+    ];
+    const res = await post("/api/shape/brief", { ...fx.shapeRound, answers });
+    expect(res.status).toBe(200);
+    const body = (await validateResponse("POST", "/api/shape/brief", res)) as { brief: string };
+    expect(body.brief).toContain("Missing limits");
+    expect(body.brief).toContain("Admin");
+    expect(body.brief).toContain("Preserve latency");
+    expect(body.brief).not.toContain("UNTRUSTED");
+    const draftOnly = await post("/api/shape/brief", {
+      ...fx.shapeRound,
+      block: { ...fx.shapeRound.block, questions: [] },
+      answers: [],
+    });
+    expect(draftOnly.status).toBe(200);
+    await validateResponse("POST", "/api/shape/brief", draftOnly);
+    const bad = await post("/api/shape/brief", {});
+    expect(bad.status).toBe(400);
+    expect(await validateResponse("POST", "/api/shape/brief", bad)).toEqual({
+      error: "invalid round",
+    });
+    const anon = await post("/api/shape/brief", fx.shapeRound, false);
+    expect(anon.status).toBe(401);
+    await validateResponse("POST", "/api/shape/brief", anon);
+  });
+});
+
 describe("compose coverage gate", () => {
   test("every compose operation and event was exercised", () => {
     const { operations, events } = coverage();

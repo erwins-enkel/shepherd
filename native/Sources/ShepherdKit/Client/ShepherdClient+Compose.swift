@@ -1,6 +1,15 @@
 import Foundation
 import OpenAPIRuntime
 
+public typealias TaskBriefDraft = Components.Schemas.TaskBriefDraft
+public typealias ShapeRequest = Components.Schemas.ShapeRequest
+public typealias ShapeRound = Components.Schemas.ShapeRound
+public typealias ShapeBriefRequest = Components.Schemas.ShapeBriefRequest
+
+public enum ComposeShapeError: Error, Equatable, Sendable {
+    case failed(String)
+}
+
 public enum ComposeUploadError: Error, Equatable, Sendable {
     case fileTooLarge(String)
 }
@@ -26,6 +35,33 @@ extension Components.Schemas.SlashCommandKind: OpenEnum {}
 extension Components.Schemas.IssueFetchAttempt.ReasonPayload: OpenEnum {}
 
 extension ShepherdClient {
+    public func shapeTask(_ request: ShapeRequest) async throws -> ShapeRound {
+        do {
+            switch try await generated.shapeTask(.init(body: .json(request))) {
+            case .ok(let ok): return try ok.body.json
+            case .badRequest(let bad): throw ShepherdError.badRequest(try bad.body.json.error)
+            case .unauthorized: throw ShepherdError.unauthenticated
+            case .unprocessableContent(let bad): throw ComposeShapeError.failed(try bad.body.json.error.rawValue)
+            case .serviceUnavailable(let bad): throw ComposeShapeError.failed(try bad.body.json.error.rawValue)
+            case .undocumented(let statusCode, _):
+                throw ShepherdError.fromUndocumented(statusCode: statusCode, route: "shapeTask")
+            }
+        } catch let error as ComposeShapeError { throw error }
+        catch { throw ShepherdError.from(error, route: "shapeTask") }
+    }
+
+    public func shapeBrief(_ request: ShapeBriefRequest) async throws -> String {
+        do {
+            switch try await generated.shapeBrief(.init(body: .json(request))) {
+            case .ok(let ok): return try ok.body.json.brief
+            case .badRequest(let bad): throw ShepherdError.badRequest(try bad.body.json.error)
+            case .unauthorized: throw ShepherdError.unauthenticated
+            case .undocumented(let statusCode, _):
+                throw ShepherdError.fromUndocumented(statusCode: statusCode, route: "shapeBrief")
+            }
+        } catch { throw ShepherdError.from(error, route: "shapeBrief") }
+    }
+
     /// Pre-session staging only: never attaches to, or creates, a live session.
     /// Reports file bytes consumed by the streaming transport, excluding multipart framing.
     /// Buffered bytes are not a server acknowledgement: callers must cap progress below 100%

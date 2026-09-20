@@ -5,14 +5,14 @@ import Testing
 @testable import Shepherd
 
 @MainActor @Suite struct ComposeModelTests {
-    static func composer(attachments: AttachmentModel? = nil) -> ComposeModel {
+    static func composer(attachments: AttachmentModel? = nil, shaping: ShapeRoundModel? = nil) -> ComposeModel {
         ComposeModel(defaults: UserDefaults(suiteName: "ComposeModeTests.\(UUID())")!,
                      repoBranches: RepoBranchModel(
                         loadBranches: { _ in .init(branches: []) },
                         loadStatus: { _, _ in .init(behind: 0, ahead: 0, diverged: false, hasUpstream: false, localExists: false) },
                         repair: { _, branch in .init(branch: branch) }),
                      loadIssues: { _ in .init(issues: []) }, loadCommands: { _, _ in .init(commands: []) },
-                     loadEpics: { _ in .init(epics: [], subIssues: []) }, attachments: attachments)
+                     loadEpics: { _ in .init(epics: [], subIssues: []) }, attachments: attachments, shaping: shaping)
     }
 
     @Test func uploadReportsPartialBytesAndResetsForANewBatch() async throws {

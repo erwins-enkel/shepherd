@@ -109,3 +109,22 @@ export const epicListing = {
   ],
   subIssues: [413, 414],
 };
+
+/** The shaper's actual wire types, shared with the plan question resolver. */
+export const shapeRound = {
+  draft: {
+    problem: "Missing limits",
+    outcome: "Bound requests",
+    constraints: ["Keep API"],
+    nonGoals: ["Rewrite"],
+  },
+  block: {
+    type: "question-form",
+    id: "shape-questions",
+    questions: [
+      { id: "scope", kind: "single", prompt: "Which scope?", options: ["Admin", "All"] },
+      { id: "checks", kind: "multi", prompt: "Which checks?", options: ["Tests", "Metrics"] },
+      { id: "detail", kind: "freeform", prompt: "Any detail?" },
+    ],
+  },
+} satisfies Exclude<import("../../src/task-shape").ShapeResult, { error: string }>;

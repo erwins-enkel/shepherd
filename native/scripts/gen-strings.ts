@@ -727,6 +727,23 @@ export const KEYS_QUEUES: readonly string[] = [
 
 /** S11 — the composer: create fields, slash commands, steers, attachments. */
 export const KEYS_COMPOSE: readonly string[] = [
+  "newtask_shape_label",
+  "newtask_shape_aria",
+  "newtask_shape_hint",
+  "shape_heading",
+  "shape_running",
+  "shape_questions_count",
+  "shape_s_problem",
+  "shape_s_outcome",
+  "shape_s_constraints",
+  "shape_s_nongoals",
+  "shape_use_brief",
+  "shape_discard",
+  "shape_err_timeout",
+  "shape_err_spawn_failed",
+  "shape_err_unavailable",
+  "shape_err_empty_prompt",
+  "shape_err_compose",
   "model_configured_fable_latest",
   "model_configured_opus_1m_latest",
   "model_configured_opus_latest",

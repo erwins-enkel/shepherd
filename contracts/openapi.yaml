@@ -2436,6 +2436,57 @@ components:
       required: [branch]
       properties:
         branch: { type: string }
+    TaskBriefDraft:
+      type: object
+      additionalProperties: true
+      required: [problem, outcome, constraints, nonGoals]
+      properties:
+        problem: { type: string }
+        outcome: { type: string }
+        constraints: { type: array, items: { type: string } }
+        nonGoals: { type: array, items: { type: string } }
+    ShapeRequest:
+      type: object
+      additionalProperties: false
+      required: [repoPath, prompt, provider]
+      properties:
+        repoPath: { type: string }
+        prompt: { type: string }
+        provider: { $ref: "#/components/schemas/AgentProvider" }
+        model: { type: [string, "null"], minLength: 1 }
+    ShapeRound:
+      type: object
+      additionalProperties: true
+      required: [draft, block]
+      properties:
+        draft: { $ref: "#/components/schemas/TaskBriefDraft" }
+        block: { $ref: "#/components/schemas/VisualBlockQuestionForm" }
+    ShapeBriefRequest:
+      type: object
+      additionalProperties: false
+      required: [draft, block, answers]
+      properties:
+        draft: { $ref: "#/components/schemas/TaskBriefDraft" }
+        block: { $ref: "#/components/schemas/VisualBlockQuestionForm" }
+        answers: { type: array, items: { $ref: "#/components/schemas/RawAnswer" } }
+    ShapeBriefResponse:
+      type: object
+      additionalProperties: true
+      required: [brief]
+      properties:
+        brief: { type: string }
+    ShapeFailure:
+      type: object
+      additionalProperties: true
+      required: [error]
+      properties:
+        error: { type: string, enum: [empty-prompt, spawn-failed, timeout, unavailable] }
+    ShapeUnavailable:
+      type: object
+      additionalProperties: true
+      required: [error]
+      properties:
+        error: { type: string, enum: [unavailable] }
     # ── /stream: compose ──
     # ── stream: settings ──
     # ── /stream: settings ──
@@ -4031,6 +4082,59 @@ paths:
               schema: { $ref: "#/components/schemas/Error" }
         "422":
           description: Invalid branch or git failed to create the initial commit.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/shape:
+    post:
+      operationId: shapeTask
+      description: Read the repo and rough prompt into a draft and clarifying questions, before creating a session.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ShapeRequest" }
+      responses:
+        "200":
+          description: Draft brief and the plan stream's question form; questions may be empty.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ShapeRound" }
+        "400":
+          description: Malformed body or invalid repo.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422":
+          description: The shaping agent failed with a stable error slug.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ShapeFailure" }
+        "503":
+          description: The server has no shaper configured.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ShapeUnavailable" }
+  /api/shape/brief:
+    post:
+      operationId: shapeBrief
+      description: Resolve answers against the round and compose a full replacement prompt, without spawning a session.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ShapeBriefRequest" }
+      responses:
+        "200":
+          description: The complete task brief.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ShapeBriefResponse" }
+        "400":
+          description: 'error is "invalid round".'
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }

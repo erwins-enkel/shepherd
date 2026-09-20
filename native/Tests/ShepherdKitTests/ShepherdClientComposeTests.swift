@@ -11,6 +11,74 @@ struct ShepherdClientComposeTests {
         return try ShepherdClient(profile: profile, credentials: credentials, urlSession: server.urlSession())
     }
 
+    @Test func shapeAndBriefUseGeneratedPayloads() async throws {
+        let server = FakeShepherdServer()
+        defer { server.tearDown() }
+        let roundJSON = #"{"draft":{"problem":"Problem","outcome":"Outcome","constraints":[],"nonGoals":[]},"block":{"type":"question-form","id":"shape-questions","questions":[]}}"#
+        server.stub("POST", "/api/shape", status: 200, json: Data(roundJSON.utf8))
+        server.stub("POST", "/api/shape/brief", status: 200, json: Data(#"{"brief":"Whole brief"}"#.utf8))
+        let client = try makeClient(server)
+        let round = try await client.shapeTask(.init(repoPath: "/repo", prompt: "Rough", provider: .codex))
+        #expect(round.draft.problem == "Problem")
+        #expect(round.block.questions.isEmpty)
+        let brief = try await client.shapeBrief(.init(draft: round.draft, block: round.block,
+            answers: [.init(blockId: round.block.id, questionId: "q", optionIndices: [1])]))
+        #expect(brief == "Whole brief")
+        let requests = server.requests()
+        #expect(requests.map(\.path) == ["/api/shape", "/api/shape/brief"])
+        let shapeBody = try #require(requests[0].body)
+        let shape = try #require(JSONSerialization.jsonObject(with: shapeBody) as? [String: Any])
+        #expect(shape["repoPath"] as? String == "/repo")
+        #expect(shape["prompt"] as? String == "Rough")
+        #expect(shape["provider"] as? String == "codex")
+        #expect(shape["model"] == nil || shape["model"] is NSNull)
+        let briefBody = try #require(requests[1].body)
+        let payload = try #require(JSONSerialization.jsonObject(with: briefBody) as? [String: Any])
+        let answers = try #require(payload["answers"] as? [[String: Any]])
+        #expect(answers.first?["optionIndices"] as? [Int] == [1])
+    }
+
+    @Test(arguments: [400, 401, 422, 503])
+    func shapeMapsErrors(_ status: Int) async throws {
+        let server = FakeShepherdServer()
+        defer { server.tearDown() }
+        server.stub("POST", "/api/shape", status: status, json: try Fixtures.errorJSON("unavailable"))
+        let client = try makeClient(server)
+        if status == 422 || status == 503 {
+            await #expect(throws: ComposeShapeError.failed("unavailable")) {
+                _ = try await client.shapeTask(.init(repoPath: "/repo", prompt: "Rough", provider: .claude))
+            }
+        } else {
+            await #expect(throws: status == 401 ? ShepherdError.unauthenticated : .badRequest("unavailable")) {
+                _ = try await client.shapeTask(.init(repoPath: "/repo", prompt: "Rough", provider: .claude))
+            }
+        }
+    }
+
+    @Test(arguments: ["empty-prompt", "spawn-failed", "timeout", "unavailable"])
+    func shapePreservesEveryFailureSlug(_ slug: String) async throws {
+        let server = FakeShepherdServer()
+        defer { server.tearDown() }
+        server.stub("POST", "/api/shape", status: 422, json: try Fixtures.errorJSON(slug))
+        let client = try makeClient(server)
+        await #expect(throws: ComposeShapeError.failed(slug)) {
+            _ = try await client.shapeTask(.init(repoPath: "/repo", prompt: "Rough", provider: .codex, model: "gpt-6-astra"))
+        }
+    }
+
+    @Test(arguments: [400, 401])
+    func briefMapsErrors(_ status: Int) async throws {
+        let server = FakeShepherdServer()
+        defer { server.tearDown() }
+        server.stub("POST", "/api/shape/brief", status: status, json: try Fixtures.errorJSON("invalid round"))
+        let client = try makeClient(server)
+        await #expect(throws: status == 401 ? ShepherdError.unauthenticated : .badRequest("invalid round")) {
+            _ = try await client.shapeBrief(.init(
+                draft: .init(problem: "P", outcome: "O", constraints: [], nonGoals: []),
+                block: .init(_type: .questionForm, id: "shape-questions", questions: []), answers: []))
+        }
+    }
+
     @Test(arguments: ["attachment bytes", ""])
     func uploadUsesGeneratedMultipartWithFileNameAndExactBytes(_ content: String) async throws {
         let server = FakeShepherdServer()

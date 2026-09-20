@@ -7771,6 +7771,57 @@
         }
       }
     },
+    "newtask_shape_aria": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Aufgabe mit einer Rückfragerunde schärfen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shape this task with a clarifying round"
+          }
+        }
+      }
+    },
+    "newtask_shape_hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erst ein paar Rückfragen klären, dann mit einem strukturierten Briefing starten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ask a few clarifying questions first, then start from a structured brief"
+          }
+        }
+      }
+    },
+    "newtask_shape_label": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schärfen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shape"
+          }
+        }
+      }
+    },
     "newtask_spawning": {
       "extractionState": "manual",
       "localizations": {
@@ -11106,6 +11157,245 @@
           "stringUnit": {
             "state": "translated",
             "value": "CI status"
+          }
+        }
+      }
+    },
+    "shape_discard": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwerfen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Discard"
+          }
+        }
+      }
+    },
+    "shape_err_compose": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aus diesen Antworten ließ sich kein Briefing bauen. Erneut versuchen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't build the brief from those answers. Try again."
+          }
+        }
+      }
+    },
+    "shape_err_empty_prompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erst einen groben Prompt schreiben — es gibt noch nichts zu schärfen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Write a rough prompt first — there is nothing to shape yet."
+          }
+        }
+      }
+    },
+    "shape_err_spawn_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Rückfragerunde konnte nicht gestartet werden. Erneut versuchen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't start the shaping round. Try again."
+          }
+        }
+      }
+    },
+    "shape_err_timeout": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Rückfragerunde wurde nicht rechtzeitig fertig. Erneut versuchen oder direkt mit dem Prompt starten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The shaping round didn't finish in time. Try again, or start from your prompt as it is."
+          }
+        }
+      }
+    },
+    "shape_err_unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schärfen nicht verfügbar: API-Key-Modus ist aktiv, aber kein Key konfiguriert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shaping is unavailable: API-key mode is on but no key is configured."
+          }
+        }
+      }
+    },
+    "shape_heading": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aufgabe schärfen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shaping this task"
+          }
+        }
+      }
+    },
+    "shape_questions_count": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ zu klären"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ to settle"
+          }
+        }
+      }
+    },
+    "shape_running": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repository wird gelesen, Fragen werden entworfen…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reading the repo and drafting questions…"
+          }
+        }
+      }
+    },
+    "shape_s_constraints": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Randbedingungen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Constraints"
+          }
+        }
+      }
+    },
+    "shape_s_nongoals": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht-Ziele"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non-goals"
+          }
+        }
+      }
+    },
+    "shape_s_outcome": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ergebnis"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Outcome"
+          }
+        }
+      }
+    },
+    "shape_s_problem": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Problem"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Problem"
+          }
+        }
+      }
+    },
+    "shape_use_brief": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Briefing übernehmen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use brief"
           }
         }
       }

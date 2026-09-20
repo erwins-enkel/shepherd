@@ -25,12 +25,13 @@ final class PlanModel: AppExtension {
     private(set) var reviewerEnv: [String: ReviewerEnv] = [:]
     private(set) var activity: [String: [String]] = [:]
     private(set) var openPlanTick: [String: Int] = [:]
-    /// Suppresses a repeated /go until the phase event arrives. The integration lane will
-    /// eventually teach SessionStore to apply that phase; we never patch its sessions here.
+    /// Suppresses a repeated /go while SessionStore still has a stale planning phase.
+    /// Revocation or an explicit return to planning reopens the gate; executing keeps it shut.
     private(set) var releasedGates: Set<String> = []
 
     @ObservationIgnored var reads: PlanReads
     @ObservationIgnored private weak var app: AppModel?
+    @ObservationIgnored private weak var store: SessionStore?
     @ObservationIgnored private var activation: Int?
     @ObservationIgnored private var generation = 0
     /// Unlike snapshot generation, this stays stable across refreshes and event mutations.
@@ -50,6 +51,7 @@ final class PlanModel: AppExtension {
 
     init(store: SessionStore, app: AppModel) {
         self.app = app
+        self.store = store
         activation = app.activationGeneration
         reads = .live(store.client)
         subscribe(store)
@@ -107,6 +109,9 @@ final class PlanModel: AppExtension {
                     }, model: entry.model, effort: entry.effort)
             }
             activity = [:]
+            // A revoked or removed verdict no longer belongs to the released approval.
+            releasedGates = releasedGates.filter { gates[$0]?.approved == true }
+            pruneToLiveSessions()
         } catch {
             guard isActive, mine == generation,
                   activationSnapshot == app?.activationGeneration else { return }
@@ -165,9 +170,15 @@ final class PlanModel: AppExtension {
                     invalidateSnapshot()
                     if let gate = frame.gate {
                         gates[frame.id] = gate
+                        if !gate.approved { releasedGates.remove(frame.id) }
                         applyReviewing(frame.id, false)
                     }
-                    if frame.planPhase != nil { releasedGates.remove(frame.id) }
+                    if let phase = frame.planPhase {
+                        // Web patches Session.planPhase. Until S0 does that here, preserve
+                        // execution suppression, including automatic releases on another client.
+                        if phase.known == .planning { releasedGates.remove(frame.id) }
+                        else { releasedGates.insert(frame.id) }
+                    }
                 case "session:plangate-reviewing":
                     let frame = try JSONDecoder().decode(SessionPlanGateReviewingEvent.self, from: payload)
                     invalidateSnapshot()
@@ -187,12 +198,24 @@ final class PlanModel: AppExtension {
                 applyReviewing(frame.id, false)
                 activity[frame.id] = nil
                 releasedGates.remove(frame.id)
-                // Keep the tick monotonic for the lifetime of this activation.
+                openPlanTick[frame.id] = nil
+                pruneToLiveSessions()
             default: return
             }
         } catch {
             Log.ui.debug("ignoring malformed plan event: \(String(describing: error), privacy: .public)")
         }
+    }
+
+    private func pruneToLiveSessions() {
+        guard let store, !store.sessions.isEmpty else { return } // Not bootstrapped yet.
+        let live = Set(store.sessions.map(\.id))
+        gates = gates.filter { live.contains($0.key) }
+        reviewing.formIntersection(live)
+        reviewerEnv = reviewerEnv.filter { live.contains($0.key) }
+        activity = activity.filter { live.contains($0.key) }
+        openPlanTick = openPlanTick.filter { live.contains($0.key) }
+        releasedGates.formIntersection(live)
     }
 
     private func invalidateSnapshot() {

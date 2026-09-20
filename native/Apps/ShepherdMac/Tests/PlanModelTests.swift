@@ -105,13 +105,14 @@ struct PlanModelTests {
         #expect(m.releasedGates == ["s1"])
         m.receive(try event("session:plangate", SessionPlanGateEvent(id: "s1", planPhase: .init(known: .executing))))
         #expect(m.gates["s1"]?.summary == "Current")
-        #expect(m.releasedGates.isEmpty)
+        #expect(m.releasedGates == ["s1"])
+        #expect(!m.canRelease(session), "an executing frame must suppress stale planning sessions")
         #expect(store.sessions.first?.planPhase?.known == .planning)
         m.markReleased("s1")
         m.receive(try event("session:plangate", SessionPlanGateEvent(
             id: "s1", gate: gate("Both"), planPhase: .init(unknown: "future"))))
         #expect(m.gates["s1"]?.summary == "Both")
-        #expect(m.releasedGates.isEmpty)
+        #expect(m.releasedGates == ["s1"])
     }
 
     // "A landing verdict means the review is no longer in flight."
@@ -151,7 +152,7 @@ struct PlanModelTests {
         #expect(m.activity.isEmpty)
     }
 
-    @Test func archiveDropsGateAndReviewStateWhileKeepingOpenTickMonotonic() async throws {
+    @Test func archiveDropsGateAndReviewStateAndOpenTick() async throws {
         let m = PlanModel(reads: reads(gate()))
         await m.refresh()
         m.openPlan("s1")
@@ -162,7 +163,86 @@ struct PlanModelTests {
         #expect(m.gates.isEmpty && m.reviewing.isEmpty && m.reviewerEnv.isEmpty)
         #expect(m.activity.isEmpty && m.releasedGates.isEmpty)
         m.openPlan("s1")
-        #expect(m.openPlanTick["s1"] == 2)
+        #expect(m.openPlanTick["s1"] == 1)
+    }
+
+    @Test func snapshotsPruneEveryMapToBootstrappedSessions() async throws {
+        let (m, store, app, defaults, suite) = try live(reads(gate()))
+        defer { m.teardown(); app.teardown(); defaults.removePersistentDomain(forName: suite) }
+        #expect(await settle { m.gates["s1"] != nil })
+        // An empty store has not bootstrapped yet; preserve the early plan snapshot.
+        m.openPlan("s1")
+        m.markReleased("s1")
+        await m.refresh()
+        #expect(m.gates["s1"] != nil && m.releasedGates == ["s1"])
+        store.apply(.sessionNew(PreviewData.session(id: "live")))
+        let stale = gate()
+        m.reads = PlanReads(gates: { ["s1": stale] }, inflight: {
+            [.init(id: "s1", model: "old")]
+        })
+        await m.refresh()
+        #expect(m.gates.isEmpty && m.reviewing.isEmpty && m.reviewerEnv.isEmpty)
+        #expect(m.activity.isEmpty && m.releasedGates.isEmpty && m.openPlanTick.isEmpty)
+    }
+
+    @Test func archivePrunesOtherOrphansAndPreservesLiveState() async throws {
+        let (m, store, app, defaults, suite) = try live(reads(gate()))
+        defer { m.teardown(); app.teardown(); defaults.removePersistentDomain(forName: suite) }
+        #expect(await settle { m.gates["s1"] != nil })
+        store.apply(.sessionNew(PreviewData.session(id: "live")))
+        for id in ["s1", "archived", "live"] {
+            m.openPlan(id)
+            m.markReleased(id)
+            m.receive(try event("session:plangate-reviewing",
+                SessionPlanGateReviewingEvent(id: id, reviewing: true, env: .init(model: "reviewer"))))
+            m.receive(try event("session:plangate-activity", SessionPlanGateActivityEvent(id: id, summary: "work")))
+        }
+        m.receive(.sessionArchived(.init(id: "archived")))
+        #expect(m.gates.isEmpty)
+        #expect(m.reviewing == ["live"] && Set(m.reviewerEnv.keys) == ["live"])
+        #expect(Set(m.activity.keys) == ["live"] && m.releasedGates == ["live"])
+        #expect(m.openPlanTick == ["live": 1])
+    }
+
+    @Test(arguments: [false, true])
+    func revokedGateReopensAfterFrameOrSnapshot(snapshot: Bool) async throws {
+        let m = PlanModel(reads: reads(gate()))
+        await m.refresh()
+        var session = PreviewData.session(id: "s1")
+        session.planPhase = .init(known: .planning)
+        m.markReleased("s1")
+        var revoked = gate("Reopened")
+        revoked.approved = false
+        revoked.decision = .init(known: .changesRequested)
+        if snapshot {
+            m.reads = reads(revoked)
+            await m.refresh()
+        } else {
+            m.receive(try event("session:plangate", SessionPlanGateEvent(id: "s1", gate: revoked)))
+        }
+        #expect(m.releasedGates.isEmpty)
+        #expect(!m.canRelease(session))
+        m.receive(try event("session:plangate", SessionPlanGateEvent(id: "s1", gate: gate("Approved again"))))
+        #expect(m.canRelease(session))
+    }
+
+    @Test func phaseFramesKeepReleasedGatesSuppressedUntilPlanningReopens() async throws {
+        let m = PlanModel(reads: reads(gate()))
+        await m.refresh()
+        var session = PreviewData.session(id: "s1")
+        session.planPhase = .init(known: .planning)
+        // An automatic release also reaches the app without a local /go.
+        m.receive(try event("session:plangate", SessionPlanGateEvent(id: "s1", planPhase: .init(known: .executing))))
+        #expect(!m.canRelease(session))
+        m.receive(try event("session:plangate", SessionPlanGateEvent(id: "s1", gate: gate("Adopted edit"))))
+        await m.refresh()
+        #expect(!m.canRelease(session))
+        m.receive(try event("session:plangate", SessionPlanGateEvent(id: "s1", planPhase: .init(known: .planning))))
+        #expect(m.canRelease(session))
+        m.markReleased("s1")
+        m.reads = reads()
+        await m.refresh()
+        #expect(m.releasedGates.isEmpty, "a missing gate cannot keep a local release tombstone")
     }
 
     @Test func questionSignalAndOpenTickAreScopedToTheSession() async {

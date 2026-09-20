@@ -1426,6 +1426,11 @@ components:
         headSha:
           type: string
           description: Head commit SHA of the PR branch; undefined when there is no PR. Drives review-once dedup and the stepper's verdict freshness.
+        baseRefName:
+          type: string
+          description: Actual PR target branch, including the default branch; absent when the forge does not supply it.
+        mergeGate:
+          $ref: "#/components/schemas/MergeResponsibility"
         authorLogin:
           type: string
         requestedReviewers:
@@ -1531,15 +1536,56 @@ components:
         - merge
         - squash
         - rebase
+    MergeResponsibility:
+      type: object
+      additionalProperties: true
+      description: Configured responsibility for manual takeover, independent of CI and GitState.handoff. Absent from GitState when there is nobody to take over from.
+      properties:
+        handoff:
+          $ref: "#/components/schemas/PrHandoff"
+        handoffWho:
+          type: string
+        reviewBlockBy:
+          type: string
+    MergeConfirmation:
+      type: object
+      additionalProperties: false
+      description: Values displayed to the operator. The server rechecks revision, target and responsible people; absent scalar fields are treated like null by parseMergeConfirm.
+      properties:
+        headSha:
+          type:
+            - string
+            - "null"
+        baseRefName:
+          type:
+            - string
+            - "null"
+        handoff:
+          type:
+            - string
+            - "null"
+          enum:
+            - reviewer
+            - merger
+        handoffWho:
+          type:
+            - string
+            - "null"
+        reviewBlockBy:
+          type:
+            - string
+            - "null"
     MergePrBody:
       type: object
       additionalProperties: false
-      description: Both optional; the server falls back to the forge default and deleteBranch true.
+      description: All optional; method defaults to the forge default and deleteBranch to true. Confirm echoes the displayed PR revision, target and takeover responsibility; missing or stale takeover confirmation returns 409.
       properties:
         method:
           $ref: "#/components/schemas/MergeMethod"
         deleteBranch:
           type: boolean
+        confirm:
+          $ref: "#/components/schemas/MergeConfirmation"
     WorkingBlockedMap:
       type: object
       additionalProperties:
@@ -2513,7 +2559,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "409":
-          description: No open PR, a merge conflict, or a busy base checkout (see the error text).
+          description: No open PR, a merge conflict, a busy base checkout, or missing/stale takeover confirmation (code merge_confirm_required/merge_confirm_stale).
           content:
             application/json:
               schema:

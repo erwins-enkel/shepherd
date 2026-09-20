@@ -197,6 +197,7 @@ struct ShepherdClientDetailWriteTests {
     let json = try sentJSON(fake)
     #expect(json["method"] as? String == "squash")
     #expect(json["deleteBranch"] as? Bool == false)
+    #expect(json["confirm"] == nil)
 
     let enqueued = FakeShepherdServer()
     defer { enqueued.tearDown() }
@@ -207,6 +208,39 @@ struct ShepherdClientDetailWriteTests {
       _ = try await detailClient(enqueued).mergePR(
         sessionID: "s1", method: nil, deleteBranch: nil)
     }
+  }
+
+  @Test("merging sends takeover confirmation and preserves refusal codes")
+  func mergePRConfirmation() async throws {
+    let fake = FakeShepherdServer()
+    defer { fake.tearDown() }
+    fake.stub("POST", "/api/sessions/s1/git/merge", status: 200, json: DetailFixtures.gitState)
+    _ = try await detailClient(fake).mergePR(
+      sessionID: "s1", method: .rebase, deleteBranch: false,
+      confirm: .init(
+        headSha: "head-a", baseRefName: "release", handoff: .reviewer,
+        handoffWho: "reviewer", reviewBlockBy: "reviewer"))
+    let body = try sentJSON(fake)
+    let confirm = try #require(body["confirm"] as? [String: String])
+    #expect(
+      confirm == [
+        "headSha": "head-a", "baseRefName": "release", "handoff": "reviewer",
+        "handoffWho": "reviewer", "reviewBlockBy": "reviewer",
+      ])
+    #expect(body["method"] as? String == "rebase")
+    #expect(body["deleteBranch"] as? Bool == false)
+
+    for code in ["merge_confirm_required", "merge_confirm_stale"] {
+      fake.stub(
+        "POST", "/api/sessions/s1/git/merge", status: 409,
+        json: Data("{\"error\":\"confirm again\",\"code\":\"\(code)\"}".utf8))
+      await #expect(throws: ShepherdError.conflict(code: code, message: "confirm again")) {
+        _ = try await detailClient(fake).mergePR(
+          sessionID: "s1", method: nil, deleteBranch: nil, confirm: .init())
+      }
+    }
+    let emptyBody = try sentJSON(fake)
+    #expect((emptyBody["confirm"] as? [String: String])?.isEmpty == true)
   }
 
   @Test("merging an unknown session is notFound; a merge conflict carries the server's sentence")

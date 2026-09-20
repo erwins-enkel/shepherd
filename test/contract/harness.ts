@@ -145,6 +145,13 @@ export async function validateResponse(
   return body;
 }
 
+/** Validate a JSON request fixture against the operation's declared body before sending it. */
+export function validateRequest(method: string, template: string, body: unknown): void {
+  const pointer = `#/paths/${pointerSegment(template)}/${method.toLowerCase()}/requestBody/content/application~1json/schema`;
+  const fn = compileRef(pointer);
+  if (!fn(body)) fail(`${method} ${template} request violates contract`, fn.errors);
+}
+
 export function validateEvent(name: string, data: unknown): void {
   const contract = loadContract();
   const decl = contract["x-shepherd-events"][name];

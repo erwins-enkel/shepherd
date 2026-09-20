@@ -56,6 +56,7 @@ extension Components.Schemas.HerdrState: OpenEnum {}
 extension Components.Schemas.SessionArchiveReason: OpenEnum {}
 extension Components.Schemas.ExperimentRole: OpenEnum {}
 extension Components.Schemas.EventName: OpenEnum {}
+extension Components.Schemas.PrHandoff: OpenEnum {}
 extension Components.Schemas.BlockReason.ShapePayload: OpenEnum {}
 extension Components.Schemas.BlockReason.QuotaKindPayload: OpenEnum {}
 extension Components.Schemas.Session.PlanPhasePayload: OpenEnum {}

@@ -1,6 +1,7 @@
 import type { ActivityEntry } from "../../src/activity";
 import type { SessionActivity } from "../../src/activity-signal";
 import type { DiffFileStatus } from "../../src/types";
+import type { MergeConfirm } from "../../src/merge-gate";
 import {
   EmptyDiffError,
   type ChecksState,
@@ -81,6 +82,8 @@ export const gitEvent: { id: string; git: GitState } = {
     handoff: "merger",
     handoffWho: "hubot",
     headSha: "0123456789abcdef0123456789abcdef01234567",
+    baseRefName: "release",
+    mergeGate: { handoff: "merger", handoffWho: "hubot" },
   },
 };
 
@@ -91,6 +94,7 @@ export const reviewBlockedGitEvent: { id: string; git: GitState } = {
     ...gitEvent.git,
     handoff: undefined,
     handoffWho: undefined,
+    mergeGate: { handoff: "reviewer", handoffWho: "octocat", reviewBlockBy: "octocat" },
     mergeStateStatus: "blocked",
     latestReview: {
       state: "changes_requested",
@@ -124,6 +128,25 @@ export const activityEvent: { id: string; activity: SessionActivity } = {
     runtimeModel: "fable",
     runtimeEffort: "high",
   },
+};
+
+/** Pending CI hides the herd handoff but must not hide configured takeover responsibility. */
+export const takeoverStatus: PrStatus = {
+  state: "open",
+  checks: "pending",
+  number: 12,
+  deployConfigured: false,
+  headSha: "head-a",
+  baseRefName: "release",
+  reviewerStates: { reviewer: { state: "changes_requested", latestAt: null } },
+};
+
+export const takeoverConfirm: MergeConfirm = {
+  headSha: "head-a",
+  baseRefName: "release",
+  handoff: "reviewer",
+  handoffWho: "reviewer",
+  reviewBlockBy: "reviewer",
 };
 
 const openStatus: PrStatus = {

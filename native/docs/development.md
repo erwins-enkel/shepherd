@@ -136,6 +136,14 @@ Quit (⌘Q), allowing the app's synchronous termination observer to revoke its m
 uses forced termination only as a bounded fallback. A later isolated seed can sweep an orphan
 with its exact test-token name.
 
+Both suites use the committed `IsolatedUITestHarness`. It verifies isolation arguments before
+every launch and drops its query handle before sending Quit. After Quit it only waits for
+process termination, with a bounded termination fallback; it never queries accessibility,
+captures a screenshot, or activates the app. A stopped app must be launched explicitly through
+that harness again. Manual automation must follow the same rule: do not query or reacquire the
+app after Quit, since an automation tool can implicitly relaunch it without isolation.
+The contract suite guards the single launch path and the absence of post-Quit UI queries.
+
 Both UI suites pass `-ApplePersistenceIgnoreState YES -NSQuitAlwaysKeepsWindows NO`. Profile
 isolation alone does not isolate AppKit window restoration: in this environment a restored
 no-window launch never mounted `RootView`, so its `.task` never started the live seed. The same
@@ -458,7 +466,9 @@ The sidebar “+” now resolves `NewSessionSlot.content` to `ComposeSheet`; the
 remains only the empty-slot fallback for previews and tests.
 
 `MergeInputs` reads Herd git/review/liveness and Plan review/gate presence. The authoritative
-Herd `claudeAlive == false` signal gates queue actions even when no terminal tab was visited.
+Herd liveness permits queue actions only for an explicit `claudeAlive == true`, even when no
+terminal tab was visited. Plan review stays blocked until both initial snapshot reads succeed;
+an empty map before bootstrap or after a failed initial read is not an unblocked plan.
 Manual-step counts resolve the current MergeModel; the Owed panel and count share its
 repo-filtered records. HerdBindings unions owed attention with CI failures and plan questions;
 Notifications also counts archived ids when they still have an actionable owed record.

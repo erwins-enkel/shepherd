@@ -3,33 +3,18 @@ import XCTest
 /// Launch → the welcome screen offers both connection routes.
 /// The app is forced to English so the assertions can name the EN copy; the DE
 /// catalog is covered by StringCatalogTests.
+@MainActor
 final class WelcomeSmokeUITests: XCTestCase {
-    private var app: XCUIApplication!
+    private let harness = IsolatedUITestHarness()
+    private var app: XCUIApplication { harness.application }
 
-    override func setUpWithError() throws {
+    override func setUp() async throws {
         continueAfterFailure = false
-        app = XCUIApplication()
-        app.launchArguments = [
-            // Profile isolation does not isolate AppKit's saved-window restoration.
-            // A prior no-window launch must not prevent RootView's task from running.
-            "-ApplePersistenceIgnoreState", "YES",
-            "-NSQuitAlwaysKeepsWindows", "NO",
-            "-AppleLanguages", "(en)",
-            "-AppleLocale", "en_US",
-            // Isolated: a private, empty UserDefaults suite and an in-memory
-            // credential store instead of the operator's profiles and the login
-            // Keychain — see `LaunchEnvironment`. This replaces the two blanked
-            // profile keys this suite used to pass, and covers what they never
-            // could: the Keychain read behind a restored profile blocks on a
-            // SecurityAgent dialog no unattended run can answer.
-            "-ShepherdIsolated", "1",
-        ]
-        app.launch()
+        harness.launch()
     }
 
-    override func tearDownWithError() throws {
-        app.terminate()
-        app = nil
+    override func tearDown() async throws {
+        harness.shutdown()
     }
 
     func testWelcomeShowsBothCards() {

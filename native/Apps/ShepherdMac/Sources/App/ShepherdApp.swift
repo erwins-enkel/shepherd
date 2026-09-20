@@ -125,8 +125,10 @@ struct LiveRequestAuditView: View {
     var body: some View {
         TimelineView(.periodic(from: .now, by: 0.5)) { _ in
             let counts = audit.counts
-            Text(verbatim: "Live audit: \(counts.reads) reads; \(counts.rejected) rejected")
+            let summary = "Live audit: \(counts.reads) reads; \(counts.rejected) rejected"
+            Text(verbatim: summary)
                 .font(.caption2)
+                .accessibilityLabel(Text(verbatim: summary))
                 .accessibilityIdentifier("live-request-audit")
         }
     }

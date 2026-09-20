@@ -43,10 +43,12 @@ enum LiveUITestEnvironment {
 ///     TEST_RUNNER_SHEPHERD_LIVE_PASSWORD=… \
 ///     TEST_RUNNER_SHEPHERD_REVOKE_ON_EXIT=1 \
 ///       native/scripts/test-app.sh -only-testing:ShepherdUITests
+@MainActor
 final class LiveSmokeUITests: XCTestCase {
-    private var app: XCUIApplication!
+    private let harness = IsolatedUITestHarness()
+    private var app: XCUIApplication { harness.application }
 
-    override func setUpWithError() throws {
+    override func setUp() async throws {
         continueAfterFailure = false
         guard let baseURL = LiveUITestEnvironment.baseURL,
             let password = LiveUITestEnvironment.password
@@ -56,36 +58,17 @@ final class LiveSmokeUITests: XCTestCase {
                     + "TEST_RUNNER_-prefixed spellings) to run the live UI smoke test")
         }
 
-        app = XCUIApplication()
-        app.launchArguments = [
-            // AppKit restoration is separate from the private profile defaults suite.
-            // Suppressing a restored no-window state lets RootView start the live seed.
-            "-ApplePersistenceIgnoreState", "YES",
-            "-NSQuitAlwaysKeepsWindows", "NO",
-            "-AppleLanguages", "(en)",
-            "-AppleLocale", "en_US",
-            "-ShepherdIsolated", "1",
-            "-ShepherdRevokeOnExit", "1",
-        ]
-        // The app under test does not inherit this process's environment, so
-        // the seed is handed over explicitly. It never reaches disk: the app
-        // uses it for one `ProfileSetup.login` call and holds the result in
-        // memory.
-        app.launchEnvironment["SHEPHERD_LIVE_BASE_URL"] = baseURL
-        app.launchEnvironment["SHEPHERD_LIVE_PASSWORD"] = password
-        app.launch()
+        harness.launch(liveEnvironment: [
+            "SHEPHERD_LIVE_BASE_URL": baseURL,
+            "SHEPHERD_LIVE_PASSWORD": password,
+        ])
     }
 
-    override func tearDownWithError() throws {
-        // A real Quit delivers the isolated launch's token-revocation notification.
-        // terminate() alone kills the process without that notification.
-        if let app, app.state != .notRunning {
-            assertReadOnlyAudit()
-            app.typeKey("q", modifierFlags: .command)
-            _ = app.wait(for: .notRunning, timeout: 10)
-            if app.state != .notRunning { app.terminate() }
-        }
-        app = nil
+    override func tearDown() async throws {
+        // XCTest failures must not abort the token-revoking Quit path.
+        continueAfterFailure = true
+        defer { harness.shutdown() }
+        if harness.isRunning { assertReadOnlyAudit() }
     }
 
     /// Production entry point; all reads hit the configured server. Never press the CTA.
@@ -125,9 +108,17 @@ final class LiveSmokeUITests: XCTestCase {
     private func assertReadOnlyAudit() {
         let audit = app.staticTexts.matching(identifier: "live-request-audit").firstMatch
         XCTAssertTrue(audit.waitForExistence(timeout: 5))
-        let label = audit.label
-        XCTAssertTrue(label.contains("; 0 rejected"), "live smoke must attempt zero non-GET or branch-status requests")
-        XCTAssertFalse(label.hasPrefix("Live audit: 0 reads;"), "live smoke must actually read the server")
+        // macOS static text can expose its content as AXValue instead of AXLabel.
+        // Parse the entire summary so missing/empty accessibility text cannot pass.
+        let summaries = [audit.label, audit.value as? String ?? ""]
+        let pattern = /^Live audit: ([0-9]+) reads; ([0-9]+) rejected$/
+        guard let match = summaries.compactMap({ $0.wholeMatch(of: pattern) }).first,
+              let reads = Int(match.1), let rejected = Int(match.2) else {
+            XCTFail("live audit must expose readable request counts")
+            return
+        }
+        XCTAssertEqual(rejected, 0, "live smoke must attempt zero non-GET or branch-status requests; no spawn")
+        XCTAssertGreaterThan(reads, 0, "live smoke must actually read the server")
     }
 
     // MARK: - Gate 2: the app still comes up on a real server
@@ -271,7 +262,8 @@ final class LiveSmokeUITests: XCTestCase {
         let terminal = pane.descendants(matching: .any)["terminal-view"]
         XCTAssertTrue(terminal.waitForExistence(timeout: 30), "the emulator should be hosted")
         XCTAssertEqual(pane.descendants(matching: .any).matching(identifier: "terminal-view").count, 1)
-        XCTAssertEqual(terminal.elementType, .other, "the emulator is a group, not editable text")
+        XCTAssertTrue([XCUIElement.ElementType.group, .other].contains(terminal.elementType),
+            "the emulator must be a non-editable container (group on current macOS, other on older SDKs)")
         XCTAssertTrue(
             pane.descendants(matching: .any)["terminal-prompt"].waitForExistence(timeout: 30),
             "the prompt bar should render under the emulator")

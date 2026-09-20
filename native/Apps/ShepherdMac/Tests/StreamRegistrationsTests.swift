@@ -175,6 +175,32 @@ struct StreamRegistrationsTests {
         }
     }
 
+    @Test func mergeQueueGatesStayClosedUntilOwnersHaveAuthoritativeData() async throws {
+        defer { resetStreamSeams() }
+        let app = scratchModel()
+        defer { app.teardown() }
+        Wave2Seams.connect(app)
+        enum Unavailable: Error { case offline }
+        for _ in 0..<2 {
+            let plan = PlanModel(reads: .init(gates: { throw Unavailable.offline }, inflight: { [] }))
+            let herd = HerdSignals(reads: .stub(), now: { 0 })
+            app.liveExtensions = [(ObjectIdentifier(PlanModel.self), plan), (ObjectIdentifier(HerdSignals.self), herd)]
+            #expect(MergeInputs.planReviewBlocked(app, "a"))
+            #expect(MergeInputs.terminalEnded(app, "a"))
+            await plan.refresh()
+            #expect(MergeInputs.planReviewBlocked(app, "a"), "failed bootstrap must not authorize approval")
+            plan.reads = .init(gates: { [:] }, inflight: { [] })
+            await plan.refresh()
+            #expect(!MergeInputs.planReviewBlocked(app, "a"), "a successful empty snapshot is authoritative")
+            herd.applyForTesting(name: "session:claude-alive", payload: ["id": "a", "claudeAlive": true, "liveness": "alive"])
+            #expect(!MergeInputs.terminalEnded(app, "a"))
+            #expect(MergeInputs.terminalEnded(app, "unknown"))
+            app.tearDownExtensions()
+            #expect(MergeInputs.planReviewBlocked(app, "a"))
+            #expect(MergeInputs.terminalEnded(app, "a"))
+        }
+    }
+
     private func settle(until condition: () -> Bool) async -> Bool {
         for _ in 0..<1_000 {
             if condition() { return true }

@@ -21,11 +21,11 @@ enum Wave2Seams {
         }
         MergeInputs.planReviewBlocked = { app, id in
             guard let plan = app.extension(PlanModel.self) else { return true }
-            return plan.reviewing.contains(id) || plan.gates[id] != nil
+            return !plan.hasLoadedSnapshot || plan.reviewing.contains(id) || plan.gates[id] != nil
         }
         MergeInputs.terminalEnded = { app, id in
             guard let herd = app.extension(HerdSignals.self) else { return true }
-            return herd.claudeAlive[id] == false
+            return herd.claudeAlive[id] != true
         }
     }
 }

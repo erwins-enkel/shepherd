@@ -20,6 +20,8 @@ struct PlanReads: Sendable {
 @MainActor
 final class PlanModel: AppExtension {
     private static let MAX_ACTIVITY_LINES = 2
+    /// An empty map is authoritative only after both bootstrap reads succeed.
+    private(set) var hasLoadedSnapshot = false
     private(set) var gates: [String: PlanGate] = [:]
     private(set) var reviewing: Set<String> = []
     private(set) var reviewerEnv: [String: ReviewerEnv] = [:]
@@ -119,6 +121,7 @@ final class PlanModel: AppExtension {
             // A revoked or removed verdict no longer belongs to the released approval.
             releasedGates = releasedGates.filter { gates[$0]?.approved == true }
             pruneToLiveSessions()
+            hasLoadedSnapshot = true
         } catch {
             guard isActive, mine == generation,
                   activationSnapshot == app?.activationGeneration else { return }
@@ -284,6 +287,7 @@ final class PlanModel: AppExtension {
 
     func teardown() {
         tornDown = true
+        hasLoadedSnapshot = false
         lifecycle &+= 1
         generation &+= 1
         watcher?.cancel()

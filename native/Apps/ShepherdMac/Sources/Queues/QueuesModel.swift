@@ -128,6 +128,20 @@ final class QueuesModel: AppExtension {
         }
     }
 
+    /// User commands need a throwing, held-only reconciliation so read failures reach the
+    /// existing SessionCommandState gate. Revision fences also cover the background loop.
+    func reloadHeld() async throws {
+        let mine = generation
+        guard isCurrent(mine), !Task.isCancelled else { return }
+        heldRevision &+= 1
+        let version = heldRevision
+        let rows = try await reads.held()
+        guard isCurrent(mine), version == heldRevision, !Task.isCancelled else { return }
+        heldRevision &+= 1
+        held = rows
+        heldCount = rows.count
+    }
+
     private nonisolated static func load<Value: Sendable>(
         _ read: @Sendable () async throws -> Value
     ) async -> Result<Value, any Error> {

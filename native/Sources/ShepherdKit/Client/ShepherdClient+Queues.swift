@@ -111,7 +111,7 @@ extension ShepherdClient {
   public func spawnHeld(id: String, agentProvider: AgentProvider?) async throws -> Session {
     do {
       switch try await generated.spawnHeld(.init(
-        path: .init(id: id), body: agentProvider.map { .json(.init(agentProvider: $0)) }
+        path: .init(id: id), body: .json(.init(agentProvider: agentProvider))
       )) {
       case .created(let created): return try created.body.json
       case .badRequest(let bad): throw ShepherdError.badRequest(try bad.body.json.error)

@@ -78,7 +78,7 @@ extension ShepherdClientQueuesTests {
         if override {
             #expect(try requestJSON(server) as NSDictionary == ["agentProvider": "codex"] as NSDictionary)
         } else {
-            #expect(server.requests().last?.body?.isEmpty != false)
+            #expect(try requestJSON(server).isEmpty)
         }
         #expect(server.requests().count == 1)
     }

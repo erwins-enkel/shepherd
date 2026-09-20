@@ -129,6 +129,9 @@ struct NewSessionSheet: View {
     @State private var effort: Effort?
     @State private var submission = NewSessionSubmission()
     @State private var providerSelection = ProviderSelection()
+    /// The contract-legal create fields the built-in form does not show. Owned here so the sheet's
+    /// lifetime is the extras' lifetime; filled by `NewSessionSlot.options` when a stream sets it.
+    @State private var extras = NewSessionExtras()
 
     /// A git branch name, not operator-facing copy — it is the same literal the
     /// server falls back to, so it is not a catalog key.
@@ -159,6 +162,17 @@ struct NewSessionSheet: View {
     }
 
     var body: some View {
+        if let content = NewSessionSlot.content {
+            content(app)
+        } else {
+            builtInBody
+        }
+    }
+
+    /// The Gate-2 sheet, unchanged apart from the options hook. Split out rather than wrapped in
+    /// place so the replacement branch above is one line and this stays diff-clean for whoever
+    /// reads it next.
+    private var builtInBody: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text(verbatim: L.t("newtask_title")).font(.title2.weight(.semibold))
 
@@ -199,6 +213,9 @@ struct NewSessionSheet: View {
                     Text(verbatim: L.t("effort_label_xhigh")).tag(Effort?.some(.xhigh))
                     Text(verbatim: L.t("effort_label_max")).tag(Effort?.some(.max))
                     Text(verbatim: L.t("effort_label_ultra")).tag(Effort?.some(.ultra))
+                }
+                if let options = NewSessionSlot.options {
+                    options(extras)
                 }
             }
             .formStyle(.grouped)
@@ -276,13 +293,15 @@ struct NewSessionSheet: View {
 
         let trimmedModel = modelName.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedBranch = baseBranch.trimmingCharacters(in: .whitespacesAndNewlines)
-        let request = CreateSessionRequest(
+        var request = CreateSessionRequest(
             repoPath: repoPath,
             baseBranch: trimmedBranch.isEmpty ? Self.defaultBaseBranch : trimmedBranch,
             prompt: prompt,
             agentProvider: providerSelection.provider,
             model: trimmedModel.isEmpty ? nil : trimmedModel,
             effort: effort)
+        // Only what the operator actually set — see NewSessionExtras.apply(to:).
+        extras.apply(to: &request)
 
         Task {
             // `store` is captured once, up front: the identity check below has

@@ -192,6 +192,22 @@ function namedOpenEnum(name: string, node: Obj, pointer: string): { alias: Obj; 
  * there is no `required` to relax, so a nullable union is an error instead of a silent drop.
  */
 function transformSchema(node: Obj, pointer: string, nullableOk: boolean): Obj {
+  if (node["x-shepherd-explicit-null"] === true) {
+    const types = node.type;
+    if (
+      !nullableOk ||
+      !Array.isArray(types) ||
+      types.length !== 2 ||
+      !types.includes("null") ||
+      !types.some((t) => t === "boolean" || t === "string")
+    ) {
+      throw new Error(`invalid explicit-null scalar at ${pointer}`);
+    }
+    // Required opaque scalar in Swift, preserving JSON null rather than omitting it.
+    // The truth schema still validates boolean|string-or-null, and stream factories are typed.
+    return { description: "Required JSON scalar; use the stream's typed value factory." };
+  }
+
   for (const key of Object.keys(node)) {
     if (UNHANDLED_SCHEMA_KEYWORDS.has(key)) {
       throw new Error(

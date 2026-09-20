@@ -132,6 +132,64 @@ describe("swift-openapi-generator derivation", () => {
   });
 });
 
+test("explicit null write scalars remain required opaque generated values", async () => {
+  const input = `openapi: 3.1.0
+info: {title: Fixture, version: '1'}
+paths: {}
+components:
+  schemas:
+    Override:
+      type: object
+      required: [enabled]
+      properties:
+        enabled:
+          type: [boolean, 'null']
+          x-shepherd-explicit-null: true
+`;
+  const result = Bun.YAML.parse(await deriveSwiftSpec(input)) as {
+    components: {
+      schemas: { Override: { required: string[]; properties: { enabled: { type?: unknown } } } };
+    };
+  };
+  expect(result.components.schemas.Override.required).toEqual(["enabled"]);
+  expect(result.components.schemas.Override.properties.enabled.type).toBeUndefined();
+});
+
+test.each(["[boolean, string, 'null']", "[object, 'null']", "boolean"])(
+  "explicit null rejects invalid scalar type %s with its pointer",
+  async (type) => {
+    const input = doc(
+      [
+        "    Override:",
+        "      type: object",
+        "      required: [enabled]",
+        "      properties:",
+        "        enabled:",
+        `          type: ${type}`,
+        "          x-shepherd-explicit-null: true",
+      ].join("\n"),
+    );
+    await expect(deriveSwiftSpec(input)).rejects.toThrow(
+      "invalid explicit-null scalar at #/components/schemas/Override/properties/enabled",
+    );
+  },
+);
+
+test("explicit null rejects an array item where nullableOk is false with its pointer", async () => {
+  const input = doc(
+    [
+      "    Override:",
+      "      type: array",
+      "      items:",
+      "        type: [boolean, 'null']",
+      "        x-shepherd-explicit-null: true",
+    ].join("\n"),
+  );
+  await expect(deriveSwiftSpec(input)).rejects.toThrow(
+    "invalid explicit-null scalar at #/components/schemas/Override/items",
+  );
+});
+
 /** Minimal document the unit cases below hang their one interesting schema off. */
 function doc(schemas: string): string {
   return [

@@ -374,3 +374,48 @@ struct NotificationsStreamTests {
         #expect(app.extension(NotificationsModel.self) == nil)
     }
 }
+
+@MainActor
+@Suite(.serialized)
+struct NotificationSettingsViewTests {
+    init() { NotificationSettingsWindow.reset() }
+
+    /// A throwaway suite *and* an in-memory credential store. `AppModel.init` defaults
+    /// `credentials` to `KeychainCredentialStore()`, which is exactly the unattended-run stall
+    /// this plan's "No Keychain prompts" constraint exists to prevent; every existing app test
+    /// passes the in-memory store for the same reason.
+    private func scratchApp() -> AppModel {
+        AppModel(
+            defaults: UserDefaults(
+                suiteName: "run.shepherd.mac.notifyview.\(UUID().uuidString)")!,
+            credentials: InMemoryCredentialStore())
+    }
+
+    @Test func theMenuItemIsInstalledOnceHoweverOftenInstallRuns() {
+        let app = scratchApp()
+        #expect(!NotificationSettingsWindow.menuItemInstalled)
+        NotificationSettingsWindow.installMenuItem(app)
+        NotificationSettingsWindow.installMenuItem(app)
+        #expect(NotificationSettingsWindow.menuItemInstalled)
+    }
+
+    @Test func installingTheStreamRegistersOneExtension() {
+        let app = scratchApp()
+        NotificationsStream.install(app)
+        NotificationsStream.install(app)
+        #expect(app.extensionFactories.count == 1)
+    }
+
+    @Test func theViewModelReportsWhatThePanelMustSay() {
+        #expect(
+            NotificationSettingsView.permissionNote(for: .denied)
+                == L.t("native_notify_settings_permission_denied"))
+        #expect(NotificationSettingsView.permissionNote(for: .granted) == nil)
+        #expect(
+            NotificationSettingsView.permissionNote(for: .notDetermined) == nil,
+            "not-yet-asked shows the button, not the warning")
+        #expect(NotificationSettingsView.showsAskButton(for: .notDetermined))
+        #expect(!NotificationSettingsView.showsAskButton(for: .granted))
+        #expect(!NotificationSettingsView.showsAskButton(for: .denied))
+    }
+}

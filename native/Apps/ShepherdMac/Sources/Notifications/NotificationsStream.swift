@@ -17,8 +17,7 @@ import SwiftUI
 enum NotificationsStream {
     static func install(_ app: AppModel) {
         app.register(NotificationsModel.self)
-        // The settings panel adds exactly one line here:
-        //     NotificationSettingsWindow.installMenuItem(app)
+        NotificationSettingsWindow.installMenuItem(app)
         Log.app.info("notifications stream installed")
     }
 }

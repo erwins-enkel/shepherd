@@ -50,7 +50,7 @@ final class AttachmentModel {
 
     convenience init(client: ShepherdClient) {
         self.init(uploadWithProgress: { data, name, progress in
-            try await AttachmentTransfer.upload(client: client, data: data, name: name, progress: progress)
+            try await client.uploadFile(data: data, filename: name, progress: progress).path
         })
     }
 
@@ -207,63 +207,5 @@ final class AttachmentModel {
         rows = []
         pendingImports = 0
         importError = nil
-    }
-}
-
-/// The generated transport has no task delegate hook. Keep this upload-only adapter local;
-/// response/error schemas remain generated, and no second generated client is constructed.
-final class AttachmentTransfer: NSObject, URLSessionTaskDelegate {
-    let progress: AttachmentModel.Progress
-    let headerBytes: Int
-    let fileBytes: Int
-
-    init(progress: @escaping AttachmentModel.Progress, headerBytes: Int, fileBytes: Int) {
-        self.progress = progress; self.headerBytes = headerBytes; self.fileBytes = fileBytes
-    }
-
-    func urlSession(_ session: URLSession, task: URLSessionTask, didSendBodyData bytesSent: Int64,
-                    totalBytesSent: Int64, totalBytesExpectedToSend: Int64) {
-        let sent = max(0, min(fileBytes, Int(clamping: totalBytesSent) - headerBytes))
-        Task { await progress(sent) }
-    }
-
-    // An upload is never redirected to another origin with the operator's credential.
-    func urlSession(_ session: URLSession, task: URLSessionTask,
-                    willPerformHTTPRedirection response: HTTPURLResponse,
-                    newRequest request: URLRequest) async -> URLRequest? { nil }
-
-    static func upload(client: ShepherdClient, data: Data, name: String,
-                       progress: @escaping AttachmentModel.Progress,
-                       send: @Sendable (URLRequest, Data, AttachmentTransfer) async throws -> (Data, URLResponse) = {
-                           try await URLSession.shared.upload(for: $0, from: $1, delegate: $2)
-                       }) async throws -> String {
-        let boundary = UUID().uuidString
-        let filename = name.replacingOccurrences(of: "%", with: "%25")
-            .replacingOccurrences(of: "\r", with: "%0D").replacingOccurrences(of: "\n", with: "%0A")
-            .replacingOccurrences(of: "\"", with: "%22")
-        let header = Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\nContent-Type: application/octet-stream\r\n\r\n".utf8)
-        var body = header
-        body.append(data)
-        body.append(Data("\r\n--\(boundary)--\r\n".utf8))
-        var request = URLRequest(url: client.profile.baseURL.appendingPathComponent("api/uploads"))
-        request.httpMethod = "POST"
-        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-        let token = client.currentToken()
-        if let token { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
-        let delegate = AttachmentTransfer(progress: progress, headerBytes: header.count, fileBytes: data.count)
-        let (responseData, response) = try await send(request, body, delegate)
-        guard let response = response as? HTTPURLResponse else { throw ShepherdError.badRequest("HTTP") }
-        switch response.statusCode {
-        case 200: return try JSONDecoder().decode(Components.Schemas.UploadResponse.self, from: responseData).path
-        case 400: throw ShepherdError.badRequest(try JSONDecoder().decode(Components.Schemas._Error.self, from: responseData).error)
-        case 401:
-            // Revalidate through the normal auth middleware. It owns credential comparison,
-            // clearing and needsLogin; this read cannot create a session or upload a file.
-            if token != nil, token == client.currentToken() { _ = try? await client.settings() }
-            throw ShepherdError.unauthenticated
-        case 404: throw ShepherdError.notFound
-        case 413: throw ComposeUploadError.fileTooLarge(try JSONDecoder().decode(Components.Schemas._Error.self, from: responseData).error)
-        default: throw ShepherdError.fromUndocumented(statusCode: response.statusCode, route: "uploadFile")
-        }
     }
 }

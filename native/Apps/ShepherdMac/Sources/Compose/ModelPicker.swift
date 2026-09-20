@@ -7,7 +7,7 @@ enum ComposeRunConfig {
     struct Defaults {
         var provider: AgentProvider = .claude
         var claudeModel = "auto"
-        var codexModel = "auto"
+        var codexModel = "gpt-5.6-sol"
         var effort = "default"
         var fableAvailable = true
         func model(for provider: AgentProvider) -> String { provider == .codex ? codexModel : claudeModel }

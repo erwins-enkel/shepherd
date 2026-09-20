@@ -76,49 +76,26 @@ import Testing
         #expect(throws: AttachmentModel.FileError.tooLarge) { try AttachmentModel.readFile(url) }
     }
 
-    @Test func uploadAdapterUsesTaskBytesAndGeneratedResponse() async throws {
+    @Test func upload401InvalidatesWithoutASettingsRoundTrip() async throws {
         let credentials = InMemoryCredentialStore()
-        try credentials.save(.init(token: "test-token", tokenId: "test"), for: "upload-test")
-        let client = try ShepherdClient(profile: .init(name: "test", baseURL: URL(string: "http://localhost/prefix/")!,
-                                                       mode: .local, credentialKey: "upload-test"), credentials: credentials)
-        let sent = Box(0)
-        let path = try await AttachmentTransfer.upload(client: client, data: Data(repeating: 1, count: 100),
-                                                       name: "a\"\r\n.txt", progress: { bytes in
-            await MainActor.run { sent.value = bytes }
-        }, send: { request, body, delegate in
-            #expect(request.url?.path == "/prefix/api/uploads")
-            #expect(request.url?.query == nil)
-            #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer test-token")
-            let wire = String(decoding: body, as: UTF8.self)
-            #expect(wire.contains("filename=\"a%22%0D%0A.txt\""))
-            let task = URLSession.shared.dataTask(with: request)
-            delegate.urlSession(.shared, task: task, didSendBodyData: 25,
-                                totalBytesSent: Int64(delegate.headerBytes + 25), totalBytesExpectedToSend: Int64(body.count))
-            return (Data(#"{"path":"/staged/test"}"#.utf8),
-                    HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
-        })
-        #expect(path == "/staged/test")
-        try await eventually { sent.value == 25 }
-    }
-
-    @Test(arguments: [400, 401, 404, 413, 503])
-    func uploadAdapterMapsDeclaredErrors(_ status: Int) async throws {
-        let client = try ShepherdClient(profile: .init(name: "test", baseURL: URL(string: "http://localhost/")!,
-                                                       mode: .local), credentials: InMemoryCredentialStore())
-        do {
-            _ = try await AttachmentTransfer.upload(client: client, data: Data(), name: "empty", progress: { _ in },
-                                                    send: { request, _, _ in
-                (Data(#"{"error":"bad"}"#.utf8),
-                 HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!)
-            })
-            Issue.record("Expected upload failure")
-        } catch let error as ComposeUploadError {
-            #expect(status == 413 && error == .fileTooLarge("bad"))
-        } catch let error as ShepherdError {
-            let expected: ShepherdError = status == 400 ? .badRequest("bad") : status == 401 ? .unauthenticated
-                : status == 404 ? .notFound : .fromUndocumented(statusCode: status, route: "uploadFile")
-            #expect(error == expected)
-        }
+        try credentials.save(.init(token: "rejected-token", tokenId: "rejected"), for: "upload")
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ComposeUploadProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        let client = try ShepherdClient(profile: .init(name: "upload", baseURL: URL(string: "http://localhost")!,
+                                                       mode: .local, credentialKey: "upload"),
+                                        credentials: credentials, urlSession: session)
+        let login = Box(false)
+        let watcher = Task { for await _ in client.needsLogin { login.value = true; return } }
+        defer { watcher.cancel() }
+        let uploads = AttachmentModel(client: client)
+        defer { uploads.teardown() }
+        uploads.addFiles([.init(name: "empty", data: Data())])
+        try await eventually { !uploads.uploading }
+        #expect(uploads.rows.first?.state == .failed)
+        #expect(try credentials.load(for: "upload") == nil)
+        try await eventually { login.value }
     }
 
     @Test func attachmentsDrainSeriallyWithWeightedProgressAndPairedPayload() async throws {
@@ -670,4 +647,24 @@ import Testing
         picker.selection.wrappedValue = .codex
         #expect(model.provider == .codex)
     }
+}
+
+/// Uploads reject a credential; every secondary exchange fails offline.
+final class ComposeUploadProtocol: URLProtocol {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        guard request.url?.path == "/api/uploads" else {
+            Issue.record("Upload attempted a secondary request")
+            client?.urlProtocol(self, didFailWithError: URLError(.notConnectedToInternet))
+            return
+        }
+        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer rejected-token")
+        let response = HTTPURLResponse(url: request.url!, statusCode: 401, httpVersion: nil,
+                                       headerFields: ["Content-Type": "application/json"])!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data(#"{"error":"unauthorized"}"#.utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
 }

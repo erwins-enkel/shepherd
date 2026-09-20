@@ -27,10 +27,22 @@ extension Components.Schemas.IssueFetchAttempt.ReasonPayload: OpenEnum {}
 
 extension ShepherdClient {
     /// Pre-session staging only: never attaches to, or creates, a live session.
-    public func uploadFile(data: Data, filename: String) async throws -> Components.Schemas.UploadResponse {
+    /// Reports file bytes consumed by the streaming transport, excluding multipart framing.
+    /// Buffered bytes are not a server acknowledgement: callers must cap progress below 100%
+    /// until this method returns successfully. Uses this client's usual auth and credential store.
+    public func uploadFile(
+        data: Data, filename: String,
+        progress: @escaping @Sendable (Int) async -> Void = { _ in }
+    ) async throws -> Components.Schemas.UploadResponse {
         do {
+            let file = HTTPBody(ComposeUploadBytes(data: data, progress: progress),
+                                length: .known(Int64(data.count)), iterationBehavior: .single)
+            // RFC 7578 percent-encoding also prevents newlines becoming multipart headers.
+            let filename = filename.replacingOccurrences(of: "%", with: "%25")
+                .replacingOccurrences(of: "\r", with: "%0D").replacingOccurrences(of: "\n", with: "%0A")
+                .replacingOccurrences(of: "\"", with: "%22")
             let body: MultipartBody<Operations.UploadFile.Input.Body.MultipartFormPayload> = [
-                .file(.init(payload: .init(body: data.isEmpty ? HTTPBody() : HTTPBody(data)), filename: filename))
+                .file(.init(payload: .init(body: file), filename: filename))
             ]
             switch try await generated.uploadFile(.init(body: .multipartForm(body))) {
             case .ok(let ok): return try ok.body.json
@@ -118,4 +130,39 @@ extension ShepherdClient {
         } catch { throw ShepherdError.from(error, route: "initEmptyCommit") }
     }
 
+}
+
+/// Pull-driven chunks keep progress paced by URLSessionTransport's streaming backpressure.
+/// Report the previous chunk only when the consumer resumes, never while preparing the body.
+struct ComposeUploadBytes: AsyncSequence, Sendable {
+    typealias Element = ArraySlice<UInt8>
+    let data: Data
+    let progress: @Sendable (Int) async -> Void
+
+    func makeAsyncIterator() -> AsyncIterator { AsyncIterator(data: data, progress: progress) }
+
+    struct AsyncIterator: AsyncIteratorProtocol {
+        let data: Data
+        let progress: @Sendable (Int) async -> Void
+        private var offset = 0
+        private var reported = 0
+
+        init(data: Data, progress: @escaping @Sendable (Int) async -> Void) {
+            self.data = data
+            self.progress = progress
+        }
+
+        mutating func next() async throws -> Element? {
+            try Task.checkCancellation()
+            if offset > reported {
+                await progress(offset)
+                reported = offset
+            }
+            try Task.checkCancellation()
+            guard offset < data.count else { return nil }
+            let chunk = ArraySlice(data.dropFirst(offset).prefix(64 * 1024))
+            offset += chunk.count
+            return chunk
+        }
+    }
 }

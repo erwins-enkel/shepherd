@@ -29,6 +29,82 @@ struct ShepherdClientComposeTests {
         #expect(body.contains("\r\n\r\n" + content + "\r\n"))
     }
 
+    @Test func uploadProgressTracksFileBytesThroughGeneratedMultipart() async throws {
+        let server = FakeShepherdServer()
+        defer { server.tearDown() }
+        server.stub("POST", "/api/uploads", status: 200, json: Data(#"{"path":"/staged/bytes"}"#.utf8))
+        let progress = UploadProgressRecorder()
+        let bytes = Data(repeating: 7, count: 150_000)
+        let result = try await makeClient(server).uploadFile(data: bytes, filename: "bytes.bin") {
+            await progress.record($0)
+        }
+        #expect(result.path == "/staged/bytes")
+        let values = await progress.values
+        #expect(values.contains { $0 > 0 && $0 < bytes.count })
+        #expect(values.last == bytes.count)
+        #expect(values == values.sorted())
+        let request = try #require(server.requests().last)
+        #expect(request.headers.first { $0.key.lowercased() == "authorization" }?.value == "Bearer shp_test")
+        #expect(try #require(request.body).range(of: bytes) != nil)
+    }
+
+    @Test func uploadProgressFollowsConsumerDemandAndStopsOnCancellation() async throws {
+        let progress = UploadProgressRecorder()
+        let sequence = ComposeUploadBytes(data: Data(repeating: 1, count: 150_000), progress: {
+            await progress.record($0)
+        })
+        var iterator = sequence.makeAsyncIterator()
+        #expect(await progress.values.isEmpty)
+        let first = try #require(try await iterator.next())
+        #expect(first.count > 0 && first.count < 150_000)
+        // Returning a chunk is not progress until the consumer asks for the next one.
+        #expect(await progress.values.isEmpty)
+        _ = try await iterator.next()
+        #expect(await progress.values == [first.count])
+        let task = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            var cancelled = sequence.makeAsyncIterator()
+            await #expect(throws: CancellationError.self) { _ = try await cancelled.next() }
+        }
+        await task.value
+        #expect(await progress.values == [first.count])
+    }
+
+    @Test func uploadEscapesUntrustedMultipartFilename() async throws {
+        let server = FakeShepherdServer()
+        defer { server.tearDown() }
+        server.stub("POST", "/api/uploads", status: 200, json: Data(#"{"path":"/staged/test"}"#.utf8))
+        _ = try await makeClient(server).uploadFile(data: Data([1]), filename: "a%\"\r\n.txt")
+        let body = String(decoding: try #require(server.requests().last?.body), as: UTF8.self)
+        #expect(body.contains("filename=\"a%25%22%0D%0A.txt\""))
+    }
+
+    @Test(arguments: [false, true])
+    func upload401OnlyInvalidatesTheCredentialActuallyRejected(replaceDuringUpload: Bool) async throws {
+        let server = FakeShepherdServer()
+        defer { server.tearDown() }
+        let credentials = InMemoryCredentialStore()
+        let rejected = StoredCredential(token: "rejected", tokenId: "old")
+        // Even a fresh credential with the same token string must survive a stale 401.
+        let replacement = StoredCredential(token: "rejected", tokenId: "new")
+        try credentials.save(rejected, for: "upload")
+        server.on("POST", "/api/uploads") { request in
+            #expect(request.headers.first { $0.key.lowercased() == "authorization" }?.value == "Bearer rejected")
+            if replaceDuringUpload { try credentials.save(replacement, for: "upload") }
+            return FakeResponse(statusCode: 401, body: Data(#"{"error":"unauthorized"}"#.utf8))
+        }
+        server.on("GET", "/api/settings") { _ in throw URLError(.notConnectedToInternet) }
+        let client = try ShepherdClient(profile: .init(name: "upload", baseURL: server.baseURL,
+                                                       mode: .local, credentialKey: "upload"),
+                                        credentials: credentials, urlSession: server.urlSession())
+        let progress = UploadProgressRecorder()
+        await #expect(throws: ShepherdError.unauthenticated) {
+            _ = try await client.uploadFile(data: Data([1]), filename: "test") { await progress.record($0) }
+        }
+        #expect(try credentials.load(for: "upload") == (replaceDuringUpload ? replacement : nil))
+        #expect(server.requests().map(\.path) == ["/api/uploads"])
+    }
+
     @Test(arguments: [400, 401, 404, 413, 503])
     func uploadMapsEveryDeclaredError(_ status: Int) async throws {
         let server = FakeShepherdServer()
@@ -192,4 +268,9 @@ struct ShepherdClientComposeTests {
             }
         }
     }
+}
+
+private actor UploadProgressRecorder {
+    var values: [Int] = []
+    func record(_ bytes: Int) { values.append(bytes) }
 }

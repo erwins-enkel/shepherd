@@ -103,7 +103,10 @@ final class ComposeModel {
             hideSubIssues: defaults.object(forKey: "shepherd:issues-hide-subissues") as? Bool ?? true,
             hideBlocked: defaults.object(forKey: "shepherd:issues-hide-blocked") as? Bool ?? true)
         provider = runDefaults.provider
-        model = initialModel ?? ComposeRunConfig.preselectModel(runDefaults.model(for: provider), provider: provider,
+        let safeInitial = initialModel.map {
+            ComposeRunConfig.isFable($0) && !runDefaults.fableAvailable ? "default" : $0
+        }
+        model = safeInitial ?? ComposeRunConfig.preselectModel(runDefaults.model(for: provider), provider: provider,
                                                                fableAvailable: runDefaults.fableAvailable)
         effort = initialEffort ?? ComposeRunConfig.preselectEffort(runDefaults.effort)
         normalizeRunConfig()

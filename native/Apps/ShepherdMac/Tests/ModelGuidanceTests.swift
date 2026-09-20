@@ -112,6 +112,53 @@ import Testing
         #expect(ComposeRunConfig.preselectEffort("high") == "high")
     }
 
+    private func seededComposer(_ defaults: ComposeRunConfig.Defaults, initial: String? = nil) -> ComposeModel {
+        ComposeModel(defaults: UserDefaults(suiteName: "ModelGuidanceTests.\(UUID())")!,
+                     repoBranches: RepoBranchModel(loadBranches: { _ in .init(branches: []) },
+                        loadStatus: { _, _ in .init(behind: 0, ahead: 0, diverged: false,
+                                                   hasUpstream: false, localExists: false) },
+                        repair: { _, branch in .init(branch: branch) }),
+                     loadIssues: { _ in .init(issues: []) }, loadCommands: { _, _ in .init(commands: []) },
+                     loadEpics: { _ in .init(epics: [], subIssues: []) },
+                     runDefaults: defaults, initialModel: initial)
+    }
+
+    @Test func missingCodexSettingMatchesWebFallbackAndCost() throws {
+        let model = seededComposer(.init(provider: .codex))
+        defer { model.teardown() }
+        model.repoPath = "/repo"; model.prompt = "Do work"
+        #expect(model.model == "gpt-5.6-sol")
+        #expect(try #require(model.createRequest(baseBranch: "main")).model == "gpt-5.6-sol")
+        #expect(ModelGuidance.value(provider: model.provider, model: model.model).costTier == .premium)
+        model.selectProviderManually(.claude)
+        model.selectProviderManually(.codex)
+        #expect(model.model == "gpt-5.6-sol")
+    }
+
+    @Test func explicitCodexAutoStillSubmitsTheProviderDefault() throws {
+        let model = seededComposer(.init(provider: .codex, codexModel: "auto"))
+        defer { model.teardown() }
+        model.repoPath = "/repo"; model.prompt = "Do work"
+        #expect(model.model == "default")
+        #expect(try #require(model.createRequest(baseBranch: "main")).model == nil)
+        #expect(ModelGuidance.value(provider: model.provider, model: model.model).costTier == .standard)
+    }
+
+    @Test(arguments: ["fable", "claude-fable-5-1"])
+    func unavailableInitialFablePrecedesConfiguredClaudeDefault(_ initial: String) throws {
+        let model = seededComposer(.init(claudeModel: "opus", fableAvailable: false), initial: initial)
+        defer { model.teardown() }
+        model.repoPath = "/repo"; model.prompt = "Do work"
+        #expect(model.model == "default")
+        #expect(try #require(model.createRequest(baseBranch: "main")).model == nil)
+        let available = seededComposer(.init(claudeModel: "opus"), initial: initial)
+        defer { available.teardown() }
+        #expect(available.model == initial)
+        let absent = seededComposer(.init(claudeModel: "opus", fableAvailable: false))
+        defer { absent.teardown() }
+        #expect(absent.model == "opus")
+    }
+
     @Test func initializationSeedsDefaultsAndCorrectsExplicitInvalidValues() throws {
         func make(_ initialModel: String? = nil, _ initialEffort: String? = nil) -> ComposeModel {
             ComposeModel(defaults: UserDefaults(suiteName: "ModelGuidanceTests.\(UUID())")!,

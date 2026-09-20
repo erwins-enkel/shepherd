@@ -26,16 +26,31 @@ public final class ShepherdClient: Sendable {
   /// callers outside the kit never see generated `Output` cases. The guard that
   /// it stays exactly here is `GeneratedClientVisibilityTests`.
   let generated: Client
+
+  /// Opt-in generated client for slow operations in per-stream wrappers.
+  /// Shares credentials, logout signals and retry policy with `generated`,
+  /// but waits up to 300 seconds for response data by default.
+  let longRunning: Client
+  /// Owned by this client and invalidated on deinit. Stream wrappers use
+  /// `longRunning`; internal visibility lets tests inspect its configuration.
+  let longRunningURLSession: URLSession
   private let credentials: any CredentialStore
   private let needsLoginContinuation: AsyncStream<Void>.Continuation
 
   /// - Throws: `ServerProfileError` when a `.remote` profile violates the
   ///   https-unless-loopback-or-tailnet policy.
+  /// - Parameters:
+  ///   - urlSession: The unchanged session used by ordinary operations.
+  ///   - longRunningRequestTimeout: Request timeout for opt-in slow operations.
+  ///     Their dedicated session copies `urlSession.configuration` (not its
+  ///     delegate) and raises the resource timeout to at least this value.
   public init(
     profile: ServerProfile,
     credentials: any CredentialStore,
-    urlSession: URLSession = .shared
+    urlSession: URLSession = .shared,
+    longRunningRequestTimeout: TimeInterval = 300
   ) throws {
+    precondition(longRunningRequestTimeout.isFinite && longRunningRequestTimeout > 0)
     let validated = try profile.validated()
     self.profile = validated
     self.credentials = credentials
@@ -50,6 +65,19 @@ public final class ShepherdClient: Sendable {
       credentialKey: validated.credentialKey,
       onUnauthorized: { continuation.yield(()) }
     )
+    let configuration = urlSession.configuration
+    configuration.timeoutIntervalForRequest = longRunningRequestTimeout
+    configuration.timeoutIntervalForResource = max(
+      configuration.timeoutIntervalForResource, longRunningRequestTimeout)
+    longRunningURLSession = URLSession(configuration: configuration)
+
+    // Both paths use the same credential store and publish to the same stream.
+    let middlewares: [any ClientMiddleware] = [auth, RetryingMiddleware()]
+    longRunning = Client(
+      serverURL: validated.baseURL,
+      transport: URLSessionTransport(configuration: .init(session: longRunningURLSession)),
+      middlewares: middlewares
+    )
     generated = Client(
       serverURL: validated.baseURL,
       transport: URLSessionTransport(configuration: .init(session: urlSession)),
@@ -60,11 +88,14 @@ public final class ShepherdClient: Sendable {
       // because retry never retries a 401 in the first place: it only
       // retries transient failures, so ordering the two this way costs
       // nothing.
-      middlewares: [auth, RetryingMiddleware()]
+      middlewares: middlewares
     )
   }
 
-  deinit { needsLoginContinuation.finish() }
+  deinit {
+    longRunningURLSession.finishTasksAndInvalidate()
+    needsLoginContinuation.finish()
+  }
 
   /// The token currently in the store, for callers that have to build their
   /// own request — `EventStream` needs it for the WebSocket upgrade.

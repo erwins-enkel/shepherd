@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 
 @testable import ShepherdKit
 
@@ -6,15 +7,18 @@ struct FakeResponse: Sendable {
   var statusCode: Int
   var headers: [String: String]
   var body: Data
+  var delay: TimeInterval
 
   init(
     statusCode: Int = 200,
     headers: [String: String] = ["Content-Type": "application/json"],
-    body: Data = Data()
+    body: Data = Data(),
+    delay: TimeInterval = 0
   ) {
     self.statusCode = statusCode
     self.headers = headers
     self.body = body
+    self.delay = delay
   }
 }
 
@@ -80,8 +84,13 @@ final class FakeShepherdServer: Sendable {
   /// Each call is a distinct session with a distinct cookie jar inside the
   /// fake: two sessions never see each other's cookies, exactly as two real
   /// `URLSession`s with separate storage would not.
-  func urlSession() -> URLSession {
+  func urlSession(
+    requestTimeout: TimeInterval = 60,
+    resourceTimeout: TimeInterval = 604_800
+  ) -> URLSession {
     let configuration = URLSessionConfiguration.ephemeral
+    configuration.timeoutIntervalForRequest = requestTimeout
+    configuration.timeoutIntervalForResource = resourceTimeout
     configuration.protocolClasses = [FakeURLProtocol.self]
     configuration.httpAdditionalHeaders = [Self.sessionHeader: UUID().uuidString]
     return URLSession(configuration: configuration)
@@ -95,7 +104,7 @@ final class FakeShepherdServer: Sendable {
 /// Lock-guarded route/recording table. `URLProtocol.startLoading()` is
 /// synchronous and runs on `com.apple.CFNetwork.CustomProtocols`, so this
 /// cannot be an actor.
-private final class FakeServerRegistry: @unchecked Sendable {
+private final class FakeServerRegistry: Sendable {
   static let shared = FakeServerRegistry()
 
   private struct Entry {
@@ -105,43 +114,34 @@ private final class FakeServerRegistry: @unchecked Sendable {
     var cookies: [String: [String: String]] = [:]
   }
 
-  private let lock = NSLock()
-  private var entries: [String: Entry] = [:]
+  private let entries = Mutex<[String: Entry]>([:])
 
   func register(_ key: String) {
-    lock.lock()
-    defer { lock.unlock() }
-    entries[key] = Entry()
+    entries.withLock { $0[key] = Entry() }
   }
 
   func unregister(_ key: String) {
-    lock.lock()
-    defer { lock.unlock() }
-    entries[key] = nil
+    entries.withLock { $0[key] = nil }
   }
 
   func setHandler(
     _ key: String, route: String,
     handler: @escaping @Sendable (RecordedRequest) throws -> FakeResponse
   ) {
-    lock.lock()
-    defer { lock.unlock() }
-    entries[key]?.handlers[route] = handler
+    entries.withLock { $0[key]?.handlers[route] = handler }
   }
 
   func requests(_ key: String) -> [RecordedRequest] {
-    lock.lock()
-    defer { lock.unlock() }
-    return entries[key]?.recorded ?? []
+    entries.withLock { $0[key]?.recorded ?? [] }
   }
 
   /// The `Cookie` header this session would send, or `nil` when its jar is
   /// empty. Cookie names are sorted so the header is deterministic.
   func cookieHeader(host: String, session: String) -> String? {
-    lock.lock()
-    defer { lock.unlock() }
-    guard let jar = entries[host]?.cookies[session], !jar.isEmpty else { return nil }
-    return jar.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: "; ")
+    entries.withLock { entries in
+      guard let jar = entries[host]?.cookies[session], !jar.isEmpty else { return nil }
+      return jar.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: "; ")
+    }
   }
 
   /// Applies one `Set-Cookie` value to a session's jar. `Max-Age=0` clears
@@ -156,15 +156,11 @@ private final class FakeServerRegistry: @unchecked Sendable {
     let expired = parts.dropFirst().contains {
       $0.lowercased().replacingOccurrences(of: " ", with: "") == "max-age=0"
     }
-    lock.lock()
-    defer { lock.unlock() }
-    entries[host]?.cookies[session, default: [:]][name] = expired ? nil : value
+    entries.withLock { $0[host]?.cookies[session, default: [:]][name] = expired ? nil : value }
   }
 
   func knows(host: String) -> Bool {
-    lock.lock()
-    defer { lock.unlock() }
-    return entries[host] != nil
+    entries.withLock { $0[host] != nil }
   }
 
   /// Records the request and returns its handler, without calling out while
@@ -172,16 +168,21 @@ private final class FakeServerRegistry: @unchecked Sendable {
   func take(_ request: RecordedRequest, host: String)
     -> (@Sendable (RecordedRequest) throws -> FakeResponse)?
   {
-    lock.lock()
-    entries[host]?.recorded.append(request)
-    let handler = entries[host]?.handlers["\(request.method) \(request.path)"]
-    lock.unlock()
-    return handler
+    entries.withLock { entries in
+      entries[host]?.recorded.append(request)
+      return entries[host]?.handlers["\(request.method) \(request.path)"]
+    }
   }
 }
 
 /// The `URLProtocol` that serves `FakeShepherdServer`.
-private final class FakeURLProtocol: URLProtocol {
+final class FakeURLProtocol: URLProtocol {
+  private let deliveryQueue = DispatchQueue(label: "FakeShepherdServer.delivery")
+  private let stopped = Mutex(false)
+  // Fence callbacks against stopLoading(), including cancellation reentered
+  // from a client callback. Never hold the nonrecursive Mutex across client code.
+  private let callbackFence = NSRecursiveLock()
+
   override class func canInit(with request: URLRequest) -> Bool {
     // On current macOS the URL loading system DOES route a
     // URLSessionWebSocketTask upgrade through URLProtocol, and a stub cannot
@@ -196,7 +197,7 @@ private final class FakeURLProtocol: URLProtocol {
 
   override func startLoading() {
     guard let url = request.url, let host = url.host() else {
-      client?.urlProtocol(self, didFailWithError: FakeServerError.noRoute("<no host>"))
+      fail(FakeServerError.noRoute("<no host>"))
       return
     }
     let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
@@ -222,8 +223,7 @@ private final class FakeURLProtocol: URLProtocol {
     )
 
     guard let handler = FakeServerRegistry.shared.take(recorded, host: host) else {
-      client?.urlProtocol(
-        self, didFailWithError: FakeServerError.noRoute("\(recorded.method) \(recorded.path)"))
+      fail(FakeServerError.noRoute("\(recorded.method) \(recorded.path)"))
       return
     }
 
@@ -235,15 +235,41 @@ private final class FakeURLProtocol: URLProtocol {
       let response = HTTPURLResponse(
         url: url, statusCode: fake.statusCode, httpVersion: "HTTP/1.1",
         headerFields: fake.headers)!
-      client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-      client?.urlProtocol(self, didLoad: fake.body)
-      client?.urlProtocolDidFinishLoading(self)
+      if fake.delay > 0 {
+        let delivery = DispatchWorkItem { [self] in
+          deliver(response, body: fake.body)
+        }
+        deliveryQueue.asyncAfter(deadline: .now() + fake.delay, execute: delivery)
+      } else {
+        deliver(response, body: fake.body)
+      }
     } catch {
-      client?.urlProtocol(self, didFailWithError: error)
+      fail(error)
     }
   }
 
-  override func stopLoading() {}
+  private func deliver(_ response: HTTPURLResponse, body: Data) {
+    callback { $0.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed) }
+    callback { $0.urlProtocol(self, didLoad: body) }
+    callback { $0.urlProtocolDidFinishLoading(self) }
+  }
+
+  private func fail(_ error: any Error) {
+    callback { $0.urlProtocol(self, didFailWithError: error) }
+  }
+
+  private func callback(_ send: (any URLProtocolClient) -> Void) {
+    callbackFence.withLock {
+      guard !stopped.withLock({ $0 }), let client else { return }
+      send(client)
+    }
+  }
+
+  override func stopLoading() {
+    stopped.withLock { $0 = true }
+    // Wait for any callback already in progress before returning.
+    callbackFence.withLock {}
+  }
 }
 
 /// Reads an HTTP request body stream to its end and returns every byte.

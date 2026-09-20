@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import Testing
 
 @testable import ShepherdKit
@@ -24,6 +25,43 @@ struct FakeShepherdServerTests {
     #expect(recorded[0].method == "GET")
     #expect(recorded[0].path == "/api/health")
     #expect(recorded[0].headers["Authorization"] == "Bearer shp_test")
+  }
+
+  @Test("cancelling a pending delayed response suppresses every callback")
+  func cancelsPendingDelayedResponse() {
+    let server = FakeShepherdServer()
+    defer { server.tearDown() }
+    server.on("GET", "/delayed") { _ in FakeResponse(body: Data("ok".utf8), delay: 0.03) }
+    let client = CancellationClient()
+    let request = URLRequest(url: server.baseURL.appending(path: "delayed"))
+    let urlProtocol = FakeURLProtocol(request: request, cachedResponse: nil, client: client)
+
+    urlProtocol.startLoading()
+    client.cancel(urlProtocol)
+    // Observe past the delivery deadline, including failures and completion.
+    Thread.sleep(forTimeInterval: 0.1)
+    #expect(client.callbacks.withLock { $0 }.isEmpty)
+    #expect(client.lateCallbacks.withLock { $0 }.isEmpty)
+  }
+
+  @Test(
+    "cancelling inside delayed delivery fences all subsequent callbacks",
+    arguments: ["response", "body"])
+  func cancelsDuringDelayedDelivery(event: String) {
+    let server = FakeShepherdServer()
+    defer { server.tearDown() }
+    server.on("GET", "/delayed") { _ in FakeResponse(body: Data("ok".utf8), delay: 0.01) }
+    let client = CancellationClient(cancelOn: event)
+    let request = URLRequest(url: server.baseURL.appending(path: "delayed"))
+    let urlProtocol = FakeURLProtocol(request: request, cachedResponse: nil, client: client)
+
+    urlProtocol.startLoading()
+    // Cancel from a real callback so overlap is guaranteed without racing a timer.
+    #expect(client.cancelled.wait(timeout: .now() + 2) == .success)
+    Thread.sleep(forTimeInterval: 0.1)
+    let expected = event == "response" ? ["response"] : ["response", "body"]
+    #expect(client.callbacks.withLock { $0 } == expected)
+    #expect(client.lateCallbacks.withLock { $0 }.isEmpty)
   }
 
   @Test("a Set-Cookie comes back on the next request of the same session only")
@@ -160,6 +198,68 @@ struct FakeShepherdServerTests {
 
     #expect(drainRequestBody(stream) == Data())
     #expect(Date().timeIntervalSince(started) < 1)
+  }
+}
+
+/// Observes URLProtocol directly: URLSession can discard late callbacks and
+/// would hide a violation of the protocol's cancellation contract.
+private final class CancellationClient: NSObject, URLProtocolClient, Sendable {
+  let callbacks = Mutex<[String]>([])
+  let lateCallbacks = Mutex<[String]>([])
+  let cancelled = DispatchSemaphore(value: 0)
+  private let stopReturned = Mutex(false)
+  private let cancelOn: String?
+
+  init(cancelOn: String? = nil) {
+    self.cancelOn = cancelOn
+  }
+
+  func cancel(_ urlProtocol: URLProtocol) {
+    urlProtocol.stopLoading()
+    stopReturned.withLock { $0 = true }
+    cancelled.signal()
+  }
+
+  private func record(_ event: String, _ urlProtocol: URLProtocol) {
+    callbacks.withLock { $0.append(event) }
+    if stopReturned.withLock({ $0 }) {
+      lateCallbacks.withLock { $0.append(event) }
+    }
+    if event == cancelOn { cancel(urlProtocol) }
+  }
+
+  func urlProtocol(
+    _ urlProtocol: URLProtocol, didReceive response: URLResponse,
+    cacheStoragePolicy policy: URLCache.StoragePolicy
+  ) { record("response", urlProtocol) }
+
+  func urlProtocol(_ urlProtocol: URLProtocol, didLoad data: Data) {
+    record("body", urlProtocol)
+  }
+
+  func urlProtocolDidFinishLoading(_ urlProtocol: URLProtocol) {
+    record("finish", urlProtocol)
+  }
+
+  func urlProtocol(_ urlProtocol: URLProtocol, didFailWithError error: any Error) {
+    record("failure", urlProtocol)
+  }
+
+  func urlProtocol(
+    _ urlProtocol: URLProtocol, wasRedirectedTo request: URLRequest,
+    redirectResponse: URLResponse
+  ) { record("redirect", urlProtocol) }
+
+  func urlProtocol(_ urlProtocol: URLProtocol, cachedResponseIsValid cachedResponse: CachedURLResponse) {
+    record("cache", urlProtocol)
+  }
+
+  func urlProtocol(_ urlProtocol: URLProtocol, didReceive challenge: URLAuthenticationChallenge) {
+    record("challenge", urlProtocol)
+  }
+
+  func urlProtocol(_ urlProtocol: URLProtocol, didCancel challenge: URLAuthenticationChallenge) {
+    record("cancelChallenge", urlProtocol)
   }
 }
 

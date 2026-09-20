@@ -523,6 +523,34 @@ struct TerminalControllerPruneTests {
         #expect(await settle(until: { controller.model(for: "drop") !== dropped }))
         #expect(controller.model(for: "keep") === controller.model(for: "keep"))
     }
+
+    /// Cancelling the watcher has to actually end its task.
+    ///
+    /// The leak this pins: the wait used to be a bare `withCheckedContinuation`
+    /// that only `withObservationTracking`'s `onChange` could resume, and
+    /// `onChange` fires on the *next* write. After `teardown()` nothing writes
+    /// that store again, so the task stayed suspended for the life of the
+    /// process holding the store — and the `ShepherdClient` behind it — alive,
+    /// one more per server switch.
+    @Test func aCancelledWatcherTaskFinishes() async {
+        let store = makeStore()
+        let watcher = TerminalController.watchSessions(store) { _ in }
+        // Let it get past its first pass and into the suspended wait, which is
+        // where cancellation has to be able to reach it.
+        for _ in 0..<20 { await Task.yield() }
+
+        watcher.cancel()
+
+        // Polled rather than `await watcher.value`: a regression must fail this
+        // test in a moment, not park the whole run until a time limit fires.
+        let finished = Counter()
+        let observer = Task { @MainActor in
+            await watcher.value
+            finished.bump()
+        }
+        #expect(await settle(until: { finished.value == 1 }))
+        observer.cancel()
+    }
 }
 
 /// R6: the `.connecting` overlay must not flash for a reattach that resolves

@@ -65,7 +65,10 @@ final class TerminalController: AppExtension {
     /// lands between this call and the loop's first pass is not missed —
     /// observation only reports the *next* write after it is armed. Re-arms
     /// on every subsequent change, forever, until `pruneWatcher.cancel()`.
-    private static func watchSessions(
+    ///
+    /// Internal rather than private only so a test can prove that
+    /// `cancel()` really ends the returned task.
+    static func watchSessions(
         _ store: SessionStore, onChange: @escaping @MainActor (Set<String>) -> Void
     ) -> Task<Void, Never> {
         Task { @MainActor in
@@ -77,17 +80,44 @@ final class TerminalController: AppExtension {
                     onChange(ids)
                     continue
                 }
-                await withCheckedContinuation { continuation in
-                    withObservationTracking {
-                        _ = store.sessions
-                    } onChange: {
-                        continuation.resume()
-                    }
-                }
+                await sessionsChanged(store)
+                if Task.isCancelled { return }
                 // `onChange` runs just before the property is written; yield
                 // once so the writer finishes before the next pass reads it.
                 await Task.yield()
             }
         }
+    }
+
+    /// Suspends until `store.sessions` is written — **or** until the calling
+    /// task is cancelled.
+    ///
+    /// That second exit is the whole point. A bare `withCheckedContinuation`
+    /// wrapped around `withObservationTracking` has only one way out:
+    /// `onChange`, which fires on the *next* write. After `teardown()` nothing
+    /// writes that store again, so the continuation is never resumed, the
+    /// watcher task stays suspended for the life of the process, and it keeps
+    /// the store — and the `ShepherdClient` behind it — alive. One more
+    /// retained store per server switch.
+    ///
+    /// `AsyncStream`'s iterator is cancellation-aware (a cancelled task gets
+    /// `nil` rather than parking), so handing the observation callback a
+    /// continuation of that stream gives cancellation its own way out without
+    /// a second resume racing the first — resuming a checked continuation
+    /// twice traps.
+    ///
+    /// NOTE: `AppModel.watchConnection` has the same read-then-arm shape and
+    /// the same leak. It belongs to the integration lane (S0), so this stream
+    /// deliberately leaves it alone — see this PR's handoff list.
+    private static func sessionsChanged(_ store: SessionStore) async {
+        let (changes, sink) = AsyncStream<Void>.makeStream(
+            bufferingPolicy: .bufferingNewest(1))
+        withObservationTracking {
+            _ = store.sessions
+        } onChange: {
+            sink.yield(())
+            sink.finish()
+        }
+        for await _ in changes { break }
     }
 }

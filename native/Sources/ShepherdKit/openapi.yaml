@@ -188,6 +188,134 @@ components:
           type: boolean
         hasApiKey:
           type: boolean
+        remoteControlAtStartup:
+          type: boolean
+        reducedPushMode:
+          type: boolean
+        sessionHousekeepingEnabled:
+          type: boolean
+        autoReviveEnabled:
+          type: boolean
+        upnextSkipCliPicker:
+          type: boolean
+        usageHoldEnabled:
+          type: boolean
+        usageHoldAutoRelease:
+          type: boolean
+        usageDowngradeEnabled:
+          type: boolean
+        fableAvailable:
+          type: boolean
+        judgeEnabled:
+          type: boolean
+        tuiFullscreen:
+          type: boolean
+        tuiDisableMouse:
+          type: boolean
+        prReviewCyclesCap:
+          type: number
+        planReviewCyclesCap:
+          type: number
+        distillerIntervalDays:
+          type: number
+        extraCreditsDrainCeiling:
+          type: number
+        usageHoldPct:
+          type: number
+        usageDowngradePct:
+          type: number
+        judgeDailyUsd:
+          type: number
+        usageDowngradeModel:
+          type: string
+        blockJudgeMode:
+          type: string
+        houseRuleRelevance:
+          type: string
+        telemetryConsent:
+          type: string
+        criticCli:
+          type: string
+        criticModel:
+          type: string
+        criticEffort:
+          type: string
+        plannerCli:
+          type: string
+        plannerModel:
+          type: string
+        plannerEffort:
+          type: string
+        recapCli:
+          type: string
+        recapModel:
+          type: string
+        recapEffort:
+          type: string
+        docAgentCli:
+          type: string
+        docAgentModel:
+          type: string
+        docAgentEffort:
+          type: string
+        distillerCli:
+          type: string
+        distillerModel:
+          type: string
+        distillerEffort:
+          type: string
+        optimizerCli:
+          type: string
+        optimizerModel:
+          type: string
+        optimizerEffort:
+          type: string
+        mergeSuggestCli:
+          type: string
+        mergeSuggestModel:
+          type: string
+        mergeSuggestEffort:
+          type: string
+        namerCli:
+          type: string
+        namerModel:
+          type: string
+        namerEffort:
+          type: string
+        autopilotCli:
+          type: string
+        autopilotModel:
+          type: string
+        autopilotEffort:
+          type: string
+        docAgentEnabled:
+          type: boolean
+        docAgentAct:
+          type: boolean
+        judgeHasKey:
+          type: boolean
+        telemetryAvailable:
+          type: boolean
+        prReviewCyclesMin:
+          type: integer
+        prReviewCyclesMax:
+          type: integer
+        planReviewCyclesMin:
+          type: integer
+        planReviewCyclesMax:
+          type: integer
+        distillerIntervalDaysMin:
+          type: integer
+        distillerIntervalDaysMax:
+          type: integer
+        sessionRetentionDays:
+          type: integer
+        sessionRetentionKeep:
+          type: integer
+        previewHost:
+          type:
+            - string
+            - "null"
     RepoRootRequest:
       type: object
       additionalProperties: false
@@ -4498,6 +4626,648 @@ components:
             $ref: "#/components/schemas/ComposeLeftover"
         probesUnavailable:
           type: boolean
+    SettingsPatch:
+      type: object
+      additionalProperties: false
+      properties:
+        remoteControlAtStartup:
+          type: boolean
+        reducedPushMode:
+          type: boolean
+        sessionHousekeepingEnabled:
+          type: boolean
+        autoReviveEnabled:
+          type: boolean
+        upnextSkipCliPicker:
+          type: boolean
+        usageHoldEnabled:
+          type: boolean
+        usageHoldAutoRelease:
+          type: boolean
+        usageDowngradeEnabled:
+          type: boolean
+        fableAvailable:
+          type: boolean
+        judgeEnabled:
+          type: boolean
+        tuiFullscreen:
+          type: boolean
+        tuiDisableMouse:
+          type: boolean
+        prReviewCyclesCap:
+          type: number
+        planReviewCyclesCap:
+          type: number
+        distillerIntervalDays:
+          type: number
+        extraCreditsDrainCeiling:
+          type: number
+        usageHoldPct:
+          type: number
+        usageDowngradePct:
+          type: number
+        judgeDailyUsd:
+          type: number
+        defaultModel:
+          type: string
+        defaultCodexModel:
+          type: string
+        defaultEffort:
+          type: string
+        defaultAgentProvider:
+          type: string
+        authMode:
+          type: string
+        operatorLanguage:
+          type: string
+        usageDowngradeModel:
+          type: string
+        blockJudgeMode:
+          type: string
+        houseRuleRelevance:
+          type: string
+        telemetryConsent:
+          type: string
+        criticCli:
+          type: string
+        criticModel:
+          type: string
+        criticEffort:
+          type: string
+        plannerCli:
+          type: string
+        plannerModel:
+          type: string
+        plannerEffort:
+          type: string
+        recapCli:
+          type: string
+        recapModel:
+          type: string
+        recapEffort:
+          type: string
+        docAgentCli:
+          type: string
+        docAgentModel:
+          type: string
+        docAgentEffort:
+          type: string
+        distillerCli:
+          type: string
+        distillerModel:
+          type: string
+        distillerEffort:
+          type: string
+        optimizerCli:
+          type: string
+        optimizerModel:
+          type: string
+        optimizerEffort:
+          type: string
+        mergeSuggestCli:
+          type: string
+        mergeSuggestModel:
+          type: string
+        mergeSuggestEffort:
+          type: string
+        namerCli:
+          type: string
+        namerModel:
+          type: string
+        namerEffort:
+          type: string
+        autopilotCli:
+          type: string
+        autopilotModel:
+          type: string
+        autopilotEffort:
+          type: string
+        anthropicApiKey:
+          type: string
+      minProperties: 1
+      maxProperties: 1
+    SettingsPatchResult:
+      type: object
+      additionalProperties: true
+      properties:
+        remoteControlAtStartup:
+          type: boolean
+        reducedPushMode:
+          type: boolean
+        sessionHousekeepingEnabled:
+          type: boolean
+        autoReviveEnabled:
+          type: boolean
+        upnextSkipCliPicker:
+          type: boolean
+        usageHoldEnabled:
+          type: boolean
+        usageHoldAutoRelease:
+          type: boolean
+        usageDowngradeEnabled:
+          type: boolean
+        fableAvailable:
+          type: boolean
+        judgeEnabled:
+          type: boolean
+        tuiFullscreen:
+          type: boolean
+        tuiDisableMouse:
+          type: boolean
+        prReviewCyclesCap:
+          type: number
+        planReviewCyclesCap:
+          type: number
+        distillerIntervalDays:
+          type: number
+        extraCreditsDrainCeiling:
+          type: number
+        usageHoldPct:
+          type: number
+        usageDowngradePct:
+          type: number
+        judgeDailyUsd:
+          type: number
+        defaultModel:
+          type: string
+        defaultCodexModel:
+          type: string
+        defaultEffort:
+          type: string
+        defaultAgentProvider:
+          type: string
+        authMode:
+          type: string
+        operatorLanguage:
+          type: string
+        usageDowngradeModel:
+          type: string
+        blockJudgeMode:
+          type: string
+        houseRuleRelevance:
+          type: string
+        telemetryConsent:
+          type: string
+        criticCli:
+          type: string
+        criticModel:
+          type: string
+        criticEffort:
+          type: string
+        plannerCli:
+          type: string
+        plannerModel:
+          type: string
+        plannerEffort:
+          type: string
+        recapCli:
+          type: string
+        recapModel:
+          type: string
+        recapEffort:
+          type: string
+        docAgentCli:
+          type: string
+        docAgentModel:
+          type: string
+        docAgentEffort:
+          type: string
+        distillerCli:
+          type: string
+        distillerModel:
+          type: string
+        distillerEffort:
+          type: string
+        optimizerCli:
+          type: string
+        optimizerModel:
+          type: string
+        optimizerEffort:
+          type: string
+        mergeSuggestCli:
+          type: string
+        mergeSuggestModel:
+          type: string
+        mergeSuggestEffort:
+          type: string
+        namerCli:
+          type: string
+        namerModel:
+          type: string
+        namerEffort:
+          type: string
+        autopilotCli:
+          type: string
+        autopilotModel:
+          type: string
+        autopilotEffort:
+          type: string
+        hasApiKey:
+          type: boolean
+    RepoConfig:
+      type: object
+      additionalProperties: true
+      required:
+        - criticEnabled
+        - criticAllPrs
+        - criticSmellLensEnabled
+        - autoAddressEnabled
+        - learningsEnabled
+        - autopilotEnabled
+        - planGateEnabled
+        - autoDrainEnabled
+        - autoMergeEnabled
+        - buildQueueEnabled
+        - draftMode
+        - autoOptimizeFlagged
+        - manualStepsIssueEnabled
+        - preWarmEpicLandingCi
+        - epicStacksEnabled
+        - hidden
+        - signoffAuthority
+        - maxAuto
+        - autoLabel
+        - usageCeilingPct
+        - sandboxProfile
+        - defaultModel
+        - defaultEffort
+        - egressExtraHosts
+        - repoMode
+        - previewOpenMode
+      properties:
+        criticEnabled:
+          type: boolean
+        criticAllPrs:
+          type: boolean
+        criticSmellLensEnabled:
+          type: boolean
+        autoAddressEnabled:
+          type: boolean
+        learningsEnabled:
+          type: boolean
+        autopilotEnabled:
+          type: boolean
+        planGateEnabled:
+          type: boolean
+        autoDrainEnabled:
+          type: boolean
+        autoMergeEnabled:
+          type: boolean
+        buildQueueEnabled:
+          type: boolean
+        draftMode:
+          type: boolean
+        autoOptimizeFlagged:
+          type: boolean
+        manualStepsIssueEnabled:
+          type: boolean
+        preWarmEpicLandingCi:
+          type: boolean
+        epicStacksEnabled:
+          type: boolean
+        hidden:
+          type: boolean
+        signoffAuthority:
+          type: string
+        maxAuto:
+          type: integer
+        autoLabel:
+          type: string
+        usageCeilingPct:
+          type: number
+        sandboxProfile:
+          type: string
+        defaultModel:
+          type: string
+        defaultEffort:
+          type: string
+        egressExtraHosts:
+          type: array
+          items:
+            type: string
+        repoMode:
+          type: string
+        previewStartScript:
+          type:
+            - string
+            - "null"
+        previewStartCommand:
+          type:
+            - string
+            - "null"
+        previewOpenMode:
+          type: string
+    RepoConfigPatch:
+      type: object
+      additionalProperties: false
+      properties:
+        criticEnabled:
+          type: boolean
+        criticAllPrs:
+          type: boolean
+        criticSmellLensEnabled:
+          type: boolean
+        autoAddressEnabled:
+          type: boolean
+        learningsEnabled:
+          type: boolean
+        autopilotEnabled:
+          type: boolean
+        planGateEnabled:
+          type: boolean
+        autoDrainEnabled:
+          type: boolean
+        autoMergeEnabled:
+          type: boolean
+        buildQueueEnabled:
+          type: boolean
+        draftMode:
+          type: boolean
+        autoOptimizeFlagged:
+          type: boolean
+        manualStepsIssueEnabled:
+          type: boolean
+        preWarmEpicLandingCi:
+          type: boolean
+        epicStacksEnabled:
+          type: boolean
+        hidden:
+          type: boolean
+        signoffAuthority:
+          type: string
+        maxAuto:
+          type: integer
+        autoLabel:
+          type: string
+        usageCeilingPct:
+          type: number
+        sandboxProfile:
+          type: string
+        defaultModel:
+          type: string
+        defaultEffort:
+          type: string
+        egressExtraHosts:
+          type: array
+          items:
+            type: string
+        repoMode:
+          type: string
+        previewStartScript:
+          type:
+            - string
+            - "null"
+        previewStartCommand:
+          type:
+            - string
+            - "null"
+        previewOpenMode:
+          type: string
+        automationConfirmed:
+          type: boolean
+    RepoRoles:
+      type: object
+      additionalProperties: true
+      required:
+        - reviewer
+        - merger
+      properties:
+        reviewer:
+          type:
+            - string
+            - "null"
+        merger:
+          type:
+            - string
+            - "null"
+    RepoRolesResult:
+      type: object
+      additionalProperties: true
+      required:
+        - roles
+        - me
+      properties:
+        roles:
+          $ref: "#/components/schemas/RepoRoles"
+        me:
+          type:
+            - string
+            - "null"
+        pushError:
+          type: string
+    RepoRolesPatch:
+      type: object
+      additionalProperties: false
+      required:
+        - reviewer
+        - merger
+      properties:
+        reviewer:
+          description: Required JSON scalar; use the stream's typed value factory.
+        merger:
+          description: Required JSON scalar; use the stream's typed value factory.
+    RepoCollaborators:
+      type: object
+      additionalProperties: true
+      required:
+        - logins
+        - me
+        - collaboratorsUnavailable
+        - repoSlug
+        - isFork
+      properties:
+        logins:
+          type: array
+          items:
+            type: string
+        source:
+          type: string
+        me:
+          type:
+            - string
+            - "null"
+        collaboratorsUnavailable:
+          type: boolean
+        repoSlug:
+          type:
+            - string
+            - "null"
+        isFork:
+          type: boolean
+    DiagnosticState:
+      anyOf:
+        - $ref: "#/components/schemas/DiagnosticStateKnown"
+        - type: string
+    DiagnosticStateKnown:
+      type: string
+      enum:
+        - ok
+        - optional
+        - warning
+        - error
+    DiagnosticCheck:
+      type: object
+      additionalProperties: true
+      required:
+        - id
+        - state
+        - hintKey
+      properties:
+        id:
+          type: string
+        state:
+          $ref: "#/components/schemas/DiagnosticState"
+        hintKey:
+          type: string
+        remediation:
+          type: string
+        fixActionKey:
+          type: string
+        fixActionParams:
+          type: object
+          additionalProperties:
+            type: string
+        hintParams:
+          type: object
+          additionalProperties:
+            type: string
+    DiagnosticsSnapshot:
+      type: object
+      additionalProperties: true
+      required:
+        - checks
+        - generatedAt
+        - overall
+      properties:
+        checks:
+          type: array
+          items:
+            $ref: "#/components/schemas/DiagnosticCheck"
+        generatedAt:
+          type: integer
+        overall:
+          $ref: "#/components/schemas/DiagnosticState"
+    DiagnosticsFix:
+      type: object
+      additionalProperties: false
+      required:
+        - checkId
+      properties:
+        checkId:
+          type: string
+    KeyVerification:
+      type: object
+      additionalProperties: true
+      required:
+        - ok
+      properties:
+        ok:
+          type: boolean
+        reason:
+          type: string
+        detail:
+          type: string
+    DirectoryEntry:
+      type: object
+      additionalProperties: true
+      required:
+        - name
+        - path
+      properties:
+        name:
+          type: string
+        path:
+          type: string
+    DirectoryListing:
+      type: object
+      additionalProperties: true
+      required:
+        - path
+        - display
+        - parent
+        - entries
+      properties:
+        path:
+          type: string
+        display:
+          type: string
+        parent:
+          type:
+            - string
+            - "null"
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/DirectoryEntry"
+    RepoPullRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - repo
+      properties:
+        repo:
+          type: string
+        branch:
+          type: string
+    RepoPullResult:
+      type: object
+      additionalProperties: true
+      required:
+        - ok
+      properties:
+        ok:
+          type: boolean
+        branch:
+          type: string
+        updated:
+          type: boolean
+        sha:
+          type: string
+        reason:
+          type: string
+    RepoForkRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - target
+      properties:
+        target:
+          type: string
+    ForkedRepo:
+      type: object
+      additionalProperties: true
+      required:
+        - name
+        - path
+        - display
+        - realPath
+      properties:
+        name:
+          type: string
+        path:
+          type: string
+        display:
+          type: string
+        realPath:
+          type: string
+    RepoSyncForkRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - repo
+      properties:
+        repo:
+          type: string
+    RepoSyncForkResult:
+      type: object
+      additionalProperties: true
+      required:
+        - ok
+      properties:
+        ok:
+          type: boolean
+        branch:
+          type: string
   responses:
     Unauthorized:
       description: Missing or invalid credential.
@@ -4682,6 +5452,29 @@ paths:
                 $ref: "#/components/schemas/RepoRootResponse"
         "400":
           description: Not an existing directory under the root ceiling.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    patch:
+      operationId: patchSettings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SettingsPatch"
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SettingsPatchResult"
+        "400":
+          description: Handler refusal; see the verified status matrix.
           content:
             application/json:
               schema:
@@ -7157,6 +7950,358 @@ paths:
                 $ref: "#/components/schemas/ComposeLeftovers"
         "401":
           $ref: "#/components/responses/Unauthorized"
+  /api/repo-config:
+    get:
+      operationId: getRepoConfig
+      parameters:
+        - name: repo
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RepoConfig"
+        "400":
+          description: Handler refusal; see the verified status matrix.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    put:
+      operationId: putRepoConfig
+      parameters:
+        - name: repo
+          in: query
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RepoConfigPatch"
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RepoConfig"
+        "400":
+          description: Handler refusal; see the verified status matrix.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/repo-roles:
+    get:
+      operationId: getRepoRoles
+      parameters:
+        - name: repo
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RepoRolesResult"
+        "400":
+          description: Handler refusal; see the verified status matrix.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    put:
+      operationId: putRepoRoles
+      parameters:
+        - name: repo
+          in: query
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RepoRolesPatch"
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RepoRolesResult"
+        "400":
+          description: Handler refusal; see the verified status matrix.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "502":
+          description: Handler refusal; see the verified status matrix.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RepoRolesResult"
+  /api/repo-collaborators:
+    get:
+      operationId: getRepoCollaborators
+      parameters:
+        - name: repo
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RepoCollaborators"
+        "400":
+          description: Handler refusal; see the verified status matrix.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/diagnostics:
+    get:
+      operationId: getDiagnostics
+      parameters:
+        - name: refresh
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiagnosticsSnapshot"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/diagnostics/fix:
+    post:
+      operationId: fixDiagnostics
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DiagnosticsFix"
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiagnosticsSnapshot"
+        "400":
+          description: Handler refusal; see the verified status matrix.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: Handler refusal; see the verified status matrix.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          description: Handler refusal; see the verified status matrix.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Handler refusal; see the verified status matrix.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/settings/verify-key:
+    post:
+      operationId: verifySettingsKey
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KeyVerification"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: Handler refusal; see the verified status matrix.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Handler refusal; see the verified status matrix.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/fs/dirs:
+    get:
+      operationId: listDirectories
+      parameters:
+        - name: path
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DirectoryListing"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/repos/pull:
+    post:
+      operationId: pullRepo
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RepoPullRequest"
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RepoPullResult"
+        "400":
+          description: Handler refusal; see the verified status matrix.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: Handler refusal; see the verified status matrix.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RepoPullResult"
+        "502":
+          description: Handler refusal; see the verified status matrix.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RepoPullResult"
+  /api/repos/fork:
+    post:
+      operationId: forkRepo
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RepoForkRequest"
+      responses:
+        "201":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ForkedRepo"
+        "400":
+          description: Handler refusal; see the verified status matrix.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: Handler refusal; see the verified status matrix.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: Handler refusal; see the verified status matrix.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "504":
+          description: Handler refusal; see the verified status matrix.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/repos/sync-fork:
+    post:
+      operationId: syncFork
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RepoSyncForkRequest"
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RepoSyncForkResult"
+        "400":
+          description: Handler refusal; see the verified status matrix.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: Handler refusal; see the verified status matrix.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          description: Handler refusal; see the verified status matrix.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 x-shepherd-events:
   description: 'WebSocket /events. Same auth gate as HTTP (send Authorization on the upgrade). Every frame is an EventEnvelope: {"event": string, "data": object}. Client may send {"type":"presence","active":boolean}; the server never replies to it.'
   envelope:
@@ -7292,6 +8437,9 @@ x-shepherd-events:
     description: Current phase and completed phase timings for a correlated session create.
     schema:
       $ref: "#/components/schemas/SpawnProgressEvent"
+  diagnostics:status:
+    schema:
+      $ref: "#/components/schemas/DiagnosticsSnapshot"
 x-shepherd-pty:
   description: WebSocket /pty/{id}?cols=&rows=. Same auth gate and origin check as HTTP; the bearer goes on the upgrade request. An unknown session id is answered 404 before the upgrade. cols/rows set the attach size so the first paint matches the client's viewport. On attach the server replays the pane's scrollback, so a client must clear its own buffer on every (re)attach rather than appending. Server→client frames are raw terminal bytes (binary or text). Client→server text frames are keystrokes, except frames starting with resizePrefix which carry "<cols>:<rows>\n". One owner per terminal id; a new attach closes the previous socket with closeCodes.superseded and the loser must NOT reconnect (both would bump each other forever). closeCodes.gone means the session no longer has a live agent and no reattach can succeed. Any other close is transient; clients retry with backoff.
   path: /pty/{id}

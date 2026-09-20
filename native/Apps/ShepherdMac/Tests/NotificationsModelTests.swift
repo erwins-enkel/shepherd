@@ -342,6 +342,152 @@ struct NotificationsModelTests {
         await Task.yield()
         #expect(center.badge == 0, "a profile switch must not leave the old server's count up")
     }
+
+    /// `UNUserNotificationCenter.delegate` is weak and `teardown()` keeps the centre alive to
+    /// clear the badge, so a handler left installed is a live closure over the *outgoing*
+    /// profile: a banner for profile A clicked after the operator switched to B would select
+    /// A's session id against B's model, and the list jumps to nothing selected.
+    @Test func aClickAfterTeardownSelectsNothing() async {
+        let center = FakeNotificationCenter()
+        var selected: String?
+        let m = await model(center: center, selected: { selected = $0 })
+        center.deliverClick(sessionID: "s1")
+        #expect(selected == "s1", "the handler is live before the teardown")
+
+        selected = nil
+        m.teardown()
+        await Task.yield()
+        center.deliverClick(sessionID: "s9")
+        #expect(selected == nil, "a torn-down model no longer answers a banner click")
+    }
+
+    /// The badge is written per *change*, not per frame. `handle(_:)` refreshes it for every
+    /// frame the tap delivers, including the high-rate ones this model ignores; the tap is
+    /// strictly serial and buffers only 64 frames, so an XPC round trip per ignored frame is
+    /// how a burst of activity drops the one `session:block` a banner depended on.
+    @Test func anUnchangedBadgeIsWrittenOnlyOnce() async {
+        let center = FakeNotificationCenter()
+        let m = await model(center: center)
+        await m.setWindowFocused(false)
+        let blocked = PreviewData.session(id: "a", status: SessionStatus(known: .blocked))
+        await m.updateBadge(sessions: [blocked])
+        #expect(center.badge == 1)
+
+        // Cleared behind the model's back: a second write of the same count would put it back.
+        center.reset()
+        for _ in 0..<5 { await m.updateBadge(sessions: [blocked]) }
+        #expect(center.badge == 0, "the same count is never written twice")
+
+        var ready = PreviewData.session(id: "b", status: SessionStatus(known: .idle))
+        ready.readyToMerge = true
+        await m.updateBadge(sessions: [blocked, ready])
+        #expect(center.badge == 2, "a count that changed still goes through")
+    }
+
+    /// The other half of the elision: a clear is forced, because the Dock badge is global and
+    /// what is on it may not be what this model last wrote.
+    @Test func aClearIsNeverElided() async {
+        let center = FakeNotificationCenter()
+        let m = await model(center: center)
+        await m.setWindowFocused(false)
+        await m.updateBadge(sessions: [])
+        #expect(center.badge == 0, "nothing needs the operator, and zero is now the last write")
+
+        await center.setBadgeCount(4)
+        await m.setWindowFocused(true)
+        #expect(center.badge == 0, "focus clears the badge whatever this model last wrote")
+
+        await center.setBadgeCount(4)
+        m.teardown()
+        await Task.yield()
+        #expect(center.badge == 0, "and so does a teardown")
+    }
+
+    /// `if (sent) …`, the whole point of the seam returning a `Bool`: a banner macOS threw away
+    /// is not a banner the operator saw, so the 5-hour window must still be open when the next
+    /// `usage:limits` frame arrives. Latching on a rejection would silence the rest of the
+    /// window with nothing delivered.
+    @Test func aRejectedBannerDoesNotLatchTheUsageWindow() async {
+        let center = FakeNotificationCenter()
+        center.nextPostSucceeds = false
+        let m = await model(center: center, clock: advancingClock())
+        await m.setWindowFocused(false)
+
+        await m.handle(usage(pct: 83))
+        #expect(center.posted.count == 1, "the attempt was made")
+
+        center.nextPostSucceeds = true
+        await m.handle(usage(pct: 84))
+        #expect(center.posted.count == 2, "a rejected delivery leaves the window open")
+        #expect(center.posted.last?.title == L.t("native_notify_usage_title", "84"))
+    }
+
+    /// The focus observer's hop can resume after a profile switch. `setWindowFocused` is a
+    /// no-op once torn down, so it cannot write the outgoing centre's badge over the count the
+    /// incoming profile just set — the Dock badge is one badge for the whole app.
+    @Test func aFocusChangeAfterTeardownChangesNothing() async {
+        let center = FakeNotificationCenter()
+        let m = await model(center: center)
+        await m.setWindowFocused(false)
+        m.teardown()
+        await Task.yield()
+
+        // Stand in for the count the incoming profile has already put on the Dock.
+        await center.setBadgeCount(6)
+        await m.setWindowFocused(true)
+        #expect(!m.windowFocused, "a torn-down model records no focus")
+        #expect(center.badge == 6, "and writes nothing over the next profile's badge")
+    }
+
+    /// `handle(_:)` cannot consult the activation generation, so cancellation is what stops it.
+    /// Today `intents(for:)` returns at most one intent; the observable half of the guard is
+    /// that a cancelled tap does not go on to refresh the badge.
+    @Test func aCancelledTapStopsAfterTheBannerItAlreadyPosted() async {
+        let center = FakeNotificationCenter()
+        let m = await model(center: center)
+        await m.setWindowFocused(false)
+        await m.updateBadge(
+            sessions: [PreviewData.session(id: "a", status: SessionStatus(known: .blocked))])
+        #expect(center.badge == 1)
+
+        let block = BlockReason(shape: .init(value1: .stall), options: [], tail: [])
+        let task = Task { @MainActor in
+            await m.handle(.sessionBlock(.init(id: "s1", block: block)))
+        }
+        // Cancelled before the body can start: nothing below suspends until `task.value`.
+        task.cancel()
+        await task.value
+        #expect(center.posted.count == 1, "the banner the gate already allowed still goes out")
+        #expect(center.badge == 1, "a cancelled tap stops there; it does not refresh the badge")
+    }
+
+    /// The S0-int seam, held to two things: it may only count sessions that exist, and
+    /// assigning it must show up on the Dock without waiting for the next frame.
+    @Test func extraAttentionCountsOnlyLiveSessionsAndRefreshesTheBadgeItself() async {
+        let center = FakeNotificationCenter()
+        let m = await model(center: center)
+        await m.setWindowFocused(false)
+        let busy = PreviewData.session(id: "c", status: SessionStatus(known: .running))
+        let archived = PreviewData.session(id: "d", status: SessionStatus(known: .archived))
+
+        m.extraAttention = ["ghost", "d"]
+        await Task.yield()
+        await m.updateBadge(sessions: [busy, archived])
+        #expect(
+            center.badge == 0,
+            "an id no live session carries is a phantom the operator cannot clear")
+
+        m.extraAttention = ["c"]
+        await Task.yield()
+        await m.updateBadge(sessions: [busy, archived])
+        #expect(center.badge == 1, "a live session the integration lane flagged does count")
+
+        // The refresh, on its own: the model's own badge source holds no sessions, so dropping
+        // the seam takes the count back to zero with no frame in between.
+        m.extraAttention = []
+        await Task.yield()
+        #expect(center.badge == 0, "assigning the seam refreshes the badge itself")
+    }
 }
 
 /// The install point, driven through a real `AppModel` — which is also the only place the
@@ -372,6 +518,28 @@ struct NotificationsStreamTests {
         app.teardown()
         #expect(!live.isSubscribed)
         #expect(app.extension(NotificationsModel.self) == nil)
+    }
+
+    /// The launch task asks macOS for the authorization state and only then forwards focus. It
+    /// must forward the *live* value: an operator who switches away during that await has the
+    /// observer's answer in `windowFocused` already, and replaying the sample taken before the
+    /// await would leave notifications suppressed — and presence active — until the next
+    /// transition.
+    @Test func aFocusChangeDuringTheLaunchTaskSurvives() async throws {
+        let app = makeModel()
+        NotificationsStream.install(app)
+        let profile = try app.addRemoteProfile(
+            name: "notify-focus", address: "https://notify.example.ts.net")
+        await app.activate(profile)
+        let live = try #require(app.extension(NotificationsModel.self))
+
+        // What the activation observer does while the launch task is still in its await.
+        let flipped = !live.windowFocused
+        await live.setWindowFocused(flipped)
+        for _ in 0..<5 { await Task.yield() }
+        #expect(live.windowFocused == flipped, "the launch task must not replay a stale sample")
+
+        app.teardown()
     }
 }
 

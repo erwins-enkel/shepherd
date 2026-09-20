@@ -42,7 +42,14 @@ protocol NotificationCenterClient: AnyObject {
     var onSelectSession: ((String) -> Void)? { get set }
     func authorization() async -> NotificationAuthorization
     func requestAuthorization() async -> NotificationAuthorization
-    func post(_ request: NotificationRequest) async
+    /// Delivers one banner and says whether it really went out — the seam's port of the web's
+    /// `notify()` answering `sent`. A caller that latches state on a banner having reached the
+    /// operator (the usage warning's 5-hour window) must branch on this, never on the call
+    /// having returned: macOS rejects a request often enough that latching on a rejection
+    /// would silence the rest of that window with nothing delivered. `@discardableResult`
+    /// because most callers post and move on.
+    @discardableResult
+    func post(_ request: NotificationRequest) async -> Bool
     func setBadgeCount(_ count: Int) async
     /// Installs the click handler. Called once, after `onSelectSession` is set. Idempotent on
     /// `SystemNotificationCenter`; `FakeNotificationCenter` instead counts every call, so a test
@@ -104,7 +111,10 @@ final class SystemNotificationCenter: NotificationCenterClient {
         }
     }
 
-    func post(_ request: NotificationRequest) async {
+    /// `false` when macOS rejected the request, so a caller can tell a banner the operator saw
+    /// from one the system threw away. Still logged, still never a crash.
+    @discardableResult
+    func post(_ request: NotificationRequest) async -> Bool {
         let content = UNMutableNotificationContent()
         content.title = request.title
         content.body = request.body
@@ -118,6 +128,7 @@ final class SystemNotificationCenter: NotificationCenterClient {
             try await center.add(
                 UNNotificationRequest(
                     identifier: request.identifier, content: content, trigger: nil))
+            return true
         } catch {
             // Never log the title or the body — they name the operator's own work. The
             // identifier is a UUID this type minted, so it carries nothing.
@@ -126,6 +137,7 @@ final class SystemNotificationCenter: NotificationCenterClient {
                 could not post a notification: \(request.identifier, privacy: .public) \
                 \(String(describing: error), privacy: .public)
                 """)
+            return false
         }
     }
 
@@ -203,6 +215,9 @@ final class FakeNotificationCenter: NotificationCenterClient {
     private(set) var starts = 0
     var started: Bool { starts > 0 }
     var nextAuthorization: NotificationAuthorization = .granted
+    /// Stages a delivery failure — what macOS rejecting `add(_:)` looks like to a caller. The
+    /// request is still recorded, because the attempt was made; only the answer is `false`.
+    var nextPostSucceeds = true
 
     func start() { starts += 1 }
     func authorization() async -> NotificationAuthorization { nextAuthorization }
@@ -212,7 +227,11 @@ final class FakeNotificationCenter: NotificationCenterClient {
         return nextAuthorization
     }
 
-    func post(_ request: NotificationRequest) async { posted.append(request) }
+    @discardableResult
+    func post(_ request: NotificationRequest) async -> Bool {
+        posted.append(request)
+        return nextPostSucceeds
+    }
     func setBadgeCount(_ count: Int) async { badge = count }
 
     /// Test seam: pretend the operator clicked a banner for `sessionID`.
@@ -234,8 +253,9 @@ final class FakeNotificationCenter: NotificationCenterClient {
         deliverClick(sessionID: sessionID)
     }
 
-    /// Clears the recording. Deliberately keeps `onSelectSession`, `nextAuthorization`, and
-    /// `starts` — the fixture a test set up, not the evidence it is about to assert on.
+    /// Clears the recording. Deliberately keeps `onSelectSession`, `nextAuthorization`,
+    /// `nextPostSucceeds` and `starts` — the fixture a test set up, not the evidence it is
+    /// about to assert on.
     func reset() {
         posted.removeAll()
         badge = 0

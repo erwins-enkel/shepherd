@@ -27,8 +27,18 @@ final class NotificationsModel: AppExtension {
 
     /// Session ids that need the operator for a reason this build cannot see — S2's ci-red, and
     /// a plan gate with unanswered questions. Empty until the integration lane assigns it; the
-    /// badge counts blocked ∪ ready-to-merge ∪ this.
-    var extraAttention: Set<String> = []
+    /// badge counts blocked ∪ ready-to-merge ∪ (this ∩ the live sessions).
+    ///
+    /// Assigning it refreshes the badge itself rather than waiting for the next frame: on a quiet
+    /// server the next frame can be minutes away, and a Dock icon that lags the reason it is
+    /// lit is a seam the integration lane cannot use. Unchanged values are ignored (a re-assign
+    /// per frame would undo the badge elision below) and a torn-down model does nothing at all.
+    var extraAttention: Set<String> = [] {
+        didSet {
+            guard extraAttention != oldValue, !isTornDown else { return }
+            Task { [weak self] in await self?.refreshBadge() }
+        }
+    }
 
     private let center: any NotificationCenterClient
     private let settingsStore: NotificationSettingsStore
@@ -42,6 +52,17 @@ final class NotificationsModel: AppExtension {
     @ObservationIgnored private var tap: Task<Void, Never>?
     @ObservationIgnored private var launchTask: Task<Void, Never>?
     @ObservationIgnored private var focusObservers: [any NSObjectProtocol] = []
+    /// The hop an activation notification schedules. Tracked so `teardown()` can cancel it: an
+    /// untracked one can resume after a profile switch and write the outgoing centre's badge
+    /// over the count the incoming profile just set — the Dock badge is global.
+    @ObservationIgnored private var focusTask: Task<Void, Never>?
+    /// The last count actually written to the centre, or `nil` when the next write must go
+    /// through whatever it is. See `writeBadge(_:)`.
+    @ObservationIgnored private var lastBadge: Int?
+    /// Set by `teardown()`. Every path that can resume after it checks this before touching the
+    /// centre, because the centre outlives the teardown on purpose (it still has a badge to
+    /// clear) and the delegate macOS holds is weak.
+    @ObservationIgnored private var isTornDown = false
     @ObservationIgnored private weak var store: SessionStore?
     @ObservationIgnored private var badgeSource: @MainActor () -> [Session] = { [] }
 
@@ -68,7 +89,17 @@ final class NotificationsModel: AppExtension {
                     suiteName: "run.shepherd.mac.notifications.isolated.\(UUID().uuidString)")
                     ?? .standard)
                 : .standard)
-        let profileID = app.activeProfile?.id ?? UUID()
+        // A throwaway id means the settings written under it are read back by nobody: the
+        // operator mutes a category, relaunches, and it is on again. That cannot happen from
+        // `AppModel.activate` (the profile is set before the extensions are built), so if it
+        // ever does, the log is the only way anyone will find out. The identifier only — a
+        // profile's name is the operator's own.
+        let activeProfileID = app.activeProfile?.id
+        if activeProfileID == nil {
+            Log.app.error(
+                "notifications: no active profile at build time; settings will not persist")
+        }
+        let profileID = activeProfileID ?? UUID()
         let clock: @Sendable () -> Int = { Int(Date().timeIntervalSince1970 * 1_000) }
         self.settingsStore = settingsStore
         self.profileID = profileID
@@ -90,13 +121,17 @@ final class NotificationsModel: AppExtension {
 
         subscribe(to: store)
         observeFocus()
-        // Sample the *current* activation state before anything else. `windowFocused` starts
-        // false and `observeFocus()` only ever hears about the next transition, so connecting —
-        // or switching profiles — while the app is already frontmost would leave every
-        // notification un-suppressed and the badge counting until the operator happened to click
-        // away and back. `setWindowFocused` also forwards presence and sets the badge, so this
-        // one call replaces the separate initial `updateBadge`.
-        let active = NSApp?.isActive ?? false
+        // Sample the *current* activation state, synchronously, right here. `windowFocused`
+        // starts false and `observeFocus()` only ever hears about the next transition, so
+        // connecting — or switching profiles — while the app is already frontmost would leave
+        // every notification un-suppressed and the badge counting until the operator happened
+        // to click away and back.
+        //
+        // Synchronously, because a sample *applied* after the authorization await below would
+        // be a stale one: an operator who switches away while macOS is still answering would
+        // have the observer's `false` overwritten by this `true`, and notifications would stay
+        // suppressed — and presence active — until the next focus transition.
+        windowFocused = NSApp?.isActive ?? false
         // Two suspension points, so the activation generation is captured before the first one
         // and re-checked after it: a profile switch while macOS is still answering must not let
         // the outgoing activation's answer land on the incoming one. `teardown()` cancels this
@@ -104,8 +139,10 @@ final class NotificationsModel: AppExtension {
         let generation = app.activationGeneration
         launchTask = Task { [weak self, weak app] in
             await self?.refreshAuthorization()
-            guard let app, app.activationGeneration == generation else { return }
-            await self?.setWindowFocused(active)
+            guard let self, let app, app.activationGeneration == generation else { return }
+            // The live value, never a captured one: forwarding presence and setting the first
+            // badge is still this task's job, but it forwards whatever is true now.
+            await self.setWindowFocused(self.windowFocused)
         }
     }
 
@@ -152,22 +189,32 @@ final class NotificationsModel: AppExtension {
                     intent, at: now(), settings: settings, windowFocused: windowFocused,
                     authorized: authorization == .granted)
             else { continue }
-            await center.post(
+            let sent = await center.post(
                 NotificationRequest.make(
                     title: NotificationCopy.title(intent),
                     body: NotificationCopy.body(intent),
                     threadIdentifier: intent.threadIdentifier,
                     sessionID: intent.sessionID))
-            // The port of `if (sent) store.setSetting(USAGE_WARNED_KEY, …)`: the 5-hour window is
-            // latched here, on the branch where a banner really reached the operator, and
-            // nowhere else. Without it the server's ~30 s `usage:limits` frames each clear the
-            // cooldown eventually and the operator collects a "5-hour limit" banner every two
-            // minutes for the rest of the window. A no-op for every other kind.
-            trigger.usageWarningPosted(for: intent)
-            // The kind, never the body: a body can name the operator's own work.
-            Log.ui.info("posted a \(intent.kind.id, privacy: .public) notification")
+            // The port of `if (sent) store.setSetting(USAGE_WARNED_KEY, …)`, including the
+            // `sent`: the 5-hour window is latched only on the branch where a banner really
+            // reached the operator. Latching on a rejected delivery would suppress the rest of
+            // the window with nothing delivered; not latching at all would let the server's
+            // ~30 s `usage:limits` frames hand the operator a "5-hour limit" banner every two
+            // minutes for the rest of it. A no-op for every other kind.
+            //
+            // The cooldown stamp deliberately stays where it is — synchronous, inside
+            // `NotificationGate.allows`. See the comment there: this success flag is not a
+            // reason to move it.
+            if sent {
+                trigger.usageWarningPosted(for: intent)
+                // The kind, never the body: a body can name the operator's own work.
+                Log.ui.info("posted a \(intent.kind.id, privacy: .public) notification")
+            }
+            // Honest about cancellation: today `intents(for:)` returns at most one intent, but
+            // a second one must not be posted after the tap that is driving this was cancelled.
+            guard !Task.isCancelled else { return }
         }
-        await updateBadge(sessions: badgeSource())
+        await refreshBadge()
     }
 
     // MARK: - Focus
@@ -180,7 +227,15 @@ final class NotificationsModel: AppExtension {
                 // `queue: nil` runs on the posting thread, and AppKit posts both on the main one.
                 MainActor.assumeIsolated {
                     guard let self else { return }
-                    Task { await self.setWindowFocused(focused) }
+                    // Tracked, so `teardown()` can cancel a hop that has not started yet; the
+                    // `isTornDown` guards in `setWindowFocused` close the same window for one
+                    // that is already past its first suspension. The previous task is *not*
+                    // cancelled: two rapid transitions must both land, in the order they
+                    // arrived.
+                    self.focusTask = Task { [weak self] in
+                        guard !Task.isCancelled else { return }
+                        await self?.setWindowFocused(focused)
+                    }
                 }
             }
             focusObservers.append(observer)
@@ -191,12 +246,20 @@ final class NotificationsModel: AppExtension {
     /// the operator's phone would get stays suppressed too, exactly as an open browser tab does —
     /// and clears the badge when the window comes forward.
     func setWindowFocused(_ focused: Bool) async {
+        // A torn-down model has no server to tell and no badge of its own: the Dock badge is
+        // global, so a late resign-active would clear the count the *incoming* profile set.
+        guard !isTornDown else { return }
+        // Synchronously, before any suspension: this assignment is what keeps two rapid focus
+        // transitions from landing out of order. An `await` in front of it would let the later
+        // one write first and leave `windowFocused` reading the earlier value.
         windowFocused = focused
         await store?.setActive(focused)
+        // Re-checked after the suspension, for the same reason as the guard above.
+        guard !isTornDown else { return }
         if focused {
-            await center.setBadgeCount(0)
+            await clearBadge()
         } else {
-            await updateBadge(sessions: badgeSource())
+            await refreshBadge()
         }
     }
 
@@ -210,17 +273,50 @@ final class NotificationsModel: AppExtension {
     /// tap: a tap is allowed to drop frames, and a count that only an unbroken sequence could
     /// produce would drift for the rest of the session.
     func updateBadge(sessions: [Session]) async {
+        guard !isTornDown else { return }
         guard !windowFocused else {
-            await center.setBadgeCount(0)
+            await clearBadge()
             return
         }
         var needing: Set<String> = []
+        var live: Set<String> = []
         for session in sessions where session.status.known != .archived {
+            live.insert(session.id)
             if session.status.known == .blocked { needing.insert(session.id) }
             if session.readyToMerge { needing.insert(session.id) }
         }
-        needing.formUnion(extraAttention)
-        await center.setBadgeCount(needing.count)
+        // Intersected with the live, non-archived ids rather than unioned in wholesale: an id
+        // the integration lane forgets to prune would otherwise be a phantom on the Dock that
+        // the operator has no way to clear — no session to open, no state to change.
+        needing.formUnion(extraAttention.intersection(live))
+        await writeBadge(needing.count)
+    }
+
+    /// Re-derives the badge from whatever the store holds now.
+    private func refreshBadge() async {
+        await updateBadge(sessions: badgeSource())
+    }
+
+    /// One XPC round trip to `notificationd` per *change*, not per frame.
+    ///
+    /// `handle(_:)` refreshes the badge for every frame the tap delivers, including the
+    /// high-rate ones this model ignores (`session:activity`, `session:claude-alive`,
+    /// `session:git`). The tap is strictly serial and `SessionStore+EventTap` buffers only
+    /// `.bufferingNewest(64)`, so parking the consumer on a round trip per frame is how a burst
+    /// of activity overflows that buffer — and the frame it drops can be the one `session:block`
+    /// the banner depended on, invisibly, because the badge is re-derived and stays correct.
+    private func writeBadge(_ count: Int) async {
+        guard lastBadge != count else { return }
+        lastBadge = count
+        await center.setBadgeCount(count)
+    }
+
+    /// Clears the badge, never elided. `lastBadge` is dropped first, so a clear goes through
+    /// even when the last count this model wrote was already zero — the Dock badge is global,
+    /// and something else (the outgoing profile, a previous run) may have left a number on it.
+    private func clearBadge() async {
+        lastBadge = nil
+        await writeBadge(0)
     }
 
     // MARK: - Authorization and settings
@@ -243,16 +339,26 @@ final class NotificationsModel: AppExtension {
     // MARK: - Lifecycle
 
     func teardown() {
+        isTornDown = true
         tap?.cancel()
         tap = nil
         launchTask?.cancel()
         launchTask = nil
+        focusTask?.cancel()
+        focusTask = nil
         isSubscribed = false
         for observer in focusObservers { NotificationCenter.default.removeObserver(observer) }
         focusObservers.removeAll()
+        // `UNUserNotificationCenter.delegate` is weak and the centre is kept alive below to
+        // clear the badge, so the outgoing profile's click handler is still installed with a
+        // live closure. A banner for profile A clicked after the operator switched to profile B
+        // would select A's session id against B's model — the list jumps to nothing selected.
+        center.onSelectSession = nil
         store = nil
         badgeSource = { [] }
-        // A profile switch must not leave the outgoing server's count on the Dock icon.
+        // A profile switch must not leave the outgoing server's count on the Dock icon. Forced
+        // through `lastBadge`, which `clearBadge()` would drop anyway: a clear is never elided.
+        lastBadge = nil
         let center = self.center
         Task { await center.setBadgeCount(0) }
     }

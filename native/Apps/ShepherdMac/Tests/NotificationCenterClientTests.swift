@@ -19,6 +19,22 @@ struct NotificationCenterClientTests {
         #expect(center.posted.first?.threadIdentifier == "s1")
     }
 
+    /// `post` answers the web's `sent`. The fake records the attempt either way — the request
+    /// really was handed over — and only the answer changes, which is what lets a caller be
+    /// held to latching state on delivery rather than on the call having returned.
+    @Test func aStagedFailureIsRecordedAndReportedAsNotSent() async {
+        let center = FakeNotificationCenter()
+        let request = NotificationRequest.make(
+            title: "t", body: "b", threadIdentifier: "s1", sessionID: "s1")
+        let first = await center.post(request)
+        #expect(first, "delivery succeeds unless a test says otherwise")
+
+        center.nextPostSucceeds = false
+        let second = await center.post(request)
+        #expect(!second, "macOS rejecting `add(_:)` is what this stages")
+        #expect(center.posted.count == 2, "the attempt is recorded either way")
+    }
+
     @Test func theFakeRecordsTheBadgeAndTheAuthorizationRequest() async {
         let center = FakeNotificationCenter()
         center.nextAuthorization = .denied

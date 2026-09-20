@@ -532,6 +532,70 @@ struct NotificationsModelTests {
         #expect(center.posted.count == 1, "and banners flow again without a relaunch")
     }
 
+    /// Waits until `center` has seen `reads` authorization reads, so a test can be sure a
+    /// parked read has really reached the centre before it starts the next one. Bounded, so a
+    /// read that never arrives fails the assertion that follows instead of hanging the suite.
+    private func awaitReads(_ reads: Int, on center: FakeNotificationCenter) async {
+        for _ in 0..<1_000 {
+            if center.authorizationReads >= reads { return }
+            await Task.yield()
+        }
+    }
+
+    /// Two authorization reads overlap in ordinary use — opening the settings panel starts one,
+    /// coming back to the app starts another — and nothing promises they resume in the order
+    /// they were issued. The read that captured the pre-grant `.denied` must not land on top of
+    /// the one that captured `.granted` afterwards, or every banner stays suppressed until
+    /// something happens to refresh again.
+    @Test func anAuthorizationReadANewerOneOvertookIsDropped() async {
+        let center = FakeNotificationCenter()
+        center.nextAuthorization = .denied
+        let m = await model(center: center)
+        #expect(m.authorization == .denied)
+
+        center.suspendsAuthorizationReads = true
+        // The panel opens while permission is still denied.
+        let stale = Task { await m.refreshAuthorization() }
+        await awaitReads(1, on: center)
+        // The operator grants it in System Settings and comes back, which reads again.
+        let fresh = Task { await m.refreshAuthorization() }
+        await awaitReads(2, on: center)
+
+        center.completeAuthorizationRead(1, with: .granted)
+        await fresh.value
+        #expect(m.authorization == .granted)
+
+        center.completeAuthorizationRead(0, with: .denied)
+        await stale.value
+        #expect(
+            m.authorization == .granted,
+            "an overtaken read must not restore the status macOS has already moved past")
+    }
+
+    /// The same guard from the other side: the panel's "Allow notifications" button is an ask,
+    /// not a read, and its answer is the newest thing anyone knows. A plain read that was
+    /// already in flight when the operator pressed it must not put the denial back.
+    @Test func anInFlightReadDoesNotOverwriteAnExplicitGrant() async {
+        let center = FakeNotificationCenter()
+        center.nextAuthorization = .denied
+        let m = await model(center: center)
+
+        center.suspendsAuthorizationReads = true
+        let stale = Task { await m.refreshAuthorization() }
+        await awaitReads(1, on: center)
+
+        // The button. `requestAuthorization` is not parked — only reads are.
+        center.nextAuthorization = .granted
+        await m.requestAuthorization()
+        #expect(m.authorization == .granted)
+
+        center.completeAuthorizationRead(0, with: .denied)
+        await stale.value
+        #expect(
+            m.authorization == .granted,
+            "a read issued before the grant must not overwrite it")
+    }
+
     /// The settings-panel half of the stale-model bug: a toggle flipped on a panel whose model
     /// was already torn down (the operator switched profiles without closing the panel) must
     /// not reach the store, and must not even change the in-memory `settings` the panel reads

@@ -63,6 +63,10 @@ final class NotificationsModel: AppExtension {
     /// centre, because the centre outlives the teardown on purpose (it still has a badge to
     /// clear) and the delegate macOS holds is weak.
     @ObservationIgnored private var isTornDown = false
+    /// Monotonic, bumped by every path that asks macOS about permission. Captured before that
+    /// call's suspension and compared after it, so only the newest answer is kept. See
+    /// `refreshAuthorization()`.
+    @ObservationIgnored private var authorizationGeneration = 0
     @ObservationIgnored private weak var store: SessionStore?
     @ObservationIgnored private var badgeSource: @MainActor () -> [Session] = { [] }
 
@@ -395,9 +399,18 @@ final class NotificationsModel: AppExtension {
     /// The answer is dropped if the model was torn down while macOS was thinking: a profile
     /// switch mid-read must not write the outgoing activation's answer onto a model the panel
     /// may still be holding.
+    ///
+    /// It is also dropped if a *newer* read has started since. These reads overlap in ordinary
+    /// use — opening the panel starts one, coming back to the app starts another — and nothing
+    /// promises they resume in the order they were issued. Without the generation, the run that
+    /// captured `.denied` before the operator flipped the switch in System Settings can land
+    /// after the run that captured `.granted` afterwards, and every banner stays suppressed
+    /// until something happens to refresh again.
     func refreshAuthorization() async {
+        authorizationGeneration += 1
+        let generation = authorizationGeneration
         let status = await center.authorization()
-        guard !isTornDown else { return }
+        guard !isTornDown, generation == authorizationGeneration else { return }
         authorization = status
     }
 
@@ -407,12 +420,21 @@ final class NotificationsModel: AppExtension {
     /// A no-op once torn down: the settings panel re-hosts against the current activation's
     /// model on a profile switch, but a button tap already in flight when the switch happens
     /// would otherwise resolve against the outgoing profile's model after the fact.
+    ///
+    /// It carries the same generation as `refreshAuthorization()`, and for both directions: an
+    /// explicit grant must not be overwritten by a plain read that was already in flight when
+    /// the operator pressed the button, and it must itself stand down for a read issued after
+    /// it — whichever ask started last is the one whose answer describes the world now.
     func requestAuthorization() async {
         guard !isTornDown else {
             Log.app.error("ignored a notification permission request after teardown")
             return
         }
-        authorization = await center.requestAuthorization()
+        authorizationGeneration += 1
+        let generation = authorizationGeneration
+        let status = await center.requestAuthorization()
+        guard !isTornDown, generation == authorizationGeneration else { return }
+        authorization = status
     }
 
     /// A no-op once torn down, logged rather than silent: a settings panel left open across a

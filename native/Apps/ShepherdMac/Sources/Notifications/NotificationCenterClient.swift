@@ -237,9 +237,38 @@ final class FakeNotificationCenter: NotificationCenterClient {
     /// that was elided from one that wrote the same number again, which is the whole subject of
     /// `NotificationsModel.writeBadge(_:)`.
     private(set) var badgeWrites = 0
+    /// Every `authorization()` read this centre has seen, parked or not. A test waiting for a
+    /// read to reach the centre waits on this, never on the parked count, which falls again as
+    /// reads are completed.
+    private(set) var authorizationReads = 0
+    /// Parks every `authorization()` read until the test completes it by index, so two reads can
+    /// finish in the order the test chooses — the out-of-order case `NotificationsModel` guards
+    /// with a request generation. Off by default: every other test wants the immediate answer.
+    var suspendsAuthorizationReads = false
+    /// One slot per parked read, in arrival order. A completed slot is emptied rather than
+    /// removed, so an index keeps naming the read the test meant.
+    private var parkedReads: [CheckedContinuation<NotificationAuthorization, Never>?] = []
 
     func start() { starts += 1 }
-    func authorization() async -> NotificationAuthorization { nextAuthorization }
+
+    func authorization() async -> NotificationAuthorization {
+        authorizationReads += 1
+        guard suspendsAuthorizationReads else { return nextAuthorization }
+        return await withCheckedContinuation { continuation in
+            parkedReads.append(continuation)
+        }
+    }
+
+    /// Completes the `index`-th parked `authorization()` read — counted from this centre's first
+    /// read — with `value`. A no-op for an index that never arrived or is already done, so a
+    /// test cannot resume a continuation twice.
+    func completeAuthorizationRead(_ index: Int, with value: NotificationAuthorization) {
+        guard parkedReads.indices.contains(index), let continuation = parkedReads[index] else {
+            return
+        }
+        parkedReads[index] = nil
+        continuation.resume(returning: value)
+    }
 
     func requestAuthorization() async -> NotificationAuthorization {
         authorizationRequests += 1
@@ -286,5 +315,6 @@ final class FakeNotificationCenter: NotificationCenterClient {
         badge = 0
         badgeWrites = 0
         authorizationRequests = 0
+        authorizationReads = 0
     }
 }

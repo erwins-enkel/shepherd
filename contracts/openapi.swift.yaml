@@ -1055,8 +1055,8 @@ components:
           type: string
           description: Relative to the root, forward slashes, no leading slash.
         createdMs:
-          type: integer
-          description: Birth time when recorded, else mtime; absent when stat failed.
+          type: number
+          description: Birth time when recorded, else mtime; absent when stat failed; milliseconds since the epoch, may carry a fractional part.
         linkOutside:
           type: boolean
           description: Worktree only — a symlink resolving outside the root.

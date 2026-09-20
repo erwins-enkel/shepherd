@@ -132,6 +132,9 @@ describe("detail: reads", () => {
     const child = await get(`/api/sessions/${ok}/worktree?path=docs`);
     await validateResponse("GET", "/api/sessions/{id}/worktree", child);
     expect(child.status).toBe(200);
+  });
+
+  test("GET /worktree is 404 for an unknown id", async () => {
     const missing = await get(`/api/sessions/nope/worktree`);
     await validateResponse("GET", "/api/sessions/{id}/worktree", missing);
     expect(missing.status).toBe(404);

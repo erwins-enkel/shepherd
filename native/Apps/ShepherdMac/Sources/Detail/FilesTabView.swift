@@ -170,7 +170,7 @@ struct FilesTabView: View {
 
     private func created(_ entry: BrowseEntry) -> String {
         guard let ms = entry.createdMs else { return "—" }
-        return Date(timeIntervalSince1970: Double(ms) / 1000)
+        return Date(timeIntervalSince1970: ms / 1000)
             .formatted(date: .abbreviated, time: .shortened)
     }
 

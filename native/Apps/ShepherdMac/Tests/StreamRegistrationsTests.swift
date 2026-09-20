@@ -10,6 +10,38 @@ import Testing
 struct StreamRegistrationsTests {
     init() { resetStreamSeams() }
 
+    @Test func productionPassesInstallAndResetEveryRegistry() {
+        defer { resetStreamSeams() }
+        let app = scratchModel()
+        defer { app.teardown() }
+        StreamRegistrations.installScene()
+        for lens in [HerdLens.next, .owed, .done] {
+            #expect(QueuesPanels.panel(for: lens) != nil)
+        }
+        StreamRegistrations.installAll(into: app)
+        let factories = Set(app.extensionFactories.map(\.key))
+        for type in [HerdSignals.self, PlanModel.self, QueuesModel.self] as [any AppExtension.Type] {
+            #expect(factories.contains(ObjectIdentifier(type)))
+        }
+        #expect(DetailTabRegistry.tabs.map(\.id).contains("plan"))
+        #expect(SidebarSlot.content != nil)
+        #expect(ActionBarSlot.content != nil)
+        #expect(WelcomeSlots.localPanel != nil)
+        resetStreamSeams()
+        #expect(DetailTabRegistry.tabs.map(\.id) == ["prompt"])
+        #expect(SidebarSlot.content == nil)
+        #expect(ActionBarSlot.content == nil)
+        #expect(WelcomeSlots.localPanel == nil)
+        #expect(!PlanSignals.planReviewing("a"))
+        #expect(!SessionSignals.planQuestionsUnanswered("a"))
+        for lens in [HerdLens.next, .owed, .done] {
+            #expect(QueuesPanels.panel(for: lens) == nil)
+        }
+        // A reset must also re-arm the once-only scene pass.
+        StreamRegistrations.installScene()
+        #expect(QueuesPanels.panel(for: .next) != nil)
+    }
+
     private struct ProbePane: SettingsPane {
         let id = "probe"
         let order = 0

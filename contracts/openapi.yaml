@@ -475,7 +475,18 @@ components:
     ClaudeUsageProviderSnapshot:
       type: object
       additionalProperties: true
-      required: [provider, kind, session5h, week, perModelWeek, credits, stale, calibratedAt, subscriptionOnly]
+      required:
+        [
+          provider,
+          kind,
+          session5h,
+          week,
+          perModelWeek,
+          credits,
+          stale,
+          calibratedAt,
+          subscriptionOnly,
+        ]
       properties:
         provider:
           type: string
@@ -509,7 +520,18 @@ components:
     CodexUsageProviderSnapshot:
       type: object
       additionalProperties: true
-      required: [provider, kind, totalTokens, session5hTokens, weekTokens, updatedAt, stale, session5h, week]
+      required:
+        [
+          provider,
+          kind,
+          totalTokens,
+          session5hTokens,
+          weekTokens,
+          updatedAt,
+          stale,
+          session5h,
+          week,
+        ]
       properties:
         provider:
           type: string

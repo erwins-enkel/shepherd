@@ -1,11 +1,9 @@
 import Foundation
 
 /// A generated open enum: `anyOf: [{$ref: <Name>Known}, {type: string}]` for a
-/// named schema (`SessionStatus`, `HerdrState`, `SessionArchiveReason`,
-/// `ExperimentRole`, `EventName`), or the inline `anyOf: [{type: string,
-/// enum: […]}, {type: string}]` for the four properties with no name to hang
-/// a component on (`Session.planPhase`, `Session.haltReason`,
-/// `BlockReason.shape`, `BlockReason.quotaKind`).
+/// named schema (such as `SessionStatus`), or the inline
+/// `anyOf: [{type: string, enum: […]}, {type: string}]` for properties
+/// such as `Session.planPhase` and `ClaudeUsageProviderSnapshot.provider`.
 ///
 /// swift-openapi-generator's enums are closed, so a server that learns a new
 /// `SessionStatus` would break decoding on an older client. The derived
@@ -48,12 +46,9 @@ extension OpenEnum {
   public init(unknown raw: String) { self.init(value1: nil, value2: raw) }
 }
 
-// The nine schemas the derivation flags with `x-shepherd-open-enum`. Five —
-// SessionStatus, HerdrState, SessionArchiveReason, ExperimentRole, EventName —
-// are named components whose `value1` is the top-level `<Name>Known` enum
-// (SessionStatusKnown, …). BlockReason.ShapePayload/.QuotaKindPayload and
-// Session.PlanPhasePayload/.HaltReasonPayload are the four inline properties,
-// whose `value1` is instead the generator's own nested `Value1Payload` enum.
+// Core schemas the derivation flags with `x-shepherd-open-enum`.
+// Named components use the top-level `<Name>Known` enum for `value1`;
+// inline properties use the generator's nested `Value1Payload` enum.
 // The generated code lives in this same module, so these are not retroactive
 // conformances across a module boundary.
 extension Components.Schemas.SessionStatus: OpenEnum {}
@@ -65,3 +60,8 @@ extension Components.Schemas.BlockReason.ShapePayload: OpenEnum {}
 extension Components.Schemas.BlockReason.QuotaKindPayload: OpenEnum {}
 extension Components.Schemas.Session.PlanPhasePayload: OpenEnum {}
 extension Components.Schemas.Session.HaltReasonPayload: OpenEnum {}
+extension Components.Schemas.ClaudeUsageProviderSnapshot.ProviderPayload: OpenEnum {}
+extension Components.Schemas.ClaudeUsageProviderSnapshot.KindPayload: OpenEnum {}
+extension Components.Schemas.CodexUsageProviderSnapshot.ProviderPayload: OpenEnum {}
+extension Components.Schemas.CodexUsageProviderSnapshot.KindPayload: OpenEnum {}
+extension Components.Schemas.CodexUsageProviderSnapshot.RateLimitSourcePayload: OpenEnum {}

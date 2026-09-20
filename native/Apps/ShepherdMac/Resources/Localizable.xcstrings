@@ -756,6 +756,40 @@
         }
       }
     },
+    "buildqueue_start": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jetzt starten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start now"
+          }
+        }
+      }
+    },
+    "buildqueue_start_steer": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Build-Queue ist bereits freigegeben. Fahre mit dem nächsten zulässigen Schritt fort und halte den Queue-Fortschritt aktuell. Bei aktivem Plan-Gate darfst du nur den Plan erstellen oder fortsetzen und musst anschließend zur Prüfung anhalten. Beginne keine Umsetzung, bevor der Plan freigegeben und die Ausführung ausdrücklich erlaubt wurde. Liegt der Plan bereits zur Prüfung vor, warte auf diese Freigabe."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The build queue is already approved. Continue with the next permitted step and keep queue progress updated. If the plan gate is active, only create or continue the plan, then stop for review. Do not implement until the plan is approved and execution is explicitly authorized. If the plan is already awaiting review, wait for that approval."
+          }
+        }
+      }
+    },
     "cardmenu_amend": {
       "extractionState": "manual",
       "localizations": {
@@ -959,6 +993,76 @@
           "stringUnit": {
             "state": "translated",
             "value": "Stopped %1$@"
+          }
+        }
+      }
+    },
+    "clearmerged_confirm": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ stilllegen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Decommission %1$@"
+          }
+        }
+      }
+    },
+    "clearmerged_leftovers": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ Hintergrundprozesse dieser Sessions werden ebenfalls beendet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ background processes from these sessions will also be terminated."
+          }
+        }
+      }
+    },
+    "clearmerged_probes_unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd kann auf diesem Host keine laufenden Prozesse erkennen. Hintergrundprozesse dieser Sessions werden daher nicht aufgeführt und laufen möglicherweise weiter. Siehe Diagnose."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd can't detect running processes on this host, so background processes from these sessions aren't listed and may survive. See Diagnose."
+          }
+        }
+      }
+    },
+    "clearmerged_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gemergte Sessions stilllegen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Decommission merged sessions"
           }
         }
       }
@@ -2682,6 +2786,24 @@
           "stringUnit": {
             "state": "translated",
             "value": "Merge blocked (%1$@)"
+          }
+        }
+      }
+    },
+    "herd_merge_train_prompt": {
+      "comment": "%1$@ = prs",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Führe einen Merge-Train für die Pull Requests aus, die ich als merge-bereit markiert habe. Prüfe jeden auf Korrektheit und Produkt-Fit, schlage eine sichere Merge-Reihenfolge vor und halte vor jedem Merge für meine Freigabe an; prüfe danach nach jedem Merge die Warteschlange erneut, denn main bewegt sich unter dir.\n\nMerge-bereite PRs:\n%1$@\n\nWenn dieses Repo einen /merge-train-Befehl oder -Skill bereitstellt, nutze ihn. Andernfalls arbeite den Train selbst ab:\n1. Erfasse für jeden PR den Status mit gh (CI-Rollup, Mergebarkeit/Konflikte, wie weit hinter main, und welche Dateien sich mit anderen PRs dieser Liste überschneiden).\n2. Verschiebe jeden PR, der CI-rot, konfliktbehaftet, gate-fehlerhaft oder nicht erwünscht ist, mit einer einzeiligen Begründung auf eine separate Halteliste; merge niemals an einem roten Gate vorbei.\n3. Ordne den Rest: am kleinsten und unabhängigsten zuerst; überschneiden sich zwei, sequenziere sie so, dass der riskantere auf den anderen rebased; release-please-PRs zuletzt.\n4. Präsentiere die nummerierte Merge-Reihenfolge plus die Halteliste und WARTE auf meine Freigabe.\n5. Nach Freigabe merge in Reihenfolge: erst auf das aktuelle main rebasen (niemals main in den Branch mergen), grüne Gates bestätigen, dann gh pr merge --squash --delete-branch, und vor dem nächsten die verbleibenden PRs erneut gegen main prüfen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run a merge train for the pull requests I've flagged ready to merge. Review each for correctness and product-fit, propose a safe merge order, and stop for my approval before merging anything; then re-check the queue after every merge, because main moves under you.\n\nReady-to-merge PRs:\n%1$@\n\nIf this repo provides a /merge-train command or skill, use it. Otherwise work the train yourself:\n1. For each PR, gather status with gh (CI rollup, mergeability/conflicts, how far behind main, and which files overlap other PRs in this list).\n2. Move any PR that is CI-red, conflicting, gate-failing, or that we don't actually want into a separate hold list with a one-line reason; never merge past a red gate.\n3. Order the rest: smallest and most independent first; when two overlap, sequence them so the riskier one rebases onto the other; release-please PRs last.\n4. Present the numbered merge order plus the hold list and WAIT for my approval.\n5. On approval, merge in order: rebase onto latest main first (never merge main into the branch), confirm gates are green, then gh pr merge --squash --delete-branch, and re-check the remaining PRs against main before the next one."
           }
         }
       }
@@ -4486,6 +4608,77 @@
           "stringUnit": {
             "state": "translated",
             "value": "This instance is protected. Enter the operator password to continue."
+          }
+        }
+      }
+    },
+    "mergeconfirm_confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR mergen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge PR"
+          }
+        }
+      }
+    },
+    "mergeconfirm_handoff_merger": {
+      "comment": "%1$@ = who",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Für den Merge ist @%1$@ zuständig. Mit dieser Aktion übernimmst du den Merge."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "@%1$@ is responsible for the merge. Confirming takes the merge over."
+          }
+        }
+      }
+    },
+    "mergeconfirm_handoff_reviewer": {
+      "comment": "%1$@ = who",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "@%1$@ soll diesen Pull Request prüfen. Beim Bestätigen wird er ohne diese Freigabe gemergt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "@%1$@ is due to review this pull request. Confirming merges it without their approval."
+          }
+        }
+      }
+    },
+    "mergeconfirm_review_block": {
+      "comment": "%1$@ = who",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "@%1$@ hat Änderungen angefordert, die noch offen sind."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "@%1$@ has requested changes that are still open."
           }
         }
       }
@@ -6645,6 +6838,449 @@
           "stringUnit": {
             "state": "translated",
             "value": "Session"
+          }
+        }
+      }
+    },
+    "native_merge_ack": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ich übernehme die manuellen Schritte"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I own the manual steps"
+          }
+        }
+      }
+    },
+    "native_merge_action_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Aktion ist fehlgeschlagen. Aktualisieren und erneut versuchen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The action failed. Refresh and try again."
+          }
+        }
+      }
+    },
+    "native_merge_add": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schritt hinzufügen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add step"
+          }
+        }
+      }
+    },
+    "native_merge_approve": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warteschlange freigeben"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Approve queue"
+          }
+        }
+      }
+    },
+    "native_merge_automerge": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatischer Merge"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatic merge"
+          }
+        }
+      }
+    },
+    "native_merge_autopilot": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autopilot"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autopilot"
+          }
+        }
+      }
+    },
+    "native_merge_base": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zielbranch"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Target branch"
+          }
+        }
+      }
+    },
+    "native_merge_complete": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autopilot abgeschlossen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autopilot complete"
+          }
+        }
+      }
+    },
+    "native_merge_delete_branch": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quellbranch löschen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete source branch"
+          }
+        }
+      }
+    },
+    "native_merge_excluded": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ PRs in anderen Repositories ausgeschlossen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ PRs in other repositories excluded"
+          }
+        }
+      }
+    },
+    "native_merge_inherit": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repository-Standard"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repository default"
+          }
+        }
+      }
+    },
+    "native_merge_load_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge-Status konnte nicht geladen werden. Erneut verbinden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not load merge state. Reconnect to retry."
+          }
+        }
+      }
+    },
+    "native_merge_method": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge-Methode"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge method"
+          }
+        }
+      }
+    },
+    "native_merge_move_down": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nach unten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move down"
+          }
+        }
+      }
+    },
+    "native_merge_move_up": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nach oben"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move up"
+          }
+        }
+      }
+    },
+    "native_merge_off": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aus"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off"
+          }
+        }
+      }
+    },
+    "native_merge_on": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On"
+          }
+        }
+      }
+    },
+    "native_merge_overview": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge & Automatisierung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge & automation"
+          }
+        }
+      }
+    },
+    "native_merge_paused": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autopilot pausiert"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autopilot paused"
+          }
+        }
+      }
+    },
+    "native_merge_queue": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Build-Warteschlange"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Build queue"
+          }
+        }
+      }
+    },
+    "native_merge_redeploy": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erneut bereitstellen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Redeploy"
+          }
+        }
+      }
+    },
+    "native_merge_remove": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entfernen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove"
+          }
+        }
+      }
+    },
+    "native_merge_step": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schritttitel"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Step title"
+          }
+        }
+      }
+    },
+    "native_merge_step_detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schrittdetails"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Step details"
+          }
+        }
+      }
+    },
+    "native_merge_train": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge-Train starten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start merge train"
+          }
+        }
+      }
+    },
+    "native_merge_train_warning": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dies startet einen Agenten, der die aufgeführten PRs einschließlich fremder PRs mergen kann."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This starts an agent that can land the listed PRs, including PRs owned by others."
           }
         }
       }
@@ -9481,6 +10117,40 @@
         }
       }
     },
+    "owed_dismiss": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwerfen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dismiss"
+          }
+        }
+      }
+    },
+    "owed_dismiss_confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle verwerfen?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dismiss all?"
+          }
+        }
+      }
+    },
     "owed_empty": {
       "extractionState": "manual",
       "localizations": {
@@ -9494,6 +10164,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "No post-merge steps owed — you're all caught up."
+          }
+        }
+      }
+    },
+    "owed_post_merge_badge": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "POST-MERGE"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "POST-MERGE"
           }
         }
       }
@@ -9529,6 +10216,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Post-merge steps owed"
+          }
+        }
+      }
+    },
+    "owed_tracking_issue": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tracking-Issue ↗"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tracking issue ↗"
           }
         }
       }

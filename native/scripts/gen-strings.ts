@@ -596,7 +596,49 @@ export const KEYS_PLAN: readonly string[] = [
 ];
 
 /** S9 — merge, automation and post-merge steps. */
-export const KEYS_MERGE: readonly string[] = [];
+export const KEYS_MERGE: readonly string[] = [
+  "buildqueue_start",
+  "buildqueue_start_steer",
+  "clearmerged_confirm",
+  "clearmerged_leftovers",
+  "clearmerged_probes_unavailable",
+  "clearmerged_title",
+  "herd_merge_train_prompt",
+  "mergeconfirm_confirm",
+  "mergeconfirm_handoff_merger",
+  "mergeconfirm_handoff_reviewer",
+  "mergeconfirm_review_block",
+  "native_merge_ack",
+  "native_merge_action_failed",
+  "native_merge_add",
+  "native_merge_approve",
+  "native_merge_automerge",
+  "native_merge_autopilot",
+  "native_merge_base",
+  "native_merge_complete",
+  "native_merge_delete_branch",
+  "native_merge_excluded",
+  "native_merge_inherit",
+  "native_merge_load_failed",
+  "native_merge_method",
+  "native_merge_move_down",
+  "native_merge_move_up",
+  "native_merge_off",
+  "native_merge_on",
+  "native_merge_overview",
+  "native_merge_paused",
+  "native_merge_queue",
+  "native_merge_redeploy",
+  "native_merge_remove",
+  "native_merge_step",
+  "native_merge_step_detail",
+  "native_merge_train",
+  "native_merge_train_warning",
+  "owed_dismiss",
+  "owed_dismiss_confirm",
+  "owed_post_merge_badge",
+  "owed_tracking_issue",
+];
 
 /** S10 — held tasks, up-next, done/recaps, halt and retry. */
 export const KEYS_QUEUES: readonly string[] = [

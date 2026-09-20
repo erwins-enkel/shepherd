@@ -2906,6 +2906,380 @@ components:
           type: string
         summary:
           type: string
+    AutomationOverride:
+      type: object
+      additionalProperties: false
+      required:
+        - enabled
+      properties:
+        enabled:
+          description: Required JSON scalar; use the stream's typed value factory.
+    MergeStep:
+      type: object
+      additionalProperties: true
+      required:
+        - id
+        - text
+        - postMerge
+        - doneAt
+      properties:
+        id:
+          type: string
+        text:
+          type: string
+        postMerge:
+          type: boolean
+        doneAt:
+          type:
+            - integer
+            - "null"
+    PostMergeSteps:
+      type: object
+      additionalProperties: true
+      required:
+        - sessionId
+        - desig
+        - repoPath
+        - prNumber
+        - prTitle
+        - steps
+        - trackingIssueUrl
+        - trackingIssueNumber
+        - createdAt
+        - updatedAt
+        - clearedAt
+      properties:
+        sessionId:
+          type: string
+        desig:
+          type: string
+        repoPath:
+          type: string
+        prNumber:
+          type:
+            - integer
+            - "null"
+        prTitle:
+          type: string
+        steps:
+          type: array
+          items:
+            $ref: "#/components/schemas/MergeStep"
+        trackingIssueUrl:
+          type:
+            - string
+            - "null"
+        trackingIssueNumber:
+          type:
+            - integer
+            - "null"
+        createdAt:
+          type: integer
+        updatedAt:
+          type: integer
+        clearedAt:
+          type:
+            - integer
+            - "null"
+    ManualStepToggle:
+      type: object
+      additionalProperties: false
+      required:
+        - done
+      properties:
+        done:
+          type: boolean
+    BuildStepStatus:
+      anyOf:
+        - $ref: "#/components/schemas/BuildStepStatusKnown"
+        - type: string
+    BuildStepStatusKnown:
+      type: string
+      enum:
+        - pending
+        - active
+        - done
+        - skipped
+    BuildStep:
+      type: object
+      additionalProperties: true
+      required:
+        - id
+        - title
+        - detail
+        - status
+        - position
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        detail:
+          type: string
+        status:
+          $ref: "#/components/schemas/BuildStepStatus"
+        position:
+          type: integer
+    BuildStepInput:
+      type: object
+      additionalProperties: false
+      required:
+        - title
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 200
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        detail:
+          type: string
+          maxLength: 4000
+        status:
+          type: string
+          enum:
+            - pending
+            - active
+            - done
+            - skipped
+    BuildQueue:
+      type: object
+      additionalProperties: true
+      required:
+        - sessionId
+        - steps
+        - approved
+      properties:
+        sessionId:
+          type: string
+        steps:
+          type: array
+          items:
+            $ref: "#/components/schemas/BuildStep"
+        approved:
+          type: boolean
+        approvalKind:
+          type: string
+    BuildQueueMap:
+      type: object
+      additionalProperties:
+        $ref: "#/components/schemas/BuildQueue"
+    BuildQueueWrite:
+      type: object
+      additionalProperties: false
+      required:
+        - steps
+      properties:
+        steps:
+          type: array
+          items:
+            $ref: "#/components/schemas/BuildStepInput"
+          maxItems: 100
+    DrainStatus:
+      type: object
+      additionalProperties: true
+      required:
+        - repoPath
+        - enabled
+        - paused
+        - reason
+        - detail
+        - queued
+        - inFlight
+        - max
+        - epicParent
+      properties:
+        repoPath:
+          type: string
+        enabled:
+          type: boolean
+        paused:
+          type: boolean
+        reason:
+          type:
+            - string
+            - "null"
+        detail:
+          type:
+            - string
+            - "null"
+        queued:
+          type: integer
+        inFlight:
+          type: integer
+        max:
+          type: integer
+        epicParent:
+          type:
+            - integer
+            - "null"
+    DrainQueuedItem:
+      type: object
+      additionalProperties: true
+      required:
+        - number
+        - title
+        - url
+      properties:
+        number:
+          type: integer
+        title:
+          type: string
+        url:
+          type: string
+    ClearMergedPreview:
+      type: object
+      additionalProperties: true
+      required:
+        - ids
+        - leftovers
+        - probesUnavailable
+      properties:
+        ids:
+          type: array
+          items:
+            type: string
+        leftovers:
+          type: integer
+        probesUnavailable:
+          type: boolean
+    ClearMergedRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - ids
+      properties:
+        ids:
+          type: array
+          items:
+            type: string
+    ClearMergedResult:
+      type: object
+      additionalProperties: true
+      required:
+        - cleared
+        - leftovers
+      properties:
+        cleared:
+          type: array
+          items:
+            type: string
+        leftovers:
+          type: integer
+    SessionAutomergeEvent:
+      type: object
+      additionalProperties: true
+      required:
+        - id
+        - enabled
+      properties:
+        id:
+          type: string
+        enabled:
+          type:
+            - boolean
+            - "null"
+    SessionAutopilotEvent:
+      type: object
+      additionalProperties: true
+      required:
+        - id
+        - paused
+        - complete
+      properties:
+        id:
+          type: string
+        paused:
+          type: boolean
+        complete:
+          type: boolean
+        question:
+          type:
+            - string
+            - "null"
+        enabled:
+          type:
+            - boolean
+            - "null"
+    SessionMergingEvent:
+      type: object
+      additionalProperties: true
+      required:
+        - id
+        - since
+        - trainId
+      properties:
+        id:
+          type: string
+        since:
+          type:
+            - integer
+            - "null"
+        trainId:
+          type:
+            - string
+            - "null"
+    MergeTrainLandedEvent:
+      type: object
+      additionalProperties: true
+      required:
+        - repoPath
+      properties:
+        repoPath:
+          type: string
+    PostMergeStepsChangedEvent:
+      type: object
+      additionalProperties: true
+      properties: {}
+    MergeManualStep:
+      type: object
+      additionalProperties: true
+      required:
+        - id
+        - text
+        - postMerge
+      properties:
+        id:
+          type: string
+        text:
+          type: string
+        postMerge:
+          type: boolean
+    SessionManualStepsEvent:
+      type: object
+      additionalProperties: true
+      required:
+        - id
+        - manualSteps
+      properties:
+        id:
+          type: string
+        manualSteps:
+          type: array
+          items:
+            $ref: "#/components/schemas/MergeManualStep"
+        manualStepsAckedAt:
+          type:
+            - integer
+            - "null"
+    AutomergeStatusList:
+      type: array
+      items:
+        $ref: "#/components/schemas/AutoMergeStatus"
+    OutstandingManualSteps:
+      type: array
+      items:
+        $ref: "#/components/schemas/PostMergeSteps"
+    DrainStatusList:
+      type: array
+      items:
+        $ref: "#/components/schemas/DrainStatus"
+    DrainQueueList:
+      type: array
+      items:
+        $ref: "#/components/schemas/DrainQueuedItem"
     HeldReason:
       anyOf:
         - $ref: "#/components/schemas/HeldReasonKnown"
@@ -5493,6 +5867,381 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /api/automerge:
+    get:
+      operationId: listAutomerge
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AutomergeStatusList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/sessions/{id}/autopilot:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    put:
+      operationId: setSessionAutopilot
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AutomationOverride"
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Session"
+        "400":
+          description: Handler refusal; see the verified status matrix.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Handler refusal; see the verified status matrix.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/sessions/{id}/automerge:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    put:
+      operationId: setSessionAutomerge
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AutomationOverride"
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Session"
+        "400":
+          description: Handler refusal; see the verified status matrix.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Handler refusal; see the verified status matrix.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/sessions/{id}/git/redeploy:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: redeploySession
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Ok"
+        "400":
+          description: Handler refusal; see the verified status matrix.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Handler refusal; see the verified status matrix.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          description: Handler refusal; see the verified status matrix.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/sessions/clear-merged:
+    get:
+      operationId: previewClearMerged
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClearMergedPreview"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      operationId: clearMergedSessions
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClearMergedRequest"
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClearMergedResult"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/manual-steps/outstanding:
+    get:
+      operationId: listOutstandingManualSteps
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OutstandingManualSteps"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/manual-steps/{id}/steps/{stepId}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: stepId
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: setManualStepDone
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ManualStepToggle"
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PostMergeSteps"
+        "400":
+          description: Handler refusal; see the verified status matrix.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Handler refusal; see the verified status matrix.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/manual-steps/{id}/dismiss:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: dismissManualSteps
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PostMergeSteps"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Handler refusal; see the verified status matrix.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/sessions/{id}/ack-manual-steps:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: ackManualSteps
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Ok"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Handler refusal; see the verified status matrix.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/drain:
+    get:
+      operationId: listDrain
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DrainStatusList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/drain/queue:
+    get:
+      operationId: listDrainQueue
+      parameters:
+        - name: repo
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DrainQueueList"
+        "400":
+          description: Handler refusal; see the verified status matrix.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/queues:
+    get:
+      operationId: listBuildQueues
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BuildQueueMap"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/sessions/{id}/queue:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getBuildQueue
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BuildQueue"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Handler refusal; see the verified status matrix.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    put:
+      operationId: putBuildQueue
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BuildQueueWrite"
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BuildQueue"
+        "400":
+          description: Handler refusal; see the verified status matrix.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Handler refusal; see the verified status matrix.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/sessions/{id}/queue/approve:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: approveBuildQueue
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BuildQueue"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Handler refusal; see the verified status matrix.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /api/held:
     get:
       operationId: listHeld
@@ -6416,6 +7165,30 @@ x-shepherd-events:
     description: One line of plan-reviewer progress. Cleared on both edges of session:plangate-reviewing.
     schema:
       $ref: "#/components/schemas/SessionPlanGateActivityEvent"
+  session:automerge:
+    schema:
+      $ref: "#/components/schemas/SessionAutomergeEvent"
+  session:autopilot:
+    schema:
+      $ref: "#/components/schemas/SessionAutopilotEvent"
+  session:merging:
+    schema:
+      $ref: "#/components/schemas/SessionMergingEvent"
+  mergetrain:landed:
+    schema:
+      $ref: "#/components/schemas/MergeTrainLandedEvent"
+  post-merge-steps:changed:
+    schema:
+      $ref: "#/components/schemas/PostMergeStepsChangedEvent"
+  session:manual-steps:
+    schema:
+      $ref: "#/components/schemas/SessionManualStepsEvent"
+  queue:update:
+    schema:
+      $ref: "#/components/schemas/BuildQueue"
+  drain:status:
+    schema:
+      $ref: "#/components/schemas/DrainStatus"
   upnext:snapshot:
     description: A freshly computed Up Next queue. The ONLY delivery path for the snapshot — see UpNextSnapshot.
     schema:

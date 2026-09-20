@@ -21,7 +21,11 @@ struct VisualBlocksTests {
 
     /// Inspect the real hosted SwiftUI accessibility tree, not a parallel presentation model.
     private func rendered(_ blocks: [VisualBlock], inferred: Bool = false) async -> [Element] {
-        let host = NSHostingView(rootView: VisualBlocksView(blocks: blocks, inferred: inferred))
+        await renderedView(VisualBlocksView(blocks: blocks, inferred: inferred))
+    }
+
+    private func renderedView<Content: View>(_ view: Content) async -> [Element] {
+        let host = NSHostingView(rootView: view)
         let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 900, height: 2400),
                               styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = host
@@ -187,6 +191,48 @@ struct VisualBlocksTests {
             "visual-block-api-endpoint-b", "visual-block-mermaid-b", "visual-block-wireframe-b",
             "visual-block-diff-last",
         ])
+    }
+
+    @Test func planTabRendersEnvironmentVerdictFindingsAndEligibleControls() async throws {
+        var session = PreviewData.session(id: "s1")
+        session.planPhase = .init(known: .planning)
+        let gate = PlanGate(sessionId: "s1", planHash: "hash", decision: .init(known: .approved),
+                            summary: "Ready verdict", body: "Reviewer prose", findings: ["Keep rollback key"],
+                            round: 1, cap: 3, approved: true, plan: "# Deployment", updatedAt: 1)
+        let model = PlanModel(reads: .init(gates: { ["s1": gate] }, inflight: { [] }))
+        await model.refresh()
+        let writer = PlanTabWriter(review: { _ in .init(ok: true, status: .init(known: .skipped)) },
+                                   release: { _ in true }, quota: { _, _ in .init(ok: false, status: .init(known: .notStalled)) })
+        let actions = PlanTabActions(session: session, model: model, writer: writer)
+        defer { actions.teardown(); model.teardown() }
+        let elements = await renderedView(PlanTabBody(actions: actions))
+        let text = elements.map(\.text).joined(separator: "\n")
+        for value in ["Deployment", "Ready verdict", "Reviewer prose", "Keep rollback key", L.t("planpanel_env_plan")] {
+            #expect(text.contains(value))
+        }
+        #expect(elements.contains { $0.id == "plan-go" })
+        #expect(elements.contains { $0.id == "plan-review" })
+        actions.requestConfirmation()
+        await actions.release()
+        let released = await renderedView(PlanTabBody(actions: actions))
+        #expect(!released.contains { $0.id == "plan-go" || $0.id == "plan-review" })
+        #expect(released.contains { $0.text.contains(L.t("planpanel_status_view")) })
+    }
+
+    @Test func planBadgeReflectsChipAndDenseExecutionSuppression() async {
+        var session = PreviewData.session(id: "s1")
+        session.planPhase = .init(known: .planning)
+        let gate = PlanGate(sessionId: "s1", planHash: "hash", decision: .init(known: .approved),
+                            summary: "Approved", body: "", findings: [], round: 1, cap: 3,
+                            approved: true, plan: "Plan", updatedAt: 1)
+        let model = PlanModel(reads: .init(gates: { ["s1": gate] }, inflight: { [] }))
+        await model.refresh()
+        defer { model.teardown() }
+        let ready = await renderedView(PlanGateBadgeView(session: session, model: model))
+        #expect(ready.contains { $0.text.contains(L.t("plangate_ready")) })
+        session.planPhase = .init(known: .executing)
+        let dense = await renderedView(PlanGateBadgeView(session: session, model: model, allowView: false))
+        #expect(!dense.contains { $0.id == "plan-gate-badge-s1" })
     }
 
     @Test func inferredBadgeIsOptInForRecaps() async throws {

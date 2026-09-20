@@ -51,6 +51,8 @@ struct PlanStringsTests {
         "planpanel_findings",
         "planpanel_go",
         "planpanel_membrane_launch",
+        "planpanel_native_go_failed",
+        "planpanel_native_not_releasable",
         "planpanel_no_verdict",
         "planpanel_plan_unavailable",
         "planpanel_proposed_caption",
@@ -172,4 +174,10 @@ struct PlanStringsTests {
         let value = String(format: changes, locale: Locale(identifier: locale), "2", "5")
         #expect(value.contains("2/5"), "Round must precede cap in \(locale)")
     }
+    @Test func goConfirmationNamesTheSession() {
+        let message = L.t("planpanel_native_go_confirm", "Task Eight")
+        #expect(message.contains("Task Eight"))
+        #expect(!message.contains("{name}") && !message.contains("%1$@"))
+    }
+
 }

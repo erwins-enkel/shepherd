@@ -377,3 +377,266 @@ struct PlanModelTests {
         m.teardown()
     }
 }
+
+@Suite(.serialized)
+@MainActor
+struct PlanTabTests {
+    private func fixture(approved: Bool = false) async -> (PlanModel, Session) {
+        var session = PreviewData.session(id: "s1", status: .init(known: .idle))
+        session.planPhase = .init(known: .planning)
+        let gate = PlanGate(sessionId: "s1", planHash: "hash",
+                            decision: .init(known: approved ? .approved : .changesRequested),
+                            summary: "Verdict", body: "Review body", findings: ["Keep rollback"],
+                            round: 3, cap: 3, approved: approved, plan: "# Deployment", updatedAt: 1)
+        let model = PlanModel(reads: .init(gates: { ["s1": gate] }, inflight: { [] }))
+        await model.refresh()
+        return (model, session)
+    }
+
+    private func writer(_ status: PlanReviewTriggerKnown = .started) -> PlanTabWriter {
+        .init(review: { _ in .init(ok: true, status: .init(known: status)) },
+              release: { _ in true }, quota: { _, resume in
+                  .init(ok: true, status: .init(known: resume ? .resumed : .dismissed))
+              })
+    }
+
+    @Test func goRequiresCurrentConfirmationAndHonorsBothServerResults() async throws {
+        let (model, session) = await fixture(approved: true)
+        var calls = 0
+        var accepted = false
+        var writer = writer()
+        writer.release = { _ in calls += 1; return accepted }
+        let actions = PlanTabActions(session: session, model: model, writer: writer)
+        defer { actions.teardown(); model.teardown() }
+        await actions.release()
+        #expect(calls == 0)
+        actions.requestConfirmation()
+        #expect(actions.confirming)
+        #expect(actions.confirmationMessage.contains(session.name))
+        await actions.release()
+        #expect(calls == 1 && actions.canRelease)
+        #expect(actions.releaseNote.map { L.t($0) } == L.t("planpanel_native_not_releasable"))
+        accepted = true
+        actions.requestConfirmation()
+        await actions.release()
+        #expect(calls == 2 && !actions.canRelease)
+        #expect(actions.answerContext == nil)
+        #expect(actions.chip == .view)
+        actions.requestConfirmation()
+        await actions.release()
+        #expect(calls == 2)
+    }
+
+    @Test func changedGateAndCancelledConsentNeverRelease() async throws {
+        let (model, session) = await fixture(approved: true)
+        var calls = 0
+        var writer = writer()
+        writer.release = { _ in calls += 1; return true }
+        let actions = PlanTabActions(session: session, model: model, writer: writer)
+        defer { actions.teardown(); model.teardown() }
+        actions.requestConfirmation()
+        actions.cancelConfirmation()
+        await actions.release()
+        actions.requestConfirmation()
+        var gate = try #require(model.gates[session.id])
+        gate.planHash = "replaced"
+        model.receive(.unknown(name: "session:plangate", payload: try JSONEncoder().encode(
+            SessionPlanGateEvent(id: session.id, gate: gate))))
+        await actions.release()
+        #expect(calls == 0)
+    }
+
+    @Test func bridgeExpiresAtFourSecondsAndOutcomeAtSix() async {
+        let (model, session) = await fixture()
+        let clock = PlanTabClock()
+        let started = PlanTabActions(session: session, model: model, writer: writer(), sleep: clock.sleep)
+        let skipped = PlanTabActions(session: session, model: model, writer: writer(.skipped), sleep: clock.sleep)
+        defer { started.teardown(); skipped.teardown(); model.teardown(); clock.finish() }
+        await started.review()
+        await skipped.review()
+        #expect(started.awaitingReview)
+        #expect(skipped.outcome != nil)
+        for _ in 0..<100 where clock.durations.count < 2 { await Task.yield() }
+        #expect(clock.durations.contains(.milliseconds(4_000)))
+        #expect(clock.durations.contains(.milliseconds(6_000)))
+        clock.finish()
+        for _ in 0..<100 where started.awaitingReview || skipped.outcome != nil { await Task.yield() }
+        #expect(!started.awaitingReview && skipped.outcome == nil)
+    }
+
+    @Test func reviewingClearsBridgeUnavailableAndQuotaNotes() async throws {
+        let (model, session) = await fixture()
+        let clock = PlanTabClock()
+        var writer = writer(.planUnavailable)
+        writer.quota = { _, _ in .init(ok: false, status: .init(known: .unreachable)) }
+        let actions = PlanTabActions(session: session, model: model, writer: writer, sleep: clock.sleep)
+        defer { actions.teardown(); model.teardown(); clock.finish() }
+        // A gate can disappear while planning. The unavailable note persists until a gate arrives.
+        model.reads = .init(gates: { [:] }, inflight: { [] })
+        await model.refresh()
+        await actions.review()
+        #expect(actions.planUnavailable)
+        model.receive(.unknown(name: "session:plangate-reviewing", payload: try JSONEncoder().encode(
+            SessionPlanGateReviewingEvent(id: session.id, reviewing: true))))
+        actions.reconcile()
+        #expect(!actions.planUnavailable && !actions.awaitingReview && actions.outcome == nil)
+        #expect(actions.answerContext?.locked == true)
+    }
+
+    @Test func liveReviewWinsEvenIfItArrivesBeforeTheHTTPResponse() async throws {
+        let (model, session) = await fixture()
+        var writer = writer()
+        writer.review = { _ in
+            model.receive(.unknown(name: "session:plangate-reviewing", payload: try JSONEncoder().encode(
+                SessionPlanGateReviewingEvent(id: session.id, reviewing: true))))
+            return .init(ok: true, status: .init(known: .started))
+        }
+        let actions = PlanTabActions(session: session, model: model, writer: writer)
+        defer { actions.teardown(); model.teardown() }
+        await actions.review()
+        #expect(actions.reviewing && !actions.awaitingReview)
+    }
+
+    @Test func teardownAndActivationChangeDiscardLateResponses() async {
+        let (model, session) = await fixture()
+        let latch = PlanReadLatch()
+        var writer = writer()
+        writer.review = { _ in await latch.enter(); return .init(ok: true, status: .init(known: .started)) }
+        var current = true
+        let actions = PlanTabActions(session: session, model: model, writer: writer, isCurrent: { current })
+        let task = Task { await actions.review() }
+        for _ in 0..<100 { if await latch.count > 0 { break }; await Task.yield() }
+        current = false
+        actions.teardown()
+        await latch.open()
+        await task.value
+        #expect(!actions.awaitingReview && !actions.busy)
+        model.teardown()
+    }
+
+    @Test func reviewAndQuotaOutcomesUseServerStatusAndClearOnReviewing() async throws {
+        let (model, session) = await fixture()
+        let clock = PlanTabClock()
+        var reviewStatus: PlanReviewTriggerKnown = .errorAuth
+        var quotaStatus: PlanQuotaStatusKnown = .unreachable
+        var calls: [Bool] = []
+        var writer = writer()
+        writer.review = { _ in .init(ok: true, status: .init(known: reviewStatus)) }
+        writer.quota = { _, resume in
+            calls.append(resume)
+            return .init(ok: true, status: .init(known: quotaStatus))
+        }
+        let actions = PlanTabActions(session: session, model: model, writer: writer, sleep: clock.sleep)
+        defer { actions.teardown(); model.teardown(); clock.finish() }
+        await actions.quota(resume: true)
+        #expect(actions.quotaOutcome.map { L.t($0) } == L.t("planpanel_quota_unreachable"))
+        quotaStatus = .notStalled
+        await actions.quota(resume: false)
+        #expect(actions.quotaOutcome.map { L.t($0) } == L.t("planpanel_quota_not_stalled"))
+        #expect(calls == [true, false])
+        await actions.review()
+        #expect(actions.outcome.map { L.t($0) } == L.t("planpanel_review_failed_auth"))
+        reviewStatus = .startedAtCap
+        await actions.review()
+        #expect(actions.awaitingReview && actions.heldAtCap)
+        model.receive(.unknown(name: "session:plangate-reviewing", payload: try JSONEncoder().encode(
+            SessionPlanGateReviewingEvent(id: session.id, reviewing: true))))
+        actions.reconcile()
+        #expect(!actions.awaitingReview && actions.outcome == nil && actions.quotaOutcome == nil)
+        #expect(actions.heldAtCap)
+        await actions.quota(resume: true)
+        #expect(calls.count == 2)
+    }
+
+    @Test func approvedReviewIsInertButEditedExecutionCanReview() async throws {
+        let (model, session) = await fixture(approved: true)
+        var calls = 0
+        var writer = writer()
+        writer.review = { _ in calls += 1; return .init(ok: true, status: .init(known: .skipped)) }
+        let actions = PlanTabActions(session: session, model: model, writer: writer)
+        defer { actions.teardown(); model.teardown() }
+        #expect(actions.canReview && actions.reviewBlock == .approved)
+        await actions.review()
+        #expect(calls == 0)
+        var gate = try #require(model.gates[session.id])
+        gate.livePlanHash = "edited"
+        model.receive(.unknown(name: "session:plangate", payload: try JSONEncoder().encode(
+            SessionPlanGateEvent(id: session.id, gate: gate, planPhase: .init(known: .executing)))))
+        #expect(actions.canReview && actions.answerContext == nil && !actions.canRelease)
+        await actions.review()
+        #expect(calls == 1)
+    }
+
+    @Test func reviewerEnvironmentUsesWholeLiveTripleOnlyWithProvider() async throws {
+        let (model, _) = await fixture()
+        var gate = try #require(model.gates["s1"])
+        gate.reviewerProvider = .claude
+        gate.reviewerModel = "persisted-model"
+        gate.reviewerEffort = "high"
+        let live = ReviewerEnv(provider: .init(known: .codex), model: "live-model", effort: "low")
+        #expect(PlanEnvironment.reviewer(live: live, gate: gate).contains("live-model"))
+        #expect(!PlanEnvironment.reviewer(live: live, gate: gate).contains("persisted-model"))
+        #expect(PlanEnvironment.reviewer(live: .init(model: "orphan"), gate: gate).contains("persisted-model"))
+        model.teardown()
+    }
+
+    @Test func installRegistersTheTabAndConservativeWeakSignals() throws {
+        let suite = "PlanTabTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        let app = AppModel(defaults: defaults, credentials: InMemoryCredentialStore())
+        let previousTabs = DetailTabRegistry.tabs
+        let previousQuestions = SessionSignals.planQuestionsUnanswered
+        let previousReviewing = PlanSignals.planReviewing
+        defer {
+            app.teardown(); defaults.removePersistentDomain(forName: suite)
+            DetailTabRegistry.reset()
+            for tab in previousTabs { DetailTabRegistry.register(tab) }
+            SessionSignals.planQuestionsUnanswered = previousQuestions
+            PlanSignals.planReviewing = previousReviewing
+        }
+        PlanStream.install(app)
+        PlanStream.install(app)
+        let tabs = DetailTabRegistry.tabs.filter { $0.id == "plan" }
+        #expect(tabs.count == 1)
+        #expect(tabs.first?.order == 500)
+        #expect(tabs.first?.systemImage == "list.bullet.rectangle")
+        #expect(!SessionSignals.planQuestionsUnanswered("s1"))
+        #expect(!PlanSignals.planReviewing("s1"))
+        #expect(app.extensionFactories.filter { $0.key == ObjectIdentifier(PlanModel.self) }.count == 1)
+        let profile = ServerProfile(name: "plan", baseURL: URL(string: "https://plan.invalid")!, mode: .remote)
+        let store = try SessionStore(profile: profile, credentials: InMemoryCredentialStore())
+        app.makeExtensions(store: store)
+        let model = try #require(app.extension(PlanModel.self))
+        model.reads = .init(gates: { [:] }, inflight: { [] })
+        model.receive(.unknown(name: "session:plangate-reviewing", payload: try JSONEncoder().encode(
+            SessionPlanGateReviewingEvent(id: "s1", reviewing: true))))
+        #expect(PlanSignals.planReviewing("s1"))
+        let form = VisualBlockQuestionForm(_type: .questionForm, id: "form", questions: [
+            .init(id: "q", prompt: "Proceed?", kind: .init(known: .freeform)),
+        ])
+        let gate = PlanGate(sessionId: "s1", planHash: "hash", decision: .init(known: .changesRequested),
+                            summary: "Questions", body: "", findings: [], round: 1, cap: 3,
+                            approved: false, plan: "", blocks: [.init(value13: form)], updatedAt: 1)
+        model.receive(.unknown(name: "session:plangate", payload: try JSONEncoder().encode(
+            SessionPlanGateEvent(id: "s1", gate: gate))))
+        #expect(SessionSignals.planQuestionsUnanswered("s1"))
+        #expect(!PlanSignals.planReviewing("s1"))
+        app.teardown()
+        #expect(!SessionSignals.planQuestionsUnanswered("s1") && !PlanSignals.planReviewing("s1"))
+    }
+}
+
+@MainActor
+private final class PlanTabClock {
+    var durations: [Duration] = []
+    private var signals: [AsyncStream<Void>.Continuation] = []
+
+    func sleep(_ duration: Duration) async throws {
+        durations.append(duration)
+        let (stream, signal) = AsyncStream<Void>.makeStream()
+        signals.append(signal)
+        for await _ in stream { break }
+    }
+
+    func finish() { for signal in signals { signal.finish() }; signals.removeAll() }
+}

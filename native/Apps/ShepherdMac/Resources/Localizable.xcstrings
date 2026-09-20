@@ -6242,6 +6242,58 @@
         }
       }
     },
+    "planpanel_native_go_confirm": {
+      "comment": "%1$@ = name",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ausführung für „%1$@“ starten? Der Agent beginnt, in seinen Worktree zu schreiben."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start execution for “%1$@”? The agent will begin writing to its worktree."
+          }
+        }
+      }
+    },
+    "planpanel_native_go_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Ausführung konnte nicht gestartet werden. Versuche es erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Execution could not be started. Try again."
+          }
+        }
+      }
+    },
+    "planpanel_native_not_releasable": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Plan ist nicht freigegeben oder befindet sich nicht mehr in der Planungsphase."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The plan is not approved or is no longer in the planning phase."
+          }
+        }
+      }
+    },
     "planpanel_no_verdict": {
       "extractionState": "manual",
       "localizations": {

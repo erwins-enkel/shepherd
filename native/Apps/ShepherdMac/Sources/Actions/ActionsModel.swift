@@ -2,6 +2,13 @@ import Foundation
 import Observation
 import ShepherdKit
 
+/// A one-line outcome note waiting for a session that does not exist yet at the moment the
+/// command producing it completes.
+struct PendingOutcomeNote: Equatable, Sendable {
+    let sessionID: String
+    let text: String
+}
+
 /// The one read the action bar bootstraps from, behind a closure so the unit tests need no
 /// network and no URL-protocol stub.
 struct ActionReads: Sendable {
@@ -40,6 +47,18 @@ final class ActionsModel: AppExtension {
     /// Whether the event tap is still running. Read by the tests; `teardown()` clears it.
     private(set) var isSubscribed = false
 
+    /// A relaunch outcome note for a session the bar that produced it can no longer show it to
+    /// — an *archiving* relaunch's own success removes the original session (and the operator's
+    /// selection with it) before the bar's command completion runs, so the note has nowhere to
+    /// land until the replacement becomes the selection. `ActionBarView` shows it on the first
+    /// appearance for a matching session id and clears it by reading it — see
+    /// `recordOutcomeNote(_:forSessionID:)` / `consumeOutcomeNote(forSessionID:)`.
+    private(set) var pendingOutcomeNote: PendingOutcomeNote?
+    /// Clears a note nothing ever reads — the replacement never became the selection for some
+    /// other reason — so a stale outcome cannot resurface much later under an unrelated session.
+    @ObservationIgnored private var pendingOutcomeNoteExpiry: Task<Void, Never>?
+    private static let outcomeNoteTimeout: Duration = .seconds(15)
+
     var reads: ActionReads
     private let now: @Sendable () -> Int
     private weak var app: AppModel?
@@ -64,6 +83,10 @@ final class ActionsModel: AppExtension {
     @ObservationIgnored private var bootstrap: Task<Void, Never>?
     /// The reconcile loop. Cancelled in `teardown()`.
     @ObservationIgnored private var connectionWatcher: Task<Void, Never>?
+    /// What wakes `connectionWatcher` between observation triggers. Finished (not just
+    /// cancelled) in `teardown()` and whenever `watchConnection()` re-arms — see that method's
+    /// doc for why a bare `withCheckedContinuation` cannot do this.
+    @ObservationIgnored private var connectionSignal: AsyncStream<Void>.Continuation?
 
     /// Where the reconcile loop reads the connection state from. Production hands it a **weak**
     /// view of the store, so the watcher can never be the reason a dropped store — and the
@@ -94,6 +117,31 @@ final class ActionsModel: AppExtension {
 
     func recap(for id: String) -> Recap? { recaps[id] }
     func amendments(for id: String) -> [TaskAmendment] { amendments[id] ?? [] }
+
+    // MARK: - Outcome notes that outlive the bar
+
+    /// Records `text` for `sessionID`, replacing anything already waiting. Starts (or restarts)
+    /// the timeout that clears it if `consumeOutcomeNote(forSessionID:)` never runs.
+    func recordOutcomeNote(_ text: String, forSessionID sessionID: String) {
+        pendingOutcomeNote = PendingOutcomeNote(sessionID: sessionID, text: text)
+        pendingOutcomeNoteExpiry?.cancel()
+        pendingOutcomeNoteExpiry = Task { [weak self] in
+            try? await Task.sleep(for: Self.outcomeNoteTimeout)
+            guard !Task.isCancelled else { return }
+            self?.pendingOutcomeNote = nil
+        }
+    }
+
+    /// One-shot: a bar that finds its session id here takes the note and clears it, so neither a
+    /// second bar nor this one appearing again ever repeats it. `nil` for every other session id,
+    /// including while nothing is pending.
+    func consumeOutcomeNote(forSessionID sessionID: String) -> String? {
+        guard let pending = pendingOutcomeNote, pending.sessionID == sessionID else { return nil }
+        pendingOutcomeNote = nil
+        pendingOutcomeNoteExpiry?.cancel()
+        pendingOutcomeNoteExpiry = nil
+        return pending.text
+    }
 
     func actions(for session: Session) -> [SessionAction] {
         ActionRules.available(
@@ -151,16 +199,27 @@ final class ActionsModel: AppExtension {
     }
 
     #if DEBUG
-        /// Tests only: make the next in-flight refresh look superseded, by moving the generation
-        /// on *while* the read is in flight — which is the only way a real refresh loses its
-        /// race. Wrapping `reads` rather than branching inside `refresh()` keeps the seam out of
-        /// the production path entirely, and `#if DEBUG` keeps it out of the shipped binary, the
-        /// way `PreviewData` is kept out.
+        /// Tests only: `armed` for exactly one flag, not one call to `reads.recaps()` — see
+        /// below. Read and cleared only on the main actor, alongside `generation` itself.
+        @ObservationIgnored private var staleGenerationArmed = false
+
+        /// Make the *next* in-flight refresh look superseded, by moving the generation on
+        /// *while* that one read is in flight — which is the only way a real refresh loses its
+        /// race. One-shot: `staleGenerationArmed` is consumed by the first read that completes
+        /// after this call, so a second `refresh()` behaves normally again rather than being
+        /// permanently poisoned by a wrapper nothing ever unwraps. Wrapping `reads` rather than
+        /// branching inside `refresh()` keeps the seam out of the production path entirely, and
+        /// `#if DEBUG` keeps it out of the shipped binary, the way `PreviewData` is kept out.
         func armStaleGeneration() {
+            staleGenerationArmed = true
             let inner = reads.recaps
             reads = ActionReads(recaps: { [weak self] in
                 let loaded = try await inner()
-                await MainActor.run { self?.generation &+= 1 }
+                await MainActor.run {
+                    guard let self, self.staleGenerationArmed else { return }
+                    self.staleGenerationArmed = false
+                    self.generation &+= 1
+                }
                 return loaded
             })
         }
@@ -181,16 +240,31 @@ final class ActionsModel: AppExtension {
     /// and refreshing then would be a read against a server the store itself cannot reach.
     ///
     /// Cancellation-aware and weak throughout: the loop holds neither the model nor the store,
-    /// and `teardown()` both cancels it and sets `isTornDown`, which the pass after the
-    /// suspension checks. It checks `isTornDown` rather than `generation` on purpose — a read
-    /// that lost its race must not take the reconcile loop down with it.
+    /// and `teardown()` both finishes its wait signal and sets `isTornDown`, which the pass
+    /// after the suspension checks. It checks `isTornDown` rather than `generation` on purpose —
+    /// a read that lost its race must not take the reconcile loop down with it.
+    ///
+    /// The wait between observation triggers is an `AsyncStream`, not a bare
+    /// `withCheckedContinuation` (pattern: `DetailModel.beginSessionsWatch`): a stream can be
+    /// **finished**, and cancelling the task alone cannot resume a checked continuation. A
+    /// watcher parked on one when its source stops writing — the store's `connection` going
+    /// quiet after the extension has already torn down — would otherwise leak the task (and, by
+    /// extension, anything the closure still references) forever. `teardown()` finishes the
+    /// signal, so the loop always wakes and exits; finishing an already-finished stream, or one
+    /// nothing is waiting on, is a no-op.
     func watchConnection() {
         guard let source = connectionSource, var current = source.read() else { return }
         // Re-arming replaces the loop rather than racing a second one against it — which is what
-        // a test that swaps `connectionSource` for a hand-driven box does.
+        // a test that swaps `connectionSource` for a hand-driven box does. The old loop's own
+        // wait, if it is parked in one, is woken by finishing its signal rather than left to leak
+        // behind a cancellation that a suspended continuation would not have honoured anyway.
         connectionWatcher?.cancel()
+        connectionSignal?.finish()
+        let (changes, continuation) = AsyncStream<Void>.makeStream()
+        connectionSignal = continuation
         connectionWatcher = Task { @MainActor [weak self] in
-            while !Task.isCancelled {
+            var iterator = changes.makeAsyncIterator()
+            while true {
                 var moved = false
                 // Read *before* arming, in its own scope. Before: because the state can move
                 // between `watchConnection()` and this task's first run — observation only ever
@@ -201,7 +275,7 @@ final class ActionsModel: AppExtension {
                     guard let self, !self.isTornDown else { return }
                     // `nil` means the store behind the source is gone; there is nothing left to
                     // reconcile against, and arming an observation on it would park this task
-                    // on a continuation no write can resume.
+                    // on a wait no write can ever resume.
                     guard let latest = source.read() else { return }
                     if latest != current {
                         let wasLive = current == .live
@@ -216,14 +290,15 @@ final class ActionsModel: AppExtension {
 
                 // `withObservationTracking` fires `onChange` exactly once, so the registration
                 // is renewed on every pass. `onChange` runs just *before* the write lands, hence
-                // the yield before the next pass reads it.
-                await withCheckedContinuation { continuation in
-                    withObservationTracking {
-                        _ = source.read()
-                    } onChange: {
-                        continuation.resume()
-                    }
+                // the yield before the next pass reads it. A `nil` from the iterator means the
+                // signal was finished — teardown, or a fresher `watchConnection()` call — so the
+                // loop ends rather than waiting on a source that will never move it again.
+                withObservationTracking {
+                    _ = source.read()
+                } onChange: {
+                    continuation.yield()
                 }
+                guard await iterator.next() != nil else { return }
                 await Task.yield()
             }
         }
@@ -311,8 +386,13 @@ final class ActionsModel: AppExtension {
         bootstrap = nil
         connectionWatcher?.cancel()
         connectionWatcher = nil
+        connectionSignal?.finish()
+        connectionSignal = nil
         connectionSource = nil
         isSubscribed = false
+        pendingOutcomeNoteExpiry?.cancel()
+        pendingOutcomeNoteExpiry = nil
+        pendingOutcomeNote = nil
         store = nil
         app = nil
     }

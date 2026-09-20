@@ -29,6 +29,41 @@ struct ActionsModelTests {
         #expect(m.recaps.isEmpty, "a superseded snapshot must not be installed")
     }
 
+    /// Arming twice must not leave a second, un-cleared bump waiting for a THIRD read: the flag
+    /// is one-shot, not "every read forever" — otherwise every refresh after the armed one would
+    /// keep looking superseded too.
+    @Test func armStaleGenerationIsOneShot() async {
+        let m = model()
+        m.armStaleGeneration()
+        await m.refresh()
+        #expect(m.recaps.isEmpty, "the armed read is still dropped")
+
+        await m.refresh()
+        #expect(m.recaps.isEmpty == false, "a later read must install normally")
+    }
+
+    /// The relaunch bar's own escape hatch: a note for a session that does not exist at the
+    /// moment the command producing it completes (see `ActionBarView.relaunch()`).
+    @Test func outcomeNoteIsOneShotAndOnlyAnswersItsOwnSessionID() {
+        let m = model()
+        #expect(m.consumeOutcomeNote(forSessionID: "s2") == nil, "nothing is pending yet")
+
+        m.recordOutcomeNote("relaunched as TASK-02", forSessionID: "s2")
+        #expect(
+            m.consumeOutcomeNote(forSessionID: "s1") == nil,
+            "a different session must not see another session's note")
+        #expect(m.consumeOutcomeNote(forSessionID: "s2") == "relaunched as TASK-02")
+        #expect(m.consumeOutcomeNote(forSessionID: "s2") == nil, "consuming it once clears it")
+    }
+
+    @Test func recordingAgainReplacesWhateverWasWaiting() {
+        let m = model()
+        m.recordOutcomeNote("first", forSessionID: "s1")
+        m.recordOutcomeNote("second", forSessionID: "s2")
+        #expect(m.consumeOutcomeNote(forSessionID: "s1") == nil, "the first note was replaced")
+        #expect(m.consumeOutcomeNote(forSessionID: "s2") == "second")
+    }
+
     @Test func aFailedReadLeavesTheLastSnapshotInPlace() async {
         let m = model()
         await m.refresh()

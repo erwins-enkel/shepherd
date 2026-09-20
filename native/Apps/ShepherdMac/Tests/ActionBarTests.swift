@@ -119,6 +119,55 @@ struct ActionBarTests {
         #expect(AmendSubmission.note(steered: false) == L.t("amend_recorded_not_steered"))
     }
 
+    @Test func intentMapsRelaunchToConfirmationOnlyAndNeverToExecution() {
+        #expect(ActionBarView.intent(for: .relaunch) == .confirmRelaunch)
+        #expect(ActionBarView.intent(for: .rename) == .presentSheet(.rename))
+        #expect(ActionBarView.intent(for: .amend) == .presentSheet(.amend))
+        #expect(ActionBarView.intent(for: .stop) == .execute)
+        #expect(ActionBarView.intent(for: .resume) == .execute)
+        #expect(ActionBarView.intent(for: .toggleReady) == .execute)
+        #expect(ActionBarView.intent(for: .regenerateRecap) == .execute)
+    }
+
+    @Test func isCurrentDropsACompletionAfterTheOperatorSelectedAnotherSession() async throws {
+        let app = AppModel(defaults: Self.scratchDefaults(), credentials: InMemoryCredentialStore())
+        let profile = try app.addRemoteProfile(
+            name: "action-bar-one", address: "https://action-bar-one.example.ts.net")
+        await app.activate(profile)
+        let store = try #require(app.store)
+        app.selectedSessionID = "s1"
+
+        #expect(ActionBarView.isCurrent(session: PreviewData.session(id: "s1"), store: store, app: app))
+
+        app.selectedSessionID = "s2"
+        #expect(
+            !ActionBarView.isCurrent(session: PreviewData.session(id: "s1"), store: store, app: app),
+            "a completion for a session the operator moved off must be dropped")
+    }
+
+    @Test func isCurrentDropsACompletionAfterAProfileSwitch() async throws {
+        let app = AppModel(defaults: Self.scratchDefaults(), credentials: InMemoryCredentialStore())
+        let profile = try app.addRemoteProfile(
+            name: "action-bar-two", address: "https://action-bar-two.example.ts.net")
+        await app.activate(profile)
+        let activeStore = try #require(app.store)
+        app.selectedSessionID = "s1"
+        #expect(
+            ActionBarView.isCurrent(session: PreviewData.session(id: "s1"), store: activeStore, app: app))
+
+        // The command went to a DIFFERENT store instance — the operator switched profiles while
+        // it was in flight, even though the id it names is still selected under the new one.
+        let otherClient = try ShepherdClient(
+            profile: ServerProfile(
+                name: "other", baseURL: URL(string: "http://127.0.0.1:1")!, mode: .local,
+                credentialKey: "action-bar-other"),
+            credentials: InMemoryCredentialStore())
+        let otherStore = SessionStore(client: otherClient)
+        #expect(
+            !ActionBarView.isCurrent(session: PreviewData.session(id: "s1"), store: otherStore, app: app),
+            "a completion for a store the operator switched away from must be dropped")
+    }
+
     /// A throwaway suite so the test never reads or writes the operator's own profiles. Pair it
     /// with `InMemoryCredentialStore()` at every call site: `AppModel.init` defaults `credentials`
     /// to `KeychainCredentialStore()`, and that is the unattended-run stall this plan's "No

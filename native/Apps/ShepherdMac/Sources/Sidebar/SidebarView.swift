@@ -9,6 +9,15 @@ struct SidebarView: View {
     let model: SidebarModel
 
     var body: some View {
+        // Deadlines are display inputs too: a final critic round or merge marker can expire
+        // without another server frame. The row's own timeline cannot invalidate its parent
+        // partition, so sample the groups and Ready lens here at the same cadence as the row.
+        TimelineView(.periodic(from: .now, by: 20)) { _ in
+            content
+        }
+    }
+
+    private var content: some View {
         @Bindable var app = app
         // Read each derived collection once per render: both recompute the whole partition
         // (`HerdPartition.stageOf` per session), and the old code read `model.chips` and

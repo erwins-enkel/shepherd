@@ -1,6 +1,110 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "activity_active": {
+      "comment": "%1$@ = ago",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vor %1$@ aktiv"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "active %1$@ ago"
+          }
+        }
+      }
+    },
+    "activity_ci_failure": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fehlgeschlagen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "failed"
+          }
+        }
+      }
+    },
+    "activity_ci_pending": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "läuft"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "running"
+          }
+        }
+      }
+    },
+    "activity_ci_status": {
+      "comment": "%1$@ = state",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CI: %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CI: %1$@"
+          }
+        }
+      }
+    },
+    "activity_ci_success": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "bestanden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "passing"
+          }
+        }
+      }
+    },
+    "activity_closed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geschlossen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Closed"
+          }
+        }
+      }
+    },
     "activity_empty": {
       "extractionState": "manual",
       "localizations": {
@@ -14,6 +118,212 @@
           "stringUnit": {
             "state": "translated",
             "value": "No activity yet."
+          }
+        }
+      }
+    },
+    "activity_merged": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gemergt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merged"
+          }
+        }
+      }
+    },
+    "activity_progress": {
+      "comment": "%1$@ = stage",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fortschritt: %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Progress: %1$@"
+          }
+        }
+      }
+    },
+    "activity_review_approved": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "freigegeben"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "approved"
+          }
+        }
+      }
+    },
+    "activity_review_changes": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Änderungen angefordert"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "changes requested"
+          }
+        }
+      }
+    },
+    "activity_review_reviewing": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "läuft"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "in progress"
+          }
+        }
+      }
+    },
+    "activity_review_status": {
+      "comment": "%1$@ = state",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review: %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review: %1$@"
+          }
+        }
+      }
+    },
+    "activity_stage_implementing": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Implementierung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Implementing"
+          }
+        }
+      }
+    },
+    "activity_stage_planning": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Planung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Planning"
+          }
+        }
+      }
+    },
+    "activity_stage_pr": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR"
+          }
+        }
+      }
+    },
+    "activity_stage_ready": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bereit"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ready"
+          }
+        }
+      }
+    },
+    "activity_stage_review": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review"
+          }
+        }
+      }
+    },
+    "activity_starting": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "startet…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "starting…"
           }
         }
       }
@@ -396,6 +706,58 @@
         }
       }
     },
+    "clibadge_label_claude": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude"
+          }
+        }
+      }
+    },
+    "clibadge_label_codex": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        }
+      }
+    },
+    "clibadge_title": {
+      "comment": "%1$@ = cli",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coding-CLI: %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coding CLI: %1$@"
+          }
+        }
+      }
+    },
     "common_cancel": {
       "extractionState": "manual",
       "localizations": {
@@ -477,6 +839,248 @@
           "stringUnit": {
             "state": "translated",
             "value": "Save"
+          }
+        }
+      }
+    },
+    "criticbadge_changes": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⚠ ÄNDERN"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⚠ CHANGES"
+          }
+        }
+      }
+    },
+    "criticbadge_commented": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "✓ GEPRÜFT"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "✓ REVIEWED"
+          }
+        }
+      }
+    },
+    "criticbadge_error": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "REVIEW-FEHLER"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "REVIEW ERR"
+          }
+        }
+      }
+    },
+    "criticbadge_final": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FINALE PRÜFUNG"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FINAL REVIEW"
+          }
+        }
+      }
+    },
+    "criticbadge_final_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bearbeitet die letzte erlaubte Runde; danach folgt keine weitere."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Addressing the last allowed round; no more rounds after this."
+          }
+        }
+      }
+    },
+    "criticbadge_open_pr": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR öffnen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open PR"
+          }
+        }
+      }
+    },
+    "criticbadge_reviewing": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PRÜFT…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "REVIEWING…"
+          }
+        }
+      }
+    },
+    "criticbadge_reviewing_activity_title": {
+      "comment": "%1$@ = activity",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kritiker prüft; gerade: %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Critic is reviewing; now: %1$@"
+          }
+        }
+      }
+    },
+    "criticbadge_reviewing_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kritiker prüft diese Sitzung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Critic is reviewing this session"
+          }
+        }
+      }
+    },
+    "criticbadge_round": {
+      "comment": "%1$@ = round, %2$@ = cap",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PRÜFUNG %1$@/%2$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "REVIEW %1$@/%2$@"
+          }
+        }
+      }
+    },
+    "criticbadge_round_title": {
+      "comment": "%1$@ = round, %2$@ = cap",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kritiker-Befunde werden bearbeitet, Runde %1$@ von %2$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto-addressing critic findings, round %1$@ of %2$@"
+          }
+        }
+      }
+    },
+    "criticbadge_stalled": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PRÜFUNG STECKT"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "STALLED REVIEW"
+          }
+        }
+      }
+    },
+    "criticbadge_stalled_title": {
+      "comment": "%1$@ = cap",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto-Korrektur hat nach %1$@ Runden mit offenen Befunden aufgegeben; braucht einen Menschen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto-address gave up after %1$@ rounds with findings still open; needs a human."
+          }
+        }
+      }
+    },
+    "criticbadge_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kritiker-Review für diesen PR-Stand"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Critic review for this PR head"
           }
         }
       }
@@ -908,6 +1512,24 @@
         }
       }
     },
+    "gitrail_ci_status": {
+      "comment": "%1$@ = status",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CI: %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CI: %1$@"
+          }
+        }
+      }
+    },
     "gitrail_create_pr": {
       "extractionState": "manual",
       "localizations": {
@@ -938,6 +1560,91 @@
           "stringUnit": {
             "state": "translated",
             "value": "Merge"
+          }
+        }
+      }
+    },
+    "gitrail_merge_blocked_behind": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge blockiert: Branch ist hinter dem Base — zuerst im PR aktualisieren."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge blocked: branch is behind base — update it on the PR first."
+          }
+        }
+      }
+    },
+    "gitrail_merge_blocked_checks": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge nicht verfügbar: Ein CI-Check schlägt fehl."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge unavailable: a CI check is failing."
+          }
+        }
+      }
+    },
+    "gitrail_merge_blocked_conflict": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge blockiert: Branch hat Konflikte — zuerst im PR auflösen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge blocked: branch has conflicts — resolve on the PR first."
+          }
+        }
+      }
+    },
+    "gitrail_merge_blocked_draft": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge nicht verfügbar: Dieser PR ist noch ein Entwurf."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge unavailable: this PR is still a draft."
+          }
+        }
+      }
+    },
+    "gitrail_merge_blocked_protected": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge blockiert: Erforderliche Checks oder Reviews fehlen — siehe PR."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge blocked: required checks or reviews aren't satisfied — see the PR."
           }
         }
       }
@@ -1023,6 +1730,125 @@
           "stringUnit": {
             "state": "translated",
             "value": "PR status unavailable"
+          }
+        }
+      }
+    },
+    "heartbeat_legend_active_desc": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tool-Nutzung in dieser ~20-s-Slice — heller heißt mehr los."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tool-use in that ~20 s slice — brighter means busier."
+          }
+        }
+      }
+    },
+    "heartbeat_legend_active_label": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktiv"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Active"
+          }
+        }
+      }
+    },
+    "heartbeat_legend_error_desc": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Tool-Aufruf in dieser Slice schlug fehl."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A tool-use in that slice failed."
+          }
+        }
+      }
+    },
+    "heartbeat_legend_error_label": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fehler"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Error"
+          }
+        }
+      }
+    },
+    "heartbeat_legend_idle_desc": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine Aktivität in dieser Slice."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No activity in that slice."
+          }
+        }
+      }
+    },
+    "heartbeat_legend_idle_label": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leise"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Idle"
+          }
+        }
+      }
+    },
+    "heartbeat_pop_intro": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Tool-Nutzung des Agents über die letzten 8 Minuten (jede Zelle ≈ 20 s). Eine leere Leiste heißt, die Session ist verstummt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The agent's tool-use over the last 8 minutes (each cell ≈ 20 s). An empty strip means the session has gone quiet."
           }
         }
       }
@@ -1685,6 +2511,60 @@
           "stringUnit": {
             "state": "translated",
             "value": "Auto-fix hit its limit — open findings still need you."
+          }
+        }
+      }
+    },
+    "issuebadge_label": {
+      "comment": "%1$@ = number",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Issue #%1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Issue #%1$@"
+          }
+        }
+      }
+    },
+    "issuebadge_open_label": {
+      "comment": "%1$@ = number",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Issue #%1$@ öffnen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open issue #%1$@"
+          }
+        }
+      }
+    },
+    "issuebadge_title": {
+      "comment": "%1$@ = number",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gestartet für Issue #%1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spawned for issue #%1$@"
           }
         }
       }
@@ -4542,6 +5422,126 @@
         }
       }
     },
+    "prbadge_behind": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VERALTET"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "BEHIND"
+          }
+        }
+      }
+    },
+    "prbadge_behind_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hinter dem Basis-Branch — muss vor dem Merge rebased werden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Behind the base branch — needs a rebase before it can merge"
+          }
+        }
+      }
+    },
+    "prbadge_button_title": {
+      "comment": "%1$@ = label",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@-Aktionen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ actions"
+          }
+        }
+      }
+    },
+    "prbadge_closed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GESCHLOSSEN"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLOSED"
+          }
+        }
+      }
+    },
+    "prbadge_conflict": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "KONFLIKT"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CONFLICT"
+          }
+        }
+      }
+    },
+    "prbadge_conflict_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge-Konflikte — muss vor dem Merge rebased werden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge conflicts — needs a rebase before it can merge"
+          }
+        }
+      }
+    },
+    "prbadge_draft": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ENTWURF"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DRAFT"
+          }
+        }
+      }
+    },
     "prbadge_mark_draft": {
       "extractionState": "manual",
       "localizations": {
@@ -4572,6 +5572,92 @@
           "stringUnit": {
             "state": "translated",
             "value": "Set Ready for Review"
+          }
+        }
+      }
+    },
+    "prbadge_merged": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "✓ GEMERGT"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "✓ MERGED"
+          }
+        }
+      }
+    },
+    "prbadge_open": {
+      "comment": "%1$@ = number",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR #%1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR #%1$@"
+          }
+        }
+      }
+    },
+    "prbadge_review_approved": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reviewer hat genehmigt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reviewer approved"
+          }
+        }
+      }
+    },
+    "prbadge_review_changes": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reviewer fordert Änderungen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reviewer requested changes"
+          }
+        }
+      }
+    },
+    "prbadge_review_comment": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reviewer hat kommentiert"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reviewer commented"
           }
         }
       }
@@ -4885,6 +5971,41 @@
         }
       }
     },
+    "session_autopilot_complete_label": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fertig"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Complete"
+          }
+        }
+      }
+    },
+    "session_autopilot_complete_title": {
+      "comment": "%1$@ = summary",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autopilot fertig: Aufgabe erledigt, kein PR zu öffnen: %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autopilot finished: task complete, nothing to open as a PR: %1$@"
+          }
+        }
+      }
+    },
     "session_autopilot_paused_label": {
       "extractionState": "manual",
       "localizations": {
@@ -4898,6 +6019,58 @@
           "stringUnit": {
             "state": "translated",
             "value": "Needs you"
+          }
+        }
+      }
+    },
+    "session_autopilot_paused_title": {
+      "comment": "%1$@ = question",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autopilot hat dies für eine Entscheidung zurückgegeben: %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autopilot handed this back for a decision: %1$@"
+          }
+        }
+      }
+    },
+    "session_autopilot_unavailable_label": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AP nicht verfügbar"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AP unavailable"
+          }
+        }
+      }
+    },
+    "session_autopilot_unavailable_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autopilot wartet auf eine eindeutig zugeordnete Unterhaltung der Aufgabe."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autopilot is waiting for an unambiguous task conversation."
           }
         }
       }
@@ -5004,6 +6177,74 @@
         }
       }
     },
+    "status_merging": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MERGE LÄUFT"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MERGING"
+          }
+        }
+      }
+    },
+    "status_merging_tip": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd merged diesen PR gerade über den Merge-Train."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd is merging this PR now via the merge train."
+          }
+        }
+      }
+    },
+    "status_ready_tip": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Arbeit dieser Session ist fertig und der PR ist grün — bereit zum Mergen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This session's work is complete and its PR is green — ready to merge."
+          }
+        }
+      }
+    },
+    "status_ready_to_merge": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "BEREIT"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "READY"
+          }
+        }
+      }
+    },
     "status_working": {
       "extractionState": "manual",
       "localizations": {
@@ -5017,6 +6258,176 @@
           "stringUnit": {
             "state": "translated",
             "value": "BUSY"
+          }
+        }
+      }
+    },
+    "stepper_desc_implementing": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent schreibt die Code-Änderungen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent is writing the code changes."
+          }
+        }
+      }
+    },
+    "stepper_desc_planning": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent erstellt den Plan, bevor Code geschrieben wird."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent is shaping the plan before writing code."
+          }
+        }
+      }
+    },
+    "stepper_desc_pr": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Pull Request ist für diese Arbeit geöffnet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A pull request is open for this work."
+          }
+        }
+      }
+    },
+    "stepper_desc_ready": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checks bestanden und Review freigegeben — bereit zum Merge."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checks passed and review approved — ready to merge."
+          }
+        }
+      }
+    },
+    "stepper_desc_review": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Änderung wird gerade im Code-Review geprüft."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The change is under code review."
+          }
+        }
+      }
+    },
+    "stepper_legend_done": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "erledigt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "done"
+          }
+        }
+      }
+    },
+    "stepper_legend_now": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "jetzt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "now"
+          }
+        }
+      }
+    },
+    "stepper_legend_pending": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ausstehend"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pending"
+          }
+        }
+      }
+    },
+    "stepper_legend_skipped": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "übersprungen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "skipped"
+          }
+        }
+      }
+    },
+    "stepper_open_hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session öffnen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open session"
           }
         }
       }
@@ -5056,6 +6467,42 @@
         }
       }
     },
+    "unitrow_changes_requested": {
+      "comment": "%1$@ = reviewer",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Änderungen angefordert von %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Changes requested by %1$@"
+          }
+        }
+      }
+    },
+    "unitrow_changes_requested_title": {
+      "comment": "%1$@ = reviewer",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR-Änderungen angefordert von %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR changes requested by %1$@"
+          }
+        }
+      }
+    },
     "unitrow_manual_steps": {
       "comment": "%1$@ = count",
       "extractionState": "manual",
@@ -5070,6 +6517,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "%1$@ manual step(s)"
+          }
+        }
+      }
+    },
+    "unitrow_merge_blocked": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge blockiert"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge blocked"
+          }
+        }
+      }
+    },
+    "unitrow_merge_blocked_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Branch Protection blockiert den Merge, nachdem die Checks grün sind"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Branch protection is blocking merge after checks cleared"
           }
         }
       }
@@ -5121,6 +6602,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Rework cap"
+          }
+        }
+      }
+    },
+    "unitrow_unknown_reviewer": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "unbekannter Reviewer"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "unknown reviewer"
           }
         }
       }

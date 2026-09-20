@@ -278,6 +278,40 @@ each other's way by extending the app through seams instead of editing shared fi
   gate over `operationsForStream("<stream>")` and `eventsForStream("<stream>")`, and exercise every
   status you declare — 401 included — from that same file, because Bun's file order does not
   guarantee the global sweep ran first.
+- **No `.toolbar` inside a `DetailTab`.** `SessionDetailView` hosts the tabs in a `TabView`, which
+  keeps every visited child alive, and a child's `.toolbar` contribution is never withdrawn when
+  that child goes off screen. The window grows one copy of your item per tab the operator has ever
+  opened and AppKit eventually throws out of
+  `-[NSToolbar _insertNewItemWithItemIdentifier:atIndex:propertyListRepresentation:notifyFlags:]`,
+  killing the app — reproduced live, four tabs deep. Put the control in the tab's own body instead;
+  `DetailRefreshBar` (`Sources/Detail/DetailFeature.swift`) is the shape to copy. The window
+  toolbar stays S0-owned, and no stream needs it to have a button.
+- **A cancelled tap still hands you buffered frames.** Cancelling the task around
+  `for await … in store.events()` does not empty what the tap already collected: the iterator
+  yields the buffered frames first and only then ends, so a handler can run _after_ `teardown()`
+  and write into a model whose store is gone. Cancellation is a request, not a fence. Stamp the
+  work instead — capture a generation before the loop and drop any frame whose generation has
+  moved on (`SidebarModel`'s `mine == generation` guard around `refresh()`), or check a teardown
+  flag at the top of the handler. The same applies to any `AsyncStream` you tap, not just events.
+- **Never park a long-lived watcher on a bare `withCheckedContinuation`.** Cancellation cannot
+  resume one, so `Task.cancel()` in `teardown()` leaves the loop suspended forever, holding its
+  captures and an observation registration inside the store — one more leak per profile switch and
+  per closed window. Wait on an `AsyncStream` you **finish** in `teardown()` instead:
+  `withObservationTracking { … } onChange: { signal.yield() }`, then `await iterator.next()`, and
+  `nil` is the exit. See `DetailModel.beginSessionsWatch` and `AppModel.watchConnection`. Finishing
+  twice, or yielding into a finished stream, is a no-op, so there is no double-resume to get wrong.
+- **`bun run typecheck` is a gate,** alongside `bun run lint` and `bun run test:contract`. A
+  contract fixture or harness type that only `tsc` rejects passes every other check on the branch
+  and fails in CI.
+- **Test hygiene on this hardware.** Set `TEST_RUNNER_SHEPHERD_REVOKE_ON_EXIT=1` for any live run
+  so the token the harness mints is revoked when the run ends. Run the UI bundle **one worktree at
+  a time** — parallel `xcodebuild` runs fight over `testmanagerd` and fail with "Channel
+  disconnected" or "hung before establishing connection" and zero tests executed; `pkill -9
+testmanagerd` and rerun clears it, and never `pkill -f`/`killall` on a pattern that would match
+  another worktree's run. `swift test --package-path native` rewrites `native/Package.resolved`, so
+  `git checkout -- native/Package.resolved` afterwards keeps it out of your diff. Never set
+  `SHEPHERD_KEYCHAIN_TESTS=1`, and never launch a build outside isolated mode
+  (`-ShepherdIsolated 1`) on the operator's Mac: it would prompt against their saved Keychain item.
 - **Live smoke.** `ShepherdTests/LiveServerTests` connects to a real server and asserts the session
   list renders. It is skipped unless `SHEPHERD_LIVE_BASE_URL` is set alongside either
   `SHEPHERD_LIVE_PASSWORD` (a real sign-in, then a relaunch-restore check) or `SHEPHERD_LIVE_TOKEN`

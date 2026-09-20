@@ -161,18 +161,42 @@ struct NewSessionSheet: View {
             && !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    var body: some View {
+    /// The same selection the view renders, callable without a SwiftUI host in seam tests.
+    enum ResolvedBody {
+        case slot(AnyView)
+        case fallback(options: AnyView?)
+    }
+
+    static func resolveBody(app: AppModel, extras: NewSessionExtras) -> ResolvedBody {
         if let content = NewSessionSlot.content {
-            content(app)
+            return .slot(content(app))
         } else {
-            builtInBody
+            return .fallback(options: NewSessionSlot.options?(extras))
+        }
+    }
+
+    /// Shared by submission and seam tests so the options use the outgoing request's extras.
+    static func createRequest(
+        _ base: CreateSessionRequest, extras: NewSessionExtras
+    ) -> CreateSessionRequest {
+        var request = base
+        extras.apply(to: &request)
+        return request
+    }
+
+    var body: some View {
+        switch Self.resolveBody(app: app, extras: extras) {
+        case .slot(let content):
+            content
+        case .fallback(let options):
+            builtInBody(options: options)
         }
     }
 
     /// The Gate-2 sheet, unchanged apart from the options hook. Split out rather than wrapped in
     /// place so the replacement branch above is one line and this stays diff-clean for whoever
     /// reads it next.
-    private var builtInBody: some View {
+    private func builtInBody(options: AnyView?) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             Text(verbatim: L.t("newtask_title")).font(.title2.weight(.semibold))
 
@@ -214,8 +238,8 @@ struct NewSessionSheet: View {
                     Text(verbatim: L.t("effort_label_max")).tag(Effort?.some(.max))
                     Text(verbatim: L.t("effort_label_ultra")).tag(Effort?.some(.ultra))
                 }
-                if let options = NewSessionSlot.options {
-                    options(extras)
+                if let options {
+                    options
                 }
             }
             .formStyle(.grouped)
@@ -293,7 +317,7 @@ struct NewSessionSheet: View {
 
         let trimmedModel = modelName.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedBranch = baseBranch.trimmingCharacters(in: .whitespacesAndNewlines)
-        var request = CreateSessionRequest(
+        let base = CreateSessionRequest(
             repoPath: repoPath,
             baseBranch: trimmedBranch.isEmpty ? Self.defaultBaseBranch : trimmedBranch,
             prompt: prompt,
@@ -301,7 +325,7 @@ struct NewSessionSheet: View {
             model: trimmedModel.isEmpty ? nil : trimmedModel,
             effort: effort)
         // Only what the operator actually set — see NewSessionExtras.apply(to:).
-        extras.apply(to: &request)
+        let request = Self.createRequest(base, extras: extras)
 
         Task {
             // `store` is captured once, up front: the identity check below has

@@ -80,10 +80,15 @@ its hostname to `SHEPHERD_ALLOWED_HOSTS`.
      lifetime. **Read** covers `GET /api/sessions`, `/api/holds`, `/api/git`,
      `/api/me`, `POST /api/ping`, the `/events` stream, and the two in-flight
      review probes `GET /api/reviews/inflight` and
-     `GET /api/plan-gates/inflight` — each a bare list of session ids whose
-     critic or plan reviewer is still running, so a dashboard that loads
-     mid-review doesn't read an idle session with a green PR as the operator's
-     turn ([#2421](https://github.com/erwins-enkel/shepherd/issues/2421)).
+     `GET /api/plan-gates/inflight` — each returns one row per run currently in
+     flight: the session id plus that run's reviewer env (`provider`, `model`,
+     `effort`). A dashboard that loads mid-review therefore doesn't read an idle
+     session with a green PR as the operator's turn
+     ([#2421](https://github.com/erwins-enkel/shepherd/issues/2421)). Nothing
+     new is disclosed by granting them: `/events` already pushes the same fact,
+     reviewer env included, to a read token as `session:reviewing` and
+     `session:plangate-reviewing` — the two probes are the bootstrap snapshot of
+     that stream.
      Their **verdict parents** `GET /api/reviews` and `GET /api/plan-gates`,
      which return findings, summaries, plan questions and round counts, stay
      **Full**-only; matching is exact, so reaching the `/inflight` child grants

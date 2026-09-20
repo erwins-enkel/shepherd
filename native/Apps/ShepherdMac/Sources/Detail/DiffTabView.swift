@@ -1,3 +1,4 @@
+import Foundation
 import ShepherdKit
 import SwiftUI
 
@@ -14,9 +15,15 @@ struct DiffTabView: View {
     let model: DetailModel
     @State private var selectedPath: String?
     /// Where every note renders and every file's patch parses to — recomputed explicitly (on
-    /// first appearance and whenever `result.head` moves), never inline in `body`, so a 15 s poll
-    /// tick that repaints an UNCHANGED diff does not reparse every file's patch or re-bucket
-    /// every note on every render pass.
+    /// first appearance and whenever the diff payload's `revision` moves), never inline in
+    /// `body`, so a 15 s poll tick that repaints an UNCHANGED diff does not reparse every file's
+    /// patch or re-bucket every note on every render pass.
+    ///
+    /// `revision`, not `result.head`: `head` is the session BRANCH NAME, so it moves exactly
+    /// once (nil → branch) and never again — the parsed hunks this holds then stayed frozen at
+    /// the agent's first commit while the file list and the +/− counts kept updating around
+    /// them. And `revision`, not the payload itself, because `onChange(of:)` compares its value
+    /// every render pass and a diff payload is O(patch bytes) to compare.
     @State private var layout = DiffAnnotationLayout()
 
     private var state: Loaded<DetailModel.DiffPayload> { model.diff[session.id] ?? .loading }
@@ -39,7 +46,7 @@ struct DiffTabView: View {
             recomputeLayout()
             await model.poll(.diff, session: session.id)
         }
-        .onChange(of: state.value?.result.head) { _, _ in recomputeLayout() }
+        .onChange(of: state.value?.revision) { _, _ in recomputeLayout() }
     }
 
     private var content: some View {
@@ -63,8 +70,9 @@ struct DiffTabView: View {
 
     /// The one place `DiffAnnotationLayout.partition` (and, inside it, `UnifiedPatch.parse`) is
     /// called: on first appearance for whatever the model already has cached, and again whenever
-    /// `result.head` moves — never from `body`, which a poll tick re-evaluates every 15 s whether
-    /// or not the diff actually changed.
+    /// the model stamps a new `DiffPayload.revision` — which it does exactly when the diff's
+    /// content changed. Never from `body`, which a poll tick re-evaluates every 15 s whether or
+    /// not the diff actually changed.
     private func recomputeLayout() {
         layout = DiffAnnotationLayout.partition(notes: notes, files: files)
     }
@@ -180,16 +188,36 @@ struct DiffTabView: View {
                         .accessibilityIdentifier("detail-diff-hunk-\(index)")
                 }
             }
-        } else if !parsed.raw.isEmpty {
+        } else if let text = Self.verbatimText(parsed: parsed, patch: file.patch) {
             // Nothing parsed but there was text: show it verbatim rather than claim the file is
             // unchanged. A patch the operator cannot read is still a patch they can copy.
-            Text(verbatim: parsed.raw)
+            Text(verbatim: text)
                 .font(.system(.caption, design: .monospaced))
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityIdentifier("detail-diff-verbatim")
         } else {
             note(L.t("diff_note_no_changes"))
         }
+    }
+
+    /// What to show for a file that produced no hunks, or nil when there is genuinely nothing to
+    /// show. Lifted out of `body` so it is assertable without hosting a view.
+    ///
+    /// `UnifiedPatch.raw` covers a patch that produced no `File` at all. It does NOT cover a
+    /// patch whose file headers parsed but whose hunks did not (`diff --git`/`---`/`+++` and
+    /// then a malformed `@@`): that yields one `File`, zero hunks and — because `raw` is
+    /// suppressed whenever anything parsed — an empty `raw`, so the tab claimed
+    /// `diff_note_no_changes` for a file the list right beside it says has changes. The file's
+    /// own patch text is the answer there. A pure rename or a mode-only change sends no patch
+    /// text at all and still reads, correctly, as no changes. Binary and truncated files never
+    /// reach here — `fileBody(for:)` answers those first.
+    static func verbatimText(parsed: UnifiedPatch, patch: String?) -> String? {
+        if !parsed.raw.isEmpty { return parsed.raw }
+        guard let patch, !patch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+        return patch
     }
 
     private func note(_ text: String) -> some View {

@@ -153,6 +153,56 @@ struct DetailFeatureTests {
         #expect(DiffTabView.phase(for: .ready(.init(result: withFile, notes: []))) == .content)
     }
 
+    // MARK: - What a file with no parsed hunks shows
+
+    /// A file whose headers parsed but whose hunks did not produces one `File`, zero hunks and
+    /// an empty `UnifiedPatch.raw` — so the tab used to claim `diff_note_no_changes` for a file
+    /// the list right beside it says has changes. Its own patch text is the answer.
+    @Test func aFileWhoseHunksDidNotParseShowsItsPatchVerbatim() {
+        let patch = "diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ malformed @@\n-old\n+new"
+        #expect(DiffTabView.verbatimText(parsed: UnifiedPatch.parse(patch), patch: patch) == patch)
+    }
+
+    /// Nothing parsed at all: the parser's own `raw` block is what gets shown.
+    @Test func aWhollyUnparsedPatchShowsTheParsersRawBlock() {
+        let parsed = UnifiedPatch.parse("not a patch at all")
+        #expect(
+            DiffTabView.verbatimText(parsed: parsed, patch: "not a patch at all")
+                == "not a patch at all")
+    }
+
+    /// A pure rename or a mode-only change sends no patch text, and "no changes" is the truth.
+    @Test func aFileWithNoPatchTextHasNothingToShowVerbatim() {
+        let parsed = UnifiedPatch.parse("")
+        #expect(DiffTabView.verbatimText(parsed: parsed, patch: nil) == nil)
+        #expect(DiffTabView.verbatimText(parsed: parsed, patch: "") == nil)
+        #expect(DiffTabView.verbatimText(parsed: parsed, patch: "  \n\n") == nil)
+    }
+
+    /// The whole point of finding the text: a diff whose patch changed for an ALREADY-LISTED
+    /// path must re-render that path's hunks, which is what the layout recompute does.
+    @Test func theLayoutFollowsAChangedPatchForAnAlreadyListedPath() {
+        func result(_ patch: String) -> DiffResult {
+            DiffResult(
+                base: "main", baseRef: "origin/main", head: "shepherd/s1", fetchFailed: false,
+                truncated: false,
+                files: [
+                    DiffFile(
+                        path: "x.swift", status: .init(known: .modified), additions: 1,
+                        deletions: 0, binary: false, patch: patch)
+                ])
+        }
+        let before = DiffAnnotationLayout.partition(
+            notes: [], files: result("@@ -1 +1 @@\n+a").files)
+        let after = DiffAnnotationLayout.partition(
+            notes: [], files: result("@@ -1 +1,2 @@\n+a\n+b").files)
+        #expect(before.hunks["x.swift"]?.hunks.first?.lines.count == 1)
+        #expect(after.hunks["x.swift"]?.hunks.first?.lines.count == 2)
+        // …and the model stamps a new revision for exactly that change, which is what drives
+        // the recompute — see `DetailModelTests.theDiffRevisionMovesOnlyWhenTheContentDoes`.
+        #expect(result("@@ -1 +1 @@\n+a") != result("@@ -1 +1,2 @@\n+a\n+b"))
+    }
+
     // MARK: - The files tab's state mapping
 
     @Test func theFilesPhaseMapsEveryLoadedState() {

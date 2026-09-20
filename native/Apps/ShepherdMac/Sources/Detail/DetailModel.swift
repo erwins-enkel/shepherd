@@ -59,6 +59,13 @@ final class DetailModel: AppExtension {
         /// Empty when the annotations read failed: they are chrome, and a diff must not vanish
         /// because its notes did.
         var notes: [DiffNote]
+        /// Moves only when this payload's CONTENT moves — never on a poll tick that brought back
+        /// a byte-identical diff. The diff tab keys its (expensive) layout recompute on this
+        /// rather than on `result.head`, which is the session BRANCH NAME and therefore never
+        /// moves at all, and rather than on the whole payload, which would make every render
+        /// pass an O(patch bytes) comparison. Drawn from one counter on the model, so a value
+        /// is never reused.
+        var revision: Int = 0
     }
 
     enum FilesSource: String, CaseIterable, Sendable { case scratchpad, worktree }
@@ -132,12 +139,32 @@ final class DetailModel: AppExtension {
     /// longer the newest is dropped: a poll tick and a manual Refresh overlap routinely, and the
     /// earlier one holds the older answer by construction.
     @ObservationIgnored private var stamps: [String: Int] = [:]
+    /// The one counter every stamp is drawn from. Per-key counters looked equivalent and were
+    /// not: `prune(activeIDs:)` drops a key's stamp, so a session that came back started again
+    /// at 1 — which a still-in-flight read from before the prune matched, resurrecting its stale
+    /// value. One counter for the model means a stamp is never handed out twice.
+    @ObservationIgnored private var stampCounter = 0
+    /// The same counter for `DiffPayload.revision`. Separate from `stampCounter` only so the two
+    /// read independently; both are monotonic and neither is ever reused.
+    @ObservationIgnored private var diffRevision = 0
+    /// Sessions whose LAST annotations read failed. The diff survives such a failure by design,
+    /// but the notes must not stay empty forever: the next load retries them even when the diff
+    /// itself came back unchanged.
+    @ObservationIgnored private var annotationsFailed: Set<String> = []
     /// The `session:activity`/`session:git` tap. Ended by `teardown()`; also ends on its own once
     /// `store.events()` finishes, which happens when the store's `stop()` runs.
     @ObservationIgnored private var watcher: Task<Void, Never>?
     /// Watches `store.sessions` so a session that drops out of it (archived, removed, or simply
     /// never seen again after a reconnect) has its caches pruned instead of growing forever.
     @ObservationIgnored private var sessionsWatcher: Task<Void, Never>?
+    /// How `watchSessions` is woken. Finished by `teardown()`, which is the ONLY thing that ends
+    /// the watcher's wait: cancelling a task never resumes a `withCheckedContinuation`, so the
+    /// previous shape left the loop suspended forever holding this model, its `SessionStore` and
+    /// all four caches — one leak per profile switch.
+    @ObservationIgnored private var sessionsSignal: AsyncStream<Void>.Continuation?
+    /// Whether the sessions watcher's loop is still running. Read by the tests that assert
+    /// `teardown()` actually ends it.
+    @ObservationIgnored private(set) var isWatchingSessions = false
     /// Feed+session keys a push-driven reload is currently running for — at most one HTTP read
     /// per key even when several frames arrive before the first read returns.
     @ObservationIgnored private var pushInFlight: Set<String> = []
@@ -161,12 +188,23 @@ final class DetailModel: AppExtension {
     /// `SessionCommandState.run` as `isCurrent`.
     var isActive: Bool { alive }
 
+    /// Ends every tap this model owns and drops everything it cached.
+    ///
+    /// The caches go too: the model is dead after this — `AppModel` builds a fresh one per
+    /// activation and never revives a torn-down one — so keeping four dictionaries of diffs and
+    /// listings alive only bounds memory by how many profiles the operator has switched between.
+    /// It also means a future refactor that reintroduces a stuck waiter cannot leak the content
+    /// as well as the object.
     func teardown() {
         alive = false
         watcher?.cancel()
         watcher = nil
+        // Finish BEFORE cancelling: cancellation alone never resumes a suspended waiter.
+        sessionsSignal?.finish()
+        sessionsSignal = nil
         sessionsWatcher?.cancel()
         sessionsWatcher = nil
+        prune(activeIDs: [])
     }
 
     /// Reads one feed for one session. Safe to call while a read is already in flight.
@@ -198,18 +236,28 @@ final class DetailModel: AppExtension {
                 let result = try await loaders.diff(id)
                 let previous = diff[id]?.value
                 // Re-reading the annotations on every 15 s tick is wasted work once the diff
-                // itself has not moved: `head` is the branch's current commit, so an unchanged
-                // `head` means an unchanged diff, and the previous notes are still correct.
+                // itself has not moved — but "has not moved" is a comparison of the whole
+                // `DiffResult`, NOT of `head`. `head` is the session BRANCH NAME (`src/diff.ts`
+                // computeDiff answers `head: branch`; the contract calls it "Session branch"),
+                // so it is fixed for the life of the session: keying this on `head` read the
+                // annotations exactly once per session and never again — not on the poll, not on
+                // Refresh — and a first read that failed left `notes` empty forever. Hence the
+                // retry flag as well.
                 var notes = previous?.notes ?? []
-                if previous == nil || previous?.result.head != result.head {
-                    do { notes = try await loaders.annotations(id) } catch {
+                let diffMoved = previous?.result != result
+                if previous == nil || diffMoved || annotationsFailed.contains(id) {
+                    do {
+                        notes = try await loaders.annotations(id)
+                        annotationsFailed.remove(id)
+                    } catch {
                         if isCancellation(error) { throw error }
                         Log.ui.debug("diff annotations failed; keeping the diff")
+                        annotationsFailed.insert(id)
                         notes = previous?.notes ?? []
                     }
                 }
                 commit(feed, id, stamp) {
-                    self.diff[id] = .ready(DiffPayload(result: result, notes: notes))
+                    self.diff[id] = .ready(self.stamped(id, result: result, notes: notes))
                 }
             case .files:
                 let listing = try await loaders.scratchpad(id, nil)
@@ -332,23 +380,46 @@ final class DetailModel: AppExtension {
     /// up front, then re-arms on every subsequent write through `withObservationTracking`,
     /// mirroring `AppModel.watchConnection(_:profile:generation:)`.
     private func watchSessions(_ store: SessionStore) {
+        beginSessionsWatch(
+            ids: { Set(store.sessions.map(\.id)) },
+            arm: { signal in
+                withObservationTracking { _ = store.sessions } onChange: { signal() }
+            })
+    }
+
+    /// The watcher loop itself, over an `AsyncStream` rather than a bare
+    /// `withCheckedContinuation`: a stream can be **finished**, and cancellation alone cannot
+    /// resume a checked continuation. `teardown()` finishes it, the `for await` ends, and the
+    /// task releases this model, the store and the caches — which the previous shape never did,
+    /// because `SessionStore.stop()` does not write `sessions` and so nothing ever woke the
+    /// waiter again. Finishing a stream twice, or yielding into a finished one, is a no-op, so
+    /// there is no double-resume to get wrong either.
+    ///
+    /// `arm` re-installs the observation each round: `withObservationTracking` fires `onChange`
+    /// exactly once and *before* the write lands, which is why the loop yields once before it
+    /// re-reads. Internal, not private, so a test can drive it with a hand-fed signal instead of
+    /// standing up a live `SessionStore` — the seam `prune(activeIDs:)` and
+    /// `schedulePushLoad(_:session:)` already use.
+    func beginSessionsWatch(
+        ids: @escaping @MainActor () -> Set<String>,
+        arm: @escaping @MainActor (@escaping @Sendable () -> Void) -> Void
+    ) {
+        let (changes, continuation) = AsyncStream<Void>.makeStream()
+        sessionsSignal = continuation
+        isWatchingSessions = true
         sessionsWatcher = Task { @MainActor [weak self] in
+            defer { self?.isWatchingSessions = false }
             guard let self else { return }
-            var known = Set(store.sessions.map(\.id))
+            var known = ids()
             self.prune(activeIDs: known)
-            while !Task.isCancelled {
-                await withCheckedContinuation { continuation in
-                    withObservationTracking {
-                        _ = store.sessions
-                    } onChange: {
-                        continuation.resume()
-                    }
-                }
-                guard !Task.isCancelled else { return }
+            arm { continuation.yield() }
+            for await _ in changes {
+                if Task.isCancelled { break }
                 await Task.yield()
-                let ids = Set(store.sessions.map(\.id))
-                guard ids != known else { continue }
-                known = ids
+                arm { continuation.yield() }
+                let current = ids()
+                guard current != known else { continue }
+                known = current
                 self.prune(activeIDs: known)
             }
         }
@@ -373,9 +444,22 @@ final class DetailModel: AppExtension {
     }
 
     private func nextStamp(_ feed: DetailFeed, _ id: String) -> Int {
-        let next = (stamps[key(feed, id)] ?? 0) + 1
-        stamps[key(feed, id)] = next
-        return next
+        stampCounter += 1
+        stamps[key(feed, id)] = stampCounter
+        return stampCounter
+    }
+
+    /// Wraps a freshly-read diff in a `DiffPayload` whose `revision` moves only when the content
+    /// does. A poll tick that brought back a byte-identical diff keeps the previous payload
+    /// whole, so the diff tab's `.onChange(of:)` never fires and the (O(patch bytes)) layout
+    /// recompute is skipped — while a tick that DID bring back new hunks always fires it, which
+    /// keying on `result.head` could not: `head` is the branch name and never moves.
+    private func stamped(_ id: String, result: DiffResult, notes: [DiffNote]) -> DiffPayload {
+        if let previous = diff[id]?.value, previous.result == result, previous.notes == notes {
+            return previous
+        }
+        diffRevision += 1
+        return DiffPayload(result: result, notes: notes, revision: diffRevision)
     }
 
     /// Applies `mutate` only while this model belongs to a live store AND `stamp` is still the
@@ -478,6 +562,7 @@ final class DetailModel: AppExtension {
         refreshCounts = refreshCounts.filter { activeIDs.contains(sessionID(fromKey: $0.key)) }
         pushInFlight = pushInFlight.filter { activeIDs.contains(sessionID(fromKey: $0)) }
         pushPending = pushPending.filter { activeIDs.contains(sessionID(fromKey: $0)) }
+        annotationsFailed = annotationsFailed.filter { activeIDs.contains($0) }
     }
 
     private func beginRefresh(_ refreshKey: String) {

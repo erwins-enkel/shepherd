@@ -49,6 +49,21 @@ final class ModelBox {
     var model: DetailModel?
 }
 
+/// Holds the "the session list changed" handler `DetailModel.beginSessionsWatch` hands out, so a
+/// test can fire it by hand instead of standing up a live `SessionStore` and waiting on
+/// `withObservationTracking`.
+@MainActor
+final class SignalBox {
+    var fire: (@Sendable () -> Void)?
+}
+
+/// A mutable session-id list for the same seam.
+@MainActor
+final class IDBox {
+    var value: Set<String>
+    init(_ value: Set<String>) { self.value = value }
+}
+
 @MainActor
 struct DetailModelTests {
     private func entry(_ n: Int, _ summary: String) -> ActivityEntry {
@@ -88,7 +103,29 @@ struct DetailModelTests {
         model.teardown()  // the store this extension belongs to went away
         gate.open()
         await task.value
-        #expect(model.activity["s1"] == .loading)
+        // `teardown()` drops every cache, so the entry is gone rather than still `.loading` —
+        // either way the late read wrote nothing, which is what this is about.
+        #expect(model.activity["s1"] == nil)
+    }
+
+    /// Teardown drops the caches as well as the taps: the model is never revived, so four
+    /// dictionaries of diffs and directory listings would otherwise stay alive for as long as
+    /// something still held the object.
+    @Test func teardownDropsEveryCache() async {
+        var loaders = DetailModel.Loaders.stubbed()
+        loaders.activity = { _ in [self.entry(1, "hi")] }
+        let model = DetailModel(loaders: loaders)
+        await model.load(.activity, session: "s1")
+        await model.load(.files, session: "s1")
+        await model.load(.git, session: "s1")
+        #expect(model.activity["s1"] != nil)
+
+        model.teardown()
+
+        #expect(model.activity.isEmpty)
+        #expect(model.diff.isEmpty)
+        #expect(model.files.isEmpty)
+        #expect(model.git.isEmpty)
     }
 
     /// The PR tab passes `isActive` to `SessionCommandState.run` as its `isCurrent`, so a merge
@@ -265,7 +302,40 @@ struct DetailModelTests {
 
     // MARK: - Diff annotations only re-read when the diff itself moved
 
-    @Test func annotationsAreNotRefetchedWhenTheDiffHeadIsUnchanged() async {
+    private func diffFile(_ path: String, patch: String) -> DiffFile {
+        DiffFile(
+            path: path, status: .init(known: .modified), additions: 1, deletions: 0, binary: false,
+            patch: patch)
+    }
+
+    /// `DiffResult.head` is the session BRANCH NAME (`src/diff.ts` answers `head: branch`), so
+    /// it is fixed for the life of the session. Keying the annotations re-read on it meant they
+    /// were read exactly once per session and never again — not on the 15 s poll, not on
+    /// Refresh. The comparison is of the whole diff.
+    @Test func annotationsAreNotRefetchedWhenTheDiffIsUnchanged() async {
+        var annotationCalls = 0
+        var loaders = DetailModel.Loaders.stubbed()
+        loaders.annotations = { _ in
+            annotationCalls += 1
+            return []
+        }
+        loaders.diff = { _ in
+            DiffResult(
+                base: "main", baseRef: "main", head: "shepherd/s1", fetchFailed: false,
+                truncated: false, files: [])
+        }
+        let model = DetailModel(loaders: loaders)
+
+        await model.load(.diff, session: "s1")  // first load: always reads annotations
+        #expect(annotationCalls == 1)
+        await model.load(.diff, session: "s1")  // byte-identical diff: skip
+        await model.load(.diff, session: "s1")
+        #expect(annotationCalls == 1)
+    }
+
+    /// The agent commits again: `head` still names the same branch, but the files and their
+    /// patches moved, so the notes must be re-read.
+    @Test func annotationsAreRefetchedWhenTheDiffContentMovedUnderAnUnchangedHead() async {
         var diffCalls = 0
         var annotationCalls = 0
         var loaders = DetailModel.Loaders.stubbed()
@@ -275,19 +345,136 @@ struct DetailModelTests {
         }
         loaders.diff = { _ in
             diffCalls += 1
-            let head = diffCalls <= 2 ? "abc" : "def"
             return DiffResult(
-                base: "main", baseRef: "main", head: head, fetchFailed: false, truncated: false,
-                files: [])
+                base: "main", baseRef: "main", head: "shepherd/s1", fetchFailed: false,
+                truncated: false,
+                files: [self.diffFile("a.swift", patch: "@@ -1 +1 @@\n+v\(diffCalls)")])
         }
         let model = DetailModel(loaders: loaders)
 
-        await model.load(.diff, session: "s1")  // first load: always reads annotations
+        await model.load(.diff, session: "s1")
         #expect(annotationCalls == 1)
-        await model.load(.diff, session: "s1")  // same head: skip
-        #expect(annotationCalls == 1)
-        await model.load(.diff, session: "s1")  // head moved: read again
+        await model.load(.diff, session: "s1")  // same branch, different patch
         #expect(annotationCalls == 2)
+        #expect(model.diff["s1"]?.value?.result.head == "shepherd/s1")
+    }
+
+    /// A failed annotations read keeps the diff — and used to keep `notes` empty forever, since
+    /// the next tick saw an unchanged diff and skipped the read. It is retried instead.
+    @Test func aFailedAnnotationsReadIsRetriedOnTheNextLoad() async {
+        var annotationCalls = 0
+        var loaders = DetailModel.Loaders.stubbed()
+        loaders.diff = { _ in
+            DiffResult(
+                base: "main", baseRef: "main", head: "shepherd/s1", fetchFailed: false,
+                truncated: false, files: [])
+        }
+        loaders.annotations = { _ in
+            annotationCalls += 1
+            if annotationCalls == 1 { throw ShepherdError.transport("offline") }
+            return [DiffNote(path: "", kind: .init(known: .review), text: "verdict")]
+        }
+        let model = DetailModel(loaders: loaders)
+
+        await model.load(.diff, session: "s1")
+        #expect(model.diff["s1"]?.value?.notes.isEmpty == true)
+
+        await model.load(.diff, session: "s1")  // the diff has not moved; the notes are retried
+        #expect(annotationCalls == 2)
+        #expect(model.diff["s1"]?.value?.notes.first?.text == "verdict")
+
+        await model.load(.diff, session: "s1")  // and once they land, back to skipping
+        #expect(annotationCalls == 2)
+    }
+
+    /// The diff tab keys its layout recompute — where every patch is parsed — on this revision,
+    /// so it has to move exactly when the content does and not otherwise.
+    @Test func theDiffRevisionMovesOnlyWhenTheContentDoes() async {
+        var diffCalls = 0
+        var loaders = DetailModel.Loaders.stubbed()
+        loaders.diff = { _ in
+            diffCalls += 1
+            let patch = diffCalls >= 3 ? "@@ -1 +1,2 @@\n+a\n+b" : "@@ -1 +1 @@\n+a"
+            return DiffResult(
+                base: "main", baseRef: "main", head: "shepherd/s1", fetchFailed: false,
+                truncated: false, files: [self.diffFile("a.swift", patch: patch)])
+        }
+        let model = DetailModel(loaders: loaders)
+
+        await model.load(.diff, session: "s1")
+        let first = model.diff["s1"]?.value?.revision
+        #expect(first != nil)
+        await model.load(.diff, session: "s1")  // identical: no new revision
+        #expect(model.diff["s1"]?.value?.revision == first)
+        await model.load(.diff, session: "s1")  // new patch for an already-listed path
+        #expect(model.diff["s1"]?.value?.revision != first)
+    }
+
+    // MARK: - Stamps are never reused
+
+    /// `prune(activeIDs:)` drops a key's stamp. With a per-key counter a session that came back
+    /// started again at 1, which a still-in-flight read from before the prune matched — and its
+    /// stale value overwrote the fresh one.
+    @Test func aStampIsNeverReusedAfterAPrune() async {
+        let gate = LoadGate()
+        var calls = 0
+        var loaders = DetailModel.Loaders.stubbed()
+        loaders.activity = { _ in
+            calls += 1
+            let n = calls
+            if n == 1 { await gate.wait() }
+            return [self.entry(n, "call \(n)")]
+        }
+        let model = DetailModel(loaders: loaders)
+        let stale = Task { await model.load(.activity, session: "s1") }
+        #expect(await settleDetail(until: { gate.isWaiting }))
+
+        model.prune(activeIDs: [])  // the session drops out of the store…
+        await model.load(.activity, session: "s1")  // …and comes back
+        #expect(model.activity["s1"]?.value?.first?.summary == "call 2")
+
+        gate.open()
+        await stale.value
+        #expect(model.activity["s1"]?.value?.first?.summary == "call 2")
+    }
+
+    // MARK: - The sessions watcher ends with the model
+
+    /// `teardown()` cancels the watcher, and cancellation alone never resumes a suspended
+    /// `withCheckedContinuation` — which is how the previous shape kept the model, the store and
+    /// every cache alive for the life of the process, once per profile switch.
+    @Test func teardownEndsTheSessionsWatcher() async {
+        let model = DetailModel(loaders: .stubbed())
+        let signal = SignalBox()
+        model.beginSessionsWatch(ids: { ["s1"] }, arm: { signal.fire = $0 })
+        #expect(model.isWatchingSessions)
+        #expect(await settleDetail(until: { signal.fire != nil }))
+
+        model.teardown()
+
+        #expect(await settleDetail(until: { model.isWatchingSessions == false }))
+    }
+
+    /// And while it is alive it still does its job: a signal makes it re-read the ids and prune
+    /// whatever dropped out.
+    @Test func theSessionsWatcherPrunesWhenTheListShrinks() async {
+        var loaders = DetailModel.Loaders.stubbed()
+        loaders.activity = { _ in [self.entry(1, "hi")] }
+        let model = DetailModel(loaders: loaders)
+        await model.load(.activity, session: "keep")
+        await model.load(.activity, session: "drop")
+
+        let ids = IDBox(["keep", "drop"])
+        let signal = SignalBox()
+        model.beginSessionsWatch(ids: { ids.value }, arm: { signal.fire = $0 })
+        #expect(await settleDetail(until: { signal.fire != nil }))
+
+        ids.value = ["keep"]
+        signal.fire?()
+
+        #expect(await settleDetail(until: { model.activity["drop"] == nil }))
+        #expect(model.activity["keep"] != nil)
+        model.teardown()
     }
 
     // MARK: - H3: a push for a session nobody opened is dropped

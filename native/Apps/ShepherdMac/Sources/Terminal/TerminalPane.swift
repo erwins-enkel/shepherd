@@ -18,6 +18,12 @@ struct TerminalPane: View {
             Divider()
             promptBar
         }
+        // The tab-body identifier every other detail tab carries (`detail-tab-activity`,
+        // `-diff`, `-files`, `-git`, `-prompt`). The tab BUTTONS carry no accessibility name on
+        // this toolchain — SwiftUI's `TabView` becomes an `NSTabView` — so a body identifier is
+        // the only stable handle a test has on "the terminal tab is what is showing". The
+        // pane's own controls keep their `terminal-*` identifiers; this names the tab, not them.
+        .accessibilityIdentifier("detail-tab-terminal")
         .onDisappear { model.detach() }
         // Autofocus the prompt when the tab appears — the operator switching
         // to (or back to) a session almost always wants to type immediately.

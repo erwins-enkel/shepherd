@@ -142,18 +142,19 @@ final class LiveSmokeUITests: XCTestCase {
         }
     }
 
-    // MARK: - S2: the detail tabs
+    // MARK: - S1 + S2: the detail tabs
 
-    /// Every tab S2 registered renders its own body and none of them lands on the error state.
+    /// Every registered tab renders its own body and none of them lands on the error state.
     /// Also covers the tab bar itself: with only the built-in prompt tab registered
     /// `DetailTabRegistry.layout` is `.single` and there would be no tab to click at all.
     ///
-    /// Tabs are addressed by **position**, not by title. SwiftUI's `TabView` becomes an
-    /// `NSTabView` whose items carry no accessibility name on this toolchain — verified against
-    /// the live window — so the registry's own sort order (terminal 0, activity 10, diff 20,
-    /// files 30, git 40, prompt 1 000) is the only stable handle. That order is asserted here
-    /// too: a stream that registers a tab out of order fails this test rather than silently
-    /// reshuffling the operator's tab bar.
+    /// Tabs are **clicked** by position, because SwiftUI's `TabView` becomes an `NSTabView` whose
+    /// items carry no accessibility name on this toolchain — verified against the live window —
+    /// so the registry's own sort order (terminal 0, activity 10, diff 20, files 30, git 40,
+    /// prompt 1 000) is the only handle the tab BAR offers. What each click landed on is checked
+    /// by the body's own `detail-tab-<id>` identifier, which every stream tab now carries: the
+    /// pairing below is therefore also the order assertion, and a stream that registers a tab out
+    /// of order fails this test rather than silently reshuffling the operator's tab bar.
     func testEveryDetailTabLoadsForASelectedSession() {
         XCTAssertTrue(waitForMainWindow())
         XCTAssertTrue(selectFirstSession(), "a live server should offer a session to select")
@@ -163,6 +164,7 @@ final class LiveSmokeUITests: XCTestCase {
             "terminal, activity, diff, files, git and the built-in prompt tab should all be registered")
 
         for (index, identifier) in [
+            (0, "detail-tab-terminal"),
             (1, "detail-tab-activity"),
             (2, "detail-tab-diff"),
             (3, "detail-tab-files"),
@@ -197,12 +199,19 @@ final class LiveSmokeUITests: XCTestCase {
     func testTheTerminalAttachesAndRendersItsPane() {
         XCTAssertTrue(waitForMainWindow())
         XCTAssertTrue(selectFirstSession(), "a live server should offer a session to select")
+        // Clicking still goes by position — the tab bar's buttons carry no accessibility name —
+        // but what the click landed on is checked by the tab body's own identifier rather than by
+        // trusting the registry's sort order a second time.
         XCTAssertTrue(selectTab(at: 0), "the terminal tab is registered at order 0")
 
-        let terminal = app.descendants(matching: .any)["terminal-view"]
+        let pane = app.descendants(matching: .any)["detail-tab-terminal"]
+        XCTAssertTrue(
+            pane.waitForExistence(timeout: 30), "the terminal tab should render its own body")
+
+        let terminal = pane.descendants(matching: .any)["terminal-view"]
         XCTAssertTrue(terminal.waitForExistence(timeout: 30), "the emulator should be hosted")
         XCTAssertTrue(
-            app.descendants(matching: .any)["terminal-prompt"].waitForExistence(timeout: 30),
+            pane.descendants(matching: .any)["terminal-prompt"].waitForExistence(timeout: 30),
             "the prompt bar should render under the emulator")
 
         // The attach size follows the viewport; the socket must survive the change.

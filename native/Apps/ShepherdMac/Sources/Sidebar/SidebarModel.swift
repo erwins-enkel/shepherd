@@ -69,6 +69,23 @@ final class SidebarModel: AppExtension {
     /// Re-reads all four snapshots every time the store's connection (re-)enters `.live`. Stored
     /// alongside `watcher` so `teardown()` cancels it with everything else.
     @ObservationIgnored private var connectionWatcher: Task<Void, Never>?
+    /// How the connection watcher is woken — and, crucially, how it is *ended*. `teardown()`
+    /// finishes it; cancelling a task can never resume a `withCheckedContinuation`, which is what
+    /// this watcher used to park on, so the loop stayed suspended forever holding this model and an
+    /// observation registration inside the store: one leak per profile switch and per closed
+    /// window. See `native/README.md`, "Never park a long-lived watcher on a bare
+    /// `withCheckedContinuation`". Finishing twice, or yielding into a finished stream, is a no-op.
+    @ObservationIgnored private var connectionSignal: AsyncStream<Void>.Continuation?
+    /// True while *the current* connection watcher's loop is alive. Written by the task itself, so
+    /// a test can prove the loop actually ended rather than merely that `Task.cancel()` was called
+    /// on it. "Current" is load-bearing: an outgoing watcher may still be unwinding after its
+    /// replacement armed itself, and it must not publish a false `false` over a live one — hence
+    /// the `connectionWatcherToken` check, exactly as `AppModel.watchConnection` does it.
+    @ObservationIgnored private(set) var isWatchingConnection = false
+    /// Identifies the watcher `connectionWatcher` currently holds. Bumped by every
+    /// `watchConnection(_:)`; a watcher whose captured value no longer matches has been superseded
+    /// and owns nothing.
+    @ObservationIgnored private var connectionWatcherToken = 0
     /// The one-shot bootstrap refresh the production initializer fires. Stored so `teardown()` can
     /// cancel it — previously it ran to completion even after the model was torn down.
     @ObservationIgnored private var bootstrap: Task<Void, Never>?
@@ -264,6 +281,10 @@ final class SidebarModel: AppExtension {
         watcher = nil
         connectionWatcher?.cancel()
         connectionWatcher = nil
+        // The cancel above only sets a flag; this is what wakes the suspended loop so it can
+        // observe it, let go of everything it captured and drop its observation registration.
+        connectionSignal?.finish()
+        connectionSignal = nil
         bootstrap?.cancel()
         bootstrap = nil
         refreshTask?.cancel()
@@ -336,14 +357,38 @@ final class SidebarModel: AppExtension {
     /// `withObservationTracking` and wakes on the next write — no timer, no missed transition.
     /// `withObservationTracking` fires `onChange` exactly once, which is why the loop re-arms on
     /// every pass. The shape is `AppModel.watchConnection`'s, deliberately: same contract, same
-    /// re-arm, same weak read so the watcher can never be the reason a store outlives its
-    /// activation.
+    /// re-arm, same token guard, same weak read so the watcher can never be the reason a store
+    /// outlives its activation.
+    ///
+    /// It waits on an `AsyncStream` that `teardown()` **finishes**, not on a bare
+    /// `withCheckedContinuation`. Cancellation cannot resume a checked continuation, and
+    /// `SessionStore.stop()` publishes `.idle` only when the state was not already `.idle` — so the
+    /// previous shape left this loop suspended forever, holding the model, the reader closure and
+    /// an observation registration inside the store: one leak per profile switch and per closed
+    /// window. `nil` from the iterator is the exit cancellation alone could never give us.
+    /// `DetailModel.beginSessionsWatch` and `AppModel.watchConnection` are the same fix.
     ///
     /// Internal, not private: the unit tests drive it with their own reader, which is the only way
     /// to exercise a reconnect without a server.
     func watchConnection(_ read: @escaping @MainActor () -> ConnectionState?) {
+        // Finish *and* cancel the watcher being replaced. Assigning over `connectionWatcher` below
+        // only drops the reference; without the finish the old loop stays parked on a stream
+        // nothing will ever yield into again.
+        connectionSignal?.finish()
         connectionWatcher?.cancel()
+        let (changes, signal) = AsyncStream<Void>.makeStream()
+        connectionSignal = signal
+        connectionWatcherToken &+= 1
+        let token = connectionWatcherToken
+        isWatchingConnection = true
         connectionWatcher = Task { @MainActor [weak self] in
+            // Only the watcher the model still owns may report the loop gone: the predecessor
+            // cancelled above unwinds *after* this one armed itself, and an unconditional clear
+            // here would publish a false `false` over a live watcher.
+            defer {
+                if self?.connectionWatcherToken == token { self?.isWatchingConnection = false }
+            }
+            var iterator = changes.makeAsyncIterator()
             // `nil` until the first pass reads a state, so whatever the connection is at arm time
             // is the baseline and only a LATER arrival at `.live` reconciles. In production that
             // baseline is always `.idle`: `AppModel.activate` calls `makeExtensions(store:)` — and
@@ -356,20 +401,21 @@ final class SidebarModel: AppExtension {
                 do {
                     guard let self else { return }
                     // Arming an observation on a store that is gone would park this task on a
-                    // continuation no write can ever resume.
+                    // signal no write can ever send.
                     guard let state = read() else { return }
                     let isLive = state == .live
                     if isLive, wasLive != true { self.requestRefresh() }
                     wasLive = isLive
                 }
 
-                await withCheckedContinuation { continuation in
-                    withObservationTracking {
-                        _ = read()
-                    } onChange: {
-                        continuation.resume()
-                    }
+                withObservationTracking {
+                    _ = read()
+                } onChange: {
+                    signal.yield()
                 }
+                // `nil` means the stream was finished — `teardown()`, or a re-arm — which is the
+                // one exit cancellation alone could never give us.
+                guard await iterator.next() != nil else { return }
                 // `onChange` runs just before the property is written, so yield once to let the
                 // writer finish before the next pass reads it.
                 await Task.yield()

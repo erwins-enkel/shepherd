@@ -7,6 +7,8 @@ import SwiftUI
 struct VisualBlocksView: View {
     let blocks: [VisualBlock]
     var inferred = false
+    var answerContext: QuestionAnswerContext?
+    var answerWriter: QuestionFormWriter?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -31,9 +33,8 @@ struct VisualBlocksView: View {
         } else if let value = block.value9 {
             identified("table", value.id) { table(value) }
         } else if let value = block.value13 {
-            // Task 7 replaces this read-only placeholder with QuestionFormView.
             identified("question-form", value.id) {
-                omitted(value.questions.map(\.prompt))
+                QuestionFormView(block: value, answerContext: answerContext, writer: answerWriter)
             }
         } else if let value = block.value4 {
             identified("diff", value.id) { omitted([value.summary]) }

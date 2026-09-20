@@ -4248,5 +4248,6 @@
   "native_settings_placeholder_body": "Settings panes arrive with the settings stream.",
   "native_settings_placeholder_title": "Nothing to configure yet",
   "vblock_native_not_rendered": "Not rendered here",
-  "vblock_native_wireframe_omitted": "Wireframe omitted"
+  "vblock_native_wireframe_omitted": "Wireframe omitted",
+  "qform_native_confirm_body": "Send answers to {count} questions to the planning agent? These answers will guide its work."
 }

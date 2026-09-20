@@ -549,6 +549,7 @@ export const KEYS_PLAN: readonly string[] = [
   "qform_kind_multi",
   "qform_kind_multi_optional",
   "qform_kind_single",
+  "qform_native_confirm_body",
   "qform_sent",
   "qform_sent_undelivered",
   "qform_submit",

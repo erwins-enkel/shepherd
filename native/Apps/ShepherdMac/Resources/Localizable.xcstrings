@@ -7180,6 +7180,24 @@
         }
       }
     },
+    "qform_native_confirm_body": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antworten auf %1$@ Fragen an den Planungsagenten senden? Diese Antworten steuern seine Arbeit."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send answers to %1$@ questions to the planning agent? These answers will guide its work."
+          }
+        }
+      }
+    },
     "qform_sent": {
       "extractionState": "manual",
       "localizations": {

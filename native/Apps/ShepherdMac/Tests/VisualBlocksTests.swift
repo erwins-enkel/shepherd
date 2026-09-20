@@ -115,7 +115,6 @@ struct VisualBlocksTests {
             (#"{"type":"data-model","id":"b","entities":[{"id":"user","name":"User","fields":[]}]}"#, "data-model", ["User"]),
             (#"{"type":"api-endpoint","id":"b","method":"GET","path":"/api/items","summary":"List items"}"#, "api-endpoint", ["GET /api/items", "List items"]),
             (#"{"type":"mermaid","id":"b","source":"graph TD","caption":"Architecture"}"#, "mermaid", ["Architecture"]),
-            (#"{"type":"question-form","id":"b","questions":[{"id":"q","prompt":"Choose a path","kind":"single"}]}"#, "question-form", ["Choose a path"]),
         ]
         for (json, type, content) in cases {
             try await assertBlock(json, type: type, text: content + [L.t("vblock_native_not_rendered")])

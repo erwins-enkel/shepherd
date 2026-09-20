@@ -250,24 +250,28 @@ struct ActionBarView: View {
     }
 
     private var buttons: some View {
-        HStack(spacing: 8) {
-            ForEach(actions) { action in
-                Button {
-                    run(action)
-                } label: {
-                    Label(action.label(for: session), systemImage: action.systemImage)
+        // Preserve readable labels at the window's minimum width; this row
+        // scrolls horizontally rather than imposing its width on the detail.
+        ScrollView(.horizontal) {
+            HStack(spacing: 8) {
+                ForEach(actions) { action in
+                    Button {
+                        run(action)
+                    } label: {
+                        Label(action.label(for: session), systemImage: action.systemImage)
+                    }
+                    .help(action.help(for: session))
+                    .disabled(command.busy)
+                    .modifier(ShortcutModifier(shortcut: action.shortcut))
+                    .accessibilityIdentifier("action-\(action.id)")
                 }
-                .help(action.help(for: session))
-                .disabled(command.busy)
-                .modifier(ShortcutModifier(shortcut: action.shortcut))
-                .accessibilityIdentifier("action-\(action.id)")
+                if command.busy { ProgressView().controlSize(.small) }
             }
-            Spacer(minLength: 0)
-            if command.busy { ProgressView().controlSize(.small) }
+            .buttonStyle(.bordered)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
         }
-        .buttonStyle(.bordered)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     // MARK: - Running a command

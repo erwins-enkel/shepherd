@@ -179,14 +179,15 @@ struct GitTabView: View {
     @ViewBuilder
     private var content: some View {
         if let git = state.value ?? nil {
-            VStack(alignment: .leading, spacing: 16) {
-                summary(git)
-                actions(git)
-                if GitPanelRules.canRequestReview(git) { reviewRequest(git) }
-                Spacer()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    summary(git)
+                    actions(git)
+                    if GitPanelRules.canRequestReview(git) { reviewRequest(git) }
+                }
+                .padding(20)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(20)
-            .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityIdentifier("detail-git-panel")
         }
     }

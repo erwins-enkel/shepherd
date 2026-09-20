@@ -55,6 +55,44 @@ struct GeneratedDetailContractTests {
     #expect(odd[0].status.rawValue == "quarantined")
   }
 
+  @Test("merge responsibility decodes independently of herd handoff, including future roles")
+  func mergeResponsibility() throws {
+    for role in ["reviewer", "merger", "future-role"] {
+      let payload = Data(
+        """
+        {"id":"s1","git":{"state":"open","checks":"pending","deployConfigured":false,
+        "headSha":"head-a","baseRefName":"release","handoff":"reviewer","handoffWho":"other",
+        "mergeGate":{"handoff":"\(role)","handoffWho":"owner","reviewBlockBy":"reviewer"}}}
+        """.utf8)
+      let event = try JSONDecoder().decode(SessionGitEvent.self, from: payload)
+      #expect(event.git.baseRefName == "release")
+      #expect(event.git.headSha == "head-a")
+      #expect(event.git.handoffWho == "other")
+      let gate = try #require(event.git.mergeGate)
+      #expect(gate.handoff?.rawValue == role)
+      #expect((gate.handoff?.known == nil) == (role == "future-role"))
+      #expect(gate.handoffWho == "owner")
+      #expect(gate.reviewBlockBy == "reviewer")
+      let roundTrip = try JSONDecoder().decode(
+        SessionGitEvent.self, from: JSONEncoder().encode(event))
+      #expect(roundTrip.git.mergeGate == gate)
+    }
+    let old = try JSONDecoder().decode(GitState.self, from: DetailFixtures.gitState)
+    #expect(old.mergeGate == nil)
+    #expect(old.baseRefName == nil)
+    let blockOnly = try JSONDecoder().decode(
+      Components.Schemas.MergeResponsibility.self,
+      from: Data(#"{"reviewBlockBy":"reviewer"}"#.utf8))
+    #expect(blockOnly.handoff == nil)
+    #expect(blockOnly.reviewBlockBy == "reviewer")
+    let nulls = try JSONDecoder().decode(
+      Components.Schemas.MergeConfirmation.self,
+      from: Data(
+        #"{"headSha":null,"baseRefName":null,"handoff":null,"handoffWho":null,"reviewBlockBy":null}"#
+          .utf8))
+    #expect(nulls == .init())
+  }
+
   @Test("the session diff carries patch text, and annotations keep both kinds")
   func diffAndNotes() throws {
     let diff = try JSONDecoder().decode(

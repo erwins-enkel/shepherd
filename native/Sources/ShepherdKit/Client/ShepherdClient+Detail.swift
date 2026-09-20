@@ -186,14 +186,17 @@ extension ShepherdClient {
   /// Merges the open PR. `nil` takes the forge's own defaults (its merge method, and deleting
   /// the branch). A 502 here often means the host only *enqueued* the merge — still not a
   /// success, and the server's sentence says which it was.
+  /// `confirm` echoes the displayed revision, target and takeover responsibility. A missing or
+  /// stale takeover confirmation is a conflict; callers must obtain a fresh confirmation.
   public func mergePR(
-    sessionID: String, method: MergeMethod?, deleteBranch: Bool?
+    sessionID: String, method: MergeMethod?, deleteBranch: Bool?,
+    confirm: Components.Schemas.MergeConfirmation? = nil
   ) async throws -> GitState {
     do {
       switch try await generated.mergePullRequest(
         .init(
           path: .init(id: sessionID),
-          body: .json(.init(method: method, deleteBranch: deleteBranch)))
+          body: .json(.init(method: method, deleteBranch: deleteBranch, confirm: confirm)))
       ) {
       case .ok(let ok): return try ok.body.json
       case .unauthorized: throw ShepherdError.unauthenticated

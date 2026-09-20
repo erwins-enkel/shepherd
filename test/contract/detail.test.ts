@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -14,6 +15,7 @@ import {
   startContractServer,
   validateEvent,
   validateResponse,
+  validateRequest,
   withAuth,
   type ContractServer,
   type Operation,
@@ -29,11 +31,11 @@ let ok = "";
 /** A session whose worktree path does not exist, so git throws and /diff answers 500. */
 let broken = "";
 
-async function create(): Promise<string> {
+async function create(repoPath = s.validRepo): Promise<string> {
   const res = await fetch(`${s.baseUrl}/api/sessions`, {
     method: "POST",
     headers: { "content-type": "application/json", ...bearer(token) },
-    body: JSON.stringify({ repoPath: s.validRepo, baseBranch: "main", prompt: "detail" }),
+    body: JSON.stringify({ repoPath, baseBranch: "main", prompt: "detail" }),
   });
   return ((await res.json()) as { id: string }).id;
 }
@@ -194,6 +196,135 @@ describe("detail: git", () => {
       expect(ack.ok).toBe(true);
     } finally {
       delete s.deps.resolveForge;
+    }
+  });
+
+  test("manual merge validates the displayed target, revision and configured takeover", async () => {
+    const savedForge = s.deps.resolveForge;
+    const savedRoles = s.deps.readRoles;
+    const repo = join(s.tmpRoot, "takeover-repo");
+    const roles = { reviewer: "reviewer", merger: "owner" };
+    mkdirSync(join(repo, ".shepherd"), { recursive: true });
+    writeFileSync(join(repo, ".shepherd/roles.json"), JSON.stringify(roles));
+    const git = (...args: string[]) => execFileSync("git", ["-C", repo, ...args]);
+    git("init", "-q", "-b", "main");
+    git("add", ".shepherd/roles.json");
+    git(
+      "-c",
+      "user.name=Contract Test",
+      "-c",
+      "user.email=contract@test.local",
+      "-c",
+      "commit.gpgsign=false",
+      "commit",
+      "-qm",
+      "fixture roles",
+    );
+    const calls: { number: number; options: unknown }[] = [];
+    const id = await create(repo);
+    s.deps.readRoles = () => roles;
+    s.deps.resolveForge = () =>
+      fx.makeForge({
+        currentUser: async () => "operator",
+        prStatus: async () => fx.takeoverStatus,
+        merge: async (number: number, options: unknown) => {
+          calls.push({ number, options });
+        },
+      });
+    const template = "/api/sessions/{id}/git/merge";
+    const invoke = async (confirm?: unknown) => {
+      const request = confirm === undefined ? {} : { confirm };
+      validateRequest("POST", template, request);
+      const res = await post(`/api/sessions/${id}/git/merge`, request);
+      return { status: res.status, body: await validateResponse("POST", template, res) };
+    };
+    try {
+      const response = await get(`/api/sessions/${id}/git`);
+      const state = await validateResponse("GET", "/api/sessions/{id}/git", response);
+      expect(response.status).toBe(200);
+      expect(state).toMatchObject({
+        baseRefName: "release",
+        headSha: "head-a",
+        checks: "pending",
+        mergeGate: { handoff: "reviewer", handoffWho: "reviewer", reviewBlockBy: "reviewer" },
+      });
+      expect(state).not.toHaveProperty("handoff");
+      const missing = await invoke();
+      expect(missing.status).toBe(409);
+      expect(missing.body).toMatchObject({
+        code: "merge_confirm_required",
+        headSha: "head-a",
+        baseRefName: "release",
+        gate: {
+          handoff: "reviewer",
+          handoffWho: "reviewer",
+          reviewBlockBy: "reviewer",
+          requiresConfirm: true,
+        },
+      });
+      expect((await invoke({})).status).toBe(409);
+      expect(
+        (
+          await invoke({
+            headSha: null,
+            baseRefName: null,
+            handoff: null,
+            handoffWho: null,
+            reviewBlockBy: null,
+          })
+        ).status,
+      ).toBe(409);
+      for (const drift of [
+        { headSha: "head-old" },
+        { baseRefName: "main" },
+        { handoffWho: "previous-reviewer" },
+        { reviewBlockBy: "previous-reviewer" },
+      ]) {
+        const stale = await invoke({ ...fx.takeoverConfirm, ...drift });
+        expect(stale.status).toBe(409);
+        expect(stale.body).toMatchObject({ code: "merge_confirm_stale" });
+      }
+      expect(calls).toEqual([]);
+      const frames = await collectEvents(s, token, async () => {
+        const accepted = await invoke(fx.takeoverConfirm);
+        expect(accepted.status).toBe(200);
+        expect(accepted.body).toMatchObject({ headSha: "head-a", baseRefName: "release" });
+      });
+      const frame = frames.find((f) => f.event === "session:git");
+      expect(frame).toBeDefined();
+      validateEvent("session:git", frame!.data);
+      expect(frame!.data).toMatchObject({
+        id,
+        git: {
+          mergeGate: {
+            handoff: "reviewer",
+            handoffWho: "reviewer",
+            reviewBlockBy: "reviewer",
+          },
+          baseRefName: "release",
+        },
+      });
+      expect(calls).toEqual([
+        {
+          number: 12,
+          options: {
+            method: "squash",
+            deleteBranch: true,
+            allowStacked: true,
+            expectedHeadSha: "head-a",
+          },
+        },
+      ]);
+      expect(() =>
+        validateRequest("POST", template, { confirm: { handoff: "future-role" } }),
+      ).toThrow();
+      expect(() =>
+        validateRequest("POST", template, { confirm: { requiresConfirm: true } }),
+      ).toThrow();
+    } finally {
+      s.deps.resolveForge = savedForge;
+      s.deps.readRoles = savedRoles;
+      delete s.stubs.prCache.rows[id];
     }
   });
 

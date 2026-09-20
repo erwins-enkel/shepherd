@@ -20,7 +20,7 @@ struct HerdStepperSegment: Identifiable {
     var color: Color {
         switch tint {
         case .ciSuccess, .approved: .green
-        case .ciPending, .reviewing: SessionStatusStyle.tint(.init(known: .running))
+        case .ciPending, .reviewing: .orange
         case .ciFailure, .changes: .red
         case nil:
             switch state {

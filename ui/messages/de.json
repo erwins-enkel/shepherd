@@ -4433,5 +4433,16 @@
   "native_settings_verify_failed": "Prüfung fehlgeschlagen",
   "native_settings_verify_key": "API-Schlüssel prüfen",
   "native_settings_verify_ok": "Schlüssel bestätigt",
-  "native_settings_active_token_protected": "Dieses Token wird möglicherweise von der aktiven Verbindung verwendet und kann hier nicht widerrufen werden."
+  "native_settings_active_token_protected": "Dieses Token wird möglicherweise von der aktiven Verbindung verwendet und kann hier nicht widerrufen werden.",
+  "native_settings_colorblind": "Ohne Farbe unterscheiden",
+  "native_settings_command_search": "Befehle suchen",
+  "native_settings_contrast": "Kontrast erhöhen",
+  "native_settings_dark": "Dunkel",
+  "native_settings_full_motion": "Volle Bewegung",
+  "native_settings_light": "Hell",
+  "native_settings_motion": "Bewegung",
+  "native_settings_no_commands": "Keine passenden Befehle",
+  "native_settings_reduced_motion": "Reduzierte Bewegung",
+  "native_settings_system": "System",
+  "native_settings_theme": "Darstellung"
 }

@@ -10109,6 +10109,57 @@
         }
       }
     },
+    "native_settings_colorblind": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ohne Farbe unterscheiden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Differentiate without color"
+          }
+        }
+      }
+    },
+    "native_settings_command_search": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Befehle suchen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search commands"
+          }
+        }
+      }
+    },
+    "native_settings_contrast": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontrast erhöhen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Increase contrast"
+          }
+        }
+      }
+    },
     "native_settings_credits": {
       "comment": "%1$@ = spent, %2$@ = cap, %3$@ = currency",
       "extractionState": "manual",
@@ -10123,6 +10174,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Credits: %1$@ of %2$@ %3$@"
+          }
+        }
+      }
+    },
+    "native_settings_dark": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dunkel"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dark"
           }
         }
       }
@@ -11199,6 +11267,23 @@
         }
       }
     },
+    "native_settings_full_motion": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volle Bewegung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Full motion"
+          }
+        }
+      }
+    },
     "native_settings_key_absent": {
       "extractionState": "manual",
       "localizations": {
@@ -11263,6 +11348,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Save API key"
+          }
+        }
+      }
+    },
+    "native_settings_light": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hell"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Light"
           }
         }
       }
@@ -11353,6 +11455,23 @@
         }
       }
     },
+    "native_settings_motion": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bewegung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Motion"
+          }
+        }
+      }
+    },
     "native_settings_never": {
       "extractionState": "manual",
       "localizations": {
@@ -11366,6 +11485,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Never"
+          }
+        }
+      }
+    },
+    "native_settings_no_commands": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine passenden Befehle"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No matching commands"
           }
         }
       }
@@ -11540,6 +11676,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Pull default branch"
+          }
+        }
+      }
+    },
+    "native_settings_reduced_motion": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reduzierte Bewegung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reduced motion"
           }
         }
       }
@@ -12289,6 +12442,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Sync fork"
+          }
+        }
+      }
+    },
+    "native_settings_system": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System"
+          }
+        }
+      }
+    },
+    "native_settings_theme": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Darstellung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appearance"
           }
         }
       }

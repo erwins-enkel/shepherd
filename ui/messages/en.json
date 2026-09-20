@@ -4433,5 +4433,16 @@
   "native_settings_verify_failed": "Verification failed",
   "native_settings_verify_key": "Verify API key",
   "native_settings_verify_ok": "Key verified",
-  "native_settings_active_token_protected": "This token may be used by the active connection and cannot be revoked here."
+  "native_settings_active_token_protected": "This token may be used by the active connection and cannot be revoked here.",
+  "native_settings_colorblind": "Differentiate without color",
+  "native_settings_command_search": "Search commands",
+  "native_settings_contrast": "Increase contrast",
+  "native_settings_dark": "Dark",
+  "native_settings_full_motion": "Full motion",
+  "native_settings_light": "Light",
+  "native_settings_motion": "Motion",
+  "native_settings_no_commands": "No matching commands",
+  "native_settings_reduced_motion": "Reduced motion",
+  "native_settings_system": "System",
+  "native_settings_theme": "Appearance"
 }

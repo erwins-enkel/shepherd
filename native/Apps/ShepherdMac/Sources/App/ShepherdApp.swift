@@ -29,6 +29,7 @@ struct ShepherdApp: App {
         WindowGroup("Shepherd") {
             RootView(startIsolatedSeed: isolation?.startLiveSeedIfNeeded)
                 .environment(model)
+                .modifier(SettingsRootModifier(app: model))
                 .frame(minWidth: 900, minHeight: 600)
         }
         .defaultSize(width: 1100, height: 720)
@@ -48,6 +49,7 @@ struct ShepherdApp: App {
         Settings {
             SettingsSceneView()
                 .environment(model)
+                .modifier(SettingsRootModifier(app: model, hostsPalette: false))
         }
     }
 }

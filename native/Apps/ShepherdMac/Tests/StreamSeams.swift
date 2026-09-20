@@ -17,6 +17,11 @@ import Testing
 @MainActor
 func resetStreamSeams() {
     StreamRegistrations.reset()
+    SettingsNotificationBridge.git = { _ in [:] }
+    SettingsNotificationBridge.reviewing = { _, _ in false }
+    SettingsNotificationBridge.sendReady = { _, _ in false }
+    SettingsPresentation.shared.palette = false
+    SettingsPresentation.shared.openSettingsRequest = 0
     QueuesPanels.reset()
     MergeInputs.git = { _ in [:] }
     MergeInputs.reviewing = { _, _ in false }

@@ -24,7 +24,11 @@ struct MergeLauncher: View {
     }
 }
 @MainActor enum MergeStream {
-    private static var wrapped = false
+    // The slot owns its composition. Replacing/resetting a slot releases that owner,
+    // so a complete installer pass can wrap the new predecessor. A process-wide Bool
+    // survives that replacement and incorrectly skips the next window's composition.
+    private static weak var sidebarComposition: SidebarComposition?
+    private static weak var actionComposition: ActionComposition?
     static func installScene() {
         CommandRegistry.register(.init(id: "merge.overview", menu: .session, order: 600,
             titleKey: "native_merge_overview", isEnabled: { $0.extension(MergeModel.self) != nil },
@@ -33,24 +37,40 @@ struct MergeLauncher: View {
     static func install(_ app: AppModel) {
         app.register(MergeModel.self)
         DetailTabRegistry.register(MergeDetailTab())
-        guard !wrapped else { return }
         // S0 calls after S3/S4/S10. Never turn a nil fallback sidebar into an empty sidebar.
         guard let sidebar = SidebarSlot.content else { return }
-        let actions = ActionBarSlot.content
-        SidebarSlot.content = { app in
-            AnyView(VStack(spacing: 0) { sidebar(app); MergeLauncher(app: app) })
+        if sidebarComposition == nil {
+            let composition = SidebarComposition(content: sidebar)
+            sidebarComposition = composition
+            SidebarSlot.content = { app in composition.render(app) }
         }
-        ActionBarSlot.content = { session, store, app in
+        if actionComposition == nil {
+            let composition = ActionComposition(content: ActionBarSlot.content)
+            actionComposition = composition
+            ActionBarSlot.content = { session, store, app in composition.render(session, store, app) }
+        }
+    }
+
+    @MainActor private final class SidebarComposition {
+        let content: @MainActor (AppModel) -> AnyView
+        init(content: @escaping @MainActor (AppModel) -> AnyView) { self.content = content }
+        func render(_ app: AppModel) -> AnyView {
+            AnyView(VStack(spacing: 0) { content(app); MergeLauncher(app: app) })
+        }
+    }
+    @MainActor private final class ActionComposition {
+        let content: (@MainActor (Session, SessionStore, AppModel) -> AnyView)?
+        init(content: (@MainActor (Session, SessionStore, AppModel) -> AnyView)?) {
+            self.content = content
+        }
+        func render(_ session: Session, _ store: SessionStore, _ app: AppModel) -> AnyView {
             AnyView(HStack {
-                if let actions { actions(session, store, app) }
+                if let content { content(session, store, app) }
                 if let model = app.extension(MergeModel.self), let q = model.snapshot.queues[session.id] {
                     Label("\(MergeRules.resolved(q))/\(q.steps.count)", systemImage: "list.bullet.rectangle")
                         .accessibilityLabel(L.t("native_merge_queue"))
                 }
             })
         }
-        wrapped = true
     }
-    // Call only alongside SidebarSlot.reset/ActionBarSlot.reset in serialized tests.
-    static func resetForTests() { wrapped = false }
 }

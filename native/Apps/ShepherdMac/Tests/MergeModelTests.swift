@@ -61,6 +61,42 @@ actor MergeLatch {
         #expect(actionCalls == 0)
         #expect(!model.busy)
     }
+    @Test(arguments: ["merge_confirm_required", "merge_confirm_stale"])
+    func refusedMergeCanBeExplicitlyRetriedWithAFreshConfirmation(_ code: String) async throws {
+        let model = MergeModel(reads: .init(snapshot: { .init() }))
+        defer { model.teardown() }
+        let first = try JSONDecoder().decode(GitState.self, from: Data(
+            #"{"state":"open","checks":"success","number":7,"deployConfigured":false,"headSha":"old","baseRefName":"main"}"#.utf8))
+        var current = first
+        current.headSha = "new"; current.baseRefName = "release"
+        var candidate: GitState? = first
+        var confirmationOpen = true
+        var attempts: [Components.Schemas.MergeConfirmation] = []
+        let refusedPayload = MergeConfirmationRules.payload(first)
+        model.perform(failure: { confirmationOpen = false; candidate = nil }) {
+            attempts.append(refusedPayload)
+            throw ShepherdError.conflict(code: code, message: "Review the changed PR")
+        }
+        #expect(await eventually { !model.busy })
+        #expect(attempts.count == 1) // No automatic retry of a consequential write.
+        #expect(!confirmationOpen && candidate == nil)
+        await model.refresh()
+        #expect(model.error == "Review the changed PR")
+
+        // The next explicit opening reads Git again, exactly as the session button does.
+        model.perform(commit: { git in candidate = git; confirmationOpen = true }) { current }
+        #expect(await eventually { !model.busy })
+        #expect(confirmationOpen && model.error == nil)
+        let refreshed = try #require(candidate)
+        let retryPayload = MergeConfirmationRules.payload(refreshed)
+        model.perform(commit: { _ in confirmationOpen = false; candidate = nil }) {
+            attempts.append(retryPayload)
+        }
+        #expect(await eventually { !model.busy })
+        #expect(attempts.map(\.headSha) == ["old", "new"])
+        #expect(attempts.map(\.baseRefName) == ["main", "release"])
+        #expect(!confirmationOpen && candidate == nil && model.error == nil)
+    }
     @Test func lateReadAfterTeardownCannotPublish() async {
         let latch = MergeLatch()
         let model = MergeModel(reads: .init(snapshot: { await latch.read() }))

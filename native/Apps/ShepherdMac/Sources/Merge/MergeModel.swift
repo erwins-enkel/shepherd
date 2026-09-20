@@ -171,6 +171,16 @@ final class MergeModel: AppExtension {
         // Owed records deliberately survive archive AND physical session pruning.
         // Automation/drain are repo-keyed, not session-keyed; replace them on full refresh.
     }
+    func approveQueue(
+        id: String,
+        send: @escaping @MainActor () async throws -> BuildQueue
+    ) {
+        guard !busy, case .loaded(let queue) = queueState(id: id), !queue.approved,
+              !queue.steps.isEmpty, queue.steps.allSatisfy({ $0.status.known != nil }) else { return }
+        // Approval also sends an agent instruction. Publish the server's answer before
+        // unlocking so a delayed GET cannot leave a second approval available.
+        perform(commit: { [weak self] queue in self?.snapshot.queues[id] = queue }, send)
+    }
     var outstanding: [String: Int] {
         Dictionary(uniqueKeysWithValues: snapshot.owed.filter { $0.clearedAt == nil }.map {
             ($0.sessionId, $0.steps.filter { $0.doneAt == nil }.count)

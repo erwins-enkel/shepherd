@@ -92,4 +92,33 @@ import ShepherdKit
         #expect(await eventually { !model.busy })
         #expect(sent == ["new"])
     }
+    @Test func approvalPublishesBeforeUnlockingAndCannotSteerTwiceDuringDelayedRefresh() async {
+        let initial = BuildQueue(sessionId: "a", steps: [step("A")], approved: false)
+        let latch = MergeLatch()
+        let model = MergeModel(reads: .init(snapshot: { await latch.read() }))
+        let load = Task { await model.refresh() }
+        #expect(await eventually { await latch.waiting })
+        await latch.release(.init(queues: ["a": initial])); await load.value
+        // A read already in flight must not undo the approval response, either.
+        let staleRead = Task { await model.refresh() }
+        #expect(await eventually { await latch.waiting })
+        var sends = 0
+        func approve() {
+            model.approveQueue(id: "a") {
+                sends += 1
+                var approved = initial; approved.approved = true
+                return approved
+            }
+        }
+        approve()
+        #expect(await eventually { !model.busy })
+        #expect(model.snapshot.queues["a"]?.approved == true)
+        approve()
+        #expect(await eventually { !model.busy })
+        #expect(sends == 1)
+        await latch.release(.init(queues: ["a": initial]))
+        #expect(await eventually { await latch.calls == 3 })
+        #expect(model.snapshot.queues["a"]?.approved == true)
+        model.teardown(); await latch.release(.init()); await staleRead.value
+    }
 }

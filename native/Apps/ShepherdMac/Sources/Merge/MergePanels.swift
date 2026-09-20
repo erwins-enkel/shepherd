@@ -52,7 +52,7 @@ struct MergeQueueView: View {
                 if MergeRules.canApprove(queue, status: session.status.rawValue, planning: planning,
                     reviewBlocked: MergeInputs.planReviewBlocked(app, session.id), ended: ended) {
                     Button(L.t("native_merge_approve")) {
-                        model.perform { _ = try await store.client.approveBuildQueue(id: session.id) }
+                        model.approveQueue(id: session.id) { try await store.client.approveBuildQueue(id: session.id) }
                     }
                 }
                 if MergeRules.canStart(queue, status: session.status.rawValue, planning: planning,

@@ -20,6 +20,8 @@ struct ShepherdApp: App {
         let isolation = launch.isIsolated ? IsolatedLaunch(configuration: launch) : nil
         self.isolation = isolation
         _model = State(initialValue: isolation?.makeModel() ?? AppModel())
+        // Before `body` is first evaluated — see StreamRegistrations.installScene().
+        StreamRegistrations.installScene()
         Log.app.info("Shepherd for Mac starting — \(launch.logDescription, privacy: .public)")
     }
 
@@ -31,6 +33,18 @@ struct ShepherdApp: App {
         }
         .defaultSize(width: 1100, height: 720)
         .windowResizability(.contentMinSize)
+        .commands {
+            CommandGroup(after: .newItem) { MenuCommandItems(menu: .file, app: model) }
+            CommandGroup(after: .toolbar) { MenuCommandItems(menu: .view, app: model) }
+            CommandMenu(L.t("native_menu_session")) { MenuCommandItems(menu: .session, app: model) }
+            CommandGroup(after: .windowArrangement) { MenuCommandItems(menu: .window, app: model) }
+            CommandGroup(replacing: .help) { MenuCommandItems(menu: .help, app: model) }
+        }
+
+        Settings {
+            SettingsSceneView()
+                .environment(model)
+        }
     }
 }
 

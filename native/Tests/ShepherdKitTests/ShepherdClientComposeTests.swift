@@ -141,6 +141,26 @@ struct ShepherdClientComposeTests {
         }
     }
 
+    @Test func shapingRoundOutlastsOrdinaryTimeout() async throws {
+        let server = FakeShepherdServer()
+        defer { server.tearDown() }
+        let body = Data(#"{"draft":{"problem":"Problem","outcome":"Outcome","constraints":[],"nonGoals":[]},"block":{"type":"question-form","id":"shape-questions","questions":[]}}"#.utf8)
+        server.on("POST", "/api/shape") { _ in FakeResponse(body: body, delay: 1) }
+        let session = server.urlSession(requestTimeout: 0.5)
+        defer { session.invalidateAndCancel() }
+        let client = try ShepherdClient(
+            profile: .init(name: "fake", baseURL: server.baseURL, mode: .local, credentialKey: "k"),
+            credentials: InMemoryCredentialStore(), urlSession: session, longRunningRequestTimeout: 3)
+        let request = ShapeRequest(repoPath: "/repo", prompt: "Rough", provider: .codex)
+        await #expect(throws: (any Error).self) {
+            _ = try await client.generated.shapeTask(.init(body: .json(request)))
+        }
+        let round = try await client.shapeTask(request)
+        #expect(round.draft.problem == "Problem")
+        #expect(round.block.id == "shape-questions")
+        #expect(server.requests().map(\.path) == ["/api/shape", "/api/shape"])
+    }
+
     @Test func shapeAndBriefUseGeneratedPayloads() async throws {
         let server = FakeShepherdServer()
         defer { server.tearDown() }

@@ -161,7 +161,7 @@ extension ShepherdClient {
 
     public func shapeTask(_ request: ShapeRequest) async throws -> ShapeRound {
         do {
-            switch try await generated.shapeTask(.init(body: .json(request))) {
+            switch try await longRunning.shapeTask(.init(body: .json(request))) {
             case .ok(let ok): return try ok.body.json
             case .badRequest(let bad): throw ShepherdError.badRequest(try bad.body.json.error)
             case .unauthorized: throw ShepherdError.unauthenticated

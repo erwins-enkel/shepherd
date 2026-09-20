@@ -608,6 +608,7 @@ export const KEYS_QUEUES: readonly string[] = [
   "broadcast_targets",
   "broadcast_textarea_aria",
   "broadcast_title",
+  "common_issues_load_failed",
   "done_recap_finished",
   "done_recap_panel_aria",
   "donerecap_bringback",

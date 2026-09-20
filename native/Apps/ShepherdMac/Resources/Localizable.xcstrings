@@ -998,6 +998,23 @@
         }
       }
     },
+    "common_issues_load_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Issues konnten nicht geladen werden – evtl. GitHub-Rate-Limit."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't load issues — GitHub may be rate-limited."
+          }
+        }
+      }
+    },
     "common_loading": {
       "extractionState": "manual",
       "localizations": {

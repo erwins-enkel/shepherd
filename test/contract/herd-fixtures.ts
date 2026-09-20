@@ -1,6 +1,15 @@
 import type { GitState } from "../../src/forge/types";
 import type { SessionActivity } from "../../src/activity-signal";
 import type { ReviewVerdict } from "../../src/types";
+import type { LivenessWiring } from "../../src/poller";
+
+/** Payload copied from src/index.ts's liveness onChange emitter. Keep the callback's server
+ *  parameter types so changes to the poller's liveness values cannot silently drift. */
+export function claudeAliveEvent(
+  ...[id, claudeAlive, liveness]: Parameters<LivenessWiring["onChange"]>
+) {
+  return { id, claudeAlive, liveness };
+}
 
 /** Every field the classifier reads, on one row, so a rename in src/forge/types.ts breaks
  *  `bun run typecheck` before it can drift past the contract. Typed with the SERVER's GitState,

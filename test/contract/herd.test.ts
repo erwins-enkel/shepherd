@@ -245,8 +245,14 @@ describe("events", () => {
         id: "sess_fixture",
         summary: "reading src/limiter.ts",
       });
-      s.deps.events.emit("session:claude-alive", { id: "sess_fixture", alive: false });
+      for (const liveness of ["alive", "husk", "stranded"] as const) {
+        s.deps.events.emit(
+          "session:claude-alive",
+          fx.claudeAliveEvent("sess_fixture", liveness === "alive", liveness),
+        );
+      }
     });
+    expect(frames.filter((frame) => frame.event === "session:claude-alive")).toHaveLength(3);
     for (const frame of frames) validateEvent(frame.event, frame.data);
   });
 });

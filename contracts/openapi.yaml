@@ -1288,6 +1288,11 @@ components:
       type: object
       additionalProperties: { $ref: "#/components/schemas/ReviewVerdict" }
       description: GET /api/reviews. Session id -> latest critic verdict.
+    ReviewerProvider:
+      type: string
+      x-shepherd-open-enum: true
+      # Read-side counterpart of AgentProvider; request-side choices remain closed.
+      enum: [claude, codex]
     ReviewerEnv:
       type: object
       additionalProperties: true
@@ -1299,7 +1304,7 @@ components:
       properties:
         provider:
           oneOf:
-            - $ref: "#/components/schemas/AgentProvider"
+            - $ref: "#/components/schemas/ReviewerProvider"
             - type: "null"
         model: { type: [string, "null"] }
         effort: { type: [string, "null"] }
@@ -1312,7 +1317,7 @@ components:
         id: { type: string }
         provider:
           oneOf:
-            - $ref: "#/components/schemas/AgentProvider"
+            - $ref: "#/components/schemas/ReviewerProvider"
             - type: "null"
         model: { type: [string, "null"] }
         effort: { type: [string, "null"] }
@@ -1363,10 +1368,15 @@ components:
       type: object
       additionalProperties: true
       description: A session's coding-CLI liveness flipped. Re-emitted on flips only, which is why the bulk snapshot exists.
-      required: [id, alive]
+      required: [id, claudeAlive, liveness]
       properties:
         id: { type: string }
-        alive: { type: boolean }
+        claudeAlive: { type: boolean }
+        liveness:
+          type: string
+          x-shepherd-open-enum: true
+          # LivenessState (src/types.ts), emitted by src/index.ts's onChange callback.
+          enum: [alive, husk, stranded]
     # ── /stream: herd ──
     # ── stream: plan ──
     # ── /stream: plan ──

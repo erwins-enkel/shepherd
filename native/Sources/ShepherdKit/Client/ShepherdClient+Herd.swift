@@ -10,6 +10,8 @@ public typealias ReviewVerdict = Components.Schemas.ReviewVerdict
 public typealias ReviewDecision = Components.Schemas.ReviewDecision
 public typealias ReviewDecisionKnown = Components.Schemas.ReviewDecisionKnown
 public typealias ReviewerEnv = Components.Schemas.ReviewerEnv
+public typealias ReviewerProvider = Components.Schemas.ReviewerProvider
+public typealias ReviewerProviderKnown = Components.Schemas.ReviewerProviderKnown
 public typealias ReviewerInflightEntry = Components.Schemas.ReviewerInflightEntry
 public typealias PrReviewTrigger = Components.Schemas.PrReviewTrigger
 public typealias PrReviewTriggerKnown = Components.Schemas.PrReviewTriggerKnown
@@ -20,6 +22,7 @@ public typealias PrReviewResult = Components.Schemas.PrReviewResult
 // These generated schemas live in this module, so none is a retroactive conformance.
 extension Components.Schemas.PrHandoff: OpenEnum {}
 extension Components.Schemas.ReviewDecision: OpenEnum {}
+extension Components.Schemas.ReviewerProvider: OpenEnum {}
 extension Components.Schemas.PrReviewTrigger: OpenEnum {}
 
 /// The herd-wide snapshots the sidebar classifier runs on, plus the one write it offers.

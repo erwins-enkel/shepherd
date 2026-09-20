@@ -118,7 +118,7 @@ struct ShepherdClientHerdTests {
     #expect(rows.count == 2)
     let row = try #require(rows.first)
     #expect(row.id == "sess_a")
-    #expect(row.provider == .codex)
+    #expect(row.provider?.known == .codex)
     #expect(row.model == "gpt-6-astra")
     #expect(row.effort == "high")
     let defaultEnv = try #require(rows.last)
@@ -127,6 +127,24 @@ struct ShepherdClientHerdTests {
     #expect(defaultEnv.model == nil)
     #expect(defaultEnv.effort == nil)
     #expect(server.requests().count == 1)
+  }
+
+  @Test func unknownReviewerProvidersSurviveBothReadPayloads() async throws {
+    let server = FakeShepherdServer()
+    defer { server.tearDown() }
+    server.stub(
+      "GET", "/api/reviews/inflight", status: 200,
+      json: Data(#"[{"id":"sess_a","provider":"future_cli","model":null,"effort":null}]"#.utf8))
+    let rows = try await makeClient(server).reviewsInflight()
+    #expect(rows.count == 1)
+    #expect(rows.first?.provider?.known == nil)
+    #expect(rows.first?.provider?.rawValue == "future_cli")
+
+    let event = try JSONDecoder().decode(
+      Components.Schemas.SessionReviewingEvent.self,
+      from: Data(#"{"id":"sess_a","reviewing":true,"env":{"provider":"future_cli","model":null,"effort":null}}"#.utf8))
+    #expect(event.env?.provider?.known == nil)
+    #expect(event.env?.provider?.rawValue == "future_cli")
   }
 
   @Test func everyReadMapsFourOhOneToUnauthenticated() async throws {

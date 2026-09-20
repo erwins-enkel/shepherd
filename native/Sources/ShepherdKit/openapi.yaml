@@ -1958,6 +1958,15 @@ components:
       additionalProperties:
         $ref: "#/components/schemas/ReviewVerdict"
       description: GET /api/reviews. Session id -> latest critic verdict.
+    ReviewerProvider:
+      anyOf:
+        - $ref: "#/components/schemas/ReviewerProviderKnown"
+        - type: string
+    ReviewerProviderKnown:
+      type: string
+      enum:
+        - claude
+        - codex
     ReviewerEnv:
       type: object
       additionalProperties: true
@@ -1967,7 +1976,7 @@ components:
         - effort
       properties:
         provider:
-          $ref: "#/components/schemas/AgentProvider"
+          $ref: "#/components/schemas/ReviewerProvider"
         model:
           type:
             - string
@@ -1988,7 +1997,7 @@ components:
         id:
           type: string
         provider:
-          $ref: "#/components/schemas/AgentProvider"
+          $ref: "#/components/schemas/ReviewerProvider"
         model:
           type:
             - string
@@ -2065,12 +2074,21 @@ components:
       description: A session's coding-CLI liveness flipped. Re-emitted on flips only, which is why the bulk snapshot exists.
       required:
         - id
-        - alive
+        - claudeAlive
+        - liveness
       properties:
         id:
           type: string
-        alive:
+        claudeAlive:
           type: boolean
+        liveness:
+          anyOf:
+            - type: string
+              enum:
+                - alive
+                - husk
+                - stranded
+            - type: string
   responses:
     Unauthorized:
       description: Missing or invalid credential.

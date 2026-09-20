@@ -1043,6 +1043,7 @@ export const KEYS_COMPOSE: readonly string[] = [
 
 /** S12 — the settings panes, the command menu and the usage gauges. */
 export const KEYS_SETTINGS: readonly string[] = [
+  "native_settings_active_token_protected",
   "diagnostics_all_ok",
   "diagnostics_doc_link",
   "diagnostics_fix",

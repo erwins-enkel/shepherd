@@ -19,7 +19,7 @@ struct SettingsAccessView: View {
                 Button(L.t("native_settings_token_login")) {
                     guard let profile = app.activeProfile else { return }
                     let secret = password; password = ""
-                    model.authenticate(profile: profile, password: secret)
+                    model.authenticate(profile: profile, password: secret, activeClient: app.store?.client)
                 }.disabled(password.isEmpty || model.busy)
             } else {
                 TextField(L.t("native_settings_token_name"), text: $name)
@@ -33,9 +33,9 @@ struct SettingsAccessView: View {
                     Text(L.t("native_settings_scope_full")).tag(Components.Schemas.TokenScope.full)
                 }
                 Button(L.t("native_settings_token_create")) {
-                    model.mint(name: name.trimmingCharacters(in: .whitespacesAndNewlines), days: days == 0 ? nil : .init(rawValue:days), scope: scope)
+                    model.mint(name: name, days: days == 0 ? nil : .init(rawValue:days), scope: scope)
                     name = ""
-                }.disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || name.count > 64 || model.busy)
+                }.disabled(SettingsTokensModel.normalizedName(name) == nil || model.busy)
                 if let revealed = model.revealed {
                     Text(L.t("native_settings_token_once"))
                     Text(verbatim: revealed).textSelection(.enabled).privacySensitive()
@@ -48,6 +48,10 @@ struct SettingsAccessView: View {
                             if let expiry = token.expiresAt { Text(Date(timeIntervalSince1970: Double(expiry)/1000), style: .date) }
                         }
                         Button(L.t("native_settings_revoke"), role: .destructive) { revokeID = token.id }
+                            .disabled(!model.canRevoke(id: token.id))
+                        if !model.canRevoke(id: token.id) {
+                            Text(L.t("native_settings_active_token_protected"))
+                        }
                     }
                 }
                 Button(L.t("native_settings_lock_access")) { model.close() }

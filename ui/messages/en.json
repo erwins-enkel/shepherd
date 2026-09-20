@@ -4432,5 +4432,6 @@
   "native_settings_verify_confirm": "Start a temporary agent to verify authentication?",
   "native_settings_verify_failed": "Verification failed",
   "native_settings_verify_key": "Verify API key",
-  "native_settings_verify_ok": "Key verified"
+  "native_settings_verify_ok": "Key verified",
+  "native_settings_active_token_protected": "This token may be used by the active connection and cannot be revoked here."
 }

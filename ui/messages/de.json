@@ -4432,5 +4432,6 @@
   "native_settings_verify_confirm": "Temporären Agenten zur Prüfung der Anmeldung starten?",
   "native_settings_verify_failed": "Prüfung fehlgeschlagen",
   "native_settings_verify_key": "API-Schlüssel prüfen",
-  "native_settings_verify_ok": "Schlüssel bestätigt"
+  "native_settings_verify_ok": "Schlüssel bestätigt",
+  "native_settings_active_token_protected": "Dieses Token wird möglicherweise von der aktiven Verbindung verwendet und kann hier nicht widerrufen werden."
 }

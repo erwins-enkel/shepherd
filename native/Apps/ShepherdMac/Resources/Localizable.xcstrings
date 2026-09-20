@@ -10041,6 +10041,23 @@
         }
       }
     },
+    "native_settings_active_token_protected": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieses Token wird möglicherweise von der aktiven Verbindung verwendet und kann hier nicht widerrufen werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This token may be used by the active connection and cannot be revoked here."
+          }
+        }
+      }
+    },
     "native_settings_api_key": {
       "extractionState": "manual",
       "localizations": {

@@ -4159,5 +4159,17 @@
   "settings_house_rule_relevance_save_failed": "Couldn't change the house-rule relevance setting. Retry.",
   "feat_house_rule_relevance_title": "Send an agent only the house rules its task is about",
   "feat_house_rule_relevance_body": "Every session used to receive every house rule that had no file-scope pattern, whether or not it had anything to do with the task. Settings → Session → \"House rules for this task only\" now asks the decision model, once per session, which rules the request is actually about, and leaves the rest out of the prompt. Start on \"Record only\": it asks and logs what it would have dropped without dropping anything, and each rule's hit rate shows up in the Learnings drawer so you can decide from your own sessions. Off by default; on any error the full set is sent.",
-  "learnings_relevance_rate": "relevant {relevant}/{judged}"
+  "learnings_relevance_rate": "relevant {relevant}/{judged}",
+  "native_terminal_connecting": "Connecting to the agent…",
+  "native_terminal_ended_body": "This session no longer has a running agent. Its output is frozen.",
+  "native_terminal_ended_title": "Session ended",
+  "native_terminal_prompt_failed": "The agent did not take the message: {reason}",
+  "native_terminal_prompt_placeholder": "Send a message to the agent",
+  "native_terminal_prompt_send": "Send",
+  "native_terminal_superseded_action": "Take over",
+  "native_terminal_superseded_body": "Another device attached to this terminal. Taking over hands it back to this Mac and detaches the other one.",
+  "native_terminal_superseded_title": "Another device has this terminal",
+  "native_terminal_tab_title": "Terminal",
+  "native_terminal_unreachable_body": "The agent runner is not answering. Check that the Shepherd server and herdr are running.",
+  "native_terminal_unreachable_title": "Cannot reach the agent"
 }

@@ -155,6 +155,41 @@ components:
   expect(result.components.schemas.Override.properties.enabled.type).toBeUndefined();
 });
 
+test.each(["[boolean, string, 'null']", "[object, 'null']", "boolean"])(
+  "explicit null rejects invalid scalar type %s with its pointer",
+  async (type) => {
+    const input = doc(
+      [
+        "    Override:",
+        "      type: object",
+        "      required: [enabled]",
+        "      properties:",
+        "        enabled:",
+        `          type: ${type}`,
+        "          x-shepherd-explicit-null: true",
+      ].join("\n"),
+    );
+    await expect(deriveSwiftSpec(input)).rejects.toThrow(
+      "invalid explicit-null scalar at #/components/schemas/Override/properties/enabled",
+    );
+  },
+);
+
+test("explicit null rejects an array item where nullableOk is false with its pointer", async () => {
+  const input = doc(
+    [
+      "    Override:",
+      "      type: array",
+      "      items:",
+      "        type: [boolean, 'null']",
+      "        x-shepherd-explicit-null: true",
+    ].join("\n"),
+  );
+  await expect(deriveSwiftSpec(input)).rejects.toThrow(
+    "invalid explicit-null scalar at #/components/schemas/Override/items",
+  );
+});
+
 /** Minimal document the unit cases below hang their one interesting schema off. */
 function doc(schemas: string): string {
   return [

@@ -16,5 +16,6 @@ enum StreamRegistrations {
         TerminalInstall.install(into: app)  // S1: DetailTab "terminal" + AppExtension
         DetailFeature.install(app)          // S2: DetailTabs activity/diff/files/git + AppExtension
         SidebarInstall.run(app)             // S3: SidebarSlot + AppExtension
+        LocalServerFeature.install(app)     // S5: WelcomeSlots.localPanel + AppExtension
     }
 }

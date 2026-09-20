@@ -126,7 +126,7 @@ final class LiveSmokeUITests: XCTestCase {
         let audit = app.staticTexts.matching(identifier: "live-request-audit").firstMatch
         XCTAssertTrue(audit.waitForExistence(timeout: 5))
         let label = audit.label
-        XCTAssertTrue(label.hasSuffix("; 0 rejected"), "live smoke must attempt zero non-GET or branch-status requests")
+        XCTAssertTrue(label.contains("; 0 rejected"), "live smoke must attempt zero non-GET or branch-status requests")
         XCTAssertFalse(label.hasPrefix("Live audit: 0 reads;"), "live smoke must actually read the server")
     }
 

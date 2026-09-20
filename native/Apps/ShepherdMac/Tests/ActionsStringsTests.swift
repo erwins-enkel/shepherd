@@ -19,7 +19,7 @@ struct ActionsStringsTests {
             "recap_open_items", "recap_regenerate", "recap_regenerate_failed",
             "recap_verdict_needs_attention", "recap_verdict_parked", "recap_verdict_ready",
             "relaunch_archive_failed", "relaunch_in_progress", "relaunch_issue_unresolved",
-            "viewport_rename_branch_kept", "viewport_rename_failed",
+            "viewport_rename_aria", "viewport_rename_branch_kept", "viewport_rename_failed",
             "viewport_rename_name_taken", "viewport_rename_placeholder",
         ]
         for key in keys {

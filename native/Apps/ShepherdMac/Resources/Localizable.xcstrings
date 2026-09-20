@@ -2762,6 +2762,23 @@
         }
       }
     },
+    "viewport_rename_aria": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Task umbenennen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rename task"
+          }
+        }
+      }
+    },
     "viewport_rename_branch_kept": {
       "extractionState": "manual",
       "localizations": {

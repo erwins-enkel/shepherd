@@ -1474,7 +1474,11 @@ components:
       additionalProperties: true
       required: [id, prompt, kind]
       properties:
-        id: { type: string, description: 'Unique within its block only. The answer key is "<blockId> <questionId>", space-separated.' }
+        id:
+          {
+            type: string,
+            description: 'Unique within its block only. The answer key is "<blockId> <questionId>", space-separated.',
+          }
         prompt: { type: string }
         kind: { $ref: "#/components/schemas/QuestionKind" }
         options:
@@ -1510,7 +1514,7 @@ components:
     VisualBlockDiff:
       type: object
       additionalProperties: true
-      description: 'The `file` member is a server-joined real diff and is deliberately undeclared here: the native renderer shows `summary` and the annotations, and the diff tab is S2''s surface.'
+      description: "The `file` member is a server-joined real diff and is deliberately undeclared here: the native renderer shows `summary` and the annotations, and the diff tab is S2's surface."
       required: [type, id, path, summary]
       properties:
         type: { type: string, enum: [diff] }
@@ -1526,7 +1530,11 @@ components:
         type: { type: string, enum: [code] }
         id: { type: string }
         filename: { type: string }
-        code: { type: string, description: Server-populated; absent when the source could not be joined. }
+        code:
+          {
+            type: string,
+            description: Server-populated; absent when the source could not be joined.,
+          }
         truncated: { type: boolean }
     VisualBlockAnnotatedCode:
       type: object
@@ -1592,7 +1600,11 @@ components:
         type: { type: string, enum: [wireframe] }
         id: { type: string }
         surface: { $ref: "#/components/schemas/WireframeSurface" }
-        html: { type: string, description: At most WIREFRAME_HTML_MAX_CHARS (20000) characters. Untrusted — never rendered as markup by the native client. }
+        html:
+          {
+            type: string,
+            description: At most WIREFRAME_HTML_MAX_CHARS (20000) characters. Untrusted — never rendered as markup by the native client.,
+          }
         caption: { type: string }
     VisualBlockApiEndpoint:
       type: object
@@ -1693,7 +1705,7 @@ components:
           type: string
           # A negative lookahead keeps this a string schema for swift-openapi-generator.
           # A `not: { enum: [...] }` property is skipped by that generator entirely.
-          pattern: '^(?!(?:rich-text|callout|file-tree|diff|code|annotated-code|table|checklist|mermaid|wireframe|api-endpoint|data-model|question-form)$)'
+          pattern: "^(?!(?:rich-text|callout|file-tree|diff|code|annotated-code|table|checklist|mermaid|wireframe|api-endpoint|data-model|question-form)$)"
         markdown: { type: string }
     VisualBlock:
       description: >-
@@ -1736,12 +1748,30 @@ components:
       description: >-
         A plan-gate verdict, keyed by session id. Ported from src/types.ts:713-811. `approved` is the
         load-bearing flag: execution is allowed only when it is true.
-      required: [sessionId, planHash, decision, summary, body, findings, round, cap, approved, plan, updatedAt]
+      required:
+        [
+          sessionId,
+          planHash,
+          decision,
+          summary,
+          body,
+          findings,
+          round,
+          cap,
+          approved,
+          plan,
+          updatedAt,
+        ]
       properties:
         sessionId: { type: string }
-        planHash: { type: string, description: sha256 of the reviewed plan; dedups re-reviews of an unchanged plan. }
+        planHash:
+          {
+            type: string,
+            description: sha256 of the reviewed plan; dedups re-reviews of an unchanged plan.,
+          }
         decision: { $ref: "#/components/schemas/PlanDecision" }
-        summary: { type: string, description: 'At most 100 characters; "" when summaryCode is set.' }
+        summary:
+          { type: string, description: 'At most 100 characters; "" when summaryCode is set.' }
         summaryCode:
           oneOf:
             - $ref: "#/components/schemas/PlanSummaryCode"
@@ -1749,7 +1779,11 @@ components:
         body: { type: string, description: Markdown. }
         findings: { type: array, items: { type: string } }
         round: { type: integer, description: Adversarial rounds spent on the current plan streak. }
-        cap: { type: integer, description: The cap THIS run used. Read it; never mirror a config value. }
+        cap:
+          {
+            type: integer,
+            description: The cap THIS run used. Read it; never mirror a config value.,
+          }
         approved: { type: boolean }
         plan: { type: string, description: Snapshot of the reviewed plan text. }
         livePlanHash:
@@ -1758,7 +1792,11 @@ components:
             sha256 of the LIVE .shepherd-plan.md at the last settle-edge check. Differs from planHash
             on an APPROVED gate ⇒ the plan was edited after sign-off, which is the only source of the
             "edited" chip and the only bypass for re-reviewing an approved gate.
-        approvedAt: { type: [integer, "null"], description: 'When the plan was last APPROVED. approvedAt != null && !approved identifies a session deliberately re-gated out of execution.' }
+        approvedAt:
+          {
+            type: [integer, "null"],
+            description: "When the plan was last APPROVED. approvedAt != null && !approved identifies a session deliberately re-gated out of execution.",
+          }
         reviewerProvider:
           oneOf:
             - $ref: "#/components/schemas/AgentProvider"
@@ -1773,8 +1811,16 @@ components:
           type: array
           items: { type: string }
           description: 'Keys of the form "<blockId> <questionId>", space-separated. Absent ⇒ [].'
-        finalRoundPending: { type: boolean, description: 'Absent ⇒ false. The cap-th rework steer landed and the FINAL round is in flight.' }
-        dismissed: { type: boolean, description: 'Absent ⇒ false. The operator took this stalled rework over.' }
+        finalRoundPending:
+          {
+            type: boolean,
+            description: "Absent ⇒ false. The cap-th rework steer landed and the FINAL round is in flight.",
+          }
+        dismissed:
+          {
+            type: boolean,
+            description: "Absent ⇒ false. The operator took this stalled rework over.",
+          }
         updatedAt: { type: integer }
     PlanGateMap:
       type: object
@@ -1801,7 +1847,16 @@ components:
       x-shepherd-open-enum: true
       # What POST /api/sessions/{id}/review-plan did (src/plan-gate.ts:77-84). `started-at-cap` means
       # the review ran but any further findings will NOT be delivered to the planning agent.
-      enum: [started, started-at-cap, skipped, plan-unavailable, error-spawn, error-worktree, error-auth]
+      enum:
+        [
+          started,
+          started-at-cap,
+          skipped,
+          plan-unavailable,
+          error-spawn,
+          error-worktree,
+          error-auth,
+        ]
     PlanReviewResult:
       type: object
       additionalProperties: true
@@ -1815,7 +1870,18 @@ components:
       # The outcome of a quota resume/dismiss. The plan branch produces resumed/unreachable/dismissed/
       # not-stalled; the SAME routes serve the critic branch, which produces pr-merged, pr-closed,
       # started, skipped and error — hence the open enum.
-      enum: [resumed, unreachable, dismissed, not-stalled, pr-merged, pr-closed, started, skipped, error]
+      enum:
+        [
+          resumed,
+          unreachable,
+          dismissed,
+          not-stalled,
+          pr-merged,
+          pr-closed,
+          started,
+          skipped,
+          error,
+        ]
     PlanQuotaResult:
       type: object
       additionalProperties: true

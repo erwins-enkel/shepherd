@@ -626,23 +626,82 @@ struct QueueActionsTests {
         #expect(state.notices == [L.t("halt_done", "2")])
     }
 
-    @Test func retrySelectionIsSeededOnceAndHaltFramesCannotReselectUncheckedRows() async throws {
+    @Test func retryPreselectsNewHaltFromRealStoreAndPreservesOpenSelection() async throws {
         let empty = QueuesReads(held: { [] }, done: { [] }, recaps: { [:] }, stranded: { [] }, refreshUpNext: {})
         let fixture = try QueueFixture(empty)
         defer { fixture.close() }
-        var halted = PreviewData.session(id: "halted")
-        halted.haltReason = .init(known: .usageLimit)
-        let other = PreviewData.session(id: "other")
-        var selection = QueueTargetSelection(sessions: [halted, other], preselectUsage: true)
+        #expect(await queueSettle { !fixture.model.isRefreshing })
+        fixture.store.apply(.sessionNew(PreviewData.session(id: "halted")))
+        fixture.store.apply(.sessionNew(PreviewData.session(id: "other")))
+        #expect(QueueTargetSelection(sessions: fixture.model.retrySessions, preselectUsage: true).selected.isEmpty)
+        let halt = try JSONDecoder().decode(ServerEvent.self, from: Data(#"{"event":"session:halt","data":{"id":"halted","haltReason":"usage_limit","haltedAt":2}}"#.utf8))
+        fixture.store.apply(halt)
+        #expect(await queueSettle { fixture.model.retrySelectionGeneration == 1 })
+        #expect(fixture.store.sessions.allSatisfy { $0.haltReason == nil })
+        #expect(fixture.model.retrySessions.first { $0.id == "halted" }?.haltedAt == 2)
+        var selection = QueueTargetSelection(sessions: fixture.model.retrySessions, preselectUsage: true)
         #expect(selection.selected == ["halted"])
         selection.toggle("halted")
+        selection.toggle("other")
+        fixture.store.apply(halt)
+        #expect(await queueSettle { fixture.model.retrySelectionGeneration == 2 })
+        #expect(selection.ids(in: fixture.store.sessions) == ["other"])
+        #expect(QueueTargetSelection(sessions: fixture.model.retrySessions, preselectUsage: true).selected == ["halted"])
+        fixture.store.apply(try JSONDecoder().decode(ServerEvent.self, from: Data(#"{"event":"session:archived","data":{"id":"other"}}"#.utf8)))
+        #expect(selection.ids(in: fixture.store.sessions).isEmpty)
+    }
+
+    @Test func retrySuccessClearsPreselectionOnReopenDespiteStaleStore() async throws {
+        let empty = QueuesReads(held: { [] }, done: { [] }, recaps: { [:] }, stranded: { [] }, refreshUpNext: {})
+        let fixture = try QueueFixture(empty)
+        defer { fixture.close() }
+        #expect(await queueSettle { !fixture.model.isRefreshing })
+        var halted = PreviewData.session(id: "halted")
+        halted.haltReason = .init(known: .usageLimit)
+        halted.haltedAt = 1
+        fixture.store.apply(.sessionNew(halted))
+        let selection = QueueTargetSelection(sessions: fixture.model.retrySessions, preselectUsage: true)
+        #expect(selection.selected == ["halted"])
+        var api = commands
+        api.retry = { ids, _ in
+            #expect(ids == ["halted"])
+            // The successful server retry emits this clear; SessionStore ignores it.
+            fixture.store.apply(try JSONDecoder().decode(ServerEvent.self, from: Data(#"{"event":"session:halt","data":{"id":"halted","haltReason":null,"haltedAt":null}}"#.utf8)))
+            return .init(resumed: 1, steered: 0, total: 1)
+        }
+        let state = QueueActionState()
+        #expect(await state.run(.retry(selection.ids(in: fixture.store.sessions)), commands: api, isCurrent: { true }))
+        #expect(await queueSettle { fixture.model.retrySelectionGeneration == 1 })
+        #expect(fixture.store.sessions.first?.haltReason?.rawValue == "usage_limit")
+        #expect(fixture.model.retrySessions.first?.haltedAt == nil)
+        #expect(selection.selected == ["halted"])
+        #expect(QueueTargetSelection(sessions: fixture.model.retrySessions, preselectUsage: true).selected.isEmpty)
+    }
+
+    @Test func retryRefreshRepairsMissedHaltsAndPreservesNewerFrames() async throws {
+        let empty = QueuesReads(held: { [] }, done: { [] }, recaps: { [:] }, stranded: { [] }, refreshUpNext: {})
+        let fixture = try QueueFixture(empty)
+        defer { fixture.close() }
+        #expect(await queueSettle { !fixture.model.isRefreshing })
+        let session = PreviewData.session(id: "halted")
+        fixture.store.apply(.sessionNew(session))
         fixture.store.apply(try JSONDecoder().decode(ServerEvent.self, from: Data(#"{"event":"session:halt","data":{"id":"halted","haltReason":"usage_limit","haltedAt":2}}"#.utf8)))
         #expect(await queueSettle { fixture.model.retrySelectionGeneration == 1 })
-        #expect(selection.ids(in: [halted, other]).isEmpty)
-        #expect(QueueTargetSelection(sessions: [halted, other], preselectUsage: true).selected == ["halted"])
-        selection.toggle("other")
-        #expect(selection.ids(in: [halted, other]) == ["other"])
-        #expect(selection.ids(in: [halted]).isEmpty)
+        #expect(QueueTargetSelection(sessions: fixture.model.retrySessions, preselectUsage: true).selected == ["halted"])
+        // Reconnect's REST snapshot repairs a clear missed while disconnected.
+        fixture.model.reads.haltSnapshots = { [session] }
+        await fixture.model.refresh()
+        #expect(QueueTargetSelection(sessions: fixture.model.retrySessions, preselectUsage: true).selected.isEmpty)
+
+        let gate = QueueReadGate()
+        fixture.model.reads.haltSnapshots = { await gate.enter(); return [session] }
+        let read = Task { await fixture.model.refresh() }
+        #expect(await queueSettle { await gate.calls == 1 })
+        fixture.store.apply(try JSONDecoder().decode(ServerEvent.self, from: Data(#"{"event":"session:halt","data":{"id":"halted","haltReason":"usage_limit","haltedAt":3}}"#.utf8)))
+        #expect(await queueSettle { fixture.model.retrySelectionGeneration == 2 })
+        await gate.open()
+        await read.value
+        #expect(QueueTargetSelection(sessions: fixture.model.retrySessions, preselectUsage: true).selected == ["halted"])
     }
 
     @Test func retrySendsTheSelectedIDsAndClientLocalizedSteer() async {

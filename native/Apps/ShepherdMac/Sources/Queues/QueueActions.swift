@@ -207,7 +207,7 @@ struct QueueActionsView: View {
                 .accessibilityLabel(confirmation.isArmed ? L.t("halt_arm_aria", String(haltable.count))
                                     : L.t("halt_all_aria", String(haltable.count)))
                 .accessibilityIdentifier("queues-halt")
-                Button(L.t("retry_title")) { sheet = TargetSheet(retry: true, sessions: sessions) }
+                Button(L.t("retry_title")) { sheet = TargetSheet(retry: true, sessions: model.retrySessions) }
                     .accessibilityIdentifier("queues-retry")
                 Button(L.t("broadcast_title")) { sheet = TargetSheet(retry: false, sessions: sessions) }
                     .accessibilityIdentifier("queues-broadcast")

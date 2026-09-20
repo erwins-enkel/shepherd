@@ -10,6 +10,8 @@ struct QueuesReads: Sendable {
     var recaps: @Sendable () async throws -> [String: Recap]
     var stranded: @Sendable () async throws -> [String]
     var refreshUpNext: @Sendable () async throws -> Void
+    // Optional for previews/tests without a session snapshot source.
+    var haltSnapshots: @Sendable () async throws -> [Session]? = { nil }
 
     static func live(_ client: ShepherdClient) -> QueuesReads {
         QueuesReads(
@@ -17,7 +19,8 @@ struct QueuesReads: Sendable {
             done: { try await client.doneSessions() },
             recaps: { try await client.recaps() },
             stranded: { try await client.strandedSessions() },
-            refreshUpNext: { try await client.refreshUpNext() })
+            refreshUpNext: { try await client.refreshUpNext() },
+            haltSnapshots: { try await client.sessions() })
     }
 }
 
@@ -41,6 +44,21 @@ final class QueuesModel: AppExtension {
     /// Invalidates cached candidates for the NEXT retry presentation. An open dialog must
     /// keep its own selection so a halt frame cannot reselect a row the operator unchecked.
     private(set) var retrySelectionGeneration = 0
+    private var haltFlags: [String: Components.Schemas.SessionHaltEvent] = [:]
+
+    /// SessionStore does not apply session:halt. Overlay our current flags only when
+    /// opening Retry; the sheet owns its selection for the rest of that presentation.
+    var retrySessions: [Session] {
+        (store?.sessions ?? []).map { session in
+            guard let flags = haltFlags[session.id] else { return session }
+            var current = session
+            current.haltReason = flags.haltReason.map {
+                .init(value1: .init(rawValue: $0.rawValue), value2: $0.rawValue)
+            }
+            current.haltedAt = flags.haltedAt
+            return current
+        }
+    }
 
     @ObservationIgnored var reads: QueuesReads
     @ObservationIgnored private weak var app: AppModel?
@@ -106,16 +124,18 @@ final class QueuesModel: AppExtension {
         let sequence = readSequence
         let heldVersion = heldRevision
         let strandedVersion = strandedRevision
+        let haltVersion = retrySelectionGeneration
         let upNextVersion = upNextRevision
         let sources = reads
         async let heldResult = Self.load(sources.held)
         async let doneResult = Self.load(sources.done)
         async let recapsResult = Self.load(sources.recaps)
         async let strandedResult = Self.load(sources.stranded)
+        async let haltResult = Self.load(sources.haltSnapshots)
         async let upNextResult = Self.load {
             if recomputeUpNext { try await sources.refreshUpNext() }
         }
-        let results = await (heldResult, doneResult, recapsResult, strandedResult, upNextResult)
+        let results = await (heldResult, doneResult, recapsResult, strandedResult, upNextResult, haltResult)
         guard isCurrent(mine), activation == app?.activationGeneration,
               sequence == readSequence, !Task.isCancelled else { return }
 
@@ -131,6 +151,16 @@ final class QueuesModel: AppExtension {
             reconcileStranded(ids)
         }
         pruneStranded()
+        // Reconnect repairs missed halt frames; a frame received during this read wins.
+        if case .success(let sessions?) = results.5, haltVersion == retrySelectionGeneration {
+            haltFlags = Dictionary(uniqueKeysWithValues: sessions.map { session in
+                (session.id, .init(id: session.id,
+                    haltReason: session.haltReason.map {
+                        .init(value1: .init(rawValue: $0.rawValue), value2: $0.rawValue)
+                    },
+                    haltedAt: session.haltedAt))
+            })
+        }
         if recomputeUpNext, upNextVersion == upNextRevision {
             switch results.4 {
             case .success: upNextLoadFailed = false
@@ -229,6 +259,8 @@ final class QueuesModel: AppExtension {
     private func apply(_ event: ServerEvent) {
         if case .sessionNew = event { hasSessionList = true }
         if case .sessionArchived(let frame) = event {
+            haltFlags[frame.id] = nil
+            retrySelectionGeneration &+= 1
             archivedStrandedIDs.insert(frame.id)
             stranded.remove(frame.id)
             strandedRevision &+= 1
@@ -256,8 +288,10 @@ final class QueuesModel: AppExtension {
             upNext = frame.snapshot
             upNextLoadFailed = false
         case "session:halt":
-            guard (try? decoder.decode(Components.Schemas.SessionHaltEvent.self,
-                                       from: payload)) != nil else { return }
+            guard let frame = try? decoder.decode(Components.Schemas.SessionHaltEvent.self,
+                                                  from: payload) else { return }
+            // Keep null flags as an explicit clear, rather than falling back to a stale store.
+            haltFlags[frame.id] = frame
             retrySelectionGeneration &+= 1
         case "app:sessions-stranded":
             guard let frame = try? decoder.decode(Components.Schemas.SessionsStrandedEvent.self,

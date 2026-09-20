@@ -298,6 +298,7 @@ extension ShepherdClientQueuesTests {
 
     @Test(arguments: [
         (Route.update, 400, ShepherdError.badRequest("failed")),
+        (.update, 403, .forbidden),
         (.update, 404, .notFound),
         (.start, 400, .badRequest("failed")),
         (.start, 409, .conflict(code: nil, message: "failed")),

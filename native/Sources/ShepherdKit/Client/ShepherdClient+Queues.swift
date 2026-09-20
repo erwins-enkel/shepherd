@@ -99,6 +99,7 @@ extension ShepherdClient {
       case .ok(let ok): return try ok.body.json
       case .badRequest(let bad): throw ShepherdError.badRequest(try bad.body.json.error)
       case .unauthorized: throw ShepherdError.unauthenticated
+      case .forbidden: throw ShepherdError.forbidden
       case .notFound: throw ShepherdError.notFound
       case .undocumented(let statusCode, _):
         throw ShepherdError.fromUndocumented(statusCode: statusCode, route: "updateHeld")

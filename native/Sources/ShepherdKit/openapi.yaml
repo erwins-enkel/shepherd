@@ -6325,7 +6325,7 @@ paths:
           type: string
     patch:
       operationId: updateHeld
-      description: Replace the full create input while retaining queue membership. Requires application/json. The shared checkOrigin guard does not cover PATCH.
+      description: Replace the full create input while retaining queue membership. Requires application/json and passes the shared origin policy.
       requestBody:
         required: true
         content:
@@ -6347,6 +6347,12 @@ paths:
                 $ref: "#/components/schemas/Error"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Origin not allowed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "404":
           description: Unknown id.
           content:

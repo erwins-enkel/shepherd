@@ -11,6 +11,17 @@ import Testing
 struct ActionBarTests {
     init() { resetStreamSeams() }
 
+    @Test func relaunchOverridesOnlyEditedFields() {
+        let session = PreviewData.session()
+        let inherited = RelaunchOptionsView.request(session: session, repo: session.repoPath,
+            branch: session.baseBranch, prompt: session.prompt)
+        #expect(inherited.repoPath == nil && inherited.baseBranch == nil && inherited.prompt == nil)
+        let changed = RelaunchOptionsView.request(session: session, repo: "/new", branch: "develop", prompt: "New task")
+        #expect(changed.repoPath == "/new" && changed.baseBranch == "develop" && changed.prompt == "New task")
+        #expect(changed.agentProvider == nil)
+    }
+
+
     @Test func theSlotIsEmptyUntilTheStreamInstallsItself() {
         #expect(ActionBarSlot.resolution == .fallback)
         ActionsStream.install(

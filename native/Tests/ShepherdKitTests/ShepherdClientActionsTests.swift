@@ -239,7 +239,11 @@ struct ShepherdClientActionsTests {
         Components.Schemas.RelaunchResult(
           session: Fixtures.session(id: "s2"), archived: true)))
 
-    let result = try await makeClient(server).relaunch(sessionID: "s1")
+    let result = try await makeClient(server).relaunch(sessionID: "s1", overrides: .init(prompt: "Updated draft"))
+    let body = try #require(server.requests().last?.body)
+    let sent = try JSONDecoder().decode(RelaunchRequest.self, from: body)
+    #expect(sent.prompt == "Updated draft")
+    #expect(sent.repoPath == nil)
     #expect(result.session.id == "s2")
     #expect(result.archived == true)
   }

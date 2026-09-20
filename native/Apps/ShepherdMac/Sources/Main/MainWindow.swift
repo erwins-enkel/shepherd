@@ -123,15 +123,11 @@ struct MainWindow: View {
         }
         .navigationTitle(model.activeProfile?.name ?? "Shepherd")
         .toolbar { toolbarContent }
-        .confirmationDialog(
-            L.t("native_archive_confirm_title"),
-            isPresented: $confirmingArchive,
-            titleVisibility: .visible
-        ) {
-            Button(L.t("native_archive_confirm_action"), role: .destructive) { archiveSelected() }
-            Button(L.t("common_cancel"), role: .cancel) {}
-        } message: {
-            Text(verbatim: L.t("native_archive_confirm_body"))
+        .sheet(isPresented: $confirmingArchive) {
+            if let session = selectedSession, let store = model.store {
+                ComposeActionSheet(mode: .close, session: session, store: store, app: model,
+                    activation: model.activationGeneration)
+            }
         }
         // A session archived anywhere else arrives as an event that removes the
         // row; the selection has to follow it out, or the toolbar keeps offering

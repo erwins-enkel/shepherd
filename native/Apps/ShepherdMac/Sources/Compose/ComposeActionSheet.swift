@@ -84,7 +84,7 @@ struct ComposeActionSheet: View {
         case .variant: L.t("experiment_variant_confirm")
         case .replace: L.t("experiment_replace_confirm")
         case .recommend: L.t("recommend_title")
-        case .close: L.t("leftover_close_only")
+        case .close: L.t(actions.reap.isEmpty ? "leftover_close_only" : "leftover_terminate")
         case .steers: L.t("common_save")
         }
     }
@@ -120,14 +120,16 @@ struct ComposeActionSheet: View {
                     Text(verbatim: L.t("leftover_title")).font(.headline)
                     ScrollView {
                         ForEach(Array(listing.leftovers.enumerated()), id: \.offset) { _, item in
-                            HStack {
+                            Toggle(isOn: Binding(get: { actions.reap.contains(item.key) }, set: { selected in
+                                if selected { actions.reap.insert(item.key) } else { actions.reap.remove(item.key) }
+                            })) {
                                 Text(verbatim: item.name)
                                 Spacer()
                                 if let port = item.port { Text(verbatim: L.t("leftover_port", String(port))) }
                             }
                         }
                     }.frame(maxHeight: 180)
-                    Text(verbatim: L.t("native_compose_leftovers_kept")).font(.callout)
+                    Text(verbatim: L.t("leftover_desc")).font(.callout)
                 }
             }
         }
@@ -171,7 +173,7 @@ struct ComposeActionSheet: View {
                 actions.recommendation = $0
             }, isCurrent: { current })
         case .close:
-            await actions.run(operation: { try await store.client.archiveSession(id: session.id) }, apply: { _ in
+            await actions.run(operation: { try await store.archive(id: session.id, reap: actions.reap.sorted()) }, apply: { _ in
                 store.apply(.sessionArchived(.init(id: session.id))); dismiss()
             }, isCurrent: { current })
         case .steers: break

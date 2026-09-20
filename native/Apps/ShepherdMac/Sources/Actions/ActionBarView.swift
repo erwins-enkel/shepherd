@@ -190,22 +190,22 @@ struct ActionBarView: View {
             }
             if let recap = RecapLine.content(for: model.recap(for: session.id)) {
                 recapLine(recap)
+                if let blocks = model.recap(for: session.id)?.blocks, !blocks.isEmpty {
+                    DisclosureGroup(L.t("feat_visual_recap_title")) {
+                        ScrollView { VisualBlocksView(blocks: blocks, inferred: true) }
+                            .frame(maxHeight: 280)
+                    }.padding(.horizontal, 16)
+                }
             }
             buttons
         }
         .accessibilityIdentifier("action-bar")
         .accessibilityLabel(L.t("native_actions_bar_label"))
-        .confirmationDialog(
-            L.t("native_actions_relaunch_confirm_title"),
-            isPresented: $confirmingRelaunch,
-            titleVisibility: .visible
-        ) {
-            Button(L.t("native_actions_relaunch_confirm_action"), role: .destructive) {
-                relaunch()
+        .sheet(isPresented: $confirmingRelaunch) {
+            RelaunchOptionsView(session: session, repos: store.repos) { overrides in
+                confirmingRelaunch = false
+                relaunch(overrides: overrides)
             }
-            Button(L.t("common_cancel"), role: .cancel) {}
-        } message: {
-            Text(verbatim: L.t("native_actions_relaunch_confirm_body"))
         }
         .sheet(item: $sheet) { which in
             switch which {
@@ -374,7 +374,7 @@ struct ActionBarView: View {
         }
     }
 
-    private func relaunch() {
+    private func relaunch(overrides: RelaunchRequest) {
         Task {
             var outcome: RelaunchResult?
             // Kept because `SessionCommandState.run` hands `failureCopy` only the already-mapped
@@ -385,7 +385,7 @@ struct ActionBarView: View {
             let ok = await command.run(
                 {
                     do {
-                        outcome = try await store.client.relaunch(sessionID: session.id)
+                        outcome = try await store.client.relaunch(sessionID: session.id, overrides: overrides)
                     } catch {
                         thrown = error
                         throw error

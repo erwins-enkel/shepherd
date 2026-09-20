@@ -10,6 +10,7 @@ public typealias RecapState = Components.Schemas.RecapState
 public typealias RecapStateKnown = Components.Schemas.RecapStateKnown
 public typealias RecapVerdict = Components.Schemas.RecapVerdict
 public typealias RecapVerdictKnown = Components.Schemas.RecapVerdictKnown
+public typealias RelaunchRequest = Components.Schemas.RelaunchRequest
 public typealias RelaunchResult = Components.Schemas.RelaunchResult
 public typealias RecapRegenerateResult = Components.Schemas.RecapRegenerateResult
 public typealias RecapRegenerateStatus = Components.Schemas.RecapRegenerateStatus
@@ -105,12 +106,12 @@ extension ShepherdClient {
     } catch { throw ShepherdError.from(error, route: "setSessionReady") }
   }
 
-  /// `POST /api/sessions/{id}/relaunch` with no body — the plain relaunch. Destructive: the
+  /// `POST /api/sessions/{id}/relaunch` with optional composer overrides. Destructive: the
   /// original's worktree goes away. `archived == false` means the replacement is up but the
   /// original still needs closing by hand.
-  public func relaunch(sessionID: String) async throws -> RelaunchResult {
+  public func relaunch(sessionID: String, overrides: RelaunchRequest? = nil) async throws -> RelaunchResult {
     do {
-      switch try await generated.relaunchSession(.init(path: .init(id: sessionID))) {
+      switch try await generated.relaunchSession(.init(path: .init(id: sessionID), body: overrides.map { .json($0) })) {
       case .created(let created): return try created.body.json
       case .badRequest(let bad): throw ShepherdError.badRequest(try bad.body.json.error)
       case .unauthorized: throw ShepherdError.unauthenticated

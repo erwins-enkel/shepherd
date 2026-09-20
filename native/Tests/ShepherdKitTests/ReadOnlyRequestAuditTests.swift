@@ -11,7 +11,7 @@ struct ReadOnlyRequestAuditTests {
     for (method, operation) in [(HTTPRequest.Method.post, "createSession"), (.put, "putBuildQueue"),
                                 (.delete, "archiveSession"), (.get, "getBranchStatus")] {
       do {
-        _ = try await middleware.intercept(HTTPRequest(method: method), body: nil,
+        _ = try await middleware.intercept(HTTPRequest(method: method, url: URL(string: "https://fixture.invalid")!), body: nil,
           baseURL: URL(string: "https://fixture.invalid")!, operationID: operation) { _, _, _ in
             Issue.record("a refused request reached transport")
             return (HTTPResponse(status: .ok), nil)
@@ -19,7 +19,7 @@ struct ReadOnlyRequestAuditTests {
         Issue.record("a refused request succeeded")
       } catch { }
     }
-    _ = try await middleware.intercept(HTTPRequest(method: .get), body: nil,
+    _ = try await middleware.intercept(HTTPRequest(method: .get, url: URL(string: "https://fixture.invalid")!), body: nil,
       baseURL: URL(string: "https://fixture.invalid")!, operationID: "listIssues") { _, _, _ in
         (HTTPResponse(status: .ok), nil)
       }

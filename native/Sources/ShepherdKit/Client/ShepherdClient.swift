@@ -208,9 +208,9 @@ public final class ShepherdClient: Sendable {
 
   /// `DELETE /api/sessions/{id}`. The contract documents 200 and 401 only —
   /// archiving an unknown id is a no-op server-side.
-  public func archiveSession(id: String) async throws {
+  public func archiveSession(id: String, reap: [String]? = nil) async throws {
     do {
-      switch try await generated.archiveSession(.init(path: .init(id: id))) {
+      switch try await generated.archiveSession(.init(path: .init(id: id), body: reap.map { .json(.init(reap: $0)) })) {
       case .ok: return
       case .unauthorized: throw ShepherdError.unauthenticated
       case .undocumented(let statusCode, _):

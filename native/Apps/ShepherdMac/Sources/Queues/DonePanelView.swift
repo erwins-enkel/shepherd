@@ -42,6 +42,16 @@ final class DonePanelState {
         isLoading = false
     }
 
+    func recap(for id: String, actions: ActionsModel?) -> Recap? {
+        // S4 is the sole live recap source. Read its observable map at render time so a
+        // post-archive finalise frame invalidates both the row and the selected detail.
+        // Keep the Done snapshot as fallback: S4 prunes archived ids on snapshot refresh.
+        let snapshot = recaps[id]
+        guard let live = actions?.recaps[id] else { return snapshot }
+        if let snapshot, snapshot.updatedAt > live.updatedAt { return snapshot }
+        return live
+    }
+
     func close() {
         generation &+= 1
         isLoading = false
@@ -61,6 +71,10 @@ enum DonePresentation {
             let right = $1.archivedAt ?? $1.updatedAt
             return left == right ? $0.id < $1.id : left > right
         }
+    }
+
+    static func filtered(_ sessions: [Session], repos: Set<String>) -> [Session] {
+        repos.isEmpty ? sessions : sessions.filter { repos.contains($0.repoPath) }
     }
 
     static func nextSelectedID(_ sessions: [Session], selectedID: String?) -> String? {
@@ -162,6 +176,14 @@ struct DonePanelView: View {
     @State private var doneSelectedID: String?
     @State private var refreshID = 0
 
+    private var shownSessions: [Session] {
+        DonePresentation.filtered(state.sessions, repos: app.extension(SidebarModel.self)?.activeRepos ?? [])
+    }
+
+    private func recap(for id: String) -> Recap? {
+        state.recap(for: id, actions: app.extension(ActionsModel.self))
+    }
+
     var body: some View {
         Group {
             if state.isLoading {
@@ -171,18 +193,18 @@ struct DonePanelView: View {
                     Text(verbatim: error)
                     Button(L.t("common_retry")) { refreshID &+= 1 }
                 }
-            } else if state.sessions.isEmpty {
+            } else if shownSessions.isEmpty {
                 Text(L.t("herd_done_empty")).foregroundStyle(.secondary)
             } else {
                 HSplitView {
-                    List(state.sessions, id: \.id, selection: $doneSelectedID) { session in
+                    List(shownSessions, id: \.id, selection: $doneSelectedID) { session in
                         row(session).tag(session.id)
                     }
                     .frame(minWidth: 240, idealWidth: 320)
                     .accessibilityIdentifier("queues-done-list")
-                    if let selected = state.sessions.first(where: { $0.id == doneSelectedID }),
+                    if let selected = shownSessions.first(where: { $0.id == doneSelectedID }),
                        let client = app.store?.client {
-                        DoneRecapView(session: selected, recap: state.recaps[selected.id],
+                        DoneRecapView(session: selected, recap: recap(for: selected.id),
                                       loadUsage: { try await client.sessionUsage(id: $0) })
                             .id(ObjectIdentifier(client))
                     }
@@ -197,7 +219,10 @@ struct DonePanelView: View {
             guard let client = app.store?.client else { state.close(); return }
             await state.reload(.live(client), isCurrent: { app.activationGeneration == generation })
             guard !Task.isCancelled, app.activationGeneration == generation else { return }
-            doneSelectedID = DonePresentation.nextSelectedID(state.sessions, selectedID: doneSelectedID)
+            doneSelectedID = DonePresentation.nextSelectedID(shownSessions, selectedID: doneSelectedID)
+        }
+        .onChange(of: shownSessions.map(\.id)) { _, _ in
+            doneSelectedID = DonePresentation.nextSelectedID(shownSessions, selectedID: doneSelectedID)
         }
         .onDisappear { state.close() }
     }
@@ -208,7 +233,7 @@ struct DonePanelView: View {
                 Text(verbatim: session.desig).fontWeight(.semibold)
                 Text(verbatim: DonePresentation.repoBasename(session.repoPath))
                     .foregroundStyle(.secondary).lineLimit(1)
-                if let verdict = DonePresentation.verdict(state.recaps[session.id]) {
+                if let verdict = DonePresentation.verdict(recap(for: session.id)) {
                     DoneVerdictChip(verdict: verdict)
                 }
             }
@@ -216,7 +241,7 @@ struct DonePanelView: View {
                 Text(verbatim: DonePresentation.finished(session, now: context.date))
                     .font(.caption).foregroundStyle(.secondary)
             }
-            Text(verbatim: DonePresentation.snippet(session, recap: state.recaps[session.id]))
+            Text(verbatim: DonePresentation.snippet(session, recap: recap(for: session.id)))
                 .lineLimit(2)
         }
         .padding(.vertical, 4)

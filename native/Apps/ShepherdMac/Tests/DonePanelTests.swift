@@ -1,4 +1,6 @@
 import Foundation
+import Observation
+import Synchronization
 import ShepherdKit
 import Testing
 @testable import Shepherd
@@ -60,6 +62,50 @@ struct DonePanelTests {
         #expect(listReads == 2 && recapReads == 2)
         #expect(state.sessions.map(\.id) == ["a"])
         #expect(state.recaps["a"]?.headline == "Shipped")
+    }
+
+    @Test func recapFrameAfterLoadUpdatesTheObservedRow() async throws {
+        let actions = ActionsModel(reads: .init(recaps: { [:] }), now: { 0 })
+        defer { actions.teardown() }
+        let state = DonePanelState()
+        await state.reload(.init(sessions: { [self.session("a")] },
+                                 recaps: { ["a": self.recap(.generating)] }))
+        let changed = Mutex(false)
+        withObservationTracking {
+            #expect(DonePresentation.snippet(state.sessions[0],
+                recap: state.recap(for: "a", actions: actions)) == state.sessions[0].name)
+        } onChange: {
+            changed.withLock { $0 = true }
+        }
+        // The existing S4 handler owns frame decoding, including post-archive finalisation.
+        actions.apply(.sessionArchived(.init(id: "a")))
+        actions.apply(.unknown(name: "session:recap", payload: try JSONEncoder().encode(
+            Components.Schemas.SessionRecapEvent(id: "a", recap: recap()))))
+        #expect(changed.withLock { $0 })
+        let updated = state.recap(for: "a", actions: actions)
+        #expect(DonePresentation.snippet(state.sessions[0], recap: updated) == "Shipped")
+        #expect(DonePresentation.verdict(updated)?.known == .ready)
+        // Without S4 registered (or after it prunes archived ids), retain the Done snapshot.
+        #expect(state.recap(for: "a", actions: nil)?.state.known == .generating)
+    }
+
+    @Test func repositoryFilterScopesRowsAndSelection() {
+        var first = session("a")
+        first.repoPath = "/repos/alpha"
+        var second = session("b")
+        second.repoPath = "/repos/beta"
+        var third = session("c")
+        third.repoPath = "/repos/gamma"
+        let rows = [first, second, third]
+        #expect(DonePresentation.filtered(rows, repos: []).map(\.id) == ["a", "b", "c"])
+        let beta = DonePresentation.filtered(rows, repos: ["/repos/beta"])
+        #expect(beta.map(\.id) == ["b"])
+        #expect(DonePresentation.nextSelectedID(beta, selectedID: "a") == "b")
+        #expect(DonePresentation.filtered(rows, repos: ["/repos/alpha", "/repos/gamma"])
+            .map(\.id) == ["a", "c"])
+        let empty = DonePresentation.filtered(rows, repos: ["/repos/missing"])
+        #expect(empty.isEmpty)
+        #expect(DonePresentation.nextSelectedID(empty, selectedID: "a") == nil)
     }
 
     @Test func closedPanelDropsLateSnapshots() async {

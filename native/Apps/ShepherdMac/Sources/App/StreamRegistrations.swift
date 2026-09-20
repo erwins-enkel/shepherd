@@ -47,7 +47,7 @@ enum StreamRegistrations {
             QueuesStream.installScene()
             MergeStream.installScene()
             Wave2Seams.installPanels()
-            // S12 adds `SettingsFeature.installScene()` here.
+            SettingsFeature.installScene()
         },
         model: installModels)
 
@@ -61,9 +61,8 @@ enum StreamRegistrations {
     ///
     /// Model-free on purpose: at `init()` time there is no store, no activation and no
     /// `NSApp.mainMenu`. A stream that needs the model reaches it through the `AppModel` a
-    /// `MenuCommand`'s `action` is handed at invocation time. `NotificationsStream.install(app)`
-    /// stays in `installAll(into:)` for exactly this reason — it touches `NSApp.mainMenu`, which
-    /// is nil here.
+    /// `MenuCommand`'s `action` is handed at invocation time. Notification models are registered
+    /// in the model pass and resolved anew for each activation.
     ///
     /// Runs the scene installers exactly once per process, before any model-bound installation.
     static func installScene() {
@@ -83,7 +82,7 @@ enum StreamRegistrations {
         SidebarInstall.run(app)             // S3: SidebarSlot + AppExtension
         ActionsStream.install(app)          // S4: ActionBarSlot.content + AppExtension
         LocalServerFeature.install(app)     // S5: WelcomeSlots.localPanel + AppExtension
-        NotificationsStream.install(app)    // S6: AppExtension + its own "Notifications…" menu item
+        NotificationsStream.install(app)    // S6: activation-scoped notification delivery
         // Cross-stream seams, after every install: S4 reads S3's working-blocked flags and
         // S2's git snapshot through `SessionSignals` rather than reading the server again.
         SessionSignals.connect(app)
@@ -93,5 +92,15 @@ enum StreamRegistrations {
         ComposeStream.install(app)          // S11: composer and session actions
         MergeStream.install(app)            // S9: composes the sidebar and complete action bar
         Wave2Seams.connect(app)
+        SettingsFeature.install(app)        // S12: installed after its signal/delivery producers
+        SettingsNotificationBridge.git = { $0.extension(HerdSignals.self)?.git ?? [:] }
+        SettingsNotificationBridge.reviewing = { app, id in
+            app.extension(HerdSignals.self)?.isReviewing(id) ?? false
+        }
+        SettingsNotificationBridge.sendReady = { app, session in
+            guard let model = app.extension(NotificationsModel.self) else { return false }
+            return await model.deliver(
+                .init(kind: .ready, sessionID: session.id, subject: session.name), evaluatedReady: true)
+        }
     }
 }

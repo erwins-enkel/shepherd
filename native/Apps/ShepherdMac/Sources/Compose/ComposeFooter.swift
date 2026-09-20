@@ -44,10 +44,8 @@ enum ComposeReadiness {
     }
 
     static func holdLikely(limits: UsageLimits?, settings: ShepherdKit.Settings?) -> Bool {
-        let values = settings?.additionalProperties.value
-        guard values?["usageHoldEnabled"] as? Bool == true else { return false }
-        let threshold = (values?["usageHoldPct"] as? Double)
-            ?? (values?["usageHoldPct"] as? Int).map(Double.init) ?? 80
+        guard settings?.usageHoldEnabled == true else { return false }
+        let threshold = settings?.usageHoldPct ?? 80
         return max(limits?.session5h?.pct ?? 0, limits?.week?.pct ?? 0) >= threshold
     }
 }

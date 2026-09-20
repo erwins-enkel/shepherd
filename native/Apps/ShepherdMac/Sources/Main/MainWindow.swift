@@ -170,7 +170,8 @@ struct MainWindow: View {
                 ContentUnavailableView(L.t("native_sidebar_empty"), systemImage: "tray")
             } else {
                 List(sessions, id: \.id, selection: $model.selectedSessionID) { session in
-                    SessionRow(session: session).tag(session.id)
+                    SessionRow(session: session)
+                        .modifier(SettingsStatusShape(status: session.status)).tag(session.id)
                 }
             }
         }

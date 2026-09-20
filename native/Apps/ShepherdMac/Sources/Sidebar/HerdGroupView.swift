@@ -38,6 +38,7 @@ struct HerdGroupView: View {
                 ForEach(group.sessions, id: \.id) { session in
                     VStack(alignment: .leading, spacing: 3) {
                         SessionRow(session: display(session))
+                            .modifier(SettingsStatusShape(status: display(session).status))
                         // Row predicates read the raw session, matching UnitRowRight;
                         // the display-status upgrade belongs only to SessionRow.
                         if let plan = app.extension(PlanModel.self) {

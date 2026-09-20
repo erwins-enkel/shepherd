@@ -1582,6 +1582,2051 @@
         }
       }
     },
+    "diagnostics_all_ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alles startklar."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Everything's ready."
+          }
+        }
+      }
+    },
+    "diagnostics_doc_link": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "So behebst du das"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How to fix"
+          }
+        }
+      }
+    },
+    "diagnostics_fix": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beheben"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fix"
+          }
+        }
+      }
+    },
+    "diagnostics_fix_action_claude_trust": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd markiert diesen Repo-Ordner als vertrauenswürdig für Claude Code, damit die Nutzungsanzeige ihn lesen kann. Es wird kein Befehl ausgeführt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd will mark this repo folder as trusted for Claude Code so the usage gauge can read it. No command runs."
+          }
+        }
+      }
+    },
+    "diagnostics_fix_action_host_capacity": {
+      "comment": "%1$@ = memoryHigh, %2$@ = cpuQuota, %3$@ = units",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd setzt MemoryHigh=%1$@ und CPUQuota=%2$@ für diese Units: %3$@. Das wendet ein sofort wirksames, dauerhaftes Limit an — ohne Neustart, ohne unterbrochene Sessions. Es begrenzt jede Unit für sich; für eine gemeinsame Obergrenze über Shepherd und herdr richte eine shepherd.slice ein (siehe „So behebst du das“)."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd will set MemoryHigh=%1$@ and CPUQuota=%2$@ on these units: %3$@. This applies a live, persistent limit — no restart, no interrupted sessions. It bounds each unit on its own; for one shared cap across Shepherd and herdr, set up a shepherd.slice (see How to fix)."
+          }
+        }
+      }
+    },
+    "diagnostics_fix_action_tmp_inodes": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherds freigebbare Caches jetzt aus dem temporären Dateisystem räumen, unabhängig vom üblichen Schwellenwert. Das entfernt den Compile-Cache und veraltete Tool-Caches. Paketmanager-Stores und von Agents zurückgelassene Worktrees werden noch nicht freigegeben, die Auslastung kann also hoch bleiben."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sweep Shepherd's reclaimable caches from the temporary filesystem now, ignoring the usual usage threshold. This drops the compile cache and stale tool caches. Package-manager stores and leftover worktrees left behind by agents are not reclaimed yet, so usage may stay high."
+          }
+        }
+      }
+    },
+    "diagnostics_fix_confirm_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd führt diesen Befehl auf dem Server als dein Benutzer aus:"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd will run this command on the server as your user:"
+          }
+        }
+      }
+    },
+    "diagnostics_fix_confirm_run": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ausführen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run"
+          }
+        }
+      }
+    },
+    "diagnostics_fix_confirm_run_code": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ordner vertrauen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trust folder"
+          }
+        }
+      }
+    },
+    "diagnostics_fix_confirm_run_host_capacity": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Limits anwenden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apply limits"
+          }
+        }
+      }
+    },
+    "diagnostics_fix_confirm_run_tmp_inodes": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jetzt aufräumen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sweep now"
+          }
+        }
+      }
+    },
+    "diagnostics_fix_confirm_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diesen Befehl ausführen?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run this command?"
+          }
+        }
+      }
+    },
+    "diagnostics_fix_confirm_title_code": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diesen Ordner als vertrauenswürdig markieren?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mark this folder as trusted?"
+          }
+        }
+      }
+    },
+    "diagnostics_fix_confirm_title_host_capacity": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Host-Kapazitätslimits anwenden?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apply host capacity limits?"
+          }
+        }
+      }
+    },
+    "diagnostics_fix_confirm_title_tmp_inodes": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Temporäre Dateien jetzt aufräumen?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sweep temporary files now?"
+          }
+        }
+      }
+    },
+    "diagnostics_fix_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beheben fehlgeschlagen — der Befehl wurde nicht abgeschlossen. Führe ihn manuell aus."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fix failed — the command did not complete. Try running it manually."
+          }
+        }
+      }
+    },
+    "diagnostics_fix_running": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wird ausgeführt…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Running…"
+          }
+        }
+      }
+    },
+    "diagnostics_fix_success": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Behoben — neu geprüft."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fixed — re-checked."
+          }
+        }
+      }
+    },
+    "diagnostics_fix_unresolved": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Befehl wurde ausgeführt, aber der Check ist weiterhin nicht OK — möglicherweise ist ein manueller Schritt oder ein Neustart nötig."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The command ran, but the check is still not OK — it may need a manual step or a restart."
+          }
+        }
+      }
+    },
+    "diagnostics_fix_unresolved_code": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd hat die Einstellung aktualisiert, aber der Check ist weiterhin nicht OK — Claude Code muss möglicherweise neu gestartet werden, um sie zu übernehmen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd updated the setting, but the check is still not OK — Claude Code may need a restart to pick it up."
+          }
+        }
+      }
+    },
+    "diagnostics_fix_unresolved_host_capacity": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd hat die Limits angewendet, aber der Check ist weiterhin nicht OK — gib ihm einen Moment oder prüfe, ob die Unit benutzerbezogen ist."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd applied the limits, but the check is still not OK — give it a moment, or check the unit is user-scoped."
+          }
+        }
+      }
+    },
+    "diagnostics_fix_unresolved_tmp_inodes": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd hat die freigebbaren Caches aufgeräumt, aber die Auslastung ist weiterhin hoch — der Rest ist höchstwahrscheinlich ein Paketmanager-Store oder ein zurückgelassener Worktree im temporären Dateisystem, den Shepherd noch nicht freigibt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd swept the caches it can reclaim, but usage is still high — the rest is most likely a package-manager store or a leftover worktree an agent left in the temporary filesystem, which Shepherd doesn't reclaim yet."
+          }
+        }
+      }
+    },
+    "diagnostics_herdr_downgrade": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "herdr downgraden…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Downgrade herdr…"
+          }
+        }
+      }
+    },
+    "diagnostics_herdr_repair": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "herdr reparieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repair herdr"
+          }
+        }
+      }
+    },
+    "diagnostics_hint_bun_missing": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "bun nicht im PATH gefunden — installiere es von bun.sh."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "bun not found in PATH — install it from bun.sh."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_bun_ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "bun ist aktuell."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "bun is up to date."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_bun_outdated": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine bun-Version liegt unter dem unterstützten Minimum — führe bun upgrade aus."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your bun version is below the supported floor — run bun upgrade."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_claude_install_diverged": {
+      "comment": "%1$@ = running, %2$@ = managed",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd startet Claude Code %1$@, mise verwaltet aber %2$@ — zwei Installationen, die auseinandergelaufen sind. Der Auto-Updater von Claude Code schreibt eine native Kopie nach ~/.local/bin/claude, die die von mise überdeckt, sodass mise upgrade claude nur die Installation bewegt, die niemand ausführt. Entferne die native Kopie, damit die von mise wieder im PATH liegt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd spawns Claude Code %1$@, but mise manages %2$@ — two installs that have drifted apart. Claude Code's auto-updater writes a native copy to ~/.local/bin/claude that shadows the mise one, so mise upgrade claude moves only the install nothing runs. Remove the native copy so mise's is back on PATH."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_claude_install_native_on_path": {
+      "comment": "%1$@ = running",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd startet Claude Code aus einer nativen Installation, nicht aus der von mise verwalteten. Beide melden heute %1$@, sie laufen aber auseinander, sobald eine Seite aktualisiert wird, und mise upgrade claude bewegt dann nur die Kopie, die niemand ausführt. Entferne die native Kopie aus ~/.local/bin, damit die von mise wieder im PATH liegt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd spawns Claude Code from a native install, not the one mise manages. Both report %1$@ today, but they will drift as soon as either side updates, and mise upgrade claude will move only the copy nothing runs. Remove the native copy from ~/.local/bin so mise's is back on PATH."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_claude_install_native_residue": {
+      "comment": "%1$@ = count, %2$@ = size",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mise verwaltet das Claude Code, das Shepherd startet, aber eine native Installation liegt noch auf der Platte: %1$@ Build(s), %2$@. Der Auto-Updater von Claude Code hat sie angelegt, bevor mise übernommen hat; sie wird nicht ausgeführt und kann gefahrlos gelöscht werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mise manages the Claude Code that Shepherd spawns, but a leftover native install is still on disk: %1$@ build(s), %2$@. Claude Code's auto-updater put it there before mise took over; nothing runs it and it is safe to delete."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_claude_install_ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mise verwaltet das Claude Code, das Shepherd startet, und es liegt keine übrig gebliebene native Installation auf der Platte. Shepherd deaktiviert hier den Auto-Updater von Claude Code für Agent-Sessions, damit keine zweite Kopie angelegt wird; aktualisiere mit mise upgrade claude."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mise manages the Claude Code that Shepherd spawns, and no leftover native install is on disk. Shepherd disables Claude Code's auto-updater for agent sessions here so it can't plant a second copy; update with mise upgrade claude."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_claude_missing": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code CLI nicht im PATH gefunden. Installiere Claude Code oder Codex, um Agent-Sessions zu starten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code CLI not found in PATH. Install Claude Code or Codex to run agent sessions."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_claude_ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code CLI ist verfügbar."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code CLI is available."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_claude_optional": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code CLI ist optional, weil Codex verfügbar ist. Installiere es, wenn beide Agent-Runtimes funktionieren sollen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code CLI is optional because Codex is available. Install it if you want both agent runtimes."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_claude_trust_ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code vertraut diesem Repo-Ordner — die Nutzungsanzeige kann ihn lesen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code trusts this repo folder — the usage gauge can read it."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_claude_trust_untrusted": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code hat diesem Repo-Ordner nicht vertraut, daher bleibt die Nutzungsanzeige möglicherweise leer. Als vertrauenswürdig markieren, um es zu beheben."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code hasn't trusted this repo folder, so the usage gauge may stay blank. Mark it trusted to fix."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_codex_missing": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex CLI nicht im PATH gefunden. Installiere Codex oder Claude Code, um Agent-Sessions zu starten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex CLI not found in PATH. Install Codex or Claude Code to run agent sessions."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_codex_model_chatgpt_incompatible": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein konfiguriertes Codex-Modell wird von deinem ChatGPT-Account-Login für Codex nicht unterstützt und durch den Account-Standard ersetzt. Wähle ein unterstütztes Modell oder melde dich bei Codex mit einem API-Key an."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A configured Codex model isn't supported by your ChatGPT-account Codex login and is being replaced with the account default. Pick a supported model, or sign in to Codex with an API key."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_codex_ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex CLI ist verfügbar."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex CLI is available."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_codex_optional": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex CLI ist optional, weil Claude Code verfügbar ist. Installiere es, wenn beide Agent-Runtimes funktionieren sollen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex CLI is optional because Claude Code is available. Install it if you want both agent runtimes."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_gh_missing": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub CLI (gh) nicht im PATH gefunden — installiere es und führe anschließend gh auth login aus."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub CLI (gh) not found in PATH — install it, then run gh auth login."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_gh_not_authenticated": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub CLI fehlt oder ist nicht angemeldet — führe gh auth login aus."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub CLI missing or not logged in — run gh auth login."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_gh_not_required": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub CLI ist nicht installiert oder nicht authentifiziert, es sind jedoch keine Forge-basierten Repos konfiguriert — gh ist optional, wenn ausschließlich Lightweight-Repos verwendet werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub CLI is not installed or not authenticated, but no forge-backed repos are configured — gh is optional when using only lightweight repos."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_gh_ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub CLI ist authentifiziert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub CLI is authenticated."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_gh_unverified": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub-CLI-Authentifizierung konnte nicht geprüft werden — die Prüfung hat das Zeitlimit überschritten. Shepherd prüft in Kürze erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't verify GitHub CLI auth — the check timed out. Shepherd will re-check shortly."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_git_missing": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "git nicht im PATH gefunden — installiere es, bevor du Aufgaben startest."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "git not found in PATH — install it before running tasks."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_git_ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "git ist verfügbar."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "git is available."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_gitcap_ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "git unterstützt Lightweight-Merge (≥ 2.38)."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "git supports lightweight merge (≥ 2.38)."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_gitcap_old": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "git ≥ 2.38 nicht verfügbar — der Lightweight-Repo-Modus benötigt git merge-tree --write-tree (git ≥ 2.38) für lokale Merges. git fehlt möglicherweise (siehe git-Prüfung) oder ist zu alt; installiere oder aktualisiere es, um Lightweight-Repos zu nutzen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "git ≥ 2.38 not available — lightweight repo mode needs git merge-tree --write-tree (git ≥ 2.38) for local merges. git may be missing (see the git check) or too old; install or update it to use lightweight repos."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_herdr_health_leftover": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einige herdr-Panes führen noch Prozesse aus, hinter denen keine aktive Shepherd-Sitzung steht — wahrscheinlich Überbleibsel abgeschlossener Aufgaben. Es wurde nichts verändert (nur Diagnose). Hinweis: Die „Tasks“-Zahl von systemd für herdr zählt [[herdr-hygiene|Threads, keine Prozesse]], eine hohe Zahl ist also für sich genommen kein Leck."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Some herdr panes are still running processes with no active Shepherd session behind them — likely leftovers from finished tasks. Nothing was touched (diagnose-only). Note: systemd's Tasks count for herdr reflects [[herdr-hygiene|threads, not processes]], so a high number there isn't itself a leak."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_herdr_health_ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine übrig gebliebenen herdr-Panes — jedes aktive Pane gehört zu einer aktiven Sitzung."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No leftover herdr panes — every live pane maps to an active session."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_herdr_health_uninspectable": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd kann herdr gerade nicht erreichen, um die Laufzeithygiene zu prüfen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd can't reach herdr to check runtime hygiene right now."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_herdr_missing": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "herdr-Binary nicht im PATH gefunden — installiere es, um Agent-Sessions zu starten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "herdr binary not found in PATH — install it to run agent sessions."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_herdr_offline": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "herdr ist installiert, aber sein Server ist offline — Agent-Sessions können nicht laufen. Starte ihn mit `herdr server` und führe die Diagnose erneut aus."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "herdr is installed but its server is offline — agent sessions can't run. Start it by running `herdr server`, then re-run Diagnose."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_herdr_ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "herdr ist aktuell."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "herdr is up to date."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_herdr_outdated": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine herdr-Version liegt unter dem unterstützten Minimum — aktualisiere herdr."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your herdr version is below the supported floor — update herdr."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_herdr_restart": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die installierte herdr-Version und ihr laufender Server passen nicht zusammen. Schließe den Serverwechsel mit einem bestätigten Neustart ab."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The installed herdr and its running server do not match. Finish the server update with a confirmed restart."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_herdr_unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der herdr-Serverzustand konnte nicht geprüft werden. Öffne den Update-Dialog, um die Verbindung zu prüfen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The herdr server state could not be verified. Open the update dialog to check the connection."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_herdr_unsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese herdr-Version ist neuer als von Shepherd unterstützt — das Starten von Agenten würde damit fehlschlagen. Nutze „herdr downgraden“, um mit einem Klick zur höchsten unterstützten Version zurückzukehren, oder fixiere herdr manuell (https://herdr.dev) und führe die Diagnose erneut aus."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This herdr version is newer than Shepherd supports — agent spawning would fail on it. Use Downgrade herdr to return to the highest supported version in one click, or pin herdr manually (https://herdr.dev), then re-run Diagnose."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_host_capacity_herdr_unbounded": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherds eigener Dienst ist begrenzt, aber der herdr-Dienst, der deine Agent-Sessions ausführt, hat keine Speicher- oder CPU-Obergrenze — eine außer Kontrolle geratene Session könnte den Host trotzdem auslasten. Setze auch für herdr ein [[host-capacity|Host-Kapazität]]-Limit."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd's own service is bounded, but the herdr service that runs your agent sessions has no memory or CPU ceiling — a runaway session could still starve the host. Add a [[host-capacity|host capacity]] limit to herdr too."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_host_capacity_ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Host-Ressourcenlimits sind konfiguriert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Host resource guardrails are configured."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_host_capacity_pressure": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Host steht gerade unter Speicher- oder IO-Last — pausiere oder reduziere aktive Agent-Sessions, bis er sich erholt. „So behebst du das“ erklärt, wie du Limits setzt, damit das nicht erneut passiert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The host is under memory or IO pressure right now — pause or reduce active agent sessions until it recovers. How to fix covers adding limits so it can't recur."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_host_capacity_unbounded": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd läuft als systemd-Dienst ohne Speicher- oder CPU-Obergrenze, sodass ein Schwung an Sessions den Host auslasten könnte. Setze ein [[host-capacity|Host-Kapazität]]-Limit — „So behebst du das“ enthält einen fertigen Befehl."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd runs as a systemd service with no memory or CPU ceiling, so a burst of sessions could starve the host. Add a [[host-capacity|host capacity]] limit — How to fix has a copy-paste command."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_host_capacity_uninspectable": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd kann die Host-Ressourcenlimits auf diesem Deployment nicht prüfen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd can't verify host resource guardrails on this deployment."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_node_missing": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "node nicht im PATH gefunden — installiere es, bevor du Aufgaben startest."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "node not found in PATH — install it before running tasks."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_node_ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "node ist aktuell."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "node is up to date."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_node_outdated": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine node-Version liegt unter dem unterstützten Minimum — aktualisiere node."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your node version is below the supported floor — update node."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_preview_probes_idle": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Preview-Erkennung funktioniert, wird derzeit aber nicht genutzt — ohne aktive Session in einem Worktree hält Shepherd seine Sicht auf die laufenden Prozesse nicht aktuell. Sie wird aufgefrischt, sobald eine Session startet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preview detection works, but nothing is exercising it right now — with no active session in a worktree, Shepherd doesn't keep its view of running processes up to date. It refreshes as soon as a session starts."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_preview_probes_ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd erkennt die von deinen Agenten gestarteten Dev-Server, daher funktionieren Live-Previews."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd can detect the dev servers your agents start, so live previews work."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_preview_probes_stale": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherds Sicht auf die laufenden Prozesse ist auf diesem Host veraltet (die letzte Inspektion wurde nicht rechtzeitig abgeschlossen), daher können Live-Previews verzögert sein oder fehlen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd's view of running processes is out of date on this host (the last inspection didn't complete in time), so live previews may be delayed or missing."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_preview_probes_unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd kann laufende Prozesse auf diesem Host nicht inspizieren und daher die von deinen Agenten gestarteten Dev-Server nicht erkennen — Live-Previews erscheinen nicht."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd can't inspect running processes on this host, so it can't detect the dev servers your agents start — live previews won't appear."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_preview_probes_uninspectable": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd konnte nicht überprüfen, ob die Prozesserkennung auf diesem Host funktioniert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd couldn't verify whether process detection works on this host."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_preview_probes_unsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Erkennung von Live-Previews wird auf diesem Betriebssystem nicht unterstützt, daher erscheinen keine Previews."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live preview detection isn't supported on this operating system, so previews won't appear."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_pwa_android": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installiere Shepherd für ein App-Symbol, eine Vollbild-Ansicht und ein Push-Abo, das die Speicherbereinigung des Browsers übersteht. Öffne das Browser-Menü → „App installieren“ / „Zum Startbildschirm hinzufügen“."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Install Shepherd for an app icon, a full-screen view, and a push subscription that survives the browser's storage cleanup. Open the browser menu → 'Install app' / 'Add to Home Screen'."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_pwa_ios": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf iOS funktionieren Shepherds Push-Benachrichtigungen nur, wenn die App zum Home-Bildschirm hinzugefügt ist — in einem Safari-Tab bekommst du keine. Tippe auf „Teilen“ und dann „Zum Home-Bildschirm“."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On iOS, Shepherd's push notifications only work when it's installed to the Home Screen — in a Safari tab you get none. Tap the Share button, then 'Add to Home Screen'."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_pwa_optional": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd in diesem Browser zu installieren ist optional. Wo es unterstützt wird, ergänzt es ein App-Symbol, eine Vollbild-Ansicht und Push-Benachrichtigungen, die die Speicherbereinigung des Browsers überstehen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installing Shepherd is optional in this browser. Where it's supported, it adds an app icon, a full-screen view, and push notifications that survive the browser's storage cleanup."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_sandbox_membrane_broken": {
+      "comment": "%1$@ = agent",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ startet auf diesem Host nicht in der [[sandbox-membrane|Sandbox-Membran]]. Deshalb verweigern alle eingeschränkten Helfer — Plan-Prüfer, Pull-Request-Kritiker, Doku-Agent — den Start, statt bis zum Timeout zu hängen. Meist versucht ein Versionsmanager, Dateien zu überschreiben, die die Sandbox schreibgeschützt hält. Der genaue Fehler steht in Shepherds Log."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ does not start inside the [[sandbox-membrane|sandbox membrane]] on this host, so every confined helper — plan reviewer, pull-request critic, doc agent — refuses to start rather than hanging until it times out. Usually a version manager trying to rewrite files the sandbox keeps read-only. The exact error is in Shepherd's log."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_sandbox_membrane_ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent-Programme starten korrekt in der [[sandbox-membrane|Sandbox-Membran]], Prüfer und Kritiker können also eingeschränkt laufen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent programs start correctly inside the [[sandbox-membrane|sandbox membrane]], so reviewers and critics can run confined."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_sandbox_membrane_uninspectable": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd konnte nicht prüfen, ob Agent-Programme auf diesem Host in der [[sandbox-membrane|Sandbox-Membran]] starten. Eingeschränkte Helfer laufen weiterhin."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd could not check whether agent programs start inside the [[sandbox-membrane|sandbox membrane]] on this host. Confined helpers still run."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_tailscale_missing": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale nicht installiert oder nicht angemeldet — installiere es und führe tailscale up aus."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale not installed or not logged in — install it and run tailscale up."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_tailscale_not_serving": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale läuft, stellt Shepherd aber nicht bereit — richte tailscale serve oder einen Tailscale-Service für den Remote-Zugriff ein."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale is running but isn't fronting Shepherd — set up tailscale serve or a Tailscale Service for remote access."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_tailscale_ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale ist verbunden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale is connected."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_tailscale_serve_denied": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale verweigert Shepherd die serve-Konfiguration, dadurch lässt sich keine Live-Vorschau veröffentlichen — führe einmalig sudo tailscale set --operator=$USER aus und prüfe die Checks erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale refuses Shepherd's serve config, so no live preview can be published — run sudo tailscale set --operator=$USER once, then re-run the checks."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_tmp_entries_critical": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das temporäre Dateisystem ist stark mit Überbleibseln zugesetzt — weit jenseits der Schwelle, ab der Shepherd aufräumt. Verzeichnis-Scans werden langsam, und die [[inode|Inodes]] können ausgehen, obwohl Speicherplatz frei aussieht. „Beheben“ räumt die Caches auf, die Shepherd freigeben kann."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The temporary filesystem is badly cluttered with leftover entries — far past the point where Shepherd starts sweeping. Directory scans get slow and the filesystem can run out of [[inode|inodes]] while disk space still looks free. Fix sweeps the caches Shepherd can reclaim."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_tmp_entries_high": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Im temporären Dateisystem sammeln sich Überbleibsel an. Es vergibt [[inode|Inodes]] dynamisch, deshalb beobachtet Shepherd die Anzahl statt einer Auslastung in Prozent. Unbeachtet verlangsamt das jeden Verzeichnis-Scan und kann die [[inode|Inodes]] trotzdem aufbrauchen. „Beheben“ räumt die Caches auf, die Shepherd freigeben kann."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leftover entries are piling up in the temporary filesystem. It allocates [[inode|inodes]] on demand, so Shepherd watches the count rather than a usage percentage. Left alone this slows every scan of those directories and can still exhaust the filesystem's [[inode|inodes]]. Fix sweeps the caches Shepherd can reclaim."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_tmp_entries_ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das temporäre Dateisystem vergibt [[inode|Inodes]] dynamisch — eine Auslastung in Prozent gibt es dort nicht. Shepherd beobachtet stattdessen, wie viele Überbleibsel sich ansammeln. Aktuell unbedenklich wenige."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The temporary filesystem allocates [[inode|inodes]] on demand, so there is no usage percentage to read — Shepherd watches how many leftover entries pile up instead. Few enough to be healthy."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_tmp_inodes_critical": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Im temporären Dateisystem sind die [[inode|Inodes]] fast aufgebraucht. Neue Agent-Sessions werden mit „kein Speicherplatz“-Fehlern scheitern, obwohl Speicherplatz frei aussieht. „Beheben“ räumt die Caches auf, die Shepherd freigeben kann."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The temporary filesystem is nearly out of [[inode|inodes]]. New agent sessions will start failing with \"no space\" errors even though disk space looks free. Fix sweeps the caches Shepherd can reclaim."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_tmp_inodes_high": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Im temporären Dateisystem werden die [[inode|Inodes]] knapp — es kann volllaufen, obwohl noch Speicherplatz frei ist, und Agent-Sessions scheitern dann mit irreführenden „kein Speicherplatz“-Fehlern. „Beheben“ räumt die Caches auf, die Shepherd freigeben kann."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The temporary filesystem is running low on [[inode|inodes]] — it can run out while still showing free space, and agent sessions then fail with confusing \"no space\" errors. Fix sweeps the caches Shepherd can reclaim."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_tmp_inodes_ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das temporäre Dateisystem hat reichlich freie [[inode|Inodes]]."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The temporary filesystem has plenty of [[inode|inodes]] free."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_tmp_inodes_uninspectable": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd kann die [[inode|Inode]]-Auslastung des temporären Dateisystems auf diesem System nicht auslesen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd can't read [[inode|inode]] usage for the temporary filesystem on this deployment."
+          }
+        }
+      }
+    },
+    "diagnostics_label_bun": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "bun"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "bun"
+          }
+        }
+      }
+    },
+    "diagnostics_label_claude": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claude"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claude"
+          }
+        }
+      }
+    },
+    "diagnostics_label_claude_install": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude-Installation"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claude install"
+          }
+        }
+      }
+    },
+    "diagnostics_label_claude_trust": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Ordner-Vertrauen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "claude folder trust"
+          }
+        }
+      }
+    },
+    "diagnostics_label_codex": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "codex"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "codex"
+          }
+        }
+      }
+    },
+    "diagnostics_label_gh": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "gh"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "gh"
+          }
+        }
+      }
+    },
+    "diagnostics_label_git": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "git"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "git"
+          }
+        }
+      }
+    },
+    "diagnostics_label_git_mergetree": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "git merge-tree"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "git merge-tree"
+          }
+        }
+      }
+    },
+    "diagnostics_label_herdr": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "herdr"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "herdr"
+          }
+        }
+      }
+    },
+    "diagnostics_label_herdr_health": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Herdr-Laufzeithygiene"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Herdr runtime hygiene"
+          }
+        }
+      }
+    },
+    "diagnostics_label_host_capacity": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Host-Kapazität"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Host capacity"
+          }
+        }
+      }
+    },
+    "diagnostics_label_node": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "node"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "node"
+          }
+        }
+      }
+    },
+    "diagnostics_label_preview_probes": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preview-Erkennung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preview detection"
+          }
+        }
+      }
+    },
+    "diagnostics_label_pwa_install": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Home-Bildschirm-App"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Home Screen app"
+          }
+        }
+      }
+    },
+    "diagnostics_label_sandbox_membrane": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent-Start in Sandbox"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent launch in sandbox"
+          }
+        }
+      }
+    },
+    "diagnostics_label_tailscale": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale"
+          }
+        }
+      }
+    },
+    "diagnostics_label_tmp_inodes": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inodes im temporären Dateisystem"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Temp filesystem inodes"
+          }
+        }
+      }
+    },
+    "diagnostics_learn_more": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mehr erfahren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Learn more"
+          }
+        }
+      }
+    },
+    "diagnostics_load_error": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checks konnten nicht geladen werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't load checks."
+          }
+        }
+      }
+    },
+    "diagnostics_pip_label": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einige Voraussetzungen brauchen Aufmerksamkeit"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Some prerequisites need attention"
+          }
+        }
+      }
+    },
+    "diagnostics_rerun": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checks neu prüfen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Re-run checks"
+          }
+        }
+      }
+    },
+    "diagnostics_rerun_error": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checks konnten nicht neu geprüft werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Failed to re-run checks."
+          }
+        }
+      }
+    },
+    "diagnostics_state_error": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Problem"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Problem"
+          }
+        }
+      }
+    },
+    "diagnostics_state_installed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installiert"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installed"
+          }
+        }
+      }
+    },
+    "diagnostics_state_not_installed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht installiert"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not installed"
+          }
+        }
+      }
+    },
+    "diagnostics_state_ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        }
+      }
+    },
+    "diagnostics_state_optional": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Optional"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Optional"
+          }
+        }
+      }
+    },
+    "diagnostics_state_warning": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warnung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warning"
+          }
+        }
+      }
+    },
+    "diagnostics_subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voraussetzungen, die Shepherd für einen reibungslosen Lauf braucht."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prerequisites Shepherd needs to run smoothly."
+          }
+        }
+      }
+    },
+    "diagnostics_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System-Diagnose"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System diagnostics"
+          }
+        }
+      }
+    },
     "diff_empty": {
       "comment": "%1$@ = base",
       "extractionState": "manual",
@@ -7979,6 +10024,1711 @@
         }
       }
     },
+    "native_settings_access": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zugriff"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Access"
+          }
+        }
+      }
+    },
+    "native_settings_action_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Aktion ist fehlgeschlagen. Vor einem neuen Versuch aktualisieren."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The operation failed. Refresh before retrying."
+          }
+        }
+      }
+    },
+    "native_settings_active_token_protected": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieses Token wird möglicherweise von der aktiven Verbindung verwendet und kann hier nicht widerrufen werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This token may be used by the active connection and cannot be revoked here."
+          }
+        }
+      }
+    },
+    "native_settings_api_key": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API-Schlüssel (leer zum Löschen)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API key (empty clears it)"
+          }
+        }
+      }
+    },
+    "native_settings_automation_notice": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktivierte Automatisierung kann Agenten starten und Änderungen ohne weitere Nachfrage mergen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enabling automation can start agents and merge work without another prompt."
+          }
+        }
+      }
+    },
+    "native_settings_browse_root": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Server-Ordner durchsuchen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browse server folders"
+          }
+        }
+      }
+    },
+    "native_settings_clis": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coding-CLIs"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coding CLIs"
+          }
+        }
+      }
+    },
+    "native_settings_colorblind": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ohne Farbe unterscheiden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Differentiate without color"
+          }
+        }
+      }
+    },
+    "native_settings_command_palette": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Befehlspalette"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command palette"
+          }
+        }
+      }
+    },
+    "native_settings_command_search": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Befehle suchen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search commands"
+          }
+        }
+      }
+    },
+    "native_settings_connect": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zum Bearbeiten dieser Einstellungen mit einem Server verbinden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect to a server to edit these settings."
+          }
+        }
+      }
+    },
+    "native_settings_contrast": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontrast erhöhen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Increase contrast"
+          }
+        }
+      }
+    },
+    "native_settings_credits": {
+      "comment": "%1$@ = spent, %2$@ = cap, %3$@ = currency",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zusatzguthaben: %1$@ von %2$@ %3$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Credits: %1$@ of %2$@ %3$@"
+          }
+        }
+      }
+    },
+    "native_settings_dark": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dunkel"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dark"
+          }
+        }
+      }
+    },
+    "native_settings_days": {
+      "comment": "%1$@ = days",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ Tagen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ days"
+          }
+        }
+      }
+    },
+    "native_settings_diagnose": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diagnose"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diagnose"
+          }
+        }
+      }
+    },
+    "native_settings_diagnostic_unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Prüfung erfordert Aufmerksamkeit. Server-Diagnose prüfen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This check needs attention. Consult the server diagnostics."
+          }
+        }
+      }
+    },
+    "native_settings_env_token": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf diesem Server ist ein über die Umgebung bereitgestelltes Token aktiv."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An environment-provisioned token is active on this server."
+          }
+        }
+      }
+    },
+    "native_settings_field_authmode": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anmeldemodus für Agenten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent authentication mode"
+          }
+        }
+      }
+    },
+    "native_settings_field_autopilotcli": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "autopilot CLI"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "autopilot CLI"
+          }
+        }
+      }
+    },
+    "native_settings_field_autopiloteffort": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "autopilot Aufwand"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "autopilot effort"
+          }
+        }
+      }
+    },
+    "native_settings_field_autopilotmodel": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "autopilot Modell"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "autopilot model"
+          }
+        }
+      }
+    },
+    "native_settings_field_autoreviveenabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sitzungen automatisch wiederbeleben"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatically revive sessions"
+          }
+        }
+      }
+    },
+    "native_settings_field_blockjudgemode": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Judge-Modus für blockierte Sitzungen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blocked-session judge mode"
+          }
+        }
+      }
+    },
+    "native_settings_field_criticcli": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "critic CLI"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "critic CLI"
+          }
+        }
+      }
+    },
+    "native_settings_field_criticeffort": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "critic Aufwand"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "critic effort"
+          }
+        }
+      }
+    },
+    "native_settings_field_criticmodel": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "critic Modell"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "critic model"
+          }
+        }
+      }
+    },
+    "native_settings_field_defaultagentprovider": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard-Coding-CLI"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default coding CLI"
+          }
+        }
+      }
+    },
+    "native_settings_field_defaultcodexmodel": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standardmodell für Codex"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default Codex model"
+          }
+        }
+      }
+    },
+    "native_settings_field_defaulteffort": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standardaufwand"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default effort"
+          }
+        }
+      }
+    },
+    "native_settings_field_defaultmodel": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standardmodell"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default model"
+          }
+        }
+      }
+    },
+    "native_settings_field_distillercli": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "distiller CLI"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "distiller CLI"
+          }
+        }
+      }
+    },
+    "native_settings_field_distillereffort": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "distiller Aufwand"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "distiller effort"
+          }
+        }
+      }
+    },
+    "native_settings_field_distillerintervaldays": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Distiller-Intervall in Tagen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Distiller interval in days"
+          }
+        }
+      }
+    },
+    "native_settings_field_distillermodel": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "distiller Modell"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "distiller model"
+          }
+        }
+      }
+    },
+    "native_settings_field_docagentcli": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "docAgent CLI"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "docAgent CLI"
+          }
+        }
+      }
+    },
+    "native_settings_field_docagenteffort": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "docAgent Aufwand"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "docAgent effort"
+          }
+        }
+      }
+    },
+    "native_settings_field_docagentmodel": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "docAgent Modell"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "docAgent model"
+          }
+        }
+      }
+    },
+    "native_settings_field_extracreditsdrainceiling": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zusatzguthaben-Limit für Drain"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drain paid-credit ceiling"
+          }
+        }
+      }
+    },
+    "native_settings_field_fableavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fable verfügbar"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fable available"
+          }
+        }
+      }
+    },
+    "native_settings_field_houserulerelevance": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relevanzmodus für Hausregeln"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "House-rule relevance mode"
+          }
+        }
+      }
+    },
+    "native_settings_field_judgedailyusd": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tägliches USD-Limit für Judge"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Judge daily USD ceiling"
+          }
+        }
+      }
+    },
+    "native_settings_field_judgeenabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Judge aktivieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable judge"
+          }
+        }
+      }
+    },
+    "native_settings_field_mergesuggestcli": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mergeSuggest CLI"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mergeSuggest CLI"
+          }
+        }
+      }
+    },
+    "native_settings_field_mergesuggesteffort": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mergeSuggest Aufwand"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mergeSuggest effort"
+          }
+        }
+      }
+    },
+    "native_settings_field_mergesuggestmodel": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mergeSuggest Modell"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mergeSuggest model"
+          }
+        }
+      }
+    },
+    "native_settings_field_namercli": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "namer CLI"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "namer CLI"
+          }
+        }
+      }
+    },
+    "native_settings_field_namereffort": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "namer Aufwand"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "namer effort"
+          }
+        }
+      }
+    },
+    "native_settings_field_namermodel": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "namer Modell"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "namer model"
+          }
+        }
+      }
+    },
+    "native_settings_field_operatorlanguage": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Operator-Sprache"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Operator language"
+          }
+        }
+      }
+    },
+    "native_settings_field_optimizercli": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "optimizer CLI"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "optimizer CLI"
+          }
+        }
+      }
+    },
+    "native_settings_field_optimizereffort": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "optimizer Aufwand"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "optimizer effort"
+          }
+        }
+      }
+    },
+    "native_settings_field_optimizermodel": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "optimizer Modell"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "optimizer model"
+          }
+        }
+      }
+    },
+    "native_settings_field_plannercli": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "planner CLI"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "planner CLI"
+          }
+        }
+      }
+    },
+    "native_settings_field_plannereffort": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "planner Aufwand"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "planner effort"
+          }
+        }
+      }
+    },
+    "native_settings_field_plannermodel": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "planner Modell"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "planner model"
+          }
+        }
+      }
+    },
+    "native_settings_field_planreviewcyclescap": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Limit für Plan-Review-Zyklen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan review cycle cap"
+          }
+        }
+      }
+    },
+    "native_settings_field_prreviewcyclescap": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Limit für PR-Review-Zyklen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR review cycle cap"
+          }
+        }
+      }
+    },
+    "native_settings_field_recapcli": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "recap CLI"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "recap CLI"
+          }
+        }
+      }
+    },
+    "native_settings_field_recapeffort": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "recap Aufwand"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "recap effort"
+          }
+        }
+      }
+    },
+    "native_settings_field_recapmodel": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "recap Modell"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "recap model"
+          }
+        }
+      }
+    },
+    "native_settings_field_reducedpushmode": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reduzierte Benachrichtigungen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reduced notifications"
+          }
+        }
+      }
+    },
+    "native_settings_field_remotecontrolatstartup": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fernsteuerung beim Start"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote control at startup"
+          }
+        }
+      }
+    },
+    "native_settings_field_sessionhousekeepingenabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sitzungsbereinigung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session housekeeping"
+          }
+        }
+      }
+    },
+    "native_settings_field_telemetryconsent": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Telemetrie-Zustimmung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Telemetry consent"
+          }
+        }
+      }
+    },
+    "native_settings_field_tuidisablemouse": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TUI-Mauserfassung deaktivieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disable TUI mouse capture"
+          }
+        }
+      }
+    },
+    "native_settings_field_tuifullscreen": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vollbild-TUI"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fullscreen TUI"
+          }
+        }
+      }
+    },
+    "native_settings_field_upnextskipclipicker": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI-Auswahl für Als Nächstes überspringen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skip CLI picker for Up Next"
+          }
+        }
+      }
+    },
+    "native_settings_field_usagedowngradeenabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modell am Nutzungslimit herabstufen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Downgrade model at usage limit"
+          }
+        }
+      }
+    },
+    "native_settings_field_usagedowngrademodel": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ersatzmodell am Nutzungslimit"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fallback model at usage limit"
+          }
+        }
+      }
+    },
+    "native_settings_field_usagedowngradepct": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nutzungsprozentsatz zur Modell-Herabstufung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Model downgrade percentage"
+          }
+        }
+      }
+    },
+    "native_settings_field_usageholdautorelease": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gehaltene Aufgaben automatisch freigeben"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatically release held tasks"
+          }
+        }
+      }
+    },
+    "native_settings_field_usageholdenabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aufgaben am Nutzungslimit halten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hold tasks at usage limit"
+          }
+        }
+      }
+    },
+    "native_settings_field_usageholdpct": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nutzungsprozentsatz zum Halten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage hold percentage"
+          }
+        }
+      }
+    },
+    "native_settings_fix": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Korrektur anwenden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apply fix"
+          }
+        }
+      }
+    },
+    "native_settings_fix_confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Korrektur auf dem Server ausführen?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run this remediation on the server?"
+          }
+        }
+      }
+    },
+    "native_settings_fork": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fork erstellen und klonen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fork and clone"
+          }
+        }
+      }
+    },
+    "native_settings_fork_target": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub-Eigentümer/Repository"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub owner/repository"
+          }
+        }
+      }
+    },
+    "native_settings_full_motion": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volle Bewegung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Full motion"
+          }
+        }
+      }
+    },
+    "native_settings_general": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allgemein"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "General"
+          }
+        }
+      }
+    },
+    "native_settings_key_absent": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein API-Schlüssel eingerichtet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No API key configured"
+          }
+        }
+      }
+    },
+    "native_settings_key_confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API-Schlüssel des Servers ersetzen oder löschen?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Replace or clear the server API key?"
+          }
+        }
+      }
+    },
+    "native_settings_key_present": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API-Schlüssel eingerichtet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API key configured"
+          }
+        }
+      }
+    },
+    "native_settings_key_save": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API-Schlüssel speichern"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save API key"
+          }
+        }
+      }
+    },
+    "native_settings_light": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hell"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Light"
+          }
+        }
+      }
+    },
+    "native_settings_load_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einstellungen konnten nicht geladen werden. Nach dem Verbinden erneut versuchen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not load settings. Retry after reconnecting."
+          }
+        }
+      }
+    },
+    "native_settings_lock_access": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zugriff sperren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lock access"
+          }
+        }
+      }
+    },
+    "native_settings_login_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Operator-Anmeldung konnte nicht gestartet werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not start operator login."
+          }
+        }
+      }
+    },
+    "native_settings_merger": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merger-Login"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merger login"
+          }
+        }
+      }
+    },
+    "native_settings_model_usage": {
+      "comment": "%1$@ = model, %2$@ = pct",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@%% diese Woche"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@%% this week"
+          }
+        }
+      }
+    },
+    "native_settings_motion": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bewegung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Motion"
+          }
+        }
+      }
+    },
+    "native_settings_never": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Never"
+          }
+        }
+      }
+    },
+    "native_settings_no_commands": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine passenden Befehle"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No matching commands"
+          }
+        }
+      }
+    },
+    "native_settings_notifications": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Benachrichtigungen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifications"
+          }
+        }
+      }
+    },
+    "native_settings_observed_absent": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine beobachteten Nutzungsfenster verfügbar"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No observed usage windows available"
+          }
+        }
+      }
+    },
+    "native_settings_observed_session": {
+      "comment": "%1$@ = pct",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beobachtetes 5-Stunden-Fenster: %1$@%%"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Observed 5-hour window: %1$@%%"
+          }
+        }
+      }
+    },
+    "native_settings_observed_week": {
+      "comment": "%1$@ = pct",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beobachtete Woche: %1$@%%"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Observed week: %1$@%%"
+          }
+        }
+      }
+    },
+    "native_settings_open": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einstellungen …"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Settings…"
+          }
+        }
+      }
+    },
+    "native_settings_parent": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Übergeordneter Ordner"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parent folder"
+          }
+        }
+      }
+    },
+    "native_settings_people_unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mitarbeiter-Vorschläge sind nicht verfügbar."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collaborator suggestions are unavailable."
+          }
+        }
+      }
+    },
     "native_settings_placeholder_body": {
       "extractionState": "manual",
       "localizations": {
@@ -8009,6 +11759,1131 @@
           "stringUnit": {
             "state": "translated",
             "value": "Nothing to configure yet"
+          }
+        }
+      }
+    },
+    "native_settings_plan_bounds": {
+      "comment": "%1$@ = min, %2$@ = max",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bereich für Plan-Review-Limit: %1$@–%2$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan review cap range: %1$@–%2$@"
+          }
+        }
+      }
+    },
+    "native_settings_pr_bounds": {
+      "comment": "%1$@ = min, %2$@ = max",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bereich für PR-Review-Limit: %1$@–%2$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR review cap range: %1$@–%2$@"
+          }
+        }
+      }
+    },
+    "native_settings_pull": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standardbranch aktualisieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pull default branch"
+          }
+        }
+      }
+    },
+    "native_settings_reduced_motion": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reduzierte Bewegung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reduced motion"
+          }
+        }
+      }
+    },
+    "native_settings_reduced_push": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reduzierte Benachrichtigungen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reduced notifications"
+          }
+        }
+      }
+    },
+    "native_settings_refresh_diagnostics": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diagnose aktualisieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refresh diagnostics"
+          }
+        }
+      }
+    },
+    "native_settings_repo": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repository"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repository"
+          }
+        }
+      }
+    },
+    "native_settings_repo_autoaddressenabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review automatisch bearbeiten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatically address review"
+          }
+        }
+      }
+    },
+    "native_settings_repo_autodrainenabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatischer Drain"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatic drain"
+          }
+        }
+      }
+    },
+    "native_settings_repo_autolabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Issue-Label für Drain"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drain issue label"
+          }
+        }
+      }
+    },
+    "native_settings_repo_automergeenabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatischer Merge"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatic merge"
+          }
+        }
+      }
+    },
+    "native_settings_repo_autooptimizeflagged": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Markierte Regeln optimieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Optimize flagged rules"
+          }
+        }
+      }
+    },
+    "native_settings_repo_autopilotenabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autopilot"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autopilot"
+          }
+        }
+      }
+    },
+    "native_settings_repo_buildqueueenabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Build-Warteschlange"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Build queue"
+          }
+        }
+      }
+    },
+    "native_settings_repo_confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Änderung auf dem Server anwenden?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apply this change on the server?"
+          }
+        }
+      }
+    },
+    "native_settings_repo_criticallprs": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kritiker für alle PRs"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Critic on all PRs"
+          }
+        }
+      }
+    },
+    "native_settings_repo_criticenabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR-Kritiker"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR critic"
+          }
+        }
+      }
+    },
+    "native_settings_repo_criticsmelllensenabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kritiker-Smell-Prüfungen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Critic smell checks"
+          }
+        }
+      }
+    },
+    "native_settings_repo_defaulteffort": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standardaufwand des Repositories"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repository default effort"
+          }
+        }
+      }
+    },
+    "native_settings_repo_defaultmodel": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standardmodell des Repositories"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repository default model"
+          }
+        }
+      }
+    },
+    "native_settings_repo_draftmode": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entwurfsmodus"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Draft mode"
+          }
+        }
+      }
+    },
+    "native_settings_repo_egressextrahosts": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zusätzlich erlaubte Hosts, kommagetrennt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Extra allowed hosts, comma separated"
+          }
+        }
+      }
+    },
+    "native_settings_repo_epicstacksenabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Epic-Stacks"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Epic stacks"
+          }
+        }
+      }
+    },
+    "native_settings_repo_hidden": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repository ausblenden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide repository"
+          }
+        }
+      }
+    },
+    "native_settings_repo_learningsenabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erkenntnisse"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Learnings"
+          }
+        }
+      }
+    },
+    "native_settings_repo_manualstepsissueenabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tracking-Issue für manuelle Schritte"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manual-step tracking issue"
+          }
+        }
+      }
+    },
+    "native_settings_repo_maxauto": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maximale gleichzeitige automatische Agenten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maximum concurrent automatic agents"
+          }
+        }
+      }
+    },
+    "native_settings_repo_plangateenabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan-Freigabe"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan gate"
+          }
+        }
+      }
+    },
+    "native_settings_repo_previewopenmode": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vorschau-Öffnungsmodus"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preview opening mode"
+          }
+        }
+      }
+    },
+    "native_settings_repo_previewstartcommand": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vorschau-Startbefehl"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preview start command"
+          }
+        }
+      }
+    },
+    "native_settings_repo_previewstartscript": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kanonisches Vorschau-Startskript"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canonical preview start script"
+          }
+        }
+      }
+    },
+    "native_settings_repo_prewarmepiclandingci": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Epic-Landing-CI vorwärmen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pre-warm epic landing CI"
+          }
+        }
+      }
+    },
+    "native_settings_repo_repomode": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repository-Modus"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repository mode"
+          }
+        }
+      }
+    },
+    "native_settings_repo_sandboxprofile": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sandbox-Profil"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sandbox profile"
+          }
+        }
+      }
+    },
+    "native_settings_repo_signoffauthority": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Freigabeinstanz"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign-off authority"
+          }
+        }
+      }
+    },
+    "native_settings_repo_usageceilingpct": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nutzungslimit in Prozent"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage ceiling percentage"
+          }
+        }
+      }
+    },
+    "native_settings_retention": {
+      "comment": "%1$@ = days, %2$@ = keep",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aufbewahrung: %1$@ Tage, mindestens %2$@ Sitzungen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retention: %1$@ days, keeping %2$@ sessions"
+          }
+        }
+      }
+    },
+    "native_settings_reviewer": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reviewer-Login"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reviewer login"
+          }
+        }
+      }
+    },
+    "native_settings_revoke": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Widerrufen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revoke"
+          }
+        }
+      }
+    },
+    "native_settings_revoke_confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieses Token widerrufen? Clients verlieren damit ihren Zugriff."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revoke this token? Clients using it will lose access."
+          }
+        }
+      }
+    },
+    "native_settings_roles_push_notice": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dies committet und pusht die Reviewer- und Merger-Rollen in den Standardbranch."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This commits and pushes the reviewer and merger roles to the default branch."
+          }
+        }
+      }
+    },
+    "native_settings_roles_save": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rollen speichern und pushen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save and push roles"
+          }
+        }
+      }
+    },
+    "native_settings_scope_full": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vollzugriff"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Full access"
+          }
+        }
+      }
+    },
+    "native_settings_scope_read": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur lesen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Read only"
+          }
+        }
+      }
+    },
+    "native_settings_scope_submit": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aufgaben einreichen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Submit tasks"
+          }
+        }
+      }
+    },
+    "native_settings_select_repo": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repository wählen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Select a repository"
+          }
+        }
+      }
+    },
+    "native_settings_stale": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Daten sind veraltet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Data is stale"
+          }
+        }
+      }
+    },
+    "native_settings_subscription_only": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur Abonnement-Nutzung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subscription usage only"
+          }
+        }
+      }
+    },
+    "native_settings_sync": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fork synchronisieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sync fork"
+          }
+        }
+      }
+    },
+    "native_settings_system": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System"
+          }
+        }
+      }
+    },
+    "native_settings_theme": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Darstellung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appearance"
+          }
+        }
+      }
+    },
+    "native_settings_token_create": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Token erstellen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create token"
+          }
+        }
+      }
+    },
+    "native_settings_token_expiry": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Läuft ab nach"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expires after"
+          }
+        }
+      }
+    },
+    "native_settings_token_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Token-Aktion fehlgeschlagen. Zugriff erneut entsperren."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Token operation failed. Unlock access again."
+          }
+        }
+      }
+    },
+    "native_settings_token_login": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Token-Verwaltung entsperren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unlock token administration"
+          }
+        }
+      }
+    },
+    "native_settings_token_name": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Token-Name"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Token name"
+          }
+        }
+      }
+    },
+    "native_settings_token_once": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur einmal sichtbar. Jetzt kopieren; nach dem Schließen ist es nicht erneut abrufbar."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shown once. Copy now; closing this pane hides it permanently."
+          }
+        }
+      }
+    },
+    "native_settings_token_scope": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Berechtigung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scope"
+          }
+        }
+      }
+    },
+    "native_settings_usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nutzungsdetails"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage details"
+          }
+        }
+      }
+    },
+    "native_settings_usage_all": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nutzung einschließlich Zusatzguthaben"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage including paid credits"
+          }
+        }
+      }
+    },
+    "native_settings_use_folder": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diesen Ordner verwenden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use this folder"
+          }
+        }
+      }
+    },
+    "native_settings_verify_confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Temporären Agenten zur Prüfung der Anmeldung starten?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start a temporary agent to verify authentication?"
+          }
+        }
+      }
+    },
+    "native_settings_verify_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prüfung fehlgeschlagen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verification failed"
+          }
+        }
+      }
+    },
+    "native_settings_verify_key": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API-Schlüssel prüfen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verify API key"
+          }
+        }
+      }
+    },
+    "native_settings_verify_ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schlüssel bestätigt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Key verified"
+          }
+        }
+      }
+    },
+    "native_settings_workspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbeitsbereich"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace"
           }
         }
       }

@@ -1,4 +1,3 @@
-import AppKit
 import Foundation
 import ShepherdKit
 import Testing
@@ -874,213 +873,56 @@ struct NotificationsModelTests {
     }
 }
 
-/// The two suites below share process-wide mutable state: `NotificationSettingsWindow`'s statics
-/// and `NSApp.mainMenu` itself. `.serialized` on a suite only orders the tests *inside* it, so as
-/// siblings they were free to run in parallel — one installing a menu item while the other
-/// asserted on a pristine menu. Nesting them under one serialized parent is what actually keeps
-/// them apart; both are still serialized internally, and both `reset()` in their own `init`.
-@Suite(.serialized)
+@Suite(.serialized) @MainActor
 struct NotificationWindowStateTests {
-
-    /// The install point, driven through a real `AppModel` — which is also the only place the
-    /// `init(store:app:)` branch runs, and therefore the proof that an isolated launch (which
-    /// every test is) builds a `FakeNotificationCenter` and never reaches
-    /// `UNUserNotificationCenter`.
-    @MainActor
-    @Suite(.serialized)
-    struct NotificationsStreamTests {
-        /// `install` adds the settings menu item, so this suite mutates the same statics and the
-        /// same `NSApp.mainMenu` as its sibling. Start from a known-empty one.
-        init() { NotificationSettingsWindow.reset() }
-
-        private func makeModel() -> AppModel {
-            let suite = UUID().uuidString
-            let defaults = UserDefaults(suiteName: suite)!
+    init() { resetStreamSeams() }
+    @Test func notificationPaneAndModelRegisterOnce() {
+        let suite = "notification-scene-" + UUID().uuidString
+        let defaults = UserDefaults(suiteName: suite)!
+        defer {
             defaults.removePersistentDomain(forName: suite)
-            return AppModel(defaults: defaults, credentials: InMemoryCredentialStore())
+            resetStreamSeams()
         }
-
-        @Test func installRegistersTheModelAndIsIdempotent() async throws {
-            let app = makeModel()
-            NotificationsStream.install(app)
-            NotificationsStream.install(app)
-            #expect(app.extension(NotificationsModel.self) == nil, "nothing is live before a store")
-
-            let profile = try app.addRemoteProfile(
-                name: "notify", address: "https://notify.example.ts.net")
-            await app.activate(profile)
-            let live = try #require(app.extension(NotificationsModel.self))
-            #expect(live.isSubscribed, "the event tap is running")
-
-            app.teardown()
-            #expect(!live.isSubscribed)
-            #expect(app.extension(NotificationsModel.self) == nil)
-        }
+        let app = AppModel(defaults: defaults, credentials: InMemoryCredentialStore())
+        defer { app.teardown() }
+        NotificationsStream.install(app); NotificationsStream.install(app)
+        SettingsFeature.installScene(); SettingsFeature.installScene()
+        #expect(app.extensionFactories.count == 1)
+        #expect(SettingsPaneEntry.notifications(in: app) == nil)
+        #expect(SettingsPaneRegistry.panes.filter { $0.id == "notifications" }.count == 1)
     }
-
-    @MainActor
-    @Suite(.serialized)
-    struct NotificationSettingsViewTests {
-        init() { NotificationSettingsWindow.reset() }
-
-        /// A throwaway suite *and* an in-memory credential store. `AppModel.init` defaults
-        /// `credentials` to `KeychainCredentialStore()`, which is exactly the unattended-run stall
-        /// this plan's "No Keychain prompts" constraint exists to prevent; every existing app test
-        /// passes the in-memory store for the same reason. The suite is emptied on creation and
-        /// left empty, so a run leaves no private domains behind.
-        private func scratchApp() -> AppModel {
-            let suite = "run.shepherd.mac.notifyview.\(UUID().uuidString)"
-            let defaults = UserDefaults(suiteName: suite)!
-            defaults.removePersistentDomain(forName: suite)
-            return AppModel(defaults: defaults, credentials: InMemoryCredentialStore())
-        }
-
-        @Test func theMenuItemIsInstalledOnceHoweverOftenInstallRuns() {
-            let app = scratchApp()
-            #expect(!NotificationSettingsWindow.menuItemInstalled)
-            NotificationSettingsWindow.installMenuItem(app)
-            NotificationSettingsWindow.installMenuItem(app)
-            #expect(NotificationSettingsWindow.menuItemInstalled)
-        }
-
-        @Test func installingTheStreamRegistersOneExtension() {
-            let app = scratchApp()
-            NotificationsStream.install(app)
-            NotificationsStream.install(app)
-            #expect(app.extensionFactories.count == 1)
-        }
-
-        @Test func theViewModelReportsWhatThePanelMustSay() {
-            #expect(
-                NotificationSettingsView.permissionNote(for: .denied)
-                    == L.t("native_notify_settings_permission_denied"))
-            #expect(NotificationSettingsView.permissionNote(for: .granted) == nil)
-            #expect(
-                NotificationSettingsView.permissionNote(for: .notDetermined) == nil,
-                "not-yet-asked shows the button, not the warning")
-            #expect(NotificationSettingsView.showsAskButton(for: .notDetermined))
-            #expect(!NotificationSettingsView.showsAskButton(for: .granted))
-            #expect(!NotificationSettingsView.showsAskButton(for: .denied))
-        }
-
-        /// The other half of the stale-panel bug: an operator who switches the active profile from
-        /// the main window, without closing an already-open panel, must not go on seeing — or
-        /// writing to — the profile the panel was opened for.
-        ///
-        /// The stream is installed and the panel asserted **open** first, on purpose. `show(_:)`
-        /// returns early when the activation has no `NotificationsModel`, so without the install
-        /// this test closed a window that had never opened — and passed with the profile-change
-        /// observation deleted outright.
-        @Test func theWindowClosesWhenTheActiveProfileChanges() async throws {
-            let app = scratchApp()
-            NotificationsStream.install(app)
-            let first = try app.addRemoteProfile(
-                name: "panel-first", address: "https://panel-first.example.ts.net")
-            await app.activate(first)
-            NotificationSettingsWindow.show(app)
-            #expect(NotificationSettingsWindow.isOpen, "the panel really is open before the switch")
-
-            let second = try app.addRemoteProfile(
-                name: "panel-second", address: "https://panel-second.example.ts.net")
-            await app.activate(second)
-            for _ in 0..<5 { await Task.yield() }
-
-            #expect(
-                NotificationSettingsWindow.isOpen == false,
-                "a stale panel must not keep showing the previous profile's name or accept toggles")
-
-            app.teardown()
-        }
-
-        /// The half of the stale-panel bug that a yield hides: the watcher's task body does not
-        /// run until the main actor gets back to it, and a profile switch can land in that gap.
-        /// Arming observation there would register against the already-new generation and then
-        /// wait for the change *after* it, so the panel would stay open on the outgoing profile —
-        /// showing its name and accepting toggles the model's teardown guard silently drops.
-        ///
-        /// `AppModel.teardown()` bumps `activationGeneration` synchronously, which is what makes
-        /// this deterministic: not a single suspension separates `show(_:)` from the change.
-        @Test func aProfileSwitchBeforeTheWatcherArmsStillClosesThePanel() async throws {
-            let app = scratchApp()
-            // Installed so the activation really builds a `NotificationsModel`: `show(_:)` returns
-            // early without one, and a panel that never opened would close vacuously.
-            NotificationsStream.install(app)
-            let profile = try app.addRemoteProfile(
-                name: "panel-early", address: "https://panel-early.example.ts.net")
-            await app.activate(profile)
-
-            NotificationSettingsWindow.show(app)
-            #expect(NotificationSettingsWindow.isOpen, "the panel is open before the switch")
-
-            app.teardown()
-            for _ in 0..<5 { await Task.yield() }
-
-            #expect(
-                NotificationSettingsWindow.isOpen == false,
-                "a generation that moved before the watcher armed must still close the panel")
-        }
-
-        /// The watcher is resumed by exactly one thing — `onChange`, which fires at most once
-        /// ever. A reopen cancels the previous watcher, and before the wait handled cancellation
-        /// that cancelled task stayed suspended for the life of the process, holding its
-        /// `AppModel`: one stranded task and one retained model per reopen, and `reset()` could
-        /// not release an armed one at all.
-        ///
-        /// `armedWatchers` counts the tasks actually parked on that wait, which is the only
-        /// externally visible difference between a released watcher and a leaked one. Deleting
-        /// the `withTaskCancellationHandler` leaves this at 2, then 1.
-        @Test func reopeningThePanelReleasesThePreviousWatcher() async throws {
-            let app = scratchApp()
-            NotificationsStream.install(app)
-            let profile = try app.addRemoteProfile(
-                name: "panel-watcher", address: "https://panel-watcher.example.ts.net")
-            await app.activate(profile)
-
-            NotificationSettingsWindow.show(app)
-            for _ in 0..<5 { await Task.yield() }
-            #expect(NotificationSettingsWindow.armedWatchers == 1, "one panel, one watcher")
-
-            NotificationSettingsWindow.show(app)
-            for _ in 0..<5 { await Task.yield() }
-            #expect(
-                NotificationSettingsWindow.armedWatchers == 1,
-                "reopening must not strand the watcher the previous open armed")
-
-            NotificationSettingsWindow.reset()
-            for _ in 0..<5 { await Task.yield() }
-            #expect(
-                NotificationSettingsWindow.armedWatchers == 0,
-                "and reset() must release the armed one, not merely drop its handle")
-
-            app.teardown()
-        }
-
-        /// `reset()` must remove the item and separator `installMenuItem` inserted, not merely
-        /// clear the flag that gates a second insert — the flag alone lets a second test's
-        /// `installMenuItem` add a genuine duplicate, since the guard only stops re-insertion
-        /// while the flag is still `true`. Inspecting `NSApp.mainMenu` is what actually proves the
-        /// regression is absent; the suite's `init()` already calls `reset()` first, so this
-        /// starts from zero items.
-        @Test func resetRemovesTheMenuItemAndSeparatorItInserted() {
-            let app = scratchApp()
-            NotificationSettingsWindow.installMenuItem(app)
-            NotificationSettingsWindow.installMenuItem(app)
-
-            #expect(
-                notificationsMenuItemCount() == 1,
-                "a second install call must not add a genuine duplicate")
-
-            NotificationSettingsWindow.reset()
-
-            #expect(
-                notificationsMenuItemCount() == 0,
-                "reset() must remove the item it inserted, not just clear the Boolean")
-        }
-
-        private func notificationsMenuItemCount() -> Int {
-            guard let appMenu = NSApp?.mainMenu?.items.first?.submenu else { return 0 }
-            let title = L.t("native_notify_settings_menu_item")
-            return appMenu.items.filter { $0.title == title }.count
-        }
+    @Test func permissionCopySurvivesPanelRetirement() {
+        #expect(NotificationSettingsView.permissionNote(for: .denied)
+            == L.t("native_notify_settings_permission_denied"))
+        #expect(NotificationSettingsView.permissionNote(for: .granted) == nil)
+        #expect(NotificationSettingsView.permissionNote(for: .notDetermined) == nil)
+        #expect(NotificationSettingsView.showsAskButton(for: .notDetermined))
+        #expect(!NotificationSettingsView.showsAskButton(for: .granted))
+        #expect(!NotificationSettingsView.showsAskButton(for: .denied))
+    }
+    @Test func paneResolvesNewActivationAndCannotWriteThroughRetiredModel() async throws {
+        let suite = "notification-scene-switch-" + UUID().uuidString
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let app = AppModel(defaults: defaults, credentials: InMemoryCredentialStore())
+        defer { app.teardown() }
+        NotificationsStream.install(app)
+        let first = try app.addRemoteProfile(name: "first", address: "https://first.example.ts.net")
+        await app.activate(first)
+        let old = try #require(SettingsPaneEntry.notifications(in: app))
+        let generation = app.activationGeneration
+        let second = try app.addRemoteProfile(name: "second", address: "https://second.example.ts.net")
+        await app.activate(second)
+        let current = try #require(SettingsPaneEntry.notifications(in: app))
+        #expect(current !== old)
+        #expect(app.activationGeneration != generation)
+        let oldSettings = old.settings
+        let currentSettings = current.settings
+        old.save(oldSettings.settingEnabled(!oldSettings.enabled))
+        #expect(old.settings == oldSettings)
+        #expect(current.settings == currentSettings)
+        app.teardown() // Synchronous generation change, before any observer can arm.
+        #expect(SettingsPaneEntry.notifications(in: app) == nil)
+        #expect(!old.isSubscribed); #expect(!current.isSubscribed)
     }
 }

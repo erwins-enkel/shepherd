@@ -11,6 +11,43 @@ struct ShepherdClientComposeTests {
         return try ShepherdClient(profile: profile, credentials: credentials, urlSession: server.urlSession())
     }
 
+    @Test(arguments: ["attachment bytes", ""])
+    func uploadUsesGeneratedMultipartWithFileNameAndExactBytes(_ content: String) async throws {
+        let server = FakeShepherdServer()
+        defer { server.tearDown() }
+        server.stub("POST", "/api/uploads", status: 200, json: Data(#"{"path":"/staged/abc.txt"}"#.utf8))
+        let result = try await makeClient(server).uploadFile(data: Data(content.utf8), filename: "original.txt")
+        #expect(result.path == "/staged/abc.txt")
+        let request = try #require(server.requests().last)
+        #expect(request.method == "POST" && request.path == "/api/uploads")
+        #expect(request.query == nil || request.query == "")
+        let contentType = request.headers.first { $0.key.lowercased() == "content-type" }?.value
+        #expect(contentType?.hasPrefix("multipart/form-data; boundary=") == true)
+        let body = String(decoding: try #require(request.body), as: UTF8.self)
+        #expect(body.contains("name=\"file\""))
+        #expect(body.contains("filename=\"original.txt\""))
+        #expect(body.contains("\r\n\r\n" + content + "\r\n"))
+    }
+
+    @Test(arguments: [400, 401, 404, 413, 503])
+    func uploadMapsEveryDeclaredError(_ status: Int) async throws {
+        let server = FakeShepherdServer()
+        defer { server.tearDown() }
+        server.stub("POST", "/api/uploads", status: status, json: try Fixtures.errorJSON("bad"))
+        let client = try makeClient(server)
+        if status == 413 {
+            await #expect(throws: ComposeUploadError.fileTooLarge("bad")) {
+                _ = try await client.uploadFile(data: Data(), filename: "empty.txt")
+            }
+        } else {
+            let expected: ShepherdError = status == 400 ? .badRequest("bad") : status == 401 ? .unauthenticated
+                : status == 404 ? .notFound : .contractMismatch(route: "uploadFile", underlying: "undocumented status 503")
+            await #expect(throws: expected) {
+                _ = try await client.uploadFile(data: Data(), filename: "empty.txt")
+            }
+        }
+    }
+
     @Test("four issues decode with viewer and the repo query reaches the wire")
     func listing() async throws {
         let server = FakeShepherdServer()

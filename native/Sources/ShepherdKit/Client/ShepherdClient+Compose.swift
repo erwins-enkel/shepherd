@@ -1,4 +1,9 @@
 import Foundation
+import OpenAPIRuntime
+
+public enum ComposeUploadError: Error, Equatable, Sendable {
+    case fileTooLarge(String)
+}
 
 public typealias BranchListing = Components.Schemas.BranchListing
 public typealias BranchStatus = Components.Schemas.BranchStatus
@@ -21,6 +26,25 @@ extension Components.Schemas.SlashCommandKind: OpenEnum {}
 extension Components.Schemas.IssueFetchAttempt.ReasonPayload: OpenEnum {}
 
 extension ShepherdClient {
+    /// Pre-session staging only: never attaches to, or creates, a live session.
+    public func uploadFile(data: Data, filename: String) async throws -> Components.Schemas.UploadResponse {
+        do {
+            let body: MultipartBody<Operations.UploadFile.Input.Body.MultipartFormPayload> = [
+                .file(.init(payload: .init(body: data.isEmpty ? HTTPBody() : HTTPBody(data)), filename: filename))
+            ]
+            switch try await generated.uploadFile(.init(body: .multipartForm(body))) {
+            case .ok(let ok): return try ok.body.json
+            case .badRequest(let bad): throw ShepherdError.badRequest(try bad.body.json.error)
+            case .unauthorized: throw ShepherdError.unauthenticated
+            case .notFound: throw ShepherdError.notFound
+            case .contentTooLarge(let bad): throw ComposeUploadError.fileTooLarge(try bad.body.json.error)
+            case .undocumented(let statusCode, _):
+                throw ShepherdError.fromUndocumented(statusCode: statusCode, route: "uploadFile")
+            }
+        } catch let error as ComposeUploadError { throw error }
+        catch { throw ShepherdError.from(error, route: "uploadFile") }
+    }
+
     /// A fetch failure is a successful listing with `error`, not a transport error.
     public func issues(repoPath: String) async throws -> IssueListing {
         do {

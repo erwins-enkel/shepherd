@@ -4,14 +4,169 @@ import Testing
 @testable import Shepherd
 
 @MainActor @Suite struct ComposeModelTests {
-    static func composer() -> ComposeModel {
+    static func composer(attachments: AttachmentModel? = nil) -> ComposeModel {
         ComposeModel(defaults: UserDefaults(suiteName: "ComposeModeTests.\(UUID())")!,
                      repoBranches: RepoBranchModel(
                         loadBranches: { _ in .init(branches: []) },
                         loadStatus: { _, _ in .init(behind: 0, ahead: 0, diverged: false, hasUpstream: false, localExists: false) },
                         repair: { _, branch in .init(branch: branch) }),
                      loadIssues: { _ in .init(issues: []) }, loadCommands: { _, _ in .init(commands: []) },
-                     loadEpics: { _ in .init(epics: [], subIssues: []) })
+                     loadEpics: { _ in .init(epics: [], subIssues: []) }, attachments: attachments)
+    }
+
+    @Test func attachmentsDrainSeriallyWithWeightedProgressAndPairedPayload() async throws {
+        var calls: [String] = []
+        var pending: [CheckedContinuation<String, any Error>] = []
+        let uploads = AttachmentModel(upload: { _, name in
+            calls.append(name)
+            return try await withCheckedThrowingContinuation { pending.append($0) }
+        })
+        let m = Self.composer(attachments: uploads)
+        defer { m.teardown() }
+        m.repoPath = "/repo"; m.prompt = "Do work"
+        uploads.addFiles([.init(name: "large.txt", data: Data(repeating: 1, count: 999)),
+                          .init(name: "small.txt", data: Data([2]))])
+        #expect(m.readinessBlocker == "uploading")
+        #expect(m.createRequest(baseBranch: "main") == nil)
+        try await eventually { pending.count == 1 }
+        #expect(calls == ["large.txt"])
+        pending[0].resume(returning: "/staged/large")
+        try await eventually { pending.count == 2 }
+        #expect(uploads.progressPercent == 99)
+        #expect(m.createRequest(baseBranch: "main") == nil)
+        pending[1].resume(returning: "/staged/small")
+        try await eventually { !uploads.hasOutstandingUploads }
+        #expect(uploads.progressPercent == 100)
+        let request = try #require(m.createRequest(baseBranch: "main"))
+        #expect(request.images == ["/staged/large", "/staged/small"])
+        #expect(request.attachmentNames == ["large.txt", "small.txt"])
+        uploads.remove(uploads.rows[0].id)
+        let reduced = try #require(m.createRequest(baseBranch: "main"))
+        #expect(reduced.images == ["/staged/small"])
+        #expect(reduced.attachmentNames == ["small.txt"])
+    }
+
+    @Test func failedUploadKeepsItsRowBlocksSubmitAndRetriesInline() async throws {
+        var attempts = 0
+        let uploads = AttachmentModel(upload: { _, _ in
+            attempts += 1
+            if attempts == 1 { throw ShepherdError.badRequest("try again") }
+            return "/staged/retried"
+        })
+        let m = Self.composer(attachments: uploads)
+        defer { m.teardown() }
+        m.repoPath = "/repo"; m.prompt = "Do work"
+        uploads.addFiles([.init(name: "retry.txt", data: Data([1]))])
+        try await eventually { uploads.rows.first?.error != nil }
+        let id = try #require(uploads.rows.first?.id)
+        #expect(uploads.rows.count == 1 && uploads.hasOutstandingUploads)
+        #expect(m.readinessBlocker == "uploading")
+        #expect(m.createRequest(baseBranch: "main") == nil)
+        uploads.retry(id); uploads.retry(id)
+        try await eventually { !uploads.hasOutstandingUploads }
+        #expect(attempts == 2 && uploads.rows.first?.id == id)
+        #expect(uploads.rows.first?.error == nil)
+        #expect(m.createRequest(baseBranch: "main")?.attachmentNames == ["retry.txt"])
+    }
+
+    @Test func removalAndTeardownFenceLateUploadsAndStopTheQueue() async throws {
+        var pending: CheckedContinuation<String, any Error>?
+        var calls = 0
+        let uploads = AttachmentModel(upload: { _, _ in
+            calls += 1
+            return try await withCheckedThrowingContinuation { pending = $0 }
+        })
+        uploads.addFiles([.init(name: "first", data: Data()), .init(name: "second", data: Data())])
+        try await eventually { pending != nil }
+        #expect(uploads.progressPercent < 100)
+        uploads.remove(uploads.rows[0].id)
+        uploads.teardown()
+        pending?.resume(returning: "/staged/late")
+        for _ in 0..<20 { await Task.yield() }
+        #expect(calls == 1 && uploads.rows.isEmpty)
+        uploads.addFiles([.init(name: "after close", data: Data())])
+        #expect(uploads.rows.isEmpty)
+    }
+
+    @Test func progressWeightsBytesAndWaitsForZeroByteFiles() async throws {
+        var pending: [CheckedContinuation<String, any Error>] = []
+        let uploads = AttachmentModel(upload: { _, _ in
+            try await withCheckedThrowingContinuation { pending.append($0) }
+        })
+        defer { uploads.teardown() }
+        uploads.addFiles([.init(name: "a", data: Data(repeating: 1, count: 37)),
+                          .init(name: "b", data: Data(repeating: 1, count: 63)),
+                          .init(name: "empty", data: Data())])
+        try await eventually { pending.count == 1 }
+        pending[0].resume(returning: "/a")
+        try await eventually { pending.count == 2 }
+        #expect(uploads.progressPercent == 37)
+        pending[1].resume(returning: "/b")
+        try await eventually { pending.count == 3 }
+        #expect(uploads.progressPercent == 99 && uploads.hasOutstandingUploads)
+        pending[2].resume(returning: "/empty")
+        try await eventually { !uploads.hasOutstandingUploads }
+        #expect(uploads.progressPercent == 100)
+    }
+
+    @Test func chooserDropAndPasteInputsShareTheFileQueue() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("compose-\(UUID()).txt")
+        try Data("file bytes".utf8).write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+        var received: [(String, Data)] = []
+        let uploads = AttachmentModel(upload: { data, name in
+            received.append((name, data))
+            return "/staged/" + name
+        })
+        defer { uploads.teardown() }
+        uploads.addFiles([url, URL(string: "https://example.test/ignored")!])
+        try await eventually { !uploads.hasOutstandingUploads }
+        #expect(received.count == 1 && received[0].0 == url.lastPathComponent)
+        #expect(received[0].1 == Data("file bytes".utf8))
+
+        let provider = NSItemProvider()
+        provider.suggestedName = "screenshot"
+        provider.registerDataRepresentation(forTypeIdentifier: "public.png", visibility: .all) { completion in
+            completion(Data([137, 80, 78, 71]), nil)
+            return nil
+        }
+        uploads.paste([provider])
+        #expect(uploads.hasOutstandingUploads && uploads.pendingImports == 1)
+        try await eventually { !uploads.hasOutstandingUploads }
+        #expect(received.count == 2 && received[1].0 == "screenshot.png")
+        #expect(received[1].1 == Data([137, 80, 78, 71]))
+
+        let fileProvider = NSItemProvider()
+        fileProvider.registerDataRepresentation(forTypeIdentifier: "public.file-url", visibility: .all) { completion in
+            completion(url.dataRepresentation, nil)
+            return nil
+        }
+        fileProvider.registerDataRepresentation(forTypeIdentifier: "public.png", visibility: .all) { completion in
+            completion(Data([0]), nil)
+            return nil
+        }
+        uploads.paste([fileProvider])
+        try await eventually { !uploads.hasOutstandingUploads }
+        #expect(received.count == 3 && received[2].0 == url.lastPathComponent)
+        #expect(received[2].1 == Data("file bytes".utf8))
+    }
+
+    @Test func unreadableFilesStayRetryableAndLatePasteCannotResurrectClosedComposer() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("compose-\(UUID()).txt")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let uploads = AttachmentModel(upload: { _, _ in "/staged/recovered" })
+        uploads.addFiles([url])
+        try await eventually { uploads.rows.first?.error != nil }
+        let id = try #require(uploads.rows.first?.id)
+        #expect(uploads.hasOutstandingUploads)
+        try Data("recovered".utf8).write(to: url)
+        uploads.retry(id)
+        try await eventually { !uploads.hasOutstandingUploads }
+        #expect(uploads.rows.first?.path == "/staged/recovered")
+        let generation = try #require(uploads.beginImport())
+        uploads.teardown()
+        uploads.finishImport(.init(name: "late", data: Data()), error: nil, generation: generation)
+        #expect(uploads.rows.isEmpty && !uploads.hasOutstandingUploads)
     }
 
     @Test func modeIsDerivedWithResearchThenEpicThenPlainPrecedence() {

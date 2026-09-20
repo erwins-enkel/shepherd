@@ -3442,6 +3442,15 @@ components:
           type: string
         code:
           $ref: "#/components/schemas/RestoreConflictReason"
+    UploadResponse:
+      type: object
+      additionalProperties: true
+      required:
+        - path
+      properties:
+        path:
+          type: string
+          description: Absolute path of the staged attachment.
     Issue:
       type: object
       additionalProperties: true
@@ -5485,6 +5494,56 @@ paths:
                 $ref: "#/components/schemas/Error"
         "401":
           $ref: "#/components/responses/Unauthorized"
+  /api/uploads:
+    post:
+      operationId: uploadFile
+      description: Stage a file before session creation, or attach to an existing session.
+      parameters:
+        - name: session
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Optional existing session. The composer omits this parameter.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        "200":
+          description: The absolute staged path.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadResponse"
+        "400":
+          description: error is "missing file field".
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: error is "unknown session"; only reachable with the optional session query.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "413":
+          description: error is "file too large".
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /api/issues:
     get:
       operationId: listIssues

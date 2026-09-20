@@ -5,6 +5,7 @@ import ShepherdKit
 /// One presentation, one issue listing shared by the panel and the prompt's # menu.
 @Observable @MainActor
 final class ComposeModel {
+    let attachments: AttachmentModel
     let repoBranches: RepoBranchModel
     var repoPath = "" {
         didSet {
@@ -77,12 +78,13 @@ final class ComposeModel {
     convenience init(client: ShepherdClient, defaults: UserDefaults = .standard) {
         self.init(defaults: defaults, repoBranches: RepoBranchModel(client: client), loadIssues: { try await client.issues(repoPath: $0) },
                   loadCommands: { try await client.commands(repoPath: $0, provider: $1) },
-                  loadEpics: { try await client.epics(repoPath: $0) })
+                  loadEpics: { try await client.epics(repoPath: $0) }, attachments: AttachmentModel(client: client))
     }
 
     init(defaults: UserDefaults, repoBranches: RepoBranchModel, loadIssues: @escaping (String) async throws -> IssueListing,
          loadCommands: @escaping (String, AgentProvider) async throws -> CommandListing,
-         loadEpics: @escaping (String) async throws -> EpicListing) {
+         loadEpics: @escaping (String) async throws -> EpicListing, attachments: AttachmentModel? = nil) {
+        self.attachments = attachments ?? AttachmentModel(upload: { _, _ in throw ShepherdError.cancelled })
         self.repoBranches = repoBranches
         self.defaults = defaults
         fetchIssues = loadIssues; fetchCommands = loadCommands; fetchEpics = loadEpics
@@ -214,6 +216,7 @@ final class ComposeModel {
 
     func teardown() {
         repoBranches.teardown()
+        attachments.teardown()
         generation += 1
     }
 
@@ -325,10 +328,16 @@ final class ComposeModel {
     func allowsProvider(_ provider: AgentProvider) -> Bool {
         providerConstraint == nil || providerConstraint?.provider == provider
     }
+    var readinessBlocker: String? { attachments.hasOutstandingUploads ? "uploading" : nil }
+
     func createRequest(baseBranch: String) -> CreateSessionRequest? {
         guard !repoPath.isEmpty, !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              allowsProvider(provider) else { return nil }
+              allowsProvider(provider), readinessBlocker == nil else { return nil }
         var request = CreateSessionRequest(repoPath: repoPath, baseBranch: baseBranch, prompt: prompt, agentProvider: provider)
+        if !attachments.rows.isEmpty {
+            request.images = attachments.rows.compactMap(\.path)
+            request.attachmentNames = attachments.rows.map { $0.file.name }
+        }
         request.research = research
         request.epicAuthoring = epicAuthoring
         request.plain = plain

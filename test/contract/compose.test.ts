@@ -1,4 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { isAbsolute } from "node:path";
+import { readFileSync } from "node:fs";
 import Ajv2020 from "ajv/dist/2020";
 import { clearBranchStatusCacheForTests } from "../../src/server";
 import * as fx from "./compose-fixtures";
@@ -285,6 +287,54 @@ describe("repo and base branch", () => {
     } finally {
       clearBranchStatusCacheForTests();
     }
+  });
+});
+
+describe("uploads", () => {
+  const form = () => {
+    const body = new FormData();
+    body.append("file", new File(["attachment bytes"], "original.txt", { type: "text/plain" }));
+    return body;
+  };
+  const upload = (body: FormData, query = "", auth = true) =>
+    fetch(`${s.baseUrl}/api/uploads${query}`, {
+      method: "POST",
+      headers: auth ? bearer(token) : {},
+      body,
+    });
+
+  test("multipart file stages exact bytes and returns an absolute path", async () => {
+    const response = await upload(form());
+    expect(response.status).toBe(200);
+    const body = (await validateResponse("POST", "/api/uploads", response)) as { path: string };
+    expect(isAbsolute(body.path)).toBe(true);
+    expect(readFileSync(body.path, "utf8")).toBe("attachment bytes");
+  });
+
+  test("missing file is 400, a tiny seam exercises 413, optional unknown session is 404, and auth is required", async () => {
+    const missing = await upload(new FormData());
+    expect(missing.status).toBe(400);
+    expect(await validateResponse("POST", "/api/uploads", missing)).toEqual({
+      error: "missing file field",
+    });
+    s.setMaxUploadBytes(2);
+    try {
+      const large = await upload(form());
+      expect(large.status).toBe(413);
+      expect(await validateResponse("POST", "/api/uploads", large)).toEqual({
+        error: "file too large",
+      });
+    } finally {
+      s.setMaxUploadBytes(undefined);
+    }
+    const unknown = await upload(form(), "?session=does-not-exist");
+    expect(unknown.status).toBe(404);
+    expect(await validateResponse("POST", "/api/uploads", unknown)).toEqual({
+      error: "unknown session",
+    });
+    const anon = await upload(form(), "", false);
+    expect(anon.status).toBe(401);
+    await validateResponse("POST", "/api/uploads", anon);
   });
 });
 

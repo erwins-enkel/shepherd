@@ -184,6 +184,7 @@ struct ComposePromptEditor: View {
                 .frame(minHeight: 100)
                 .accessibilityLabel(L.t("newtask_prompt_label"))
                 .accessibilityIdentifier("compose.prompt")
+                .modifier(ComposeAttachmentInput(model: model.attachments))
                 .onChange(of: selection) { _, value in
                     if let value, case .selection(let range) = value.indices {
                         caretOffset = range.upperBound.utf16Offset(in: model.prompt)

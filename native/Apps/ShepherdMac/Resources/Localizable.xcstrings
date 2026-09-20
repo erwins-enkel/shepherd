@@ -6165,6 +6165,23 @@
         }
       }
     },
+    "newtask_attach_image": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "↥ Datei/Bild anhängen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "↥ Attach file/image"
+          }
+        }
+      }
+    },
     "newtask_autopilot_hint": {
       "extractionState": "manual",
       "localizations": {
@@ -6764,6 +6781,23 @@
         }
       }
     },
+    "newtask_remove_image_aria": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anhang entfernen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "remove attachment"
+          }
+        }
+      }
+    },
     "newtask_repo_label": {
       "extractionState": "manual",
       "localizations": {
@@ -6930,6 +6964,76 @@
           "stringUnit": {
             "state": "translated",
             "value": "ON"
+          }
+        }
+      }
+    },
+    "newtask_upload_failed": {
+      "comment": "%1$@ = reason",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anhang-Upload fehlgeschlagen: %1$@. Anhängen erneut versuchen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attachment upload failed: %1$@. Retry the attach."
+          }
+        }
+      }
+    },
+    "newtask_upload_percent": {
+      "comment": "%1$@ = percent",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ %%"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@%%"
+          }
+        }
+      }
+    },
+    "newtask_upload_unknown_reason": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "unbekannter Fehler"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "unknown error"
+          }
+        }
+      }
+    },
+    "newtask_uploading": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lädt hoch…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uploading…"
           }
         }
       }

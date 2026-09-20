@@ -727,6 +727,12 @@ export const KEYS_QUEUES: readonly string[] = [
 
 /** S11 — the composer: create fields, slash commands, steers, attachments. */
 export const KEYS_COMPOSE: readonly string[] = [
+  "newtask_attach_image",
+  "newtask_remove_image_aria",
+  "newtask_uploading",
+  "newtask_upload_failed",
+  "newtask_upload_percent",
+  "newtask_upload_unknown_reason",
   "newtask_agent_provider_codex_alpha_note",
   "newtask_agent_provider_codex_note",
   "newtask_agent_provider_codex_suggested_for_hold",

@@ -7996,6 +7996,1043 @@
         }
       }
     },
+    "native_settings_api_key": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API-Schlüssel (leer zum Löschen)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API key (empty clears it)"
+          }
+        }
+      }
+    },
+    "native_settings_field_authmode": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anmeldemodus für Agenten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent authentication mode"
+          }
+        }
+      }
+    },
+    "native_settings_field_autopilotcli": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "autopilot CLI"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "autopilot CLI"
+          }
+        }
+      }
+    },
+    "native_settings_field_autopiloteffort": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "autopilot Aufwand"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "autopilot effort"
+          }
+        }
+      }
+    },
+    "native_settings_field_autopilotmodel": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "autopilot Modell"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "autopilot model"
+          }
+        }
+      }
+    },
+    "native_settings_field_autoreviveenabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sitzungen automatisch wiederbeleben"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatically revive sessions"
+          }
+        }
+      }
+    },
+    "native_settings_field_blockjudgemode": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Judge-Modus für blockierte Sitzungen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blocked-session judge mode"
+          }
+        }
+      }
+    },
+    "native_settings_field_criticcli": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "critic CLI"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "critic CLI"
+          }
+        }
+      }
+    },
+    "native_settings_field_criticeffort": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "critic Aufwand"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "critic effort"
+          }
+        }
+      }
+    },
+    "native_settings_field_criticmodel": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "critic Modell"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "critic model"
+          }
+        }
+      }
+    },
+    "native_settings_field_defaultagentprovider": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard-Coding-CLI"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default coding CLI"
+          }
+        }
+      }
+    },
+    "native_settings_field_defaultcodexmodel": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standardmodell für Codex"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default Codex model"
+          }
+        }
+      }
+    },
+    "native_settings_field_defaulteffort": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standardaufwand"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default effort"
+          }
+        }
+      }
+    },
+    "native_settings_field_defaultmodel": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standardmodell"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default model"
+          }
+        }
+      }
+    },
+    "native_settings_field_distillercli": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "distiller CLI"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "distiller CLI"
+          }
+        }
+      }
+    },
+    "native_settings_field_distillereffort": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "distiller Aufwand"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "distiller effort"
+          }
+        }
+      }
+    },
+    "native_settings_field_distillerintervaldays": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Distiller-Intervall in Tagen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Distiller interval in days"
+          }
+        }
+      }
+    },
+    "native_settings_field_distillermodel": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "distiller Modell"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "distiller model"
+          }
+        }
+      }
+    },
+    "native_settings_field_docagentcli": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "docAgent CLI"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "docAgent CLI"
+          }
+        }
+      }
+    },
+    "native_settings_field_docagenteffort": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "docAgent Aufwand"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "docAgent effort"
+          }
+        }
+      }
+    },
+    "native_settings_field_docagentmodel": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "docAgent Modell"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "docAgent model"
+          }
+        }
+      }
+    },
+    "native_settings_field_extracreditsdrainceiling": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zusatzguthaben-Limit für Drain"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drain paid-credit ceiling"
+          }
+        }
+      }
+    },
+    "native_settings_field_fableavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fable verfügbar"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fable available"
+          }
+        }
+      }
+    },
+    "native_settings_field_houserulerelevance": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relevanzmodus für Hausregeln"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "House-rule relevance mode"
+          }
+        }
+      }
+    },
+    "native_settings_field_judgedailyusd": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tägliches USD-Limit für Judge"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Judge daily USD ceiling"
+          }
+        }
+      }
+    },
+    "native_settings_field_judgeenabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Judge aktivieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enable judge"
+          }
+        }
+      }
+    },
+    "native_settings_field_mergesuggestcli": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mergeSuggest CLI"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mergeSuggest CLI"
+          }
+        }
+      }
+    },
+    "native_settings_field_mergesuggesteffort": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mergeSuggest Aufwand"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mergeSuggest effort"
+          }
+        }
+      }
+    },
+    "native_settings_field_mergesuggestmodel": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mergeSuggest Modell"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mergeSuggest model"
+          }
+        }
+      }
+    },
+    "native_settings_field_namercli": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "namer CLI"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "namer CLI"
+          }
+        }
+      }
+    },
+    "native_settings_field_namereffort": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "namer Aufwand"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "namer effort"
+          }
+        }
+      }
+    },
+    "native_settings_field_namermodel": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "namer Modell"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "namer model"
+          }
+        }
+      }
+    },
+    "native_settings_field_operatorlanguage": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Operator-Sprache"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Operator language"
+          }
+        }
+      }
+    },
+    "native_settings_field_optimizercli": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "optimizer CLI"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "optimizer CLI"
+          }
+        }
+      }
+    },
+    "native_settings_field_optimizereffort": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "optimizer Aufwand"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "optimizer effort"
+          }
+        }
+      }
+    },
+    "native_settings_field_optimizermodel": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "optimizer Modell"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "optimizer model"
+          }
+        }
+      }
+    },
+    "native_settings_field_plannercli": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "planner CLI"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "planner CLI"
+          }
+        }
+      }
+    },
+    "native_settings_field_plannereffort": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "planner Aufwand"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "planner effort"
+          }
+        }
+      }
+    },
+    "native_settings_field_plannermodel": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "planner Modell"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "planner model"
+          }
+        }
+      }
+    },
+    "native_settings_field_planreviewcyclescap": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Limit für Plan-Review-Zyklen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan review cycle cap"
+          }
+        }
+      }
+    },
+    "native_settings_field_prreviewcyclescap": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Limit für PR-Review-Zyklen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR review cycle cap"
+          }
+        }
+      }
+    },
+    "native_settings_field_recapcli": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "recap CLI"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "recap CLI"
+          }
+        }
+      }
+    },
+    "native_settings_field_recapeffort": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "recap Aufwand"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "recap effort"
+          }
+        }
+      }
+    },
+    "native_settings_field_recapmodel": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "recap Modell"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "recap model"
+          }
+        }
+      }
+    },
+    "native_settings_field_reducedpushmode": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reduzierte Benachrichtigungen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reduced notifications"
+          }
+        }
+      }
+    },
+    "native_settings_field_remotecontrolatstartup": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fernsteuerung beim Start"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remote control at startup"
+          }
+        }
+      }
+    },
+    "native_settings_field_sessionhousekeepingenabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sitzungsbereinigung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session housekeeping"
+          }
+        }
+      }
+    },
+    "native_settings_field_telemetryconsent": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Telemetrie-Zustimmung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Telemetry consent"
+          }
+        }
+      }
+    },
+    "native_settings_field_tuidisablemouse": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TUI-Mauserfassung deaktivieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disable TUI mouse capture"
+          }
+        }
+      }
+    },
+    "native_settings_field_tuifullscreen": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vollbild-TUI"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fullscreen TUI"
+          }
+        }
+      }
+    },
+    "native_settings_field_upnextskipclipicker": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI-Auswahl für Als Nächstes überspringen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skip CLI picker for Up Next"
+          }
+        }
+      }
+    },
+    "native_settings_field_usagedowngradeenabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modell am Nutzungslimit herabstufen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Downgrade model at usage limit"
+          }
+        }
+      }
+    },
+    "native_settings_field_usagedowngrademodel": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ersatzmodell am Nutzungslimit"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fallback model at usage limit"
+          }
+        }
+      }
+    },
+    "native_settings_field_usagedowngradepct": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nutzungsprozentsatz zur Modell-Herabstufung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Model downgrade percentage"
+          }
+        }
+      }
+    },
+    "native_settings_field_usageholdautorelease": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gehaltene Aufgaben automatisch freigeben"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatically release held tasks"
+          }
+        }
+      }
+    },
+    "native_settings_field_usageholdenabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aufgaben am Nutzungslimit halten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hold tasks at usage limit"
+          }
+        }
+      }
+    },
+    "native_settings_field_usageholdpct": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nutzungsprozentsatz zum Halten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage hold percentage"
+          }
+        }
+      }
+    },
+    "native_settings_key_absent": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein API-Schlüssel eingerichtet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No API key configured"
+          }
+        }
+      }
+    },
+    "native_settings_key_confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API-Schlüssel des Servers ersetzen oder löschen?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Replace or clear the server API key?"
+          }
+        }
+      }
+    },
+    "native_settings_key_present": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API-Schlüssel eingerichtet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API key configured"
+          }
+        }
+      }
+    },
+    "native_settings_key_save": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "API-Schlüssel speichern"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save API key"
+          }
+        }
+      }
+    },
     "native_settings_load_failed": {
       "extractionState": "manual",
       "localizations": {
@@ -8060,6 +9097,60 @@
           "stringUnit": {
             "state": "translated",
             "value": "Nothing to configure yet"
+          }
+        }
+      }
+    },
+    "native_settings_plan_bounds": {
+      "comment": "%1$@ = min, %2$@ = max",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bereich für Plan-Review-Limit: %1$@–%2$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan review cap range: %1$@–%2$@"
+          }
+        }
+      }
+    },
+    "native_settings_pr_bounds": {
+      "comment": "%1$@ = min, %2$@ = max",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bereich für PR-Review-Limit: %1$@–%2$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR review cap range: %1$@–%2$@"
+          }
+        }
+      }
+    },
+    "native_settings_retention": {
+      "comment": "%1$@ = days, %2$@ = keep",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aufbewahrung: %1$@ Tage, mindestens %2$@ Sitzungen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retention: %1$@ days, keeping %2$@ sessions"
           }
         }
       }

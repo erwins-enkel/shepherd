@@ -19,6 +19,7 @@ private struct ComposeSheetContent: View {
     @State private var submission = ComposeSubmission()
     @State private var revealing = false
     @State private var keyCard = false
+    @State private var steers = false
     @FocusedValue(\.composeEditingText) private var editingText
 
     init(app: AppModel, store: SessionStore, activation: Int) {
@@ -43,6 +44,7 @@ private struct ComposeSheetContent: View {
             HStack {
                 Text(verbatim: L.t("newtask_title")).font(.title2.bold())
                 Spacer()
+                Button(L.t("steerbar_edit")) { steers = true }.disabled(submission.busy)
                 Button { keyCard = true } label: { Image(systemName: "questionmark.circle") }
                     .accessibilityLabel(L.t("keymap_sheet_aria"))
                 Button { app.sheet = nil } label: { Image(systemName: "xmark") }
@@ -81,6 +83,9 @@ private struct ComposeSheetContent: View {
         .onKeyPress(characters: CharacterSet(charactersIn: "?")) { _ in
             guard ComposeKeymap.canDispatch("sheet", editingText: editingText == true) else { return .ignored }
             keyCard = true; return .handled
+        }
+        .sheet(isPresented: $steers) {
+            ComposeActionSheet(mode: .steers, session: nil, store: store, app: app, activation: activation)
         }
         .sheet(isPresented: $keyCard) { ComposeKeyCard { keyCard = false } }
         .interactiveDismissDisabled(submission.busy)

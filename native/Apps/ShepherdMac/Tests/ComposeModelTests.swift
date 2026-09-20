@@ -5,6 +5,70 @@ import Testing
 @testable import Shepherd
 
 @MainActor @Suite struct ComposeModelTests {
+    @Test func actionSelectionResetsAcrossProvidersAndKeepsHandoff() {
+        let actions = ComposeActions(provider: .codex)
+        actions.model = "gpt-6-astra"; actions.effort = "ultra"
+        actions.handoff = .summarize
+        #expect(actions.variantRequest.model == "gpt-6-astra")
+        #expect(actions.variantRequest.effort == "ultra")
+        actions.provider = .claude
+        #expect(actions.model == "default")
+        #expect(actions.effort == "default")
+        #expect(actions.replaceRequest.handoffMode == .summarize)
+        #expect(actions.replaceRequest.model == nil)
+    }
+
+    @Test func actionCompletionCannotEscapeItsPresentationOrRunTwice() async throws {
+        let actions = ComposeActions(provider: .claude)
+        var pending: CheckedContinuation<String, Never>?
+        var results: [String] = []
+        let task = Task { await actions.run(operation: {
+            await withCheckedContinuation { pending = $0 }
+        }, apply: { results.append($0) }, isCurrent: { true }) }
+        try await eventually { pending != nil }
+        #expect(actions.busy)
+        let duplicate = await actions.run(operation: { "duplicate" }, apply: { results.append($0) }, isCurrent: { true })
+        #expect(!duplicate)
+        actions.teardown()
+        pending?.resume(returning: "late")
+        #expect(await task.value == false)
+        #expect(results.isEmpty)
+        let stale = await actions.run(operation: { "stale" }, apply: { results.append($0) }, isCurrent: { false })
+        #expect(!stale)
+        #expect(results.isEmpty)
+    }
+
+    @Test func actionDropsCompletionAfterServerSwitchWithoutTeardown() async throws {
+        let actions = ComposeActions(provider: .claude)
+        var current = true
+        var pending: CheckedContinuation<String, Never>?
+        var applied = false
+        let task = Task { await actions.run(operation: {
+            await withCheckedContinuation { pending = $0 }
+        }, apply: { _ in applied = true }, isCurrent: { current }) }
+        try await eventually { pending != nil }
+        current = false
+        pending?.resume(returning: "other server")
+        #expect(await task.value == false)
+        #expect(!applied)
+        #expect(!actions.busy)
+    }
+
+    @Test func actionFailuresAreRetryableAndSteersRequireAVisiblePlacement() async {
+        let actions = ComposeActions(provider: .claude)
+        _ = await actions.run(operation: { throw ComposeRecommendationError.failed("no-history") }, apply: { (_: String) in }, isCurrent: { true })
+        #expect(actions.error == L.t("recommend_err_no_history"))
+        #expect(!actions.busy)
+        actions.steers = [.init(id: "s", label: "Test", text: "Run tests", inSteerBar: false, onIssues: false)]
+        #expect(!actions.canSaveSteers)
+        actions.steers[0].inSteerBar = true
+        #expect(actions.canSaveSteers)
+        let ok = await actions.run(operation: { "ready" }, apply: { actions.recommendation = $0 }, isCurrent: { true })
+        #expect(ok)
+        #expect(actions.error == nil)
+        #expect(actions.recommendation == "ready")
+    }
+
     static func composer(attachments: AttachmentModel? = nil, shaping: ShapeRoundModel? = nil) -> ComposeModel {
         ComposeModel(defaults: UserDefaults(suiteName: "ComposeModeTests.\(UUID())")!,
                      repoBranches: RepoBranchModel(

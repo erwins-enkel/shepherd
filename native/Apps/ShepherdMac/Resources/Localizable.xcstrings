@@ -773,6 +773,23 @@
         }
       }
     },
+    "cardmenu_decommission": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stilllegen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Decommission"
+          }
+        }
+      }
+    },
     "cardmenu_relaunch": {
       "extractionState": "manual",
       "localizations": {
@@ -803,6 +820,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Rename"
+          }
+        }
+      }
+    },
+    "cardmenu_replace_with": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Weiterführen mit…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continue with…"
           }
         }
       }
@@ -838,6 +872,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Couldn't resume %1$@"
+          }
+        }
+      }
+    },
+    "cardmenu_start_variant": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Als Variante starten…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start as variant…"
           }
         }
       }
@@ -1631,6 +1682,142 @@
           "stringUnit": {
             "state": "translated",
             "value": "X-High"
+          }
+        }
+      }
+    },
+    "experiment_continue_handoff_label": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Übergabe"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Handoff"
+          }
+        }
+      }
+    },
+    "experiment_continue_mode_resume": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ursprünglichen Auftrag fortsetzen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continue original task"
+          }
+        }
+      }
+    },
+    "experiment_continue_mode_summarize": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erst zusammenfassen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Summarize first"
+          }
+        }
+      }
+    },
+    "experiment_continue_scope": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Behält diese Shepherd-Session, Branch und Worktree. Nur der laufende Agentprozess wechselt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keeps this Shepherd session, branch and worktree. Only the live agent process changes."
+          }
+        }
+      }
+    },
+    "experiment_replace_confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Weiterführen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continue"
+          }
+        }
+      }
+    },
+    "experiment_replace_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Weiterführen mit"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continue with"
+          }
+        }
+      }
+    },
+    "experiment_variant_confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Variante starten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start variant"
+          }
+        }
+      }
+    },
+    "experiment_variant_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Als Variante starten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start as variant"
           }
         }
       }
@@ -4149,6 +4336,58 @@
         }
       }
     },
+    "leftover_close_only": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur Session schließen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close session only"
+          }
+        }
+      }
+    },
+    "leftover_port": {
+      "comment": "%1$@ = port",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Port %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "port %1$@"
+          }
+        }
+      }
+    },
+    "leftover_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Läuft noch aus dieser Session"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Still running from this session"
+          }
+        }
+      }
+    },
     "login_busy": {
       "extractionState": "manual",
       "localizations": {
@@ -5309,6 +5548,91 @@
           "stringUnit": {
             "state": "translated",
             "value": "Dictation is not available in the native composer yet."
+          }
+        }
+      }
+    },
+    "native_compose_leftovers_kept": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beim Schließen der Sitzung laufen diese Hintergrundprozesse weiter."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Closing the session leaves these background processes running."
+          }
+        }
+      }
+    },
+    "native_compose_probes_unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd kann laufende Prozesse auf diesem Host nicht erkennen. Hintergrundprozesse können nach dem Schließen dieser Sitzung weiterlaufen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd cannot detect running processes on this host. Background processes may survive closing this session."
+          }
+        }
+      }
+    },
+    "native_compose_share_prompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prompt teilen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Share prompt"
+          }
+        }
+      }
+    },
+    "native_compose_steer_down": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Steer nach unten verschieben"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move steer down"
+          }
+        }
+      }
+    },
+    "native_compose_steer_up": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Steer nach oben verschieben"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move steer up"
           }
         }
       }
@@ -11719,6 +12043,142 @@
         }
       }
     },
+    "recommend_err_no_history": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein Terminal-Verlauf zum Analysieren — die Session ist nicht aktiv."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No terminal history to analyze — the session isn't live."
+          }
+        }
+      }
+    },
+    "recommend_err_spawn_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Analyse-Agent konnte nicht gestartet werden. Prüfe, ob die gewählte CLI installiert ist."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't start the analysis agent. Check that the chosen CLI is installed."
+          }
+        }
+      }
+    },
+    "recommend_err_timeout": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Analyse hat keine Empfehlung geliefert. Versuch es erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The analysis didn't return a recommendation. Try again."
+          }
+        }
+      }
+    },
+    "recommend_err_unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Promptempfehlungen sind derzeit nicht verfügbar."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prompt recommendations are unavailable right now."
+          }
+        }
+      }
+    },
+    "recommend_inject": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In Session einfügen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inject into session"
+          }
+        }
+      }
+    },
+    "recommend_loading": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Analysiere den Session-Verlauf…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Analyzing the session history…"
+          }
+        }
+      }
+    },
+    "recommend_result_hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Empfohlener nächster Prompt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recommended next prompt"
+          }
+        }
+      }
+    },
+    "recommend_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Promptempfehlung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prompt recommendation"
+          }
+        }
+      }
+    },
     "relaunch_archive_failed": {
       "extractionState": "manual",
       "localizations": {
@@ -12676,6 +13136,227 @@
           "stringUnit": {
             "state": "translated",
             "value": "BUSY"
+          }
+        }
+      }
+    },
+    "steerbar_edit": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Steers bearbeiten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit steers"
+          }
+        }
+      }
+    },
+    "steerseditor_add": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "+ Hinzufügen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "+ Add"
+          }
+        }
+      }
+    },
+    "steerseditor_empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "noch keine Steers"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no steers yet"
+          }
+        }
+      }
+    },
+    "steerseditor_field_emoji": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Emoji"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Emoji"
+          }
+        }
+      }
+    },
+    "steerseditor_label_aria": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Steer-Bezeichnung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Steer label"
+          }
+        }
+      }
+    },
+    "steerseditor_placement_bar": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal (Steer-Leiste)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal (steer bar)"
+          }
+        }
+      }
+    },
+    "steerseditor_placement_issues": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Backlog-Issues"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Backlog issues"
+          }
+        }
+      }
+    },
+    "steerseditor_remove": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entfernen…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove…"
+          }
+        }
+      }
+    },
+    "steerseditor_repos_all": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle Repos"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All repos"
+          }
+        }
+      }
+    },
+    "steerseditor_scope_all_short": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All"
+          }
+        }
+      }
+    },
+    "steerseditor_scope_none_error": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jeder Eintrag muss irgendwo erscheinen: aktiviere in der markierten Zeile „Leiste“ und/oder „Issues“"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "every entry must surface somewhere: enable “bar” and/or “issues” on the highlighted row"
+          }
+        }
+      }
+    },
+    "steerseditor_text_aria": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Steer-Prompttext"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Steer prompt text"
+          }
+        }
+      }
+    },
+    "steerseditor_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gespeicherte Steers"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved Steers"
           }
         }
       }

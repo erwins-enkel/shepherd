@@ -4257,5 +4257,10 @@
   "topbar_held_reason_capacity": "Held because no account has capacity.",
   "topbar_held_reason_unknown": "Held — reason unavailable.",
   "topbar_held_discard_confirm": "Discard this held task?",
-  "native_compose_dictation_deferred": "Dictation is not available in the native composer yet."
+  "native_compose_dictation_deferred": "Dictation is not available in the native composer yet.",
+  "native_compose_share_prompt": "Share prompt",
+  "native_compose_probes_unavailable": "Shepherd cannot detect running processes on this host. Background processes may survive closing this session.",
+  "native_compose_leftovers_kept": "Closing the session leaves these background processes running.",
+  "native_compose_steer_up": "Move steer up",
+  "native_compose_steer_down": "Move steer down"
 }

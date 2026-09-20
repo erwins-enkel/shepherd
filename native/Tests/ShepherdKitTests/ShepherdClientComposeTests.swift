@@ -11,6 +11,106 @@ struct ShepherdClientComposeTests {
         return try ShepherdClient(profile: profile, credentials: credentials, urlSession: server.urlSession())
     }
 
+    @Test func sessionActionsUseWirePayloadsAndStatusCodes() async throws {
+        let server = FakeShepherdServer()
+        defer { server.tearDown() }
+        let wire = try Fixtures.minimalSessionJSON(overrides: ["id": "next"])
+        let wrapped = Data("{\"session\":".utf8) + wire + Data("}".utf8)
+        server.stub("POST", "/api/sessions/original/variant", status: 201, json: wrapped)
+        server.stub("POST", "/api/sessions/original/replace", status: 200, json: wrapped)
+        server.stub("POST", "/api/sessions/original/recommend-prompt", status: 200,
+                    json: Data(#"{"prompt":"Run tests"}"#.utf8))
+        let client = try makeClient(server)
+        #expect(try await client.startVariant(id: "original", choice: .init(agentProvider: .codex, model: "gpt-6-astra", effort: "high")).id == "next")
+        #expect(try await client.replaceSessionAgent(id: "original", choice: .init(agentProvider: .claude, model: "opus", effort: "max", handoffMode: .summarize)).id == "next")
+        #expect(try await client.recommendPrompt(id: "original", provider: .codex, model: "gpt-6-astra") == "Run tests")
+        let bodies = try server.requests().map { request in
+            let body = try #require(request.body)
+            return try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        }
+        #expect(bodies[0]["agentProvider"] as? String == "codex")
+        #expect(bodies[0]["effort"] as? String == "high")
+        #expect(bodies[1]["handoffMode"] as? String == "summarize")
+        #expect(bodies[2]["provider"] as? String == "codex")
+    }
+
+    @Test func steersAndLeftoversPreserveWireMetadata() async throws {
+        let server = FakeShepherdServer()
+        defer { server.tearDown() }
+        let steers = Data(#"[{"id":"s","label":"Test","text":"Run tests","emoji":"🧪","inSteerBar":true,"onIssues":false,"repos":["repo"],"agentProviders":["codex"]}]"#.utf8)
+        server.stub("GET", "/api/steers", status: 200, json: steers)
+        server.stub("PUT", "/api/steers", status: 200, json: steers)
+        server.stub("GET", "/api/sessions/s/leftovers", status: 200,
+                    json: Data(#"{"leftovers":[{"kind":"future-kind","name":"worker","port":null,"key":"k","pid":123}],"probesUnavailable":true}"#.utf8))
+        let client = try makeClient(server)
+        let rows = try await client.steers()
+        #expect(rows.first?.repos == ["repo"])
+        #expect(try await client.saveSteers(rows) == rows)
+        let body = try #require(server.requests().last?.body)
+        let payload = try #require(JSONSerialization.jsonObject(with: body) as? [[String: Any]])
+        #expect(payload.first?["agentProviders"] as? [String] == ["codex"])
+        let leftovers = try await client.sessionLeftovers(id: "s")
+        #expect(leftovers.probesUnavailable)
+        #expect(leftovers.leftovers.first?.kind.rawValue == "future-kind")
+        #expect(leftovers.leftovers.first?.pid == 123)
+    }
+
+    @Test(arguments: [400, 401, 404, 409, 502])
+    func sessionActionErrorsPreserveConflicts(_ status: Int) async throws {
+        let server = FakeShepherdServer()
+        defer { server.tearDown() }
+        let code = status == 409 ? "in_progress" : "issue_unresolved"
+        let body = Data("{\"error\":\"failure\",\"code\":\"\(code)\"}".utf8)
+        server.stub("POST", "/api/sessions/s/variant", status: status, json: body)
+        server.stub("POST", "/api/sessions/s/replace", status: status, json: body)
+        let client = try makeClient(server)
+        let expected: ShepherdError
+        switch status {
+        case 400: expected = .badRequest("failure")
+        case 401: expected = .unauthenticated
+        case 404: expected = .notFound
+        case 409: expected = .conflict(code: "in_progress", message: "failure")
+        default: expected = .upstreamFailure(code: "issue_unresolved", message: "failure")
+        }
+        await #expect(throws: expected) { _ = try await client.startVariant(id: "s", choice: .init()) }
+        await #expect(throws: expected) { _ = try await client.replaceSessionAgent(id: "s", choice: .init()) }
+    }
+
+    @Test(arguments: [422, 503])
+    func recommendationPreservesUnknownWireErrors(_ status: Int) async throws {
+        let server = FakeShepherdServer()
+        defer { server.tearDown() }
+        server.stub("POST", "/api/sessions/s/recommend-prompt", status: status, json: try Fixtures.errorJSON("future-slug"))
+        let client = try makeClient(server)
+        await #expect(throws: ComposeRecommendationError.failed("future-slug")) {
+            _ = try await client.recommendPrompt(id: "s", provider: .claude, model: "opus")
+        }
+    }
+
+    @Test(arguments: [400, 401, 404])
+    func cancelSpawnMapsWireErrors(_ status: Int) async throws {
+        let server = FakeShepherdServer()
+        defer { server.tearDown() }
+        server.stub("POST", "/api/spawns/s/cancel", status: status, json: try Fixtures.errorJSON("invalid"))
+        let client = try makeClient(server)
+        let expected: ShepherdError = status == 400 ? .badRequest("invalid") : status == 401 ? .unauthenticated : .notFound
+        await #expect(throws: expected) { _ = try await client.cancelSpawn(id: "s") }
+    }
+
+    @Test func actionReadsAndWritesRequireAuthentication() async throws {
+        let server = FakeShepherdServer()
+        defer { server.tearDown() }
+        for (method, path) in [("GET", "/api/steers"), ("PUT", "/api/steers"),
+                               ("GET", "/api/sessions/s/leftovers"), ("POST", "/api/sessions/s/recommend-prompt")] {
+            server.stub(method, path, status: 401, json: try Fixtures.errorJSON("unauthorized"))
+        }
+        let client = try makeClient(server)
+        await #expect(throws: ShepherdError.unauthenticated) { _ = try await client.steers() }
+        await #expect(throws: ShepherdError.unauthenticated) { _ = try await client.saveSteers([]) }
+        await #expect(throws: ShepherdError.unauthenticated) { _ = try await client.sessionLeftovers(id: "s") }
+        await #expect(throws: ShepherdError.unauthenticated) { _ = try await client.recommendPrompt(id: "s", provider: .claude, model: "opus") }
+    }
+
     @Test func correlatedCreateUsesHeaderAndCancelMapsOutcome() async throws {
         let server = FakeShepherdServer()
         defer { server.tearDown() }

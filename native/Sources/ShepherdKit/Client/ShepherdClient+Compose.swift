@@ -37,7 +37,97 @@ extension Components.Schemas.SlashCommandScope: OpenEnum {}
 extension Components.Schemas.SlashCommandKind: OpenEnum {}
 extension Components.Schemas.IssueFetchAttempt.ReasonPayload: OpenEnum {}
 
+public typealias ComposeSteer = Components.Schemas.ComposeSteer
+public typealias ComposeVariantRequest = Components.Schemas.ComposeVariantRequest
+public typealias ComposeReplaceRequest = Components.Schemas.ComposeReplaceRequest
+public typealias ComposeLeftovers = Components.Schemas.ComposeLeftovers
+
+public enum ComposeRecommendationError: Error, Equatable, Sendable {
+    case failed(String)
+}
+
+extension Components.Schemas.ComposeLeftover.KindPayload: OpenEnum {}
+
 extension ShepherdClient {
+    public func steers() async throws -> [ComposeSteer] {
+        do {
+            switch try await generated.listSteers(.init()) {
+            case .ok(let ok): return try ok.body.json
+            case .unauthorized: throw ShepherdError.unauthenticated
+            case .undocumented(let code, _):
+                throw ShepherdError.fromUndocumented(statusCode: code, route: "listSteers")
+            }
+        } catch { throw ShepherdError.from(error, route: "listSteers") }
+    }
+
+    public func saveSteers(_ steers: [ComposeSteer]) async throws -> [ComposeSteer] {
+        do {
+            switch try await generated.saveSteers(.init(body: .json(steers.map { .init(id: $0.id, label: $0.label, text: $0.text, emoji: $0.emoji, inSteerBar: $0.inSteerBar, onIssues: $0.onIssues, repos: $0.repos, agentProviders: $0.agentProviders) }))) {
+            case .ok(let ok): return try ok.body.json
+            case .badRequest(let bad): throw ShepherdError.badRequest(try bad.body.json.error)
+            case .unauthorized: throw ShepherdError.unauthenticated
+            case .undocumented(let code, _):
+                throw ShepherdError.fromUndocumented(statusCode: code, route: "saveSteers")
+            }
+        } catch { throw ShepherdError.from(error, route: "saveSteers") }
+    }
+
+    public func startVariant(id: String, choice: ComposeVariantRequest) async throws -> Session {
+        do {
+            switch try await generated.startVariant(.init(path: .init(id: id), body: .json(choice))) {
+            case .created(let ok): return try ok.body.json.session
+            case .badRequest(let bad): throw ShepherdError.badRequest(try bad.body.json.error)
+            case .unauthorized: throw ShepherdError.unauthenticated
+            case .notFound: throw ShepherdError.notFound
+            case .conflict(let bad): throw ShepherdError.fromConflict(try bad.body.json)
+            case .badGateway(let bad): throw ShepherdError.fromUpstream(try bad.body.json)
+            case .undocumented(let code, _):
+                throw ShepherdError.fromUndocumented(statusCode: code, route: "startVariant")
+            }
+        } catch { throw ShepherdError.from(error, route: "startVariant") }
+    }
+
+    public func replaceSessionAgent(id: String, choice: ComposeReplaceRequest) async throws -> Session {
+        do {
+            switch try await generated.replaceSessionAgent(.init(path: .init(id: id), body: .json(choice))) {
+            case .ok(let ok): return try ok.body.json.session
+            case .badRequest(let bad): throw ShepherdError.badRequest(try bad.body.json.error)
+            case .unauthorized: throw ShepherdError.unauthenticated
+            case .notFound: throw ShepherdError.notFound
+            case .conflict(let bad): throw ShepherdError.fromConflict(try bad.body.json)
+            case .badGateway(let bad): throw ShepherdError.fromUpstream(try bad.body.json)
+            case .undocumented(let code, _):
+                throw ShepherdError.fromUndocumented(statusCode: code, route: "replaceSessionAgent")
+            }
+        } catch { throw ShepherdError.from(error, route: "replaceSessionAgent") }
+    }
+
+    public func sessionLeftovers(id: String) async throws -> ComposeLeftovers {
+        do {
+            switch try await generated.sessionLeftovers(.init(path: .init(id: id))) {
+            case .ok(let ok): return try ok.body.json
+            case .unauthorized: throw ShepherdError.unauthenticated
+            case .undocumented(let code, _):
+                throw ShepherdError.fromUndocumented(statusCode: code, route: "sessionLeftovers")
+            }
+        } catch { throw ShepherdError.from(error, route: "sessionLeftovers") }
+    }
+
+    public func recommendPrompt(id: String, provider: AgentProvider, model: String) async throws -> String {
+        do {
+            switch try await generated.recommendPrompt(.init(path: .init(id: id), body: .json(.init(provider: provider, model: model)))) {
+            case .ok(let ok): return try ok.body.json.prompt
+            case .badRequest(let bad): throw ShepherdError.badRequest(try bad.body.json.error)
+            case .unauthorized: throw ShepherdError.unauthenticated
+            case .unprocessableContent(let bad): throw ComposeRecommendationError.failed(try bad.body.json.error)
+            case .serviceUnavailable(let bad): throw ComposeRecommendationError.failed(try bad.body.json.error)
+            case .undocumented(let code, _):
+                throw ShepherdError.fromUndocumented(statusCode: code, route: "recommendPrompt")
+            }
+        } catch let error as ComposeRecommendationError { throw error }
+        catch { throw ShepherdError.from(error, route: "recommendPrompt") }
+    }
+
     /// Correlation is a header: held tasks must never persist a stale spawn id in their body.
     public func createSession(_ request: CreateSessionRequest, spawnID: String) async throws -> CreateOutcome {
         do {

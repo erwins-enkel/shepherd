@@ -485,6 +485,197 @@ describe("spawn progress and cancellation", () => {
   });
 });
 
+describe("compose session actions", () => {
+  const request = (method: string, path: string, body?: unknown, auth = true) =>
+    fetch(`${s.baseUrl}${path}`, {
+      method,
+      headers: { "content-type": "application/json", ...(auth ? bearer(token) : {}) },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+  async function check(
+    method: string,
+    route: string,
+    path: string,
+    status: number,
+    body?: unknown,
+    auth = true,
+  ) {
+    const res = await request(method, path, body, auth);
+    expect(res.status).toBe(status);
+    return validateResponse(method, route, res);
+  }
+  async function seed(linked = false) {
+    const res = await request("POST", "/api/sessions", {
+      repoPath: s.validRepo,
+      baseBranch: "main",
+      prompt: "Compose actions",
+      ...(linked
+        ? {
+            issueRef: {
+              number: 412,
+              title: "Fix",
+              body: "Details",
+              url: "https://example.test/412",
+            },
+          }
+        : {}),
+    });
+    expect(res.status).toBe(201);
+    const { id } = (await res.json()) as { id: string };
+    return s.deps.store.get(id)!;
+  }
+
+  test("steers round-trip all scopes; invalid payload and authentication", async () => {
+    await check("GET", "/api/steers", "/api/steers", 200); // Complete the one-time legacy migration first.
+    expect(await check("PUT", "/api/steers", "/api/steers", 200, fx.steers)).toEqual(fx.steers);
+    expect(await check("GET", "/api/steers", "/api/steers", 200)).toEqual(fx.steers);
+    for (const body of [{}, [{ ...fx.steers[0], inSteerBar: false, onIssues: false }]]) {
+      await check("PUT", "/api/steers", "/api/steers", 400, body);
+    }
+    await check("GET", "/api/steers", "/api/steers", 401, undefined, false);
+    await check("PUT", "/api/steers", "/api/steers", 401, [], false);
+  });
+
+  test("recommendation uses provider/model, with no-history for unknown sessions and no 404", async () => {
+    const route = "/api/sessions/{id}/recommend-prompt";
+    const path = "/api/sessions/missing/recommend-prompt";
+    const choice = { provider: "codex", model: "gpt-6-astra" };
+    const previous = s.deps.recommend;
+    try {
+      s.deps.recommend = async (id, provider, model) => {
+        expect([id, provider, model]).toEqual(["missing", "codex", "gpt-6-astra"]);
+        return { prompt: "Run regression tests" };
+      };
+      expect(await check("POST", route, path, 200, choice)).toEqual({
+        prompt: "Run regression tests",
+      });
+      for (const error of ["no-history", "spawn-failed", "timeout", "unavailable"] as const) {
+        s.deps.recommend = async () => ({ error });
+        expect(await check("POST", route, path, 422, choice)).toEqual({ error });
+      }
+      s.deps.recommend = undefined;
+      await check("POST", route, path, 503, choice);
+      await check("POST", route, path, 400, { provider: "other" });
+      await check("POST", route, path, 401, choice, false);
+    } finally {
+      s.deps.recommend = previous;
+    }
+  });
+
+  test("leftovers include process metadata, unavailable probes, and unknown ids", async () => {
+    const route = "/api/sessions/{id}/leftovers";
+    const original = s.deps.service.leftovers;
+    const health = s.deps.service.leftoverProbesUnavailable;
+    try {
+      s.deps.service.leftovers = () => fx.leftovers;
+      s.deps.service.leftoverProbesUnavailable = () => false;
+      expect(await check("GET", route, "/api/sessions/test/leftovers", 200)).toEqual({
+        leftovers: fx.leftovers,
+        probesUnavailable: false,
+      });
+      s.deps.service.leftovers = original;
+      s.deps.service.leftoverProbesUnavailable = () => true;
+      expect(await check("GET", route, "/api/sessions/missing/leftovers", 200)).toEqual({
+        leftovers: [],
+        probesUnavailable: true,
+      });
+      await check("GET", route, "/api/sessions/missing/leftovers", 401, undefined, false);
+    } finally {
+      s.deps.service.leftovers = original;
+      s.deps.service.leftoverProbesUnavailable = health;
+    }
+  });
+
+  for (const action of ["variant", "replace"] as const) {
+    test(`${action}: success, validation, not-found, both conflicts, upstream failure and auth`, async () => {
+      const original = await seed();
+      const fresh = await seed();
+      const route = `/api/sessions/{id}/${action}`;
+      const path = `/api/sessions/${original.id}/${action}`;
+      const choice = {
+        agentProvider: "codex" as const,
+        model: "gpt-6-astra",
+        effort: "high",
+        ...(action === "replace" ? { handoffMode: "summarize" as const } : {}),
+      };
+      const variant = s.deps.service.startVariant;
+      const replace = s.deps.service.replaceAgent;
+      const status = action === "variant" ? 201 : 200;
+      try {
+        s.deps.service.startVariant = async (id, selected) => {
+          expect(id).toBe(original.id);
+          expect(selected).toEqual(choice);
+          return { variant: fresh, original };
+        };
+        s.deps.service.replaceAgent = async (id, selected) => {
+          expect(id).toBe(original.id);
+          expect(selected).toEqual(choice);
+          return original;
+        };
+        const result = (await check("POST", route, path, status, choice)) as {
+          session: { id: string };
+        };
+        expect(result.session.id).toBe(action === "variant" ? fresh.id : original.id);
+        await check("POST", route, path, 400, { agentProvider: "bad" });
+        await check("POST", route, `/api/sessions/missing/${action}`, 404, choice);
+        await check("POST", route, path, 401, choice, false);
+        s.deps.store.update(original.id, { status: "archived" });
+        expect(await check("POST", route, path, 409, choice)).toEqual({
+          error: "already archived",
+        });
+        s.deps.store.update(original.id, { status: original.status });
+        s.deps.service.startVariant = async () => {
+          throw new Error("spawn failed");
+        };
+        s.deps.service.replaceAgent = async () => {
+          throw new Error("spawn failed");
+        };
+        expect(await check("POST", route, path, 502, choice)).toEqual({ error: "spawn failed" });
+
+        let release!: () => void;
+        let entered!: () => void;
+        const waiting = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        const ready = new Promise<void>((resolve) => {
+          entered = resolve;
+        });
+        s.deps.service.startVariant = async () => {
+          entered();
+          await waiting;
+          return { variant: fresh, original };
+        };
+        s.deps.service.replaceAgent = async () => {
+          entered();
+          await waiting;
+          return original;
+        };
+        const pending = request("POST", path, choice);
+        try {
+          await ready;
+          expect(await check("POST", route, path, 409, choice)).toEqual({
+            error: `${action} already in progress`,
+            code: "in_progress",
+          });
+        } finally {
+          release();
+          await pending;
+        }
+        if (action === "replace") {
+          const linked = await seed(true);
+          s.stubs.resolveForge.forge = null;
+          expect(
+            await check("POST", route, `/api/sessions/${linked.id}/replace`, 502, choice),
+          ).toEqual({ error: "could not re-resolve linked issue", code: "issue_unresolved" });
+        }
+      } finally {
+        s.deps.service.startVariant = variant;
+        s.deps.service.replaceAgent = replace;
+      }
+    });
+  }
+});
+
 describe("compose coverage gate", () => {
   test("every compose operation and event was exercised", () => {
     const { operations, events } = coverage();

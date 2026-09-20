@@ -135,13 +135,23 @@ import Testing
 
     @Test func installerFillsOnlyContentAndCanRestoreFallback() {
         let previous = NewSessionSlot.content
-        defer { NewSessionSlot.content = previous }
+        let previousActions = ActionBarSlot.content
+        ComposeStream.resetActionsForTesting()
+        defer {
+            NewSessionSlot.content = previous
+            ActionBarSlot.content = previousActions
+            ComposeStream.resetActionsForTesting()
+        }
         let suite = "ComposeInstallTests.\(UUID())"
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
         let app = AppModel(defaults: defaults, credentials: InMemoryCredentialStore())
         ComposeStream.install(app)
         #expect(NewSessionSlot.resolution == .slot)
+        #expect(ActionBarSlot.resolution == .slot)
+        ActionBarSlot.content = nil // A preceding stream reassigns this on a repeated install pass.
+        ComposeStream.install(app)
+        #expect(ActionBarSlot.resolution == .slot)
         NewSessionSlot.content = nil
         #expect(NewSessionSlot.resolution == .fallback)
     }

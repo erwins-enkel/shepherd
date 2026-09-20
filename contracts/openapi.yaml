@@ -2513,6 +2513,94 @@ components:
       required: [canceled]
       properties:
         canceled: { type: boolean }
+    ComposeSteerList:
+      type: array
+      items: { $ref: "#/components/schemas/ComposeSteer" }
+    ComposeSteer:
+      type: object
+      additionalProperties: true
+      required: [id, label, text, inSteerBar, onIssues]
+      properties:
+        id: { type: string }
+        label: { type: string }
+        text: { type: string }
+        emoji: { type: string }
+        inSteerBar: { type: boolean }
+        onIssues: { type: boolean }
+        repos: { type: array, items: { type: string } }
+        agentProviders: { type: array, items: { $ref: "#/components/schemas/AgentProvider" } }
+    ComposeSteerInput:
+      type: object
+      additionalProperties: false
+      required: [label, text]
+      properties:
+        id: { type: string }
+        label: { type: string, minLength: 1, maxLength: 60 }
+        text: { type: string, minLength: 1, maxLength: 4000 }
+        emoji: { type: string }
+        inSteerBar: { type: boolean }
+        onIssues: { type: boolean }
+        repos: { type: array, maxItems: 40, items: { type: string } }
+        agentProviders: { type: [array, "null"], items: { $ref: "#/components/schemas/AgentProvider" } }
+    ComposeVariantRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        agentProvider: { $ref: "#/components/schemas/AgentProvider" }
+        model: { type: [string, "null"] }
+        effort: { type: [string, "null"] }
+    ComposeReplaceRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        agentProvider: { $ref: "#/components/schemas/AgentProvider" }
+        model: { type: [string, "null"] }
+        effort: { type: [string, "null"] }
+        handoffMode: { type: [string, "null"], enum: [resume, summarize, null] }
+    ComposeSessionResponse:
+      type: object
+      additionalProperties: true
+      required: [session]
+      properties:
+        session: { $ref: "#/components/schemas/Session" }
+    ComposeRecommendRequest:
+      type: object
+      additionalProperties: false
+      required: [provider, model]
+      properties:
+        provider: { $ref: "#/components/schemas/AgentProvider" }
+        model: { type: string, minLength: 1 }
+    ComposeRecommendation:
+      type: object
+      additionalProperties: true
+      required: [prompt]
+      properties:
+        prompt: { type: string }
+    ComposeLeftover:
+      type: object
+      additionalProperties: true
+      required: [kind, name, port, key]
+      properties:
+        kind: { type: string, enum: [process, system], x-shepherd-open-enum: true }
+        name: { type: string }
+        port: { type: [integer, "null"] }
+        key: { type: string }
+        pid: { type: integer }
+        startTicks: { type: integer }
+        command:
+          type: object
+          additionalProperties: true
+          required: [bin, args]
+          properties:
+            bin: { type: string }
+            args: { type: array, items: { type: string } }
+    ComposeLeftovers:
+      type: object
+      additionalProperties: true
+      required: [leftovers, probesUnavailable]
+      properties:
+        leftovers: { type: array, items: { $ref: "#/components/schemas/ComposeLeftover" } }
+        probesUnavailable: { type: boolean }
     # ── /stream: compose ──
     # ── stream: settings ──
     # ── /stream: settings ──
@@ -4191,6 +4279,165 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
+  /api/steers:
+    get:
+      operationId: listSteers
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ComposeSteerList" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    put:
+      operationId: saveSteers
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: array, maxItems: 40, items: { $ref: "#/components/schemas/ComposeSteerInput" } }
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ComposeSteerList" }
+        "400":
+          description: Invalid request.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /api/sessions/{id}/variant:
+    post:
+      operationId: startVariant
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ComposeVariantRequest" }
+      responses:
+        "201":
+          description: Parallel variant created; original remains alive.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ComposeSessionResponse" }
+        "400":
+          description: Invalid request.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          description: Session not found.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "409":
+          description: Already archived, or code in_progress while another request is running.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "502":
+          description: Agent launch failed; replace may return code issue_unresolved.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/sessions/{id}/replace:
+    post:
+      operationId: replaceSessionAgent
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ComposeReplaceRequest" }
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ComposeSessionResponse" }
+        "400":
+          description: Invalid request.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          description: Session not found.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "409":
+          description: Already archived, or code in_progress while another request is running.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "502":
+          description: Agent launch failed; replace may return code issue_unresolved.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/sessions/{id}/recommend-prompt:
+    post:
+      operationId: recommendPrompt
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ComposeRecommendRequest" }
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ComposeRecommendation" }
+        "400":
+          description: Invalid request.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422":
+          description: Recommendation failed, including no-history for unknown sessions.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "503":
+          description: Recommendation provider unavailable.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/sessions/{id}/leftovers:
+    get:
+      operationId: sessionLeftovers
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ComposeLeftovers" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
   # ── /stream: compose ──
   # ── stream: settings ──
   # ── /stream: settings ──

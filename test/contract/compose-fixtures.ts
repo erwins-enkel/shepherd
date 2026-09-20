@@ -128,3 +128,27 @@ export const shapeRound = {
     ],
   },
 } satisfies Exclude<import("../../src/task-shape").ShapeResult, { error: string }>;
+
+export const steers = [
+  {
+    id: "compose-steer",
+    label: "Test",
+    text: "Run tests",
+    emoji: "🧪",
+    inSteerBar: true,
+    onIssues: false,
+    repos: ["repo"],
+    agentProviders: ["codex"],
+  },
+] satisfies import("../../src/types").Steer[];
+
+export const leftovers = [
+  { kind: "process", name: "vite", port: 5173, key: "pid:123", pid: 123, startTicks: 456 },
+  {
+    kind: "system",
+    name: "proxy",
+    port: null,
+    key: "proxy:1",
+    command: { bin: "proxy", args: ["stop"] },
+  },
+] satisfies import("../../src/process-reaper").Leftover[];

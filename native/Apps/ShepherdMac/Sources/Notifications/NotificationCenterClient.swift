@@ -44,8 +44,13 @@ protocol NotificationCenterClient: AnyObject {
     func requestAuthorization() async -> NotificationAuthorization
     func post(_ request: NotificationRequest) async
     func setBadgeCount(_ count: Int) async
-    /// Installs the click handler. Called once, after `onSelectSession` is set; calling it again
-    /// is a no-op on both implementations.
+    /// Installs the click handler. Called once, after `onSelectSession` is set. Idempotent on
+    /// `SystemNotificationCenter`; `FakeNotificationCenter` instead counts every call, so a test
+    /// can hold a caller to calling it exactly once.
+    ///
+    /// The SDK requires the delegate to be set before the application finishes launching, or a
+    /// tap that cold-launches the app is dropped: the operator clicks "TASK-07 — needs you" and
+    /// the app opens on whatever session was last selected, not the one they tapped.
     func start()
 }
 
@@ -166,10 +171,15 @@ final class SystemNotificationCenter: NotificationCenterClient {
             await MainActor.run { self.onSelect(id) }
         }
 
-        /// Shown, not swallowed. `NotificationGate` already refuses to post anything while the
-        /// Shepherd window is focused, so a banner that reaches macOS at all is one the operator
-        /// asked to see — returning `[]` here would silently drop exactly those: the app is
-        /// frontmost but the window is behind something, minimised or on another Space.
+        /// Shown, not swallowed — but not for the reason it might look like. The SDK calls
+        /// `willPresent` only while the application is in the foreground, and `NotificationGate`
+        /// already refuses to post while Shepherd is active (driven from
+        /// `NSApplicationDidBecomeActive`/`WillResignActive` — application activation, not window
+        /// key state), so this delegate method never runs for a banner the gate let through in
+        /// the first place. The one case that genuinely reaches here is a banner posted while
+        /// Shepherd was inactive that macOS re-presents once the operator activates the app.
+        /// Showing it is preferred to dropping it: returning `[]` would also strip it from
+        /// Notification Center, which is the worse failure.
         func userNotificationCenter(
             _ center: UNUserNotificationCenter,
             willPresent notification: UNNotification
@@ -206,10 +216,26 @@ final class FakeNotificationCenter: NotificationCenterClient {
     func setBadgeCount(_ count: Int) async { badge = count }
 
     /// Test seam: pretend the operator clicked a banner for `sessionID`.
-    func deliverClick(sessionID: String) { onSelectSession?(sessionID) }
+    ///
+    /// Guarded on `starts > 0` because the real centre delivers nothing until `start()` installs
+    /// the delegate — a model that sets `onSelectSession` but forgets to call `center.start()`
+    /// must fail exactly the click tests it would otherwise pass.
+    func deliverClick(sessionID: String) {
+        guard starts > 0 else { return }
+        onSelectSession?(sessionID)
+    }
 
-    /// Clears the recording. Deliberately keeps `onSelectSession` and `nextAuthorization`, which
-    /// are the fixture a test set up, not the evidence it is about to assert on.
+    /// Test seam for a full `NotificationRequest`. No-ops when `request.sessionID == nil`, the
+    /// same way `ResponseDelegate.userNotificationCenter(_:didReceive:)` refuses to select a
+    /// session when there is no session id in `userInfo` — the host-global usage warning must
+    /// only open the app, never select a session.
+    func deliverClick(for request: NotificationRequest) {
+        guard let sessionID = request.sessionID else { return }
+        deliverClick(sessionID: sessionID)
+    }
+
+    /// Clears the recording. Deliberately keeps `onSelectSession`, `nextAuthorization`, and
+    /// `starts` — the fixture a test set up, not the evidence it is about to assert on.
     func reset() {
         posted.removeAll()
         badge = 0

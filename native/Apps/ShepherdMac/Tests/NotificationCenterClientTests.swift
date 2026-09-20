@@ -31,10 +31,35 @@ struct NotificationCenterClientTests {
 
     @Test func aClickIsDeliveredToTheHandler() {
         let center = FakeNotificationCenter()
+        center.start()
         var selected: String?
         center.onSelectSession = { selected = $0 }
         center.deliverClick(sessionID: "s9")
         #expect(selected == "s9")
+    }
+
+    @Test func aClickBeforeStartDoesNothing() {
+        // The real centre delivers nothing until `start()` installs the delegate. A model that
+        // sets `onSelectSession` but forgets `center.start()` must fail this, not pass it.
+        let center = FakeNotificationCenter()
+        var selected: String?
+        center.onSelectSession = { selected = $0 }
+        center.deliverClick(sessionID: "s9")
+        #expect(selected == nil)
+    }
+
+    @Test func deliveringAHostGlobalRequestSelectsNoSession() {
+        // The host-global usage warning has no session id. The real delegate's
+        // `guard let id = info[...] as? String else { return }` refuses to select a session for
+        // it; this is that behaviour made assertable on the fake.
+        let center = FakeNotificationCenter()
+        center.start()
+        var selected: String?
+        center.onSelectSession = { selected = $0 }
+        let request = NotificationRequest.make(
+            title: "t", body: "b", threadIdentifier: "host", sessionID: nil)
+        center.deliverClick(for: request)
+        #expect(selected == nil)
     }
 
     @Test func aRequestIdentifierIsUniquePerPost() {
@@ -72,6 +97,7 @@ struct NotificationCenterClientTests {
 
     @Test func resetClearsTheRecordingButKeepsTheHandler() async {
         let center = FakeNotificationCenter()
+        center.start()
         var selected: String?
         center.onSelectSession = { selected = $0 }
         await center.post(NotificationRequest.make(title: "t", body: "b", threadIdentifier: "s1", sessionID: "s1"))
@@ -89,6 +115,7 @@ struct NotificationCenterClientTests {
 
     @Test func aClickWithNoHandlerIsHarmless() {
         let center = FakeNotificationCenter()
+        center.start()
         center.deliverClick(sessionID: "s1")
         #expect(center.posted.isEmpty)
     }

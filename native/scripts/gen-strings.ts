@@ -1045,6 +1045,21 @@ export const KEYS_COMPOSE: readonly string[] = [
 
 /** S12 — the settings panes, the command menu and the usage gauges. */
 export const KEYS_SETTINGS: readonly string[] = [
+  "native_settings_search",
+  "settings_auth_mode_subscription",
+  "settings_auth_mode_apikey",
+  "settings_auth_mode_hint",
+  "settings_access_created",
+  "settings_access_last_used",
+  "settings_access_never_used",
+  "settings_access_expires",
+  "settings_access_expires_never",
+  "settings_access_expired",
+  "settings_access_scope_unknown",
+  "settings_access_scope_read_hint",
+  "settings_access_scope_submit_hint",
+  "settings_access_scope_full_hint",
+
   "diagnostics_all_ok",
   "diagnostics_doc_link",
   "diagnostics_fix",

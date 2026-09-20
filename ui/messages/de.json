@@ -4311,9 +4311,9 @@
   "native_settings_field_distillereffort": "distiller Aufwand",
   "native_settings_field_distillerintervaldays": "Distiller-Intervall in Tagen",
   "native_settings_field_distillermodel": "distiller Modell",
-  "native_settings_field_docagentcli": "docAgent CLI",
-  "native_settings_field_docagenteffort": "docAgent Aufwand",
-  "native_settings_field_docagentmodel": "docAgent Modell",
+  "native_settings_field_docagentcli": "Dokumentation CLI",
+  "native_settings_field_docagenteffort": "Dokumentation Aufwand",
+  "native_settings_field_docagentmodel": "Dokumentation Modell",
   "native_settings_field_extracreditsdrainceiling": "Zusatzguthaben-Limit für Drain",
   "native_settings_field_fableavailable": "Fable verfügbar",
   "native_settings_field_houserulerelevance": "Relevanzmodus für Hausregeln",
@@ -4454,5 +4454,6 @@
   "native_settings_notifications": "Benachrichtigungen",
   "native_settings_open": "Einstellungen …",
   "native_settings_reduced_push": "Reduzierte Benachrichtigungen",
-  "native_settings_workspace": "Arbeitsbereich"
+  "native_settings_workspace": "Arbeitsbereich",
+  "native_settings_search": "Einstellungen suchen"
 }

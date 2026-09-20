@@ -1,5 +1,56 @@
 import Foundation
 enum SettingsDiagnosticCopy {
+    static func label(_ id: String) -> String {
+        switch id {
+        case "bun": L.t("diagnostics_label_bun")
+        case "claude": L.t("diagnostics_label_claude")
+        case "claude_install": L.t("diagnostics_label_claude_install")
+        case "claude_trust": L.t("diagnostics_label_claude_trust")
+        case "codex": L.t("diagnostics_label_codex")
+        case "gh": L.t("diagnostics_label_gh")
+        case "git": L.t("diagnostics_label_git")
+        case "git_mergetree": L.t("diagnostics_label_git_mergetree")
+        case "herdr": L.t("diagnostics_label_herdr")
+        case "herdr_health": L.t("diagnostics_label_herdr_health")
+        case "host_capacity": L.t("diagnostics_label_host_capacity")
+        case "node": L.t("diagnostics_label_node")
+        case "preview_probes": L.t("diagnostics_label_preview_probes")
+        case "pwa_install": L.t("diagnostics_label_pwa_install")
+        case "sandbox_membrane": L.t("diagnostics_label_sandbox_membrane")
+        case "tailscale": L.t("diagnostics_label_tailscale")
+        case "tmp_inodes": L.t("diagnostics_label_tmp_inodes")
+        default: id
+        }
+    }
+    static func state(_ state: String) -> String {
+        switch state {
+        case "error": L.t("diagnostics_state_error")
+        case "installed": L.t("diagnostics_state_installed")
+        case "not_installed": L.t("diagnostics_state_not_installed")
+        case "ok": L.t("diagnostics_state_ok")
+        case "optional": L.t("diagnostics_state_optional")
+        case "warning": L.t("diagnostics_state_warning")
+        default: state
+        }
+    }
+    static func documentation(_ hint: String) -> URL? {
+        switch hint {
+        case "diagnostics_hint_herdr_offline": URL(string: "https://herdr.dev")
+        case "diagnostics_hint_gh_missing": URL(string: "https://github.com/cli/cli#installation")
+        case "diagnostics_hint_gh_not_authenticated": URL(string: "https://cli.github.com/manual/gh_auth_login")
+        case "diagnostics_hint_tailscale_missing": URL(string: "https://tailscale.com/kb/1347/installation")
+        case "diagnostics_hint_tailscale_not_serving": URL(string: "https://tailscale.com/kb/1242/tailscale-serve")
+        case "diagnostics_hint_tailscale_serve_denied": URL(string: "https://tailscale.com/kb/1080/cli#set")
+        case "diagnostics_hint_host_capacity_unbounded": URL(string: "https://docs.shepherd.run/operating/#host-tuning--resource-guardrails")
+        case "diagnostics_hint_host_capacity_herdr_unbounded": URL(string: "https://docs.shepherd.run/operating/#host-tuning--resource-guardrails")
+        case "diagnostics_hint_host_capacity_pressure": URL(string: "https://docs.shepherd.run/operating/#host-tuning--resource-guardrails")
+        case "diagnostics_hint_claude_install_diverged": URL(string: "https://docs.shepherd.run/operating/#the-claude-code-install-row")
+        case "diagnostics_hint_claude_install_native_on_path": URL(string: "https://docs.shepherd.run/operating/#the-claude-code-install-row")
+        case "diagnostics_hint_claude_install_native_residue": URL(string: "https://docs.shepherd.run/operating/#the-claude-code-install-row")
+        default: nil
+        }
+    }
+
     static func text(_ key: String, params: [String:String]) -> String {
         switch key {
         case "diagnostics_all_ok": return L.t("diagnostics_all_ok")

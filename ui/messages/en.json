@@ -4311,9 +4311,9 @@
   "native_settings_field_distillereffort": "distiller effort",
   "native_settings_field_distillerintervaldays": "Distiller interval in days",
   "native_settings_field_distillermodel": "distiller model",
-  "native_settings_field_docagentcli": "docAgent CLI",
-  "native_settings_field_docagenteffort": "docAgent effort",
-  "native_settings_field_docagentmodel": "docAgent model",
+  "native_settings_field_docagentcli": "Documentation CLI",
+  "native_settings_field_docagenteffort": "Documentation effort",
+  "native_settings_field_docagentmodel": "Documentation model",
   "native_settings_field_extracreditsdrainceiling": "Drain paid-credit ceiling",
   "native_settings_field_fableavailable": "Fable available",
   "native_settings_field_houserulerelevance": "House-rule relevance mode",
@@ -4454,5 +4454,6 @@
   "native_settings_notifications": "Notifications",
   "native_settings_open": "Settings…",
   "native_settings_reduced_push": "Reduced notifications",
-  "native_settings_workspace": "Workspace"
+  "native_settings_workspace": "Workspace",
+  "native_settings_search": "Search settings"
 }

@@ -129,15 +129,23 @@ TEST_RUNNER_SHEPHERD_LIVE_PASSWORD='…' \
   native/scripts/test-app.sh -only-testing:ShepherdUITests
 ```
 
-The test hands both values to the app through `launchEnvironment`; the app adds a remote profile
-named "Live", signs in through the same `AppModel.signIn` the login sheet uses, and activates it.
-The minted token goes to the in-memory store and the profile to the throwaway suite — never the
-Keychain, never `run.shepherd.mac` — and `-ShepherdRevokeOnExit 1` gives the token back to the
-server when the app quits. One caveat, measured rather than assumed: `XCUIApplication.terminate()`
-does not deliver `NSApplicationWillTerminate`, so a run driven by the test does **not** revoke —
-expect one access token named `Shepherd for Mac (<host>)` per live run in the server's token list,
-and revoke it there if it bothers you. Keep the values out of files and shell history; they are an
-operator's real server and real password.
+The test hands both values to the isolated app through `launchEnvironment`. The profile and token
+stay in the private defaults suite and in-memory credential store. Tokens are named
+`Shepherd UI test (…)`; cleanup never revokes operator-owned tokens. UI teardown requests a real
+Quit (⌘Q), allowing the app's synchronous termination observer to revoke its minted token, then
+uses forced termination only as a bounded fallback. A later isolated seed can sweep an orphan
+with its exact test-token name.
+
+Both UI suites pass `-ApplePersistenceIgnoreState YES -NSQuitAlwaysKeepsWindows NO`. Profile
+isolation alone does not isolate AppKit window restoration: in this environment a restored
+no-window launch never mounted `RootView`, so its `.task` never started the live seed. The same
+app opened normally with these flags, including the Settings scene and command registrations.
+Do not delete the operator's saved window state to work around this.
+
+Isolated live models disable automatic Up Next recomputation (`POST /api/up-next/refresh`).
+The live UI suite only reads queue snapshots and changes local navigation; it never starts,
+retries, halts, broadcasts, restores, or archives a real session. Keep live values out of logs,
+reports, command arguments, and commits.
 
 ## Localisation
 
@@ -413,6 +421,29 @@ works too, where `xcodebuild` forwards the shell environment; `LiveServerEnviron
 either. The password-gated test signs in for real through `ProfileSetup.login` and revokes the
 token it mints on the way out; the token-gated test drops a pre-minted token straight into an
 in-memory credential store and never revokes anything, because it never signs in.
+
+### Wave-1 integration (S7, S8, S10)
+
+`StreamRegistrations.installScene()` registers `QueuesPanels` before views read that
+non-observable registry. The model pass installs the milestone-2 consumers, calls
+`SessionSignals.connect(app)`, then installs Plan, Herd, and Queues in that order. Plan assigns
+its reviewing closure before Herd connects it; Herd replaces the older sparse git-merged seam.
+Activation-scoped `HerdBindings` restores the instance closures on every profile switch and is
+also the single writer of CI-failure ∪ unanswered-question attention. Notifications intersects
+that union with live sessions and clears it on teardown. No seam issues an extra request.
+
+The sidebar header contains the lens strip, held tasks and queue actions. Registered factories
+both enable and render Next/Owed/Done; before registration those three lenses remain disabled.
+Owed stays honestly empty until S9 supplies `manualStepsOutstanding`. Plan badges and Answer
+select the corresponding session and Plan tab. Recaps retain optional shared `VisualBlock`s;
+the Done recap displays supported blocks alongside Markdown and omits unknown block types.
+`SessionStore` applies plan-phase and halt pushes before broadcasting them to stream taps.
+
+Tests/previews use `resetStreamSeams()` to reset all slots/registries, session signals,
+`PlanSignals`, `QueuesPanels`, and the once-only scene-install guard. Model teardown clears
+activation-bound attention and signal closures resolve conservative answers without a live model.
+`test/contract/native-open-enum.test.ts` rejects duplicate conformances by normalized type name
+across native sources, excluding generated build directories.
 
 ## ShepherdKit
 

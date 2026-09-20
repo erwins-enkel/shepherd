@@ -5,6 +5,16 @@ The Xcode project is **generated** from `Apps/ShepherdMac/project.yml` by
 [XcodeGen](https://github.com/yonaskolb/XcodeGen) — never edit `Shepherd.xcodeproj`, it is
 gitignored.
 
+## Status
+
+**Very early, and already useful.** The native client is usable day to day against a running
+Shepherd server: the session list with its herd filters, the attached terminal, diff, files and
+pull-request tabs, the session actions above the recap line, the local-server panel and native
+notifications all work. It is also visibly behind the web UI, and the gaps are being worked on —
+the biggest are the herd lifecycle stages, the plan gates, merge automation and full parity for
+the new-task composer. Feedback and PRs are welcome. The screenshots below come from a live
+instance with real data, not from fixtures.
+
 ## Prerequisites
 
 - Xcode 26.6 or newer (`xcodebuild -version`)
@@ -446,6 +456,39 @@ works too, where `xcodebuild` forwards the shell environment; `LiveServerEnviron
 either. The password-gated test signs in for real through `ProfileSetup.login` and revokes the
 token it mints on the way out; the token-gated test drops a pre-minted token straight into an
 in-memory credential store and never revokes anything, because it never signs in.
+
+## What it looks like
+
+Screenshots from a live instance with real sessions — German UI, dark appearance.
+
+![Session list with herd filters and the Activity tab of the selected session](docs/screenshots/01-sessions-and-activity.png)
+_Sidebar: herd counters, the usage windows, the view and repo filters, and every session with its
+state. The detail pane shows the selected session's Activity — what the agent actually ran._
+
+![Diff tab with the changed files and a hunk](docs/screenshots/02-diff.png)
+_Diff against the base branch: changed files with their line counts on the left, the selected
+file's hunks on the right._
+
+![Files tab browsing the session worktree](docs/screenshots/03-files.png)
+_Files: the session's scratchpad and its worktree, browsable without leaving the app._
+
+![Pull request tab with state, checks and the merge actions](docs/screenshots/04-pull-request.png)
+_Pull request: number, title, state, check result, and the merge, draft, close and review-request
+actions._
+
+![Terminal tab attached to a running session](docs/screenshots/05-terminal.png)
+_Terminal: the session's terminal with its scrollback, attached live, and a message box for the
+agent._
+
+![Session actions and the recap line below the detail pane](docs/screenshots/06-session-actions.png)
+_Below the detail pane: the recap — status badge, one-line summary, open points — and the
+actions that apply to this session._
+
+![New task sheet with repo, base branch, agent, model and prompt](docs/screenshots/07-new-task.png)
+_Starting a new task: repo, base branch, agent, model and the prompt._
+
+![Welcome screen offering the local server or a remote one](docs/screenshots/08-welcome.png)
+_First launch: use the Shepherd server already running on this Mac, or connect to a remote one._
 
 # ShepherdKit
 

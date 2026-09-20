@@ -1,9 +1,10 @@
 // Read-only against real sessions and queues: halt interrupts every working agent,
 // held-spawn starts one, and revive-stranded resumes several. Never issue those writes here.
 // Authentication may mint a Shepherd UI test (…) token; cleanup revokes only that token.
-// Password runs must forward SHEPHERD_LIVE_PASSWORD as SHEPHERD_LIVE_QUEUES_PASSWORD and
-// unset both standard password spellings before launching the host. Otherwise LaunchEnvironment
-// also signs in and sweeps prior test-named tokens, outside this suite's read-only boundary.
+// Use SHEPHERD_LIVE_BASE_URL plus SHEPHERD_LIVE_PASSWORD (or SHEPHERD_LIVE_TOKEN), with
+// TEST_RUNNER_ prefixes when launching through xcodebuild, like the other live suites.
+// Set TEST_RUNNER_SHEPHERD_REVOKE_ON_EXIT=1 for the isolated host's own token cleanup.
+// The host may seed/sweep its Shepherd UI test (…) tokens; this suite revokes only its own.
 import Foundation
 import ShepherdKit
 import Testing
@@ -13,19 +14,7 @@ import Testing
 private enum QueuesLiveGate {
     static var armed: Bool {
         LiveServerEnvironment.baseURL != nil
-            && (password != nil || LiveServerEnvironment.token != nil)
-    }
-
-    static var password: String? {
-        let environment = ProcessInfo.processInfo.environment
-        for key in ["SHEPHERD_LIVE_QUEUES_PASSWORD", "TEST_RUNNER_SHEPHERD_LIVE_QUEUES_PASSWORD"] {
-            if let value = environment[key]?.trimmingCharacters(in: .whitespacesAndNewlines),
-                !value.isEmpty
-            {
-                return value
-            }
-        }
-        return nil
+            && (LiveServerEnvironment.password != nil || LiveServerEnvironment.token != nil)
     }
 }
 
@@ -58,10 +47,13 @@ struct QueuesLiveTests {
             try credentials.save(
                 StoredCredential(token: token, tokenId: "live-queues"), for: profile.credentialKey)
         } else {
-            let password = try #require(QueuesLiveGate.password)
+            let password = try #require(LiveServerEnvironment.password)
+            // The host sweeps its exact machine-based test name while starting. Give this
+            // suite a distinct name so that concurrent seed cannot revoke our fresh token.
             try await ProfileSetup.login(
                 profile: profile, password: password, credentials: credentials,
-                tokenName: ProfileSetup.tokenName(prefix: "Shepherd UI test ("))
+                tokenName: ProfileSetup.tokenName(prefix: "Shepherd UI test (",
+                                                hostName: "queues-\(UUID().uuidString)"))
             minted = true
         }
 

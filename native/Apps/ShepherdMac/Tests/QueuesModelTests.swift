@@ -336,7 +336,41 @@ struct QueuesModelTests {
         f.store.apply(try frame("app:auto-revived", "{\"revived\":2,\"failed\":1}"))
         #expect(await queueSettle { f.model.autoRevivedNotice?.revived == 2 })
         #expect(f.model.autoRevivedNotice?.failed == 1)
-        #expect(f.model.strandedNotice?.count == 19)
+        #expect(f.model.stranded == ["new"])
+        f.model.dismissAutoRevived()
+        #expect(f.model.autoRevivedNotice == nil)
+        #expect(f.model.stranded == ["new"] && f.model.strandedNotice?.count == 19)
+    }
+
+    @Test func haltResultsFromOtherClientsAndCommandEchoShareOneDismissibleSlot() async throws {
+        let f = try QueueFixture(empty)
+        defer { f.close() }
+        #expect(await queueSettle { !f.model.isRefreshing })
+        f.store.apply(try frame("halt:done", "{\"halted\":3}"))
+        #expect(await queueSettle { f.model.haltDoneNotice?.halted == 3 })
+        // A command result followed by its socket echo replaces one notice, never appends.
+        f.model.recordHaltDone(.init(halted: 2))
+        f.store.apply(try frame("halt:done", "{\"halted\":2}"))
+        f.store.apply(try snapshot(1))
+        #expect(await queueSettle { f.model.upNext != nil })
+        #expect(f.model.haltDoneNotice?.halted == 2)
+        f.model.dismissHaltDone()
+        #expect(f.model.haltDoneNotice == nil)
+        f.store.apply(try frame("halt:done", "{\"halted\":9}"))
+        f.store.apply(try frame("app:auto-revived", "{\"revived\":9,\"failed\":0}"))
+        f.model.teardown()
+        f.model.recordHaltDone(.init(halted: 9))
+        #expect(await queueSettle { !f.model.isWatchingConnection })
+        #expect(f.model.haltDoneNotice == nil && f.model.autoRevivedNotice == nil)
+    }
+
+    @Test func outgoingActivationCannotPublishACommandHaltResult() async throws {
+        let f = try QueueFixture(empty)
+        defer { f.close() }
+        #expect(await queueSettle { !f.model.isRefreshing })
+        f.app.teardown()
+        f.model.recordHaltDone(.init(halted: 9))
+        #expect(f.model.haltDoneNotice == nil)
     }
 
     @Test func burstDuringBootstrapCollapsesToOneFollowUpWithoutRecomputingUpNext() async throws {
@@ -507,7 +541,7 @@ struct QueuesModelTests {
         let calls = QueueReadGate()
         await calls.open()
         f.model.reads.held = { await calls.enter(); return [] }
-        for name in ["held:changed", "upnext:snapshot", "session:halt",
+        for name in ["held:changed", "upnext:snapshot", "session:halt", "halt:done",
                      "app:sessions-stranded", "app:auto-revived", "unrelated"] {
             f.store.apply(try frame(name, "{}"))
         }
@@ -517,12 +551,23 @@ struct QueuesModelTests {
         #expect(await calls.calls == 0)
         #expect(f.model.heldCount == 0 && f.model.retrySelectionGeneration == 0)
         #expect(f.model.strandedNotice == nil && f.model.autoRevivedNotice == nil)
+        #expect(f.model.haltDoneNotice == nil)
     }
 }
 
 @MainActor
 @Suite(.serialized)
 struct QueuesStreamTests {
+    @Test func scenePassRegistersPanelsBeforeAnyModelExists() {
+        QueuesPanels.reset()
+        defer { QueuesPanels.reset() }
+        QueuesStream.installScene()
+        QueuesStream.installScene()
+        for lens in HerdLens.allCases {
+            #expect((QueuesPanels.panel(for: lens) != nil) == [.next, .done, .owed].contains(lens))
+        }
+    }
+
     @Test func panelFactoriesAreLazyReplaceableAndAbsentForUnregisteredLenses() throws {
         QueuesPanels.reset()
         defer { QueuesPanels.reset() }
@@ -639,6 +684,7 @@ struct QueueActionsTests {
         #expect(await queueSettle { fixture.model.retrySelectionGeneration == 1 })
         #expect(fixture.store.sessions.allSatisfy { $0.haltReason == nil })
         #expect(fixture.model.retrySessions.first { $0.id == "halted" }?.haltedAt == 2)
+        #expect(fixture.model.retrySessions.first { $0.id == "halted" }?.haltReason?.rawValue == "usage_limit")
         var selection = QueueTargetSelection(sessions: fixture.model.retrySessions, preselectUsage: true)
         #expect(selection.selected == ["halted"])
         selection.toggle("halted")
@@ -674,6 +720,7 @@ struct QueueActionsTests {
         #expect(await queueSettle { fixture.model.retrySelectionGeneration == 1 })
         #expect(fixture.store.sessions.first?.haltReason?.rawValue == "usage_limit")
         #expect(fixture.model.retrySessions.first?.haltedAt == nil)
+        #expect(fixture.model.retrySessions.first?.haltReason == nil)
         #expect(selection.selected == ["halted"])
         #expect(QueueTargetSelection(sessions: fixture.model.retrySessions, preselectUsage: true).selected.isEmpty)
     }

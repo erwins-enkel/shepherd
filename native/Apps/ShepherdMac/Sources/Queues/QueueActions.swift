@@ -107,7 +107,11 @@ struct QueueActionCommands {
     var reloadStranded: () async throws -> Void
 
     static func live(_ client: ShepherdClient, model: QueuesModel?) -> Self {
-        .init(halt: { try await client.halt() },
+        .init(halt: {
+            let result = try await client.halt()
+            model?.recordHaltDone(result)
+            return result
+        },
               retry: { try await client.retry(ids: $0, text: $1) },
               revive: { try await client.reviveStranded() },
               restore: { try await client.restore(sessionID: $0) },
@@ -212,7 +216,12 @@ struct QueueActionsView: View {
                 Button(L.t("broadcast_title")) { sheet = TargetSheet(retry: false, sessions: sessions) }
                     .accessibilityIdentifier("queues-broadcast")
             }
-            QueueActionNotices(state: halt, retry: { Task { await runHalt(.halt) } })
+            QueueActionNotices(state: halt, retry: { Task { await runHalt(.halt) } }, showsNotices: false)
+            if let result = model.haltDoneNotice {
+                NoticeBar(message: L.t("halt_done", String(result.halted)), tone: .success,
+                          onDismiss: model.dismissHaltDone)
+                    .accessibilityIdentifier("queues-halt-done")
+            }
             if let message = QueueActionPresentation.strandedMessage(model.stranded) {
                 HStack {
                     Text(verbatim: message)
@@ -223,6 +232,12 @@ struct QueueActionsView: View {
                 .accessibilityIdentifier("queues-stranded-banner")
             }
             QueueActionNotices(state: revive)
+            if let result = model.autoRevivedNotice {
+                NoticeBar(message: L.t("toast_auto_revived", String(result.revived), String(result.failed)),
+                          tone: result.failed > 0 ? .warning : .success,
+                          onDismiss: model.dismissAutoRevived)
+                    .accessibilityIdentifier("queues-auto-revived")
+            }
             ForEach(sheetResult, id: \.self) { message in
                 NoticeBar(message: message, tone: .success) { sheetResult = [] }
             }
@@ -269,6 +284,7 @@ struct QueueActionsView: View {
 struct QueueActionNotices: View {
     let state: QueueActionState
     var retry: (() -> Void)?
+    var showsNotices = true
 
     var body: some View {
         if let message = state.gate.message {
@@ -281,8 +297,10 @@ struct QueueActionNotices: View {
                 }
             }
         }
-        ForEach(state.notices, id: \.self) { message in
-            NoticeBar(message: message, tone: .success, onDismiss: state.clear)
+        if showsNotices {
+            ForEach(state.notices, id: \.self) { message in
+                NoticeBar(message: message, tone: .success, onDismiss: state.clear)
+            }
         }
     }
 }
@@ -309,7 +327,11 @@ private struct QueueTargetsSheet: View {
         _selection = State(initialValue: QueueTargetSelection(sessions: initialSessions, preselectUsage: retry))
     }
 
-    private var sessions: [Session] { app.store?.sessions ?? [] }
+    private var sessions: [Session] {
+        // Flags stay live, but the @State selection is seeded only once by init.
+        if retry, let model = app.extension(QueuesModel.self) { return model.retrySessions }
+        return app.store?.sessions ?? []
+    }
     private var ids: [String] { selection.ids(in: sessions) }
 
     var body: some View {

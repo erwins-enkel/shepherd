@@ -41,13 +41,14 @@ final class QueuesModel: AppExtension {
     /// stranded notice. Rendering and dismissal belong to the queue actions UI.
     private(set) var strandedNotice: Components.Schemas.SessionsStrandedEvent?
     private(set) var autoRevivedNotice: Components.Schemas.AutoRevivedEvent?
+    private(set) var haltDoneNotice: HaltResult?
     /// Invalidates cached candidates for the NEXT retry presentation. An open dialog must
     /// keep its own selection so a halt frame cannot reselect a row the operator unchecked.
     private(set) var retrySelectionGeneration = 0
     private var haltFlags: [String: Components.Schemas.SessionHaltEvent] = [:]
 
     /// SessionStore does not apply session:halt. Overlay our current flags only when
-    /// opening Retry; the sheet owns its selection for the rest of that presentation.
+    /// opening Retry and rendering its badges; the sheet owns its selection throughout.
     var retrySessions: [Session] {
         (store?.sessions ?? []).map { session in
             guard let flags = haltFlags[session.id] else { return session }
@@ -222,6 +223,15 @@ final class QueuesModel: AppExtension {
         upNextRefreshPending = false
     }
 
+    /// The HTTP result and its socket echo share one slot, including remote operators' halts.
+    func recordHaltDone(_ result: HaltResult) {
+        guard isCurrent(generation), !Task.isCancelled else { return }
+        haltDoneNotice = result
+    }
+
+    func dismissHaltDone() { haltDoneNotice = nil }
+    func dismissAutoRevived() { autoRevivedNotice = nil }
+
     private func subscribe(_ store: SessionStore) {
         let frames = store.events()
         let mine = generation
@@ -270,6 +280,10 @@ final class QueuesModel: AppExtension {
         guard case .unknown(let name, let payload) = event, let payload else { return }
         let decoder = JSONDecoder()
         switch name {
+        case "halt:done":
+            guard let frame = try? decoder.decode(Components.Schemas.HaltDoneEvent.self,
+                                                  from: payload) else { return }
+            recordHaltDone(frame)
         case "session:claude-alive":
             // The liveness schema belongs to S7. Treat the frame as an invalidation only;
             // GET /api/stranded is the authoritative generated payload for this stream.

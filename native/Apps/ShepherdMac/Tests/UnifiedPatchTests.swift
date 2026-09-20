@@ -227,6 +227,56 @@ struct UnifiedPatchTests {
         #expect(parsed.hunks[0].lines.map(\.text) == ["a"])
     }
 
+    /// `Int("9223372036854775807")` parses, and the walk then did `newNo += 1` on it — which
+    /// traps, taking the window down with a patch this type promises is only ever unreadable.
+    /// An out-of-range header is unparsable, exactly like `@@ garbage @@`.
+    @Test func aHunkHeaderWithAnOutOfRangeNumberIsDroppedInsteadOfTrapping() {
+        let overflow = "@@ -1 +9223372036854775807 @@\n+x"
+        let parsed = UnifiedPatch.parse(overflow)
+        #expect(parsed.hunks.isEmpty)
+        #expect(parsed.files.isEmpty)
+        #expect(parsed.raw == overflow)
+
+        // The old side traps the same way, and so does an absurd count on either side.
+        #expect(UnifiedPatch.parse("@@ -9223372036854775807 +1 @@\n-x").hunks.isEmpty)
+        #expect(UnifiedPatch.parse("@@ -1,9223372036854775807 +1 @@\n-x").hunks.isEmpty)
+        #expect(UnifiedPatch.parse("@@ -1 +1,9223372036854775807 @@\n+x").hunks.isEmpty)
+    }
+
+    /// A hunk cannot start before line zero, and only a malformed header says it does.
+    @Test func aHunkHeaderWithNegativeNumbersIsDropped() {
+        #expect(UnifiedPatch.parse("@@ --5 +1 @@\n+x").hunks.isEmpty)
+        #expect(UnifiedPatch.parse("@@ -1,-5 +1,-5 @@\n+x").hunks.isEmpty)
+        #expect(UnifiedPatch.parse("@@ -1 +-9 @@\n+x").hunks.isEmpty)
+    }
+
+    /// The ceiling sits far above any file a forge will ever send, so a big-but-real header
+    /// still parses — the guard rejects the absurd, not the merely large.
+    @Test func aLargeButPlausibleHunkHeaderStillParses() {
+        let parsed = UnifiedPatch.parse("@@ -999999999,2 +999999999,2 @@\n ctx\n+x")
+        #expect(parsed.hunks.count == 1)
+        #expect(parsed.hunks[0].lines[0].oldNumber == 999_999_999)
+    }
+
+    /// An out-of-range header must not take the rest of the patch with it either.
+    @Test func aPatchKeepsParsingAfterAnOutOfRangeHeader() {
+        let parsed = UnifiedPatch.parse("@@ -1 +9223372036854775807 @@\n+dropped\n@@ -5 +5 @@\n+kept")
+        #expect(parsed.hunks.count == 1)
+        #expect(parsed.hunks[0].lines.map(\.text) == ["kept"])
+    }
+
+    /// A file whose headers parsed but whose hunks did not: `raw` is suppressed whenever
+    /// anything parsed, so this yields one `File`, zero hunks and an EMPTY `raw`. The diff tab
+    /// then claimed `diff_note_no_changes` for a file the list beside it says has changes — see
+    /// `DiffTabView.verbatimText(parsed:patch:)`, which is what fixes it.
+    @Test func aFileWhoseHunksDidNotParseCarriesNoRawFallbackOfItsOwn() {
+        let patch = "diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ malformed @@\n-old\n+new"
+        let parsed = UnifiedPatch.parse(patch)
+        #expect(parsed.files.count == 1)
+        #expect(parsed.hunks.isEmpty)
+        #expect(parsed.raw.isEmpty)
+    }
+
     @Test func aHugePatchIsStillLinearToParse() {
         let body = (0..<5_000).map { "+line \($0)" }.joined(separator: "\n")
         let parsed = UnifiedPatch.parse("@@ -1 +1,5000 @@\n" + body)

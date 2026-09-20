@@ -228,19 +228,33 @@ struct UnifiedPatch: Equatable, Sendable {
         return UnifiedPatch(files: [], raw: trimmed.isEmpty ? "" : patch)
     }
 
+    /// The largest line number or count a hunk header may name.
+    ///
+    /// `Int(_:)` happily parses `9223372036854775807`, and the walk below then does `newNo += 1`
+    /// on it — which **traps**, taking the window down with a patch the type promises is only
+    /// ever "unreadable", never fatal. Any header naming a number outside this range is treated
+    /// as unparsable, exactly like `@@ garbage @@`: its hunk is dropped and the parse keeps
+    /// going. The ceiling is far above any file a forge will ever send (a billion lines) and far
+    /// below where the arithmetic can overflow, so no real patch is refused by it. A negative
+    /// number is refused for the same reason — a hunk cannot start before line zero, and only a
+    /// malformed header says it does.
+    private static let lineNumberLimit = 1_000_000_000
+
     /// `@@ -oldStart[,count] +newStart[,count] @@ …` → both sides' start and length. A range
-    /// with no count is one line.
+    /// with no count is one line. Nil for a header this parser will not walk, including one
+    /// whose numbers are out of range — see `lineNumberLimit`.
     private static func parseHeader(
         _ header: String
     ) -> (oldStart: Int, oldCount: Int, newStart: Int, newCount: Int)? {
         let fields = header.split(separator: " ")
         guard fields.count >= 3 else { return nil }
+        func sane(_ value: Int) -> Bool { value >= 0 && value <= lineNumberLimit }
         func range(_ field: Substring, _ marker: Character) -> (Int, Int)? {
             guard field.first == marker else { return nil }
             let parts = field.dropFirst().split(separator: ",")
-            guard let start = parts.first.flatMap({ Int($0) }) else { return nil }
+            guard let start = parts.first.flatMap({ Int($0) }), sane(start) else { return nil }
             guard parts.count > 1 else { return (start, 1) }
-            guard let count = Int(parts[1]) else { return nil }
+            guard let count = Int(parts[1]), sane(count) else { return nil }
             return (start, count)
         }
         guard let old = range(fields[1], "-"), let new = range(fields[2], "+") else { return nil }

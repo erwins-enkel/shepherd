@@ -93,6 +93,38 @@ import ShepherdKit
         #expect(model.roles == nil); #expect(model.reviewer.isEmpty); #expect(model.merger.isEmpty)
         #expect(model.error != nil)
     }
+    @Test(arguments: [200, 400]) func confirmedConfigSaveAdoptsOnlyItsNormalizedDraft(status: Int) async throws {
+        let server = SettingsFakeServer(); defer { server.tearDown() }
+        let client = try client(server), model = model(); defer { model.teardown() }
+        let config = Data(#"{"criticEnabled":false,"criticAllPrs":false,"criticSmellLensEnabled":false,"autoAddressEnabled":false,"learningsEnabled":false,"autopilotEnabled":false,"planGateEnabled":false,"autoDrainEnabled":false,"autoMergeEnabled":false,"buildQueueEnabled":false,"draftMode":false,"autoOptimizeFlagged":false,"manualStepsIssueEnabled":false,"preWarmEpicLandingCi":false,"epicStacksEnabled":false,"hidden":false,"signoffAuthority":"human","maxAuto":1,"autoLabel":"auto","usageCeilingPct":80,"sandboxProfile":"default","defaultModel":"inherit","defaultEffort":"default","egressExtraHosts":[],"repoMode":"forge","previewStartScript":null,"previewStartCommand":null,"previewOpenMode":"browser"}"#.utf8)
+        model.repo = "/srv/project"
+        model.repoConfig = try JSONDecoder().decode(RepoConfig.self, from: config)
+        let draft = SettingsRepoTextDraft(), other = SettingsRepoTextDraft()
+        draft.text = "80.5"; other.text = "unsaved model alias"
+        server.on("PUT", "/api/repo-config") { request in
+            let data = try #require(request.body)
+            let body = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+            #expect(body["usageCeilingPct"] as? Double == 80.5)
+            return SettingsFakeResponse(statusCode: status,
+                body: status == 200 ? config : Data(#"{"error":"rejected"}"#.utf8))
+        }
+        func submit() {
+            draft.submit { text, adopt in
+                model.requestWorkspaceAction("config", config: .init(usageCeilingPct: Double(text)),
+                    configCommit: { adopt(String($0.usageCeilingPct)) })
+            }
+        }
+        submit()
+        model.cancelWorkspaceAction(); model.applyWorkspaceAction(client: client)
+        #expect(server.requests().isEmpty)
+        #expect(draft.text == "80.5")
+        submit(); model.applyWorkspaceAction(client: client)
+        await settingsEventually { !model.busy }
+        #expect(server.requests().count == 1)
+        #expect(model.repoConfig?.usageCeilingPct == 80)
+        #expect(draft.text == (status == 200 ? "80.0" : "80.5"))
+        #expect(other.text == "unsaved model alias")
+    }
     @Test func failedRoleSaveRefreshesDraftsBeforeRetry() async throws {
         let server = SettingsFakeServer(); defer { server.tearDown() }
         let client = try client(server), model = model(); defer { model.teardown() }

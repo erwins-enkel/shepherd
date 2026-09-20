@@ -55,7 +55,8 @@ struct SettingsTokenRequests: Sendable {
     }
     func canRevoke(id: String) -> Bool {
         guard let entry = entries.first(where: { $0.id == id }) else { return false }
-        guard let bearer = activeClient?.currentToken() else { return true }
+        // A missing/unreadable credential cannot prove that a token is safe to revoke.
+        guard let bearer = activeClient?.currentToken(), !bearer.isEmpty else { return false }
         // The kit exposes plaintext but keeps StoredCredential.tokenId private. Protect every
         // matching hint conservatively, including collisions, without opening a second credential store.
         return entry.hint != String(bearer.suffix(4))

@@ -48,10 +48,13 @@ private actor SettingsTokenGate {
         }
         return .init(name: "fixture", baseURL: server.baseURL, mode: .local)
     }
-    @Test func completedMintAndRevokePublishAndCloseClearsPopulatedState() async {
+    @Test func completedMintAndRevokePublishAndCloseClearsPopulatedState() async throws {
         let server = SettingsFakeServer(); defer { server.tearDown() }
         let profile = fixture(server), tokens = SettingsTokensModel(); defer { tokens.close() }
-        await tokens.authenticate(profile: profile, password: "fixture", session: server.urlSession())?.value
+        let credentials = InMemoryCredentialStore()
+        try credentials.save(.init(token: "shp_fixture_own1", tokenId: "active"), for: profile.credentialKey)
+        let active = try ShepherdClient(profile: profile, credentials: credentials, urlSession: server.urlSession())
+        await tokens.authenticate(profile: profile, password: "fixture", activeClient: active, session: server.urlSession())?.value
         #expect(tokens.authenticated); #expect(tokens.entries.map(\.id) == ["active"])
         await tokens.mint(name: " fixture ", days: nil, scope: .read)?.value
         #expect(tokens.revealed == "shp_fixture_new1"); #expect(tokens.entries.map(\.id) == ["minted", "active"])
@@ -76,6 +79,21 @@ private actor SettingsTokenGate {
         #expect(server.requests().count == before)
         #expect(tokens.entries.map(\.id) == ["active"])
         #expect(active.currentToken() == "shp_fixture_own1")
+    }
+    @Test(arguments: [false, true]) func missingActiveCredentialRefusesEveryRevoke(hasClient: Bool) async throws {
+        let server = SettingsFakeServer(); defer { server.tearDown() }
+        let profile = fixture(server), credentials = InMemoryCredentialStore()
+        let active = try ShepherdClient(profile: profile, credentials: credentials, urlSession: server.urlSession())
+        let tokens = SettingsTokensModel(); defer { tokens.close() }
+        await tokens.authenticate(profile: profile, password: "fixture", activeClient: hasClient ? active : nil,
+                                  session: server.urlSession())?.value
+        try #require(tokens.authenticated)
+        try #require(tokens.entries.map(\.id) == ["active"])
+        let before = server.requests().count
+        #expect(!tokens.canRevoke(id: "active"))
+        await tokens.revoke(id: "active")?.value
+        #expect(server.requests().count == before)
+        #expect(tokens.entries.map(\.id) == ["active"])
     }
     @Test(arguments: [false, true]) func lateSuccessAndFailureCannotPublishAfterClose(fails: Bool) async {
         let server = SettingsFakeServer(); defer { server.tearDown() }

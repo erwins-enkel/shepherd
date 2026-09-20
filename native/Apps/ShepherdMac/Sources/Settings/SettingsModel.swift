@@ -35,6 +35,7 @@ struct SettingsReads: Sendable {
     private(set) var workspaceAction: String?
     private(set) var workspaceTarget = ""
     private var pendingConfig: RepoConfigPatch?
+    @ObservationIgnored private var pendingConfigCommit: (@MainActor (RepoConfig) -> Void)?
     var roles: RepoRolesResult? {
         didSet {
             reviewer = roles?.roles.reviewer ?? ""
@@ -157,24 +158,31 @@ struct SettingsReads: Sendable {
             self.repoConfig = value.0; self.roles = value.1; self.collaborators = value.2
         })
     }
-    func requestWorkspaceAction(_ action: String, config: RepoConfigPatch? = nil) {
+    func requestWorkspaceAction(_ action: String, config: RepoConfigPatch? = nil,
+                                configCommit: (@MainActor (RepoConfig) -> Void)? = nil) {
         guard !stopped, !busy else { return }
         workspaceAction = action; pendingConfig = config
+        pendingConfigCommit = configCommit
         workspaceTarget = action == "root" ? directories?.path ?? "" : action == "fork" ? forkTarget : repo
     }
     func cancelWorkspaceAction() {
         workspaceAction = nil; workspaceTarget = ""; pendingConfig = nil
+        pendingConfigCommit = nil
     }
     func applyWorkspaceAction(client: ShepherdClient) {
         guard !stopped, !busy else { return }
         let action = workspaceAction, target = workspaceTarget, config = pendingConfig
+        let configCommit = pendingConfigCommit
         cancelWorkspaceAction()
         switch action {
         case "config":
             guard var patch = config else { return }
             patch.automationConfirmed = true
             let confirmed = patch
-            run({ try await client.putRepoConfig(repo: target, body: confirmed) }, commit: { self.repoConfig = $0 })
+            run({ try await client.putRepoConfig(repo: target, body: confirmed) }, commit: {
+                self.repoConfig = $0
+                configCommit?($0)
+            })
         case "roles":
             let reviewer = reviewer.isEmpty ? nil : reviewer
             let merger = merger.isEmpty ? nil : merger

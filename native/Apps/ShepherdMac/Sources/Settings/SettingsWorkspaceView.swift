@@ -13,7 +13,9 @@ struct SettingsWorkspaceView: View {
                 ForEach(model.snapshot?.repos ?? [],id:\.path) { Text(verbatim:$0.display).tag($0.path) }
             }
             if let config = model.repoConfig {
-                SettingsRepoFields(config:config) { model.requestWorkspaceAction("config", config: $0) }
+                SettingsRepoFields(config:config) { patch, commit in
+                    model.requestWorkspaceAction("config", config: patch, configCommit: commit)
+                }
             }
             if model.roles != nil {
                 TextField(L.t("native_settings_reviewer"),text:$model.reviewer)

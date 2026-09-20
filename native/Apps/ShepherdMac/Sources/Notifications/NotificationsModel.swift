@@ -528,6 +528,7 @@ final class NotificationsModel: AppExtension {
 
     func teardown() {
         isTornDown = true
+        extraAttention = []
         tap?.cancel()
         tap = nil
         launchTask?.cancel()

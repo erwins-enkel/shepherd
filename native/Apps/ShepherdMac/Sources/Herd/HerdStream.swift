@@ -37,7 +37,7 @@ enum HerdStream {
 
 /// AppModel rebuilds extensions without rerunning installers. Registered after HerdSignals and
 /// its consumers, this binding restores the seams on every activation, including the first one
-/// after an install with no store. It observes the existing ciRed derivation without another tap.
+/// after an install with no store. It observes CI failures and unanswered plan questions without another event tap.
 @MainActor
 private final class HerdBindings: AppExtension {
     private var watcher: Task<Void, Never>?
@@ -65,7 +65,7 @@ private final class HerdBindings: AppExtension {
                     } onChange: {
                         signal.yield()
                     }
-                    // NotificationsModel intersects these raw CI failures with live session ids.
+                    // NotificationsModel intersects the combined attention set with live session ids.
                     app.extension(NotificationsModel.self)?.extraAttention = ids
                 }
                 guard await iterator.next() != nil else { return }

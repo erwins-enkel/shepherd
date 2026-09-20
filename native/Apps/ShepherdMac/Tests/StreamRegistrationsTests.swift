@@ -87,6 +87,7 @@ struct StreamRegistrationsTests {
             #expect(SessionSignals.gitMerged("ci"))
             #expect(await settle(until: { notifications.extraAttention == ["a"] }))
             app.teardown()
+            #expect(notifications.extraAttention.isEmpty)
             #expect(!SessionSignals.gitMerged("ci"))
             #expect(!SessionSignals.planQuestionsUnanswered("a"))
             #expect(!PlanSignals.planReviewing("a"))

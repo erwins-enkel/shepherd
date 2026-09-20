@@ -6,6 +6,7 @@ struct PlanGateBadgeView: View {
     let session: Session
     let model: PlanModel
     var allowView = true
+    var onOpen: (() -> Void)?
 
     private var chip: PlanGateChip {
         var effective = session
@@ -19,7 +20,9 @@ struct PlanGateBadgeView: View {
             if let label = chip.label {
               let stalled = PlanGateChip.stalledNow(session: session, gate: model.gates[session.id],
                   reviewing: model.reviewing.contains(session.id), now: Int(context.date.timeIntervalSince1970 * 1_000))
-              Button { model.openPlan(session.id) } label: {
+              Button {
+                    if let onOpen { onOpen() } else { model.openPlan(session.id) }
+                } label: {
                   Text(verbatim: label)
                       .font(.caption2.weight(.semibold))
                       .padding(.horizontal, 6).padding(.vertical, 3)

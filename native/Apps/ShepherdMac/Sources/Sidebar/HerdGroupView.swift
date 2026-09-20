@@ -42,7 +42,10 @@ struct HerdGroupView: View {
                         // the display-status upgrade belongs only to SessionRow.
                         if let plan = app.extension(PlanModel.self) {
                             HStack {
-                                PlanGateBadgeView(session: session, model: plan, allowView: false)
+                                PlanGateBadgeView(session: session, model: plan, allowView: false) {
+                                    app.selectedSessionID = session.id
+                                    plan.openPlan(session.id)
+                                }
                                 if SessionSignals.planQuestionsUnanswered(session.id) {
                                     Button(L.t("hold_cta_answer")) {
                                         app.selectedSessionID = session.id

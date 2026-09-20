@@ -1,6 +1,23 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "activity_empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noch keine Aktivität."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No activity yet."
+          }
+        }
+      }
+    },
     "agent_provider_claude": {
       "extractionState": "manual",
       "localizations": {
@@ -464,6 +481,110 @@
         }
       }
     },
+    "diff_empty": {
+      "comment": "%1$@ = base",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine Änderungen ggü. %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No changes vs %1$@"
+          }
+        }
+      }
+    },
+    "diff_note_binary": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Binärdatei"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "binary file"
+          }
+        }
+      }
+    },
+    "diff_note_no_changes": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "keine Textänderungen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no textual changes"
+          }
+        }
+      }
+    },
+    "diff_note_truncated": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "große Datei – im Terminal ansehen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "large file — view in terminal"
+          }
+        }
+      }
+    },
+    "diff_refresh": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff aktualisieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refresh diff"
+          }
+        }
+      }
+    },
+    "diff_stale": {
+      "comment": "%1$@ = base",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Basis-Fetch fehlgeschlagen; Vergleich mit lokalem %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Base fetch failed; comparing local %1$@"
+          }
+        }
+      }
+    },
     "effort_default": {
       "extractionState": "manual",
       "localizations": {
@@ -583,6 +704,244 @@
         }
       }
     },
+    "files_created_unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erstellungsdatum nicht verfügbar"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Creation date unavailable"
+          }
+        }
+      }
+    },
+    "files_empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noch keine Dateien im Scratchpad."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No files in the scratchpad yet."
+          }
+        }
+      }
+    },
+    "files_link_outside_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Symlink zeigt aus dem Worktree heraus"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Symlink points outside the worktree"
+          }
+        }
+      }
+    },
+    "files_load_error": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scratchpad-Dateien konnten nicht geladen werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't load scratchpad files."
+          }
+        }
+      }
+    },
+    "files_source_scratchpad": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scratchpad"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scratchpad"
+          }
+        }
+      }
+    },
+    "files_source_worktree": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Worktree"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Worktree"
+          }
+        }
+      }
+    },
+    "files_worktree_empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine Dateien im Worktree."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No files in the worktree."
+          }
+        }
+      }
+    },
+    "files_worktree_load_error": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Worktree-Dateien konnten nicht geladen werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't load worktree files."
+          }
+        }
+      }
+    },
+    "gitrail_ci_failing": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fehlgeschlagen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "failing"
+          }
+        }
+      }
+    },
+    "gitrail_ci_none": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "kein CI"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no CI"
+          }
+        }
+      }
+    },
+    "gitrail_ci_passing": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "bestanden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "passing"
+          }
+        }
+      }
+    },
+    "gitrail_ci_pending": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ausstehend"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pending"
+          }
+        }
+      }
+    },
+    "gitrail_create_pr": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR erstellen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create PR"
+          }
+        }
+      }
+    },
+    "gitrail_merge": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge"
+          }
+        }
+      }
+    },
     "gitrail_ready": {
       "extractionState": "manual",
       "localizations": {
@@ -647,6 +1006,532 @@
           "stringUnit": {
             "state": "translated",
             "value": "Marked ready to merge; click to unmark"
+          }
+        }
+      }
+    },
+    "gitrail_status_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR-Status nicht verfügbar"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR status unavailable"
+          }
+        }
+      }
+    },
+    "herd_all_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle Sitzungen im Herd anzeigen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show every session in the herd"
+          }
+        }
+      }
+    },
+    "herd_awaiting_merge_group": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Du bist dran (%1$@)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your turn (%1$@)"
+          }
+        }
+      }
+    },
+    "herd_changes_requested_group": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Änderungen angefordert (%1$@)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Changes requested (%1$@)"
+          }
+        }
+      }
+    },
+    "herd_ci_failed_group": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CI fehlgeschlagen (%1$@)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CI failed (%1$@)"
+          }
+        }
+      }
+    },
+    "herd_ci_running_group": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CI läuft (%1$@)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CI running (%1$@)"
+          }
+        }
+      }
+    },
+    "herd_done_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abgeschlossene (archivierte) Sitzungen und ihre Zusammenfassungen anzeigen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show finished (archived) sessions and their recaps"
+          }
+        }
+      }
+    },
+    "herd_draft_awaiting_signoff_group": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entwurf: wartet auf Freigabe (%1$@)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Draft: awaiting sign-off (%1$@)"
+          }
+        }
+      }
+    },
+    "herd_lenses_label": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Herd-Ansichten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Herd lenses"
+          }
+        }
+      }
+    },
+    "herd_merge_blocked_group": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge blockiert (%1$@)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge blocked (%1$@)"
+          }
+        }
+      }
+    },
+    "herd_merged_group": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gemergt (%1$@)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merged (%1$@)"
+          }
+        }
+      }
+    },
+    "herd_merging_group": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge läuft (%1$@)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merging (%1$@)"
+          }
+        }
+      }
+    },
+    "herd_next_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Als Nächstes — eine repo-übergreifende, gereihte Warteschlange noch nicht begonnener Arbeit"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Up Next — a cross-repo ranked queue of un-started work to start"
+          }
+        }
+      }
+    },
+    "herd_owed_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manuelle Schritte nach dem Merge, die noch offen sind"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Post-merge manual steps you still owe"
+          }
+        }
+      }
+    },
+    "herd_ready_empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nichts wartet. Alle sind beschäftigt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing waiting. All hands working"
+          }
+        }
+      }
+    },
+    "herd_ready_group": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bereit zum Mergen (%1$@)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ready to merge (%1$@)"
+          }
+        }
+      }
+    },
+    "herd_ready_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur Sitzungen anzeigen, die auf dich warten: inaktiv, blockiert oder fertig"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show only sessions awaiting you: idle, blocked, or done"
+          }
+        }
+      }
+    },
+    "herd_repo_filter_empty": {
+      "comment": "%1$@ = repo",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine Agenten für %1$@."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No agents for %1$@."
+          }
+        }
+      }
+    },
+    "herd_reviewer_running_group": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review läuft (%1$@)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reviewing (%1$@)"
+          }
+        }
+      }
+    },
+    "herd_rework_running_group": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "REWORK läuft (%1$@)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rework running (%1$@)"
+          }
+        }
+      }
+    },
+    "herd_seg_all": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All"
+          }
+        }
+      }
+    },
+    "herd_seg_done": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fertig"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Done"
+          }
+        }
+      }
+    },
+    "herd_seg_next": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nächstes"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next"
+          }
+        }
+      }
+    },
+    "herd_seg_owed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Owed"
+          }
+        }
+      }
+    },
+    "herd_seg_ready": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bereit"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ready"
+          }
+        }
+      }
+    },
+    "herd_stage_name_active": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In Arbeit"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Working"
+          }
+        }
+      }
+    },
+    "herd_waiting_merger_group": {
+      "comment": "%1$@ = who, %2$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warten auf %1$@ (%2$@)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting on %1$@ (%2$@)"
+          }
+        }
+      }
+    },
+    "herd_waiting_merger_group_multi": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warten auf Merge (%1$@)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting on merge (%1$@)"
+          }
+        }
+      }
+    },
+    "herd_waiting_reviewer_group": {
+      "comment": "%1$@ = who, %2$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warten auf Review von %1$@ (%2$@)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting on %1$@'s review (%2$@)"
+          }
+        }
+      }
+    },
+    "herd_waiting_reviewer_group_multi": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warten auf Review (%1$@)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting on review (%1$@)"
           }
         }
       }
@@ -1014,6 +1899,160 @@
         }
       }
     },
+    "native_detail_action_failed": {
+      "comment": "%1$@ = reason",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Aktion ist fehlgeschlagen: %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The action failed: %1$@"
+          }
+        }
+      }
+    },
+    "native_detail_annotation_agent": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent"
+          }
+        }
+      }
+    },
+    "native_detail_close_confirm_action": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pull Request schließen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close pull request"
+          }
+        }
+      }
+    },
+    "native_detail_close_confirm_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Pull Request wird ohne Merge geschlossen. Der Branch bleibt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The pull request is closed without merging. The branch stays."
+          }
+        }
+      }
+    },
+    "native_detail_close_confirm_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diesen Pull Request schließen?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close this pull request?"
+          }
+        }
+      }
+    },
+    "native_detail_git_none": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein Pull Request für diese Session."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No pull request for this session."
+          }
+        }
+      }
+    },
+    "native_detail_merge_confirm_action": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mergen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge"
+          }
+        }
+      }
+    },
+    "native_detail_merge_confirm_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Branch wird auf dem Host gemergt und danach gelöscht."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The branch is merged on the host and deleted afterwards."
+          }
+        }
+      }
+    },
+    "native_detail_merge_confirm_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diesen Pull Request mergen?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge this pull request?"
+          }
+        }
+      }
+    },
     "native_detail_no_selection": {
       "extractionState": "manual",
       "localizations": {
@@ -1065,6 +2104,40 @@
         }
       }
     },
+    "native_detail_refresh": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktualisieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refresh"
+          }
+        }
+      }
+    },
+    "native_detail_reviewer_label": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reviewer"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reviewer"
+          }
+        }
+      }
+    },
     "native_detail_status_label": {
       "extractionState": "manual",
       "localizations": {
@@ -1078,6 +2151,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "Status"
+          }
+        }
+      }
+    },
+    "native_detail_tab_activity": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktivität"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activity"
+          }
+        }
+      }
+    },
+    "native_detail_tab_diff": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff"
+          }
+        }
+      }
+    },
+    "native_detail_tab_files": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dateien"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Files"
+          }
+        }
+      }
+    },
+    "native_detail_tab_git": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR"
           }
         }
       }
@@ -1266,6 +2407,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "Choose your workspace folder"
+          }
+        }
+      }
+    },
+    "native_herd_counter_active": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktiv"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Active"
+          }
+        }
+      }
+    },
+    "native_herd_counter_blocked": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blockiert"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blocked"
+          }
+        }
+      }
+    },
+    "native_herd_counter_idle": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inaktiv"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Idle"
+          }
+        }
+      }
+    },
+    "native_herd_counter_total": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gesamt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Total"
           }
         }
       }
@@ -1767,6 +2976,211 @@
           "stringUnit": {
             "state": "translated",
             "value": "Signed out on this Mac, but the server did not confirm the token was revoked: %1$@"
+          }
+        }
+      }
+    },
+    "native_terminal_connecting": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbinde mit dem Agenten…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecting to the agent…"
+          }
+        }
+      }
+    },
+    "native_terminal_ended_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Sitzung hat keinen laufenden Agenten mehr. Die Ausgabe ist eingefroren."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This session no longer has a running agent. Its output is frozen."
+          }
+        }
+      }
+    },
+    "native_terminal_ended_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sitzung beendet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session ended"
+          }
+        }
+      }
+    },
+    "native_terminal_prompt_failed": {
+      "comment": "%1$@ = reason",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Agent hat die Nachricht nicht angenommen: %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The agent did not take the message: %1$@"
+          }
+        }
+      }
+    },
+    "native_terminal_prompt_placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nachricht an den Agenten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send a message to the agent"
+          }
+        }
+      }
+    },
+    "native_terminal_prompt_send": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Senden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send"
+          }
+        }
+      }
+    },
+    "native_terminal_superseded_action": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Übernehmen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Take over"
+          }
+        }
+      }
+    },
+    "native_terminal_superseded_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein anderes Gerät ist mit diesem Terminal verbunden. Beim Übernehmen wechselt es zurück auf diesen Mac und das andere Gerät wird getrennt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Another device attached to this terminal. Taking over hands it back to this Mac and detaches the other one."
+          }
+        }
+      }
+    },
+    "native_terminal_superseded_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein anderes Gerät hat dieses Terminal"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Another device has this terminal"
+          }
+        }
+      }
+    },
+    "native_terminal_tab_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal"
+          }
+        }
+      }
+    },
+    "native_terminal_unreachable_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Agent-Runner antwortet nicht. Prüfe, ob der Shepherd-Server und herdr laufen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The agent runner is not answering. Check that the Shepherd server and herdr are running."
+          }
+        }
+      }
+    },
+    "native_terminal_unreachable_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent nicht erreichbar"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cannot reach the agent"
           }
         }
       }
@@ -2488,6 +3902,108 @@
         }
       }
     },
+    "prbadge_mark_draft": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf Draft zurücksetzen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set back to Draft"
+          }
+        }
+      }
+    },
+    "prbadge_mark_ready": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf Ready for Review setzen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set Ready for Review"
+          }
+        }
+      }
+    },
+    "prreview_load_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reviewer konnten nicht geladen werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't load reviewers."
+          }
+        }
+      }
+    },
+    "prreview_loading": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reviewer werden geladen …"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loading reviewers…"
+          }
+        }
+      }
+    },
+    "prreview_no_candidates": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine Reviewer zur Auswahl verfügbar."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No reviewers are available to select."
+          }
+        }
+      }
+    },
+    "prreview_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review anfordern"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Request review"
+          }
+        }
+      }
+    },
     "recap_open_items": {
       "extractionState": "manual",
       "localizations": {
@@ -2659,6 +4175,93 @@
         }
       }
     },
+    "repo_filter_active_aria": {
+      "comment": "%1$@ = repo",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur Agenten von %1$@; klicken, um alle Repos anzuzeigen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Showing %1$@ agents only; click to show all repos"
+          }
+        }
+      }
+    },
+    "repo_filter_apply_aria": {
+      "comment": "%1$@ = repo",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Herde auf Agenten von %1$@ filtern"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filter the herd to %1$@ agents only"
+          }
+        }
+      }
+    },
+    "repo_switcher_label": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Herde nach Repo filtern"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filter the herd by repo"
+          }
+        }
+      }
+    },
+    "research_badge_label": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recherche"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Research"
+          }
+        }
+      }
+    },
+    "session_autopilot_paused_label": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Braucht dich"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Needs you"
+          }
+        }
+      }
+    },
     "status_archived": {
       "extractionState": "manual",
       "localizations": {
@@ -2744,6 +4347,23 @@
         }
       }
     },
+    "terminal_badge_label": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal"
+          }
+        }
+      }
+    },
     "toast_renamed": {
       "comment": "%1$@ = name",
       "extractionState": "manual",
@@ -2758,6 +4378,160 @@
           "stringUnit": {
             "state": "translated",
             "value": "Renamed to %1$@"
+          }
+        }
+      }
+    },
+    "unitrow_manual_steps": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ manuelle(r) Schritt(e)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ manual step(s)"
+          }
+        }
+      }
+    },
+    "unitrow_quota_error": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kritiker-Fehler"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Critic error"
+          }
+        }
+      }
+    },
+    "unitrow_quota_review": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review gestoppt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review stalled"
+          }
+        }
+      }
+    },
+    "unitrow_quota_rework": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Korrektur-Cap"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rework cap"
+          }
+        }
+      }
+    },
+    "usage_limits_no_data": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine Nutzungsfenster-Daten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No usage-window data"
+          }
+        }
+      }
+    },
+    "usage_limits_window_5h": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5-Stunden-Fenster"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "5-hour window"
+          }
+        }
+      }
+    },
+    "usage_limits_window_week": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wöchentliches Fenster"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Weekly window"
+          }
+        }
+      }
+    },
+    "usage_subscription_only": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nutzungserfassung nur im Abonnement — siehe die Anthropic-Konsole."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage tracking is subscription-only — see the Anthropic Console."
+          }
+        }
+      }
+    },
+    "viewport_diff_annotation_review": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prüfung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review"
           }
         }
       }

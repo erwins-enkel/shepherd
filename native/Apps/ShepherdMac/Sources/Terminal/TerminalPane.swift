@@ -23,6 +23,7 @@ struct TerminalPane: View {
         // this toolchain — SwiftUI's `TabView` becomes an `NSTabView` — so a body identifier is
         // the only stable handle a test has on "the terminal tab is what is showing". The
         // pane's own controls keep their `terminal-*` identifiers; this names the tab, not them.
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("detail-tab-terminal")
         .onDisappear { model.detach() }
         // Autofocus the prompt when the tab appears — the operator switching

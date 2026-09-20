@@ -36,7 +36,11 @@ struct ShepherdApp: App {
         .commands {
             CommandGroup(after: .newItem) { MenuCommandItems(menu: .file, app: model) }
             CommandGroup(after: .toolbar) { MenuCommandItems(menu: .view, app: model) }
-            CommandMenu(L.t("native_menu_session")) { MenuCommandItems(menu: .session, app: model) }
+            // CommandsBuilder supports this scene-time condition. With no registered commands,
+            // omit the top-level menu entirely; model-time registration is unsupported.
+            if !CommandRegistry.commands(in: .session).isEmpty {
+                CommandMenu(L.t("native_menu_session")) { MenuCommandItems(menu: .session, app: model) }
+            }
             CommandGroup(after: .windowArrangement) { MenuCommandItems(menu: .window, app: model) }
             CommandGroup(replacing: .help) { MenuCommandItems(menu: .help, app: model) }
         }

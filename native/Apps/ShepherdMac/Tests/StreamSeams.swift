@@ -2,7 +2,7 @@ import Testing
 @testable import Shepherd
 
 /// Clears every seam a stream can fill: the detail-tab registry, all three
-/// slots and the cross-stream session signals.
+/// slots, cross-stream session signals, menu commands and settings panes.
 ///
 /// All of it is per-process state, so a suite that registers a stub leaks it
 /// into whatever runs next — and the suites that assert the *fallback* would
@@ -21,4 +21,6 @@ func resetStreamSeams() {
     WelcomeSlots.reset()
     ActionBarSlot.reset()
     SessionSignals.reset()
+    CommandRegistry.reset()
+    SettingsPaneRegistry.reset()
 }

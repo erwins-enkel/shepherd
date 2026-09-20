@@ -241,6 +241,7 @@ final class IsolatedLaunch {
     func makeModel() -> AppModel {
         let model = AppModel(defaults: defaults, credentials: credentials)
         model.allowsQueueRecomputation = configuration.live == nil
+        model.allowsTerminalInput = configuration.live == nil
         if openFailed {
             // Never operator-facing copy — see `liveProfileName` — this is a
             // diagnostic for whoever reads the test's screenshot or log, not a

@@ -10,6 +10,24 @@ import Testing
 struct StreamRegistrationsTests {
     init() { resetStreamSeams() }
 
+    @Test func isolatedLiveLaunchDisablesWritesBeforeInstallingStreams() throws {
+        defer { resetStreamSeams() }
+        let launch = IsolatedLaunch(configuration: .init(
+            isIsolated: true,
+            live: .init(baseURL: "https://integration.invalid", password: "fixture")))
+        let app = launch.makeModel()
+        defer { app.teardown() }
+        // Never start the seed: this checks production setup with fixture credentials only.
+        #expect(!app.allowsQueueRecomputation)
+        #expect(!app.allowsTerminalInput)
+        StreamRegistrations.installAll(into: app)
+        let profile = ServerProfile(name: "integration", baseURL: URL(string: "https://integration.invalid")!, mode: .remote)
+        let store = try SessionStore(profile: profile, credentials: InMemoryCredentialStore())
+        app.makeExtensions(store: store)
+        let terminal = try #require(app.extension(TerminalController.self))
+        #expect(!terminal.model(for: "a").allowsInput)
+    }
+
     @Test func productionPassesInstallAndResetEveryRegistry() {
         defer { resetStreamSeams() }
         let app = scratchModel()
@@ -27,6 +45,13 @@ struct StreamRegistrationsTests {
         #expect(SidebarSlot.content != nil)
         #expect(ActionBarSlot.content != nil)
         #expect(WelcomeSlots.localPanel != nil)
+        // Poison the closures: with no active model the installed closures already return
+        // false, so merely checking false after reset would not test the reset at all.
+        PlanSignals.planReviewing = { _ in true }
+        SessionSignals.planQuestionsUnanswered = { _ in true }
+        SessionSignals.gitMerged = { _ in true }
+        SessionSignals.workingBlocked = { ["a": true] }
+        SessionSignals.manualStepsOutstanding = { ["a": 1] }
         resetStreamSeams()
         #expect(DetailTabRegistry.tabs.map(\.id) == ["prompt"])
         #expect(SidebarSlot.content == nil)
@@ -34,6 +59,9 @@ struct StreamRegistrationsTests {
         #expect(WelcomeSlots.localPanel == nil)
         #expect(!PlanSignals.planReviewing("a"))
         #expect(!SessionSignals.planQuestionsUnanswered("a"))
+        #expect(!SessionSignals.gitMerged("a"))
+        #expect(SessionSignals.workingBlocked().isEmpty)
+        #expect(SessionSignals.manualStepsOutstanding().isEmpty)
         for lens in [HerdLens.next, .owed, .done] {
             #expect(QueuesPanels.panel(for: lens) == nil)
         }
@@ -94,6 +122,7 @@ struct StreamRegistrationsTests {
             #expect(sidebar.gitStage(session) == nil)
             #expect(!sidebar.inReview(session))
             #expect(!herd.planRework(session))
+            #expect(!herd.planReviewing(session))
         }
     }
 

@@ -227,6 +227,8 @@ final class LiveSmokeUITests: XCTestCase {
 
         let terminal = pane.descendants(matching: .any)["terminal-view"]
         XCTAssertTrue(terminal.waitForExistence(timeout: 30), "the emulator should be hosted")
+        XCTAssertEqual(pane.descendants(matching: .any).matching(identifier: "terminal-view").count, 1)
+        XCTAssertEqual(terminal.elementType, .other, "the emulator is a group, not editable text")
         XCTAssertTrue(
             pane.descendants(matching: .any)["terminal-prompt"].waitForExistence(timeout: 30),
             "the prompt bar should render under the emulator")

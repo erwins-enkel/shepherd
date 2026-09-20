@@ -53,6 +53,7 @@ final class TerminalSessionModel {
     var onClear: (@MainActor () -> Void)?
 
     let sessionID: String
+    let allowsInput: Bool
 
     private let reply: @Sendable (String) async throws -> Void
     private let makeAttachment: @MainActor (Int, Int) -> any PTYAttaching
@@ -73,20 +74,23 @@ final class TerminalSessionModel {
 
     init(
         sessionID: String,
+        allowsInput: Bool = true,
         reply: @escaping @Sendable (String) async throws -> Void,
         makeAttachment: @escaping @MainActor (Int, Int) -> any PTYAttaching
     ) {
         self.sessionID = sessionID
+        self.allowsInput = allowsInput
         self.reply = reply
         self.makeAttachment = makeAttachment
     }
 
     /// The app's wiring: reply through the store's client, attach over a real
     /// socket.
-    convenience init(sessionID: String, store: SessionStore) {
+    convenience init(sessionID: String, store: SessionStore, allowsInput: Bool = true) {
         let client = store.client
         self.init(
             sessionID: sessionID,
+            allowsInput: allowsInput,
             reply: { text in try await client.replySession(id: sessionID, text: text) },
             makeAttachment: { cols, rows in
                 LivePTYAttachment(client: client, sessionID: sessionID, cols: cols, rows: rows)
@@ -163,6 +167,7 @@ final class TerminalSessionModel {
     /// behind the operator's back. `.gone` and `.unreachable` stay distinct
     /// phases — the copy behind them differs — but both are recoverable here.
     func takeOver() {
+        guard allowsInput else { return }
         parked = nil
         guard let attachment else {
             // `detach()` dropped the socket while the verdict stood. The
@@ -174,7 +179,12 @@ final class TerminalSessionModel {
         attachment.takeOver()
     }
 
-    func send(_ bytes: Data) { attachment?.send(bytes) }
+    func send(_ bytes: Data) {
+        // SwiftTerm also calls this for device-status/cursor queries in replayed output.
+        // Suppress all input during isolated live smoke, including those automatic replies.
+        guard allowsInput else { return }
+        attachment?.send(bytes)
+    }
 
     func resize(cols: Int, rows: Int) {
         guard cols > 0, rows > 0 else { return }
@@ -189,6 +199,7 @@ final class TerminalSessionModel {
     /// restored verbatim on failure — retyping a paragraph because the agent's
     /// pane had just died is the worst outcome available here.
     func submitPrompt() async {
+        guard allowsInput else { return }
         let text = promptText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !promptBusy else { return }
         let generation = self.generation

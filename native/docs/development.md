@@ -142,7 +142,10 @@ no-window launch never mounted `RootView`, so its `.task` never started the live
 app opened normally with these flags, including the Settings scene and command registrations.
 Do not delete the operator's saved window state to work around this.
 
-Isolated live models disable automatic Up Next recomputation (`POST /api/up-next/refresh`).
+Isolated live models disable automatic Up Next recomputation (`POST /api/up-next/refresh`)
+and terminal input, including automatic emulator replies to escape-sequence queries in
+scrollback. Prompt submission and terminal takeover are also blocked. The terminal smoke
+still attaches and sends PTY resize control frames; it is not a zero-traffic observation.
 The live UI suite only reads queue snapshots and changes local navigation; it never starts,
 retries, halts, broadcasts, restores, or archives a real session. Keep live values out of logs,
 reports, command arguments, and commits.

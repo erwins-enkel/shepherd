@@ -8013,6 +8013,40 @@
         }
       }
     },
+    "native_settings_automation_notice": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktivierte Automatisierung kann Agenten starten und Änderungen ohne weitere Nachfrage mergen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enabling automation can start agents and merge work without another prompt."
+          }
+        }
+      }
+    },
+    "native_settings_browse_root": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Server-Ordner durchsuchen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browse server folders"
+          }
+        }
+      }
+    },
     "native_settings_field_authmode": {
       "extractionState": "manual",
       "localizations": {
@@ -8965,6 +8999,40 @@
         }
       }
     },
+    "native_settings_fork": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fork erstellen und klonen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fork and clone"
+          }
+        }
+      }
+    },
+    "native_settings_fork_target": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub-Eigentümer/Repository"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub owner/repository"
+          }
+        }
+      }
+    },
     "native_settings_key_absent": {
       "extractionState": "manual",
       "localizations": {
@@ -9067,6 +9135,57 @@
         }
       }
     },
+    "native_settings_merger": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merger-Login"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merger login"
+          }
+        }
+      }
+    },
+    "native_settings_parent": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Übergeordneter Ordner"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parent folder"
+          }
+        }
+      }
+    },
+    "native_settings_people_unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mitarbeiter-Vorschläge sind nicht verfügbar."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collaborator suggestions are unavailable."
+          }
+        }
+      }
+    },
     "native_settings_placeholder_body": {
       "extractionState": "manual",
       "localizations": {
@@ -9137,6 +9256,533 @@
         }
       }
     },
+    "native_settings_pull": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standardbranch aktualisieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pull default branch"
+          }
+        }
+      }
+    },
+    "native_settings_repo": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repository"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repository"
+          }
+        }
+      }
+    },
+    "native_settings_repo_autoaddressenabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review automatisch bearbeiten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatically address review"
+          }
+        }
+      }
+    },
+    "native_settings_repo_autodrainenabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatischer Drain"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatic drain"
+          }
+        }
+      }
+    },
+    "native_settings_repo_autolabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Issue-Label für Drain"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drain issue label"
+          }
+        }
+      }
+    },
+    "native_settings_repo_automergeenabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatischer Merge"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatic merge"
+          }
+        }
+      }
+    },
+    "native_settings_repo_autooptimizeflagged": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Markierte Regeln optimieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Optimize flagged rules"
+          }
+        }
+      }
+    },
+    "native_settings_repo_autopilotenabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autopilot"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autopilot"
+          }
+        }
+      }
+    },
+    "native_settings_repo_buildqueueenabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Build-Warteschlange"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Build queue"
+          }
+        }
+      }
+    },
+    "native_settings_repo_confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Änderung auf dem Server anwenden?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apply this change on the server?"
+          }
+        }
+      }
+    },
+    "native_settings_repo_criticallprs": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kritiker für alle PRs"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Critic on all PRs"
+          }
+        }
+      }
+    },
+    "native_settings_repo_criticenabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR-Kritiker"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR critic"
+          }
+        }
+      }
+    },
+    "native_settings_repo_criticsmelllensenabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kritiker-Smell-Prüfungen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Critic smell checks"
+          }
+        }
+      }
+    },
+    "native_settings_repo_defaulteffort": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standardaufwand des Repositories"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repository default effort"
+          }
+        }
+      }
+    },
+    "native_settings_repo_defaultmodel": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standardmodell des Repositories"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repository default model"
+          }
+        }
+      }
+    },
+    "native_settings_repo_draftmode": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entwurfsmodus"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Draft mode"
+          }
+        }
+      }
+    },
+    "native_settings_repo_egressextrahosts": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zusätzlich erlaubte Hosts, kommagetrennt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Extra allowed hosts, comma separated"
+          }
+        }
+      }
+    },
+    "native_settings_repo_epicstacksenabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Epic-Stacks"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Epic stacks"
+          }
+        }
+      }
+    },
+    "native_settings_repo_hidden": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repository ausblenden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide repository"
+          }
+        }
+      }
+    },
+    "native_settings_repo_learningsenabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erkenntnisse"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Learnings"
+          }
+        }
+      }
+    },
+    "native_settings_repo_manualstepsissueenabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tracking-Issue für manuelle Schritte"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manual-step tracking issue"
+          }
+        }
+      }
+    },
+    "native_settings_repo_maxauto": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maximale gleichzeitige automatische Agenten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maximum concurrent automatic agents"
+          }
+        }
+      }
+    },
+    "native_settings_repo_plangateenabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan-Freigabe"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan gate"
+          }
+        }
+      }
+    },
+    "native_settings_repo_previewopenmode": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vorschau-Öffnungsmodus"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preview opening mode"
+          }
+        }
+      }
+    },
+    "native_settings_repo_previewstartcommand": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vorschau-Startbefehl"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preview start command"
+          }
+        }
+      }
+    },
+    "native_settings_repo_previewstartscript": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kanonisches Vorschau-Startskript"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Canonical preview start script"
+          }
+        }
+      }
+    },
+    "native_settings_repo_prewarmepiclandingci": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Epic-Landing-CI vorwärmen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pre-warm epic landing CI"
+          }
+        }
+      }
+    },
+    "native_settings_repo_repomode": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repository-Modus"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repository mode"
+          }
+        }
+      }
+    },
+    "native_settings_repo_sandboxprofile": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sandbox-Profil"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sandbox profile"
+          }
+        }
+      }
+    },
+    "native_settings_repo_signoffauthority": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Freigabeinstanz"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign-off authority"
+          }
+        }
+      }
+    },
+    "native_settings_repo_usageceilingpct": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nutzungslimit in Prozent"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage ceiling percentage"
+          }
+        }
+      }
+    },
     "native_settings_retention": {
       "comment": "%1$@ = days, %2$@ = keep",
       "extractionState": "manual",
@@ -9155,6 +9801,91 @@
         }
       }
     },
+    "native_settings_reviewer": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reviewer-Login"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reviewer login"
+          }
+        }
+      }
+    },
+    "native_settings_roles_push_notice": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dies committet und pusht die Reviewer- und Merger-Rollen in den Standardbranch."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This commits and pushes the reviewer and merger roles to the default branch."
+          }
+        }
+      }
+    },
+    "native_settings_roles_save": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rollen speichern und pushen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save and push roles"
+          }
+        }
+      }
+    },
+    "native_settings_select_repo": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repository wählen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Select a repository"
+          }
+        }
+      }
+    },
+    "native_settings_sync": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fork synchronisieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sync fork"
+          }
+        }
+      }
+    },
     "native_settings_token_failed": {
       "extractionState": "manual",
       "localizations": {
@@ -9168,6 +9899,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Token operation failed. Unlock access again."
+          }
+        }
+      }
+    },
+    "native_settings_use_folder": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diesen Ordner verwenden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use this folder"
           }
         }
       }

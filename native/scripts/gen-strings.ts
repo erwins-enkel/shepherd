@@ -1042,7 +1042,12 @@ export const KEYS_COMPOSE: readonly string[] = [
 ];
 
 /** S12 — the settings panes, the command menu and the usage gauges. */
-export const KEYS_SETTINGS: readonly string[] = [];
+export const KEYS_SETTINGS: readonly string[] = [
+  "native_settings_action_failed",
+  "native_settings_load_failed",
+  "native_settings_login_failed",
+  "native_settings_token_failed",
+];
 
 /**
  * The manifest the catalog is generated from. Order here does not reach the

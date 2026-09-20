@@ -4288,5 +4288,9 @@
   "native_merge_off": "Aus",
   "native_merge_on": "An",
   "native_merge_move_up": "Nach oben",
-  "native_merge_move_down": "Nach unten"
+  "native_merge_move_down": "Nach unten",
+  "native_settings_load_failed": "Einstellungen konnten nicht geladen werden. Nach dem Verbinden erneut versuchen.",
+  "native_settings_action_failed": "Die Aktion ist fehlgeschlagen. Vor einem neuen Versuch aktualisieren.",
+  "native_settings_login_failed": "Operator-Anmeldung konnte nicht gestartet werden.",
+  "native_settings_token_failed": "Token-Aktion fehlgeschlagen. Zugriff erneut entsperren."
 }

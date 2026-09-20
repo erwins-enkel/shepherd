@@ -7979,6 +7979,57 @@
         }
       }
     },
+    "native_settings_action_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Aktion ist fehlgeschlagen. Vor einem neuen Versuch aktualisieren."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The operation failed. Refresh before retrying."
+          }
+        }
+      }
+    },
+    "native_settings_load_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einstellungen konnten nicht geladen werden. Nach dem Verbinden erneut versuchen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not load settings. Retry after reconnecting."
+          }
+        }
+      }
+    },
+    "native_settings_login_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Operator-Anmeldung konnte nicht gestartet werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not start operator login."
+          }
+        }
+      }
+    },
     "native_settings_placeholder_body": {
       "extractionState": "manual",
       "localizations": {
@@ -8009,6 +8060,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Nothing to configure yet"
+          }
+        }
+      }
+    },
+    "native_settings_token_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Token-Aktion fehlgeschlagen. Zugriff erneut entsperren."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Token operation failed. Unlock access again."
           }
         }
       }

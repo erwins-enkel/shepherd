@@ -4288,5 +4288,9 @@
   "native_merge_off": "Off",
   "native_merge_on": "On",
   "native_merge_move_up": "Move up",
-  "native_merge_move_down": "Move down"
+  "native_merge_move_down": "Move down",
+  "native_settings_load_failed": "Could not load settings. Retry after reconnecting.",
+  "native_settings_action_failed": "The operation failed. Refresh before retrying.",
+  "native_settings_login_failed": "Could not start operator login.",
+  "native_settings_token_failed": "Token operation failed. Unlock access again."
 }

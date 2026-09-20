@@ -464,6 +464,32 @@ struct PlanTabTests {
         #expect(!started.awaitingReview && skipped.outcome == nil)
     }
 
+    @Test(arguments: [PlanReviewTriggerKnown.skipped, .errorWorktree, .errorAuth, .errorSpawn])
+    func transientOutcomeDoesNotSurviveTeardownAndReactivation(status: PlanReviewTriggerKnown) async throws {
+        let (model, session) = await fixture()
+        let clock = PlanTabClock()
+        var current = true
+        let actions = PlanTabActions(session: session, model: model, writer: writer(status),
+                                     isCurrent: { current }, sleep: clock.sleep)
+        defer { actions.teardown(); model.teardown(); clock.finish() }
+        await actions.review()
+        _ = try #require(actions.outcome)
+        for _ in 0..<100 where clock.durations.isEmpty { await Task.yield() }
+        try #require(clock.durations == [.milliseconds(6_000)])
+
+        // Leave before the dismissal timer fires, retaining the tab's action state.
+        current = false
+        actions.teardown()
+        #expect(actions.outcome == nil)
+        current = true
+        actions.reconcile()
+        #expect(actions.outcome == nil, "Returning to the tab must not resurrect its transient message")
+
+        // The retained state remains usable for a fresh review after reactivation.
+        await actions.review()
+        #expect(actions.outcome != nil)
+    }
+
     @Test func reviewingClearsBridgeUnavailableAndQuotaNotes() async throws {
         let (model, session) = await fixture()
         let clock = PlanTabClock()

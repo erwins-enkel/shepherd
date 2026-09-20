@@ -175,6 +175,7 @@ final class PlanTabActions {
         outcomeTask?.cancel()
         bridgeTask = nil
         outcomeTask = nil
+        outcome = nil
         awaitingReview = false
         busy = false
         quotaBusy = nil

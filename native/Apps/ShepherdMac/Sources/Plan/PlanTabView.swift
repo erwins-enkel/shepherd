@@ -366,7 +366,8 @@ struct PlanTabBody: View {
                             Text(verbatim: reviewLabel)
                         }
                     }
-                    .disabled(actions.reviewBlock != nil || actions.inFlight || actions.quotaBusy != nil)
+                    .disabled(actions.inFlight || actions.quotaBusy != nil)
+                    .help(actions.reviewBlock == .approved ? L.t("planpanel_review_already_approved") : reviewLabel)
                     .accessibilityIdentifier("plan-review")
                 }
                 if actions.canRelease {

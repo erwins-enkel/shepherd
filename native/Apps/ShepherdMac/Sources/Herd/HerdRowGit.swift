@@ -160,8 +160,12 @@ struct HerdRowSignals: View {
                 // The PR and its sub-markers are rendered once, on the inline rail above.
                 SessionBadgeStack(badges: model.badges.filter { $0.id != "pr" })
                 // The terminal PR state already appears on the rail; avoid a second chip.
-                if model.stepper.terminal == nil { HerdStepperView(info: model.stepper) }
-                if let activity = herd?.activity[session.id] { HerdHeartbeatView(activity: activity, now: now) }
+                let status = HerdPartition.displayStatus(session, workingBlocked: SessionSignals.workingBlocked()).known
+                if [.running, .blocked, .done].contains(status), !session.readyToMerge,
+                   model.stepper.terminal == nil { HerdStepperView(info: model.stepper) }
+                if status == .running, let activity = herd?.activity[session.id] {
+                    HerdHeartbeatView(activity: activity, now: now)
+                }
             }
         }
     }

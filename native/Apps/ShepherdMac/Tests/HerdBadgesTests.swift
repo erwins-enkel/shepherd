@@ -53,6 +53,8 @@ struct HerdBadgesTests {
             "launchMetadata": ["issue": ["url": "https://launch.example/issues/7"]],
         ])
         #expect(SessionBadges.issue(row, git: nil)?.url?.host == "launch.example")
+        state.issueUrl = "https://forge.example/issues/7"
+        #expect(SessionBadges.issue(row, git: state)?.url?.host == "launch.example")
     }
 
     @Test func prBadgeHasStateCiReviewDraftAndStaleMarkers() throws {

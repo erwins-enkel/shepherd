@@ -28,6 +28,16 @@ struct SidebarViewTests {
         }
     }
 
+    @Test func handoffHeadingsDistinguishNamedAnonymousAndMixedGroups() {
+        let a = session("a"), b = session("b")
+        let group = HerdGroup(stage: .waitingOnReviewer, sessions: [a, b])
+        #expect(HerdGroupView.heading(group, git: [:]) == L.t("herd_waiting_reviewer_group_maintainers", "2"))
+        var git = GitState(state: .init(known: .open), checks: .init(known: .success), deployConfigured: false)
+        git.handoffWho = "Ada"
+        #expect(HerdGroupView.heading(group, git: ["a": git, "b": git]) == L.t("herd_waiting_reviewer_group", "Ada", "2"))
+        #expect(HerdGroupView.heading(group, git: ["a": git]) == L.t("herd_waiting_reviewer_group_multi", "2"))
+    }
+
     private func session(_ id: String, repo: String = "/repos/a") -> Session {
         var s = PreviewData.session(id: id)
         s.repoPath = repo

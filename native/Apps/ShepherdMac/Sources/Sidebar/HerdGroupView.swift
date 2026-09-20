@@ -15,6 +15,22 @@ struct HerdGroupView: View {
     let block: (String) -> BlockReason?
     let onToggle: () -> Void
 
+    static func heading(_ group: HerdGroup, git: [String: GitState]) -> String? {
+        let names = group.sessions.map { git[$0.id]?.handoffWho }.map { name in
+            name?.isEmpty == false ? name : nil
+        }
+        let unique = Set(names)
+        let who = unique.count == 1 ? names.first.flatMap { $0 } : nil
+        let count = String(group.sessions.count)
+        if who == nil, names.allSatisfy({ $0 == nil }) {
+            if group.stage == .waitingOnReviewer { return L.t("herd_waiting_reviewer_group_maintainers", count) }
+            if group.stage == .waitingOnMerger { return L.t("herd_waiting_merger_group_maintainers", count) }
+        }
+        guard let key = group.stage.headingKey(who: who) else { return nil }
+        if let who { return L.t(key, who, count) }
+        return L.t(key, count)
+    }
+
     var body: some View {
         let showCli = SessionBadges.showsCli(for: app.extension(SidebarModel.self)?.sessions ?? group.sessions)
         Section {
@@ -43,15 +59,13 @@ struct HerdGroupView: View {
                 }
             }
         } header: {
-            // `who` is stream S2's handoff name; until that classifier is wired in this build never
-            // has one, so every waiting group renders its `_multi` heading.
-            if let key = group.stage.headingKey() {
+            if let title = Self.heading(group, git: app.extension(HerdSignals.self)?.git ?? [:]) {
                 Button(action: onToggle) {
                     HStack(spacing: 4) {
                         Image(systemName: "chevron.down")
                             .font(.caption2)
                             .rotationEffect(.degrees(isCollapsed ? -90 : 0))
-                        Text(verbatim: L.t(key, "\(group.sessions.count)"))
+                        Text(verbatim: title)
                         Spacer(minLength: 0)
                     }
                 }

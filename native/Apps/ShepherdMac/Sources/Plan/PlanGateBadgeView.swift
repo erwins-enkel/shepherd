@@ -15,17 +15,23 @@ struct PlanGateBadgeView: View {
     }
 
     var body: some View {
-        if let label = chip.label {
-            Button { model.openPlan(session.id) } label: {
-                Text(verbatim: label)
-                    .font(.caption2.weight(.semibold))
-                    .padding(.horizontal, 6).padding(.vertical, 3)
-                    .foregroundStyle(chip.tint)
-                    .background(chip.tint.opacity(0.12), in: Capsule())
+        TimelineView(.periodic(from: .now, by: 20)) { context in
+            if let label = chip.label {
+              let stalled = PlanGateChip.stalledNow(session: session, gate: model.gates[session.id],
+                  reviewing: model.reviewing.contains(session.id), now: Int(context.date.timeIntervalSince1970 * 1_000))
+              Button { model.openPlan(session.id) } label: {
+                  Text(verbatim: label)
+                      .font(.caption2.weight(.semibold))
+                      .padding(.horizontal, 6).padding(.vertical, 3)
+                      .foregroundStyle(stalled ? .red : chip.tint)
+                      .background(chip.tint.opacity(0.12), in: Capsule())
+              }
+              .overlay { if stalled { Capsule().stroke(.red, lineWidth: 1) } }
+              .help(chip.statusNote(stalled: stalled) ?? label)
+              .buttonStyle(.plain)
+              .accessibilityLabel(L.t("plangate_menu_open_plan") + ": " + label)
+              .accessibilityIdentifier("plan-gate-badge-\(session.id)")
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel(L.t("plangate_menu_open_plan") + ": " + label)
-            .accessibilityIdentifier("plan-gate-badge-\(session.id)")
         }
     }
 }

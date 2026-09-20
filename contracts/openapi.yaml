@@ -1700,8 +1700,9 @@ components:
         The catch-all member of VisualBlock, and the ONLY reason an unfamiliar block type does not
         cost the client the whole gate. Same idea as x-shepherd-open-enum for a string enum, one
         level up: `type` excludes all known discriminators, and `markdown` is the degraded
-        rendering every server-side block carries. A renderer that reaches this member draws the
-        markdown if there is one and skips the block otherwise.
+        rendering some server-side blocks carry. Clients preserve this member on decode.
+        The native renderer intentionally omits unknown block types, including their markdown,
+        while retaining the surrounding plan or recap body.
       required: [type]
       properties:
         type:

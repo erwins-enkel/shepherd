@@ -372,6 +372,8 @@ export const KEYS_NOTIFICATIONS: readonly string[] = [
 /** S7 — the herd classifier: lifecycle group headings the sidebar already has live in
  *  KEYS_SIDEBAR; this array is for the stepper, the row badges and the CI/review banners. */
 export const KEYS_HERD: readonly string[] = [
+  "herd_waiting_reviewer_group_maintainers",
+  "herd_waiting_merger_group_maintainers",
   "activity_active",
   "activity_ci_failure",
   "activity_ci_pending",

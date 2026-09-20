@@ -70,6 +70,10 @@ public actor PTYConnection {
   /// that re-attached here would restart the takeover war the park just ended.
   private var parked = false
   private var everAttached = false
+  /// The attach event `connect()` produced and has deliberately **not**
+  /// delivered yet: see `flushPendingAttach`. Internal rather than private only
+  /// so a test can assert that a delivered frame released it.
+  private(set) var pendingAttach: LifecycleEvent?
   private var cols: Int
   private var rows: Int
 
@@ -176,16 +180,25 @@ public actor PTYConnection {
   /// iterator asked first, and for a terminal that is not a slow view but a
   /// corrupted one: half the escape sequences would go to the other reader.
   ///
-  /// Buffered `.bufferingNewest(4096)` per stream — terminal output is bursty,
-  /// and a consumer that stalls drops its own oldest chunks rather than holding
-  /// the socket's reader back for everybody. A consumer that stops iterating
-  /// (cancels its task, drops the iterator) removes its own tap; `stop()`
-  /// finishes every stream it handed out, so a `for await` over one ends
-  /// instead of hanging. A stream taken while the connection is stopped stays
-  /// open and starts delivering at the next `start()`/`takeOver()`.
+  /// Buffered `.unbounded` per stream, **not** `.bufferingNewest`: a dropped
+  /// chunk does not cost a repaint, it corrupts the emulator. Terminal output
+  /// is bursty and escape sequences straddle chunk boundaries, so eating the
+  /// oldest of a burst leaves the screen wedged in whatever mode the truncated
+  /// sequence opened until something redraws it.
+  ///
+  /// The memory profile is unchanged in production: the only consumer of this
+  /// stream is `LivePTYAttachment`'s relay, which the main actor drains on
+  /// every turn, so a burst is held for one turn either way. The cost of the
+  /// unbounded policy falls on a consumer that stops draining *without* ending
+  /// its stream — its buffer then grows with the session's output instead of
+  /// capping at 4096 chunks. A consumer that stops iterating (cancels its
+  /// task, drops the iterator) removes its own tap and buffers nothing;
+  /// `stop()` finishes every stream it handed out, so a `for await` over one
+  /// ends instead of hanging. A stream taken while the connection is stopped
+  /// stays open and starts delivering at the next `start()`/`takeOver()`.
   public func output() -> AsyncStream<Data> {
     let (stream, continuation) = AsyncStream<Data>.makeStream(
-      bufferingPolicy: .bufferingNewest(4096))
+      bufferingPolicy: .unbounded)
     let id = UUID()
     // Runs on whatever executor ended the stream, so it hops back onto the
     // actor before touching the registry.
@@ -270,8 +283,11 @@ public actor PTYConnection {
     task?.cancel(with: .goingAway, reason: nil)
     task = nil
     // Held input belongs to the session that just ended; completing it into the
-    // next one would inject a stray character.
+    // next one would inject a stray character. The held attach event belongs to
+    // the socket that just went away, and `.closed(.stopped)` is the last thing
+    // this connection says.
     pendingInput = Data()
+    pendingAttach = nil
     deliver(lifecycle: .closed(.stopped))
     finishTaps()
   }
@@ -292,8 +308,10 @@ public actor PTYConnection {
     parked = false
     consecutiveFastFails = 0
     // Same reason as in `stop()`: whatever `send(_:)` is still holding was
-    // typed at the session this connection just lost.
+    // typed at the session this connection just lost, and the attach event the
+    // old socket never proved must not be flushed by the new one's first frame.
     pendingInput = Data()
+    pendingAttach = nil
     pump?.cancel()
     pump = nil
     task?.cancel(with: .goingAway, reason: nil)
@@ -376,12 +394,25 @@ public actor PTYConnection {
     let generation = connectionGeneration
     connectedAt = .now
     socket.resume()
-    // Yielded before the upgrade is confirmed, like
-    // `EventStream.LifecycleEvent.connected`: a refused upgrade shows up as the
-    // `.detached` right after. `everAttached` deliberately does *not* flip
-    // here — see `deliver(output:)`.
-    deliver(lifecycle: everAttached ? .reattached : .attached)
+    // Produced here, delivered later. `resume()` only *starts* the upgrade, and
+    // an attach event over an upgrade that is then refused is actively harmful:
+    // `.reattached` tells the view to clear its buffer for a scrollback replay
+    // the server is never going to send, and both events flip the view to
+    // "live" over a socket that never opened — across a run of fast-fail
+    // retries the phase then flaps once a second and the operator watches a
+    // blank pane with no status at all. `ui/src/lib/pty.ts` fires
+    // `onReconnect()` from `ws.onopen`, i.e. only after the handshake; this is
+    // the same moment, deferred to `flushPendingAttach`.
+    pendingAttach = everAttached ? .reattached : .attached
     pump = Task { [weak self] in await self?.receiveLoop(socket, generation: generation) }
+    // Proof of life for a terminal that has nothing to say. A healthy pane can
+    // have an empty scrollback and stay silent for hours, so "live" must not
+    // wait for output; a pong comes back within the round trip on any socket
+    // that opened, and never on one whose upgrade was refused.
+    socket.sendPing { [weak self] error in
+      guard error == nil else { return }
+      Task { await self?.flushPendingAttach(for: socket, generation: generation) }
+    }
   }
 
   /// One received frame, or the close that ended the socket.
@@ -423,12 +454,26 @@ public actor PTYConnection {
     }
   }
 
+  /// The pump: one frame at a time until the socket closes.
+  ///
+  /// `Task.isCancelled` on the `while` is checked *before* the await, which is
+  /// the useless half of the guard on its own — a completion already queued for
+  /// this socket resumes regardless. `deliverIfCurrent` re-checks after the
+  /// await, which is where a `takeOver()`/`stop()` can have replaced the socket
+  /// underneath this pump. A close still goes to `handleClose`, superseded or
+  /// not: its generation guard is what decides whether the code counts, and
+  /// dropping the call here would lose the close code of a socket a racing
+  /// `stop()` had already detached.
   private func receiveLoop(_ socket: URLSessionWebSocketTask, generation: Int) async {
     var closeCode = 0
     receiving: while !Task.isCancelled {
       switch await nextFrame(on: socket) {
-      case .text(let text): deliver(output: Data(text.utf8))
-      case .binary(let data): deliver(output: data)
+      case .text(let text):
+        guard deliverIfCurrent(Data(text.utf8), from: socket, generation: generation) else {
+          return
+        }
+      case .binary(let data):
+        guard deliverIfCurrent(data, from: socket, generation: generation) else { return }
       case .closed(let code):
         closeCode = code
         break receiving
@@ -437,17 +482,59 @@ public actor PTYConnection {
     await handleClose(of: socket, closeCode: closeCode, generation: generation)
   }
 
-  /// Fans one chunk of terminal output out to every `output()` stream, and
-  /// records that this socket really carried a session.
+  /// Whether the pump — or the pong callback — asking still owns the
+  /// connection.
   ///
-  /// The first frame is what flips `everAttached`, not `connect()`: the server
-  /// replays the scrollback on every *successful* attach, so `.reattached`
-  /// (which tells the view to clear its buffer first) must only follow an
-  /// attach that actually delivered something. An attach whose upgrade was
-  /// refused carried no scrollback, and reporting `.reattached` after it would
-  /// make the view clear a buffer the server is not going to refill.
-  private func deliver(output bytes: Data) {
+  /// `nextFrame(on:)`'s completion can resume long after a `takeOver()` or
+  /// `stop()` cancelled this pump and `connect()` opened a replacement, and the
+  /// pong handler runs on a task of its own. Either would otherwise act on a
+  /// socket the connection has moved on from: injecting the dead socket's bytes
+  /// between the live one's scrollback frames, or confirming an attach nobody
+  /// is watching any more.
+  private func isCurrent(_ socket: URLSessionWebSocketTask?, generation: Int) -> Bool {
+    !Task.isCancelled && generation == connectionGeneration && task === socket
+  }
+
+  /// Releases the attach event `connect()` parked, now that this socket has
+  /// proved it really opened — whichever comes first of its first frame or its
+  /// pong. Idempotent: the loser of that race finds nothing left to flush.
+  private func flushPendingAttach(for socket: URLSessionWebSocketTask?, generation: Int) {
+    guard let event = pendingAttach, !stopped, isCurrent(socket, generation: generation) else {
+      return
+    }
+    pendingAttach = nil
+    // Flipped here, not on the first frame: what makes the *next* attach a
+    // reattach is a confirmed upgrade, and a healthy terminal can be silent for
+    // hours. Mirrors `everOpened` in `ui/src/lib/pty.ts`, set in `ws.onopen`.
     everAttached = true
+    deliver(lifecycle: event)
+  }
+
+  /// Delivers one received chunk, unless this pump has been superseded.
+  ///
+  /// Flushes the held attach event first and in the same actor turn: the
+  /// `.reattached` that tells the view to clear has to be ordered ahead of the
+  /// scrollback the server replays to refill it.
+  ///
+  /// Internal rather than private only so a test can replay what a superseded
+  /// pump delivers — the same seam `recordCloseCode(_:generation:)` is for the
+  /// close code such a pump reports.
+  @discardableResult
+  func deliverIfCurrent(
+    _ bytes: Data, from socket: URLSessionWebSocketTask?, generation: Int
+  ) -> Bool {
+    guard isCurrent(socket, generation: generation) else { return false }
+    flushPendingAttach(for: socket, generation: generation)
+    deliver(output: bytes)
+    return true
+  }
+
+  /// Fans one chunk of terminal output out to every `output()` stream.
+  ///
+  /// Unconditional: deciding whether this pump still owns the connection, and
+  /// flushing the held attach event ahead of the bytes, are `deliverIfCurrent`'s
+  /// job, and it is the only caller.
+  private func deliver(output bytes: Data) {
     for tap in outputTaps.values { tap.yield(bytes) }
   }
 
@@ -510,6 +597,9 @@ public actor PTYConnection {
     // socket must not report anything: the replacement owns the lifecycle now.
     guard !stopped, task === socket else { return }
     task = nil
+    // This socket never got to prove itself, so its attach event is void: a
+    // refused upgrade must report `.detached` and nothing else.
+    pendingAttach = nil
 
     // The two single-owner codes are terminal by contract
     // (`PTY_SUPERSEDED_CODE` / `PTY_GONE_CODE` in `src/server.ts`). Reconnecting

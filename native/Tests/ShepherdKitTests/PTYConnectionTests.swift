@@ -254,7 +254,10 @@ struct PTYConnectionTests {
     }
 
     await connection.start()
-    #expect(try await eventually { server.connectionCount() == 1 })
+    // `connectionCount()` counts upgrade *requests*, which the confirmation
+    // that releases `.attached` comes after — wait for the event itself, or
+    // `stop()` races ahead of it.
+    #expect(try await eventually { first.all() == [.attached] })
     await connection.stop()
 
     #expect(try await eventually { firstEnded.all() == [true] && secondEnded.all() == [true] })
@@ -279,7 +282,7 @@ struct PTYConnectionTests {
     await connection.stop()
   }
 
-  @Test("an attach that never carried a frame does not make the next one a .reattached")
+  @Test("an attach whose upgrade was refused does not make the next one a .reattached")
   func reattachedOnlyAfterARealAttach() async throws {
     let server = try FakePTYServer()
     defer { server.stop() }
@@ -297,7 +300,9 @@ struct PTYConnectionTests {
     }
 
     await connection.start()
-    #expect(try await eventually { events.all() == [.attached, .detached] })
+    // No `.attached` at all: the upgrade was refused, so the socket never
+    // proved itself and the held attach event was dropped with it.
+    #expect(try await eventually { events.all() == [.detached] })
 
     // The refused attach cleared nothing, so the next one is still `.attached`.
     server.setRejectUpgrades(false)
@@ -305,9 +310,9 @@ struct PTYConnectionTests {
     #expect(try await eventually { server.connectionCount() == 2 })
     server.sendBytes(Data([0x68, 0x69]))
     #expect(try await eventually { bytes.all() == [Data([0x68, 0x69])] })
-    #expect(events.all() == [.attached, .detached, .attached])
+    #expect(events.all() == [.detached, .attached])
 
-    // That frame proved the attach: from here a reconnect replays scrollback,
+    // That attach was confirmed: from here a reconnect replays scrollback,
     // so the view has to clear first and the event is `.reattached`.
     await connection.takeOver()
     #expect(try await eventually { events.all().last == .reattached })
@@ -457,7 +462,9 @@ struct PTYConnectionTests {
     defer { reader.cancel() }
 
     await connection.start()
-    #expect(try await eventually { server.connectionCount() == 1 })
+    // Same reason as in `lifecycleFansOutToEveryConsumer`: the close below has
+    // to land after the attach is confirmed, not racing it.
+    #expect(try await eventually { lifecycle.all() == [.attached] })
     server.close(code: 4001)
     #expect(try await eventually { lifecycle.all().contains(.closed(.gone)) })
 
@@ -578,6 +585,138 @@ struct PTYConnectionTests {
       lifecycle.all().contains(.closed(.unreachable))
     })
     #expect(ContinuousClock.now - started < .seconds(4))
+    await connection.stop()
+  }
+
+  @Test("a successful attach with nothing to replay still reports .attached")
+  func silentAttachStillReportsAttached() async throws {
+    let server = try FakePTYServer()
+    defer { server.stop() }
+    let connection = makeConnection(server)
+    let (events, reader) = collect(await connection.lifecycle())
+    let (bytes, byteReader) = collect(await connection.output())
+    defer {
+      reader.cancel()
+      byteReader.cancel()
+    }
+
+    await connection.start()
+    // Not one frame is ever sent. A pane whose scrollback is empty is a
+    // healthy pane, so the attach cannot be made to wait for output — the pong
+    // is what proves the upgrade went through.
+    #expect(try await eventually { events.all() == [.attached] })
+    #expect(bytes.all().isEmpty)
+    await connection.stop()
+  }
+
+  @Test("a retry whose upgrade is refused reports .detached and never .reattached")
+  func refusedRetryNeverReportsReattached() async throws {
+    let server = try FakePTYServer()
+    defer { server.stop() }
+    let connection = makeConnection(server)
+    let (events, reader) = collect(await connection.lifecycle())
+    defer { reader.cancel() }
+
+    await connection.start()
+    #expect(try await eventually { events.all() == [.attached] })
+
+    // herdr restarts under a live terminal: the socket dies and every attach
+    // after it is refused. A `.reattached` here would clear the emulator for a
+    // scrollback replay that is never coming and flip the view to "live" over a
+    // socket that never opened — and then do it again on every retry.
+    server.setRejectUpgrades(true)
+    server.dropCurrentConnection()
+
+    #expect(try await eventually { events.all().contains(.detached) })
+    #expect(try await eventually { server.connectionCount() >= 3 })
+    #expect(!events.all().contains(.reattached))
+    await connection.stop()
+  }
+
+  @Test("a reattach's .reattached is released by the replay it tells the view to clear for")
+  func reattachIsReleasedByItsReplay() async throws {
+    let server = try FakePTYServer()
+    defer { server.stop() }
+    let connection = makeConnection(server)
+    let (events, reader) = collect(await connection.lifecycle())
+    let (bytes, byteReader) = collect(await connection.output())
+    defer {
+      reader.cancel()
+      byteReader.cancel()
+    }
+
+    await connection.start()
+    #expect(try await eventually { events.all() == [.attached] })
+    server.dropCurrentConnection()
+    #expect(try await eventually { server.connectionCount() == 2 })
+    server.sendBytes(Data([0x68, 0x69]))
+
+    #expect(try await eventually { bytes.all() == [Data([0x68, 0x69])] })
+    // Nothing is still held back by the time the replay is visible: the flush
+    // runs in the same actor turn as the delivery and ahead of it, so the
+    // clear is ordered before the scrollback it clears for, never after.
+    #expect(await connection.pendingAttach == nil)
+    #expect(try await eventually { events.all() == [.attached, .detached, .reattached] })
+    await connection.stop()
+  }
+
+  /// One distinguishable chunk per index, so a dropped one is visible as a gap
+  /// rather than as a shorter array of identical bytes.
+  private static func burstChunk(_ index: Int) -> Data { Data("\(index);".utf8) }
+
+  @Test("an output() consumer that stalls through a burst still gets every chunk, oldest first")
+  func outputTapNeverDropsTheOldestChunks() async throws {
+    let server = try FakePTYServer()
+    defer { server.stop() }
+    let connection = makeConnection(server)
+    // `stalled` is taken now and deliberately not drained until the burst is
+    // over — a main-actor stall is exactly the condition this models. `live` is
+    // drained throughout and is only here to tell the test when the whole burst
+    // has been yielded to every tap, so the assertion below is not racing the
+    // socket.
+    let stalled = await connection.output()
+    let (live, liveReader) = collect(await connection.output())
+    defer { liveReader.cancel() }
+
+    await connection.start()
+    #expect(try await eventually { server.connectionCount() == 1 })
+    // Past `.bufferingNewest(4096)`: under the old policy the stalled tap would
+    // be holding only the newest 4096 of these by now.
+    let count = 5000
+    for index in 0..<count { server.sendBytes(Self.burstChunk(index)) }
+    #expect(try await eventually(timeout: .seconds(30)) { live.all().count == count })
+
+    // The kit's tap is the bottleneck the app-side relay sits *downstream* of,
+    // so an `.unbounded` relay cannot make up for a bounded tap: the oldest
+    // chunks would already be gone, and a chunk lost mid-escape-sequence
+    // corrupts the emulator rather than costing a repaint.
+    let (buffered, bufferedReader) = collect(stalled)
+    defer { bufferedReader.cancel() }
+    #expect(try await eventually(timeout: .seconds(10)) { buffered.all().count == count })
+    #expect(buffered.all() == (0..<count).map(Self.burstChunk))
+    await connection.stop()
+  }
+
+  @Test("a frame from a superseded pump is not injected into the live socket's output")
+  func staleFrameIsDropped() async throws {
+    let server = try FakePTYServer()
+    defer { server.stop() }
+    let connection = makeConnection(server)
+    let (bytes, byteReader) = collect(await connection.output())
+    defer { byteReader.cancel() }
+
+    await connection.start()
+    #expect(try await eventually { server.connectionCount() == 1 })
+
+    // What a pump left running by `takeOver()`/`stop()` replays: a receive
+    // completion queued for a socket this connection has moved on from. `nil`
+    // stands in for that dead socket — whatever it was, it is not the live
+    // `task` — and generation 0 never owned one either. Delivering it would
+    // wedge the emulator with bytes from the wrong attach, in between the live
+    // socket's scrollback frames.
+    #expect(await connection.deliverIfCurrent(Data([0x66]), from: nil, generation: 0) == false)
+    server.sendBytes(Data([0x68]))
+    #expect(try await eventually { bytes.all() == [Data([0x68])] })
     await connection.stop()
   }
 }

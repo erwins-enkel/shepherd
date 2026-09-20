@@ -773,6 +773,23 @@
         }
       }
     },
+    "cardmenu_decommission": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stilllegen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Decommission"
+          }
+        }
+      }
+    },
     "cardmenu_relaunch": {
       "extractionState": "manual",
       "localizations": {
@@ -803,6 +820,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Rename"
+          }
+        }
+      }
+    },
+    "cardmenu_replace_with": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Weiterführen mit…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continue with…"
           }
         }
       }
@@ -838,6 +872,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Couldn't resume %1$@"
+          }
+        }
+      }
+    },
+    "cardmenu_start_variant": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Als Variante starten…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start as variant…"
           }
         }
       }
@@ -998,6 +1049,23 @@
         }
       }
     },
+    "common_issues_lightweight": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lightweight-Modus (nur lokal) ist für dieses Repo aktiv — kein Forge, keine Issues. Umschaltbar unter Automatisierung."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lightweight (local-only) mode is on for this repo — no forge, no issues. Change it under Automation."
+          }
+        }
+      }
+    },
     "common_issues_load_failed": {
       "extractionState": "manual",
       "localizations": {
@@ -1028,6 +1096,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "loading…"
+          }
+        }
+      }
+    },
+    "common_no_open_issues": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "keine offenen Issues"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no open issues"
           }
         }
       }
@@ -1601,6 +1686,142 @@
         }
       }
     },
+    "experiment_continue_handoff_label": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Übergabe"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Handoff"
+          }
+        }
+      }
+    },
+    "experiment_continue_mode_resume": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ursprünglichen Auftrag fortsetzen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continue original task"
+          }
+        }
+      }
+    },
+    "experiment_continue_mode_summarize": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erst zusammenfassen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Summarize first"
+          }
+        }
+      }
+    },
+    "experiment_continue_scope": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Behält diese Shepherd-Session, Branch und Worktree. Nur der laufende Agentprozess wechselt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keeps this Shepherd session, branch and worktree. Only the live agent process changes."
+          }
+        }
+      }
+    },
+    "experiment_replace_confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Weiterführen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continue"
+          }
+        }
+      }
+    },
+    "experiment_replace_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Weiterführen mit"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continue with"
+          }
+        }
+      }
+    },
+    "experiment_variant_confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Variante starten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start variant"
+          }
+        }
+      }
+    },
+    "experiment_variant_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Als Variante starten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start as variant"
+          }
+        }
+      }
+    },
     "files_created_unknown": {
       "extractionState": "manual",
       "localizations": {
@@ -1699,6 +1920,24 @@
           "stringUnit": {
             "state": "translated",
             "value": "Worktree"
+          }
+        }
+      }
+    },
+    "files_upload_too_large": {
+      "comment": "%1$@ = name",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ist zu groß (max. 250 MB)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ is too large (max 250 MB)"
           }
         }
       }
@@ -3020,6 +3259,58 @@
         }
       }
     },
+    "issue_filter_button": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filter"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filters"
+          }
+        }
+      }
+    },
+    "issue_filter_button_aria": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Issue-Filter, %1$@ aktiv"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Issue filters, %1$@ active"
+          }
+        }
+      }
+    },
+    "issue_filter_heading": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Issues filtern"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filter issues"
+          }
+        }
+      }
+    },
     "issuebadge_label": {
       "comment": "%1$@ = number",
       "extractionState": "manual",
@@ -3070,6 +3361,1029 @@
           "stringUnit": {
             "state": "translated",
             "value": "Spawned for issue #%1$@"
+          }
+        }
+      }
+    },
+    "issues_filter_active_label": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "in Arbeit ausblenden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "hide in progress"
+          }
+        }
+      }
+    },
+    "issues_filter_active_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Issues ausblenden, die bereits bearbeitet werden (shepherd:active)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide issues already being worked on (shepherd:active)"
+          }
+        }
+      }
+    },
+    "issues_filter_all_assigned_to_others": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle offenen Issues sind anderen zugewiesen — zum Anzeigen ausschalten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All open issues are assigned to others — toggle off to see them"
+          }
+        }
+      }
+    },
+    "issues_filter_all_blocked": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle passenden Issues sind blockiert — zum Anzeigen ausschalten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All matching issues are blocked — toggle off to see them"
+          }
+        }
+      }
+    },
+    "issues_filter_all_in_progress": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle passenden Issues werden bearbeitet — zum Anzeigen ausschalten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All matching issues are in progress — toggle off to see them"
+          }
+        }
+      }
+    },
+    "issues_filter_all_sub_issues": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle passenden Issues sind Epic-Unteraufgaben — zum Anzeigen ausschalten oder einen Epic-Drain starten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All matching issues are epic sub-issues — toggle off to see them, or start an epic drain"
+          }
+        }
+      }
+    },
+    "issues_filter_author_all": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle Autoren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All authors"
+          }
+        }
+      }
+    },
+    "issues_filter_author_heading": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autor"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Author"
+          }
+        }
+      }
+    },
+    "issues_filter_blocked_label": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "blockierte ausblenden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "hide blocked"
+          }
+        }
+      }
+    },
+    "issues_filter_blocked_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Issues mit einem blocked-Label ausblenden (z. B. blocked-upstream)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide issues with a blocked label (e.g. blocked-upstream)"
+          }
+        }
+      }
+    },
+    "issues_filter_labels_heading": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Labels"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Labels"
+          }
+        }
+      }
+    },
+    "issues_filter_mine_label": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "meine & nicht zugewiesen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "mine & unassigned"
+          }
+        }
+      }
+    },
+    "issues_filter_mine_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Issues ausblenden, die anderen zugewiesen sind"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide issues assigned to other people"
+          }
+        }
+      }
+    },
+    "issues_filter_no_match": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "keine Issues entsprechen den aktiven Filtern"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no issues match the active filters"
+          }
+        }
+      }
+    },
+    "issues_filter_subissues_label": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unteraufgaben ausblenden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "hide sub-issues"
+          }
+        }
+      }
+    },
+    "issues_filter_subissues_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Native Unteraufgaben (Kinder eines Epics) ausblenden — stattdessen einen Epic-Drain starten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide native sub-issues (children of an epic) — start an epic drain instead"
+          }
+        }
+      }
+    },
+    "keymap_attach": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Datei anhängen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attach file"
+          }
+        }
+      }
+    },
+    "keymap_autopilot": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autopilot umschalten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toggle autopilot"
+          }
+        }
+      }
+    },
+    "keymap_branch": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Basis-Branch wechseln"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch base branch"
+          }
+        }
+      }
+    },
+    "keymap_close": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schließen (Entwurf bleibt)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close (draft is kept)"
+          }
+        }
+      }
+    },
+    "keymap_command_token": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Befehl einfügen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Insert command"
+          }
+        }
+      }
+    },
+    "keymap_dictate": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diktat starten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start dictation"
+          }
+        }
+      }
+    },
+    "keymap_engine": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Engine"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Engine"
+          }
+        }
+      }
+    },
+    "keymap_focus_prompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In den Prompt springen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jump into the prompt"
+          }
+        }
+      }
+    },
+    "keymap_footer_held": {
+      "comment": "%1$@ = mod",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ GEHALTEN — Taste drücken oder loslassen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ HELD — press a key or let go"
+          }
+        }
+      }
+    },
+    "keymap_footer_idle": {
+      "comment": "%1$@ = mod",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ HALTEN = TASTEN"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ HOLD = KEYS"
+          }
+        }
+      }
+    },
+    "keymap_hold": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tastenkappen einblenden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reveal the keycaps"
+          }
+        }
+      }
+    },
+    "keymap_hold_verb": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "halten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "hold"
+          }
+        }
+      }
+    },
+    "keymap_issue_filter": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Issue-Filter"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Issue filter"
+          }
+        }
+      }
+    },
+    "keymap_issue_token": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Issue einfügen / suchen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Insert / search issue"
+          }
+        }
+      }
+    },
+    "keymap_list_nav": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In der Issue-Liste bewegen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move through the issue list"
+          }
+        }
+      }
+    },
+    "keymap_list_pick": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Markiertes Issue übernehmen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Take the marked issue"
+          }
+        }
+      }
+    },
+    "keymap_mod_alt": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alt"
+          }
+        }
+      }
+    },
+    "keymap_mod_ctrl": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Strg"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ctrl"
+          }
+        }
+      }
+    },
+    "keymap_mod_shift": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Umschalt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shift"
+          }
+        }
+      }
+    },
+    "keymap_mode_code": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modus Code"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code mode"
+          }
+        }
+      }
+    },
+    "keymap_mode_epic": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modus Epic"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Epic mode"
+          }
+        }
+      }
+    },
+    "keymap_mode_plain": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modus Roh"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plain mode"
+          }
+        }
+      }
+    },
+    "keymap_mode_research": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modus Recherche"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Research mode"
+          }
+        }
+      }
+    },
+    "keymap_mode_research_short": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RECH."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RSCH."
+          }
+        }
+      }
+    },
+    "keymap_model": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modell"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Model"
+          }
+        }
+      }
+    },
+    "keymap_paste_image": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bild einfügen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paste image"
+          }
+        }
+      }
+    },
+    "keymap_plan_gate": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan-Gate umschalten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toggle plan gate"
+          }
+        }
+      }
+    },
+    "keymap_repo": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repo wechseln"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch repo"
+          }
+        }
+      }
+    },
+    "keymap_repo_next": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nächstes Repo"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next repo"
+          }
+        }
+      }
+    },
+    "keymap_repo_prev": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vorheriges Repo"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Previous repo"
+          }
+        }
+      }
+    },
+    "keymap_sheet": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Karte"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This card"
+          }
+        }
+      }
+    },
+    "keymap_sheet_aria": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tastenkürzel"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keyboard shortcuts"
+          }
+        }
+      }
+    },
+    "keymap_sheet_context": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neue Aufgabe"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New task"
+          }
+        }
+      }
+    },
+    "keymap_sheet_dismiss": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ESC schließt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ESC closes"
+          }
+        }
+      }
+    },
+    "keymap_sheet_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TASTENKARTE"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "KEY CARD"
+          }
+        }
+      }
+    },
+    "keymap_sources_tab": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Issues ⇄ Befehle"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Issues ⇄ commands"
+          }
+        }
+      }
+    },
+    "keymap_submit": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erstellen & starten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create & start"
+          }
+        }
+      }
+    },
+    "keymap_zone_context": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "KONTEXT"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CONTEXT"
+          }
+        }
+      }
+    },
+    "keymap_zone_global": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GLOBAL"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GLOBAL"
+          }
+        }
+      }
+    },
+    "keymap_zone_options": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OPTIONEN"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OPTIONS"
+          }
+        }
+      }
+    },
+    "keymap_zone_prompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PROMPT"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PROMPT"
+          }
+        }
+      }
+    },
+    "leftover_close_only": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur Session schließen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close session only"
+          }
+        }
+      }
+    },
+    "leftover_port": {
+      "comment": "%1$@ = port",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Port %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "port %1$@"
+          }
+        }
+      }
+    },
+    "leftover_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Läuft noch aus dieser Session"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Still running from this session"
           }
         }
       }
@@ -3172,6 +4486,720 @@
           "stringUnit": {
             "state": "translated",
             "value": "This instance is protected. Enter the operator password to continue."
+          }
+        }
+      }
+    },
+    "model_configured_fable_latest": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fable (neuestes)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fable (latest)"
+          }
+        }
+      }
+    },
+    "model_configured_opus_1m_latest": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opus (neuestes, 1 Mio. Kontext)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opus (latest, 1M context)"
+          }
+        }
+      }
+    },
+    "model_configured_opus_latest": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opus (neuestes)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opus (latest)"
+          }
+        }
+      }
+    },
+    "model_cost_high": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hohe Kosten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "High cost"
+          }
+        }
+      }
+    },
+    "model_cost_low": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Niedrige Kosten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Low cost"
+          }
+        }
+      }
+    },
+    "model_cost_premium": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Premium-Kosten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Premium cost"
+          }
+        }
+      }
+    },
+    "model_cost_standard": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standardkosten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard cost"
+          }
+        }
+      }
+    },
+    "model_guidance_auto": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto lässt Shepherd manuelle Aufgaben vorbelegen, während unbeaufsichtigte Starts auf dem Provider-Standard bleiben."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto lets Shepherd seed manual tasks while unattended spawns stay on the provider default."
+          }
+        }
+      }
+    },
+    "model_guidance_claude_fable": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Für die härtesten, langlaufenden Aufgaben. Höchste Qualität, höchste unbeaufsichtigte Kosten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use for the hardest long-running work. Highest quality, highest unattended burn."
+          }
+        }
+      }
+    },
+    "model_guidance_claude_fable_5_1": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fixiert genau Fable 5.1, damit ein künftiges Fable-Release dieses Modell nicht still ändert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pins Fable 5.1 exactly, so a future Fable release can't quietly change this model."
+          }
+        }
+      }
+    },
+    "model_guidance_claude_haiku": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Günstig und schnell. Gut für Naming und Klassifizierer, schwach für primäres Coding."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cheap and fast. Best for naming and classifiers, weak for primary coding."
+          }
+        }
+      }
+    },
+    "model_guidance_claude_opus": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Immer das neueste Opus. Für PR-Kritik, Planung oder riskante Refactors, die mehr Urteilsvermögen als Sonnet brauchen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Always the latest Opus. Use for PR criticism, planning, or risky refactors that need stronger judgment than Sonnet."
+          }
+        }
+      }
+    },
+    "model_guidance_claude_opus_1m": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neuestes Opus mit 1 Mio. Kontext. Nur wählen, wenn Transcript oder Repo-Kontext das wirklich brauchen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Latest Opus with 1M context. Use only when the transcript or repo context truly needs it."
+          }
+        }
+      }
+    },
+    "model_guidance_claude_opus_5": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fixiert genau Opus 5, damit ein künftiges Opus-Release dieses Modell nicht still ändert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pins Opus 5 exactly, so a future Opus release can't quietly change this model."
+          }
+        }
+      }
+    },
+    "model_guidance_claude_opus_5_1m": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opus 5 fixiert, mit 1 Mio. Kontext. Für Läufe mit großem Kontext reservieren."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opus 5 pinned, with 1M context. Reserve it for large-context runs."
+          }
+        }
+      }
+    },
+    "model_guidance_claude_sonnet": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ausgewogener Standard für alltägliches Coding, Reviews und Recaps."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Balanced default for everyday coding, reviews, and recaps."
+          }
+        }
+      }
+    },
+    "model_guidance_claude_sonnet_1m": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sonnet-Verhalten mit 1 Mio. Kontext. Für große Kontextläufe reservieren."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sonnet behavior with 1M context. Reserve it for large-context runs."
+          }
+        }
+      }
+    },
+    "model_guidance_codex_5": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sparsames allgemeines GPT-5-Profil für leichte Aufgaben."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Budget general GPT-5 profile for light tasks."
+          }
+        }
+      }
+    },
+    "model_guidance_codex_51": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allgemeines GPT-5.1-Profil. Nutze es, wenn du die Codex-Variante nicht brauchst."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "General GPT-5.1 profile. Use when you do not need the Codex-tuned variant."
+          }
+        }
+      }
+    },
+    "model_guidance_codex_51_codex": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Günstigerer Codex-spezifischer Fallback, wenn Durchsatz wichtiger ist als maximale Schlussfolgerung."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cheaper Codex-specific fallback when throughput matters more than peak reasoning."
+          }
+        }
+      }
+    },
+    "model_guidance_codex_53": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ausgewogener Codex-Coding-Standard für die meisten Implementierungsaufgaben."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Balanced Codex coding default for most implementation tasks."
+          }
+        }
+      }
+    },
+    "model_guidance_codex_54": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starke Codex-Stufe für harte Implementierung und Review-Arbeit."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Strong Codex tier for hard implementation and review work."
+          }
+        }
+      }
+    },
+    "model_guidance_codex_55": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Für den stärksten Codex-Lauf, wenn die Aufgabe Premium-Kosten rechtfertigt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use when you want the strongest Codex run and the task can justify premium burn."
+          }
+        }
+      }
+    },
+    "model_guidance_codex_56_luna": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schnelle und günstige GPT-5.6-Codex-Option für leichtere Aufgaben oder hohen Durchsatz."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fast and affordable GPT-5.6 Codex option for lighter or high-volume work."
+          }
+        }
+      }
+    },
+    "model_guidance_codex_56_sol": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leistungsfähiges GPT-5.6-Modell für ambitioniertes Coding, Recherche und Dokumentarbeit."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Highly capable GPT-5.6 model for ambitious coding, research, and document work."
+          }
+        }
+      }
+    },
+    "model_guidance_codex_56_terra": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ausgewogene GPT-5.6-Codex-Option für alltägliche agentische Coding-Arbeit."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Balanced GPT-5.6 Codex option for everyday agentic coding work."
+          }
+        }
+      }
+    },
+    "model_guidance_codex_5_codex": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sparsame Codex-spezifische Option für kleine Edits und Routine-Follow-ups."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Budget Codex-specific option for small edits and routine follow-ups."
+          }
+        }
+      }
+    },
+    "model_guidance_codex_6_astra": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leistungsfähigstes Codex-Modell für komplexes, mehrstufiges Coding, Recherche und Dokumentarbeit."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Most capable Codex model for complex, multi-step coding, research, and document work."
+          }
+        }
+      }
+    },
+    "model_guidance_codex_o3": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reasoning-lastige Option. Gut für Analyse, teuer für Routine-Coding."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reasoning-heavy option. Good for analysis, expensive for routine coding."
+          }
+        }
+      }
+    },
+    "model_guidance_default": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Provider-Standard. Nutze ihn, wenn die CLI den aktuellen Baseline-Standard wählen soll."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Provider default. Use it when you want the CLI vendor to choose the current baseline."
+          }
+        }
+      }
+    },
+    "model_guidance_inherit": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erbt den globalen Standard für dieses Repo oder diese Rolle."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inherits the global default for this repo or role."
+          }
+        }
+      }
+    },
+    "model_guidance_unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur relative Kostenorientierung. Die tatsächlichen Kosten hängen von Auth-Modus, Konto und Token-Volumen ab."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relative cost guidance only. Actual spend depends on auth mode, account, and token volume."
+          }
+        }
+      }
+    },
+    "model_label_fable_5_1": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fable 5.1"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fable 5.1"
+          }
+        }
+      }
+    },
+    "model_label_opus_5": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opus 5"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opus 5"
+          }
+        }
+      }
+    },
+    "model_label_opus_5_1m": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opus 5 (1 Mio. Kontext)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opus 5 (1M context)"
+          }
+        }
+      }
+    },
+    "model_label_sonnet_1m": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sonnet (1 Mio. Kontext)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sonnet (1M context)"
+          }
+        }
+      }
+    },
+    "model_tag_balanced": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ausgewogen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "balanced"
+          }
+        }
+      }
+    },
+    "model_tag_budget": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sparsam"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "budget"
+          }
+        }
+      }
+    },
+    "model_tag_long_context": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "langer Kontext"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "long context"
+          }
+        }
+      }
+    },
+    "model_tag_max": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "maximal"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "max"
+          }
+        }
+      }
+    },
+    "model_tag_provider_default": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Provider-Standard"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "provider default"
+          }
+        }
+      }
+    },
+    "model_tag_strong": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "stark"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "strong"
           }
         }
       }
@@ -3503,6 +5531,108 @@
           "stringUnit": {
             "state": "translated",
             "value": "%1$@ answered but reports a problem. Retrying."
+          }
+        }
+      }
+    },
+    "native_compose_dictation_deferred": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diktieren ist im nativen Aufgabenfenster noch nicht verfügbar."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dictation is not available in the native composer yet."
+          }
+        }
+      }
+    },
+    "native_compose_leftovers_kept": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beim Schließen der Sitzung laufen diese Hintergrundprozesse weiter."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Closing the session leaves these background processes running."
+          }
+        }
+      }
+    },
+    "native_compose_probes_unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd kann laufende Prozesse auf diesem Host nicht erkennen. Hintergrundprozesse können nach dem Schließen dieser Sitzung weiterlaufen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd cannot detect running processes on this host. Background processes may survive closing this session."
+          }
+        }
+      }
+    },
+    "native_compose_share_prompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prompt teilen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Share prompt"
+          }
+        }
+      }
+    },
+    "native_compose_steer_down": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Steer nach unten verschieben"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move steer down"
+          }
+        }
+      }
+    },
+    "native_compose_steer_up": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Steer nach oben verschieben"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move steer up"
           }
         }
       }
@@ -5722,6 +7852,176 @@
         }
       }
     },
+    "newtask_agent_provider_codex_alpha_badge": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alpha MVP"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alpha MVP"
+          }
+        }
+      }
+    },
+    "newtask_agent_provider_codex_alpha_note": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Codex-Integration ist eine Alpha/MVP-Funktion und wird gerade intensiv weiterentwickelt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex integration is an Alpha/MVP feature and is under heavy development."
+          }
+        }
+      }
+    },
+    "newtask_agent_provider_codex_note": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex startet als interaktive Terminal-Session und läuft unbeaufsichtigt mit --dangerously-bypass-approvals-and-sandbox (Sandbox-Profil auf trusted gesetzt). Plan Gate ist verfügbar. Autopilot arbeitet nach bestem Bemühen (Alpha) und führt die zugeordnete Unterhaltung in beiden Checkout-Arten bis zu einem offenen PR. Die Modellauswahl verwendet Codex-CLI-Modelle."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex starts as an interactive terminal session, running unattended under --dangerously-bypass-approvals-and-sandbox (sandbox profile forced to trusted). Plan Gate is available. Autopilot is best-effort (Alpha) and drives the identified task conversation toward an open PR in either checkout mode. The model picker uses Codex CLI models."
+          }
+        }
+      }
+    },
+    "newtask_agent_provider_codex_suggested_for_hold": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code ist am Nutzungsrückhalt-Schwellenwert, daher umgeht das Ausführen dieser Aufgabe auf Codex den Rückhalt. Wechsle die Coding-CLI zurück zu Claude Code, um sie stattdessen bis zum Reset zurückzuhalten oder trotzdem einzureichen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code is at the usage-hold threshold, so running this task on Codex sidesteps the hold. Switch the coding CLI back to Claude Code to hold it until the reset or submit anyway instead."
+          }
+        }
+      }
+    },
+    "newtask_agent_provider_label": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coding CLI"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coding CLI"
+          }
+        }
+      }
+    },
+    "newtask_alpha_caution": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alpha: läuft unbeaufsichtigt, Sandbox auf »trusted« erzwungen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alpha: runs unattended, sandbox forced to trusted."
+          }
+        }
+      }
+    },
+    "newtask_alpha_details": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Details"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "details"
+          }
+        }
+      }
+    },
+    "newtask_attach_image": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "↥ Datei/Bild anhängen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "↥ Attach file/image"
+          }
+        }
+      }
+    },
+    "newtask_autopilot_hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Aufgabe autonom bis zum PR durchziehen. Aus, um mitzudiskutieren, zu iterieren und jeden Schritt selbst freizugeben. Übernimmt standardmäßig die Autopilot-Einstellung des Repos."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drive this task autonomously through to a PR. Turn off to discuss, iterate and approve each step yourself. Defaults to this repo's Autopilot setting."
+          }
+        }
+      }
+    },
+    "newtask_base_missing": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repo hat noch keinen Commit. Initialen Commit erstellen, dann Task starten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repo has no commit yet. Create the initial commit, then run the task."
+          }
+        }
+      }
+    },
     "newtask_branch_label": {
       "extractionState": "manual",
       "localizations": {
@@ -5752,6 +8052,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "main"
+          }
+        }
+      }
+    },
+    "newtask_capacity_all": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "alle"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "all"
+          }
+        }
+      }
+    },
+    "newtask_capacity_all_aria": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbleibende Kapazität aller Engines"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remaining capacity across all engines"
+          }
+        }
+      }
+    },
+    "newtask_chip_from": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "von"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "from"
           }
         }
       }
@@ -5859,6 +8210,297 @@
         }
       }
     },
+    "newtask_group_guards": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leitplanken"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guards"
+          }
+        }
+      }
+    },
+    "newtask_group_mode": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modus"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mode"
+          }
+        }
+      }
+    },
+    "newtask_guard_autopilot": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[[autopilot|Autopilot bis zum PR]]"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[[autopilot|Autopilot to PR]]"
+          }
+        }
+      }
+    },
+    "newtask_guard_plan_gate": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[[plan-gate|Plan-Gate]]"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[[plan-gate|Plan gate]]"
+          }
+        }
+      }
+    },
+    "newtask_guards_none_epic": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine. Das Ergebnis ist ein EPIC-Entwurf, den du freigibst, bevor etwas auf GitHub landet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "None. The deliverable is an EPIC draft you approve before anything reaches GitHub."
+          }
+        }
+      }
+    },
+    "newtask_guards_none_plain": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine. Shepherd richtet Worktree, Branch und Tab ein und beobachtet die Sitzung, greift aber nirgends ein."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "None. Shepherd sets up worktree, branch and tab and watches the session, but never steps in."
+          }
+        }
+      }
+    },
+    "newtask_guards_none_research": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine. Das Ergebnis ist ein Bericht-PR oder ein Issue, kein geplanter Code."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "None. The deliverable is a report PR or an issue, not planned code."
+          }
+        }
+      }
+    },
+    "newtask_hold_for_reset": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bis zum Reset zurückhalten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hold for reset"
+          }
+        }
+      }
+    },
+    "newtask_init_commit": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Initialen Commit erstellen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create initial commit"
+          }
+        }
+      }
+    },
+    "newtask_init_commit_failed": {
+      "comment": "%1$@ = reason",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Initialer Commit fehlgeschlagen: %1$@."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Initial commit failed: %1$@."
+          }
+        }
+      }
+    },
+    "newtask_init_commit_running": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wird erstellt…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Creating…"
+          }
+        }
+      }
+    },
+    "newtask_issue_prompt_template": {
+      "comment": "%1$@ = number, %2$@ = title",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bearbeite Issue #%1$@: %2$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Work on issue #%1$@: %2$@"
+          }
+        }
+      }
+    },
+    "newtask_issue_remove_aria": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angehängtes Issue entfernen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove attached issue"
+          }
+        }
+      }
+    },
+    "newtask_mode_code": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code"
+          }
+        }
+      }
+    },
+    "newtask_mode_epic": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Epic"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Epic"
+          }
+        }
+      }
+    },
+    "newtask_mode_plain": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Roh"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plain"
+          }
+        }
+      }
+    },
+    "newtask_mode_research": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recherche"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Research"
+          }
+        }
+      }
+    },
     "newtask_model_default": {
       "extractionState": "manual",
       "localizations": {
@@ -5889,6 +8531,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Model"
+          }
+        }
+      }
+    },
+    "newtask_plan_gate_hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan vor dem Agentenlauf prüfen + kontradiktorisch hinterfragen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grill + adversarial review before the agent runs"
           }
         }
       }
@@ -5927,6 +8586,249 @@
         }
       }
     },
+    "newtask_provider_capacity_free": {
+      "comment": "%1$@ = pct",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@%% frei"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@%% free"
+          }
+        }
+      }
+    },
+    "newtask_provider_capacity_free_until": {
+      "comment": "%1$@ = pct, %2$@ = time",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@%% frei bis %2$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@%% free until %2$@"
+          }
+        }
+      }
+    },
+    "newtask_provider_capacity_meter_window_aria": {
+      "comment": "%1$@ = provider, %2$@ = window, %3$@ = free",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ %2$@: %3$@%% frei"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ %2$@: %3$@%% free"
+          }
+        }
+      }
+    },
+    "newtask_provider_capacity_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbleibender Spielraum"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remaining room"
+          }
+        }
+      }
+    },
+    "newtask_provider_capacity_unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine Nutzungsfenster-Daten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No usage-window data"
+          }
+        }
+      }
+    },
+    "newtask_provider_constraint_body": {
+      "comment": "%1$@ = provider, %2$@ = token",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd hat auf %1$@ umgestellt und inkompatible Engines deaktiviert, solange %2$@ im Prompt steht."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd switched to %1$@ and disabled incompatible engines while %2$@ is in the prompt."
+          }
+        }
+      }
+    },
+    "newtask_provider_constraint_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Engine-Verfügbarkeit"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Engine availability"
+          }
+        }
+      }
+    },
+    "newtask_readiness_base_missing": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Basis-Branch fehlt — oben reparieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "base branch missing — repair it above"
+          }
+        }
+      }
+    },
+    "newtask_readiness_branches": {
+      "comment": "%1$@ = base",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "erstellt Branch shepherd/… von %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "branches shepherd/… from %1$@"
+          }
+        }
+      }
+    },
+    "newtask_readiness_empty_prompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prompt eingeben oder Issue wählen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "type a prompt or pick an issue to start"
+          }
+        }
+      }
+    },
+    "newtask_readiness_no_repo": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repository wählen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pick a repository to start"
+          }
+        }
+      }
+    },
+    "newtask_readiness_ready": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "bereit"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ready"
+          }
+        }
+      }
+    },
+    "newtask_readiness_repairing": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Basis-Branch wird repariert…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "repairing base branch…"
+          }
+        }
+      }
+    },
+    "newtask_remove_image_aria": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anhang entfernen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "remove attachment"
+          }
+        }
+      }
+    },
     "newtask_repo_label": {
       "extractionState": "manual",
       "localizations": {
@@ -5940,6 +8842,398 @@
           "stringUnit": {
             "state": "translated",
             "value": "Repo"
+          }
+        }
+      }
+    },
+    "newtask_research_sandbox_note": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recherche-Aufgaben können das autonome Profil nicht verwenden — Websuche benötigt offenen Netzwerkzugang."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Research can't use the autonomous profile — web search needs open network access."
+          }
+        }
+      }
+    },
+    "newtask_sandbox_default": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repo-Standard"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repo default"
+          }
+        }
+      }
+    },
+    "newtask_sandbox_hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sandbox-Override pro Aufgabe. Bei 'Repo-Standard' wird das konfigurierte Profil dieses Repos übernommen. standard/autonom sperren den Agenten in sein Worktree ein und blockieren ~/.ssh, ~/.aws und andere $HOME-Dotfiles. Autonom fügt zudem die Egress-Allowlist hinzu (Anthropic + den Forge-Host) und blockiert anderen ausgehenden Verkehr; Standard lässt das Netzwerk offen (rein interaktiv). Die gh-/claude-Auth-Tokens bleiben lesbar."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Per-task sandbox override. Leave at 'Repo default' to inherit this repo's configured profile. standard/autonomous confine the agent to its worktree and block ~/.ssh, ~/.aws, and other $HOME dotfiles. Autonomous also adds the egress allowlist (Anthropic + the forge host), blocking other outbound; Standard leaves network open (interactive-only). The gh/claude auth tokens stay readable."
+          }
+        }
+      }
+    },
+    "newtask_sandbox_label": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sandbox"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sandbox"
+          }
+        }
+      }
+    },
+    "newtask_shape_aria": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Aufgabe mit einer Rückfragerunde schärfen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shape this task with a clarifying round"
+          }
+        }
+      }
+    },
+    "newtask_shape_hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erst ein paar Rückfragen klären, dann mit einem strukturierten Briefing starten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ask a few clarifying questions first, then start from a structured brief"
+          }
+        }
+      }
+    },
+    "newtask_shape_label": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schärfen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shape"
+          }
+        }
+      }
+    },
+    "newtask_spawn_cancel": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start abbrechen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel start"
+          }
+        }
+      }
+    },
+    "newtask_spawn_canceled": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start abgebrochen. Dein Prompt steht noch da."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start cancelled. Your prompt is still here."
+          }
+        }
+      }
+    },
+    "newtask_spawn_canceling": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wird abgebrochen…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancelling…"
+          }
+        }
+      }
+    },
+    "newtask_spawn_phase_agent": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf Agent warten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for the agent"
+          }
+        }
+      }
+    },
+    "newtask_spawn_phase_base": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Basis-Branch aktualisieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Updating base branch"
+          }
+        }
+      }
+    },
+    "newtask_spawn_phase_launch": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start vorbereiten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preparing launch"
+          }
+        }
+      }
+    },
+    "newtask_spawn_phase_prompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prompt zusammenstellen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Composing prompt"
+          }
+        }
+      }
+    },
+    "newtask_spawn_phase_worktree": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Worktree anlegen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Creating worktree"
+          }
+        }
+      }
+    },
+    "newtask_spawn_progress_aria": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fortschritt beim Start der Aufgabe"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Task start progress"
+          }
+        }
+      }
+    },
+    "newtask_spawn_seconds": {
+      "comment": "%1$@ = seconds",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ s"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ s"
+          }
+        }
+      }
+    },
+    "newtask_spawn_slow": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dauert länger als üblich"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Taking longer than usual"
+          }
+        }
+      }
+    },
+    "newtask_spawn_why_agent": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Agent fährt in seinem Terminal hoch. Shepherd wartet, bis er sich meldet — höchstens 30 s."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The agent is booting in its terminal. Shepherd waits until it reports in — at most 30 s."
+          }
+        }
+      }
+    },
+    "newtask_spawn_why_base": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd holt origin, damit die Aufgabe vom neuesten Stand startet. Nach 5 s gibt der Abruf auf."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fetching origin so the task starts from the newest commit. Gives up after 5 s if the remote is slow."
+          }
+        }
+      }
+    },
+    "newtask_spawn_why_launch": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Startbefehl, Sandbox und Plugin-Hooks werden zusammengebaut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Assembling the launch command, the sandbox and any plugin hooks."
+          }
+        }
+      }
+    },
+    "newtask_spawn_why_prompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anhänge wandern in den Worktree, und die Kommentare des angehängten Issues werden geladen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copying attachments into the worktree and loading the attached issue's comments."
+          }
+        }
+      }
+    },
+    "newtask_spawn_why_worktree": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Für die Aufgabe entsteht ein eigener Checkout. Bei großen Repositories dauert das länger."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Creating an isolated checkout for this task. Large repositories take longer here."
           }
         }
       }
@@ -5978,6 +9272,41 @@
         }
       }
     },
+    "newtask_submit_anyway": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trotzdem einreichen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Submit anyway"
+          }
+        }
+      }
+    },
+    "newtask_submit_in_repo": {
+      "comment": "%1$@ = repo",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erstellen & Starten in %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create & Run in %1$@"
+          }
+        }
+      }
+    },
     "newtask_title": {
       "extractionState": "manual",
       "localizations": {
@@ -5991,6 +9320,163 @@
           "stringUnit": {
             "state": "translated",
             "value": "New Task"
+          }
+        }
+      }
+    },
+    "newtask_toggle_off": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AUS"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OFF"
+          }
+        }
+      }
+    },
+    "newtask_toggle_on": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AN"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ON"
+          }
+        }
+      }
+    },
+    "newtask_upload_failed": {
+      "comment": "%1$@ = reason",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anhang-Upload fehlgeschlagen: %1$@. Anhängen erneut versuchen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attachment upload failed: %1$@. Retry the attach."
+          }
+        }
+      }
+    },
+    "newtask_upload_percent": {
+      "comment": "%1$@ = percent",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ %%"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@%%"
+          }
+        }
+      }
+    },
+    "newtask_upload_unknown_reason": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "unbekannter Fehler"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "unknown error"
+          }
+        }
+      }
+    },
+    "newtask_uploading": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lädt hoch…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uploading…"
+          }
+        }
+      }
+    },
+    "newtask_upstream_behind": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ hinter origin — Aufgabe startet vom neuesten Stand"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ behind origin — task will start from latest"
+          }
+        }
+      }
+    },
+    "newtask_upstream_checking": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upstream wird geprüft…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking upstream…"
+          }
+        }
+      }
+    },
+    "newtask_upstream_diverged": {
+      "comment": "%1$@ = behind, %2$@ = ahead, %3$@ = base",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Von origin abgewichen (%1$@ hinter, %2$@ voraus) — Aufgabe startet von lokal %3$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diverged from origin (%1$@ behind, %2$@ ahead) — task will start from local %3$@"
           }
         }
       }
@@ -7704,6 +11190,161 @@
         }
       }
     },
+    "promptsources_collapse_row": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "↑ einklappen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "↑ collapse"
+          }
+        }
+      }
+    },
+    "promptsources_commands_filter": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Befehle filtern…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "filter commands…"
+          }
+        }
+      }
+    },
+    "promptsources_commands_tab": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Befehle"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Commands"
+          }
+        }
+      }
+    },
+    "promptsources_issues_tab": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Issues"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Issues"
+          }
+        }
+      }
+    },
+    "promptsources_more_row": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "↓ %1$@ weitere — # im Prompt tippen zum Suchen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "↓ %1$@ more — type # in the prompt to search"
+          }
+        }
+      }
+    },
+    "promptsources_no_commands": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "keine installierten Befehle"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no installed commands"
+          }
+        }
+      }
+    },
+    "promptsources_no_github": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "kein GitHub-Upstream"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no GitHub upstream"
+          }
+        }
+      }
+    },
+    "promptsources_open_count": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ offen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ open"
+          }
+        }
+      }
+    },
+    "promptsources_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mit einem Issue starten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start from an issue"
+          }
+        }
+      }
+    },
     "prreview_load_failed": {
       "extractionState": "manual",
       "localizations": {
@@ -8402,6 +12043,142 @@
         }
       }
     },
+    "recommend_err_no_history": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein Terminal-Verlauf zum Analysieren — die Session ist nicht aktiv."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No terminal history to analyze — the session isn't live."
+          }
+        }
+      }
+    },
+    "recommend_err_spawn_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Analyse-Agent konnte nicht gestartet werden. Prüfe, ob die gewählte CLI installiert ist."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't start the analysis agent. Check that the chosen CLI is installed."
+          }
+        }
+      }
+    },
+    "recommend_err_timeout": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Analyse hat keine Empfehlung geliefert. Versuch es erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The analysis didn't return a recommendation. Try again."
+          }
+        }
+      }
+    },
+    "recommend_err_unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Promptempfehlungen sind derzeit nicht verfügbar."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prompt recommendations are unavailable right now."
+          }
+        }
+      }
+    },
+    "recommend_inject": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In Session einfügen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inject into session"
+          }
+        }
+      }
+    },
+    "recommend_loading": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Analysiere den Session-Verlauf…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Analyzing the session history…"
+          }
+        }
+      }
+    },
+    "recommend_result_hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Empfohlener nächster Prompt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recommended next prompt"
+          }
+        }
+      }
+    },
+    "recommend_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Promptempfehlung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prompt recommendation"
+          }
+        }
+      }
+    },
     "relaunch_archive_failed": {
       "extractionState": "manual",
       "localizations": {
@@ -8782,6 +12559,57 @@
         }
       }
     },
+    "sandbox_profile_autonomous": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autonom"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autonomous"
+          }
+        }
+      }
+    },
+    "sandbox_profile_standard": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard"
+          }
+        }
+      }
+    },
+    "sandbox_profile_trusted": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vertraut (keine Sandbox)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trusted (no sandbox)"
+          }
+        }
+      }
+    },
     "session_autopilot_complete_label": {
       "extractionState": "manual",
       "localizations": {
@@ -8916,6 +12744,245 @@
           "stringUnit": {
             "state": "translated",
             "value": "CI status"
+          }
+        }
+      }
+    },
+    "shape_discard": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwerfen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Discard"
+          }
+        }
+      }
+    },
+    "shape_err_compose": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aus diesen Antworten ließ sich kein Briefing bauen. Erneut versuchen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't build the brief from those answers. Try again."
+          }
+        }
+      }
+    },
+    "shape_err_empty_prompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erst einen groben Prompt schreiben — es gibt noch nichts zu schärfen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Write a rough prompt first — there is nothing to shape yet."
+          }
+        }
+      }
+    },
+    "shape_err_spawn_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Rückfragerunde konnte nicht gestartet werden. Erneut versuchen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't start the shaping round. Try again."
+          }
+        }
+      }
+    },
+    "shape_err_timeout": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Rückfragerunde wurde nicht rechtzeitig fertig. Erneut versuchen oder direkt mit dem Prompt starten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The shaping round didn't finish in time. Try again, or start from your prompt as it is."
+          }
+        }
+      }
+    },
+    "shape_err_unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schärfen nicht verfügbar: API-Key-Modus ist aktiv, aber kein Key konfiguriert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shaping is unavailable: API-key mode is on but no key is configured."
+          }
+        }
+      }
+    },
+    "shape_heading": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aufgabe schärfen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shaping this task"
+          }
+        }
+      }
+    },
+    "shape_questions_count": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ zu klären"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ to settle"
+          }
+        }
+      }
+    },
+    "shape_running": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repository wird gelesen, Fragen werden entworfen…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reading the repo and drafting questions…"
+          }
+        }
+      }
+    },
+    "shape_s_constraints": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Randbedingungen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Constraints"
+          }
+        }
+      }
+    },
+    "shape_s_nongoals": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht-Ziele"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non-goals"
+          }
+        }
+      }
+    },
+    "shape_s_outcome": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ergebnis"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Outcome"
+          }
+        }
+      }
+    },
+    "shape_s_problem": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Problem"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Problem"
+          }
+        }
+      }
+    },
+    "shape_use_brief": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Briefing übernehmen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use brief"
           }
         }
       }
@@ -9069,6 +13136,227 @@
           "stringUnit": {
             "state": "translated",
             "value": "BUSY"
+          }
+        }
+      }
+    },
+    "steerbar_edit": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Steers bearbeiten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit steers"
+          }
+        }
+      }
+    },
+    "steerseditor_add": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "+ Hinzufügen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "+ Add"
+          }
+        }
+      }
+    },
+    "steerseditor_empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "noch keine Steers"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no steers yet"
+          }
+        }
+      }
+    },
+    "steerseditor_field_emoji": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Emoji"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Emoji"
+          }
+        }
+      }
+    },
+    "steerseditor_label_aria": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Steer-Bezeichnung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Steer label"
+          }
+        }
+      }
+    },
+    "steerseditor_placement_bar": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal (Steer-Leiste)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal (steer bar)"
+          }
+        }
+      }
+    },
+    "steerseditor_placement_issues": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Backlog-Issues"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Backlog issues"
+          }
+        }
+      }
+    },
+    "steerseditor_remove": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entfernen…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove…"
+          }
+        }
+      }
+    },
+    "steerseditor_repos_all": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle Repos"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All repos"
+          }
+        }
+      }
+    },
+    "steerseditor_scope_all_short": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All"
+          }
+        }
+      }
+    },
+    "steerseditor_scope_none_error": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jeder Eintrag muss irgendwo erscheinen: aktiviere in der markierten Zeile „Leiste“ und/oder „Issues“"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "every entry must surface somewhere: enable “bar” and/or “issues” on the highlighted row"
+          }
+        }
+      }
+    },
+    "steerseditor_text_aria": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Steer-Prompttext"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Steer prompt text"
+          }
+        }
+      }
+    },
+    "steerseditor_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gespeicherte Steers"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved Steers"
           }
         }
       }

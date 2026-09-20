@@ -2279,6 +2279,352 @@ components:
         code: { "$ref": "#/components/schemas/RestoreConflictReason" }
     # ── /stream: queues ──
     # ── stream: compose ──
+    UploadResponse:
+      type: object
+      additionalProperties: true
+      required: [path]
+      properties:
+        path: { type: string, description: Absolute path of the staged attachment. }
+    Issue:
+      type: object
+      additionalProperties: true
+      description: An open forge issue, as GET /api/issues lists them. Copied from Issue in src/types.ts:288.
+      required: [number, title, body, url, labels, createdAt, assignees]
+      properties:
+        number: { type: integer }
+        title: { type: string }
+        body: { type: string, description: May be truncated by the server. }
+        url: { type: string }
+        labels: { type: array, items: { type: string } }
+        labelColors:
+          type: object
+          additionalProperties: { type: string }
+          description: Label name to the forge's own "#rrggbb". Absent for forges that do not report colours.
+        createdAt: { type: integer }
+        assignees: { type: array, items: { type: string } }
+        author: { type: string }
+        blockedBy:
+          type: array
+          items: { type: integer }
+          description: Still-open issues blocking this one. Attached best-effort — the route fails OPEN, so absent does not mean unblocked.
+    IssueFetchTransport:
+      type: string
+      x-shepherd-open-enum: true
+      enum: [cli, rest]
+    IssueFetchAttempt:
+      type: object
+      additionalProperties: true
+      description: One failed transport attempt, for the "why did issues not load" detail. Copied from src/types.ts:315.
+      required: [transport, reason, detail]
+      properties:
+        transport: { $ref: "#/components/schemas/IssueFetchTransport" }
+        reason:
+          type: string
+          x-shepherd-open-enum: true
+          enum: [rate_limit, auth, not_found, gh_missing, network, http, unknown]
+        status: { type: integer }
+        detail: { type: string }
+    IssueListing:
+      type: object
+      additionalProperties: true
+      description: >-
+        GET /api/issues?repo=. ALWAYS 200 when the repo resolves — a forge that threw answers this
+        same shape with `error: "fetch_failed"` and an empty list, never a 5xx. `slug: null` with an
+        empty list is the honest "this repo has no forge" answer, which is a different message for
+        the operator than a failed fetch.
+      required: [slug, webUrl, issues, viewer]
+      properties:
+        slug: { type: [string, "null"], description: "owner/repo, or null when there is no forge." }
+        webUrl: { type: [string, "null"] }
+        issues: { type: array, items: { $ref: "#/components/schemas/Issue" } }
+        viewer:
+          type: [string, "null"]
+          description: >-
+            The authenticated forge user. The "mine & unassigned" filter fails OPEN when this is
+            null — a client that hid everything instead would show an empty list for a repo whose
+            issues are all assigned.
+        error:
+          {
+            type: [string, "null"],
+            description: '"fetch_failed" when the listing threw. The list is then empty and stale.',
+          }
+        lightweight:
+          {
+            type: boolean,
+            description: "Repo is in local-only mode — no forge by configuration. Not a failure; test with === true.",
+          }
+        attempts:
+          type: array
+          items: { $ref: "#/components/schemas/IssueFetchAttempt" }
+          description: Present only when the error carried a gh trail.
+    SlashCommandScope:
+      type: string
+      x-shepherd-open-enum: true
+      enum: [project, user, plugin, builtin]
+    SlashCommandKind:
+      type: string
+      x-shepherd-open-enum: true
+      enum: [skill, command, plugin]
+    SlashCommand:
+      type: object
+      additionalProperties: true
+      description: One installed slash command or skill (src/commands.ts:16). `invocations` is how a command is typed per engine; an empty map is non-insertable. Only when the map is absent, fall back to "/name" for claude and "$name" for codex.
+      required: [name, description, scope]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        displayName: { type: string }
+        description: { type: string, description: Uncapped. }
+        scope: { $ref: "#/components/schemas/SlashCommandScope" }
+        kind: { $ref: "#/components/schemas/SlashCommandKind" }
+        invocationName: { type: string }
+        sourceNamespace: { type: string }
+        sourcePath: { type: string }
+        providers:
+          type: array
+          items: { $ref: "#/components/schemas/AgentProvider" }
+          description: >-
+            Exactly one entry means this command constrains the engine: the composer switches to it
+            and disables the others while the token is in the prompt.
+        invocations:
+          type: object
+          additionalProperties: { type: string }
+          description: Agent provider to the literal token to insert.
+        argumentHint: { type: string }
+    CommandListing:
+      type: object
+      additionalProperties: true
+      required: [commands]
+      properties:
+        commands: { type: array, items: { $ref: "#/components/schemas/SlashCommand" } }
+    EpicSummary:
+      type: object
+      additionalProperties: true
+      description: Enough of an epic to tag an issue row and to build the sub-issue filter's parent set. The epic PANEL is out of scope for milestone 3.
+      required: [parentIssueNumber, parentTitle]
+      properties:
+        parentIssueNumber: { type: integer }
+        parentTitle: { type: string }
+    EpicListing:
+      type: object
+      additionalProperties: true
+      description: "GET /api/epics?repo=. Answers {epics: [], subIssues: []} whenever the drain dep or the forge is absent — an empty answer is never an error."
+      required: [epics, subIssues]
+      properties:
+        epics: { type: array, items: { $ref: "#/components/schemas/EpicSummary" } }
+        subIssues:
+          {
+            type: array,
+            items: { type: integer },
+            description: Issue numbers that are children of an epic. The "hide sub-issues" filter removes these.,
+          }
+    BranchListing:
+      type: object
+      additionalProperties: true
+      required: [branches, current, default]
+      properties:
+        branches: { type: array, items: { type: string } }
+        current: { type: [string, "null"] }
+        default:
+          {
+            type: [string, "null"],
+            description: "Repo default from origin/HEAD; may not be a local branch.",
+          }
+    BranchStatus:
+      type: object
+      additionalProperties: true
+      required: [behind, ahead, diverged, hasUpstream, localExists]
+      properties:
+        behind: { type: integer }
+        ahead: { type: integer }
+        diverged: { type: boolean }
+        hasUpstream: { type: boolean }
+        localExists: { type: boolean }
+    InitEmptyCommitRequest:
+      type: object
+      additionalProperties: false
+      required: [repo]
+      properties:
+        repo: { type: string }
+        branch: { type: string, description: "Trimmed; defaults to main when absent or blank." }
+    InitEmptyCommitResponse:
+      type: object
+      additionalProperties: true
+      required: [branch]
+      properties:
+        branch: { type: string }
+    TaskBriefDraft:
+      type: object
+      additionalProperties: true
+      required: [problem, outcome, constraints, nonGoals]
+      properties:
+        problem: { type: string }
+        outcome: { type: string }
+        constraints: { type: array, items: { type: string } }
+        nonGoals: { type: array, items: { type: string } }
+    ShapeRequest:
+      type: object
+      additionalProperties: false
+      required: [repoPath, prompt, provider]
+      properties:
+        repoPath: { type: string }
+        prompt: { type: string }
+        provider: { $ref: "#/components/schemas/AgentProvider" }
+        model: { type: [string, "null"], minLength: 1 }
+    ShapeRound:
+      type: object
+      additionalProperties: true
+      required: [draft, block]
+      properties:
+        draft: { $ref: "#/components/schemas/TaskBriefDraft" }
+        block: { $ref: "#/components/schemas/VisualBlockQuestionForm" }
+    ShapeBriefRequest:
+      type: object
+      additionalProperties: false
+      required: [draft, block, answers]
+      properties:
+        draft: { $ref: "#/components/schemas/TaskBriefDraft" }
+        block: { $ref: "#/components/schemas/VisualBlockQuestionForm" }
+        answers: { type: array, items: { $ref: "#/components/schemas/RawAnswer" } }
+    ShapeBriefResponse:
+      type: object
+      additionalProperties: true
+      required: [brief]
+      properties:
+        brief: { type: string }
+    ShapeFailure:
+      type: object
+      additionalProperties: true
+      required: [error]
+      properties:
+        error:
+          {
+            type: string,
+            enum: [empty-prompt, spawn-failed, timeout, unavailable],
+            x-shepherd-open-enum: true,
+          }
+    ShapeUnavailable:
+      type: object
+      additionalProperties: true
+      required: [error]
+      properties:
+        error: { type: string, enum: [unavailable], x-shepherd-open-enum: true }
+    SpawnPhase:
+      x-shepherd-open-enum: true
+      type: string
+      enum: [base, worktree, prompt, launch, agent]
+    SpawnProgressEvent:
+      type: object
+      additionalProperties: true
+      required: [spawnId, phase, startedAt, completed]
+      properties:
+        spawnId: { type: string }
+        phase: { $ref: "#/components/schemas/SpawnPhase" }
+        startedAt: { type: integer }
+        completed:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+            required: [phase, ms]
+            properties:
+              phase: { $ref: "#/components/schemas/SpawnPhase" }
+              ms: { type: number }
+    SpawnCancelResponse:
+      type: object
+      additionalProperties: true
+      required: [canceled]
+      properties:
+        canceled: { type: boolean }
+    ComposeSteerList:
+      type: array
+      items: { $ref: "#/components/schemas/ComposeSteer" }
+    ComposeSteer:
+      type: object
+      additionalProperties: true
+      required: [id, label, text, inSteerBar, onIssues]
+      properties:
+        id: { type: string }
+        label: { type: string }
+        text: { type: string }
+        emoji: { type: string }
+        inSteerBar: { type: boolean }
+        onIssues: { type: boolean }
+        repos: { type: array, items: { type: string } }
+        agentProviders: { type: array, items: { $ref: "#/components/schemas/AgentProvider" } }
+    ComposeSteerInput:
+      type: object
+      additionalProperties: false
+      required: [label, text]
+      properties:
+        id: { type: string }
+        label: { type: string, minLength: 1, maxLength: 60 }
+        text: { type: string, minLength: 1, maxLength: 4000 }
+        emoji: { type: string }
+        inSteerBar: { type: boolean }
+        onIssues: { type: boolean }
+        repos: { type: array, maxItems: 40, items: { type: string } }
+        agentProviders:
+          { type: [array, "null"], items: { $ref: "#/components/schemas/AgentProvider" } }
+    ComposeVariantRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        agentProvider: { $ref: "#/components/schemas/AgentProvider" }
+        model: { type: [string, "null"] }
+        effort: { type: [string, "null"] }
+    ComposeReplaceRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        agentProvider: { $ref: "#/components/schemas/AgentProvider" }
+        model: { type: [string, "null"] }
+        effort: { type: [string, "null"] }
+        handoffMode: { type: [string, "null"], enum: [resume, summarize, null] }
+    ComposeSessionResponse:
+      type: object
+      additionalProperties: true
+      required: [session]
+      properties:
+        session: { $ref: "#/components/schemas/Session" }
+    ComposeRecommendRequest:
+      type: object
+      additionalProperties: false
+      required: [provider, model]
+      properties:
+        provider: { $ref: "#/components/schemas/AgentProvider" }
+        model: { type: string, minLength: 1 }
+    ComposeRecommendation:
+      type: object
+      additionalProperties: true
+      required: [prompt]
+      properties:
+        prompt: { type: string }
+    ComposeLeftover:
+      type: object
+      additionalProperties: true
+      required: [kind, name, port, key]
+      properties:
+        kind: { type: string, enum: [process, system], x-shepherd-open-enum: true }
+        name: { type: string }
+        port: { type: [integer, "null"] }
+        key: { type: string }
+        pid: { type: integer }
+        startTicks: { type: integer }
+        command:
+          type: object
+          additionalProperties: true
+          required: [bin, args]
+          properties:
+            bin: { type: string }
+            args: { type: array, items: { type: string } }
+    ComposeLeftovers:
+      type: object
+      additionalProperties: true
+      required: [leftovers, probesUnavailable]
+      properties:
+        leftovers: { type: array, items: { $ref: "#/components/schemas/ComposeLeftover" } }
+        probesUnavailable: { type: boolean }
     # ── /stream: compose ──
     # ── stream: settings ──
     # ── /stream: settings ──
@@ -3692,6 +4038,435 @@ paths:
           $ref: "#/components/responses/Unauthorized"
   # ── /stream: queues ──
   # ── stream: compose ──
+  /api/uploads:
+    post:
+      operationId: uploadFile
+      description: Stage a file before session creation, or attach to an existing session.
+      parameters:
+        - name: session
+          in: query
+          required: false
+          schema: { type: string }
+          description: Optional existing session. The composer omits this parameter.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        "200":
+          description: The absolute staged path.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UploadResponse" }
+        "400":
+          description: 'error is "missing file field".'
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          description: 'error is "unknown session"; only reachable with the optional session query.'
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "413":
+          description: 'error is "file too large".'
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/issues:
+    get:
+      operationId: listIssues
+      description: Open issues for one repo, with the authenticated forge user. Never 5xx — a failed listing is a 200 carrying `error`.
+      parameters:
+        - name: repo
+          in: query
+          required: true
+          schema: { type: string }
+          description: Absolute repo path; must resolve under the server's repo root.
+      responses:
+        "200":
+          description: The listing, possibly empty and possibly carrying an error.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IssueListing" }
+        "400":
+          description: 'error is "invalid repo" — the path did not resolve under the repo root.'
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /api/commands:
+    get:
+      operationId: listCommands
+      description: >-
+        Installed slash commands and skills for one repo and engine. An absent or unresolvable
+        `repo` is NOT an error — the route then answers user-scope commands only.
+      parameters:
+        - name: repo
+          in: query
+          required: false
+          schema: { type: string }
+        - name: provider
+          in: query
+          required: false
+          schema: { $ref: "#/components/schemas/AgentProvider" }
+          description: Defaults to claude when absent.
+      responses:
+        "200":
+          description: The commands, possibly empty.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CommandListing" }
+        "400":
+          description: 'error is "invalid provider".'
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /api/epics:
+    get:
+      operationId: listEpics
+      description: Epics and their sub-issue numbers for one repo. Feeds the issue picker's "hide sub-issues" filter.
+      parameters:
+        - name: repo
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: The epics, possibly empty.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EpicListing" }
+        "400":
+          description: 'error is "invalid repo".'
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /api/branches:
+    get:
+      operationId: listBranches
+      description: Local branches, current checkout and the repo default branch.
+      parameters:
+        - name: repo
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Branches, including an empty list for a repo with no commits.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BranchListing" }
+        "400":
+          description: 'error is "invalid repo".'
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /api/branch-status:
+    get:
+      operationId: getBranchStatus
+      description: >-
+        Performs a bounded real git fetch and writes the origin tracking ref. The server caches
+        results for ten seconds; clients debounce changes by 300 ms and discard stale replies.
+      parameters:
+        - name: repo
+          in: query
+          required: true
+          schema: { type: string }
+        - name: branch
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Local existence and upstream divergence, even when no remote exists.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BranchStatus" }
+        "400":
+          description: 'error is "invalid repo" or "invalid branch".'
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /api/repos/init-empty-commit:
+    post:
+      operationId: initEmptyCommit
+      description: Create the initial empty commit, or return the branch if it already resolves.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/InitEmptyCommitRequest" }
+      responses:
+        "200":
+          description: The repaired branch. Invalidates the server's branch-status cache.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/InitEmptyCommitResponse" }
+        "400":
+          description: 'error is "invalid repo".'
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "422":
+          description: Invalid branch or git failed to create the initial commit.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/shape:
+    post:
+      operationId: shapeTask
+      description: Read the repo and rough prompt into a draft and clarifying questions, before creating a session.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ShapeRequest" }
+      responses:
+        "200":
+          description: Draft brief and the plan stream's question form; questions may be empty.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ShapeRound" }
+        "400":
+          description: Malformed body or invalid repo.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422":
+          description: The shaping agent failed with a stable error slug.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ShapeFailure" }
+        "503":
+          description: The server has no shaper configured.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ShapeUnavailable" }
+  /api/shape/brief:
+    post:
+      operationId: shapeBrief
+      description: Resolve answers against the round and compose a full replacement prompt, without spawning a session.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ShapeBriefRequest" }
+      responses:
+        "200":
+          description: The complete task brief.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ShapeBriefResponse" }
+        "400":
+          description: 'error is "invalid round".'
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/spawns/{id}/cancel:
+    post:
+      operationId: cancelSpawn
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Cancellation requested, or false when the agent started first.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SpawnCancelResponse" }
+        "400":
+          description: Invalid spawn id.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          description: No such spawn in flight.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/steers:
+    get:
+      operationId: listSteers
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ComposeSteerList" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    put:
+      operationId: saveSteers
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              {
+                type: array,
+                maxItems: 40,
+                items: { $ref: "#/components/schemas/ComposeSteerInput" },
+              }
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ComposeSteerList" }
+        "400":
+          description: Invalid request.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /api/sessions/{id}/variant:
+    post:
+      operationId: startVariant
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ComposeVariantRequest" }
+      responses:
+        "201":
+          description: Parallel variant created; original remains alive.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ComposeSessionResponse" }
+        "400":
+          description: Invalid request.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          description: Session not found.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "409":
+          description: Already archived, or code in_progress while another request is running.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "502":
+          description: Agent launch failed; replace may return code issue_unresolved.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/sessions/{id}/replace:
+    post:
+      operationId: replaceSessionAgent
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ComposeReplaceRequest" }
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ComposeSessionResponse" }
+        "400":
+          description: Invalid request.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          description: Session not found.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "409":
+          description: Already archived, or code in_progress while another request is running.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "502":
+          description: Agent launch failed; replace may return code issue_unresolved.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/sessions/{id}/recommend-prompt:
+    post:
+      operationId: recommendPrompt
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ComposeRecommendRequest" }
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ComposeRecommendation" }
+        "400":
+          description: Invalid request.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422":
+          description: Recommendation failed, including no-history for unknown sessions.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "503":
+          description: Recommendation provider unavailable.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/sessions/{id}/leftovers:
+    get:
+      operationId: sessionLeftovers
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ComposeLeftovers" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
   # ── /stream: compose ──
   # ── stream: settings ──
   # ── /stream: settings ──
@@ -3807,6 +4582,9 @@ x-shepherd-events:
     schema: { "$ref": "#/components/schemas/AutoRevivedEvent" }
   # ── /stream: queues ──
   # ── stream: compose ──
+  spawn:progress:
+    description: Current phase and completed phase timings for a correlated session create.
+    schema: { $ref: "#/components/schemas/SpawnProgressEvent" }
   # ── /stream: compose ──
   # ── stream: settings ──
   # ── /stream: settings ──

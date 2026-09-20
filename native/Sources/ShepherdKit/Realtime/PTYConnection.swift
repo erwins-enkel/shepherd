@@ -88,6 +88,9 @@ public actor PTYConnection {
   /// this actor (see `nextFrame(on:)`), and written only by
   /// `recordCloseCode(_:generation:)`.
   private(set) var lastCloseCode = 0
+  /// Internal test seam: suspend after capture but before actor-side close handling.
+  /// Production leaves this nil; tests can order stop() without blocking an executor.
+  var beforeHandlingClose: (@Sendable () async -> Void)?
   private var connectedAt: ContinuousClock.Instant?
   private var consecutiveFastFails = 0
 
@@ -476,6 +479,7 @@ public actor PTYConnection {
         guard deliverIfCurrent(data, from: socket, generation: generation) else { return }
       case .closed(let code):
         closeCode = code
+        await beforeHandlingClose?()
         break receiving
       }
     }

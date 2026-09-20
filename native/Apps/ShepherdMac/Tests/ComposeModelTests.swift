@@ -4,6 +4,122 @@ import Testing
 @testable import Shepherd
 
 @MainActor @Suite struct ComposeModelTests {
+    static func composer() -> ComposeModel {
+        ComposeModel(defaults: UserDefaults(suiteName: "ComposeModeTests.\(UUID())")!,
+                     repoBranches: RepoBranchModel(
+                        loadBranches: { _ in .init(branches: []) },
+                        loadStatus: { _, _ in .init(behind: 0, ahead: 0, diverged: false, hasUpstream: false, localExists: false) },
+                        repair: { _, branch in .init(branch: branch) }),
+                     loadIssues: { _ in .init(issues: []) }, loadCommands: { _, _ in .init(commands: []) },
+                     loadEpics: { _ in .init(epics: [], subIssues: []) })
+    }
+
+    @Test func modeIsDerivedWithResearchThenEpicThenPlainPrecedence() {
+        let m = Self.composer()
+        defer { m.teardown() }
+        for research in [false, true] {
+            for epic in [false, true] {
+                for plain in [false, true] {
+                    m.research = research; m.epicAuthoring = epic; m.plain = plain
+                    #expect(m.mode == (research ? .research : epic ? .epic : plain ? .plain : .code))
+                    #expect(m.modeLocked == (research || epic || plain))
+                    #expect(m.sandboxLocked == (research || epic))
+                    #expect(m.shapingOffered == !(research || epic || plain))
+                }
+            }
+        }
+    }
+
+    @Test(arguments: ComposeMode.allCases)
+    func modeSelectionPinsGuardsAndResetsOnlyAnIncompatibleSandbox(_ next: ComposeMode) {
+        let m = Self.composer()
+        defer { m.teardown() }
+        m.research = true; m.epicAuthoring = true; m.plain = true
+        m.planGateEnabled = true; m.autopilotEnabled = true
+        m.sandboxProfile = .autonomous
+        m.setMode(next)
+        #expect(m.mode == next && m.modeTouched)
+        #expect(m.research == (next == .research))
+        #expect(m.epicAuthoring == (next == .epic))
+        #expect(m.plain == (next == .plain))
+        #expect(m.planGateEnabled == (next == .code))
+        #expect(m.autopilotEnabled == (next == .code))
+        #expect(m.planGateTouched == (next != .code))
+        #expect(m.autopilotTouched == (next != .code))
+        #expect(m.sandboxProfile == (next == .research || next == .epic ? nil : .autonomous))
+    }
+
+    @Test(arguments: [ComposeMode.research, .epic, .plain])
+    func returningToCodeNeverRestoresGuards(_ nonCode: ComposeMode) {
+        let m = Self.composer()
+        defer { m.teardown() }
+        m.planGateEnabled = true; m.autopilotEnabled = true
+        m.setMode(nonCode); m.setMode(.code)
+        #expect(!m.planGateEnabled && m.planGateTouched)
+        #expect(!m.autopilotEnabled && m.autopilotTouched)
+        #expect(m.mode == .code && m.shapingOffered)
+    }
+
+    @Test(arguments: ["/design", "  /design layout", "\n\t/design\nlayout"])
+    func designPreselectionFollowsThePromptWithoutTouchingGuards(_ prompt: String) {
+        let m = Self.composer()
+        defer { m.teardown() }
+        m.planGateEnabled = true; m.autopilotEnabled = true
+        m.autopilotTouched = true
+        m.sandboxProfile = .autonomous
+        m.prompt = prompt
+        #expect(m.mode == .plain && !m.modeTouched)
+        #expect(m.planGateEnabled && !m.planGateTouched)
+        #expect(m.autopilotEnabled && m.autopilotTouched)
+        #expect(m.sandboxProfile == .autonomous)
+        m.prompt = "design a screen"
+        #expect(m.mode == .code)
+        #expect(m.planGateEnabled && !m.planGateTouched)
+        #expect(m.autopilotEnabled && m.autopilotTouched)
+    }
+
+    @Test(arguments: ["/designer", "/design-system", "/design/layout", "fix /design", "/Design", ""])
+    func designPreselectionRequiresAnExactLeadingCommand(_ prompt: String) {
+        let m = Self.composer()
+        defer { m.teardown() }
+        m.prompt = prompt
+        #expect(m.mode == .code && !m.modeTouched)
+    }
+
+    @Test(arguments: ComposeMode.allCases)
+    func anExplicitModeChoicePermanentlyOverridesDesignPreselection(_ selected: ComposeMode) {
+        let m = Self.composer()
+        defer { m.teardown() }
+        m.prompt = "/design layout"
+        #expect(m.mode == .plain)
+        m.setMode(selected)
+        m.prompt = "ordinary prompt"
+        #expect(m.mode == selected)
+        m.prompt = "/design something else"
+        #expect(m.mode == selected && m.modeTouched)
+    }
+
+    @Test func designDoesNotOverrideOtherFlagsOrClearAnUnrelatedPlainFlag() {
+        let m = Self.composer()
+        defer { m.teardown() }
+        m.research = true; m.prompt = "/design layout"
+        #expect(m.research && !m.plain)
+        m.research = false; m.epicAuthoring = true; m.prompt = "/design epic"
+        #expect(m.epicAuthoring && !m.plain)
+        m.epicAuthoring = false; m.plain = true; m.prompt = "ordinary prompt"
+        #expect(m.plain)
+    }
+
+    @Test func guardExplanationUsesTheExistingPerModeCopy() {
+        let m = Self.composer()
+        defer { m.teardown() }
+        #expect(m.guardExplanation == nil)
+        m.setMode(.research); #expect(m.guardExplanation == L.t("newtask_guards_none_research"))
+        m.setMode(.epic); #expect(m.guardExplanation == L.t("newtask_guards_none_epic"))
+        m.setMode(.plain); #expect(m.guardExplanation == L.t("newtask_guards_none_plain"))
+        m.setMode(.code); #expect(m.guardExplanation == nil)
+    }
+
     private func model(
         branches: @escaping (String) async throws -> BranchListing = { _ in .init(branches: []) },
         status: @escaping (String, String) async throws -> BranchStatus = { _, _ in

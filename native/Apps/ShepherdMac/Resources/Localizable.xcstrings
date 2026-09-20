@@ -6251,6 +6251,74 @@
         }
       }
     },
+    "newtask_group_mode": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modus"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mode"
+          }
+        }
+      }
+    },
+    "newtask_guards_none_epic": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine. Das Ergebnis ist ein EPIC-Entwurf, den du freigibst, bevor etwas auf GitHub landet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "None. The deliverable is an EPIC draft you approve before anything reaches GitHub."
+          }
+        }
+      }
+    },
+    "newtask_guards_none_plain": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine. Shepherd richtet Worktree, Branch und Tab ein und beobachtet die Sitzung, greift aber nirgends ein."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "None. Shepherd sets up worktree, branch and tab and watches the session, but never steps in."
+          }
+        }
+      }
+    },
+    "newtask_guards_none_research": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine. Das Ergebnis ist ein Bericht-PR oder ein Issue, kein geplanter Code."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "None. The deliverable is a report PR or an issue, not planned code."
+          }
+        }
+      }
+    },
     "newtask_init_commit": {
       "extractionState": "manual",
       "localizations": {
@@ -6334,6 +6402,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "Remove attached issue"
+          }
+        }
+      }
+    },
+    "newtask_mode_code": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code"
+          }
+        }
+      }
+    },
+    "newtask_mode_epic": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Epic"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Epic"
+          }
+        }
+      }
+    },
+    "newtask_mode_plain": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Roh"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plain"
+          }
+        }
+      }
+    },
+    "newtask_mode_research": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recherche"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Research"
           }
         }
       }

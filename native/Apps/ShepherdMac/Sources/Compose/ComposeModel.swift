@@ -18,8 +18,19 @@ final class ComposeModel {
         }
     }
     var provider: AgentProvider = .claude
+    var research = false
+    var epicAuthoring = false
+    var plain = false
+    var planGateEnabled = false
+    var planGateTouched = false
+    var autopilotEnabled = false
+    var autopilotTouched = false
+    var sandboxProfile: Components.Schemas.SandboxProfile?
+    private(set) var modeTouched = false
+    private var designPreselected = false
     var prompt = "" {
         didSet {
+            updateDesignPreselection()
             if let constraint = providerConstraint, !prompt.contains(constraint.token) {
                 providerConstraint = nil
             }
@@ -80,6 +91,58 @@ final class ComposeModel {
             hideActive: defaults.bool(forKey: "shepherd:issues-hide-active"),
             hideSubIssues: defaults.object(forKey: "shepherd:issues-hide-subissues") as? Bool ?? true,
             hideBlocked: defaults.object(forKey: "shepherd:issues-hide-blocked") as? Bool ?? true)
+    }
+
+    /// Derived from the three wire flags; a stored enum would be a second source of truth.
+    var mode: ComposeMode {
+        if research { return .research }
+        if epicAuthoring { return .epic }
+        if plain { return .plain }
+        return .code
+    }
+
+    var modeLocked: Bool { research || epicAuthoring || plain }
+    var sandboxLocked: Bool { research || epicAuthoring }
+    var shapingOffered: Bool { mode == .code }
+
+    var guardExplanation: String? {
+        switch mode {
+        case .code: nil
+        case .research: L.t("newtask_guards_none_research")
+        case .epic: L.t("newtask_guards_none_epic")
+        case .plain: L.t("newtask_guards_none_plain")
+        }
+    }
+
+    /// Leaving Code forces both guards off and marks them touched: the wire must carry false,
+    /// so a repo default cannot re-enable a plan gate on a task that has no plan.
+    /// Returning to Code deliberately does not restore guards the operator never agreed to.
+    func setMode(_ next: ComposeMode) {
+        modeTouched = true
+        research = next == .research
+        epicAuthoring = next == .epic
+        plain = next == .plain
+        guard next != .code else { return }
+        planGateEnabled = false
+        planGateTouched = true
+        autopilotEnabled = false
+        autopilotTouched = true
+        if sandboxLocked, sandboxProfile == .autonomous { sandboxProfile = nil }
+    }
+
+    /// A suggestion follows the leading command until the operator makes an explicit choice.
+    /// Only plain moves here; editing the command away must preserve the Code guard preferences.
+    private func updateDesignPreselection() {
+        guard !modeTouched else { return }
+        let wantsPlain = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+            .range(of: #"^/design(\s|$)"#, options: .regularExpression) != nil
+        if wantsPlain, mode == .code {
+            plain = true
+            designPreselected = true
+        } else if !wantsPlain, designPreselected {
+            plain = false
+            designPreselected = false
+        }
     }
 
     private func persistFilter() {
@@ -265,6 +328,13 @@ final class ComposeModel {
         guard !repoPath.isEmpty, !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               allowsProvider(provider) else { return nil }
         var request = CreateSessionRequest(repoPath: repoPath, baseBranch: baseBranch, prompt: prompt, agentProvider: provider)
+        request.research = research
+        request.epicAuthoring = epicAuthoring
+        request.plain = plain
+        // Automatic /design preselection leaves preferences untouched but still sends no guards.
+        request.planGateEnabled = modeLocked ? false : (planGateTouched ? planGateEnabled : nil)
+        request.autopilotEnabled = modeLocked ? false : (autopilotTouched ? autopilotEnabled : nil)
+        request.sandboxProfile = sandboxLocked && sandboxProfile == .autonomous ? nil : sandboxProfile
         if let issue = activeIssue {
             request.issueRef = .init(number: issue.number, url: issue.url, title: issue.title, body: issue.body)
         }

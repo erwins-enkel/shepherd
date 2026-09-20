@@ -727,6 +727,14 @@ export const KEYS_QUEUES: readonly string[] = [
 
 /** S11 — the composer: create fields, slash commands, steers, attachments. */
 export const KEYS_COMPOSE: readonly string[] = [
+  "newtask_group_mode",
+  "newtask_guards_none_epic",
+  "newtask_guards_none_plain",
+  "newtask_guards_none_research",
+  "newtask_mode_code",
+  "newtask_mode_epic",
+  "newtask_mode_plain",
+  "newtask_mode_research",
   "newtask_base_missing",
   "newtask_chip_from",
   "newtask_init_commit",

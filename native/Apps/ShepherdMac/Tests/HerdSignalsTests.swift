@@ -549,6 +549,17 @@ struct HerdSignalsTests {
 
     @Test func eachSnapshotPrunesToTheBootstrappedSessionList() async throws {
         try await withLiveModel { model, store, _ in
+            // Let every auto-bootstrap snapshot land before the explicit refresh reserves
+            // newer read sequences. Otherwise bootstrap can supersede that refresh.
+            model.reads = .stub(git: ["bootstrap": redGit],
+                activity: ["bootstrap": .init(lastActivityTs: 0, summary: "seed", recentTs: [], recentErrTs: [])],
+                claudeAlive: ["bootstrap": true], verdicts: ["bootstrap": try verdict],
+                reviewing: [.init(id: "bootstrap")])
+            try #require(await herdSettle(until: {
+                model.git["bootstrap"] != nil && model.activity["bootstrap"] != nil
+                    && model.claudeAlive["bootstrap"] == true && model.verdicts["bootstrap"] != nil
+                    && model.isReviewing("bootstrap")
+            }))
             store.apply(.sessionNew(PreviewData.session(id: "live")))
             model.reads = .stub(git: ["gone": redGit, "live": redGit],
                 activity: ["gone": .init(lastActivityTs: 0, summary: "old", recentTs: [], recentErrTs: [])],

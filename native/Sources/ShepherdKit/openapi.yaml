@@ -1437,6 +1437,211 @@ components:
           type: string
         working:
           type: boolean
+    ResumeRequest:
+      type: object
+      additionalProperties: false
+      description: POST /api/sessions/{id}/resume. `force` tears a stale husk down and respawns instead of adopting a live pane (src/service.ts resumeInner). The web's card menu always forces.
+      properties:
+        force:
+          type: boolean
+    RenameRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          description: Free text; the server slugifies it (slugifyManual) before storing. Must not be blank after trimming.
+    RenameResult:
+      type: object
+      additionalProperties: true
+      required:
+        - session
+        - branchRenamed
+      properties:
+        session:
+          $ref: "#/components/schemas/Session"
+        branchRenamed:
+          type: boolean
+          description: False when an open PR pinned the git branch, so only the display name moved (src/server.ts resolveRenameBranch).
+    AmendmentRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - text
+      properties:
+        text:
+          type: string
+          description: The operator's scope amendment. Trimmed, non-empty, at most 2000 characters (AMENDMENT_MAX_CHARS, src/task-amendments.ts).
+        steer:
+          type: boolean
+          description: Also deliver the text to the live agent. The amendment is recorded either way; `steered` in the response reports whether delivery landed.
+    TaskAmendment:
+      type: object
+      additionalProperties: true
+      required:
+        - id
+        - sessionId
+        - text
+        - createdAt
+        - retractedAt
+      description: Copied from TaskAmendment in src/task-amendments.ts.
+      properties:
+        id:
+          type: string
+        sessionId:
+          type: string
+        text:
+          type: string
+        createdAt:
+          type: integer
+        retractedAt:
+          type:
+            - integer
+            - "null"
+    AmendmentCreated:
+      type: object
+      additionalProperties: true
+      required:
+        - amendment
+        - steered
+      properties:
+        amendment:
+          $ref: "#/components/schemas/TaskAmendment"
+        steered:
+          type: boolean
+    ReadyRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - ready
+      description: POST /api/sessions/{id}/ready — the manual "parked / ready to merge" flag, orthogonal to SessionStatus.
+      properties:
+        ready:
+          type: boolean
+    RelaunchResult:
+      type: object
+      additionalProperties: true
+      required:
+        - session
+        - archived
+      properties:
+        session:
+          $ref: "#/components/schemas/Session"
+        archived:
+          type: boolean
+          description: Whether the original was torn down. False means the replacement spawned but the original is still on the list and needs closing by hand.
+    RecapState:
+      anyOf:
+        - $ref: "#/components/schemas/RecapStateKnown"
+        - type: string
+    RecapStateKnown:
+      type: string
+      enum:
+        - generating
+        - ready
+        - failed
+        - empty
+    RecapVerdict:
+      anyOf:
+        - $ref: "#/components/schemas/RecapVerdictKnown"
+        - type: string
+    RecapVerdictKnown:
+      type: string
+      enum:
+        - ready
+        - parked
+        - needs_attention
+    Recap:
+      type: object
+      additionalProperties: true
+      description: The documented subset of src/types.ts Recap the native action bar reads. The server sends more; additionalProperties keeps the rest legal.
+      required:
+        - sessionId
+        - state
+        - headline
+        - body
+        - openItems
+        - updatedAt
+      properties:
+        sessionId:
+          type: string
+        state:
+          $ref: "#/components/schemas/RecapState"
+        verdict:
+          $ref: "#/components/schemas/RecapVerdict"
+        headline:
+          type: string
+          description: At most 100 characters; "" until ready.
+        body:
+          type: string
+          description: Markdown; "" until ready.
+        openItems:
+          type: array
+          items:
+            type: string
+        changedFiles:
+          type: array
+          items:
+            type: string
+        generatedAt:
+          type:
+            - integer
+            - "null"
+        updatedAt:
+          type: integer
+    RecapMap:
+      type: object
+      additionalProperties:
+        $ref: "#/components/schemas/Recap"
+      description: GET /api/recaps. Session id -> recap. Absent means no recap exists for that session.
+    RecapRegenerateStatus:
+      anyOf:
+        - $ref: "#/components/schemas/RecapRegenerateStatusKnown"
+        - type: string
+    RecapRegenerateStatusKnown:
+      type: string
+      enum:
+        - started
+        - empty
+        - error
+    RecapRegenerateResult:
+      type: object
+      additionalProperties: true
+      required:
+        - ok
+        - status
+      properties:
+        ok:
+          type: boolean
+        status:
+          $ref: "#/components/schemas/RecapRegenerateStatus"
+    SessionRecapEvent:
+      type: object
+      additionalProperties: true
+      required:
+        - id
+        - recap
+      properties:
+        id:
+          type: string
+        recap:
+          $ref: "#/components/schemas/Recap"
+    SessionAmendmentsEvent:
+      type: object
+      additionalProperties: true
+      description: Always the session's FULL current amendment list, so an empty array is a genuine all-clear (src/service.ts emitSessionAmendments).
+      required:
+        - id
+        - amendments
+      properties:
+        id:
+          type: string
+        amendments:
+          type: array
+          items:
+            $ref: "#/components/schemas/TaskAmendment"
   responses:
     Unauthorized:
       description: Missing or invalid credential.
@@ -2356,6 +2561,235 @@ paths:
                 $ref: "#/components/schemas/UsageLimitsResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
+  /api/sessions/{id}/resume:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: resumeSession
+      description: Resume a finished session. Adopts a live pane unless `force`, which tears the husk down and respawns. 409 covers every "cannot resume" case, including an unknown id.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResumeRequest"
+      responses:
+        "200":
+          description: The resumed session.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Session"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: Cannot resume — unknown id, archived, no conversation to resume, or refused by the auto gate.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/sessions/{id}/rename:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: renameSession
+      description: Rename the session. The git branch moves too unless an open PR pins it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RenameRequest"
+      responses:
+        "200":
+          description: The renamed session and whether its branch moved.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RenameResult"
+        "400":
+          description: Body is not {name -> non-blank string}.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Unknown id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: error is "name_taken" — the target branch name is already in use.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/sessions/{id}/amendments:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: amendSession
+      description: Record an operator scope amendment beside the original task. Persisted first, steered second, so `steered false` never means "not recorded".
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AmendmentRequest"
+      responses:
+        "201":
+          description: The recorded amendment and whether it reached the agent.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AmendmentCreated"
+        "400":
+          description: Missing, blank or over-long text.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Unknown id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/sessions/{id}/ready:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: setSessionReady
+      description: Set or clear the manual ready-to-merge flag.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReadyRequest"
+      responses:
+        "200":
+          description: Flag applied.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Ok"
+        "400":
+          description: Body is not {ready -> boolean}.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Unknown id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/sessions/{id}/relaunch:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: relaunchSession
+      description: Spawn a fresh replacement carrying the original's prompt and settings, then decommission the original. Destructive — the original's worktree goes away. Send no body for a plain relaunch; overrides are the composer's surface and are not declared here.
+      responses:
+        "201":
+          description: The replacement, and whether the original was torn down.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RelaunchResult"
+        "400":
+          description: The body carried an unknown or invalid override key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Unknown id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Already archived, or a relaunch of this id is in flight (code "in_progress").
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          description: The replacement could not be spawned, or a same-repo relaunch could not re-resolve the linked issue (code "issue_unresolved"). The original is left intact.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/sessions/{id}/recap/regenerate:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: regenerateRecap
+      description: Force a fresh recap for this session. Accepted, not completed — the recap arrives later as a session:recap frame.
+      responses:
+        "202":
+          description: Accepted, with what the regenerate actually did.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecapRegenerateResult"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Unknown id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/recaps:
+    get:
+      operationId: listRecaps
+      description: Bootstrap snapshot of every recap the server has cached.
+      responses:
+        "200":
+          description: Session id -> recap.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecapMap"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
 x-shepherd-events:
   description: 'WebSocket /events. Same auth gate as HTTP (send Authorization on the upgrade). Every frame is an EventEnvelope: {"event": string, "data": object}. Client may send {"type":"presence","active":boolean}; the server never replies to it.'
   envelope:
@@ -2403,6 +2837,14 @@ x-shepherd-events:
     description: A session the poller called blocked is (or is no longer) still producing output. The client re-reads GET /api/working-blocked.
     schema:
       $ref: "#/components/schemas/SessionWorkingBlockedEvent"
+  session:recap:
+    description: A session's recap was created, regenerated or changed state. Carries the whole recap, so no re-read is needed.
+    schema:
+      $ref: "#/components/schemas/SessionRecapEvent"
+  session:amendments:
+    description: A session's amendment list changed. Always the FULL current list, so an empty array is a genuine all-clear.
+    schema:
+      $ref: "#/components/schemas/SessionAmendmentsEvent"
 x-shepherd-pty:
   description: WebSocket /pty/{id}?cols=&rows=. Same auth gate and origin check as HTTP; the bearer goes on the upgrade request. An unknown session id is answered 404 before the upgrade. cols/rows set the attach size so the first paint matches the client's viewport. On attach the server replays the pane's scrollback, so a client must clear its own buffer on every (re)attach rather than appending. Server→client frames are raw terminal bytes (binary or text). Client→server text frames are keystrokes, except frames starting with resizePrefix which carry "<cols>:<rows>\n". One owner per terminal id; a new attach closes the previous socket with closeCodes.superseded and the loser must NOT reconnect (both would bump each other forever). closeCodes.gone means the session no longer has a live agent and no reattach can succeed. Any other close is transient; clients retry with backoff.
   path: /pty/{id}

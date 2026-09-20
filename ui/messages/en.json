@@ -4212,5 +4212,11 @@
   "native_local_state_running": "Running (process {pid}).",
   "native_local_state_starting": "Starting…",
   "native_local_state_stopped": "Installed, not running.",
-  "native_local_stop": "Stop"
+  "native_local_stop": "Stop",
+  "native_actions_bar_label": "Session actions",
+  "native_actions_relaunch_confirm_title": "Relaunch this session?",
+  "native_actions_relaunch_confirm_body": "A fresh session starts with the same task, and this one is decommissioned — its worktree is removed. Uncommitted work in it is lost.",
+  "native_actions_relaunch_confirm_action": "Discard & relaunch",
+  "native_actions_ready_off": "Not ready",
+  "native_actions_failed": "That action failed: {reason}"
 }

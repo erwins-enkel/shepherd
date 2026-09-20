@@ -4212,5 +4212,11 @@
   "native_local_state_running": "Läuft (Prozess {pid}).",
   "native_local_state_starting": "Wird gestartet…",
   "native_local_state_stopped": "Installiert, läuft nicht.",
-  "native_local_stop": "Stoppen"
+  "native_local_stop": "Stoppen",
+  "native_actions_bar_label": "Sitzungs-Aktionen",
+  "native_actions_relaunch_confirm_title": "Sitzung neu starten?",
+  "native_actions_relaunch_confirm_body": "Eine frische Sitzung startet mit derselben Aufgabe, diese wird stillgelegt — ihr Worktree wird entfernt. Nicht committete Arbeit darin geht verloren.",
+  "native_actions_relaunch_confirm_action": "Verwerfen & neu starten",
+  "native_actions_ready_off": "Nicht bereit",
+  "native_actions_failed": "Diese Aktion ist fehlgeschlagen: {reason}"
 }

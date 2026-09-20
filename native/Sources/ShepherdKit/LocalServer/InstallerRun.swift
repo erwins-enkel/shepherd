@@ -20,6 +20,13 @@ public struct InstallerRun: Sendable {
   private let log: LogRing
   private let scriptOverride: URL?
 
+  /// Test-only seam, mirroring `LocalServerSupervisor.testSeamAfterChildRun`:
+  /// called synchronously between `process.run()` and publishing the pid, the
+  /// one window in which a cancel finds nothing to kill. Production never sets
+  /// it — it exists so a test can hold that window open instead of racing real
+  /// threads for a gap a couple of instructions wide.
+  var testSeamAfterRun: (@Sendable () -> Void)?
+
   public init(environment: LocalServerEnvironment, log: LogRing, scriptOverride: URL? = nil) {
     self.environment = environment
     self.log = log
@@ -73,7 +80,13 @@ public struct InstallerRun: Sendable {
         await log.append("could not start the installer: \(error)")
         return .failure(.installFailed(exitCode: 127))
       }
+      testSeamAfterRun?()
       livePID.withLock { $0 = process.processIdentifier }
+      // The same window `LocalServerSupervisor` closes with its post-`spawn()`
+      // epoch re-check: a cancel that landed between `run()` and the line above
+      // found `nil`, did nothing, and left the installer to run to completion
+      // uncancelled — mutating ~/.shepherd/app while the app was quitting.
+      if Task.isCancelled { Self.terminate(process.processIdentifier, gracePeriod: 2) }
 
       await ProcessOutputPump.pump(pipe.fileHandleForReading) { line in await log.append(line) }
       process.waitUntilExit()
@@ -94,22 +107,41 @@ public struct InstallerRun: Sendable {
   /// `onCancel`, which gets no `await` — the same shape as
   /// `LocalServerSupervisor.terminateNow()`.
   private static func terminate(_ pid: Int32, gracePeriod: TimeInterval) {
+    // Read before the first signal: `getpgid` cannot answer for a reaped pid,
+    // so asking again once the leader has gone returns -1 and the group — the
+    // `bun install`, `git` and `curl` children `install.sh` spawned — escapes.
+    let group = ownedGroup(of: pid)
     deliver(SIGTERM, to: pid)
     let deadline = Date().addingTimeInterval(gracePeriod)
+    var leaderIsGone = false
     while Date() < deadline {
-      if kill(pid, 0) != 0 { return }
+      if kill(pid, 0) != 0 {
+        leaderIsGone = true
+        break
+      }
       usleep(20_000)
     }
-    deliver(SIGKILL, to: pid)
+    if !leaderIsGone { deliver(SIGKILL, to: pid) }
+    // `install.sh` taking the SIGTERM says nothing about the descendants that
+    // ignored it. Returning the moment the leader died is how they used to
+    // outlive the app — and go on writing to ~/.shepherd/app.
+    if let group { killpg(group, SIGKILL) }
   }
 
   private static func deliver(_ signalNumber: Int32, to pid: Int32) {
-    let group = getpgid(pid)
-    if group == pid, group != getpgid(0) {
+    if let group = ownedGroup(of: pid) {
       killpg(group, signalNumber)
     } else {
       kill(pid, signalNumber)
     }
+  }
+
+  /// The child's own process group, when it leads one that is not this app's.
+  /// `nil` means there is no group of ours to signal, so only the pid may be.
+  private static func ownedGroup(of pid: Int32) -> Int32? {
+    let group = getpgid(pid)
+    guard group == pid, group != getpgid(0) else { return nil }
+    return group
   }
 }
 #endif

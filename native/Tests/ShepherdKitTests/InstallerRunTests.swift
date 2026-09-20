@@ -1,5 +1,6 @@
 #if os(macOS)
 import Foundation
+import Synchronization
 import Testing
 @testable import ShepherdKit
 
@@ -109,6 +110,95 @@ import Testing
       try? await Task.sleep(for: .milliseconds(20))
     }
     #expect(!stillAlive)
+  }
+
+  /// I1. SIGTERM went to the child's whole process group, but the grace loop
+  /// and the escalation both tested only the leader's pid, so the moment
+  /// `install.sh` itself exited the loop ended, `kill(pid, 0) != 0`, and
+  /// SIGKILL was never sent to anyone. A `bun install` or `git` descendant that
+  /// ignored the SIGTERM outlived the app and kept mutating ~/.shepherd/app.
+  @Test func cancellingEscalatesToSIGKILLForGroupMembersThatIgnoredSIGTERM() async throws {
+    let home = try makeTempHome()
+    defer { try? FileManager.default.removeItem(at: home) }
+    let script = home.appendingPathComponent("install.sh")
+    try """
+    #!/bin/bash
+    /bin/sh -c 'trap "" TERM; i=0; while [ $i -lt 100 ]; do sleep 0.2; i=$((i+1)); done' &
+    echo "pid=$$"
+    while true; do sleep 0.05; done
+    """.write(to: script, atomically: true, encoding: .utf8)
+    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+
+    let log = LogRing(capacity: 50)
+    let environment = LocalServerEnvironment(home: home)
+    let task = Task {
+      await InstallerRun(environment: environment, log: log, scriptOverride: script).run()
+    }
+    let pid = try #require(await installerPID(from: log))
+    let group = getpgid(pid)
+    #expect(group == pid)  // `Process` gives each child a group of its own
+    try await waitUntil { processesInGroup(group).count >= 2 }
+
+    // The leader takes the SIGTERM and goes; the descendant ignores it and,
+    // without the escalation, sits out its whole twenty seconds. Asserted here
+    // rather than after `task.value`, which does not return until the pipe the
+    // descendant is holding reaches EOF.
+    task.cancel()
+    try await waitUntil(timeout: 3) { processesInGroup(group).isEmpty }
+    #expect(!processIsAlive(pid))
+
+    _ = await task.value
+  }
+
+  /// I3. A cancel landing between `process.run()` and the line that publishes
+  /// the pid found `nil` and returned having done nothing — and the operation
+  /// then went on to run the installer to completion, uncancelled. The
+  /// supervisor closes the same window with its post-`spawn()` epoch re-check;
+  /// the window is a couple of instructions wide, so a test seam holds it open
+  /// rather than racing real threads for it.
+  @Test func aCancelThatLandsBeforeThePidIsPublishedStillKillsTheInstaller() async throws {
+    let home = try makeTempHome()
+    defer { try? FileManager.default.removeItem(at: home) }
+    let script = home.appendingPathComponent("install.sh")
+    try """
+    #!/bin/bash
+    for i in $(seq 1 400); do sleep 0.05; done
+    """.write(to: script, atomically: true, encoding: .utf8)
+    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+
+    // The seam parks the operation inside the window; the test cancels while it
+    // is parked and only then lets it through to publish the pid.
+    let released = Mutex(false)
+    var run = InstallerRun(
+      environment: LocalServerEnvironment(home: home), log: LogRing(capacity: 50),
+      scriptOverride: script)
+    run.testSeamAfterRun = {
+      while !released.withLock({ $0 }) { usleep(2000) }
+    }
+    let task = Task { await run.run() }
+    try await Task.sleep(for: .milliseconds(200))  // it is parked in the seam
+    task.cancel()  // `onCancel` runs here, finds no pid, and does nothing
+    released.withLock { $0 = true }
+
+    let started = Date()
+    let outcome = await task.value
+    // The script would otherwise run to completion, for twenty seconds.
+    #expect(Date().timeIntervalSince(started) < 5)
+    guard case .failure = outcome else {
+      Issue.record("the installer ran to completion uncancelled: \(outcome)")
+      return
+    }
+  }
+
+  /// The `pid=$$` line the fake installers print, once the pump has delivered it.
+  private func installerPID(from log: LogRing) async -> Int32? {
+    for _ in 0..<200 {
+      if let line = await log.lines.first(where: { $0.hasPrefix("pid=") }) {
+        return Int32(line.dropFirst("pid=".count))
+      }
+      try? await Task.sleep(for: .milliseconds(20))
+    }
+    return nil
   }
 }
 #endif

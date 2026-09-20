@@ -64,6 +64,8 @@ final class SidebarModel: AppExtension {
         /// Arms a one-shot "a newer refresh landed while yours was in flight", for
         /// `aRefreshThatLostItsRaceIsDropped`. Never reachable outside tests, so it never ships.
         @ObservationIgnored private var staleOnce = false
+        /// Receipt barrier for tests that hold another route open after usage has returned.
+        @ObservationIgnored private(set) var usageReadCount = 0
     #endif
     @ObservationIgnored private var watcher: Task<Void, Never>?
     /// Re-reads all four snapshots every time the store's connection (re-)enters `.live`. Stored
@@ -198,7 +200,8 @@ final class SidebarModel: AppExtension {
             workingBlocked: workingBlocked)
     }
 
-    /// The `usage:limits` push the store applies wins over this model's bootstrap read: it is newer.
+    /// Reconciled usage for the meter and cross-stream consumers: accepted REST reads and pushes
+    /// replace the same store value in receipt order. With no store, use the preview/test read.
     var limits: UsageLimits? { store?.usageLimits ?? usage?.limits }
 
     /// The store's map when there is one — kept live by `session:block` — else the bootstrap read.
@@ -251,7 +254,14 @@ final class SidebarModel: AppExtension {
             async let held = reads.holds()
             async let blocked = reads.blocks()
             async let limits = reads.usage()
-            let loaded = try await (flags, held, blocked, limits)
+            // Observe usage independently: a slow sibling route must not move its receipt later
+            // than a push. Keep the old visible value until the complete snapshot is accepted.
+            let loadedUsage = try await limits
+            let usageRevision = store?.usageLimitsRevision
+            #if DEBUG
+                usageReadCount += 1
+            #endif
+            let loaded = try await (flags, held, blocked)
             #if DEBUG
                 if staleOnce {
                     staleOnce = false
@@ -269,7 +279,12 @@ final class SidebarModel: AppExtension {
             workingBlocked = loaded.0
             holds = loaded.1
             blocks = loaded.2
-            usage = loaded.3
+            usage = loadedUsage
+            // No server timestamp exists. Reject a REST cache write if a newer usage receipt
+            // landed while the sibling routes were pending, including an equal-valued push.
+            if usageRevision == store?.usageLimitsRevision {
+                store?.reconcileUsageLimits(loadedUsage.limits)
+            }
         } catch {
             Log.ui.debug(
                 "sidebar snapshot read failed: \(String(describing: error), privacy: .public)")

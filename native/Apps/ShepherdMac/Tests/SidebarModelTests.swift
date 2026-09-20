@@ -302,6 +302,154 @@ struct SidebarModelTests {
 
     // MARK: - Reconciliation on reconnect
 
+    @Test func aReconnectReadSupersedesAStaleUsagePushAndTheNextPushWins() async throws {
+        let (model, store, app, _) = try live()
+        defer {
+            model.teardown()
+            app.teardown()
+        }
+        // Await the installed bootstrap, not merely the start of one of its four reads.
+        try #require(await settle(until: { model.usage != nil }))
+
+        let box = ConnectionBox()
+        var observed: ConnectionState?
+        model.watchConnection {
+            observed = box.state
+            return box.state
+        }
+        try #require(await settle(until: { observed == .idle }))
+        model.reads = .stub
+        box.state = .live
+        try #require(await settle(until: { model.usage?.limits.session5h?.pct == 42 }))
+
+        let push = UsageLimits(
+            session5h: .init(pct: 7, resetAt: 1_800_000_000_000),
+            perModelWeek: [], stale: false, subscriptionOnly: false)
+        store.apply(.usageLimits(push))
+        #expect(model.limits?.session5h?.pct == 7)
+
+        box.state = .offline(message: "down")
+        try #require(await settle(until: { observed == box.state }))
+        let entered = ReadLedger()
+        let gate = Signal()
+        var reads = SidebarReads.stub
+        reads.usage = {
+            await entered.bump()
+            await gate.wait()
+            return UsageLimitsResponse(
+                limits: UsageLimits(
+                    session5h: .init(pct: 95, resetAt: 1_800_000_000_000),
+                    perModelWeek: [], stale: false, subscriptionOnly: false),
+                projections: [])
+        }
+        model.reads = reads
+        box.state = .live
+        let started = await settle(until: { await entered.count == 1 })
+        #expect(started, "re-entering live starts the gated usage re-read")
+        #expect(model.limits?.session5h?.pct == 7, "keep the last value until the read lands")
+        await gate.open()
+        try #require(await settle(until: { model.usage?.limits.session5h?.pct == 95 }))
+        #expect(model.limits?.session5h?.pct == 95, "the REST receipt supersedes the stale 7% push")
+        #expect(UsageMeter.bars(try #require(model.limits)).first?.pct == 95)
+
+        // Even a push equal to the OLD push must win: equality is not a receipt timestamp.
+        store.apply(.usageLimits(push))
+        #expect(model.limits?.session5h?.pct == 7, "connected pushes win immediately again")
+        model.reads = .failing
+        await model.refresh()
+        #expect(model.limits?.session5h?.pct == 7, "a failed read cannot replace the last receipt")
+    }
+
+    @Test(arguments: [7.0, 99.0])
+    func aPushAfterUsageReceiptWinsWhileHoldsIsStillPending(newerPct: Double) async throws {
+        let (model, store, app, _) = try live()
+        defer {
+            model.teardown()
+            app.teardown()
+        }
+        try #require(await settle(until: { model.usage != nil }))
+        let stale = UsageLimits(
+            session5h: .init(pct: 7, resetAt: 1_800_000_000_000),
+            perModelWeek: [], stale: false, subscriptionOnly: false)
+        store.apply(.usageLimits(stale))
+
+        let holdsGate = Signal()
+        let usageGate = Signal()
+        var reads = SidebarReads.stub
+        reads.holds = {
+            await holdsGate.wait()
+            return [:]
+        }
+        reads.usage = {
+            await usageGate.wait()
+            var limits = stale
+            limits.session5h?.pct = 95
+            return UsageLimitsResponse(limits: limits, projections: [])
+        }
+        model.reads = reads
+        let receipts = model.usageReadCount
+        let refresh = Task { await model.refresh() }
+        // Wait for the actual main-actor receipt, not merely for the usage closure to return.
+        await usageGate.open()
+        let received = await settle(until: { model.usageReadCount == receipts + 1 })
+        #expect(received, "usage receipt is processed independently of the gated holds route")
+        #expect(model.limits?.session5h?.pct == 7, "no flicker while holds is pending")
+
+        var newer = stale
+        newer.session5h?.pct = newerPct
+        store.apply(.usageLimits(newer))
+        #expect(model.limits?.session5h?.pct == newerPct)
+        await holdsGate.open()
+        await refresh.value
+        #expect(model.usage?.limits.session5h?.pct == 95, "the REST snapshot was accepted")
+        #expect(store.usageLimits?.session5h?.pct == newerPct)
+        #expect(model.limits?.session5h?.pct == newerPct)
+        #expect(UsageMeter.bars(try #require(model.limits)).first?.pct == newerPct)
+    }
+
+    @Test(arguments: [false, true])
+    func usageReceiptAfterAPushIsCommittedOnlyIfHoldsSucceeds(holdsFails: Bool) async throws {
+        let (model, store, app, _) = try live()
+        defer {
+            model.teardown()
+            app.teardown()
+        }
+        try #require(await settle(until: { model.usage != nil }))
+        let holdsGate = Signal()
+        let usageGate = Signal()
+        let entered = ReadLedger()
+        var reads = SidebarReads.stub
+        reads.holds = {
+            await holdsGate.wait()
+            if holdsFails { throw CancellationError() }
+            return [:]
+        }
+        reads.usage = {
+            await entered.bump()
+            await usageGate.wait()
+            return UsageLimitsResponse(
+                limits: UsageLimits(
+                    session5h: .init(pct: 95, resetAt: 1_800_000_000_000),
+                    perModelWeek: [], stale: false, subscriptionOnly: false),
+                projections: [])
+        }
+        model.reads = reads
+        let receipts = model.usageReadCount
+        let refresh = Task { await model.refresh() }
+        #expect(await settle(until: { await entered.count == 1 }))
+        // This push arrives after refresh starts but before REST usage returns.
+        store.apply(.usageLimits(UsageLimits(
+            session5h: .init(pct: 7, resetAt: 1_800_000_000_000),
+            perModelWeek: [], stale: false, subscriptionOnly: false)))
+        await usageGate.open()
+        #expect(await settle(until: { model.usageReadCount == receipts + 1 }))
+        #expect(model.limits?.session5h?.pct == 7, "do not publish a partially read snapshot")
+        await holdsGate.open()
+        await refresh.value
+        #expect(store.usageLimits?.session5h?.pct == (holdsFails ? 7 : 95))
+        #expect(model.limits?.session5h?.pct == (holdsFails ? 7 : 95))
+    }
+
     /// The sidebar reconciles on the same signal the store does. `SessionStore` re-reads its own
     /// snapshot on every reconnect; these four snapshots ride along on the connection entering
     /// `.live`, so a `working-blocked` flag that flipped while the socket was down cannot stay
@@ -474,6 +622,7 @@ struct SidebarModelTests {
         #expect(
             model.workingBlocked.isEmpty,
             "a snapshot from a superseded activation must not be installed")
+        #expect(store.usageLimits == nil, "a rejected activation cannot reconcile usage either")
 
         model.teardown()
         _ = store

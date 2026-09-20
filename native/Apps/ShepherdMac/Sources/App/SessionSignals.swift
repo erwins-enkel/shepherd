@@ -22,6 +22,10 @@ enum SessionSignals {
     /// producing output". `[:]` until `connect(_:)` runs, and whenever no activation is live.
     static var workingBlocked: @MainActor () -> [String: Bool] = { [:] }
 
+    /// S3's reconciled REST/push usage, shared with the future Compose consumer. `nil` until
+    /// usage is known; resolve through the sidebar so consumers need no request or push cache.
+    static var usageLimits: @MainActor () -> UsageLimits? = { nil }
+
     /// S2's git snapshot, narrowed to the one question the action bar asks: has this session's
     /// PR merged? `false` for a session whose git state nobody has read yet, which is exactly
     /// what the web does before its own snapshot arrives — Relaunch stays offered.
@@ -44,7 +48,7 @@ enum SessionSignals {
     /// not.
     static var manualStepsOutstanding: @MainActor () -> [String: Int] = { [:] }
 
-    /// Points the two existing seams at the extensions `StreamRegistrations` just installed.
+    /// Points the available seams at the extensions `StreamRegistrations` just installed.
     ///
     /// The `AppModel` is captured **weakly**: these closures live for the process, and a strong
     /// capture would keep a dropped model — and the store behind it — alive for good. They
@@ -53,6 +57,7 @@ enum SessionSignals {
     /// already left.
     static func connect(_ app: AppModel) {
         workingBlocked = { [weak app] in app?.extension(SidebarModel.self)?.workingBlocked ?? [:] }
+        usageLimits = { [weak app] in app?.extension(SidebarModel.self)?.limits }
         gitMerged = { [weak app] id in
             isMerged(app?.extension(DetailModel.self)?.git[id])
         }
@@ -72,6 +77,7 @@ enum SessionSignals {
     /// Tests and previews only: back to the shipped defaults.
     static func reset() {
         workingBlocked = { [:] }
+        usageLimits = { nil }
         gitMerged = { _ in false }
         planQuestionsUnanswered = { _ in false }
         manualStepsOutstanding = { [:] }

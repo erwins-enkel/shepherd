@@ -30,6 +30,7 @@ struct SessionSignalsTests {
 
     @Test func bothSeamsAnswerConservativelyUntilTheyAreConnected() {
         #expect(SessionSignals.workingBlocked().isEmpty)
+        #expect(SessionSignals.usageLimits() == nil)
         #expect(!SessionSignals.gitMerged("s1"))
     }
 
@@ -40,9 +41,13 @@ struct SessionSignalsTests {
     }
 
     @Test func resetRestoresTheShippedDefaultsAfterAnAssignment() {
+        SessionSignals.usageLimits = {
+            UsageLimits(perModelWeek: [], stale: false, subscriptionOnly: false)
+        }
         SessionSignals.planQuestionsUnanswered = { _ in true }
         SessionSignals.manualStepsOutstanding = { ["sess_x": 3] }
         SessionSignals.reset()
+        #expect(SessionSignals.usageLimits() == nil)
         #expect(SessionSignals.planQuestionsUnanswered("sess_x") == false)
         #expect(SessionSignals.manualStepsOutstanding().isEmpty)
     }
@@ -72,7 +77,39 @@ struct SessionSignalsTests {
         SessionSignals.connect(app)
 
         #expect(SessionSignals.workingBlocked().isEmpty)
+        #expect(SessionSignals.usageLimits() == nil)
         #expect(!SessionSignals.gitMerged("s1"))
+    }
+
+    @Test func usageSeamReadsTheCurrentSidebarAndReleasesItsActivation() throws {
+        let suite = UUID().uuidString
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let app = AppModel(defaults: defaults, credentials: InMemoryCredentialStore())
+        let profile = ServerProfile(
+            name: "usage", baseURL: URL(string: "https://usage.example.ts.net")!, mode: .remote)
+        let store = try SessionStore(profile: profile, credentials: InMemoryCredentialStore())
+        let sidebar = SidebarModel(store: store, app: app)
+        sidebar.reads = .stub
+        app.liveExtensions = [(ObjectIdentifier(SidebarModel.self), sidebar)]
+        SessionSignals.connect(app)
+        defer {
+            app.teardown()
+            SessionSignals.reset()
+        }
+
+        #expect(SessionSignals.usageLimits() == nil)
+        let limits = UsageLimits(
+            session5h: .init(pct: 95, resetAt: 1_800_000_000_000),
+            perModelWeek: [], stale: false, subscriptionOnly: false)
+        store.reconcileUsageLimits(limits)
+        #expect(SessionSignals.usageLimits()?.session5h?.pct == 95)
+        var pushed = limits
+        pushed.session5h?.pct = 7
+        store.apply(.usageLimits(pushed))
+        #expect(SessionSignals.usageLimits()?.session5h?.pct == 7)
+        app.tearDownExtensions()
+        #expect(SessionSignals.usageLimits() == nil, "the seam must not retain the outgoing sidebar")
     }
 
     /// The parity gap note 2 of the S4 PR names: a `blocked` session the poller found still

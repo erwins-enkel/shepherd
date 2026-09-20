@@ -76,6 +76,28 @@ afterAll(() => {
   }
 });
 
+test("queue requests are closed and wrong content types are undeclared", () => {
+  const contract = loadContract();
+  for (const name of [
+    "UpNextStartItem",
+    "UpNextStartRequest",
+    "RetryRequest",
+    "BroadcastRequest",
+  ]) {
+    const schema = contract.components.schemas[name] as { additionalProperties: boolean };
+    expect(schema.additionalProperties, name).toBe(false);
+  }
+  for (const [path, method] of [
+    ["/api/held/{id}", "patch"],
+    ["/api/up-next/start", "post"],
+    ["/api/retry", "post"],
+    ["/api/broadcast", "post"],
+  ]) {
+    const operation = contract.paths[path!]?.[method!] as { responses: Record<string, unknown> };
+    expect(operation.responses["415"]).toBeUndefined();
+  }
+});
+
 describe("held queue", () => {
   test("stored inputs mirror core create fields while allowing server-owned metadata", () => {
     const schemas = loadContract().components.schemas;
@@ -118,9 +140,6 @@ describe("held queue", () => {
       terminal: true,
       repoPath: s.validRepo,
     });
-    const ct = await request("PATCH", `/api/held/${entry.id}`, input, true, "text/plain");
-    expect(ct.status).toBe(415);
-    await validateResponse("PATCH", "/api/held/{id}", ct);
     await check("PATCH", "/api/held/{id}", 404, "/api/held/missing", input);
     for (const id of [entry.id, entry.id, capacity.id, "missing"]) {
       expect(await check("DELETE", "/api/held/{id}", 200, `/api/held/${id}`)).toEqual({ ok: true });
@@ -228,9 +247,6 @@ describe("Up Next", () => {
       { ...body, agentProvider: "invalid" },
     ])
       await check("POST", "/api/up-next/start", 400, undefined, bad);
-    const ct = await request("POST", "/api/up-next/start", body, true, "text/plain");
-    expect(ct.status).toBe(415);
-    await validateResponse("POST", "/api/up-next/start", ct);
   });
   test("first-run gate blocks both spawning routes", async () => {
     const saved = firstRun.pending;
@@ -287,9 +303,6 @@ describe("herd controls", () => {
     ).toMatchObject({ queued: 1, offline: 1, total: 2 });
     for (const path of ["/api/retry", "/api/broadcast"]) {
       await check("POST", path, 400, undefined, {});
-      const ct = await request("POST", path, {}, true, "text/plain");
-      expect(ct.status).toBe(415);
-      await validateResponse("POST", path, ct);
     }
   });
   test("stranded ids bootstrap and revive reports success and failure", async () => {

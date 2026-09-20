@@ -2095,14 +2095,14 @@ components:
       description: "The Up Next queue. Delivered ONLY through the upnext:snapshot event — GET /api/up-next answers the JSON literal null when nothing is cached, which cannot be expressed in a response position, so it is deliberately undeclared and the client bootstraps with POST /api/up-next/refresh."
     UpNextStartItem:
       type: "object"
-      additionalProperties: true
+      additionalProperties: false
       required: ["repoPath", "issueRef"]
       properties:
         repoPath: { "type": "string" }
         issueRef: { "$ref": "#/components/schemas/UpNextIssueRef" }
     UpNextStartRequest:
       type: "object"
-      additionalProperties: true
+      additionalProperties: false
       required: ["items"]
       properties:
         items:
@@ -2147,7 +2147,7 @@ components:
         halted: { "type": "integer" }
     RetryRequest:
       type: "object"
-      additionalProperties: true
+      additionalProperties: false
       required: ["text", "ids"]
       properties:
         text: { "type": "string", "minLength": 1 }
@@ -2199,7 +2199,7 @@ components:
       description: 'available: false means "no resolvable data source", while a real zero is available: true, total: 0. Splits, messageCount and byModel are null when the source does not carry them. byModel is raw tokens per model, never weighted units.'
     BroadcastRequest:
       type: "object"
-      additionalProperties: true
+      additionalProperties: false
       required: ["text", "ids"]
       properties:
         text: { "type": "string", "minLength": 1 }
@@ -3482,9 +3482,6 @@ paths:
         "404":
           description: "Unknown id."
           content: { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
-        "415":
-          description: "Content type must be application/json."
-          content: { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
     delete:
       operationId: "discardHeld"
       description: "Idempotent discard: unknown ids also answer {ok: true}, never 404. Re-read the list after success."
@@ -3540,9 +3537,6 @@ paths:
           description: "Every item errored; still the same result body."
           content:
             { "application/json": { "schema": { "$ref": "#/components/schemas/UpNextStartResult" } } }
-        "415":
-          description: "Content type must be application/json."
-          content: { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
   /api/halt:
     post:
       operationId: "haltHerd"
@@ -3576,9 +3570,6 @@ paths:
           content: { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
         "401":
           $ref: "#/components/responses/Unauthorized"
-        "415":
-          description: "Content type must be application/json."
-          content: { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
   /api/stranded:
     get:
       operationId: "listStranded"
@@ -3655,9 +3646,6 @@ paths:
           content: { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
         "401":
           $ref: "#/components/responses/Unauthorized"
-        "415":
-          description: "Content type must be application/json."
-          content: { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
   # ── /stream: queues ──
   # ── stream: compose ──
   # ── /stream: compose ──

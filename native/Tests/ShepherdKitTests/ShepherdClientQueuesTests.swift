@@ -3,6 +3,29 @@ import Testing
 @testable import ShepherdKit
 
 struct ShepherdClientQueuesTests {
+    @Test func queueReadEnumsPreserveKnownAndUnknownValues() throws {
+        try checkOpenEnum(Components.Schemas.HeldReason.self, known: .usage)
+        try checkOpenEnum(Components.Schemas.UpNextKind.self, known: .epic)
+        try checkOpenEnum(Components.Schemas.UsageSource.self, known: .snapshot)
+        try checkOpenEnum(Components.Schemas.UpNextSection.KindPayload.self, known: .priority)
+        try checkOpenEnum(Components.Schemas.SessionHaltEvent.HaltReasonPayload.self, known: .completed)
+    }
+
+    private func checkOpenEnum<T: OpenEnum & Codable>(_ type: T.Type, known: T.Known) throws {
+        let decoder = JSONDecoder()
+        let encoder = JSONEncoder()
+        let decoded = try decoder.decode(T.self, from: encoder.encode(known.rawValue))
+        #expect(decoded.known == known)
+        #expect(decoded.rawValue == known.rawValue)
+        #expect(try decoder.decode(T.self, from: encoder.encode(T(known: known))).known == known)
+        let unknown = try decoder.decode(T.self, from: encoder.encode("future-queue-value"))
+        #expect(unknown.known == nil)
+        #expect(unknown.rawValue == "future-queue-value")
+        let roundTrip = try decoder.decode(T.self, from: encoder.encode(T(unknown: "future-queue-value")))
+        #expect(roundTrip.known == nil)
+        #expect(roundTrip.rawValue == "future-queue-value")
+    }
+
     private func client(_ server: FakeShepherdServer) throws -> ShepherdClient {
         try ShepherdClient(profile: .init(name: "fake", baseURL: server.baseURL, mode: .local,
                                          credentialKey: "queues-test"),

@@ -110,9 +110,7 @@ describe("x-shepherd-pty documents what the native client relies on", () => {
   });
 
   test("the prose names the pre-upgrade 404 and the scrollback replay", () => {
-    // `Contract["x-shepherd-pty"]` in the S0-owned harness types only the machine-readable
-    // fields, so the prose is read through a local widening rather than by editing that type.
-    const { description } = loadContract()["x-shepherd-pty"] as { description?: string };
+    const { description } = loadContract()["x-shepherd-pty"];
     expect(description).toContain("404");
     expect(description).toContain("scrollback");
   });

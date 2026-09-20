@@ -14,6 +14,10 @@ export interface Contract {
    *  `declaredEvents()`/`validateEvent()` skip both. */
   "x-shepherd-events": Record<string, EventDecl | string | { $ref: string }>;
   "x-shepherd-pty": {
+    /** Prose documenting the socket: the pre-upgrade 404, the scrollback replay on attach and the
+     *  "the loser of a 4000 must not reconnect" rule. Prose, but pinned by
+     *  `terminal.test.ts` — a rewrite that drops one of those is a contract change. */
+    description: string;
     path: string;
     query: string[];
     resizePrefix: string;

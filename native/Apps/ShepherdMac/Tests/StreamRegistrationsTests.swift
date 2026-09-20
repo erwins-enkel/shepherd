@@ -38,10 +38,13 @@ struct StreamRegistrationsTests {
         }
         StreamRegistrations.installAll(into: app)
         let factories = Set(app.extensionFactories.map(\.key))
-        for type in [HerdSignals.self, PlanModel.self, QueuesModel.self] as [any AppExtension.Type] {
+        for type in [HerdSignals.self, PlanModel.self, QueuesModel.self, MergeModel.self] as [any AppExtension.Type] {
             #expect(factories.contains(ObjectIdentifier(type)))
         }
         #expect(DetailTabRegistry.tabs.map(\.id).contains("plan"))
+        #expect(DetailTabRegistry.tabs.map(\.id).contains("merge"))
+        #expect(NewSessionSlot.resolution == .slot)
+        #expect(CommandRegistry.commands(in: .session).contains { $0.id == "merge.overview" })
         #expect(SidebarSlot.content != nil)
         #expect(ActionBarSlot.content != nil)
         #expect(WelcomeSlots.localPanel != nil)
@@ -52,6 +55,10 @@ struct StreamRegistrationsTests {
         SessionSignals.gitMerged = { _ in true }
         SessionSignals.workingBlocked = { ["a": true] }
         SessionSignals.manualStepsOutstanding = { ["a": 1] }
+        MergeInputs.git = { _ in ["a": .init(deployConfigured: false)] }
+        MergeInputs.reviewing = { _, _ in true }
+        MergeInputs.planReviewBlocked = { _, _ in false }
+        MergeInputs.terminalEnded = { _, _ in false }
         resetStreamSeams()
         #expect(DetailTabRegistry.tabs.map(\.id) == ["prompt"])
         #expect(SidebarSlot.content == nil)
@@ -62,6 +69,11 @@ struct StreamRegistrationsTests {
         #expect(!SessionSignals.gitMerged("a"))
         #expect(SessionSignals.workingBlocked().isEmpty)
         #expect(SessionSignals.manualStepsOutstanding().isEmpty)
+        #expect(NewSessionSlot.resolution == .fallback)
+        #expect(MergeInputs.git(app).isEmpty)
+        #expect(!MergeInputs.reviewing(app, "a"))
+        #expect(MergeInputs.planReviewBlocked(app, "a"))
+        #expect(MergeInputs.terminalEnded(app, "a"))
         for lens in [HerdLens.next, .owed, .done] {
             #expect(QueuesPanels.panel(for: lens) == nil)
         }

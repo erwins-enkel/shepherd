@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import ShepherdKit
+import SwiftUI
 import Testing
 @testable import Shepherd
 
@@ -516,6 +517,63 @@ struct QueuesModelTests {
         #expect(await calls.calls == 0)
         #expect(f.model.heldCount == 0 && f.model.retrySelectionGeneration == 0)
         #expect(f.model.strandedNotice == nil && f.model.autoRevivedNotice == nil)
+    }
+}
+
+@MainActor
+@Suite(.serialized)
+struct QueuesStreamTests {
+    @Test func panelFactoriesAreLazyReplaceableAndAbsentForUnregisteredLenses() throws {
+        QueuesPanels.reset()
+        defer { QueuesPanels.reset() }
+        for lens in HerdLens.allCases { #expect(QueuesPanels.panel(for: lens) == nil) }
+        var built: [String] = []
+        QueuesPanels.register(.next) { built.append("old"); return AnyView(EmptyView()) }
+        QueuesPanels.register(.next) { built.append("new"); return AnyView(EmptyView()) }
+        let panel = try #require(QueuesPanels.panel(for: .next))
+        #expect(built.isEmpty)
+        _ = panel()
+        _ = panel()
+        #expect(built == ["new", "new"])
+        for lens in [HerdLens.all, .ready, .done, .owed] {
+            #expect(QueuesPanels.panel(for: lens) == nil)
+        }
+    }
+
+    @Test func installRegistersThreePanelsAndOneLifecycleManagedModel() async throws {
+        QueuesPanels.reset()
+        let suite = "QueuesStreamTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        let app = AppModel(defaults: defaults, credentials: InMemoryCredentialStore())
+        let store = try SessionStore(profile: ServerProfile(name: "queues",
+            baseURL: URL(string: "https://queues.invalid")!, mode: .remote),
+            credentials: InMemoryCredentialStore())
+        defer {
+            app.teardown()
+            store.stop()
+            defaults.removePersistentDomain(forName: suite)
+            QueuesPanels.reset()
+        }
+        QueuesStream.install(app)
+        QueuesStream.install(app)
+        for lens in HerdLens.allCases {
+            #expect((QueuesPanels.panel(for: lens) != nil) == [.next, .done, .owed].contains(lens))
+        }
+        #expect(app.extensionFactories.filter { $0.key == ObjectIdentifier(QueuesModel.self) }.count == 1)
+        #expect(app.extension(QueuesModel.self) == nil)
+        // Exercise the registered factory without starting a store or making network requests.
+        app.makeExtensions(store: store)
+        let model = try #require(app.extension(QueuesModel.self))
+        model.reads = QueuesReads(held: { [] }, done: { [] }, recaps: { [:] }, stranded: { [] },
+                                 refreshUpNext: {})
+        #expect(await queueSettle { !model.isRefreshing })
+        #expect(model.isSubscribed && model.isWatchingConnection)
+        QueuesStream.install(app)
+        #expect(app.extension(QueuesModel.self) === model)
+        app.teardown()
+        #expect(app.extension(QueuesModel.self) == nil)
+        #expect(!model.isSubscribed)
+        #expect(await queueSettle { !model.isWatchingConnection })
     }
 }
 

@@ -1879,6 +1879,198 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/TaskAmendment"
+    GitStateMap:
+      type: object
+      additionalProperties:
+        $ref: "#/components/schemas/GitState"
+      description: 'GET /api/git. Session id -> PR state. Absent means this session has no PR state cached, which the classifier treats as "no git-decided stage". `$ref`s the `detail` block''s `GitState` — the SAME wire object (src/forge/types.ts:279-281), carrying the four properties S0-prep-2 added for this classifier (handoff, handoffWho, reviewBlock, headSha) plus the `noCi` that was already there. Never a second copy: two names for one payload give the generated Swift two unrelated structs.'
+    ActivityMap:
+      type: object
+      additionalProperties:
+        $ref: "#/components/schemas/SessionActivitySignal"
+      description: GET /api/activity. Session id -> heartbeat. Absent means no activity has been recorded. `$ref`s the `detail` block's existing `SessionActivitySignal` (contracts/openapi.yaml:547), which already describes this exact payload; declaring a second `SessionActivity` beside it would be the same mistake as a second git state.
+    ClaudeAliveMap:
+      type: object
+      additionalProperties:
+        type: boolean
+      description: GET /api/claude-alive. Session id -> does a coding-CLI process still live in this session's worktree? False folds a stranded session to "husk"; the three-state reconstruction needs GET /api/stranded as well, which the queues block owns.
+    ReviewDecision:
+      anyOf:
+        - $ref: "#/components/schemas/ReviewDecisionKnown"
+        - type: string
+    ReviewDecisionKnown:
+      type: string
+      enum:
+        - changes_requested
+        - commented
+        - error
+    ReviewVerdict:
+      type: object
+      additionalProperties: true
+      description: A critic verdict for one session. The documented subset of src/types.ts:790-815 the herd reads.
+      required:
+        - sessionId
+        - headSha
+        - decision
+        - summary
+        - body
+        - findings
+        - addressRound
+        - addressCap
+        - finalRoundPending
+        - finalRoundTimeoutMs
+        - updatedAt
+      properties:
+        sessionId:
+          type: string
+        headSha:
+          type: string
+          description: The commit this verdict judged. Compare against GitState.headSha before tinting anything.
+        decision:
+          $ref: "#/components/schemas/ReviewDecision"
+        summary:
+          type: string
+        body:
+          type: string
+          description: Markdown.
+        findings:
+          type: array
+          items:
+            type: string
+        addressRound:
+          type: integer
+        addressCap:
+          type: integer
+          description: The cap this run used. Read it; never mirror a config value.
+        finalRoundPending:
+          type: boolean
+        finalRoundTimeoutMs:
+          type: integer
+        dismissed:
+          type: boolean
+          description: Absent ⇒ false. The operator took this rework over by hand.
+        url:
+          type: string
+        updatedAt:
+          type: integer
+    ReviewVerdictMap:
+      type: object
+      additionalProperties:
+        $ref: "#/components/schemas/ReviewVerdict"
+      description: GET /api/reviews. Session id -> latest critic verdict.
+    ReviewerEnv:
+      type: object
+      additionalProperties: true
+      description: A reviewer's resolved CLI, model and effort for an in-flight run (src/types.ts:596-600). Declared here because this stream merges first; the plan block $refs it rather than declaring a second copy — a schema name may sit in exactly one marked block.
+      required:
+        - model
+        - effort
+      properties:
+        provider:
+          $ref: "#/components/schemas/AgentProvider"
+        model:
+          type:
+            - string
+            - "null"
+        effort:
+          type:
+            - string
+            - "null"
+    ReviewerInflightEntry:
+      type: object
+      additionalProperties: true
+      description: One row of GET /api/reviews/inflight — a session id plus the reviewer env running on it.
+      required:
+        - id
+        - model
+        - effort
+      properties:
+        id:
+          type: string
+        provider:
+          $ref: "#/components/schemas/AgentProvider"
+        model:
+          type:
+            - string
+            - "null"
+        effort:
+          type:
+            - string
+            - "null"
+    ReviewerInflightList:
+      type: array
+      items:
+        $ref: "#/components/schemas/ReviewerInflightEntry"
+    PrReviewTrigger:
+      anyOf:
+        - $ref: "#/components/schemas/PrReviewTriggerKnown"
+        - type: string
+    PrReviewTriggerKnown:
+      type: string
+      enum:
+        - started
+        - skipped
+        - error
+    PrReviewResult:
+      type: object
+      additionalProperties: true
+      required:
+        - ok
+        - status
+      properties:
+        ok:
+          type: boolean
+        status:
+          $ref: "#/components/schemas/PrReviewTrigger"
+    SessionReviewEvent:
+      type: object
+      additionalProperties: true
+      description: A critic verdict landed (or was cleared). A null review means "no verdict for this session any more", and it also ends the in-flight run.
+      required:
+        - id
+      properties:
+        id:
+          type: string
+        review:
+          $ref: "#/components/schemas/ReviewVerdict"
+    SessionReviewingEvent:
+      type: object
+      additionalProperties: true
+      description: A critic run started or ended. `env` rides the start edge only; both edges clear the activity feed.
+      required:
+        - id
+        - reviewing
+      properties:
+        id:
+          type: string
+        reviewing:
+          type: boolean
+        env:
+          $ref: "#/components/schemas/ReviewerEnv"
+    SessionCriticActivityEvent:
+      type: object
+      additionalProperties: true
+      description: One line of what the critic is doing right now. The web keeps the last two (MAX_ACTIVITY_LINES, ui/src/lib/reviews.svelte.ts:28).
+      required:
+        - id
+        - summary
+      properties:
+        id:
+          type: string
+        summary:
+          type: string
+    SessionClaudeAliveEvent:
+      type: object
+      additionalProperties: true
+      description: A session's coding-CLI liveness flipped. Re-emitted on flips only, which is why the bulk snapshot exists.
+      required:
+        - id
+        - alive
+      properties:
+        id:
+          type: string
+        alive:
+          type: boolean
   responses:
     Unauthorized:
       description: Missing or invalid credential.
@@ -3034,6 +3226,102 @@ paths:
                 $ref: "#/components/schemas/RecapMap"
         "401":
           $ref: "#/components/responses/Unauthorized"
+  /api/git:
+    get:
+      operationId: gitStates
+      description: Every session's cached PR state in one read. The herd classifier's bootstrap; session:git keeps it current afterwards.
+      responses:
+        "200":
+          description: Session id to PR state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GitStateMap"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/activity:
+    get:
+      operationId: activityStates
+      description: Every session's transcript heartbeat in one read. Bootstraps the row heartbeat strip; session:activity keeps it current.
+      responses:
+        "200":
+          description: Session id to heartbeat.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActivityMap"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/claude-alive:
+    get:
+      operationId: claudeAliveStates
+      description: Every session's coding-CLI liveness in one read. session:claude-alive re-emits on flips only, so a client that reconnects mid-flip needs this.
+      responses:
+        "200":
+          description: Session id to liveness.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClaudeAliveMap"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/reviews:
+    get:
+      operationId: listReviews
+      description: Every session's latest critic verdict. Bootstraps the critic badge and the needsRework stage.
+      responses:
+        "200":
+          description: Session id to verdict.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewVerdictMap"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/reviews/inflight:
+    get:
+      operationId: listReviewsInflight
+      description: The critic runs in flight right now, with the CLI/model/effort each is using. Reconstructs the reviewerRunning stage after a reload.
+      responses:
+        "200":
+          description: One row per in-flight run.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewerInflightList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/sessions/{id}/review-pr:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: reviewPr
+      description: Force a critic review of this session's PR. Answers 202 with what it did — the run itself is asynchronous and lands as session:reviewing then session:review.
+      responses:
+        "202":
+          description: Accepted. `status` says whether a run actually started.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PrReviewResult"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: 'Two bodies, same status: error is "not found" for an unknown id, or "no forge for this repo" when the repo has no forge configured.'
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          description: The forge lookup threw while resolving the PR state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 x-shepherd-events:
   description: 'WebSocket /events. Same auth gate as HTTP (send Authorization on the upgrade). Every frame is an EventEnvelope: {"event": string, "data": object}. Client may send {"type":"presence","active":boolean}; the server never replies to it.'
   envelope:
@@ -3089,6 +3377,22 @@ x-shepherd-events:
     description: A session's amendment list changed. Always the FULL current list, so an empty array is a genuine all-clear.
     schema:
       $ref: "#/components/schemas/SessionAmendmentsEvent"
+  session:review:
+    description: A critic verdict landed or was cleared. A null review also ends the in-flight run for that session.
+    schema:
+      $ref: "#/components/schemas/SessionReviewEvent"
+  session:reviewing:
+    description: A critic run started or ended. `env` rides the start edge only.
+    schema:
+      $ref: "#/components/schemas/SessionReviewingEvent"
+  session:critic-activity:
+    description: One line of critic progress. Cleared on both edges of session:reviewing.
+    schema:
+      $ref: "#/components/schemas/SessionCriticActivityEvent"
+  session:claude-alive:
+    description: A session's coding-CLI liveness flipped. Flips only — bootstrap from GET /api/claude-alive.
+    schema:
+      $ref: "#/components/schemas/SessionClaudeAliveEvent"
 x-shepherd-pty:
   description: WebSocket /pty/{id}?cols=&rows=. Same auth gate and origin check as HTTP; the bearer goes on the upgrade request. An unknown session id is answered 404 before the upgrade. cols/rows set the attach size so the first paint matches the client's viewport. On attach the server replays the pane's scrollback, so a client must clear its own buffer on every (re)attach rather than appending. Server→client frames are raw terminal bytes (binary or text). Client→server text frames are keystrokes, except frames starting with resizePrefix which carry "<cols>:<rows>\n". One owner per terminal id; a new attach closes the previous socket with closeCodes.superseded and the loser must NOT reconnect (both would bump each other forever). closeCodes.gone means the session no longer has a live agent and no reattach can succeed. Any other close is transient; clients retry with backoff.
   path: /pty/{id}

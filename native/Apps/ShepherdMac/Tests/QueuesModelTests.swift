@@ -220,6 +220,63 @@ struct QueuesModelTests {
         #expect(f.model.stranded.isEmpty)
     }
 
+    @Test func archiveOfOnlySessionRejectsStaleFollowUpAndKeepsEmptyListAuthoritative() async throws {
+        var reads = empty
+        reads.stranded = { ["s1"] }
+        let f = try QueueFixture(reads)
+        defer { f.close() }
+        f.store.apply(.sessionNew(PreviewData.session(id: "s1")))
+        #expect(await queueSettle { !f.model.isRefreshing })
+        #expect(f.model.stranded == ["s1"])
+        #expect(f.store.sessions.map(\.id) == ["s1"])
+
+        let stale = QueueReadGate()
+        f.model.reads.stranded = { await stale.enter(); return ["s1"] }
+        f.store.apply(try frame("session:archived", "{\"id\":\"s1\"}"))
+        #expect(await queueSettle { await stale.calls == 1 })
+        #expect(f.store.sessions.isEmpty && f.model.stranded.isEmpty)
+        await stale.open()
+        #expect(await queueSettle { !f.model.isRefreshing })
+        #expect(f.model.stranded.isEmpty)
+
+        // A different stale ID also cannot survive an authoritative empty session list.
+        f.model.reads.stranded = { ["missing"] }
+        await f.model.refresh(recomputeUpNext: false)
+        #expect(f.model.stranded.isEmpty)
+    }
+
+    @Test(arguments: [false, true])
+    func archivedIDRemainsTombstonedUntilServerConfirmsAbsence(reload: Bool) async throws {
+        var reads = empty
+        reads.stranded = { ["s1"] }
+        let f = try QueueFixture(reads)
+        defer { f.close() }
+        f.store.apply(.sessionNew(PreviewData.session(id: "s1")))
+        #expect(await queueSettle { !f.model.isRefreshing })
+        #expect(f.model.stranded == ["s1"])
+        let stale = QueueReadGate()
+        f.model.reads.stranded = { await stale.enter(); return ["s1"] }
+        f.store.apply(try frame("session:archived", "{\"id\":\"s1\"}"))
+        #expect(await queueSettle { await stale.calls == 1 })
+        // Even a restored session must not inherit its old stranded state.
+        f.store.apply(.sessionNew(PreviewData.session(id: "s1")))
+        await stale.open()
+        #expect(await queueSettle { !f.model.isRefreshing })
+        #expect(f.model.stranded.isEmpty)
+
+        f.model.reads.stranded = { ["s1"] }
+        if reload { try await f.model.reloadStranded() }
+        else { await f.model.refresh(recomputeUpNext: false) }
+        #expect(f.model.stranded.isEmpty)
+        f.model.reads.stranded = { [] }
+        if reload { try await f.model.reloadStranded() }
+        else { await f.model.refresh(recomputeUpNext: false) }
+        // Server cleanup releases the tombstone; a new stranded occurrence is valid.
+        f.model.reads.stranded = { ["s1"] }
+        await f.model.refresh(recomputeUpNext: false)
+        #expect(f.model.stranded == ["s1"])
+    }
+
     @Test func loadedSessionsPruneStrandedWithoutRemovingTaskOrIssueQueues() async throws {
         var reads = empty
         let row = try held("task-not-a-session")

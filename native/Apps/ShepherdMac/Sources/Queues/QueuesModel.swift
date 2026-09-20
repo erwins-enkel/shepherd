@@ -52,6 +52,8 @@ final class QueuesModel: AppExtension {
     @ObservationIgnored private var isTornDown = false
     @ObservationIgnored private var heldRevision = 0
     @ObservationIgnored private var strandedRevision = 0
+    @ObservationIgnored private var archivedStrandedIDs: Set<String> = []
+    @ObservationIgnored private var hasSessionList = false
     @ObservationIgnored private var upNextRevision = 0
     @ObservationIgnored private var watcher: Task<Void, Never>?
     @ObservationIgnored private var connectionWatcher: Task<Void, Never>?
@@ -76,6 +78,7 @@ final class QueuesModel: AppExtension {
             // The same finished observation stream also reconciles a newly installed session
             // snapshot, even when no archive frame survived a disconnect.
             _ = store?.sessions
+            _ = store?.settings
             return store?.connection
         }
         // Bootstrap shares the coalescing loop with events, including late registration
@@ -125,7 +128,7 @@ final class QueuesModel: AppExtension {
         if case .success(let rows) = results.1 { done = rows }
         if case .success(let map) = results.2 { recaps = map }
         if case .success(let ids) = results.3, strandedVersion == strandedRevision {
-            stranded = Set(ids)
+            reconcileStranded(ids)
         }
         pruneStranded()
         if recomputeUpNext, upNextVersion == upNextRevision {
@@ -159,7 +162,7 @@ final class QueuesModel: AppExtension {
         let ids = try await reads.stranded()
         guard isCurrent(mine), version == strandedRevision, !Task.isCancelled else { return }
         strandedRevision &+= 1
-        stranded = Set(ids)
+        reconcileStranded(ids)
         pruneStranded()
     }
 
@@ -204,15 +207,29 @@ final class QueuesModel: AppExtension {
         }
     }
 
+    private func reconcileStranded(_ ids: [String]) {
+        let snapshot = Set(ids)
+        // Archiving updates sessions before the server poller cleans up stranded IDs.
+        // Only a successful, revision-fenced read confirming absence releases a tombstone.
+        archivedStrandedIDs.formIntersection(snapshot)
+        stranded = snapshot.subtracting(archivedStrandedIDs)
+    }
+
     private func pruneStranded() {
-        // An empty list may still be pre-bootstrap. Held tasks and Up Next issues have
-        // different identities from sessions, so they must never be pruned with session IDs.
-        guard let sessions = store?.sessions, !sessions.isEmpty else { return }
-        stranded.formIntersection(sessions.map(\.id))
+        guard let store else { return }
+        // Settings and sessions are installed together by SessionStore.refresh(). Settings
+        // therefore distinguish an empty bootstrap snapshot from the initial empty property.
+        // Remember event-populated lists too, including after their last session is archived.
+        hasSessionList = hasSessionList || store.settings != nil || !store.sessions.isEmpty
+        guard hasSessionList else { return }
+        // Held tasks and Up Next issues have different identities from sessions.
+        stranded.formIntersection(store.sessions.map(\.id))
     }
 
     private func apply(_ event: ServerEvent) {
+        if case .sessionNew = event { hasSessionList = true }
         if case .sessionArchived(let frame) = event {
+            archivedStrandedIDs.insert(frame.id)
             stranded.remove(frame.id)
             strandedRevision &+= 1
             requestRefresh()

@@ -334,7 +334,7 @@ struct QueuesModelTests {
         f.store.apply(try frame("session:halt",
             "{\"id\":\"s1\",\"haltReason\":\"operator\",\"haltedAt\":1}"))
         #expect(await queueSettle { f.model.retrySelectionGeneration == before + 1 })
-        #expect(f.store.sessions.first?.haltReason?.known == .operator)
+        #expect(f.store.sessions.first?.haltReason?.rawValue == "operator")
         #expect(f.store.sessions.first?.haltedAt == 1)
         #expect(f.model.done == [session])
         #expect(!f.model.isRefreshing)

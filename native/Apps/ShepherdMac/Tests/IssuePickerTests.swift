@@ -122,16 +122,18 @@ import Testing
         #expect(ComposeModel.commandMatches(rows, query: " \n ").map(\.name) == rows.map(\.name))
     }
 
-    @Test func nonInsertablePluginsAreHiddenAndCannotChangeThePrompt() async {
+    @Test func nonInsertablePluginsStayVisibleAndCannotChangeThePrompt() async {
         var plugin = command("plugin", providers: [.codex])
         plugin.kind = .init(known: .plugin)
         plugin.invocations = .init(additionalProperties: [:])
         let rows = [plugin, command("ship")]
+        #expect(!ComposeModel.isInsertable(plugin))
+        #expect(ComposeModel.isInsertable(rows[1]))
         let m = model(commands: { _, _ in .init(commands: rows) })
         m.repoPath = "/repo"; m.provider = .codex
         await m.loadSources()
-        #expect(m.commands.map(\.name) == ["ship"])
-        #expect(ComposeModel.commandMatches(rows, query: "").map(\.name) == ["ship"])
+        #expect(m.commands.map(\.name) == ["plugin", "ship"])
+        #expect(ComposeModel.commandMatches(rows, query: "").map(\.name) == ["plugin", "ship"])
         m.prompt = "keep $plug text"
         let caret = m.prompt.range(of: " text")!.lowerBound
         let returned = m.pickCommand(plugin, caret: caret)

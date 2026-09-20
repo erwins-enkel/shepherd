@@ -34,7 +34,6 @@ import Testing
     func modeSelectionPinsGuardsAndResetsOnlyAnIncompatibleSandbox(_ next: ComposeMode) {
         let m = Self.composer()
         defer { m.teardown() }
-        m.research = true; m.epicAuthoring = true; m.plain = true
         m.planGateEnabled = true; m.autopilotEnabled = true
         m.sandboxProfile = .autonomous
         m.setMode(next)

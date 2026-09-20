@@ -111,6 +111,23 @@ import Testing
         }
     }
 
+    @Test func reselectingSuggestedPlainPreservesBothGuardsWhenReturningToCode() throws {
+        let m = ComposeModelTests.composer()
+        defer { m.teardown() }
+        m.repoPath = "/repo"
+        let controls = GuardToggles(model: m)
+        controls.planGate.wrappedValue = true
+        controls.autopilot.wrappedValue = true
+        m.prompt = "/design"
+        #expect(m.mode == .plain)
+        m.setMode(.plain)
+        #expect(m.modeTouched)
+        m.setMode(.code)
+        let request = try #require(m.createRequest(baseBranch: "main"))
+        #expect(request.planGateEnabled == true)
+        #expect(request.autopilotEnabled == true)
+    }
+
     @Test func designPreselectionDisablesWireGuardsWithoutLosingCodePreferences() throws {
         let m = ComposeModelTests.composer()
         defer { m.teardown() }

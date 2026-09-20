@@ -95,6 +95,7 @@ struct IssuePickerView: View {
                                 }
                                 .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
                             }.buttonStyle(.plain)
+                            .disabled(!ComposeModel.isInsertable(command))
                         }
                     }
                 }.frame(maxHeight: 160)
@@ -211,6 +212,7 @@ struct ComposePromptEditor: View {
                             Button { pickMatch(index) } label: {
                                 Text(verbatim: command.displayName ?? command.name).frame(maxWidth: .infinity, alignment: .leading)
                             }
+                            .disabled(!ComposeModel.isInsertable(command))
                             .buttonStyle(.plain).padding(4)
                             .background(index == selectedMatch ? Color.accentColor.opacity(0.12) : .clear)
                         }
@@ -238,7 +240,7 @@ struct ComposePromptEditor: View {
         if trigger?.symbol == "#", issueMatches.indices.contains(index) {
             model.pickIssueFromSearch(issueMatches[index], caret: caret)
             next = model.prompt.endIndex
-        } else if commandMatches.indices.contains(index) {
+        } else if commandMatches.indices.contains(index), ComposeModel.isInsertable(commandMatches[index]) {
             next = model.pickCommand(commandMatches[index], caret: caret)
         } else { return }
         caretOffset = next.utf16Offset(in: model.prompt)

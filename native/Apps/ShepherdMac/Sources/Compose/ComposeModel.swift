@@ -119,6 +119,7 @@ final class ComposeModel {
     /// Returning to Code deliberately does not restore guards the operator never agreed to.
     func setMode(_ next: ComposeMode) {
         modeTouched = true
+        guard next != mode else { return }
         research = next == .research
         epicAuthoring = next == .epic
         plain = next == .plain
@@ -204,7 +205,7 @@ final class ComposeModel {
         do {
             let result = try await fetchCommands(repo, engine)
             guard mine == generation else { return }
-            commandListings[engine] = result.commands.filter(Self.isInsertable)
+            commandListings[engine] = result.commands
         } catch {
             guard mine == generation else { return }
             commandErrors[engine] = ShepherdErrorCopy.message(error)
@@ -277,7 +278,7 @@ final class ComposeModel {
     }
     static func commandMatches(_ commands: [SlashCommand], query: String) -> [SlashCommand] {
         let query = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let insertable = commands.filter(isInsertable)
+        let insertable = commands
         return insertable.filter { $0.name.lowercased().hasPrefix(query) }
             + insertable.filter {
                 !$0.name.lowercased().hasPrefix(query)
@@ -285,7 +286,7 @@ final class ComposeModel {
             }
     }
 
-    private static func isInsertable(_ command: SlashCommand) -> Bool {
+    static func isInsertable(_ command: SlashCommand) -> Bool {
         guard let invocations = command.invocations else { return true }
         return invocations.additionalProperties.values.contains { !$0.isEmpty }
     }

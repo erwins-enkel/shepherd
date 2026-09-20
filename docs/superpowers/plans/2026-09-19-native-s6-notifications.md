@@ -10,7 +10,8 @@ switch, a Dock badge, and a click that selects the session.
 
 **Architecture:** Everything is pure except one thin adapter. `NotificationTrigger` turns a
 `ServerEvent` into a `NotificationIntent` (the port of `src/push.ts`'s `attachPush`,
-`attachMergePush` and `attachUsagePush`), `NotificationCopy` turns an intent into a title and a body
+`attachMergePush` and `attachUsagePush`, plus the `ready` kind, whose trigger is native — see
+deviation 5), `NotificationCopy` turns an intent into a title and a body
 (the port of `buildPayload` + `NOTIFY_TEXT`), `NotificationGate` decides whether it may be shown
 (focus, per-profile settings, the 120 s cooldown), and `NotificationsModel` — one `AppExtension` —
 wires those to a tap on `SessionStore.events()` and to an injected `NotificationCenterClient`.
@@ -46,8 +47,10 @@ SwiftUI, Swift Testing (`import Testing`), `os.Logger`, Bun for the string-catal
   either.
 - **`bun run test`, never bare `bun test`** (repo `CLAUDE.md`): the bare runner walks the wrong file
   set and "passes" without running the suite you meant.
-- **Live tests read `SHEPHERD_LIVE_BASE_URL` / `SHEPHERD_LIVE_PASSWORD` from the environment only**,
-  never from a file, and never in CI. Nothing in this branch writes either value to disk.
+- **Live tests read `SHEPHERD_LIVE_BASE_URL` / `SHEPHERD_LIVE_PASSWORD` from the environment only**
+  — or `SHEPHERD_LIVE_TOKEN` in place of the password for the read-only unit suite, which is what
+  `LiveServerEnvironment.token` already reads and what Task 8 uses. Never from a file, never in CI.
+  Nothing in this branch writes any of the three to disk.
 - **Commits:** conventional, lowercase subject; body lines ≤ 100 chars; body ends with
   `Co-Authored-By: <executing model name> <noreply@anthropic.com>`.
 - **Push with `git push --no-verify`.**
@@ -120,7 +123,7 @@ That deferral is listed under "Deliberate deviations" and repeated in the PR bod
 ### Deliberate deviations from the stream brief
 
 The brief asked for notifications on "session ready/blocked/needs-input/failed and whatever the web
-UI notifies on". Reading `src/push.ts` changed four things.
+UI notifies on". Reading `src/push.ts` changed five things.
 
 1. **There is no `failed` session status.** `SessionStatus` is
    `running | idle | blocked | done | archived` (`src/types.ts`). A halt with
@@ -139,7 +142,19 @@ UI notifies on". Reading `src/push.ts` changed four things.
 3. **Two categories, not three.** The web's device panel offers `agent`, `reviews` and `ci`
    (`KIND_CATEGORY` in `src/push.ts`). This stream produces no `reviews` kind (see 2), so the
    settings panel shows `agent` and `ci`; the third toggle lands with the review events.
-4. **The badge counts less than the web's.** `deriveTabState`
+4. **`ready` keeps the web's copy but not the web's trigger.** `src/push.ts` has no bridge on
+   `session:ready`; the web's `ready` push is `ReadyNotifier.evaluateSession`
+   (`src/ready-notify.ts:185`) — a 1 s poll over `isReadyForNotify(session, gitState, reviewingIds,
+   workingBlocked)` behind a 5 s dwell and a 15 s warm-up, and gated on `config.reducedPushMode`,
+   which is off by default. Reproducing it needs `GitState` (S2) and `/api/working-blocked` (S3),
+   neither of which this stream has. `session:ready` — the manual `readyToMerge` toggle behind
+   `POST /api/sessions/{id}/ready` — is the honest signal this stream can see, and it is a genuine
+   "this one is waiting on you". The consequence, stated so nobody reads it as a bug: the Mac app
+   banners on every manual ready toggle, with no dwell, whether or not reduced-push mode is on.
+   `NotificationCopy`'s `readyTitle`/`readyBody` are still `push.ts`'s verbatim. When S2 and S3
+   land, swapping the trigger for the dwell-based one is a change inside `NotificationTrigger`.
+
+5. **The badge counts less than the web's.** `deriveTabState`
    (`ui/src/lib/tab-signal.svelte.ts`) counts ci-red ∪ blocked ∪ unanswered-plan-question ∪
    ready-to-merge. The first needs `GitState` (S2) and the third needs `PlanGate` (no stream owns
    it), so the native badge counts blocked ∪ ready-to-merge and exposes
@@ -367,7 +382,10 @@ git commit -m "feat(i18n): notification catalog keys for the mac app"
   `BlockShapeCopy` (`.menu`, `.yesNo`, `.awaitingInput`, `.stall`, `.quota(QuotaKindCopy?)`,
   `.generic`), `QuotaKindCopy` (`.rework`, `.review`, `.error`, `.plan`), and `NotificationCopy`
   with `static func title(_:) -> String`, `static func body(_:locale:) -> String`,
-  `static func blockShape(of:) -> BlockShapeCopy`.
+  `static func blockShape(of:) -> BlockShapeCopy`; plus the three app-local typealiases
+  `BlockReason`, `AutoMergeStatus` and `UsageLimits` over `Components.Schemas.*` — ShepherdKit's
+  `PublicTypes.swift` does not alias these three and is S0-owned, so the bare names used from
+  Task 3 onwards would not resolve without them.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -514,6 +532,16 @@ Expected: `cannot find 'NotificationCopy' in scope`.
 ```swift
 import Foundation
 import ShepherdKit
+
+// Short names for the three generated schemas this stream reads. ShepherdKit's own
+// `Model/PublicTypes.swift` aliases only the ten types the app already used (`Session`,
+// `SessionStatus`, `Settings`, …) and is S0-owned, so these three live here instead. They are
+// typealiases, not wrappers: still one definition each, still from the contract, and the
+// generator's `accessModifier: public` makes `Components.Schemas.*` visible from this target.
+// Without them the bare names `BlockReason`, `AutoMergeStatus` and `UsageLimits` do not resolve.
+typealias BlockReason = Components.Schemas.BlockReason
+typealias AutoMergeStatus = Components.Schemas.AutoMergeStatus
+typealias UsageLimits = Components.Schemas.UsageLimits
 
 /// The toggle a notification rides. Mirrors `PushCategory` in `src/push.ts`; the web's third
 /// category, `reviews`, has no native trigger yet because its events are not in the contract.
@@ -883,6 +911,14 @@ import ShepherdKit
 /// `attachUsagePush` (`usage:limits` over the warning threshold). Keeping them in one pure type
 /// means the native app and the server's push can be compared case by case instead of by
 /// reading two event loops.
+///
+/// The `ready` case is the one that is **not** a port: no bridge in `src/push.ts` subscribes to
+/// `session:ready` at all. The web's `ready` push comes from `ReadyNotifier.evaluateSession`
+/// (`src/ready-notify.ts:185`), a polling evaluator with a 5 s dwell and a 15 s warm-up that is
+/// gated on `config.reducedPushMode` and driven by PR/CI readiness. `session:ready` is instead
+/// the *manual* `readyToMerge` toggle the operator flips (`POST /api/sessions/{id}/ready`). The
+/// copy is `push.ts`'s verbatim; the trigger is deliberately the manual flag — see the plan's
+/// deviation 5. Do not describe this case as a port of `attachPush` in a review or a commit.
 ///
 /// Stateful in exactly one respect: the usage warning fires once per 5-hour window, which the
 /// web persists as a `usageWarnedResetAt5h` setting. Here it is in-memory, which is the right
@@ -1795,6 +1831,12 @@ struct NotificationGate {
 `native/Apps/ShepherdMac/Sources/Notifications/NotificationsModel.swift`:
 
 ```swift
+// AppKit for exactly one read — `NSApp?.isActive` in `init` — because there is no other way to
+// ask whether the app is frontmost *right now*, and starting from the wrong answer is the bug
+// described at that call site. The activation *notifications* are still spelled as raw names
+// below: what cost this app its window before was an `.onReceive` on the `App`'s body, not the
+// import itself, and `Sources/Notifications/NotificationSettingsView.swift` imports AppKit too.
+import AppKit
 import Foundation
 import Observation
 import ShepherdKit
@@ -1833,9 +1875,9 @@ final class NotificationsModel: AppExtension {
     @ObservationIgnored private weak var store: SessionStore?
     @ObservationIgnored private var badgeSource: @MainActor () -> [Session] = { [] }
 
-    /// `NSApplication`'s activation notifications, spelled out as strings so nothing here has to
-    /// import AppKit — the same trick `IsolatedLaunch` uses, and for the same reason: reaching
-    /// for `NSApplication` from the SwiftUI layer has cost this app its window before.
+    /// `NSApplication`'s activation notifications, spelled out as strings rather than reached
+    /// through the AppKit constants — the same trick `IsolatedLaunch` uses, and for the same
+    /// reason: observing them through the SwiftUI layer has cost this app its window before.
     private static let didBecomeActive = Notification.Name("NSApplicationDidBecomeActiveNotification")
     private static let willResignActive = Notification.Name("NSApplicationWillResignActiveNotification")
 
@@ -1869,11 +1911,18 @@ final class NotificationsModel: AppExtension {
         center.start()
 
         subscribe(to: store)
+        observeFocus()
+        // Sample the *current* activation state before anything else. `windowFocused` starts
+        // false and `observeFocus()` only ever hears about the next transition, so connecting —
+        // or switching profiles — while the app is already frontmost would leave every
+        // notification un-suppressed and the badge counting until the operator happened to click
+        // away and back. `setWindowFocused` also forwards presence and sets the badge, so this
+        // one call replaces the separate initial `updateBadge`.
+        let active = NSApp?.isActive ?? false
         Task { [weak self] in
             await self?.refreshAuthorization()
-            await self?.updateBadge(sessions: self?.badgeSource() ?? [])
+            await self?.setWindowFocused(active)
         }
-        observeFocus()
     }
 
     /// Test/preview seam: no store, no socket, no AppKit notifications.
@@ -1961,7 +2010,7 @@ final class NotificationsModel: AppExtension {
     // MARK: - Badge
 
     /// The web's `deriveTabState` count, minus the two inputs this build cannot see (see the
-    /// plan's deviation 4). Only while the window is NOT focused, which is how the web tab
+    /// plan's deviation 5). Only while the window is NOT focused, which is how the web tab
     /// behaves: attended means the count is in front of you already.
     func updateBadge(sessions: [Session]) async {
         guard !windowFocused else {
@@ -2088,8 +2137,15 @@ Append to `native/Apps/ShepherdMac/Tests/NotificationsModelTests.swift`:
 struct NotificationSettingsViewTests {
     init() { NotificationSettingsWindow.reset() }
 
+    /// A throwaway suite *and* an in-memory credential store. `AppModel.init` defaults
+    /// `credentials` to `KeychainCredentialStore()`, which is exactly the unattended-run stall
+    /// this plan's "No Keychain prompts" constraint exists to prevent; every existing app test
+    /// passes the in-memory store for the same reason.
     private func scratchApp() -> AppModel {
-        AppModel(defaults: UserDefaults(suiteName: "run.shepherd.mac.notifyview.\(UUID().uuidString)")!)
+        AppModel(
+            defaults: UserDefaults(
+                suiteName: "run.shepherd.mac.notifyview.\(UUID().uuidString)")!,
+            credentials: InMemoryCredentialStore())
     }
 
     @Test func theMenuItemIsInstalledOnceHoweverOftenInstallRuns() {
@@ -2221,13 +2277,16 @@ enum NotificationSettingsWindow {
     /// which matters because `StreamRegistrations.installAll(into:)` may run more than once.
     static func installMenuItem(_ app: AppModel) {
         guard !menuItemInstalled else { return }
-        menuItemInstalled = true
         guard let appMenu = NSApp?.mainMenu?.items.first?.submenu else {
-            // Under `swift test`-style hosting there is no main menu yet; the panel is still
-            // reachable through `show(_:)`, so this is a missing convenience, not a failure.
+            // Under test hosting there is no main menu yet; the panel is still reachable through
+            // `show(_:)`, so this is a missing convenience, not a failure. The flag stays *false*
+            // so a later call — the launch task runs `installAll(into:)` more than once — still
+            // gets its chance once AppKit has built the menu. Setting it before this guard would
+            // mark the item installed on a process that never got one.
             Log.app.info("no application menu to add the notifications item to")
             return
         }
+        menuItemInstalled = true
         let item = NSMenuItem(
             title: L.t("native_notify_settings_menu_item"),
             action: #selector(MenuTarget.open(_:)), keyEquivalent: "")
@@ -2244,12 +2303,17 @@ enum NotificationSettingsWindow {
             return
         }
         let name = app.activeProfile?.name ?? "Shepherd"
+        let view = NotificationSettingsView(model: model, profileName: name)
         if let controller {
+            // Re-host, never merely re-show. `model` is the *current* activation's extension and
+            // `name` the current profile; a window kept across a profile switch would otherwise go
+            // on displaying — and writing — the previous profile's switches.
+            (controller.window?.contentViewController
+                as? NSHostingController<NotificationSettingsView>)?.rootView = view
             controller.window?.makeKeyAndOrderFront(nil)
             return
         }
-        let hosting = NSHostingController(
-            rootView: NotificationSettingsView(model: model, profileName: name))
+        let hosting = NSHostingController(rootView: view)
         let window = NSWindow(contentViewController: hosting)
         window.title = L.t("native_notify_settings_title")
         window.styleMask = [.titled, .closable]
@@ -2478,8 +2542,11 @@ Stream S6. Shepherd for Mac now tells the operator when a session needs them.
   mirrored verbatim into `ui/messages/{en,de}.json` under `native_notify_*`. The blocked body reuses
   the existing `hold_blocked_*` / `hold_quota_*` keys.
 - **`NotificationTrigger`** — `attachPush`, `attachMergePush` and `attachUsagePush`, ported:
-  `session:status` = done, `session:block` non-null, `session:ready` true, `automerge:status` in
-  `manual_steps` / `merge_error` / `rebase_cap`, and `usage:limits` over 80 % once per 5-hour window.
+  `session:status` = done, `session:block` non-null, `automerge:status` in
+  `manual_steps` / `merge_error` / `rebase_cap`, and `usage:limits` over 80 % once per 5-hour
+  window. Plus `session:ready` = true, which is **not** one of those three bridges: it fires on the
+  manual ready-to-merge flag, where the web's `ready` push comes from `src/ready-notify.ts`
+  (see deviation 5).
 - **`NotificationGate`** — focus suppression, the per-profile category filter (with `ready`
   bypassing it, as the web does), and the same 120 s per-`kind:session` cooldown that only a real
   post starts.

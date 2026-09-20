@@ -41,8 +41,10 @@ XcodeGen, `os.Logger`.
   locally — it is CI's switch for the real-keychain suite.
 - **`bun run test`, never bare `bun test`** (repo `CLAUDE.md`): the bare runner walks the wrong file
   set and "passes" without running the suite you meant.
-- **Live tests read `SHEPHERD_LIVE_BASE_URL` / `SHEPHERD_LIVE_PASSWORD` from the environment only**,
-  never from a file, and never in CI. Nothing in this branch writes either value to disk.
+- **Live tests read `SHEPHERD_LIVE_BASE_URL` / `SHEPHERD_LIVE_PASSWORD` from the environment only**
+  — or `SHEPHERD_LIVE_TOKEN` in place of the password for the read-only unit suite, which is what
+  `LiveServerEnvironment.token` already reads and what Task 8 uses. Never from a file, never in CI.
+  Nothing in this branch writes any of the three to disk.
 - **Commits:** conventional, lowercase subject; body lines ≤ 100 chars; body ends with
   `Co-Authored-By: <executing model name> <noreply@anthropic.com>`.
 - **Push with `git push --no-verify`.**
@@ -74,7 +76,8 @@ Create or modify **only**: `contracts/openapi.yaml` (between `# ── stream: a
 `native/Apps/ShepherdMac/Sources/Actions/**` ·
 `native/Apps/ShepherdMac/Tests/{ActionRules,ActionsModel,ActionBar,ActionsStrings,ActionsLive}Tests.swift`
 · the `KEYS_ACTIONS` array in `native/scripts/gen-strings.ts` · `ui/messages/{en,de}.json`
-(append-only, union merge driver).
+(append-only, union merge driver) · the generated
+`native/Apps/ShepherdMac/Resources/Localizable.xcstrings`.
 
 Never edit `AppModel.swift`, `AppModel+Extensions.swift`, `MainWindow.swift`,
 `SessionDetailView.swift`, `SessionRow.swift`, `ShepherdApp.swift`, `StreamRegistrations.swift`,
@@ -230,27 +233,18 @@ import {
   bearer, collectEvents, coverage, login, mintToken, restoreAuth, startContractServer,
   validateEvent, validateResponse, withAuth, type ContractServer,
 } from "./harness";
+import { eventsForStream, operationsForStream } from "./stream-blocks";
 
 /** This block's own coverage gate, so the stream proves its surface whichever file Bun runs
- *  first; the gate in openapi.test.ts covers the core block and subtracts this one. */
-const OPERATIONS = [
-  "POST /api/sessions/{id}/resume 200", "POST /api/sessions/{id}/resume 401",
-  "POST /api/sessions/{id}/resume 409",
-  "POST /api/sessions/{id}/rename 200", "POST /api/sessions/{id}/rename 400",
-  "POST /api/sessions/{id}/rename 401", "POST /api/sessions/{id}/rename 404",
-  "POST /api/sessions/{id}/amendments 201", "POST /api/sessions/{id}/amendments 400",
-  "POST /api/sessions/{id}/amendments 401", "POST /api/sessions/{id}/amendments 404",
-  "POST /api/sessions/{id}/ready 200", "POST /api/sessions/{id}/ready 400",
-  "POST /api/sessions/{id}/ready 401", "POST /api/sessions/{id}/ready 404",
-  "POST /api/sessions/{id}/relaunch 201", "POST /api/sessions/{id}/relaunch 400",
-  "POST /api/sessions/{id}/relaunch 401", "POST /api/sessions/{id}/relaunch 404",
-  "POST /api/sessions/{id}/relaunch 409",
-  "POST /api/sessions/{id}/recap/regenerate 202",
-  "POST /api/sessions/{id}/recap/regenerate 401",
-  "POST /api/sessions/{id}/recap/regenerate 404",
-  "GET /api/recaps 200", "GET /api/recaps 401",
-];
-const EVENTS = ["session:recap", "session:amendments"];
+ *  first; the gate in openapi.test.ts covers the core block and subtracts this one.
+ *
+ *  Derived from the contract, never hand-kept. A literal list drifts silently in one direction
+ *  only — a status declared in `paths:` but forgotten here is declared-but-unexercised, and
+ *  nothing anywhere catches it, which is the exact hole the per-stream split exists to close.
+ *  `operationsForStream` reads the same marked block this task writes, so the gate fails the
+ *  moment the two disagree. */
+const OPERATIONS = operationsForStream("actions");
+const EVENTS = eventsForStream("actions");
 
 let s: ContractServer;
 let token: string;
@@ -832,6 +826,27 @@ indent):
 
 `403 insufficient_scope` is reachable with a scoped token but stays undeclared, per
 `contracts/README.md`'s "Deliberately undeclared" rule: the native client mints `full` tokens.
+The same rule covers `415` from `requireJsonContentType` and malformed-JSON `400`.
+
+**Two statuses this block must settle, because the derived gate will not let them sit
+half-declared.** Both are real server behaviour that the hand-kept list used to paper over:
+
+1. **`POST /api/sessions/{id}/rename` → `409 name_taken`** (`src/server.ts:3381`, `:3385`). Declared
+   above. Exercise it by adding a case to the rename `describe` in Step 1's `actions.test.ts`: create two
+   sessions and rename the second onto the first's name, then `validateResponse` the 409. If the stub cannot reach it — `test/contract/deps.ts` hardcodes
+   `worktree.branchExists` to `false` and wires no `prCache`, so only the slug-collision branch is
+   live — **delete the `"409"` entry from the rename path** rather than leave it declared and
+   unexercised. A status the contract promises and no test drives is worse than one the client
+   maps through `fromUndocumented`.
+2. **`POST /api/sessions/{id}/relaunch` → `502`** (`src/server.ts:3699` `issue_unresolved`,
+   `src/server.ts:3710` `relaunch failed`). **Not** declared above, and **not** on
+   `contracts/README.md`'s deliberately-undeclared list either — the contract already declares a
+   `502` on `POST /api/sessions` and `test/contract/openapi.test.ts` drives it. Add it to the
+   relaunch path above with the `Error` schema, and drive it from the relaunch `describe` in
+   Step 1's `actions.test.ts` the same way `openapi.test.ts` drives the create-session 502.
+   If it proves unreachable through the stub, say so in the PR body as a known coverage hole
+   instead of silently omitting it — `ShepherdClient.relaunch` will otherwise surface a real
+   upstream failure as a generic `fromUndocumented` error.
 
 - [ ] **Step 5: Add the two events inside the actions block in `x-shepherd-events`**
 
@@ -890,7 +905,9 @@ git commit -m "feat(contract): session action routes, recap read and amendment e
   `regenerateRecap(sessionID:) -> RecapRegenerateResult`, `recaps() -> [String: Recap]`, plus the
   public typealiases `RenameResult`, `TaskAmendment`, `AmendmentCreated`, `Recap`, `RecapState`,
   `RecapStateKnown`, `RecapVerdict`, `RecapVerdictKnown`, `RelaunchResult`,
-  `RecapRegenerateResult`, `RecapRegenerateStatus`, `RecapRegenerateStatusKnown`.
+  `RecapRegenerateResult`, `RecapRegenerateStatus`, `RecapRegenerateStatusKnown`, and the three
+  `OpenEnum` conformances (`RecapState`, `RecapVerdict`, `RecapRegenerateStatus`) that give those
+  wrappers their `known` / `rawValue` / `init(known:)` / `init(unknown:)`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1127,6 +1144,16 @@ public typealias RecapRegenerateResult = Components.Schemas.RecapRegenerateResul
 public typealias RecapRegenerateStatus = Components.Schemas.RecapRegenerateStatus
 public typealias RecapRegenerateStatusKnown = Components.Schemas.RecapRegenerateStatusKnown
 
+// The three schemas this stream flags `x-shepherd-open-enum: true`. The derivation gives each an
+// `anyOf` shape and a `<Name>Known` companion, but `known`, `rawValue`, `init(known:)` and
+// `init(unknown:)` come from `Model/OpenEnum.swift`'s protocol extension, which reaches a type only
+// once that type conforms. `OpenEnum.swift` itself hard-codes the nine core conformances and is
+// S0-owned, so this stream declares its own three here — same module, no retroactive conformance.
+// Without these lines every `RecapVerdict(known:)` and `.known` below fails to compile.
+extension Components.Schemas.RecapState: OpenEnum {}
+extension Components.Schemas.RecapVerdict: OpenEnum {}
+extension Components.Schemas.RecapRegenerateStatus: OpenEnum {}
+
 /// The per-session commands the action bar issues.
 ///
 /// Every one of them maps the generated `Output` enum onto a value or a `ShepherdError`, so
@@ -1253,7 +1280,7 @@ extension ShepherdClient {
 ```
 
 If the generated case for the 202 response is not spelled `.accepted`, read the generated
-`Operations.regenerateRecap.Output` in `.build/` and use the spelling the generator chose; do not
+`Operations.RegenerateRecap.Output` in `.build/` and use the spelling the generator chose; do not
 change the contract to suit a guess.
 
 **Generated enum-case spelling.** `native/Sources/ShepherdKit/openapi-generator-config.yaml` sets
@@ -2177,12 +2204,13 @@ struct ActionBarTests {
 
     @Test func theSlotIsEmptyUntilTheStreamInstallsItself() {
         #expect(ActionBarSlot.resolution == .fallback)
-        ActionsStream.install(AppModel(defaults: Self.scratchDefaults()))
+        ActionsStream.install(
+            AppModel(defaults: Self.scratchDefaults(), credentials: InMemoryCredentialStore()))
         #expect(ActionBarSlot.resolution == .slot)
     }
 
     @Test func installingTwiceRegistersOneExtension() {
-        let app = AppModel(defaults: Self.scratchDefaults())
+        let app = AppModel(defaults: Self.scratchDefaults(), credentials: InMemoryCredentialStore())
         ActionsStream.install(app)
         ActionsStream.install(app)
         #expect(app.extensionFactories.count == 1)
@@ -2195,7 +2223,7 @@ struct ActionBarTests {
 
         let recap = Recap(
             sessionId: "s1", state: RecapState(known: .ready),
-            verdict: RecapVerdict(known: .needs_attention), headline: "Two follow-ups open",
+            verdict: RecapVerdict(known: .needsAttention), headline: "Two follow-ups open",
             body: "b", openItems: ["a", "b"], changedFiles: [], generatedAt: 1, updatedAt: 1)
         let content = RecapLine.content(for: recap)
         #expect(content?.verdict == L.t("recap_verdict_needs_attention"))
@@ -2215,12 +2243,15 @@ struct ActionBarTests {
     @Test func anUnknownVerdictFallsBackToTheRawValue() {
         let recap = Recap(
             sessionId: "s1", state: RecapState(known: .ready),
-            verdict: RecapVerdict(rawValue: "quantum"), headline: "h", body: "b",
+            verdict: RecapVerdict(unknown: "quantum"), headline: "h", body: "b",
             openItems: [], changedFiles: [], generatedAt: 1, updatedAt: 1)
         #expect(RecapLine.content(for: recap)?.verdict == "quantum")
     }
 
-    /// A throwaway suite so the test never reads or writes the operator's own profiles.
+    /// A throwaway suite so the test never reads or writes the operator's own profiles. Pair it
+    /// with `InMemoryCredentialStore()` at every call site: `AppModel.init` defaults `credentials`
+    /// to `KeychainCredentialStore()`, and that is the unattended-run stall this plan's "No
+    /// Keychain prompts" constraint exists to prevent. Every existing app test does the same.
     private static func scratchDefaults() -> UserDefaults {
         UserDefaults(suiteName: "run.shepherd.mac.actiontests.\(UUID().uuidString)")!
     }
@@ -2280,7 +2311,7 @@ enum RecapLine {
     static func tint(for verdict: RecapVerdict?) -> Color {
         switch verdict?.known {
         case .ready: .green
-        case .needs_attention: .orange
+        case .needsAttention: .orange
         case .parked: .secondary
         default: .secondary
         }
@@ -2536,6 +2567,10 @@ enum ActionsStream {
 ```
 
 - [ ] **Step 5: Run the app tests, build, and look at it**
+
+`ActionBarView` above already presents `RenameSheet` and `AmendSheet`, which Task 7 writes, so this
+build is green only once both files exist. Executing strictly in order: write Task 7's two files
+first, then come back and run this step.
 
 ```bash
 ./native/scripts/test-app.sh -only-testing:ShepherdTests 2>&1 | tail -3 \

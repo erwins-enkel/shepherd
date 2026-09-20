@@ -2250,6 +2250,17 @@ components:
         count: { "type": "integer" }
     AutoRevivedEvent:
       $ref: "#/components/schemas/ReviveResult"
+    RestoreConflictReason:
+      type: "string"
+      enum: ["in_progress", "not_archived", "cannot_restore", "branch_gone", "branch_in_use", "spawn_refused"]
+      x-shepherd-open-enum: true
+    RestoreConflict:
+      type: "object"
+      additionalProperties: true
+      required: ["error", "code"]
+      properties:
+        error: { "type": "string" }
+        code: { "$ref": "#/components/schemas/RestoreConflictReason" }
     # ── /stream: queues ──
     # ── stream: compose ──
     # ── /stream: compose ──
@@ -3610,7 +3621,7 @@ paths:
           content: { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
         "409":
           description: "Conflict code: in_progress, not_archived, cannot_restore, branch_gone, branch_in_use, or spawn_refused."
-          content: { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+          content: { "application/json": { "schema": { "$ref": "#/components/schemas/RestoreConflict" } } }
   /api/sessions/{id}/usage:
     parameters: [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }]
     get:

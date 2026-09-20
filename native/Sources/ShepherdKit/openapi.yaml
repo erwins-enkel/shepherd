@@ -3414,6 +3414,30 @@ components:
           type: integer
     AutoRevivedEvent:
       $ref: "#/components/schemas/ReviveResult"
+    RestoreConflictReason:
+      anyOf:
+        - $ref: "#/components/schemas/RestoreConflictReasonKnown"
+        - type: string
+    RestoreConflictReasonKnown:
+      type: string
+      enum:
+        - in_progress
+        - not_archived
+        - cannot_restore
+        - branch_gone
+        - branch_in_use
+        - spawn_refused
+    RestoreConflict:
+      type: object
+      additionalProperties: true
+      required:
+        - error
+        - code
+      properties:
+        error:
+          type: string
+        code:
+          $ref: "#/components/schemas/RestoreConflictReason"
   responses:
     Unauthorized:
       description: Missing or invalid credential.
@@ -5125,7 +5149,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Error"
+                $ref: "#/components/schemas/RestoreConflict"
   /api/sessions/{id}/usage:
     parameters:
       - name: id

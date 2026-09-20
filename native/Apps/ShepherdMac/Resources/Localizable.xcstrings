@@ -6080,6 +6080,23 @@
         }
       }
     },
+    "newtask_agent_provider_codex_alpha_badge": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alpha MVP"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alpha MVP"
+          }
+        }
+      }
+    },
     "newtask_agent_provider_codex_alpha_note": {
       "extractionState": "manual",
       "localizations": {
@@ -6127,6 +6144,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Claude Code is at the usage-hold threshold, so running this task on Codex sidesteps the hold. Switch the coding CLI back to Claude Code to hold it until the reset or submit anyway instead."
+          }
+        }
+      }
+    },
+    "newtask_agent_provider_label": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coding CLI"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coding CLI"
           }
         }
       }
@@ -6246,6 +6280,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "main"
+          }
+        }
+      }
+    },
+    "newtask_capacity_all": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "alle"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "all"
+          }
+        }
+      }
+    },
+    "newtask_capacity_all_aria": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbleibende Kapazität aller Engines"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remaining capacity across all engines"
           }
         }
       }
@@ -6725,6 +6793,94 @@
           "stringUnit": {
             "state": "translated",
             "value": "Describe the feature, fix, or task…"
+          }
+        }
+      }
+    },
+    "newtask_provider_capacity_free": {
+      "comment": "%1$@ = pct",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@%% frei"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@%% free"
+          }
+        }
+      }
+    },
+    "newtask_provider_capacity_free_until": {
+      "comment": "%1$@ = pct, %2$@ = time",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@%% frei bis %2$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@%% free until %2$@"
+          }
+        }
+      }
+    },
+    "newtask_provider_capacity_meter_window_aria": {
+      "comment": "%1$@ = provider, %2$@ = window, %3$@ = free",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ %2$@: %3$@%% frei"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ %2$@: %3$@%% free"
+          }
+        }
+      }
+    },
+    "newtask_provider_capacity_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbleibender Spielraum"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remaining room"
+          }
+        }
+      }
+    },
+    "newtask_provider_capacity_unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine Nutzungsfenster-Daten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No usage-window data"
           }
         }
       }

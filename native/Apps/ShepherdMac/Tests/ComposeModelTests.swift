@@ -475,3 +475,92 @@ import Testing
         m.teardown()
     }
 }
+
+@MainActor @Suite struct ComposeCapacityTests {
+    private func limits(_ fields: String = "") throws -> UsageLimits {
+        try JSONDecoder().decode(UsageLimits.self, from: Data("""
+        {"perModelWeek":[],"stale":false,"calibratedAt":null,"subscriptionOnly":false\(fields)}
+        """.utf8))
+    }
+
+    @Test func emptyAndOlderServersKeepBothRowsWithoutInventingCodexCapacity() throws {
+        for usage in [nil, try limits()] {
+            let rows = ComposeCapacity.rows(usage)
+            #expect(rows.map(\.provider) == [.claude, .codex])
+            #expect(rows.allSatisfy { $0.windows.isEmpty })
+            #expect(ComposeCapacity.selected(usage, provider: .claude) == nil)
+            #expect(ComposeCapacity.selected(usage, provider: .codex) == nil)
+        }
+        let usage = try limits(#", "week":{"pct":7,"resetAt":2000}"#)
+        #expect(ComposeCapacity.selected(usage, provider: .claude)?.code == "CC·WK")
+        #expect(ComposeCapacity.selected(usage, provider: .codex) == nil)
+    }
+
+    @Test func hottestWindowClampsPercentagesAndKeepsFiveHourTieOrder() throws {
+        let usage = try limits(#", "session5h":{"pct":-10,"resetAt":1000},"week":{"pct":125,"resetAt":2000}"#)
+        let row = ComposeCapacity.rows(usage)[0]
+        #expect(row.windows.map(\.usedPct) == [0, 100])
+        #expect(row.windows.map(\.remainingPct) == [100, 0])
+        let hot = try #require(ComposeCapacity.selected(usage, provider: .claude))
+        #expect(hot.code == "CC·WK" && hot.window.resetAt == 2000)
+        let tied = try limits(#", "session5h":{"pct":50,"resetAt":1000},"week":{"pct":50,"resetAt":2000}"#)
+        #expect(ComposeCapacity.selected(tied, provider: .claude)?.code == "CC·5H")
+    }
+
+    @Test func observedWinsAsAWholeIncludingEmptyAndPartialObservations() throws {
+        let local = #", "session5h":{"pct":99,"resetAt":1000},"week":{"pct":98,"resetAt":2000}"#
+        let usage = try limits(local + #", "observed":{"week":{"pct":7,"resetAt":3000,"scrapedAt":1}}"#)
+        let hot = try #require(ComposeCapacity.selected(usage, provider: .claude))
+        #expect(hot.code == "CC·WK" && hot.window.remainingPct == 93 && hot.window.resetAt == 3000)
+        #expect(ComposeCapacity.rows(usage)[0].windows.count == 1)
+        #expect(ComposeCapacity.selected(try limits(local + #", "observed":{}"#), provider: .claude) == nil)
+    }
+
+    @Test func claudeSnapshotObservationIsFallbackButTopLevelObservationWins() throws {
+        let provider = #", "providers":[{"provider":"claude","kind":"limits","perModelWeek":[],"stale":false,"calibratedAt":null,"subscriptionOnly":false,"observed":{"session5h":{"pct":60,"resetAt":1000,"scrapedAt":1}}}]"#
+        #expect(ComposeCapacity.selected(try limits(provider), provider: .claude)?.window.usedPct == 60)
+        #expect(ComposeCapacity.selected(try limits(provider + #", "observed":{}"#), provider: .claude) == nil)
+    }
+
+    @Test func codexUsesOnlyItsTokenSnapshotAndKeepsIndependentStaleness() throws {
+        let provider = #", "providers":[{"provider":"codex","kind":"tokens","totalTokens":999,"session5hTokens":10,"weekTokens":20,"updatedAt":null,"stale":true,"session5h":{"pct":2,"resetAt":1000},"week":{"pct":7,"resetAt":2000}}]"#
+        let usage = try limits(provider + #", "week":{"pct":98,"resetAt":2000}"#)
+        let hot = try #require(ComposeCapacity.selected(usage, provider: .codex))
+        #expect(hot.code == "CX·WK" && hot.window.remainingPct == 93 && hot.stale)
+        #expect(ComposeCapacity.rows(usage)[1].windows.map(\.key) == ["5H", "WK"])
+        #expect(ComposeCapacity.selected(usage, provider: .claude)?.stale == false)
+        for changed in [provider.replacingOccurrences(of: "tokens\"", with: "future\""),
+                        provider.replacingOccurrences(of: "codex\"", with: "future\"")] {
+            #expect(ComposeCapacity.selected(try limits(changed), provider: .codex) == nil)
+        }
+        let tokensOnly = try limits(#", "providers":[{"provider":"codex","kind":"tokens","totalTokens":999,"session5hTokens":10,"weekTokens":20,"updatedAt":null,"stale":false}]"#)
+        #expect(ComposeCapacity.selected(tokensOnly, provider: .codex) == nil)
+    }
+
+    @Test func staleClaudeObservationsStillDimTheLine() throws {
+        let usage = try limits(#", "observed":{"week":{"pct":7,"resetAt":2000,"scrapedAt":1}}"#)
+        var stale = usage
+        stale.stale = true
+        #expect(ComposeCapacity.selected(stale, provider: .claude)?.stale == true)
+    }
+
+    @Test func severityBoundariesUseUsedCapacity() {
+        for (used, expected) in [(0.0, ComposeCapacity.Tone.muted), (50, .muted), (50.01, .amber),
+                                 (90, .amber), (90.01, .red), (100, .red)] {
+            #expect(ComposeCapacity.Window(key: "WK", pct: used, resetAt: 0).tone == expected)
+        }
+    }
+
+    @Test func engineBindingHonorsCommandConstraintAndUnlocksWhenRemoved() {
+        let model = ComposeModelTests.composer()
+        let picker = EnginePicker(model: model)
+        picker.selection.wrappedValue = .codex
+        #expect(model.provider == .codex)
+        model.pickCommand(.init(name: "ship", description: "Ship", scope: .init(known: .project), providers: [.claude]))
+        picker.selection.wrappedValue = .codex
+        #expect(model.provider == .claude)
+        model.prompt = "new task"
+        picker.selection.wrappedValue = .codex
+        #expect(model.provider == .codex)
+    }
+}

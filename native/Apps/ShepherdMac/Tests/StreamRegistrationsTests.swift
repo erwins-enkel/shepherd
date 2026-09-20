@@ -66,7 +66,7 @@ struct StreamRegistrationsTests {
         SessionSignals.gitMerged = { _ in true }
         SessionSignals.workingBlocked = { ["a": true] }
         SessionSignals.manualStepsOutstanding = { ["a": 1] }
-        MergeInputs.git = { _ in ["a": .init(deployConfigured: false)] }
+        MergeInputs.git = { _ in ["a": .init(state: nil, checks: nil, deployConfigured: false)] }
         MergeInputs.reviewing = { _, _ in true }
         MergeInputs.planReviewBlocked = { _, _ in false }
         MergeInputs.terminalEnded = { _, _ in false }

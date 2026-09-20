@@ -767,6 +767,20 @@ struct NotificationsModelTests {
         #expect(center.badge == 0, "assigning the seam refreshes the badge itself")
     }
 
+    @Test func archivedOwedRecordsRemainActionableAttention() async {
+        SessionSignals.manualStepsOutstanding = { ["archived": 1] }
+        defer { SessionSignals.manualStepsOutstanding = { [:] } }
+        let center = FakeNotificationCenter()
+        let m = await model(center: center)
+        await m.setWindowFocused(false)
+        m.extraAttention = ["archived", "phantom"]
+        await m.updateBadge(sessions: [])
+        #expect(center.badge == 1)
+        SessionSignals.manualStepsOutstanding = { [:] }
+        await m.updateBadge(sessions: [])
+        #expect(center.badge == 0)
+    }
+
     /// The de-duplication has to hold in the state the operator is actually in most of the day:
     /// window in front, several agents running, a `session:activity` / `session:claude-alive` /
     /// `session:git` frame every few hundred milliseconds. The focused branch used to call

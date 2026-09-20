@@ -47,7 +47,10 @@ struct HerdLiveTests {
                         prefix: "Shepherd UI test (", hostName: "herd-\(UUID().uuidString)"))
                 minted = true
             }
-            let live = try SessionStore(profile: profile, credentials: credentials)
+            let audit = ReadOnlyRequestAudit()
+            defer { #expect(audit.counts.reads > 0); #expect(audit.counts.rejected == 0) }
+            let live = try SessionStore(client: ShepherdClient(profile: profile, credentials: credentials,
+                readOnlyAudit: audit))
             store = live
             try await body(live)
         } catch {

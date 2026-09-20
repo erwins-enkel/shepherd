@@ -25,7 +25,7 @@ struct ComposeSheetContent: View {
     init(app: AppModel, store: SessionStore, activation: Int, model: ComposeModel? = nil) {
         self.app = app; self.store = store; self.activation = activation
         let defaults = ComposeRunConfig.defaults(from: store.settings)
-        let composer = model ?? ComposeModel(client: store.client, runDefaults: defaults)
+        let composer = model ?? ComposeModel(client: store.client, defaults: app.composerDefaults, runDefaults: defaults)
         composer.repoBranches.allowsStatusProbe = app.liveRequestAudit == nil
         _model = State(initialValue: composer)
     }

@@ -186,6 +186,7 @@ final class AppModel {
     /// `RootView`'s notice bar for whoever reads the test's log or screenshot.
     var isolatedLaunchError: String?
     /// Live UI smoke may read caches but must not start server-side recomputation.
+    let composerDefaults: UserDefaults
     var liveRequestAudit: ReadOnlyRequestAudit?
     var allowsQueueRecomputation = true
     /// Emulator query replies are PTY input too, even when a live smoke test never types.
@@ -321,6 +322,7 @@ final class AppModel {
         defaults: UserDefaults = .standard,
         credentials: any CredentialStore = KeychainCredentialStore()
     ) {
+        self.composerDefaults = defaults
         self.persistence = ProfileStore(defaults: defaults)
         self.credentials = credentials
 

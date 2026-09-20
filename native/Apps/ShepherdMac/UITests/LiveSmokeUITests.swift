@@ -80,6 +80,7 @@ final class LiveSmokeUITests: XCTestCase {
         // A real Quit delivers the isolated launch's token-revocation notification.
         // terminate() alone kills the process without that notification.
         if let app, app.state != .notRunning {
+            assertReadOnlyAudit()
             app.typeKey("q", modifierFlags: .command)
             _ = app.wait(for: .notRunning, timeout: 10)
             if app.state != .notRunning { app.terminate() }

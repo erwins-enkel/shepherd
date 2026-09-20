@@ -39,8 +39,10 @@ struct QueuesLiveTests {
         ).validated()
         let session = URLSession(configuration: .ephemeral)
         defer { session.invalidateAndCancel() }
+        let audit = ReadOnlyRequestAudit()
+        defer { #expect(audit.counts.reads > 0); #expect(audit.counts.rejected == 0) }
         let client = try ShepherdClient(
-            profile: profile, credentials: credentials, urlSession: session)
+            profile: profile, credentials: credentials, urlSession: session, readOnlyAudit: audit)
 
         var minted = false
         if let token = LiveServerEnvironment.token {

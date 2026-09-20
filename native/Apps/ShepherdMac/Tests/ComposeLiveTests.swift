@@ -52,7 +52,12 @@ struct ComposeLiveTests {
                 try probeCredentials.save(credential, for: live.credentialKey)
                 revocationProbe = try ShepherdClient(profile: live, credentials: probeCredentials)
             }
-            let client = try ShepherdClient(profile: live, credentials: credentials)
+            let audit = ReadOnlyRequestAudit()
+            defer {
+                #expect(audit.counts.reads > 0)
+                #expect(audit.counts.rejected == 0, "live checks must attempt only read-only operations")
+            }
+            let client = try ShepherdClient(profile: live, credentials: credentials, readOnlyAudit: audit)
             stage = "repositories"
             let repos = try await client.repos().repos
             #expect(!repos.isEmpty, "Live coverage requires at least one repository")

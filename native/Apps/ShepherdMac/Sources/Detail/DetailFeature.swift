@@ -39,6 +39,52 @@ struct DetailTaskKey: Hashable {
     }
 }
 
+/// The Refresh control every detail tab shows, rendered *inside* the tab instead of in the
+/// window toolbar.
+///
+/// It used to be a `ToolbarItem`. `SessionDetailView` hosts the tabs in a `TabView`, which keeps
+/// every visited child alive, and a child's `.toolbar` contribution is never withdrawn when that
+/// child goes off screen: the window grew one Refresh button per tab the operator had ever
+/// opened, and AppKit eventually threw out of
+/// `-[NSToolbar _insertNewItemWithItemIdentifier:atIndex:propertyListRepresentation:notifyFlags:]`
+/// and killed the app — reproduced live, four tabs deep. Keeping the control in the tab's own
+/// body keeps it out of the AppKit toolbar bridge entirely, and no stream needs to own the
+/// window's toolbar to have one.
+struct DetailRefreshBar<Leading: View>: View {
+    let title: String
+    let isDisabled: Bool
+    let accessibilityID: String
+    let action: () -> Void
+    @ViewBuilder let leading: () -> Leading
+
+    var body: some View {
+        HStack(spacing: 10) {
+            leading()
+            Spacer(minLength: 0)
+            Button(title, systemImage: "arrow.clockwise", action: action)
+                .labelStyle(.iconOnly)
+                .buttonStyle(.borderless)
+                .disabled(isDisabled)
+                .help(title)
+                .accessibilityIdentifier(accessibilityID)
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, 8)
+        .padding(.bottom, 4)
+    }
+}
+
+extension DetailRefreshBar where Leading == EmptyView {
+    init(
+        title: String, isDisabled: Bool, accessibilityID: String,
+        action: @escaping () -> Void
+    ) {
+        self.init(
+            title: title, isDisabled: isDisabled, accessibilityID: accessibilityID,
+            action: action, leading: { EmptyView() })
+    }
+}
+
 /// What a tab should render. A tab maps its own `Loaded` value onto this.
 enum DetailStatePhase: Equatable {
     case loading

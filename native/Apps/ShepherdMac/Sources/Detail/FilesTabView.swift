@@ -49,17 +49,6 @@ struct FilesTabView: View {
             }
         }
         .accessibilityIdentifier("detail-tab-files")
-        .toolbar {
-            // An explicit id: four detail tabs each add a Refresh item, and SwiftUI matches
-            // toolbar items by identity when one tab replaces another.
-            ToolbarItem(id: "detail-files-refresh") {
-                Button(L.t("native_detail_refresh"), systemImage: "arrow.clockwise") {
-                    browse(currentPath)
-                }
-                .labelStyle(.iconOnly)
-                .disabled(state.isLoading)
-            }
-        }
         .task(id: DetailTaskKey(session: session.id, model: model)) {
             source = .scratchpad
             currentPath = nil
@@ -67,16 +56,25 @@ struct FilesTabView: View {
         }
     }
 
+    /// The source switch and Refresh share one row. Refresh lives here rather than in the window
+    /// toolbar — see `DetailRefreshBar` for why that is not negotiable.
     private var picker: some View {
-        Picker("", selection: sourceBinding) {
-            Text(verbatim: L.t("files_source_scratchpad")).tag(DetailModel.FilesSource.scratchpad)
-            Text(verbatim: L.t("files_source_worktree")).tag(DetailModel.FilesSource.worktree)
+        DetailRefreshBar(
+            title: L.t("native_detail_refresh"),
+            isDisabled: state.isLoading,
+            accessibilityID: "detail-files-refresh",
+            action: { browse(currentPath) }
+        ) {
+            Picker("", selection: sourceBinding) {
+                Text(verbatim: L.t("files_source_scratchpad"))
+                    .tag(DetailModel.FilesSource.scratchpad)
+                Text(verbatim: L.t("files_source_worktree"))
+                    .tag(DetailModel.FilesSource.worktree)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(width: 220)
         }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .frame(width: 220)
-        .padding(.horizontal, 12)
-        .padding(.top, 8)
     }
 
     /// A custom binding rather than `.onChange(of: source)`: `.task(id:)` above also resets

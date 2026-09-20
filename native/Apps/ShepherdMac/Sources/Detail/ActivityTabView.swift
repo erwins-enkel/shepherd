@@ -20,21 +20,19 @@ struct ActivityTabView: View {
     private var entries: [ActivityEntry] { (state.value ?? []).reversed() }
 
     var body: some View {
-        DetailStateView(state: phase, retry: reload) {
-            List(Array(entries.enumerated()), id: \.offset) { _, entry in row(entry) }
-                .listStyle(.inset)
-                .accessibilityIdentifier("detail-activity-list")
-        }
-        .accessibilityIdentifier("detail-tab-activity")
-        .toolbar {
-            // An explicit id: four detail tabs each add a Refresh item, and SwiftUI matches
-            // toolbar items by identity when one tab replaces another.
-            ToolbarItem(id: "detail-activity-refresh") {
-                Button(L.t("native_detail_refresh"), systemImage: "arrow.clockwise", action: reload)
-                    .labelStyle(.iconOnly)
-                    .disabled(state.isLoading || model.isRefreshing(.activity, session: session.id))
+        VStack(alignment: .leading, spacing: 0) {
+            DetailRefreshBar(
+                title: L.t("native_detail_refresh"),
+                isDisabled: state.isLoading || model.isRefreshing(.activity, session: session.id),
+                accessibilityID: "detail-activity-refresh",
+                action: reload)
+            DetailStateView(state: phase, retry: reload) {
+                List(Array(entries.enumerated()), id: \.offset) { _, entry in row(entry) }
+                    .listStyle(.inset)
+                    .accessibilityIdentifier("detail-activity-list")
             }
         }
+        .accessibilityIdentifier("detail-tab-activity")
         .task(id: DetailTaskKey(session: session.id, model: model)) {
             await model.poll(.activity, session: session.id)
         }

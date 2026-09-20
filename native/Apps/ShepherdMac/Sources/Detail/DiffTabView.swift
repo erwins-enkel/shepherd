@@ -25,6 +25,24 @@ struct DiffTabView: View {
     private var isRefreshing: Bool { model.isRefreshing(.diff, session: session.id) }
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            DetailRefreshBar(
+                title: L.t("diff_refresh"),
+                isDisabled: state.isLoading || isRefreshing,
+                accessibilityID: "detail-diff-refresh",
+                action: reload)
+            content
+        }
+        .accessibilityIdentifier("detail-tab-diff")
+        .task(id: DetailTaskKey(session: session.id, model: model)) {
+            selectedPath = nil
+            recomputeLayout()
+            await model.poll(.diff, session: session.id)
+        }
+        .onChange(of: state.value?.result.head) { _, _ in recomputeLayout() }
+    }
+
+    private var content: some View {
         DetailStateView(state: phase, retry: reload) {
             HSplitView {
                 fileList.frame(minWidth: 200, idealWidth: 260, maxWidth: 380)
@@ -41,22 +59,6 @@ struct DiffTabView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
         }
-        .accessibilityIdentifier("detail-tab-diff")
-        .toolbar {
-            // An explicit id: four detail tabs each add a Refresh item, and SwiftUI matches
-            // toolbar items by identity when one tab replaces another.
-            ToolbarItem(id: "detail-diff-refresh") {
-                Button(L.t("diff_refresh"), systemImage: "arrow.clockwise", action: reload)
-                    .labelStyle(.iconOnly)
-                    .disabled(state.isLoading || isRefreshing)
-            }
-        }
-        .task(id: DetailTaskKey(session: session.id, model: model)) {
-            selectedPath = nil
-            recomputeLayout()
-            await model.poll(.diff, session: session.id)
-        }
-        .onChange(of: state.value?.result.head) { _, _ in recomputeLayout() }
     }
 
     /// The one place `DiffAnnotationLayout.partition` (and, inside it, `UnifiedPatch.parse`) is

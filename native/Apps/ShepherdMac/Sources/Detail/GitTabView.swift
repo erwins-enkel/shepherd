@@ -97,18 +97,14 @@ struct GitTabView: View {
             if let message = command.message {
                 NoticeBar(message: message) { command.clear() }
             }
+            DetailRefreshBar(
+                title: L.t("native_detail_refresh"),
+                isDisabled: state.isLoading || model.isRefreshing(.git, session: session.id),
+                accessibilityID: "detail-git-refresh",
+                action: reload)
             DetailStateView(state: phase, retry: reload) { content }
         }
         .accessibilityIdentifier("detail-tab-git")
-        .toolbar {
-            // An explicit id: four detail tabs each add a Refresh item, and SwiftUI matches
-            // toolbar items by identity when one tab replaces another.
-            ToolbarItem(id: "detail-git-refresh") {
-                Button(L.t("native_detail_refresh"), systemImage: "arrow.clockwise", action: reload)
-                    .labelStyle(.iconOnly)
-                    .disabled(state.isLoading || model.isRefreshing(.git, session: session.id))
-            }
-        }
         .confirmationDialog(
             L.t("native_detail_merge_confirm_title"), isPresented: $confirmingMerge,
             titleVisibility: .visible

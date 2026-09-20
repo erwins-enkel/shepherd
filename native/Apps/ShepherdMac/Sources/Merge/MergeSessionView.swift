@@ -7,13 +7,14 @@ struct MergeSessionView: View {
     let store: SessionStore
     let model: MergeModel
     var body: some View {
-        MergeSessionContent(session: session, store: store, model: model)
+        MergeSessionContent(app: app, session: session, store: store, model: model)
             .id("\(app.activationGeneration):\(session.id)")
     }
 }
 
 // Keep presentation state below the activation/session identity, including before tab registration.
 private struct MergeSessionContent: View {
+    let app: AppModel
     let session: Session
     let store: SessionStore
     let model: MergeModel
@@ -58,7 +59,9 @@ private struct MergeSessionContent: View {
             Button(L.t("native_merge_ack")) {
                 model.perform { _ = try await store.client.ackManualSteps(id: session.id) }
             }.disabled(session.manualSteps.isEmpty)
-            // Task 8 adds MergeQueueView here, including an empty queue for first-time editing.
+            let queue = model.snapshot.queues[session.id]
+                ?? BuildQueue(sessionId: session.id, steps: [], approved: false)
+            MergeQueueView(app: app, queue: queue, session: session, store: store, model: model)
         }
         .padding().disabled(model.busy)
         .sheet(isPresented: $confirm) {

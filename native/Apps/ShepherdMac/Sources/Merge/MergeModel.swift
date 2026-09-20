@@ -42,6 +42,7 @@ final class MergeModel: AppExtension {
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private var watchTask: Task<Void, Never>?
     @ObservationIgnored private var writeTask: Task<Void, Never>?
+    @ObservationIgnored private var writeSequence = 0
     @ObservationIgnored private var wake: AsyncStream<Void>.Continuation?
 
     init(reads: MergeReads) { self.reads = reads }
@@ -139,22 +140,33 @@ final class MergeModel: AppExtension {
         })
     }
     func perform<Value: Sendable>(
+        queueIfBusy: Bool = false,
         commit: @escaping @MainActor (Value) -> Void = { _ in },
         failure: @escaping @MainActor () -> Void = {},
         _ action: @escaping @MainActor () async throws -> Value
     ) {
-        guard !busy, !stopped else { return }
+        guard !stopped, !busy || queueIfBusy else { return }
+        let previousWrite = busy ? writeTask : nil
+        writeSequence &+= 1
+        let sequence = writeSequence
         busy = true; error = nil
         let mine = generation, activation = app?.activationGeneration
         writeTask = Task { [weak self] in
+            await withTaskCancellationHandler {
+                await previousWrite?.value
+            } onCancel: {
+                previousWrite?.cancel()
+            }
             guard let self, self.valid(mine, activation), !Task.isCancelled else { return }
             do {
                 let value = try await action()
                 guard self.valid(mine, activation), !Task.isCancelled else { return }
-                commit(value); self.busy = false; self.invalidate()
+                commit(value)
+                if sequence == self.writeSequence { self.busy = false }
+                self.invalidate()
             } catch {
                 guard self.valid(mine, activation), !Task.isCancelled else { return }
-                self.busy = false
+                if sequence == self.writeSequence { self.busy = false }
                 self.error = ShepherdErrorCopy.message(error)
                 failure()
             }

@@ -2,6 +2,29 @@ import Foundation
 import Testing
 @testable import ShepherdKit
 struct ShepherdClientMergeTests {
+    @Test func durableStepWritesCarryExactIDsAndBothToggleValues() async throws {
+        let server = FakeShepherdServer(); defer { server.tearDown() }
+        let record = Data(#"{"sessionId":"pruned","desig":"TASK-1","repoPath":"/a","prNumber":7,"prTitle":"Ship","steps":[],"trackingIssueUrl":null,"trackingIssueNumber":null,"createdAt":1,"updatedAt":1,"clearedAt":null}"#.utf8)
+        server.on("POST", "/api/manual-steps/pruned/steps/one") { _ in FakeResponse(body: record) }
+        server.on("POST", "/api/manual-steps/pruned/dismiss") { _ in FakeResponse(body: record) }
+        let client = try client(server)
+        for done in [true, false] {
+            _ = try await client.setManualStepDone(id: "pruned", stepId: "one", body: .init(done: done))
+        }
+        _ = try await client.dismissManualSteps(id: "pruned")
+        let requests = server.requests()
+        #expect(requests.map(\.method) == ["POST", "POST", "POST"])
+        #expect(requests.map(\.path) == ["/api/manual-steps/pruned/steps/one",
+                                        "/api/manual-steps/pruned/steps/one",
+                                        "/api/manual-steps/pruned/dismiss"])
+        let toggles = try requests.prefix(2).map { request in
+            let body = try #require(request.body)
+            let json = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+            return try #require(json["done"] as? Bool)
+        }
+        #expect(toggles == [true, false])
+    }
+
     @Test func mergeCarriesTheConfirmedRevisionAndResponsibility() async throws {
         let server = FakeShepherdServer(); defer { server.tearDown() }
         server.on("POST", "/api/sessions/a/git/merge") { request in

@@ -1419,6 +1419,17 @@ export interface UsageLimits {
   providers?: UsageProviderSnapshot[];
 }
 
+export interface CodexResetStatus {
+  autoEnabled: boolean;
+  state: "ready" | "unavailable" | "redeeming" | "verifying" | "waiting" | "account_changed";
+  checkedAt: number | null;
+  availableCount: number | null;
+  nextExpiryAt: number | null;
+  reason: "capacity" | "expiry" | "manual" | null;
+  lastOutcome: "reset" | "alreadyRedeemed" | "nothingToReset" | "noCredit" | null;
+  waitingCount: number;
+}
+
 export type UsageProviderSnapshot =
   | {
       provider: "claude";
@@ -1445,7 +1456,9 @@ export type UsageProviderSnapshot =
        *  rate-limit event has been logged yet (UI then shows just the raw token counts). */
       session5h: LimitWindow | null;
       week: LimitWindow | null;
-      rateLimitSource?: "rollout" | "missing";
+      tokenDataAvailable?: boolean;
+      resetStatus?: CodexResetStatus;
+      rateLimitSource?: "rollout" | "missing" | "app-server";
       rateLimitCheckedAt?: number;
       rateLimitFilesScanned?: number;
       rateLimitLatestEventAt?: number | null;

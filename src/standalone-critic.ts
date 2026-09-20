@@ -381,6 +381,19 @@ export class StandalonePrCriticService {
     const key = this.key(repoPath, pr.number);
     this.starting.add(key); // claimed SYNCHRONOUSLY, before any await — the next sweep's guard
     try {
+      const env = this.deps.env?.() ?? { provider: "claude" as const, model: null };
+      if (
+        this.deps.capacity &&
+        !(await this.deps.capacity({
+          owner: "standalone",
+          key: `standalone:${key}`,
+          target: repoPath,
+          provider: env.provider,
+          model: env.model,
+          fingerprint: pr.headSha ?? undefined,
+        }))
+      )
+        return;
       // Number-keyed metadata (body/base/fork/state) — number-keyed so a recurring or fork head
       // branch name can't resolve a different PR (unlike branch-keyed prStatus).
       const meta = forge.prReviewMeta ? await forge.prReviewMeta(pr.number) : null;
@@ -716,6 +729,37 @@ export class StandalonePrCriticService {
    */
   private async finalize(f: InFlight, raw: RawVerdict | null): Promise<void> {
     try {
+      const row = this.deps.capacityInterrupted
+        ? this.deps.store
+            .listReviewerSpawns()
+            .find((r) => r.reviewerSessionId === f.criticSessionId)
+        : undefined;
+      if (
+        !raw &&
+        (await this.deps.capacityInterrupted?.(
+          {
+            owner: "standalone",
+            key: `standalone:${f.repoPath}:${f.prNumber}`,
+            target: f.repoPath,
+            provider: row?.reviewerProvider ?? "claude",
+            model: row?.model ?? null,
+            fingerprint: f.headSha,
+          },
+          f.worktreePath,
+          f.criticSessionId,
+        ))
+      ) {
+        await captureUsage(
+          this.readUsage,
+          this.deps.store.completeReviewerSpawn.bind(this.deps.store),
+          f.worktreePath,
+          f.criticSessionId,
+          this.now(),
+          f.repoPath,
+        );
+        return;
+      }
+
       const verdict = buildVerdictCore(
         raw,
         f.baseSha,

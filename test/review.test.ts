@@ -4876,3 +4876,33 @@ test("consider(merged) leaves a commented verdict untouched", async () => {
   expect(reviews["s1"]?.dismissed).toBeUndefined();
   expect(changes).toEqual([]);
 });
+
+test("Codex capacity: PR review waits without starting a helper or recording an error", async () => {
+  let free = false;
+  const h = makeDeps({
+    env: () => ({ provider: "codex", model: null, effort: null }),
+    capacity: async () => free,
+  });
+  const svc = new ReviewService(h.deps);
+  expect(await svc.consider(session(), OPEN_GREEN)).toBe("skipped");
+  expect(h.started).toHaveLength(0);
+  expect(h.recordedSpawns).toHaveLength(0);
+  free = true;
+  expect(await svc.consider(session(), OPEN_GREEN)).toBe("started");
+});
+
+test("Codex capacity: an interrupted critic is reaped without an error round", async () => {
+  let now = 1000;
+  const h = makeDeps({
+    now: () => now,
+    env: () => ({ provider: "codex", model: null, effort: null }),
+    readVerdict: () => null,
+    capacityInterrupted: async () => true,
+  });
+  const svc = new ReviewService(h.deps);
+  await svc.consider(session(), OPEN_GREEN);
+  now += 700_000;
+  await svc.tick();
+  expect(Object.keys(h.reviews)).toHaveLength(0);
+  expect(h.completedSpawns).toHaveLength(1);
+});

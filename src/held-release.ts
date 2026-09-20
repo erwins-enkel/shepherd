@@ -1,3 +1,4 @@
+import { config } from "./config";
 /**
  * Auto-release sweeper for usage-aware task holding (#825).
  *
@@ -13,6 +14,7 @@ import type { CreateSessionInput, Session } from "./types";
 import type { UsageLimits } from "./usage-limits";
 
 export interface HeldReleaseDeps {
+  codexCapacity?: (taskId?: string) => Promise<boolean>;
   store: Pick<SessionStore, "listHeldTasks" | "removeHeldTask" | "countHeldTasks">;
   service: { create(input: CreateSessionInput): Promise<Session> };
   usageLimits: { limits(now: number): UsageLimits };
@@ -38,18 +40,19 @@ export async function releaseHeldTasks(
   now: number,
   maxPerTick = 3,
 ): Promise<{ released: number }> {
-  if (cfg.enabled) {
-    if (!cfg.autoRelease) return { released: 0 };
-    const lim = deps.usageLimits.limits(now);
-    const maxPct = Math.max(lim.session5h?.pct ?? 0, lim.week?.pct ?? 0);
-    if (maxPct >= cfg.holdPct) return { released: 0 };
-  }
-
   const tasks = deps.store.listHeldTasks();
   let released = 0;
 
   for (const task of tasks) {
     if (released >= maxPerTick) break;
+    const provider = task.input.agentProvider ?? config.defaultAgentProvider;
+    if (provider === "codex") {
+      if (deps.codexCapacity && !(await deps.codexCapacity(task.id))) continue;
+    } else if (cfg.enabled) {
+      if (!cfg.autoRelease) continue;
+      const lim = deps.usageLimits.limits(now);
+      if (Math.max(lim.session5h?.pct ?? 0, lim.week?.pct ?? 0) >= cfg.holdPct) continue;
+    }
     try {
       const s = await deps.service.create(task.input);
       // service.create does not emit session:new — emit it so the released session

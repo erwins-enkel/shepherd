@@ -218,6 +218,7 @@ export const TRAIN_TRACKER_MAX_MS = 24 * 60 * 60_000;
 const VIDEO_EXT_RE = /\.(mp4|mov|m4v|webm|mkv)$/i;
 
 export interface ServiceDeps {
+  capacity?: (session: Session) => Promise<boolean>;
   store: SessionStore;
   worktree: Pick<
     WorktreeMgr,
@@ -4801,7 +4802,10 @@ export class SessionService {
    * stricter "await then run mine" would still allow a second spawn). Cross-session
    * resumes are unaffected — the guard is keyed by id.
    */
-  async resume(id: string, opts: { force?: boolean } = {}): Promise<Session | null> {
+  async resume(
+    id: string,
+    opts: { force?: boolean; automatic?: boolean } = {},
+  ): Promise<Session | null> {
     const existing = this.resumeInFlight.get(id);
     if (existing) return existing; // coalesce: a resume for this id is already running
     const p = this.resumeInner(id, opts).finally(() => this.resumeInFlight.delete(id));
@@ -4810,11 +4814,15 @@ export class SessionService {
   }
 
   /** resume() body; serialized per session by the public resume() guard. */
-  private async resumeInner(id: string, opts: { force?: boolean } = {}): Promise<Session | null> {
+  private async resumeInner(
+    id: string,
+    opts: { force?: boolean; automatic?: boolean } = {},
+  ): Promise<Session | null> {
     const target = this.resumeTarget(id);
     if (!target) return null;
 
     const { session, provider } = target;
+    if (opts.automatic && this.deps.capacity && !(await this.deps.capacity(session))) return null;
     this.assertNotTerminal(session, "resume");
     const agent = this.liveAgentFor(id);
     if (agent && !opts.force && !needsAccountRedrive(session, agent)) {
@@ -5190,15 +5198,20 @@ export class SessionService {
    * as a REJECTED promise rather than a sync throw; the callers that already guarded that race
    * with try/catch now guard it with try/await.)
    */
-  reply(id: string, text: string): Promise<boolean> {
-    return this.replyToLive(id, text, this.liveTerminalIds());
+  reply(id: string, text: string, opts: { automatic?: boolean } = {}): Promise<boolean> {
+    return this.replyToLive(id, text, this.liveTerminalIds(), text, opts.automatic);
   }
 
   /** Deliver an internal task steer, reviving an exited planner by exact identity first.
    * A listed shell is not a live agent; never paste implementation instructions into it. */
-  async resumeAndReply(id: string, text: string): Promise<boolean> {
+  async resumeAndReply(
+    id: string,
+    text: string,
+    opts: { automatic?: boolean } = {},
+  ): Promise<boolean> {
     const s = this.deps.store.get(id);
     if (!s || !this.hasConversation(s)) return false;
+    if (opts.automatic && this.deps.capacity && !(await this.deps.capacity(s))) return false;
     const target = await this.operatorReplyTarget(id, true);
     if (!target) return false;
     const current = this.deps.store.get(id);
@@ -5209,9 +5222,10 @@ export class SessionService {
     )
       return false;
     if (!target.agent || target.forceResume || this.shouldDeferSteer(id)) {
-      if (!(await this.resume(id, { force: target.forceResume }))) return false;
+      if (!(await this.resume(id, { force: target.forceResume, automatic: opts.automatic })))
+        return false;
     } else if (!this.adoptLiveResumeAgent(s, target.agent)) return false;
-    return this.reply(id, text);
+    return this.reply(id, text, opts);
   }
 
   private async operatorReplyTarget(
@@ -5667,9 +5681,11 @@ export class SessionService {
     text: string,
     live: Set<string>,
     signalPayload: string = text,
+    automatic = false,
   ): Promise<boolean> {
     const s = this.deps.store.get(id);
     if (!s || !live.has(s.herdrAgentId)) return false; // unknown, or live-in-store / dead-pane
+    if (automatic && this.deps.capacity && !(await this.deps.capacity(s))) return false;
     // Codex operator-language carrier (#1624): append the block to the delivered PTY text so the
     // directive persists across steers (Codex has no --append-system-prompt on resume). "" for
     // Claude/"en", so those steers stay byte-identical. Record the BASE steer text as the `reply`
@@ -5767,24 +5783,24 @@ export class SessionService {
    * session cannot receive the instruction or its approval no longer holds. Used by the /go route (interactive)
    * and by PlanGateService for an auto session's auto-release on approval.
    */
-  async releasePlanGate(id: string): Promise<boolean> {
+  async releasePlanGate(id: string, opts: { automatic?: boolean } = {}): Promise<boolean> {
     const pending = this.planReleaseInFlight.get(id);
     if (pending) return pending;
-    const release = this.releasePlanGateInner(id).finally(() =>
+    const release = this.releasePlanGateInner(id, opts).finally(() =>
       this.planReleaseInFlight.delete(id),
     );
     this.planReleaseInFlight.set(id, release);
     return release;
   }
 
-  private async releasePlanGateInner(id: string): Promise<boolean> {
+  private async releasePlanGateInner(id: string, opts: { automatic?: boolean }): Promise<boolean> {
     const s = this.deps.store.get(id);
     if (!s || s.planPhase !== "planning") return false;
     const gate = this.deps.store.getPlanGate(id);
     if (!gate?.approved) return false;
     if (!this.hasConversation(s)) return false;
     const { draftMode } = this.deps.store.getRepoConfig(s.repoPath);
-    const delivered = await this.resumeAndReply(id, planGoSteer(draftMode));
+    const delivered = await this.resumeAndReply(id, planGoSteer(draftMode), opts);
     if (!delivered) return false;
     // A re-review, archive or agent replacement during delivery must keep its newer state.
     const current = this.deps.store.get(id);

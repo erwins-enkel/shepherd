@@ -120,7 +120,7 @@ export type CompactUsageView =
   | {
       provider: "codex";
       mode: "tokens";
-      totalTokens: number;
+      totalTokens: number | null;
       stale: boolean;
       rotationEligible: boolean;
       widthClass: "token";
@@ -264,7 +264,7 @@ export function compactUsageViews({
       views.push({
         provider: "codex",
         mode: "tokens",
-        totalTokens: codexUsage.totalTokens,
+        totalTokens: codexUsage.tokenDataAvailable === false ? null : codexUsage.totalTokens,
         stale: codexUsage.stale,
         rotationEligible: true,
         widthClass: "token",

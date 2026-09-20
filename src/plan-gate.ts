@@ -774,6 +774,19 @@ export class PlanGateService {
     try {
       const planHash = await PlanGateService.hashPlan(plan);
       if (this.skipForPlanHash(session, prior, planHash, force)) return "skipped";
+      const env = this.deps.env?.() ?? { provider: "claude" as const, model: null };
+      if (
+        this.deps.capacity &&
+        !(await this.deps.capacity({
+          owner: "plan",
+          key: `plan:${session.id}`,
+          target: session.id,
+          provider: env.provider,
+          model: env.model,
+          fingerprint: planHash,
+        }))
+      )
+        return "skipped";
       return await this.begin(session, plan, planHash, prior, force);
     } finally {
       this.starting.delete(session.id);
@@ -1461,6 +1474,33 @@ export class PlanGateService {
     // Reap the reviewer terminal + disposable worktree no matter what happens above
     // (a store/steer/release failure must not strand them).
     try {
+      if (
+        !raw &&
+        (await this.deps.capacityInterrupted?.(
+          {
+            owner: "plan",
+            key: `plan:${f.sessionId}`,
+            target: f.sessionId,
+            provider: f.reviewerProvider ?? "claude",
+            model: f.reviewerModel,
+            fingerprint: f.planHash,
+          },
+          f.worktreePath,
+          f.reviewerSessionId,
+        ))
+      ) {
+        this.deps.store.completeReviewerSpawn(
+          f.reviewerSessionId,
+          await this.readUsage(
+            f.worktreePath,
+            f.reviewerSessionId,
+            f.reviewerProvider,
+            f.reviewerModel,
+          ),
+          this.now(),
+        );
+        return;
+      }
       const gate = this.buildGate(f, raw);
       // Terminal outcome for the delivery metrics' plan-rework indicator (#2151 R1). Best-effort:
       // an accounting write must never strand finalize.
@@ -1510,6 +1550,63 @@ export class PlanGateService {
     }
   }
 
+  async resumeCapacity(session: Session, fingerprint?: string): Promise<void> {
+    const gate = this.deps.store.getPlanGate(session.id);
+    if (
+      !gate ||
+      session.status === "archived" ||
+      session.autopilotPaused ||
+      gate.dismissed ||
+      fingerprint !== `${gate.planHash}:${gate.round}`
+    )
+      return;
+    const plan = (this.readPlan(session.worktreePath) ?? "").trim();
+    if ((await PlanGateService.hashPlan(plan)) !== gate.planHash) return;
+    if (gate.approved) {
+      const enabled = effectiveAutopilot(
+        session,
+        this.deps.store.getRepoConfig(session.repoPath).autopilotEnabled,
+      );
+      if (
+        session.planPhase === "planning" &&
+        (session.auto || enabled) &&
+        (await this.taskCapacity(session, gate, "planRelease"))
+      )
+        await this.deps.release(session.id);
+      return;
+    }
+    if (
+      session.planPhase !== "planning" ||
+      gate.round >= this.cap ||
+      !gate.findings.length ||
+      !(await this.taskCapacity(session, gate, "planFindings"))
+    )
+      return;
+    if (await this.steerFindings(session.id, gate.findings)) {
+      gate.round++;
+      gate.finalRoundPending = gate.round >= this.cap;
+      this.deps.store.putPlanGate(gate);
+      this.deps.onChange(session.id, gate);
+    }
+  }
+
+  private taskCapacity(
+    s: Session,
+    gate: PlanGate,
+    owner: "planFindings" | "planRelease",
+  ): Promise<boolean> {
+    return (
+      this.deps.capacity?.({
+        owner,
+        key: `${owner}:${s.id}`,
+        target: s.id,
+        provider: s.agentProvider ?? "claude",
+        model: s.model,
+        fingerprint: `${gate.planHash}:${gate.round}`,
+      }) ?? Promise.resolve(true)
+    );
+  }
+
   /** Approval releases only an autonomous session with an attributable conversation. */
   private async applyApproved(f: PlanInFlight, gate: PlanGate): Promise<void> {
     this.deps.store.putPlanGate(gate);
@@ -1520,7 +1617,11 @@ export class PlanGateService {
       s,
       this.deps.store.getRepoConfig(s.repoPath).autopilotEnabled,
     );
-    if ((s.auto || enabled) && (this.deps.hasConversation ?? hasTaskConversation)(s))
+    if (
+      (s.auto || enabled) &&
+      (this.deps.hasConversation ?? hasTaskConversation)(s) &&
+      (await this.taskCapacity(s, gate, "planRelease"))
+    )
       await this.deps.release(f.sessionId);
   }
 
@@ -1590,7 +1691,10 @@ export class PlanGateService {
     if (priorRound < this.cap) {
       try {
         // resume-before-steer: revive an exited (Codex) planner so the findings actually land.
-        delivered = await this.steerFindings(f.sessionId, gate.findings);
+        const task = this.deps.store.get(f.sessionId);
+        gate.round = priorRound;
+        if (task && (await this.taskCapacity(task, gate, "planFindings")))
+          delivered = await this.steerFindings(f.sessionId, gate.findings);
       } catch (err) {
         console.warn(`[plan-gate] steer failed for ${f.sessionId}:`, err);
       }

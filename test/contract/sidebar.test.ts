@@ -88,6 +88,85 @@ describe("sidebar events", () => {
   });
 });
 
+test("Codex reset operator routes validate their contract and require authentication", async () => {
+  const status = {
+    autoEnabled: false,
+    state: "verifying",
+    checkedAt: 1,
+    availableCount: 3,
+    nextExpiryAt: 2,
+    reason: "manual",
+    lastOutcome: "reset",
+    waitingCount: 1,
+  };
+  s.deps.codexReset = {
+    redeemManual: async () => {},
+    snapshot: () => ({ measurement: null, resetStatus: status }),
+  } as any;
+  for (const [path, method, body] of [
+    ["/api/usage/codex/reset", "POST", { requestId: crypto.randomUUID() }],
+    ["/api/usage/codex/automation", "PUT", { enabled: false }],
+  ] as const) {
+    const res = await fetch(s.baseUrl + path, {
+      method,
+      headers: { ...bearer(token), "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    expect(res.status).toBe(method === "POST" ? 202 : 200);
+    await validateResponse(method, path, res);
+    const anon = await fetch(s.baseUrl + path, { method, body: JSON.stringify(body) });
+    expect(anon.status).toBe(401);
+    await validateResponse(method, path, anon);
+  }
+});
+
+test("Codex reset routes also cover settled, invalid and unavailable responses", async () => {
+  const request = (path: string, method: string, body: unknown) =>
+    fetch(s.baseUrl + path, {
+      method,
+      headers: { ...bearer(token), "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  for (const [path, method] of [
+    ["/api/usage/codex/reset", "POST"],
+    ["/api/usage/codex/automation", "PUT"],
+  ] as const) {
+    const bad = await request(path, method, {});
+    expect(bad.status).toBe(400);
+    await validateResponse(method, path, bad);
+  }
+  s.deps.codexReset = {
+    redeemManual: async () => {},
+    snapshot: () => ({
+      measurement: null,
+      resetStatus: {
+        autoEnabled: false,
+        state: "ready",
+        checkedAt: 1,
+        availableCount: 2,
+        nextExpiryAt: 2,
+        reason: "manual",
+        lastOutcome: "reset",
+        waitingCount: 0,
+      },
+    }),
+  } as any;
+  const settled = await request("/api/usage/codex/reset", "POST", {
+    requestId: crypto.randomUUID(),
+  });
+  expect(settled.status).toBe(200);
+  await validateResponse("POST", "/api/usage/codex/reset", settled);
+  delete s.deps.codexReset;
+  for (const [path, method] of [
+    ["/api/usage/codex/reset", "POST"],
+    ["/api/usage/codex/automation", "PUT"],
+  ] as const) {
+    const missing = await request(path, method, {});
+    expect(missing.status).toBe(503);
+    await validateResponse(method, path, missing);
+  }
+});
+
 // Stays LAST in this file. This block's own coverage gate, so the stream proves its surface
 // whichever file Bun runs first; the gate in openapi.test.ts covers everything outside the
 // markers.

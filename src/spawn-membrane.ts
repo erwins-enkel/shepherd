@@ -1,3 +1,4 @@
+import type { CapacityCheck, CapacityInterruptionCheck } from "./codex-capacity";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { config } from "./config";
@@ -35,6 +36,9 @@ export interface MembraneEnv {
 /** Injectable spawn/membrane seams shared by every reviewer-style spawner. Tests override
  *  these so no real bwrap probe runs and no host paths are touched. */
 export interface MembraneSeams {
+  /** Defer Codex work before allocating a helper or spending its execution budget. */
+  capacity?: CapacityCheck;
+  capacityInterrupted?: CapacityInterruptionCheck;
   /** Injectable sandbox backend probe seam (tests inject `() => null`). PRESENCE-checked
    *  (not `??`) because the seam legitimately returns null (no backend). */
   detectBackend?: () => SandboxBackend;

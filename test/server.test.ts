@@ -3252,3 +3252,34 @@ test("GET /api/usage/history does not return rows older than retention window", 
   expect(body.caps.session5h).toHaveLength(1);
   expect(body.caps.session5h[0].pct).toBe(50);
 });
+
+test("Codex reset routes validate requests and persist automation without spending", async () => {
+  const d = makeDeps();
+  let spent = 0;
+  d.codexReset = {
+    redeemManual: async () => {
+      spent++;
+    },
+    snapshot: () => ({ measurement: null, resetStatus: { state: "verifying" } }),
+  } as any;
+  const app = makeApp(d);
+  const request = (path: string, method: string, body: unknown) =>
+    app.fetch(
+      new Request(`http://x/api/usage/codex/${path}`, {
+        method,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+    );
+  expect((await request("reset", "POST", { requestId: "bad" })).status).toBe(400);
+  expect((await request("reset", "POST", { requestId: crypto.randomUUID() })).status).toBe(202);
+  expect(spent).toBe(1);
+  const prev = config.codexResetAutoEnabled;
+  try {
+    expect((await request("automation", "PUT", { enabled: true })).status).toBe(200);
+    expect(d.store.getSetting("codexResetAutoEnabled")).toBe("true");
+    expect(spent).toBe(1);
+  } finally {
+    config.codexResetAutoEnabled = prev;
+  }
+});

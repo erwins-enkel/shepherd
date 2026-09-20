@@ -3,6 +3,7 @@
   import { formatTokenLabel, relativeAge } from "$lib/format";
   import type { UsageProviderSnapshot } from "$lib/types";
   import { codexGaugeList, type GaugeKey } from "../usage-gauges";
+  import CodexResetControls from "./CodexResetControls.svelte";
   import LimitGaugeRow from "./LimitGaugeRow.svelte";
 
   let {
@@ -49,18 +50,21 @@
 {#if windows.length === 0}
   <div class="limits-unavailable micro">{m.topbar_codex_limits_unavailable()}</div>
 {/if}
-<div class="token-row">
-  <span>{m.topbar_tokens_window({ period: "5H" })}</span>
-  <span>{formatTokenLabel(usage.session5hTokens)}</span>
-</div>
-<div class="token-row">
-  <span>{m.topbar_tokens_window({ period: "WK" })}</span>
-  <span>{formatTokenLabel(usage.weekTokens)}</span>
-</div>
-<div class="token-row">
-  <span>{m.topbar_tokens_total()}</span>
-  <span>{formatTokenLabel(usage.totalTokens)}</span>
-</div>
+{#if usage.tokenDataAvailable !== false}
+  <div class="token-row">
+    <span>{m.topbar_tokens_window({ period: "5H" })}</span>
+    <span>{formatTokenLabel(usage.session5hTokens)}</span>
+  </div>
+  <div class="token-row">
+    <span>{m.topbar_tokens_window({ period: "WK" })}</span>
+    <span>{formatTokenLabel(usage.weekTokens)}</span>
+  </div>
+  <div class="token-row">
+    <span>{m.topbar_tokens_total()}</span>
+    <span>{formatTokenLabel(usage.totalTokens)}</span>
+  </div>
+{/if}
+{#if usage.resetStatus}<CodexResetControls status={usage.resetStatus} />{/if}
 
 <style>
   .snapshot-age {

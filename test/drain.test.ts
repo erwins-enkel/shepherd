@@ -145,6 +145,7 @@ interface Harness {
 
 function makeHarness(
   opts: {
+    capacity?: import("../src/codex-capacity").CapacityCheck;
     issues?: Issue[];
     maxAuto?: number;
     autoDrainEnabled?: boolean;
@@ -293,6 +294,7 @@ function makeHarness(
       : null) as typeof store.getReview;
 
   const drain = new DrainService({
+    capacity: opts.capacity,
     store,
     service,
     resolveForge: () => forge,
@@ -1797,4 +1799,15 @@ test("#790: spawn-failure cooldown: failed issue is skipped until window expires
   clock += 5 * 60_000 + 1;
   await drain.pump(REPO);
   expect(claimCount).toBe(2);
+});
+
+test("Codex capacity: drain waits before claiming an issue and resumes once", async () => {
+  let free = false;
+  const h = makeHarness({ issues: [issue(1)], capacity: async () => free });
+  await h.drain.tick();
+  expect(h.creates).toHaveLength(0);
+  expect(h.forgeRec.added).toHaveLength(0);
+  free = true;
+  await h.drain.tick();
+  expect(h.creates).toHaveLength(1);
 });

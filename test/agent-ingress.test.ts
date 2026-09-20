@@ -471,3 +471,8 @@ test("serveAgentIngress: rebinds the SAME port after a real server-closed connec
     await second.stop();
   }
 });
+
+test("Codex reset routes are inaccessible to agent ingress", () => {
+  expect(isAgentIngressRoute("POST", parts("/api/usage/codex/reset"))).toBe(false);
+  expect(isAgentIngressRoute("PUT", parts("/api/usage/codex/automation"))).toBe(false);
+});

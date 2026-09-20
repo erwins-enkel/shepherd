@@ -1793,6 +1793,46 @@ describe("TopBar — CR extra-credit gauge", () => {
     );
   });
 
+  it.each(["desktop", "mobile"])(
+    "Codex resets: shows credits, expiry and automation on %s",
+    async (surface) => {
+      const limits = codexOnly();
+      Object.assign(limits.providers![1]!, {
+        tokenDataAvailable: false,
+        resetStatus: {
+          autoEnabled: false,
+          state: "ready",
+          checkedAt: Date.now(),
+          availableCount: 3,
+          nextExpiryAt: Date.now() + 30 * 60_000,
+          reason: null,
+          lastOutcome: null,
+          waitingCount: 0,
+        },
+      });
+      if (surface === "desktop") {
+        const hud = await renderDesktop(limits);
+        openDesktopPopover(hud);
+      } else {
+        await page.viewport(390, 800);
+        document.body.style.width = "390px";
+        await render(TopBar, {
+          nowMs: 1_700_000_000_000,
+          connected: true,
+          ...FLAGS.mobile,
+          ...sessionsProp(0),
+          limits,
+        });
+        await page.getByRole("button", { name: m.topbar_menu_aria() }).click();
+        await page.getByRole("button", { name: m.gearmenu_usage_all_aria() }).click();
+      }
+      await nextFrame();
+      expect(document.querySelector(".codex-resets"), "reset controls visible").not.toBeNull();
+      expect(document.querySelector(".codex-resets")?.textContent).toContain("3");
+      expect(document.querySelector('.codex-resets input[type="checkbox"]')).not.toBeNull();
+    },
+  );
+
   it("codex-only: clicking the toggle opens provider token telemetry", async () => {
     const hud = await renderDesktop(codexOnly());
     const toggle = hud.querySelector<HTMLElement>(".gauges-toggle");

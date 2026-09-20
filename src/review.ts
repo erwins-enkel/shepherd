@@ -561,6 +561,19 @@ export class ReviewService {
       // green-checks precondition has genuinely lapsed too). Deliberately INSIDE the claim: this
       // await must not open a window for a second consider()/forceReview() to reach begin().
       if (await this.headMoved(session, git.headSha!)) return "skipped";
+      const env = this.deps.env?.() ?? { provider: "claude" as const, model: null };
+      if (
+        this.deps.capacity &&
+        !(await this.deps.capacity({
+          owner: "review",
+          key: `review:${session.id}`,
+          target: session.id,
+          provider: env.provider,
+          model: env.model,
+          fingerprint: git.headSha ?? undefined,
+        }))
+      )
+        return "skipped";
       await this.begin(session, git, force);
     } finally {
       this.starting.delete(session.id);
@@ -1472,6 +1485,31 @@ export class ReviewService {
     // Reap the critic terminal + disposable worktree no matter what happens above
     // (a forge/store/steer failure must not strand them).
     try {
+      if (
+        !raw &&
+        (await this.deps.capacityInterrupted?.(
+          {
+            owner: "review",
+            key: `review:${f.sessionId}`,
+            target: f.sessionId,
+            provider: f.reviewerProvider ?? "claude",
+            model: f.reviewerModel,
+            fingerprint: f.headSha,
+          },
+          f.worktreePath,
+          f.criticSessionId,
+        ))
+      ) {
+        await captureUsage(
+          (wt, id) => this.readUsage(wt, id, f.reviewerProvider, f.reviewerModel),
+          this.deps.store.completeReviewerSpawn.bind(this.deps.store),
+          f.worktreePath,
+          f.criticSessionId,
+          this.now(),
+          f.sessionId,
+        );
+        return;
+      }
       const verdict = this.buildVerdict(f, raw, cause ?? null);
       // ONE live PR read for this finalize, shared by the supersession check below and by the
       // publish/error arms (which each used to fetch their own — mutually exclusive, so this is
@@ -1746,6 +1784,51 @@ export class ReviewService {
    * At/over the cap we stop steering and leave the round in place; the posted review,
    * the stalled badge, and (for blocking verdicts) the critic signal escalate it.
    */
+  async resumeCapacity(session: Session, git: GitState, fingerprint?: string): Promise<void> {
+    const verdict = this.deps.store.getReview(session.id);
+    if (
+      !verdict ||
+      session.status === "archived" ||
+      session.autopilotPaused ||
+      verdict.dismissed ||
+      fingerprint !== `${verdict.headSha}:${verdict.addressRound}` ||
+      verdict.addressRound >= this.cap ||
+      !verdict.findings.length ||
+      !this.deps.store.getRepoConfig(session.repoPath).autoAddressEnabled ||
+      !this.deps.autoAddress ||
+      git.state !== "open" ||
+      git.headSha !== verdict.headSha
+    )
+      return;
+    const live = await this.deps.resolveForge(session.repoPath)?.prStatus(session.branch ?? "");
+    if (!live || live.state !== "open" || live.headSha !== verdict.headSha) return;
+    if (!(await this.findingsCapacity(session, verdict.headSha, verdict.addressRound))) return;
+    if (
+      await this.deps.autoAddress(
+        session.id,
+        steerText(verdict.findings, git.number!, session.epicParent ? session.baseBranch : null),
+      )
+    ) {
+      verdict.addressRound++;
+      verdict.finalRoundPending = verdict.addressRound >= this.cap;
+      this.deps.store.putReview(verdict);
+      this.deps.onChange(session.id, verdict);
+    }
+  }
+
+  private findingsCapacity(s: Session, head: string, round: number): Promise<boolean> {
+    return (
+      this.deps.capacity?.({
+        owner: "reviewFindings",
+        key: `reviewFindings:${s.id}`,
+        target: s.id,
+        provider: s.agentProvider ?? "claude",
+        model: s.model,
+        fingerprint: `${head}:${round}`,
+      }) ?? Promise.resolve(true)
+    );
+  }
+
   private async runAutoAddress(f: InFlight, verdict: ReviewVerdict): Promise<number> {
     if (verdict.findings.length === 0) return 0; // clean → streak resets
     const enabled =
@@ -1764,6 +1847,11 @@ export class ReviewService {
     // narrow race — the pane dies between the liveness check and herdr.send — and still
     // counts as not-delivered: the round must not advance on a steer that never landed,
     // and the rejection must not strand finalize().
+    if (this.deps.capacity) {
+      const task = this.deps.store.get(f.sessionId);
+      if (!task || !(await this.findingsCapacity(task, verdict.headSha, f.priorRound)))
+        return f.priorRound;
+    }
     let delivered = false;
     try {
       delivered = await this.deps.autoAddress!(

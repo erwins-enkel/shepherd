@@ -16,6 +16,7 @@
   import LimitGaugeRow from "./LimitGaugeRow.svelte";
   import ModelWeekGauge from "../usage/ModelWeekGauge.svelte";
   import CreditDetail from "./CreditDetail.svelte";
+  import CodexResetControls from "./CodexResetControls.svelte";
   import UsageRefreshButton from "./UsageRefreshButton.svelte";
 
   let {
@@ -146,18 +147,21 @@
             {#if codexWindows.length === 0}
               <div class="gm-note">{m.topbar_codex_limits_unavailable()}</div>
             {/if}
-            <div class="gm-token-line">
-              <span>{m.topbar_tokens_window({ period: "5H" })}</span>
-              <span>{formatTokenLabel(codexUsage.session5hTokens)}</span>
-            </div>
-            <div class="gm-token-line">
-              <span>{m.topbar_tokens_window({ period: "WK" })}</span>
-              <span>{formatTokenLabel(codexUsage.weekTokens)}</span>
-            </div>
-            <div class="gm-token-line">
-              <span>{m.topbar_tokens_total()}</span>
-              <span>{formatTokenLabel(codexUsage.totalTokens)}</span>
-            </div>
+            {#if codexUsage.tokenDataAvailable !== false}
+              <div class="gm-token-line">
+                <span>{m.topbar_tokens_window({ period: "5H" })}</span>
+                <span>{formatTokenLabel(codexUsage.session5hTokens)}</span>
+              </div>
+              <div class="gm-token-line">
+                <span>{m.topbar_tokens_window({ period: "WK" })}</span>
+                <span>{formatTokenLabel(codexUsage.weekTokens)}</span>
+              </div>
+              <div class="gm-token-line">
+                <span>{m.topbar_tokens_total()}</span>
+                <span>{formatTokenLabel(codexUsage.totalTokens)}</span>
+              </div>
+            {/if}
+            {#if codexUsage.resetStatus}<CodexResetControls status={codexUsage.resetStatus} />{/if}
           </div>
         {/if}
         {#if hasClaude}<UsageRefreshButton {refreshing} {refreshError} {onRefresh} />{/if}

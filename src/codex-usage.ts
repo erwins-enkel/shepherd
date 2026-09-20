@@ -10,7 +10,14 @@ import {
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
-import type { LimitWindow, UsageProviderSnapshot, UsageProviderSource } from "./usage-limits";
+import type {
+  CodexResetStatus,
+  LimitWindow,
+  UsageProviderSnapshot,
+  UsageProviderSource,
+} from "./usage-limits";
+
+import type { CodexAccountSnapshot } from "./codex-account";
 
 type CodexTokenSnapshot = Extract<UsageProviderSnapshot, { provider: "codex"; kind: "tokens" }>;
 
@@ -407,6 +414,10 @@ export class CodexUsageProvider implements UsageProviderSource {
   constructor(
     private stateDbPath?: string,
     private home = codexHome(),
+    private account?: () => {
+      measurement: CodexAccountSnapshot | null;
+      resetStatus: CodexResetStatus;
+    },
   ) {}
 
   // Rollout files reach several MB and `snapshot()` runs on every usage recompute (per request,
@@ -416,18 +427,45 @@ export class CodexUsageProvider implements UsageProviderSource {
 
   snapshot(now: number): UsageProviderSnapshot | null {
     const path = this.stateDbPath ?? latestCodexStateDb(this.home);
-    if (!path) return null;
-    const st = readCodexState(path, now);
-    if (!st) return null;
-    const base = tokenSnapshot(st, now);
+    const account = this.account?.();
+    const st = path ? readCodexState(path, now) : null;
+    if (!st && !account) return null;
+    const base: CodexTokenSnapshot = st
+      ? tokenSnapshot(st, now)
+      : {
+          provider: "codex",
+          kind: "tokens",
+          totalTokens: 0,
+          session5hTokens: 0,
+          weekTokens: 0,
+          updatedAt: null,
+          stale: true,
+          session5h: null,
+          week: null,
+          tokenDataAvailable: false,
+        };
+    if (account?.measurement) {
+      const m = account.measurement;
+      return {
+        ...base,
+        stale: now - m.checkedAt > 90_000 || account.resetStatus.state === "unavailable",
+        session5h: m.session5h,
+        week: m.week,
+        rateLimitSource: "app-server",
+        rateLimitCheckedAt: m.checkedAt,
+        rateLimitLatestEventAt: m.checkedAt,
+        resetStatus: account.resetStatus,
+      };
+    }
     const fsCandidates = recentCodexRolloutPaths(this.home).flatMap((p) => {
       const c = rolloutCandidate(p);
       return c ? [c] : [];
     });
-    const candidates = dedupeRolloutCandidates(st.rolloutPaths, fsCandidates);
+    const candidates = dedupeRolloutCandidates(st?.rolloutPaths ?? [], fsCandidates);
     const rl = this.rateLimits(candidates, now);
     return {
       ...base,
+      ...(account ? { resetStatus: account.resetStatus } : {}),
       session5h: rl?.session5h ?? null,
       week: rl?.week ?? null,
       rateLimitSource: rl ? "rollout" : "missing",

@@ -42,6 +42,7 @@ const MERGE_ERROR_CAP = 3;
 const MERGE_ERROR_BACKOFF_MS = 300_000;
 
 export interface AutoMergeDeps {
+  capacity?: (session: Session) => Promise<boolean>;
   store: Pick<
     SessionStore,
     | "get"
@@ -399,6 +400,7 @@ export class AutoMergeService {
   ): Promise<void> {
     const s = this.deps.store.get(sessionId);
     if (!s) return;
+    if (this.deps.capacity && !(await this.deps.capacity(s))) return;
     this.deps.emitStatus(this.status(repoPath, true, "rebasing", s.desig, s.id));
 
     // CONFLICT PATH ONLY: record the attempt (count + head + the dedup/ownership stamp) BEFORE

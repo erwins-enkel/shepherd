@@ -213,7 +213,7 @@
             ? overspend
               ? m.topbar_credits_alert_aria({ amount: creditAmount })
               : `${m.topbar_credits_period()} · ${creditAmount}`
-            : `${activeProviderName} · ${formatTokenLabel(activeCompactUsageView.totalTokens)}`}
+            : `${activeProviderName} · ${activeCompactUsageView.totalTokens === null ? "—" : formatTokenLabel(activeCompactUsageView.totalTokens)}`}
           onclick={togglePopover}
         >
           {#if compactUsageRotating}<span class="g-provider micro">{activeProviderShort}</span>{/if}
@@ -226,7 +226,9 @@
             <span class="g-pct credit-amount" style="color:{creditColor}">{creditAmount}</span>
           {:else}
             <span class="g-pct credit-amount"
-              >{formatTokenLabel(activeCompactUsageView.totalTokens)}</span
+              >{activeCompactUsageView.totalTokens === null
+                ? "—"
+                : formatTokenLabel(activeCompactUsageView.totalTokens)}</span
             >
           {/if}
         </button>
@@ -300,7 +302,9 @@
         {:else if activeCompactUsageView.mode === "tokens"}
           <span class="gauge">
             <span class="g-pct credit-amount"
-              >{formatTokenLabel(activeCompactUsageView.totalTokens)}</span
+              >{activeCompactUsageView.totalTokens === null
+                ? "—"
+                : formatTokenLabel(activeCompactUsageView.totalTokens)}</span
             >
           </span>
         {:else if activeCompactUsageView.mode === "limits"}

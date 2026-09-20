@@ -820,3 +820,15 @@ test("a chrome-only tail leaves the summary empty, so the caller's constant stil
   const v = await classifyStop(["╭─────╮", "╰─────╯"], "task", deps, "c1");
   expect(v).toEqual({ kind: "question", summary: "" });
 });
+
+test("Codex capacity: classifier defers without a failed verdict or a helper spawn", async () => {
+  const { deps, calls } = makeDeps({
+    provider: "codex",
+    capacity: async () => false,
+    readVerdict: () => ({ kind: "gate", summary: "continue" }),
+  });
+  await expect(classifyStop(["May I continue?"], "task", deps, "test")).rejects.toThrow(
+    "Codex capacity unavailable",
+  );
+  expect(calls.started).toBeNull();
+});

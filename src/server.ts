@@ -311,6 +311,9 @@ async function serveStatic(pathname: string): Promise<Response> {
 }
 
 export interface AppDeps {
+  codexReset?: import("./codex-reset").CodexResetCoordinator;
+  codexCapacity?: () => Promise<boolean>;
+  codexAccountId?: () => string | null;
   store: SessionStore;
   service: SessionService;
   events: EventHub;
@@ -1370,9 +1373,9 @@ function parseUpNextStartPayload(body: unknown): UpNextStartPayload | Response {
   };
 }
 
-function usageHoldApplies(value: StandardCreateInput, deps: AppDeps): boolean {
+async function usageHoldApplies(value: StandardCreateInput, deps: AppDeps): Promise<boolean> {
   const provider = normalizeAgentProvider(value.agentProvider ?? config.defaultAgentProvider);
-  if (provider !== "claude") return false;
+  if (provider === "codex") return deps.codexCapacity ? !(await deps.codexCapacity()) : false;
   const lim = deps.usageLimits.limits(Date.now());
   return shouldHold({
     enabled: config.usageHoldEnabled,
@@ -1401,10 +1404,14 @@ function holdUpNextIssue(
   deps.store.addHeldTask({
     id,
     repoPath: input.repoPath,
-    input,
+    input: { ...input, agentProvider: input.agentProvider ?? config.defaultAgentProvider },
     createdAt: Date.now(),
     reason: "usage",
   });
+  if ((input.agentProvider ?? config.defaultAgentProvider) === "codex") {
+    const account = deps.codexAccountId?.();
+    if (account) deps.store.setSetting(`codexHeldAccount:${id}`, account);
+  }
   deps.events.emit("held:changed", { count: deps.store.countHeldTasks() });
   return { id, repoPath: input.repoPath, number };
 }
@@ -1462,7 +1469,7 @@ async function handleUpNextStart(req: Request, deps: AppDeps): Promise<Response>
         auto: false,
         issueRef: it.issueRef,
       };
-      if (usageHoldApplies(input, deps)) {
+      if (await usageHoldApplies(input, deps)) {
         held.push(holdUpNextIssue(deps, input));
         claims.push(claimLinkedIssue(forge, it.issueRef.number));
         startedRefs.push({ repoPath: it.dir, issueNumber: it.issueRef.number });
@@ -2368,14 +2375,31 @@ function persistHeldTask(
 ): Response {
   const id = randomUUID();
   const createdAt = Date.now();
-  deps.store.addHeldTask({ id, repoPath: value.repoPath, input: value, createdAt, reason });
+  deps.store.addHeldTask({
+    id,
+    repoPath: value.repoPath,
+    input: { ...value, agentProvider: value.agentProvider ?? config.defaultAgentProvider },
+    createdAt,
+    reason,
+  });
+  if ((value.agentProvider ?? config.defaultAgentProvider) === "codex") {
+    const account = deps.codexAccountId?.();
+    if (account) deps.store.setSetting(`codexHeldAccount:${id}`, account);
+  }
   deps.events.emit("held:changed", { count: deps.store.countHeldTasks() });
   return json({ held: true, id, count: deps.store.countHeldTasks() }, 200);
 }
 
-function tryHoldNewTask(body: unknown, value: StandardCreateInput, deps: AppDeps): Response | null {
+async function tryHoldNewTask(
+  body: unknown,
+  value: StandardCreateInput,
+  deps: AppDeps,
+): Promise<Response | null> {
   const provider = normalizeAgentProvider(value.agentProvider ?? config.defaultAgentProvider);
-  if (provider !== "claude") return null;
+  if (provider === "codex")
+    return deps.codexCapacity && !(await deps.codexCapacity())
+      ? persistHeldTask(value, deps, "capacity")
+      : null;
 
   const force = !!(
     body &&
@@ -2455,7 +2479,7 @@ async function handleSessionCreate({ req, parts, deps }: Ctx): Promise<Response 
   }
 
   // ── usage-aware hold gate ──────────────────────────────────────────────────
-  const held = tryHoldNewTask(body, result.value, deps);
+  const held = await tryHoldNewTask(body, result.value, deps);
   if (held) return held;
 
   const tracker = spawnTrackerFor(req, deps);
@@ -4686,6 +4710,44 @@ async function handleUsageRefresh(deps: Ctx["deps"]): Promise<Response> {
 }
 
 async function handleUsageLimits({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (parts.length === 4 && parts[0] === "api" && parts[1] === "usage" && parts[2] === "codex") {
+    const blocked = firstRunBlock();
+    if (blocked) return blocked;
+    if (!deps.codexReset) return json({ error: "Codex account service unavailable" }, 503);
+    let body: Record<string, unknown>;
+    try {
+      body = await req.json();
+    } catch {
+      return json({ error: "Invalid JSON" }, 400);
+    }
+    if (!body || typeof body !== "object" || Array.isArray(body))
+      return json({ error: "Invalid body" }, 400);
+    if (parts[3] === "automation" && req.method === "PUT") {
+      if (typeof body.enabled !== "boolean") return json({ error: "enabled must be boolean" }, 400);
+      deps.store.setSetting("codexResetAutoEnabled", String(body.enabled));
+      config.codexResetAutoEnabled = body.enabled;
+    } else if (parts[3] === "reset" && req.method === "POST") {
+      if (
+        typeof body.requestId !== "string" ||
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+          body.requestId,
+        )
+      )
+        return json({ error: "requestId must be a UUID v4" }, 400);
+      await deps.codexReset.redeemManual(body.requestId);
+    } else return json({ error: "Not found" }, 404);
+    deps.events.emit("usage:limits", deps.usageLimits.limits(Date.now()));
+    const status = deps.codexReset.snapshot().resetStatus;
+    const pending = status.state === "redeeming" || status.state === "verifying";
+    return json(
+      status,
+      pending && parts[3] === "reset"
+        ? 202
+        : status.state === "unavailable" && parts[3] === "reset"
+          ? 503
+          : 200,
+    );
+  }
   if (
     req.method === "POST" &&
     parts[0] === "api" &&

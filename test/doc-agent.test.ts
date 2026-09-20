@@ -168,6 +168,8 @@ function mkGitState(o: Partial<GitState> = {}): GitState {
 }
 
 function mkHarness(opts?: {
+  capacity?: import("../src/codex-capacity").CapacityCheck;
+  capacityInterrupted?: import("../src/codex-capacity").CapacityInterruptionCheck;
   forgeKind?: "github" | "local" | null;
   docTreePresent?: boolean;
   inScopeFilesPresent?: boolean;
@@ -473,6 +475,8 @@ function mkHarness(opts?: {
   };
 
   const svc = new DocAgentService({
+    capacity: opts?.capacity,
+    capacityInterrupted: opts?.capacityInterrupted,
     herdr: herdr as any,
     worktree: worktree as any,
     resolveForge: () => forge,
@@ -1987,4 +1991,55 @@ test("Codex doc usage stays unknown so a delayed rollout can be backfilled", asy
   await h.svc.tick();
   expect(h.completedRows[0]?.total).toBeNull();
   expect(h.spawnRows[0]?.completedAt).not.toBeNull();
+});
+
+test("Codex capacity: docs helper waits before creating a worktree", async () => {
+  let free = false;
+  const h = mkHarness({ provider: "codex", capacity: async () => free });
+  const result = await h.svc.consider("/r");
+  expect(result.status).toBe("skipped");
+  expect(h.starts).toHaveLength(0);
+  free = true;
+  await h.svc.consider("/r");
+  expect(h.starts).toHaveLength(1);
+});
+
+test("Codex capacity: interrupted docs helpers preserve a pending intention without publishing", async () => {
+  let held = 0;
+  let now = 1000;
+  const h = mkHarness({
+    provider: "codex",
+    sentinel: null,
+    now: () => now,
+    capacityInterrupted: async () => {
+      held++;
+      return true;
+    },
+  });
+  await h.svc.consider("/repo");
+  now += 1_300_000;
+  await h.svc.tick();
+  expect(held).toBe(1);
+  expect(h.completedRows).toHaveLength(1);
+});
+
+test("Codex capacity review: a deferred retarget never consumes PR ownership", async () => {
+  let free = false;
+  const intents: import("../src/codex-capacity").CapacityIntent[] = [];
+  const h = mkRetargetHarness({
+    provider: "codex",
+    capacity: async (i) => {
+      intents.push(i);
+      return free;
+    },
+  });
+  await h.svc.sweepReadyPrs();
+  await h.svc.sweepReadyPrs();
+  expect(h.starts).toHaveLength(0);
+  expect(h.kv.get(PR_SYNCED("/repo", 7))).not.toBe("1");
+  expect(intents[0]).toMatchObject({ owner: "docsRetarget", target: "sess-1" });
+  free = true;
+  await h.svc.resumeCapacity("sess-1", intents[0]!.fingerprint);
+  expect(h.starts).toHaveLength(1);
+  expect(h.kv.get(PR_SYNCED("/repo", 7))).toBe("1");
 });

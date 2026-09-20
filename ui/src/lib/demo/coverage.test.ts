@@ -396,6 +396,8 @@ const DELIBERATE_TAIL: Readonly<Record<string, readonly string[]>> = {
     "/api/diagnostics/fix",
     "/api/provider-failover",
     "/api/usage/refresh",
+    "/api/usage/codex/reset",
+    "/api/usage/codex/automation",
     "/api/experiments/:p/compare",
   ],
 

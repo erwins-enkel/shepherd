@@ -96,6 +96,29 @@ struct ActionRulesTests {
         #expect(!ActionRules.allows(.toggleReady, session: session(status: .archived), now: now))
     }
 
+    // readyToggleShown (RailStatusActions.svelte): … && status !== "running" && status !== "blocked"
+    @Test func theReadyToggleIsHiddenWhileTheAgentIsStillMoving() {
+        #expect(!ActionRules.allows(.toggleReady, session: session(status: .running), now: now))
+        #expect(!ActionRules.allows(.toggleReady, session: session(status: .blocked), now: now))
+        #expect(ActionRules.allows(.toggleReady, session: session(status: .idle), now: now))
+        #expect(ActionRules.allows(.toggleReady, session: session(status: .done), now: now))
+    }
+
+    /// The gate reads the raw status, which is why it does not go through `displayStatus`: a
+    /// blocked session the poller found still producing output stays hidden rather than being
+    /// promoted to "running" and hidden for the other reason.
+    @Test func theReadyToggleIgnoresTheWorkingBlockedPromotion() {
+        let blocked = session(id: "b", status: .blocked)
+        #expect(
+            !ActionRules.allows(
+                .toggleReady, session: blocked, workingBlocked: ["b": true], now: now))
+        #expect(
+            ActionRules.allows(
+                .toggleReady, session: session(id: "b", status: .idle),
+                workingBlocked: ["b": true], now: now),
+            "the promotion never applies to an idle session")
+    }
+
     @Test func availableIsOrderedAndFiltered() {
         let ids = ActionRules.available(for: session(status: .idle), now: now).map(\.id)
         #expect(ids == ["resume", "rename", "amend", "toggle-ready", "regenerate-recap", "relaunch"])

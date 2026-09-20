@@ -159,7 +159,19 @@ enum ActionRules {
         case .rename, .amend, .regenerateRecap:
             return true
         case .toggleReady:
-            return !isTerminal
+            // `readyToggleShown` in ui/src/lib/components/RailStatusActions.svelte:
+            // `(git.state === "open" || ready) && status !== "running" && status !== "blocked"`.
+            // Marking work ready while the agent is still moving marks a moving target, so the
+            // toggle goes away until the session settles. It reads the RAW status, not the
+            // display status: a `blocked` session `workingBlocked` promotes to "running" for
+            // display is hidden either way, which is why this one predicate does not go through
+            // `displayStatus`.
+            //
+            // The `git.state === "open"` half is an S2 parity gap: the git snapshot belongs to
+            // that stream, and until it lands the toggle is offered for a settled session with
+            // no PR too — the same conservative default the other cross-stream seams take.
+            guard !isTerminal else { return false }
+            return session.status.known != .running && session.status.known != .blocked
         case .relaunch:
             guard !isTerminal else { return false }
             guard !session.readyToMerge, !session.autopilotComplete else { return false }

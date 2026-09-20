@@ -4400,5 +4400,20 @@
   "native_settings_roles_save": "Save and push roles",
   "native_settings_select_repo": "Select a repository",
   "native_settings_sync": "Sync fork",
-  "native_settings_use_folder": "Use this folder"
+  "native_settings_use_folder": "Use this folder",
+  "native_settings_days": "{days} days",
+  "native_settings_env_token": "An environment-provisioned token is active on this server.",
+  "native_settings_lock_access": "Lock access",
+  "native_settings_never": "Never",
+  "native_settings_revoke": "Revoke",
+  "native_settings_revoke_confirm": "Revoke this token? Clients using it will lose access.",
+  "native_settings_scope_full": "Full access",
+  "native_settings_scope_read": "Read only",
+  "native_settings_scope_submit": "Submit tasks",
+  "native_settings_token_create": "Create token",
+  "native_settings_token_expiry": "Expires after",
+  "native_settings_token_login": "Unlock token administration",
+  "native_settings_token_name": "Token name",
+  "native_settings_token_once": "Shown once. Copy now; closing this pane hides it permanently.",
+  "native_settings_token_scope": "Scope"
 }

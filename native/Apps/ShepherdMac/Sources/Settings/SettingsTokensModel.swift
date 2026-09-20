@@ -24,6 +24,7 @@ import SwiftUI
         guard let client else { return }
         execute {
             try await client.loginForTokenAdministration(password: password)
+            try Task.checkCancellation()
             return try await client.listAccessTokens()
         } commit: { [weak self] in self?.entries = $0.tokens; self?.authenticated = true }
     }
@@ -47,6 +48,8 @@ import SwiftUI
         let mine = generation
         work = Task { [weak self] in
             do {
+                // close() may cancel this task before it first reaches the transport.
+                try Task.checkCancellation()
                 let result = try await operation()
                 guard let self, mine == self.generation, !Task.isCancelled else { return }
                 commit(result); self.busy = false

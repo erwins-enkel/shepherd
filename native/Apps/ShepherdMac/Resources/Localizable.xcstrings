@@ -8047,6 +8047,41 @@
         }
       }
     },
+    "native_settings_days": {
+      "comment": "%1$@ = days",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ Tagen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ days"
+          }
+        }
+      }
+    },
+    "native_settings_env_token": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf diesem Server ist ein über die Umgebung bereitgestelltes Token aktiv."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An environment-provisioned token is active on this server."
+          }
+        }
+      }
+    },
     "native_settings_field_authmode": {
       "extractionState": "manual",
       "localizations": {
@@ -9118,6 +9153,23 @@
         }
       }
     },
+    "native_settings_lock_access": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zugriff sperren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lock access"
+          }
+        }
+      }
+    },
     "native_settings_login_failed": {
       "extractionState": "manual",
       "localizations": {
@@ -9148,6 +9200,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Merger login"
+          }
+        }
+      }
+    },
+    "native_settings_never": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Never"
           }
         }
       }
@@ -9818,6 +9887,40 @@
         }
       }
     },
+    "native_settings_revoke": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Widerrufen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revoke"
+          }
+        }
+      }
+    },
+    "native_settings_revoke_confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieses Token widerrufen? Clients verlieren damit ihren Zugriff."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revoke this token? Clients using it will lose access."
+          }
+        }
+      }
+    },
     "native_settings_roles_push_notice": {
       "extractionState": "manual",
       "localizations": {
@@ -9848,6 +9951,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "Save and push roles"
+          }
+        }
+      }
+    },
+    "native_settings_scope_full": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vollzugriff"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Full access"
+          }
+        }
+      }
+    },
+    "native_settings_scope_read": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur lesen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Read only"
+          }
+        }
+      }
+    },
+    "native_settings_scope_submit": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aufgaben einreichen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Submit tasks"
           }
         }
       }
@@ -9886,6 +10040,40 @@
         }
       }
     },
+    "native_settings_token_create": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Token erstellen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create token"
+          }
+        }
+      }
+    },
+    "native_settings_token_expiry": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Läuft ab nach"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expires after"
+          }
+        }
+      }
+    },
     "native_settings_token_failed": {
       "extractionState": "manual",
       "localizations": {
@@ -9899,6 +10087,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "Token operation failed. Unlock access again."
+          }
+        }
+      }
+    },
+    "native_settings_token_login": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Token-Verwaltung entsperren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unlock token administration"
+          }
+        }
+      }
+    },
+    "native_settings_token_name": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Token-Name"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Token name"
+          }
+        }
+      }
+    },
+    "native_settings_token_once": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur einmal sichtbar. Jetzt kopieren; nach dem Schließen ist es nicht erneut abrufbar."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shown once. Copy now; closing this pane hides it permanently."
+          }
+        }
+      }
+    },
+    "native_settings_token_scope": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Berechtigung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scope"
           }
         }
       }

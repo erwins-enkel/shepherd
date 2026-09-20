@@ -275,8 +275,9 @@ again. Nothing about CI changes either way.
 
 ## Parallel streams: seams and rules
 
-Milestone 2 is built by several streams running at once in separate worktrees. They stay out of
-each other's way by extending the app through seams instead of editing shared files.
+Milestone 2 was built by four parallel streams (`terminal`, `detail`, `sidebar`, `actions`) and
+milestone 3 adds six more (`herd`, `plan`, `merge`, `queues`, `compose`, `settings`). They stay out
+of each other's way by extending the app through seams instead of editing shared files.
 
 | Want to add                      | Use                                                                                   | Never edit                       |
 | -------------------------------- | ------------------------------------------------------------------------------------- | -------------------------------- |
@@ -285,15 +286,25 @@ each other's way by extending the app through seams instead of editing shared fi
 | The "Run on this Mac" card body  | `WelcomeSlots.localPanel`                                                             | `WelcomeView.swift`              |
 | A quick-action bar               | `ActionBarSlot.content`                                                               | `MainWindow.swift`               |
 | A long-lived sub-model           | `AppModel.register(MyExtension.self)` with `AppExtension`                             | `AppModel.swift`                 |
+| A settings pane                  | `SettingsPaneRegistry.register(_:)` with your own `SettingsPane`                      | `ShepherdApp.swift`              |
+| A menu-bar command               | `CommandRegistry.register(_:)` with a `MenuCommand`                                   | `ShepherdApp.swift`              |
+| New Task fields, or a composer   | `NewSessionSlot.options` (additive) or `.content` (replacement)                       | `NewSessionSheet.swift`          |
 | A kit route wrapper              | your own `ShepherdClient+<Stream>.swift`, over the internal `generated` client        | `ShepherdClient.swift`           |
 | Handling a server event          | `store.events()` — match the raw name on `.unknown(name:payload:)`                    | `ServerEvent.swift`, `EventName` |
 | Copy                             | your stream's own `KEYS_*` array in `native/scripts/gen-strings.ts`                   | `KEYS_CORE`                      |
 | Schemas, routes and events       | your three `# ── stream: <name> ──` blocks in `contracts/openapi.yaml`                | anything outside them            |
 | Contract fixtures                | your own `test/contract/<stream>.test.ts`, gated on `operationsForStream("<stream>")` | the gate in `openapi.test.ts`    |
 
-- **One call site.** Everything is wired up from `Sources/App/StreamRegistrations.swift`, owned by
-  the integration lane: a merged stream adds exactly one line there. Your own `install(_:)`
-  function lives in your own directory.
+- **One registration file.** Everything is wired up from `Sources/App/StreamRegistrations.swift`,
+  owned by the integration lane: a merged stream adds its installer calls to the scene pass,
+  the model pass, or both as needed. Your own `installScene()` and `install(_:)` functions live
+  in your own directory.
+- **Two registration passes.** `StreamRegistrations.installScene()` runs from `ShepherdApp.init()`,
+  before any `Scene` exists, and is where settings panes and menu commands register — `ShepherdApp.body`
+  reads both registries while the scene is being built, and neither is `@Observable`, so anything
+  registered later never appears. Command actions receive the model when invoked, so their
+  registration still belongs in `installScene()`. `installAll(into:)` keeps model-bound setup
+  and everything that touches `NSApp.mainMenu` (which is nil during `init()`).
 - **Lifecycle.** An `AppExtension` is built in `AppModel.activate(_:)` right after the
   `SessionStore` exists and torn down right before that store stops, in reverse creation order. It
   may hold its store strongly. Anything that suspends must capture `app.activationGeneration`
@@ -325,7 +336,7 @@ each other's way by extending the app through seams instead of editing shared fi
   `generated` property is `internal` for exactly that, and never `public`.
 - **Contract blocks — three per stream.** You own a marked block in `components.schemas:`, in
   `paths:` _and_ in `x-shepherd-events:`, so a stream declares its own event frames next to its
-  own routes. Same grammar in all three, same four streams in the same order, blocks last in
+  own routes. Same grammar in all three, same ten streams in the same order, blocks last in
   their section. See `contracts/README.md`.
 - **Contract fixtures.** The gate in `openapi.test.ts` only polices paths and events _outside_ the
   markers. Your blocks are yours to cover: end your own `test/contract/<stream>.test.ts` with a

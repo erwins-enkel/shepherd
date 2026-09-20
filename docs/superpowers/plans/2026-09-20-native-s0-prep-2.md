@@ -1863,13 +1863,13 @@ git commit -m "fix(mac): stamp dock-badge writes so a stale count cannot commit"
 
 ---
 
-### Task 9: README, full gate sweep, PR
+### Task 9: Development guide, full gate sweep, PR
 
-**Files:** modify `native/README.md`.
+**Files:** modify `native/docs/development.md`.
 
 - [ ] **Step 1: Document the three new seams**
 
-In `native/README.md`'s "Parallel streams: seams and rules" table, add three rows:
+In `native/docs/development.md`'s "Parallel streams: seams and rules" table, add three rows:
 
 ```markdown
 | A settings pane                  | `SettingsPaneRegistry.register(_:)` with your own `SettingsPane`                      | `ShepherdApp.swift`              |
@@ -1877,14 +1877,17 @@ In `native/README.md`'s "Parallel streams: seams and rules" table, add three row
 | New Task fields, or a composer   | `NewSessionSlot.options` (additive) or `.content` (replacement)                       | `NewSessionSheet.swift`          |
 ```
 
-and add one bullet under "One call site":
+Replace "One call site" with "One registration file": a stream adds installer calls to the
+scene pass, the model pass, or both as needed, with its own `installScene()` and `install(_:)`
+functions in its own directory. Then add this bullet:
 
 ```markdown
 - **Two registration passes.** `StreamRegistrations.installScene()` runs from `ShepherdApp.init()`,
   before any `Scene` exists, and is where settings panes and menu commands register — `ShepherdApp.body`
   reads both registries while the scene is being built, and neither is `@Observable`, so anything
-  registered later never appears. `installAll(into:)` keeps everything that needs the model, and
-  everything that touches `NSApp.mainMenu` (which is nil during `init()`).
+  registered later never appears. Command actions receive the model when invoked, so their
+  registration still belongs in `installScene()`. `installAll(into:)` keeps model-bound setup
+  and everything that touches `NSApp.mainMenu` (which is nil during `init()`).
 ```
 
 Also update the sentence "Milestone 2 is built by several streams" to name the ten registered

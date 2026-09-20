@@ -366,6 +366,58 @@ struct SidebarModelTests {
         m.teardown()
     }
 
+    /// `teardown()` must END the connection watcher's loop, not merely cancel the task around it.
+    /// The regression guard for the `AsyncStream` shape: with the old bare
+    /// `withCheckedContinuation` the loop stayed parked forever — `Task.cancel()` cannot resume a
+    /// checked continuation, and `SessionStore.stop()` writes `connection` only when the state
+    /// actually moves — so the model, the reader closure and an observation registration inside
+    /// the store survived every profile switch and every closed window.
+    @Test func teardownEndsTheConnectionWatcher() async {
+        let m = model()
+        let box = ConnectionBox()
+        m.watchConnection { box.state }
+        #expect(m.isWatchingConnection)
+
+        // Parked on the stream: no write since the arm, so nothing has woken it.
+        _ = await settle(until: { m.isWatchingConnection == false }, yields: 50)
+        #expect(m.isWatchingConnection, "the watcher waits rather than falling out of its loop")
+
+        m.teardown()
+        #expect(
+            await settle(until: { m.isWatchingConnection == false }),
+            "teardown() finishes the stream, so the suspended loop can actually end")
+    }
+
+    /// Re-arming installs the replacement synchronously, while the predecessor is still suspended;
+    /// the predecessor then wakes on its finished stream and runs its cleanup. Without the
+    /// `connectionWatcherToken` check, that cleanup would clear `isWatchingConnection` over a
+    /// watcher that is very much alive. Mirrors
+    /// `AppModelTests.rearmingTheWatcherLeavesTheReplacementReportingItself`.
+    @Test func rearmingTheWatcherLeavesTheReplacementReportingItself() async {
+        let ledger = ReadLedger()
+        let m = SidebarModel(reads: counting(ledger), now: { 0 })
+        let box = ConnectionBox()
+
+        m.watchConnection { box.state }
+        #expect(m.isWatchingConnection)
+
+        // Arm a second watcher over the top, then give the first one every chance to unwind and
+        // clear the flag it no longer owns.
+        m.watchConnection { box.state }
+        _ = await settle(until: { m.isWatchingConnection == false }, yields: 200)
+        #expect(m.isWatchingConnection)
+
+        // And exactly one watcher is live: a single `.live` arrival re-reads once, not twice.
+        box.state = .live
+        #expect(await settle(until: { await ledger.count >= 1 }))
+        _ = await settle(until: { await ledger.count >= 2 }, yields: 50)
+        #expect(await ledger.count == 1, "the superseded watcher must not re-read alongside it")
+
+        // The live watcher still answers to teardown.
+        m.teardown()
+        #expect(await settle(until: { m.isWatchingConnection == false }))
+    }
+
     /// Gated reads: the closure signals `entered` before parking on `gate`, so a test can pin a
     /// `refresh()` mid-flight, act while it is suspended, then let it complete.
     private func gated(_ entered: ReadLedger, _ gate: Signal) -> SidebarReads {

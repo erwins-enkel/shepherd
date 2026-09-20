@@ -71,7 +71,16 @@ struct LiveServerTests {
     private func makeModel(
         defaults: UserDefaults, credentials: any CredentialStore
     ) -> AppModel {
-        AppModel(defaults: defaults, credentials: credentials)
+        let model = AppModel(defaults: defaults, credentials: credentials)
+        model.liveRequestAudit = ReadOnlyRequestAudit()
+        model.allowsQueueRecomputation = false
+        model.allowsTerminalInput = false
+        return model
+    }
+
+    private func assertReadOnly(_ model: AppModel) {
+        #expect((model.liveRequestAudit?.counts.reads ?? 0) > 0)
+        #expect(model.liveRequestAudit?.counts.rejected == 0)
     }
 
     @Test(
@@ -114,6 +123,7 @@ struct LiveServerTests {
         do {
             // --- sign-in path -----------------------------------------------
             let signedInModel = makeModel(defaults: defaults, credentials: credentials)
+            defer { assertReadOnly(signedInModel) }
             signedInModel.login = { profile, password, credentials in
                 try await ProfileSetup.login(profile: profile, password: password, credentials: credentials,
                     tokenName: ProfileSetup.tokenName(prefix: "Shepherd UI test (",
@@ -146,6 +156,7 @@ struct LiveServerTests {
             // `restoreActiveProfile()` is the only thing that puts a store
             // behind it.
             let relaunchedModel = makeModel(defaults: defaults, credentials: credentials)
+            defer { assertReadOnly(relaunchedModel) }
             relaunched = relaunchedModel
             #expect(relaunchedModel.activeProfile?.id == signedInProfile.id)
             #expect(relaunchedModel.store == nil)
@@ -188,6 +199,7 @@ struct LiveServerTests {
         let defaults = UserDefaults(suiteName: suite)!
         let credentials = InMemoryCredentialStore()
         let model = makeModel(defaults: defaults, credentials: credentials)
+        defer { assertReadOnly(model) }
         defer {
             model.teardown()
             defaults.removePersistentDomain(forName: suite)

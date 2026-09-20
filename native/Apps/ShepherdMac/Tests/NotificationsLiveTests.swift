@@ -91,7 +91,9 @@ struct NotificationsLiveTests {
 
             // `bootstrap()` only — never `start()`. One read of sessions, settings and repos,
             // with no event loop and no reconnect behind it.
-            let store = try SessionStore(profile: profile, credentials: credentials)
+            let audit = ReadOnlyRequestAudit()
+            defer { #expect(audit.counts.reads > 0); #expect(audit.counts.rejected == 0) }
+            let store = try SessionStore(client: ShepherdClient(profile: profile, credentials: credentials, readOnlyAudit: audit))
             try await store.bootstrap()
 
             let center = FakeNotificationCenter()

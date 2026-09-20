@@ -119,7 +119,10 @@ extension ShepherdClient {
       // 502: the replacement could not be spawned, or a same-repo relaunch could not re-resolve
       // the linked issue. The original is left intact, which is what makes this recoverable
       // rather than a lost session — the same mapping `createSession` gives its own 502.
-      case .badGateway(let bad): throw ShepherdError.upstreamFailure(try bad.body.json.error)
+      // `fromUpstream`, not the text-only spelling: this is the one 502 the app
+      // branches on — `issue_unresolved` gets its own sentence in the action bar —
+      // and a code survives a reworded server message.
+      case .badGateway(let bad): throw ShepherdError.fromUpstream(try bad.body.json)
       case .undocumented(let statusCode, _):
         throw ShepherdError.fromUndocumented(statusCode: statusCode, route: "relaunchSession")
       }

@@ -21,8 +21,12 @@ public enum ShepherdError: Error, Equatable, Sendable {
   case conflict(code: String?, message: String)
   /// 422 — the base branch does not resolve to a ref.
   case unprocessable(String)
-  /// 502 — git or the agent runner failed downstream.
-  case upstreamFailure(String)
+  /// 502 — git or the agent runner failed downstream. Carries the body's `code`
+  /// alongside its `error` text, the same pair `.conflict` carries: a caller
+  /// that has to tell one 502 from another (relaunch's `issue_unresolved`, say)
+  /// branches on a stable code rather than on a sentence the server may reword.
+  /// `nil` for the routes whose mapping passes only the text.
+  case upstreamFailure(code: String?, message: String)
   /// The server answered with something the contract does not describe, or a
   /// body that would not decode. `route` is the operation id.
   case contractMismatch(route: String, underlying: String)
@@ -123,6 +127,21 @@ public enum ShepherdError: Error, Equatable, Sendable {
     body.error == "first_run_pending"
       ? .firstRunPending
       : .conflict(code: body.code, message: body.error)
+  }
+
+  /// Maps a documented 502 body, code included. The sibling of `fromConflict`,
+  /// and the mapping every 502 that carries a `code` worth branching on should
+  /// use; the `upstreamFailure(_:)` spelling below stays for the ones whose
+  /// body the caller only wants the text of.
+  public static func fromUpstream(_ body: Components.Schemas._Error) -> ShepherdError {
+    .upstreamFailure(code: body.code, message: body.error)
+  }
+
+  /// The code-less spelling, kept so the routes that never branch on a 502's
+  /// code — and the tests that pin their mapping — read as they did before the
+  /// code was added. Exactly `.upstreamFailure(code: nil, message:)`.
+  public static func upstreamFailure(_ message: String) -> ShepherdError {
+    .upstreamFailure(code: nil, message: message)
   }
 
   /// Ceiling on any diagnostic string carried into a case payload. The

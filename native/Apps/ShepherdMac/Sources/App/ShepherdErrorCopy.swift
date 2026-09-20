@@ -46,7 +46,7 @@ enum ShepherdErrorCopy {
         case .badRequest(let message): return message
         case .conflict(_, let message): return message
         case .unprocessable(let message): return message
-        case .upstreamFailure(let message): return message
+        case .upstreamFailure(_, let message): return message
         case .contractMismatch: return L.t("native_error_mismatch")
         case .insecureProfile(let reason): return message(reason)
         case .transport: return L.t("native_error_offline")

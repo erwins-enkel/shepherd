@@ -60,7 +60,8 @@ struct ActionBarTests {
     /// The two relaunch codes the shared `ShepherdErrorCopy` cannot reach: it renders the
     /// server's own `message` verbatim for both `.conflict` and `.upstreamFailure` and never
     /// looks at the code, and `SessionCommandState.run` hands `failureCopy` only that string.
-    /// `ActionErrorCopy` is this stream's own, smallest bridge over that gap.
+    /// `ActionErrorCopy` is this stream's own, smallest bridge over that gap — and both arms now
+    /// match the server's CODE, so a reworded message still gets the right sentence.
     @Test func theTwoRelaunchCodesGetTheirOwnSentence() {
         #expect(
             ActionErrorCopy.relaunchFailure(
@@ -68,8 +69,17 @@ struct ActionBarTests {
                 fallback: "relaunch already in progress") == L.t("relaunch_in_progress"))
         #expect(
             ActionErrorCopy.relaunchFailure(
-                ShepherdError.upstreamFailure("could not re-resolve linked issue"),
+                ShepherdError.upstreamFailure(
+                    code: "issue_unresolved", message: "could not re-resolve linked issue"),
                 fallback: "could not re-resolve linked issue") == L.t("relaunch_issue_unresolved"))
+        // The point of matching the code: the same failure, reworded by a future server, still
+        // gets its own sentence rather than the generic line.
+        #expect(
+            ActionErrorCopy.relaunchFailure(
+                ShepherdError.upstreamFailure(
+                    code: "issue_unresolved", message: "the linked issue no longer resolves"),
+                fallback: "the linked issue no longer resolves")
+                == L.t("relaunch_issue_unresolved"))
     }
 
     @Test func anyOtherRelaunchFailureKeepsTheServersOwnWords() {
@@ -77,12 +87,17 @@ struct ActionBarTests {
             ActionErrorCopy.relaunchFailure(
                 ShepherdError.conflict(code: "already_archived", message: "already archived"),
                 fallback: "already archived") == L.t("native_actions_failed", "already archived"))
-        // A 502 from a failed spawn carries the runner's message, not a code.
+        // A 502 from a failed spawn carries the runner's message and no code.
         #expect(
             ActionErrorCopy.relaunchFailure(
                 ShepherdError.upstreamFailure("worktree add failed"),
                 fallback: "worktree add failed")
                 == L.t("native_actions_failed", "worktree add failed"))
+        // And one carrying some OTHER code is not this sentence either.
+        #expect(
+            ActionErrorCopy.relaunchFailure(
+                ShepherdError.upstreamFailure(code: "spawn_failed", message: "runner said no"),
+                fallback: "runner said no") == L.t("native_actions_failed", "runner said no"))
         #expect(
             ActionErrorCopy.relaunchFailure(ShepherdError.notFound, fallback: "gone")
                 == L.t("native_actions_failed", "gone"))

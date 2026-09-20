@@ -323,6 +323,15 @@ struct ShepherdClientActionsTests {
 
   // MARK: - recaps
 
+  @Test func recapBlocksDecodeThroughTheSharedVisualBlockSchema() throws {
+    let data = Data(#"{"sessionId":"s1","state":"ready","headline":"h","body":"b","openItems":[],"updatedAt":7,"blocks":[{"type":"rich-text","id":"summary","markdown":"Details"},{"type":"future-block","id":"future"}]}"#.utf8)
+    let recap = try JSONDecoder().decode(Recap.self, from: data)
+    #expect(recap.blocks?.count == 2)
+    #expect(recap.blocks?.first?.value1?.markdown == "Details")
+    let roundTrip = try JSONDecoder().decode(Recap.self, from: JSONEncoder().encode(recap))
+    #expect(roundTrip.blocks?.count == 2)
+  }
+
   @Test("recaps decodes the map, and an unheard-of state and verdict survive as raw values")
   func recaps() async throws {
     let server = FakeShepherdServer()

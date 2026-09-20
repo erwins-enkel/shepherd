@@ -68,6 +68,13 @@ final class PlanModel: AppExtension {
         PlanGateChip.questionsUnanswered(gates[id])
     }
 
+    /// The plan half of rework-running.ts; HerdClassifier applies display-running.
+    func isReworking(_ session: Session, now: Int = Int(Date.now.timeIntervalSince1970 * 1_000)) -> Bool {
+        guard session.planPhase?.known == .planning, let gate = gates[session.id],
+              gate.decision.known == .changesRequested, gate.dismissed != true else { return false }
+        return PlanGateChip.stallStatus(gate, now: now) != .stalled
+    }
+
     func canRelease(_ session: Session) -> Bool {
         !releasedGates.contains(session.id)
             && PlanGateChip.canRelease(session: session, gate: gates[session.id])

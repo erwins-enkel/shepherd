@@ -23,6 +23,12 @@ enum HerdStream {
                 return herd.isReviewing(session.id) || herd.planReviewing(session)
             }
         }
+        if let herd = app.extension(HerdSignals.self) {
+            herd.planReviewing = { session in PlanSignals.planReviewing(session.id) }
+            herd.planRework = { [weak app] session in
+                app?.extension(PlanModel.self)?.isReworking(session) ?? false
+            }
+        }
         SessionSignals.gitMerged = { [weak app] id in
             app?.extension(HerdSignals.self)?.git[id]?.state.known == .merged
         }
@@ -50,7 +56,12 @@ private final class HerdBindings: AppExtension {
                 do {
                     guard let app, app.activationGeneration == generation else { return }
                     let ids = withObservationTracking {
-                        app.extension(HerdSignals.self)?.ciRed ?? []
+                        let ci = app.extension(HerdSignals.self)?.ciRed ?? []
+                        let plan = app.extension(PlanModel.self)
+                        let questions = Set((plan?.gates.keys.map { $0 } ?? []).filter {
+                            plan?.questionsUnanswered($0) == true
+                        })
+                        return ci.union(questions)
                     } onChange: {
                         signal.yield()
                     }

@@ -1223,6 +1223,9 @@ components:
             - type: "null"
         headline: { type: string, description: 'At most 100 characters; "" until ready.' }
         body: { type: string, description: 'Markdown; "" until ready.' }
+        blocks:
+          type: array
+          items: { $ref: "#/components/schemas/VisualBlock" }
         openItems: { type: array, items: { type: string } }
         changedFiles: { type: array, items: { type: string } }
         generatedAt: { type: [integer, "null"] }

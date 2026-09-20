@@ -1860,6 +1860,10 @@ components:
         body:
           type: string
           description: Markdown; "" until ready.
+        blocks:
+          type: array
+          items:
+            $ref: "#/components/schemas/VisualBlock"
         openItems:
           type: array
           items:

@@ -628,9 +628,9 @@ import Testing
         stale.stale = true
         for (value, opacity) in [(usage, 1.0), (stale, 0.55)] {
             let line = CapacityLine(provider: .claude, usageLimits: { value })
-            #expect(try #require(line.state.selected).opacity == opacity)
-            #expect(line.state.rows[0].opacity == opacity)
-            #expect(line.state.rows[1].opacity == 1, "Claude staleness must not dim Codex")
+            #expect(capacityElements(_OpacityEffect.self, in: line.body).map(\.opacity) == [opacity])
+            #expect(capacityElements(_OpacityEffect.self, in: line.allWindows).map(\.opacity) == [opacity, 1],
+                    "The popover must dim Claude independently of Codex, including unavailable rows")
         }
     }
 
@@ -639,8 +639,8 @@ import Testing
                                  (90, .orange), (90.01, .red), (100, .red)] {
             let usage = try limits(", \"week\":{\"pct\":\(used),\"resetAt\":0}")
             let line = CapacityLine(provider: .claude, usageLimits: { usage })
-            #expect(try #require(line.state.selected).window.tint == expected)
-            #expect(try #require(line.state.rows[0].windows.first).tint == expected)
+            try expectCapacityTint(expected, in: line.body)
+            try expectCapacityTint(expected, in: line.allWindows)
         }
     }
 
@@ -720,6 +720,48 @@ import Testing
         picker.selection.wrappedValue = .codex
         #expect(model.provider == .codex)
     }
+}
+
+/// Walk the actual SwiftUI value tree, expanding ForEach's rendered content instead
+/// of inspecting its input models. Keep SDK reflection confined to this test helper.
+@MainActor private protocol CapacityForEachContent {
+    var capacityChildren: [Any] { get }
+}
+
+extension ForEach: CapacityForEachContent where Content: View {
+    fileprivate var capacityChildren: [Any] { data.map { content($0) } }
+}
+
+@MainActor private func capacityElements<Element>(
+    _ type: Element.Type, in value: Any, depth: Int = 0
+) -> [Element] {
+    if let element = value as? Element { return [element] }
+    guard depth < 40 else { return [] }
+    if let repeated = value as? any CapacityForEachContent {
+        return repeated.capacityChildren.flatMap { capacityElements(type, in: $0, depth: depth + 1) }
+    }
+    let mirror = Mirror(reflecting: value)
+    // Do not enter reference graphs (state, environment storage, color providers).
+    guard mirror.displayStyle != .class else { return [] }
+    return mirror.children.flatMap { capacityElements(type, in: $0.value, depth: depth + 1) }
+}
+
+@MainActor private func expectCapacityTint(_ expected: Color, in view: some View) throws {
+    // Derive the tint environment key from SwiftUI itself, not a private key name.
+    let reference = capacityElements(_EnvironmentKeyWritingModifier<AnyShapeStyle?>.self,
+                                     in: EmptyView().tint(Color.red))
+    let key = try #require(reference.first?.keyPath)
+    let modifiers = capacityElements(_EnvironmentKeyWritingModifier<AnyShapeStyle?>.self, in: view)
+        .filter { $0.keyPath == key }
+    #expect(modifiers.count == 1, "The rendered meter must apply exactly one tint")
+    let style = try #require(modifiers.first?.value)
+    // AnyShapeStyle type-erases Color, but its storage retains SwiftUI's equality.
+    // Require that representation explicitly so SDK changes fail visibly.
+    let actual = try #require(Mirror(reflecting: style).descendant("storage") as? any Equatable)
+    let wanted = try #require(Mirror(reflecting: AnyShapeStyle(expected)).descendant("storage"))
+    func equals<T: Equatable>(_ value: T, _ other: Any) -> Bool { value == other as? T }
+    let matches = equals(actual, wanted)
+    #expect(matches, "The rendered tint must match the severity color")
 }
 
 /// Uploads reject a credential; every secondary exchange fails offline.

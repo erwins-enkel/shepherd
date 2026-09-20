@@ -147,7 +147,8 @@ struct CapacityLine: View {
         }
     }
 
-    private var allWindows: some View {
+    // Internal so tests inspect the same popover content SwiftUI presents.
+    var allWindows: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(verbatim: L.t("newtask_provider_capacity_title")).font(.headline)
             ForEach(state.rows, id: \.provider) { row in

@@ -246,6 +246,20 @@ describe("detail: git", () => {
       const reviewers = await get(`/api/sessions/${ok}/git/reviewers`);
       await validateResponse("GET", "/api/sessions/{id}/git/reviewers", reviewers);
       expect(reviewers.status).toBe(502);
+      // request-review answers 502 through the same reviewRequestError() as /git/reviewers, and
+      // the contract has to declare it: undeclared, a plain forge outage reaches a generated
+      // client as an undocumented status and reads as a contract mismatch.
+      const review = await post(`/api/sessions/${ok}/git/request-review`, {
+        prNumber: 12,
+        reviewer: "octocat",
+      });
+      const body = (await validateResponse(
+        "POST",
+        "/api/sessions/{id}/git/request-review",
+        review,
+      )) as { code: string };
+      expect(review.status).toBe(502);
+      expect(body.code).toBe("review_request_failed");
     } finally {
       delete s.deps.resolveForge;
     }

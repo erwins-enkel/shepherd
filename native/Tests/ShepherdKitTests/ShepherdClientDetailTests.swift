@@ -420,6 +420,34 @@ struct ShepherdClientDetailWriteTests {
     }
   }
 
+  /// `reviewRequestError()` answers 502 `review_request_failed` for anything the forge threw
+  /// that is not a refusal or a bad login — a plain GitHub outage. The route used not to declare
+  /// it, so it fell through to `.undocumented` and reached the operator as contract-mismatch
+  /// copy: both wrong and alarming for a transient upstream failure.
+  @Test("a forge outage on a review request is an upstream failure, not a contract mismatch")
+  func requestReviewUpstreamFailure() async throws {
+    let angry = FakeShepherdServer()
+    defer { angry.tearDown() }
+    angry.stub(
+      "POST", "/api/sessions/s1/git/request-review", status: 502,
+      json: Data(#"{"code":"review_request_failed","error":"forge unreachable"}"#.utf8))
+    await #expect(throws: ShepherdError.upstreamFailure("forge unreachable")) {
+      _ = try await detailClient(angry).requestPRReview(
+        sessionID: "s1", prNumber: 12, reviewer: "octocat")
+    }
+
+    // The body often carries the machine code and no prose; the code stands in for both.
+    let terse = FakeShepherdServer()
+    defer { terse.tearDown() }
+    terse.stub(
+      "POST", "/api/sessions/s1/git/request-review", status: 502,
+      json: Data(#"{"code":"review_request_failed"}"#.utf8))
+    await #expect(throws: ShepherdError.upstreamFailure("review_request_failed")) {
+      _ = try await detailClient(terse).requestPRReview(
+        sessionID: "s1", prNumber: 12, reviewer: "octocat")
+    }
+  }
+
   @Test("an unsupported forge is a bad request; an unknown session is notFound")
   func requestReviewUnsupportedOrNotFound() async throws {
     let unsupported = FakeShepherdServer()

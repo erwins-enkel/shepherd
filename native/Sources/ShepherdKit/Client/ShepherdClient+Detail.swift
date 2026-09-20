@@ -261,6 +261,8 @@ extension ShepherdClient {
   /// - Returns: `true` when the server requested the review but its own follow-up status read
   ///   failed (`refreshPending`), so the caller should re-read `git(sessionID:)`. This route's
   ///   error bodies carry a machine code and often no prose, so the code stands in for both.
+  /// - Throws: `.upstreamFailure` on 502, the sibling git routes' mapping — a forge outage, not
+  ///   a contract mismatch.
   @discardableResult
   public func requestPRReview(
     sessionID: String, prNumber: Int, reviewer: String
@@ -279,6 +281,11 @@ extension ShepherdClient {
         throw ShepherdError.conflict(code: code, message: try conflict.body.json.error ?? code)
       case .unprocessableContent(let unprocessable):
         throw ShepherdError.unprocessable(try unprocessable.body.json.code)
+      // `reviewRequestError()` answers 502 `review_request_failed` for anything the forge threw
+      // that is not a refusal or a bad login — a plain GitHub outage. Without this case it fell
+      // through to `.undocumented` and read to the operator as a contract mismatch.
+      case .badGateway(let bad):
+        throw ShepherdError.upstreamFailure(try bad.body.json.error ?? bad.body.json.code)
       case .undocumented(let status, _):
         throw ShepherdError.fromUndocumented(statusCode: status, route: "requestPullRequestReview")
       }

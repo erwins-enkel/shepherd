@@ -1452,6 +1452,10 @@ paths:
           description: "The host rejects the reviewer login (`code: review_request_invalid_reviewer`)."
           content:
             { application/json: { schema: { $ref: "#/components/schemas/ReviewCodeError" } } }
+        "502":
+          description: "The forge failed (`code: review_request_failed`)."
+          content:
+            { application/json: { schema: { $ref: "#/components/schemas/ReviewCodeError" } } }
   # ── /stream: detail ──
   # ── stream: sidebar ──
   # ── /stream: sidebar ──

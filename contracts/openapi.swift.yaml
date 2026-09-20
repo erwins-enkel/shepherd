@@ -2167,6 +2167,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ReviewCodeError"
+        "502":
+          description: "The forge failed (`code: review_request_failed`)."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewCodeError"
 x-shepherd-events:
   description: 'WebSocket /events. Same auth gate as HTTP (send Authorization on the upgrade). Every frame is an EventEnvelope: {"event": string, "data": object}. Client may send {"type":"presence","active":boolean}; the server never replies to it.'
   envelope:

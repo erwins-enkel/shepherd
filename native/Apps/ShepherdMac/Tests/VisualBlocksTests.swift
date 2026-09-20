@@ -64,6 +64,33 @@ struct VisualBlocksTests {
                         type: "rich-text", text: ["A bold plan"])
     }
 
+    @Test func markdownPreservesSeparateHeadingParagraphsAndListItems() async throws {
+        let elements = await rendered([try block(##"{"type":"rich-text","id":"b","markdown":"# Deployment\n\nFirst **paragraph**.\n\nSecond paragraph.\n\n- Stop server\n- Deploy"}"##)])
+        #expect(elements.contains { $0.text.contains("Deployment") && !$0.text.contains("First paragraph.") })
+        for text in ["First paragraph.", "Second paragraph.", "Stop server", "Deploy"] {
+            #expect(elements.contains { $0.text == text }, "Missing separate block: \(text)")
+        }
+    }
+
+    @Test func markdownSlicesKeepInlineFormattingAndNestedListMarkers() {
+        let blocks = PlanMarkdownView.blocks("# Deploy\n\nA **bold** paragraph.\n\n1. First\n   - Nested\n2. Second")
+        #expect(blocks.map { String($0.text.characters) } == ["Deploy", "A bold paragraph.", "First", "Nested", "Second"])
+        #expect(blocks.first?.heading == true)
+        #expect(blocks[1].text.runs.contains { $0.inlinePresentationIntent?.contains(.stronglyEmphasized) == true })
+        #expect(blocks.map(\.marker) == [nil, nil, "1.", "•", "2."])
+    }
+
+    @Test func deferredAnnotationsPreserveLabelsAndSafetyInstructions() async throws {
+        for type in ["diff", "annotated-code"] {
+            try await assertBlock("""
+                {"type":"\(type)","id":"b","path":"key.swift","summary":"Rotate key",
+                 "filename":"key.swift","annotations":[{"label":"Migration",
+                 "note":"Revoke the old key only after clients migrate"},{"note":"Keep the rollback key"}]}
+                """, type: type, text: ["Migration", "Revoke the old key only after clients migrate",
+                                         "Keep the rollback key"])
+        }
+    }
+
     @Test func calloutRendersEveryToneAndAnOpenTone() async throws {
         let tones: [(String, StaticString)] = [
             ("info", "vblock_callout_info"), ("decision", "vblock_callout_decision"),

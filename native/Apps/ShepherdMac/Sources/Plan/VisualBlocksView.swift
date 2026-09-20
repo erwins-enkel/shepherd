@@ -37,11 +37,13 @@ struct VisualBlocksView: View {
                 QuestionFormView(block: value, answerContext: answerContext, writer: answerWriter)
             }
         } else if let value = block.value4 {
-            identified("diff", value.id) { omitted([value.summary]) }
+            identified("diff", value.id) { omitted([value.summary] + annotationText(value.annotations)) }
         } else if let value = block.value5 {
             identified("code", value.id) { omitted([value.filename]) }
         } else if let value = block.value6 {
-            identified("annotated-code", value.id) { omitted([value.filename]) }
+            identified("annotated-code", value.id) {
+                omitted([value.filename] + annotationText(value.annotations))
+            }
         } else if let value = block.value7 {
             identified("data-model", value.id) {
                 omitted(value.entities.map(\.name), isInferred: value.inferred == true)
@@ -74,8 +76,11 @@ struct VisualBlocksView: View {
     }
 
     private func markdown(_ source: String) -> some View {
-        Text((try? AttributedString(markdown: source)) ?? AttributedString(source))
-            .textSelection(.enabled)
+        PlanMarkdownView(source: source)
+    }
+
+    private func annotationText(_ annotations: [DiffAnnotation]?) -> [String] {
+        (annotations ?? []).flatMap { [$0.label, $0.note].compactMap { $0 } }
     }
 
     private func callout(_ value: VisualBlockCallout) -> some View {
@@ -227,5 +232,59 @@ enum VisualFileTree {
             pending.append(contentsOf: (children[path] ?? []).reversed())
         }
         return result
+    }
+}
+
+/// Foundation keeps block identity in presentation intents even though its plain text
+/// concatenates paragraphs. Slice on that attribute, preserving inline emphasis and links.
+struct PlanMarkdownView: View {
+    let source: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(Array(Self.blocks(source).enumerated()), id: \.offset) { _, block in
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    if let marker = block.marker { Text(verbatim: marker).accessibilityHidden(true) }
+                    Text(block.text)
+                        .font(block.heading ? .headline : block.code ? .body.monospaced() : .body)
+                        .accessibilityAddTraits(block.heading ? .isHeader : [])
+                }
+                .padding(.leading, CGFloat(block.depth * 12))
+            }
+        }
+        .textSelection(.enabled)
+    }
+
+    struct Block {
+        let text: AttributedString
+        var heading = false
+        var code = false
+        var marker: String?
+        var depth = 0
+    }
+
+    static func blocks(_ source: String) -> [Block] {
+        guard let parsed = try? AttributedString(markdown: source) else {
+            return [Block(text: AttributedString(source))]
+        }
+        return parsed.runs[\.presentationIntent].map { intent, range in
+            var block = Block(text: AttributedString(parsed[range]))
+            let components = intent?.components ?? []
+            let ordered = components.first { $0.kind == .orderedList || $0.kind == .unorderedList }?.kind == .orderedList
+            for component in components {
+                switch component.kind {
+                case .header: block.heading = true
+                case .codeBlock: block.code = true
+                case .listItem(let ordinal):
+                    // Only the innermost item owns this paragraph's marker.
+                    if block.marker == nil { block.marker = ordered ? "\(ordinal)." : "•" }
+                default: break
+                }
+            }
+            block.depth = max(0, components.filter {
+                $0.kind == .orderedList || $0.kind == .unorderedList || $0.kind == .blockQuote
+            }.count - 1)
+            return block
+        }
     }
 }

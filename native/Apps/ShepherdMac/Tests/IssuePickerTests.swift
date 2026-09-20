@@ -171,13 +171,14 @@ import Testing
         #expect(m.provider == .codex)
     }
 
-    @Test func constrainedCommandSwitchesProviderBlocksSubmitAndPrunesOnTyping() {
+    @Test func constrainedCommandCorrectsProviderBeforeSubmitAndPrunesOnTyping() {
         let m = model(); m.repoPath = "/repo"; m.provider = .codex; m.prompt = "/sh"
         m.pickCommand(command("ship", providers: [.claude]), caret: m.prompt.endIndex)
         #expect(m.provider == .claude)
         #expect(!m.allowsProvider(.codex))
         m.provider = .codex
-        #expect(m.createRequest(baseBranch: "main") == nil)
+        #expect(m.createRequest(baseBranch: "main")?.agentProvider == .claude)
+        #expect(m.provider == .claude)
         m.prompt = "ordinary prompt"
         #expect(m.providerConstraint == nil)
         #expect(m.createRequest(baseBranch: "main") != nil)

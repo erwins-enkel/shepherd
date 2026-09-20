@@ -18,7 +18,11 @@ final class ComposeModel {
             loading = false
         }
     }
-    var provider: AgentProvider = .claude
+    var provider: AgentProvider = .claude { didSet { normalizeRunConfig() } }
+    var model = "default" { didSet { normalizeRunConfig() } }
+    var effort = "default" { didSet { normalizeRunConfig() } }
+    var runDefaults: ComposeRunConfig.Defaults { didSet { normalizeRunConfig() } }
+    @ObservationIgnored private var normalizingRunConfig = false
     var research = false
     var epicAuthoring = false
     var plain = false
@@ -65,7 +69,7 @@ final class ComposeModel {
         let token: String
         let provider: AgentProvider
     }
-    private(set) var providerConstraint: ProviderConstraint?
+    private(set) var providerConstraint: ProviderConstraint? { didSet { normalizeRunConfig() } }
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let fetchIssues: (String) async throws -> IssueListing
     @ObservationIgnored private let fetchCommands: (String, AgentProvider) async throws -> CommandListing
@@ -75,15 +79,20 @@ final class ComposeModel {
     private var commandGenerations: [AgentProvider: Int] = [:]
     private var viewers: [String: String] = [:]
 
-    convenience init(client: ShepherdClient, defaults: UserDefaults = .standard) {
+    convenience init(client: ShepherdClient, defaults: UserDefaults = .standard,
+                     runDefaults: ComposeRunConfig.Defaults = .init(),
+                     initialModel: String? = nil, initialEffort: String? = nil) {
         self.init(defaults: defaults, repoBranches: RepoBranchModel(client: client), loadIssues: { try await client.issues(repoPath: $0) },
                   loadCommands: { try await client.commands(repoPath: $0, provider: $1) },
-                  loadEpics: { try await client.epics(repoPath: $0) }, attachments: AttachmentModel(client: client))
+                  loadEpics: { try await client.epics(repoPath: $0) }, attachments: AttachmentModel(client: client),
+                  runDefaults: runDefaults, initialModel: initialModel, initialEffort: initialEffort)
     }
 
     init(defaults: UserDefaults, repoBranches: RepoBranchModel, loadIssues: @escaping (String) async throws -> IssueListing,
          loadCommands: @escaping (String, AgentProvider) async throws -> CommandListing,
-         loadEpics: @escaping (String) async throws -> EpicListing, attachments: AttachmentModel? = nil) {
+         loadEpics: @escaping (String) async throws -> EpicListing, attachments: AttachmentModel? = nil,
+         runDefaults: ComposeRunConfig.Defaults = .init(), initialModel: String? = nil, initialEffort: String? = nil) {
+        self.runDefaults = runDefaults
         self.attachments = attachments ?? AttachmentModel(upload: { _, _ in throw ShepherdError.cancelled })
         self.repoBranches = repoBranches
         self.defaults = defaults
@@ -93,6 +102,30 @@ final class ComposeModel {
             hideActive: defaults.bool(forKey: "shepherd:issues-hide-active"),
             hideSubIssues: defaults.object(forKey: "shepherd:issues-hide-subissues") as? Bool ?? true,
             hideBlocked: defaults.object(forKey: "shepherd:issues-hide-blocked") as? Bool ?? true)
+        provider = runDefaults.provider
+        model = initialModel ?? ComposeRunConfig.preselectModel(runDefaults.model(for: provider), provider: provider,
+                                                               fableAvailable: runDefaults.fableAvailable)
+        effort = initialEffort ?? ComposeRunConfig.preselectEffort(runDefaults.effort)
+        normalizeRunConfig()
+    }
+
+    /// Correct validity at every mutation and again at submit, even if no picker was mounted.
+    func normalizeRunConfig() {
+        guard !normalizingRunConfig else { return }
+        normalizingRunConfig = true
+        defer { normalizingRunConfig = false }
+        let normalized = ComposeRunConfig.normalizeRunConfig(provider: provider, model: model, effort: effort,
+                                                              defaults: runDefaults, constraint: providerConstraint?.provider)
+        if provider != normalized.provider { provider = normalized.provider }
+        if model != normalized.model { model = normalized.model }
+        if effort != normalized.effort { effort = normalized.effort }
+    }
+
+    func selectProviderManually(_ provider: AgentProvider) {
+        guard allowsProvider(provider) else { return }
+        self.provider = provider
+        model = ComposeRunConfig.modelForManualProviderChange(provider, defaults: runDefaults)
+        normalizeRunConfig()
     }
 
     /// Derived from the three wire flags; a stored enum would be a second source of truth.
@@ -305,6 +338,7 @@ final class ComposeModel {
            invocations.additionalProperties[selected.rawValue]?.isEmpty != false {
             return caret ?? prompt.endIndex
         }
+        providerConstraint = nil
         provider = selected
         let name = command.invocationName ?? command.name
         let token = command.invocations?.additionalProperties[provider.rawValue] ?? (provider == .codex ? "$" : "/") + name
@@ -331,9 +365,12 @@ final class ComposeModel {
     var readinessBlocker: String? { attachments.hasOutstandingUploads ? "uploading" : nil }
 
     func createRequest(baseBranch: String) -> CreateSessionRequest? {
+        normalizeRunConfig()
         guard !repoPath.isEmpty, !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               allowsProvider(provider), readinessBlocker == nil else { return nil }
         var request = CreateSessionRequest(repoPath: repoPath, baseBranch: baseBranch, prompt: prompt, agentProvider: provider)
+        request.model = model == "default" ? nil : model
+        request.effort = effort == "default" ? nil : Effort(rawValue: effort)
         if !attachments.rows.isEmpty {
             request.images = attachments.rows.compactMap(\.path)
             request.attachmentNames = attachments.rows.map { $0.file.name }

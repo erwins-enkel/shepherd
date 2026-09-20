@@ -7,7 +7,7 @@ struct EnginePicker: View {
     var selection: Binding<AgentProvider> {
         Binding(get: { model.provider }, set: { provider in
             guard model.allowsProvider(provider) else { return }
-            model.provider = provider
+            model.selectProviderManually(provider)
         })
     }
 

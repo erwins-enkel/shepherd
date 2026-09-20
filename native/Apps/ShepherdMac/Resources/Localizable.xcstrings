@@ -3552,6 +3552,720 @@
         }
       }
     },
+    "model_configured_fable_latest": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fable (neuestes)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fable (latest)"
+          }
+        }
+      }
+    },
+    "model_configured_opus_1m_latest": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opus (neuestes, 1 Mio. Kontext)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opus (latest, 1M context)"
+          }
+        }
+      }
+    },
+    "model_configured_opus_latest": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opus (neuestes)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opus (latest)"
+          }
+        }
+      }
+    },
+    "model_cost_high": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hohe Kosten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "High cost"
+          }
+        }
+      }
+    },
+    "model_cost_low": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Niedrige Kosten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Low cost"
+          }
+        }
+      }
+    },
+    "model_cost_premium": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Premium-Kosten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Premium cost"
+          }
+        }
+      }
+    },
+    "model_cost_standard": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standardkosten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard cost"
+          }
+        }
+      }
+    },
+    "model_guidance_auto": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto lässt Shepherd manuelle Aufgaben vorbelegen, während unbeaufsichtigte Starts auf dem Provider-Standard bleiben."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto lets Shepherd seed manual tasks while unattended spawns stay on the provider default."
+          }
+        }
+      }
+    },
+    "model_guidance_claude_fable": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Für die härtesten, langlaufenden Aufgaben. Höchste Qualität, höchste unbeaufsichtigte Kosten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use for the hardest long-running work. Highest quality, highest unattended burn."
+          }
+        }
+      }
+    },
+    "model_guidance_claude_fable_5_1": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fixiert genau Fable 5.1, damit ein künftiges Fable-Release dieses Modell nicht still ändert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pins Fable 5.1 exactly, so a future Fable release can't quietly change this model."
+          }
+        }
+      }
+    },
+    "model_guidance_claude_haiku": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Günstig und schnell. Gut für Naming und Klassifizierer, schwach für primäres Coding."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cheap and fast. Best for naming and classifiers, weak for primary coding."
+          }
+        }
+      }
+    },
+    "model_guidance_claude_opus": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Immer das neueste Opus. Für PR-Kritik, Planung oder riskante Refactors, die mehr Urteilsvermögen als Sonnet brauchen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Always the latest Opus. Use for PR criticism, planning, or risky refactors that need stronger judgment than Sonnet."
+          }
+        }
+      }
+    },
+    "model_guidance_claude_opus_1m": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neuestes Opus mit 1 Mio. Kontext. Nur wählen, wenn Transcript oder Repo-Kontext das wirklich brauchen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Latest Opus with 1M context. Use only when the transcript or repo context truly needs it."
+          }
+        }
+      }
+    },
+    "model_guidance_claude_opus_5": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fixiert genau Opus 5, damit ein künftiges Opus-Release dieses Modell nicht still ändert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pins Opus 5 exactly, so a future Opus release can't quietly change this model."
+          }
+        }
+      }
+    },
+    "model_guidance_claude_opus_5_1m": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opus 5 fixiert, mit 1 Mio. Kontext. Für Läufe mit großem Kontext reservieren."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opus 5 pinned, with 1M context. Reserve it for large-context runs."
+          }
+        }
+      }
+    },
+    "model_guidance_claude_sonnet": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ausgewogener Standard für alltägliches Coding, Reviews und Recaps."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Balanced default for everyday coding, reviews, and recaps."
+          }
+        }
+      }
+    },
+    "model_guidance_claude_sonnet_1m": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sonnet-Verhalten mit 1 Mio. Kontext. Für große Kontextläufe reservieren."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sonnet behavior with 1M context. Reserve it for large-context runs."
+          }
+        }
+      }
+    },
+    "model_guidance_codex_5": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sparsames allgemeines GPT-5-Profil für leichte Aufgaben."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Budget general GPT-5 profile for light tasks."
+          }
+        }
+      }
+    },
+    "model_guidance_codex_51": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allgemeines GPT-5.1-Profil. Nutze es, wenn du die Codex-Variante nicht brauchst."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "General GPT-5.1 profile. Use when you do not need the Codex-tuned variant."
+          }
+        }
+      }
+    },
+    "model_guidance_codex_51_codex": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Günstigerer Codex-spezifischer Fallback, wenn Durchsatz wichtiger ist als maximale Schlussfolgerung."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cheaper Codex-specific fallback when throughput matters more than peak reasoning."
+          }
+        }
+      }
+    },
+    "model_guidance_codex_53": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ausgewogener Codex-Coding-Standard für die meisten Implementierungsaufgaben."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Balanced Codex coding default for most implementation tasks."
+          }
+        }
+      }
+    },
+    "model_guidance_codex_54": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starke Codex-Stufe für harte Implementierung und Review-Arbeit."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Strong Codex tier for hard implementation and review work."
+          }
+        }
+      }
+    },
+    "model_guidance_codex_55": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Für den stärksten Codex-Lauf, wenn die Aufgabe Premium-Kosten rechtfertigt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use when you want the strongest Codex run and the task can justify premium burn."
+          }
+        }
+      }
+    },
+    "model_guidance_codex_56_luna": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schnelle und günstige GPT-5.6-Codex-Option für leichtere Aufgaben oder hohen Durchsatz."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fast and affordable GPT-5.6 Codex option for lighter or high-volume work."
+          }
+        }
+      }
+    },
+    "model_guidance_codex_56_sol": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leistungsfähiges GPT-5.6-Modell für ambitioniertes Coding, Recherche und Dokumentarbeit."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Highly capable GPT-5.6 model for ambitious coding, research, and document work."
+          }
+        }
+      }
+    },
+    "model_guidance_codex_56_terra": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ausgewogene GPT-5.6-Codex-Option für alltägliche agentische Coding-Arbeit."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Balanced GPT-5.6 Codex option for everyday agentic coding work."
+          }
+        }
+      }
+    },
+    "model_guidance_codex_5_codex": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sparsame Codex-spezifische Option für kleine Edits und Routine-Follow-ups."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Budget Codex-specific option for small edits and routine follow-ups."
+          }
+        }
+      }
+    },
+    "model_guidance_codex_6_astra": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leistungsfähigstes Codex-Modell für komplexes, mehrstufiges Coding, Recherche und Dokumentarbeit."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Most capable Codex model for complex, multi-step coding, research, and document work."
+          }
+        }
+      }
+    },
+    "model_guidance_codex_o3": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reasoning-lastige Option. Gut für Analyse, teuer für Routine-Coding."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reasoning-heavy option. Good for analysis, expensive for routine coding."
+          }
+        }
+      }
+    },
+    "model_guidance_default": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Provider-Standard. Nutze ihn, wenn die CLI den aktuellen Baseline-Standard wählen soll."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Provider default. Use it when you want the CLI vendor to choose the current baseline."
+          }
+        }
+      }
+    },
+    "model_guidance_inherit": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erbt den globalen Standard für dieses Repo oder diese Rolle."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inherits the global default for this repo or role."
+          }
+        }
+      }
+    },
+    "model_guidance_unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur relative Kostenorientierung. Die tatsächlichen Kosten hängen von Auth-Modus, Konto und Token-Volumen ab."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relative cost guidance only. Actual spend depends on auth mode, account, and token volume."
+          }
+        }
+      }
+    },
+    "model_label_fable_5_1": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fable 5.1"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fable 5.1"
+          }
+        }
+      }
+    },
+    "model_label_opus_5": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opus 5"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opus 5"
+          }
+        }
+      }
+    },
+    "model_label_opus_5_1m": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opus 5 (1 Mio. Kontext)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opus 5 (1M context)"
+          }
+        }
+      }
+    },
+    "model_label_sonnet_1m": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sonnet (1 Mio. Kontext)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sonnet (1M context)"
+          }
+        }
+      }
+    },
+    "model_tag_balanced": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ausgewogen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "balanced"
+          }
+        }
+      }
+    },
+    "model_tag_budget": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sparsam"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "budget"
+          }
+        }
+      }
+    },
+    "model_tag_long_context": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "langer Kontext"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "long context"
+          }
+        }
+      }
+    },
+    "model_tag_max": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "maximal"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "max"
+          }
+        }
+      }
+    },
+    "model_tag_provider_default": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Provider-Standard"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "provider default"
+          }
+        }
+      }
+    },
+    "model_tag_strong": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "stark"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "strong"
+          }
+        }
+      }
+    },
     "native_actions_bar_label": {
       "extractionState": "manual",
       "localizations": {

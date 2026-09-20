@@ -441,8 +441,14 @@ struct NotificationsModelTests {
         await Task.yield()
         await Task.yield()
         #expect(center.badge == 2, "the outgoing profile cannot clear the incoming one's count")
+
+        // `badge` alone cannot see the elision — a rewrite of 2 leaves 2 either way — so the
+        // write count is what is asserted: the incoming model's `lastBadge` still records what
+        // is really on the Dock, which is the half of the bug that made the old failure stick.
+        let writes = center.badgeWrites
         await incoming.updateBadge(sessions: [blocked, ready])
-        #expect(center.badge == 2, "and the elision is still measuring against the truth")
+        #expect(center.badge == 2)
+        #expect(center.badgeWrites == writes, "the elision is still measuring against the truth")
     }
 
     /// `UNUserNotificationCenter.delegate` is weak and `teardown()` keeps the centre alive to

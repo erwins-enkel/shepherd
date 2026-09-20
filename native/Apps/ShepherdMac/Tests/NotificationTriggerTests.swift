@@ -271,11 +271,18 @@ struct NotificationTriggerTests {
     /// the operator through in-app surfaces only: S4's "Handlungsbedarf" line and the
     /// `recap-attention` signal in `src/attention-core.ts`. Adding an arm here would invent a
     /// banner the web does not send.
+    ///
+    /// The payload is a **complete** `SessionRecapEvent`: every field the schema makes required
+    /// (`id`, and `recap`'s `sessionId`, `state`, `headline`, `body`, `openItems`, `updatedAt`),
+    /// not just the three a `needs_attention` recap reads as. A partial frame decodes to
+    /// nothing, so this test would go on passing against a ported arm that *does* decode — the
+    /// pin would be worth nothing at exactly the moment it is needed.
     @Test func aRecapFrameIsIgnoredEvenWhenItAsksForAttention() {
         var t = trigger()
-        let payload = Data(
-            #"{"id":"s1","recap":{"verdict":"needs_attention","headline":"h","openItems":["x"]}}"#
-                .utf8)
+        let json =
+            #"{"id":"s1","recap":{"sessionId":"s1","state":"ready","verdict":"needs_attention","#
+            + #""headline":"h","body":"b","openItems":["x"],"updatedAt":1}}"#
+        let payload = Data(json.utf8)
         #expect(t.intents(for: .unknown(name: "session:recap", payload: payload)).isEmpty)
     }
 }

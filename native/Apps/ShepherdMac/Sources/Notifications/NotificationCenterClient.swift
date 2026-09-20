@@ -185,9 +185,20 @@ final class SystemNotificationCenter: NotificationCenterClient {
 
     /// The completion-handler spelling of `setBadgeCount`, which is what makes the clear
     /// synchronous: it hands the request to the shared `UNUserNotificationCenter` and returns,
-    /// so the write is already queued — ahead of anything the *next* profile's model queues —
-    /// by the time `teardown()` returns. The `async` variant would have to be awaited, and the
-    /// hop that await needs is precisely the re-ordering this method exists to avoid.
+    /// so the request is already *submitted* — ahead of anything the *next* profile's model
+    /// submits — by the time `teardown()` returns. The `async` variant would have to be
+    /// awaited, and the hop that await needs is precisely the re-ordering this method exists
+    /// to avoid. (The `async` spelling calls this same ObjC entry point; what differs is only
+    /// *when* the call is made.)
+    ///
+    /// What this buys, exactly: submission order. The last hop — `notificationd` applying two
+    /// overlapping updates — is not something Apple documents as FIFO, so the guarantee rests
+    /// on the shared centre's single connection delivering requests in the order they were
+    /// made. That is one unproven assumption instead of the previous *two* (scheduler order
+    /// for unstructured tasks, and then this), and it is the reason the clear is issued here
+    /// rather than from a `Task`. A hard barrier would need a badge writer that outlives the
+    /// activation and serialises every write through one owner; that is a larger change than
+    /// this seam, and it is not what the profile-switch bug needed.
     func clearBadgeNow() {
         center.setBadgeCount(0) { error in
             guard let error else { return }

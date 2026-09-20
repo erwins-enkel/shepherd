@@ -340,8 +340,9 @@ final class NotificationsModel: AppExtension {
         // hundred milliseconds. `clearBadge()` drops `lastBadge` first, so routing this
         // branch through it meant the elision below could never fire and every one of those
         // frames cost an XPC round trip to `notificationd`, which is precisely what the
-        // de-duplication exists to stop. The *transitions* that must not be elided —
-        // focusing the window, and `teardown()` — call `clearBadge()` themselves.
+        // de-duplication exists to stop. The *transitions* that must not be elided force
+        // their own write: focusing the window through `clearBadge()`, and `teardown()`
+        // through the seam's synchronous `clearBadgeNow()`.
         guard !windowFocused else {
             await writeBadge(0)
             return

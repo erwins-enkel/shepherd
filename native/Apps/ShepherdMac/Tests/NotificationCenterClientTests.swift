@@ -1,0 +1,95 @@
+import Foundation
+import Testing
+
+@testable import Shepherd
+
+/// The system adapter itself is not unit-tested — it is a thin bridge to
+/// `UNUserNotificationCenter`, and exercising it would pop the macOS permission alert, which the
+/// global constraints forbid. What IS tested is the seam every other task codes against.
+@MainActor
+struct NotificationCenterClientTests {
+    @Test func theFakeRecordsWhatItWasAskedToPost() async {
+        let center = FakeNotificationCenter()
+        await center.post(
+            NotificationRequest(
+                identifier: "n1", title: "t", body: "b", threadIdentifier: "s1",
+                sessionID: "s1"))
+        #expect(center.posted.count == 1)
+        #expect(center.posted.first?.sessionID == "s1")
+        #expect(center.posted.first?.threadIdentifier == "s1")
+    }
+
+    @Test func theFakeRecordsTheBadgeAndTheAuthorizationRequest() async {
+        let center = FakeNotificationCenter()
+        center.nextAuthorization = .denied
+        #expect(await center.requestAuthorization() == .denied)
+        #expect(center.authorizationRequests == 1)
+
+        await center.setBadgeCount(3)
+        #expect(center.badge == 3)
+    }
+
+    @Test func aClickIsDeliveredToTheHandler() {
+        let center = FakeNotificationCenter()
+        var selected: String?
+        center.onSelectSession = { selected = $0 }
+        center.deliverClick(sessionID: "s9")
+        #expect(selected == "s9")
+    }
+
+    @Test func aRequestIdentifierIsUniquePerPost() {
+        // Reusing an identifier replaces the banner already on screen. Two different sessions
+        // going blocked must produce two banners, so the identifier carries a fresh UUID and the
+        // GROUPING lives on threadIdentifier instead.
+        let a = NotificationRequest.make(title: "t", body: "b", threadIdentifier: "s1", sessionID: "s1")
+        let b = NotificationRequest.make(title: "t", body: "b", threadIdentifier: "s1", sessionID: "s1")
+        #expect(a.identifier != b.identifier)
+        #expect(a.threadIdentifier == b.threadIdentifier)
+    }
+
+    @Test func theAuthorizationQueryReportsWhateverWasStaged() async {
+        let center = FakeNotificationCenter()
+        #expect(await center.authorization() == .granted)
+        center.nextAuthorization = .notDetermined
+        #expect(await center.authorization() == .notDetermined)
+        // Querying is not asking: only requestAuthorization() counts as a prompt.
+        #expect(center.authorizationRequests == 0)
+    }
+
+    @Test func everyStartIsCounted() {
+        // The system adapter makes `start()` idempotent — a second delegate registration is how a
+        // tap gets delivered twice. The fake instead counts calls verbatim, so a model can be
+        // held to starting the center exactly once rather than on every state change.
+        let center = FakeNotificationCenter()
+        #expect(!center.started)
+        #expect(center.starts == 0)
+        center.start()
+        #expect(center.started)
+        #expect(center.starts == 1)
+        center.start()
+        #expect(center.starts == 2)
+    }
+
+    @Test func resetClearsTheRecordingButKeepsTheHandler() async {
+        let center = FakeNotificationCenter()
+        var selected: String?
+        center.onSelectSession = { selected = $0 }
+        await center.post(NotificationRequest.make(title: "t", body: "b", threadIdentifier: "s1", sessionID: "s1"))
+        await center.setBadgeCount(2)
+        _ = await center.requestAuthorization()
+
+        center.reset()
+        #expect(center.posted.isEmpty)
+        #expect(center.badge == 0)
+        #expect(center.authorizationRequests == 0)
+
+        center.deliverClick(sessionID: "s3")
+        #expect(selected == "s3")
+    }
+
+    @Test func aClickWithNoHandlerIsHarmless() {
+        let center = FakeNotificationCenter()
+        center.deliverClick(sessionID: "s1")
+        #expect(center.posted.isEmpty)
+    }
+}

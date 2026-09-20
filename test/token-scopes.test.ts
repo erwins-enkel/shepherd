@@ -27,6 +27,14 @@ const MATRIX: readonly {
   { method: "GET", path: "/api/me", allowed: ["read", "submit", "full"] },
   { method: "POST", path: "/api/ping", allowed: ["read", "submit", "full"] },
   { method: "GET", path: "/events", allowed: ["read", "submit", "full"] },
+  // #2421: whether a reviewer is mid-run, so a read client can reproduce the herd's
+  // `reviewerRunning` stage instead of calling that session the operator's turn early.
+  { method: "GET", path: "/api/reviews/inflight", allowed: ["read", "submit", "full"] },
+  { method: "GET", path: "/api/plan-gates/inflight", allowed: ["read", "submit", "full"] },
+  // …and the boundary that buys: the PARENT routes return verdict bodies (findings, summaries,
+  // plan questions) and stay `full`-only. Exact matching, so the child grants nothing here.
+  { method: "GET", path: "/api/reviews", allowed: ["full"] },
+  { method: "GET", path: "/api/plan-gates", allowed: ["full"] },
   // submit surfaces
   { method: "POST", path: "/api/sessions", allowed: ["submit", "full"] },
   { method: "GET", path: "/api/held", allowed: ["submit", "full"] },
@@ -109,6 +117,10 @@ test("no prefix matching: a sub-path does not inherit its parent's scope", () =>
     "/api/held/h1/extra",
     "/api/gitignore",
     "/api/me/extra",
+    // The `/inflight` leaves are exact too: nothing under them, and no sibling of them.
+    "/api/reviews/inflight/extra",
+    "/api/plan-gates/inflight/extra",
+    "/api/reviews/s1",
   ]) {
     expect(`read GET ${path} → ${scopeAllows("read", "GET", path)}`).toBe(
       `read GET ${path} → false`,
@@ -134,6 +146,8 @@ test("one trailing slash is tolerated, because the dispatcher tolerates it", () 
   // the slashed form would 403 a request the server otherwise answers.
   expect(scopeAllows("read", "GET", "/api/sessions/")).toBe(true);
   expect(scopeAllows("read", "GET", "/events/")).toBe(true);
+  expect(scopeAllows("read", "GET", "/api/reviews/inflight/")).toBe(true);
+  expect(scopeAllows("read", "GET", "/api/plan-gates/inflight/")).toBe(true);
   expect(scopeAllows("submit", "POST", "/api/held/h1/spawn/")).toBe(true);
   // Two slashes is not a route the dispatcher normalizes to the same place — stays full-only.
   expect(scopeAllows("read", "GET", "/api/sessions//")).toBe(false);

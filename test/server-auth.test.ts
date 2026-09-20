@@ -460,7 +460,15 @@ test("scope read: the rest of its surface is reachable, and nothing else is", as
   const app = makeApp(makeDeps());
   const { token } = await mintToken(app, "asyar launcher", null, "read");
 
-  for (const path of ["/api/holds", "/api/git", "/api/me"]) {
+  // The two `/inflight` paths (#2421) ride this loop: a read client needs them to tell a session
+  // whose reviewer is mid-run from one that is genuinely the operator's turn.
+  for (const path of [
+    "/api/holds",
+    "/api/git",
+    "/api/me",
+    "/api/reviews/inflight",
+    "/api/plan-gates/inflight",
+  ]) {
     const res = await app.fetch(new Request(`http://x${path}`, { headers: bearer(token) }));
     expect(`GET ${path} → ${res.status}`).toBe(`GET ${path} → 200`);
   }
@@ -475,6 +483,15 @@ test("scope read: the rest of its surface is reachable, and nothing else is", as
   );
   expect(settings.status).toBe(403);
   expect(await settings.json()).toEqual(INSUFFICIENT);
+
+  // The boundary the /inflight pair buys: their PARENTS return verdict bodies — findings,
+  // summaries, plan questions, round counts — and stay full-only. Matching is exact, so reaching
+  // the child grants nothing here.
+  for (const path of ["/api/reviews", "/api/plan-gates"]) {
+    const res = await app.fetch(new Request(`http://x${path}`, { headers: bearer(token) }));
+    expect(`GET ${path} → ${res.status}`).toBe(`GET ${path} → 403`);
+    expect(await res.json()).toEqual(INSUFFICIENT);
+  }
 });
 
 test("scope read: refused at the /pty/:id upgrade, while /events still passes", async () => {

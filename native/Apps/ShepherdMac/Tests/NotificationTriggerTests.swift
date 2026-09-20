@@ -260,4 +260,22 @@ struct NotificationTriggerTests {
         #expect(t.intents(for: .sessionRenamed(.init(id: "s1", name: "n", branch: nil))).isEmpty)
         #expect(t.intents(for: .unknown(name: "session:recap", payload: nil)).isEmpty)
     }
+
+    /// `session:recap` stays ignored now that S4 has merged and declared it, and this pins that
+    /// as a decision rather than an oversight: a frame carrying a real `needs_attention` recap
+    /// still produces nothing.
+    ///
+    /// The web has no recap notification to port. `NotifyInput.kind` in `src/push.ts` has no
+    /// recap case, nothing in that file or in `src/ready-notify.ts` subscribes to the event, and
+    /// `deriveTabState` — the badge's reference — does not read recaps either. A recap reaches
+    /// the operator through in-app surfaces only: S4's "Handlungsbedarf" line and the
+    /// `recap-attention` signal in `src/attention-core.ts`. Adding an arm here would invent a
+    /// banner the web does not send.
+    @Test func aRecapFrameIsIgnoredEvenWhenItAsksForAttention() {
+        var t = trigger()
+        let payload = Data(
+            #"{"id":"s1","recap":{"verdict":"needs_attention","headline":"h","openItems":["x"]}}"#
+                .utf8)
+        #expect(t.intents(for: .unknown(name: "session:recap", payload: payload)).isEmpty)
+    }
 }

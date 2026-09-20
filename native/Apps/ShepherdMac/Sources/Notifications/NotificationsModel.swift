@@ -29,6 +29,29 @@ final class NotificationsModel: AppExtension {
     /// a plan gate with unanswered questions. Empty until the integration lane assigns it; the
     /// badge counts blocked ∪ ready-to-merge ∪ (this ∩ the live sessions).
     ///
+    /// **Still empty after S2 and S4 merged, and the reason is the contract, not the wiring.**
+    /// The web's `deriveTabState` (`ui/src/lib/tab-signal.svelte.ts`) reads two per-session maps
+    /// this client cannot fill for *all* sessions without one HTTP request per session, which is
+    /// not something a Dock badge may cost:
+    ///
+    /// - **ci-red** is `store.git[id].checks === "failure"`. The web bootstraps that whole map
+    ///   from `GET /api/git` and keeps it live with `session:git`. `native/Sources/ShepherdKit/
+    ///   openapi.yaml` declares only the per-session `GET /api/sessions/{id}/git`; the bulk
+    ///   `/api/git` is absent, and `Session` carries no `checks` (or any other git) field. S2's
+    ///   `DetailModel.git` is therefore sparse by design — `hasCacheEntry` drops a `session:git`
+    ///   frame for a session whose Git tab nobody opened — so it answers for the sessions the
+    ///   operator happened to look at, never for the herd. Accumulating from the event tap alone
+    ///   is not a substitute: there is no snapshot to join, and this model's badge is derived
+    ///   from the store on every frame precisely so a dropped frame cannot make it drift.
+    /// - **an unanswered plan question** is `planQuestionsUnanswered(planGates[id])` over
+    ///   `gate.blocks[].questions` and `gate.answeredQuestionKeys`, bootstrapped from
+    ///   `GET /api/plan-gates`. Neither the endpoint nor a `PlanGate` schema exists in the
+    ///   contract at all — `Session` has `planGateEnabled` and `planPhase`, which are the other
+    ///   two thirds of the web's condition and useless without the questions.
+    ///
+    /// Either one is a contract addition away, and this property is still the seam that takes
+    /// it. Until then the badge is honestly two-thirds of the web's count.
+    ///
     /// Assigning it refreshes the badge itself rather than waiting for the next frame: on a quiet
     /// server the next frame can be minutes away, and a Dock icon that lags the reason it is
     /// lit is a seam the integration lane cannot use. Unchanged values are ignored (a re-assign

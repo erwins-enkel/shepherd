@@ -147,8 +147,25 @@ struct NotificationTrigger {
             ]
 
         case .sessionNew, .sessionRenamed, .sessionArchived, .unknown:
-            // Nothing the web pushes for. `session:recap` arrives here as `.unknown`; it becomes
-            // a case the day S4's contract block declares it.
+            // Nothing the web pushes for.
+            //
+            // `session:recap` arrives here as `.unknown`, and S4 has since merged and declared
+            // it — but it stays in this arm, because there is nothing to port. The web has no
+            // recap notification: `NotifyInput.kind` in `src/push.ts` has no recap case, no
+            // bridge in that file subscribes to `session:recap`, and `src/ready-notify.ts` does
+            // not either. What a recap does reach is the *in-app* surfaces — the
+            // "Handlungsbedarf" line (S4's `RecapLine`, the web's recap banner) and the
+            // `recap-attention` signal in `src/attention-core.ts`
+            // (`recap.verdict === "needs_attention"`), which feeds the attention ladder and the
+            // holds projection. Neither is a push, and `deriveTabState` — the badge's reference
+            // — deliberately does not read recaps at all.
+            //
+            // Adding a case here would therefore invent a banner the web does not have, against
+            // this type's own rule that every arm is a port with a named counterpart. If the
+            // operator does want one, that is a product decision about `src/push.ts` first, and
+            // the native side follows it; the two `native_notify_recap_*` catalog keys the S6 PR
+            // body reserved were written on the assumption that the counterpart existed, and are
+            // not added.
             return []
         }
     }

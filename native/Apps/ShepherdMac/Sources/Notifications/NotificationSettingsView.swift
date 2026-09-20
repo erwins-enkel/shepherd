@@ -136,6 +136,10 @@ enum NotificationSettingsWindow {
     }
 
     static func show(_ app: AppModel) {
+        // Read synchronously, at the top, and carried to the watcher below: it is the generation
+        // this panel is being built for, and every later comparison has to be against that value
+        // rather than against whatever the generation happens to be by the time a task runs.
+        let generation = app.activationGeneration
         guard let model = app.extension(NotificationsModel.self) else {
             Log.app.info("no notifications model yet — connect a server first")
             return
@@ -162,7 +166,7 @@ enum NotificationSettingsWindow {
         // Re-hosting above only helps the *next* call to `show(_:)` — it does nothing for a
         // panel the operator leaves open while switching profiles from the main window. Arm a
         // watcher for that case every time the panel is (re-)shown.
-        watchActivation(of: app, generation: app.activationGeneration)
+        watchActivation(of: app, generation: generation)
     }
 
     /// Closes the panel the instant the active profile changes underneath it, so the operator
@@ -177,6 +181,13 @@ enum NotificationSettingsWindow {
     private static func watchActivation(of app: AppModel, generation: Int) {
         activationWatcher?.cancel()
         activationWatcher = Task { @MainActor in
+            // Before waiting on anything. The task body does not run until the main actor gets
+            // back to it, and a profile switch can land in that gap — `AppModel.activate` and
+            // `teardown` both bump the generation synchronously. `withObservationTracking` would
+            // then register against the *new* value and go on waiting for the change after it,
+            // leaving the panel open on the outgoing profile's name and toggles.
+            guard !Task.isCancelled else { return }
+            guard app.activationGeneration == generation else { return closePanel() }
             await withCheckedContinuation { continuation in
                 withObservationTracking {
                     _ = app.activationGeneration
@@ -185,9 +196,13 @@ enum NotificationSettingsWindow {
                 }
             }
             guard !Task.isCancelled, app.activationGeneration != generation else { return }
-            controller?.close()
-            controller = nil
+            closePanel()
         }
+    }
+
+    private static func closePanel() {
+        controller?.close()
+        controller = nil
     }
 
     /// Tests and previews only.

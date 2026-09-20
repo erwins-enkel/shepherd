@@ -333,17 +333,25 @@ final class NotificationsModel: AppExtension {
     /// of activity overflows that buffer — and the frame it drops can be the one `session:block`
     /// the banner depended on, invisibly, because the badge is re-derived and stays correct.
     ///
-    /// The guarantee is about *this model's* writes only: `lastBadge` records the count that was
-    /// handed to the centre, and `NotificationCenterClient.setBadgeCount` returns `Void`,
-    /// logging and swallowing whatever `UNUserNotificationCenter` threw. So a write macOS
-    /// rejected is cached here as if it had landed, and the Dock stays wrong until the derived
-    /// count next moves. Telling the two apart needs `setBadgeCount` to answer the way `post`
-    /// does, which is a change to `NotificationCenterClient.swift`; until then the forced
-    /// clears below are what recover from it.
+    /// `lastBadge` records what really reached the Dock, so it is committed *after* the write,
+    /// and only when `setBadgeCount` says the write landed. A rejection leaves it `nil`, which
+    /// forces the next refresh to write the same count again rather than eliding it against a
+    /// number that was never there — the failure mode the whole cache would otherwise turn into
+    /// a permanently stale Dock icon.
+    ///
+    /// `isTornDown` is re-checked after the suspension for the same reason `setWindowFocused`
+    /// re-checks it: `teardown()` can run while this write is in flight, and it drops
+    /// `lastBadge` and forces its own clear. Committing this count afterwards would leave the
+    /// outgoing profile's number recorded as the truth about a Dock badge that is global and
+    /// has already been cleared.
     private func writeBadge(_ count: Int) async {
         guard lastBadge != count else { return }
+        let landed = await center.setBadgeCount(count)
+        guard landed, !isTornDown else {
+            lastBadge = nil
+            return
+        }
         lastBadge = count
-        await center.setBadgeCount(count)
     }
 
     /// Clears the badge, never elided. `lastBadge` is dropped first, so a clear goes through

@@ -35,6 +35,21 @@ struct NotificationCenterClientTests {
         #expect(center.posted.count == 2, "the attempt is recorded either way")
     }
 
+    /// `setBadgeCount` answers the same way `post` does. A rejected write counts as an attempt
+    /// and leaves `badge` alone — a write macOS refused never reached the Dock — which is what
+    /// lets `NotificationsModel` be held to retrying it instead of caching it as landed.
+    @Test func aStagedBadgeWriteFailureIsCountedButNeverReachesTheDock() async {
+        let center = FakeNotificationCenter()
+        #expect(await center.setBadgeCount(2), "a write succeeds unless a test says otherwise")
+        #expect(center.badge == 2)
+        #expect(center.badgeWrites == 1)
+
+        center.nextBadgeWriteSucceeds = false
+        #expect(await center.setBadgeCount(5) == false)
+        #expect(center.badge == 2, "the rejected count must not land")
+        #expect(center.badgeWrites == 2, "the attempt is still counted")
+    }
+
     @Test func theFakeRecordsTheBadgeAndTheAuthorizationRequest() async {
         let center = FakeNotificationCenter()
         center.nextAuthorization = .denied
@@ -120,10 +135,15 @@ struct NotificationCenterClientTests {
         await center.setBadgeCount(2)
         _ = await center.requestAuthorization()
 
+        center.nextBadgeWriteSucceeds = false
         center.reset()
         #expect(center.posted.isEmpty)
         #expect(center.badge == 0)
+        #expect(center.badgeWrites == 0)
         #expect(center.authorizationRequests == 0)
+        #expect(
+            center.nextBadgeWriteSucceeds == false,
+            "staged answers are fixture, not evidence — `reset()` keeps them")
 
         center.deliverClick(sessionID: "s3")
         #expect(selected == "s3")

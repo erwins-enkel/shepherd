@@ -50,7 +50,13 @@ protocol NotificationCenterClient: AnyObject {
     /// because most callers post and move on.
     @discardableResult
     func post(_ request: NotificationRequest) async -> Bool
-    func setBadgeCount(_ count: Int) async
+    /// Sets the Dock badge and says whether the write really landed — the same shape as `post`,
+    /// and for the same reason. A caller that caches the count it wrote (to spare itself an XPC
+    /// round trip per event frame) must not cache one macOS rejected: the Dock would then stay
+    /// wrong until the derived count next moves. `@discardableResult` because a forced clear
+    /// caches nothing.
+    @discardableResult
+    func setBadgeCount(_ count: Int) async -> Bool
     /// Installs the click handler. Called once, after `onSelectSession` is set. Idempotent on
     /// `SystemNotificationCenter`; `FakeNotificationCenter` instead counts every call, so a test
     /// can hold a caller to calling it exactly once.
@@ -143,16 +149,21 @@ final class SystemNotificationCenter: NotificationCenterClient {
 
     /// `UNUserNotificationCenter.setBadgeCount` is the badge API that does not prompt on its own:
     /// the badge permission was asked for once, together with alerts, in `requestAuthorization`.
-    /// A failure is logged and swallowed — a stale dock number is never worth a crash.
-    func setBadgeCount(_ count: Int) async {
+    /// A failure is logged and answered with `false` — never a crash, and never a silent
+    /// success: a stale Dock number is not worth a crash, but it is worth telling the caller
+    /// about, because the caller is the only one that can write it again.
+    @discardableResult
+    func setBadgeCount(_ count: Int) async -> Bool {
         do {
             try await center.setBadgeCount(count)
+            return true
         } catch {
             Log.app.error(
                 """
                 could not set the badge to \(count, privacy: .public): \
                 \(String(describing: error), privacy: .public)
                 """)
+            return false
         }
     }
 
@@ -218,6 +229,14 @@ final class FakeNotificationCenter: NotificationCenterClient {
     /// Stages a delivery failure — what macOS rejecting `add(_:)` looks like to a caller. The
     /// request is still recorded, because the attempt was made; only the answer is `false`.
     var nextPostSucceeds = true
+    /// Stages a rejected badge write — what `UNUserNotificationCenter.setBadgeCount` throwing
+    /// looks like to a caller. `badge` is left alone, because a write macOS refused never
+    /// reaches the Dock; only the attempt is counted.
+    var nextBadgeWriteSucceeds = true
+    /// Every `setBadgeCount` call, landed or rejected. `badge` on its own cannot tell a write
+    /// that was elided from one that wrote the same number again, which is the whole subject of
+    /// `NotificationsModel.writeBadge(_:)`.
+    private(set) var badgeWrites = 0
 
     func start() { starts += 1 }
     func authorization() async -> NotificationAuthorization { nextAuthorization }
@@ -232,7 +251,13 @@ final class FakeNotificationCenter: NotificationCenterClient {
         posted.append(request)
         return nextPostSucceeds
     }
-    func setBadgeCount(_ count: Int) async { badge = count }
+    @discardableResult
+    func setBadgeCount(_ count: Int) async -> Bool {
+        badgeWrites += 1
+        guard nextBadgeWriteSucceeds else { return false }
+        badge = count
+        return true
+    }
 
     /// Test seam: pretend the operator clicked a banner for `sessionID`.
     ///
@@ -254,11 +279,12 @@ final class FakeNotificationCenter: NotificationCenterClient {
     }
 
     /// Clears the recording. Deliberately keeps `onSelectSession`, `nextAuthorization`,
-    /// `nextPostSucceeds` and `starts` — the fixture a test set up, not the evidence it is
-    /// about to assert on.
+    /// `nextPostSucceeds`, `nextBadgeWriteSucceeds` and `starts` — the fixture a test set up,
+    /// not the evidence it is about to assert on.
     func reset() {
         posted.removeAll()
         badge = 0
+        badgeWrites = 0
         authorizationRequests = 0
     }
 }

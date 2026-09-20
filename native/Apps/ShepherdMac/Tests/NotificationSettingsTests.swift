@@ -3,10 +3,38 @@ import Testing
 
 @testable import Shepherd
 
+/// Removes the private `UserDefaults` suites a test created once that test's suite value goes
+/// away. Deliberately not isolated: a `deinit` may run on any thread, and `UserDefaults` is
+/// thread-safe.
+private final class ScratchSuites {
+    var names: [String] = []
+
+    deinit {
+        for name in names {
+            UserDefaults.standard.removePersistentDomain(forName: name)
+            UserDefaults.standard.removeSuite(named: name)
+        }
+    }
+}
+
 @MainActor
 struct NotificationSettingsTests {
+    /// Swift Testing builds a fresh suite value per test and releases it when the test ends, so
+    /// this box's `deinit` is the nearest thing a `struct` suite has to a teardown hook. Every
+    /// scratch domain handed out below is emptied and unregistered there.
+    private let suites = ScratchSuites()
+
+    /// A throwaway `UserDefaults` suite per test, emptied on the way in and removed on the way
+    /// out — the house pattern every sibling app-target suite follows (`ProfileStoreTests`,
+    /// `AppModelTests`, `LiveServerTests`, …). Without the removal each run left a
+    /// `run.shepherd.mac.notifytests.<uuid>` domain behind on the machine, one per test that
+    /// wrote anything.
     private func scratch() -> UserDefaults {
-        UserDefaults(suiteName: "run.shepherd.mac.notifytests.\(UUID().uuidString)")!
+        let name = "run.shepherd.mac.notifytests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: name)!
+        defaults.removePersistentDomain(forName: name)
+        suites.names.append(name)
+        return defaults
     }
 
     @Test func theDefaultIsEverythingOn() {

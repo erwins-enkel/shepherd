@@ -99,8 +99,15 @@ struct NotificationGateTests {
     }
 
     @Test func aSuppressedIntentDoesNotStartTheCooldownClock() {
-        // PushService only stamps `lastNotified` on a successful send, so a notification the
-        // operator never saw must not swallow the next one.
+        // *Suppressed* here means refused by the gate — it never reached a post at all, so it
+        // must leave the clock alone and let the next intent through.
+        //
+        // Not to be read as "only a delivered banner stamps the clock": it does not. The stamp
+        // happens on the branch the gate allows, before the post and without consulting whether
+        // macOS accepted it, so a banner the system threw away *does* swallow the next one for
+        // 120 s. That is deliberate — the synchronous stamp is the only thing serialising two
+        // frames a millisecond apart — and `NotificationGate`'s type doc spells out the
+        // trade-off. Do not "restore" a delivery-conditional stamp on the strength of this test.
         var gate = NotificationGate()
         let suppressed = gate.allows(
             intent(.done, "s1"), at: 0, settings: settings, windowFocused: true, authorized: true)
@@ -584,18 +591,20 @@ struct NotificationsModelTests {
         #expect(center.badge == 7, "a focused refresh writes nothing once the zero is out")
     }
 
-    /// `setWindowFocused` resumes after `store.setActive` on an actor hop, and an actor makes no
-    /// FIFO promise: two transitions in flight can resume in the opposite order from the one
-    /// they arrived in. The synchronous assignment decides which transition really happened, so
-    /// the badge branch has to read that live value rather than the one this call captured —
-    /// otherwise the loser writes last, and `writeBadge`'s elision makes it stick until the
-    /// derived count moves.
+    /// The two badge branches of `setWindowFocused`, each pinned on its own rather than through
+    /// a race between them.
     ///
-    /// The interleave itself cannot be forced here: this seam has no store, so
-    /// `await store?.setActive(focused)` does not suspend at all. What the test pins is the
-    /// invariant that holds for *every* resumption order once the branch reads the live value —
-    /// the badge always agrees with the focus the model records.
-    @Test func theBadgeFollowsTheLiveFocusValueNotTheOneTheCallCaptured() async {
+    /// This replaces a test that ran the two transitions as concurrent `async let` children and
+    /// asserted on whichever landed last. That was both toothless and wrong: the seam has no
+    /// store, so `await store?.setActive(focused)` never suspends and whole-call order decided
+    /// the outcome — and for one of the two orders (focus-in first) the assertion was false,
+    /// because the forced clear leaves `lastBadge` at 0 and the focus-out refresh then derives 0
+    /// and elides, so the badge reads 0 while the model reads unfocused.
+    ///
+    /// What the branches must do is not order-dependent at all: coming forward forces the clear
+    /// through whatever `lastBadge` says, and an unfocused refresh that derives an unchanged
+    /// count writes nothing.
+    @Test func focusingForcesTheClearAndAnUnfocusedRefreshElidesAnUnchangedCount() async {
         let center = FakeNotificationCenter()
         let m = await model(center: center)
 
@@ -603,20 +612,46 @@ struct NotificationsModelTests {
         await m.updateBadge(sessions: [])
         #expect(center.badge == 0, "zero is now the last count this model wrote")
 
-        // A count on the Dock this model did not write. It is what tells the two branches
-        // apart: the focus-in clear is forced through and wipes it, while an unfocused refresh
-        // derives the same zero it already wrote and is elided, leaving it alone.
+        // A count on the Dock this model did not write, put there behind its back — what tells
+        // a forced write from an elided one.
         await center.setBadgeCount(7)
 
-        // Two transitions in flight at once, free to resume in either order.
-        async let resigned: Void = m.setWindowFocused(false)
-        async let activated: Void = m.setWindowFocused(true)
-        _ = await (resigned, activated)
-        for _ in 0..<5 { await Task.yield() }
+        await m.setWindowFocused(false)
+        #expect(!m.windowFocused)
+        #expect(center.badge == 7, "an unfocused refresh deriving the same zero writes nothing")
 
-        #expect(
-            center.badge == (m.windowFocused ? 0 : 7),
-            "whichever transition landed last is the one the badge branch followed")
+        await m.setWindowFocused(true)
+        #expect(m.windowFocused)
+        #expect(center.badge == 0, "coming forward clears whatever `lastBadge` already says")
+    }
+
+    /// A badge write macOS rejects must not be cached as if it had landed.
+    ///
+    /// `writeBadge(_:)` skips an unchanged count to spare the serial event tap an XPC round trip
+    /// per frame. That cache is only sound while it records what really reached the Dock: a
+    /// rejected write cached as landed would leave the Dock showing the previous number until
+    /// the derived count happened to move — minutes, on a quiet server, and never at all if the
+    /// count is stable.
+    @Test func aRejectedBadgeWriteIsRetriedOnTheNextRefresh() async {
+        let center = FakeNotificationCenter()
+        let m = await model(center: center)
+        let blocked = PreviewData.session(id: "a", status: SessionStatus(known: .blocked))
+
+        await m.setWindowFocused(false)
+        center.reset()
+
+        center.nextBadgeWriteSucceeds = false
+        await m.updateBadge(sessions: [blocked])
+        #expect(center.badgeWrites == 1, "the write was attempted")
+        #expect(center.badge == 0, "a rejected write never reaches the Dock")
+
+        center.nextBadgeWriteSucceeds = true
+        await m.updateBadge(sessions: [blocked])
+        #expect(center.badgeWrites == 2, "the same count goes out again after a rejection")
+        #expect(center.badge == 1)
+
+        await m.updateBadge(sessions: [blocked])
+        #expect(center.badgeWrites == 2, "and once it lands, the elision is back")
     }
 }
 
@@ -738,6 +773,34 @@ struct NotificationSettingsViewTests {
             "a stale panel must not keep showing the previous profile's name or accept toggles")
 
         app.teardown()
+    }
+
+    /// The half of the stale-panel bug that a yield hides: the watcher's task body does not run
+    /// until the main actor gets back to it, and a profile switch can land in that gap. Arming
+    /// observation there would register against the already-new generation and then wait for the
+    /// change *after* it, so the panel would stay open on the outgoing profile — showing its name
+    /// and accepting toggles the model's teardown guard silently drops.
+    ///
+    /// `AppModel.teardown()` bumps `activationGeneration` synchronously, which is what makes this
+    /// deterministic: not a single suspension separates `show(_:)` from the change.
+    @Test func aProfileSwitchBeforeTheWatcherArmsStillClosesThePanel() async throws {
+        let app = scratchApp()
+        // Installed so the activation really builds a `NotificationsModel`: `show(_:)` returns
+        // early without one, and a panel that never opened would close vacuously.
+        NotificationsStream.install(app)
+        let profile = try app.addRemoteProfile(
+            name: "panel-early", address: "https://panel-early.example.ts.net")
+        await app.activate(profile)
+
+        NotificationSettingsWindow.show(app)
+        #expect(NotificationSettingsWindow.isOpen, "the panel is open before the switch")
+
+        app.teardown()
+        for _ in 0..<5 { await Task.yield() }
+
+        #expect(
+            NotificationSettingsWindow.isOpen == false,
+            "a generation that moved before the watcher armed must still close the panel")
     }
 
     /// `reset()` must remove the item and separator `installMenuItem` inserted, not merely clear

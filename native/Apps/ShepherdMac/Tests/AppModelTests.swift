@@ -670,6 +670,38 @@ struct AppModelTests {
         #expect(await settle(until: { released == nil }))
     }
 
+    /// Re-arming must not let the *outgoing* watcher report the loop gone.
+    ///
+    /// The replacement installs itself synchronously, while the predecessor is
+    /// still suspended; the predecessor then wakes on its finished stream and
+    /// runs its cleanup. `isWatchingConnection` is this branch's regression
+    /// guard for the `AsyncStream` fix, so a false `false` here would make the
+    /// guard lie about a watcher that is still alive.
+    @Test func rearmingTheWatcherLeavesTheReplacementReportingItself() async throws {
+        let model = makeModel()
+        let profile = try remote(model, "studio")
+        let box = ConnectionBox()
+
+        model.watchConnection(
+            ConnectionSource(read: { box.state }, abandon: {}),
+            profile: profile,
+            generation: model.activationGeneration)
+        #expect(model.isWatchingConnection)
+
+        // Arm a second watcher over the top, then give the first one every
+        // chance to unwind and clear the flag it no longer owns.
+        model.watchConnection(
+            ConnectionSource(read: { box.state }, abandon: {}),
+            profile: profile,
+            generation: model.activationGeneration)
+        _ = await settle(until: { model.isWatchingConnection == false }, yields: 200)
+        #expect(model.isWatchingConnection)
+
+        // And the live watcher still answers to teardown.
+        model.teardown()
+        #expect(await settle(until: { model.isWatchingConnection == false }))
+    }
+
     @Test func theWatcherIgnoresStatesFromAnOlderActivation() async throws {
         let model = makeModel()
         let profile = try remote(model, "studio")

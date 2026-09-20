@@ -276,10 +276,20 @@ final class AppModel {
     /// checked continuation cannot be resumed by cancellation — see
     /// `watchConnection(_:profile:generation:)`.
     @ObservationIgnored private var connectionSignal: AsyncStream<Void>.Continuation?
-    /// True while the watcher task is alive. Written by the task itself, so a
-    /// test can prove the loop actually ended rather than merely that
-    /// `Task.cancel()` was called on it.
+    /// True while *the current* watcher task is alive. Written by the task
+    /// itself, so a test can prove the loop actually ended rather than merely
+    /// that `Task.cancel()` was called on it.
+    ///
+    /// "Current" is the load-bearing word: an outgoing watcher may still be
+    /// unwinding after its replacement armed itself, and it must not report
+    /// "no watcher" over a loop that is very much alive. Each watcher therefore
+    /// carries the `connectionWatcherToken` it was installed under and clears
+    /// the flag only while that token is still the model's.
     @ObservationIgnored private(set) var isWatchingConnection = false
+    /// Identifies the watcher `connectionWatcher` currently holds. Bumped by
+    /// every `watchConnection(_:profile:generation:)`; a watcher whose captured
+    /// value no longer matches has been superseded and owns nothing.
+    @ObservationIgnored private var connectionWatcherToken = 0
     /// The live activation's connection source and the profile it belongs to,
     /// kept so a sheet closing can re-route against the *current* state rather
     /// than waiting for the next change. Cleared whenever the activation ends,
@@ -923,6 +933,12 @@ final class AppModel {
     /// Finishing twice, or yielding into a finished stream, is a no-op, so
     /// there is no double-resume to get wrong either.
     ///
+    /// Arming is re-entrant: this method cancels and finishes the watcher it is
+    /// replacing, so a second call can never leave two loops reading the same
+    /// store, and it stamps the new one with a `connectionWatcherToken` so the
+    /// predecessor's cleanup cannot clear `isWatchingConnection` out from under
+    /// its replacement.
+    ///
     /// Internal, not private: the unit tests drive it with their own
     /// `ConnectionSource` so the re-arm contract is covered without a server.
     func watchConnection(
@@ -932,12 +948,24 @@ final class AppModel {
 
         connectionSource = source
         watchedProfile = profile
+        // Finish *and* cancel the watcher being replaced. Assigning over
+        // `connectionWatcher` below only drops the reference; without the
+        // cancel a re-arm could leave the old loop running beside the new one.
         connectionSignal?.finish()
+        connectionWatcher?.cancel()
         let (changes, signal) = AsyncStream<Void>.makeStream()
         connectionSignal = signal
+        connectionWatcherToken &+= 1
+        let token = connectionWatcherToken
         isWatchingConnection = true
         connectionWatcher = Task { @MainActor [weak self] in
-            defer { self?.isWatchingConnection = false }
+            // Only the watcher the model still owns may report the loop gone:
+            // the predecessor cancelled above unwinds *after* this one armed
+            // itself, and an unconditional clear here would publish a false
+            // `false` over a live watcher.
+            defer {
+                if self?.connectionWatcherToken == token { self?.isWatchingConnection = false }
+            }
             var iterator = changes.makeAsyncIterator()
             var current = initial
             var routedInitial = false

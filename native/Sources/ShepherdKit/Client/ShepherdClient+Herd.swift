@@ -20,6 +20,7 @@ public typealias PrReviewResult = Components.Schemas.PrReviewResult
 // The derivation gives each open enum an `anyOf` shape and a `<Name>Known` companion.
 // Conformance supplies `known`, `rawValue`, `init(known:)` and `init(unknown:)` from OpenEnum.
 // These generated schemas live in this module, so none is a retroactive conformance.
+extension Components.Schemas.SessionClaudeAliveEvent.LivenessPayload: OpenEnum {}
 extension Components.Schemas.PrHandoff: OpenEnum {}
 extension Components.Schemas.ReviewDecision: OpenEnum {}
 extension Components.Schemas.ReviewerProvider: OpenEnum {}

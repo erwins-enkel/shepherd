@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import * as fx from "./herd-fixtures";
+import { readFileSync } from "node:fs";
 import {
   bearer,
   collectEvents,
@@ -255,6 +256,22 @@ describe("events", () => {
     expect(frames.filter((frame) => frame.event === "session:claude-alive")).toHaveLength(3);
     for (const frame of frames) validateEvent(frame.event, frame.data);
   });
+});
+
+test("liveness fixture rejects a renamed production payload key", () => {
+  const source = readFileSync(new URL("../../src/index.ts", import.meta.url), "utf8");
+  const wiring = 'events.emit("session:claude-alive", { id, claudeAlive, liveness })';
+  expect(source).toContain(wiring);
+  const mutated = source.replace(
+    wiring,
+    'events.emit("session:claude-alive", { id, alive: claudeAlive, liveness })',
+  );
+  expect(() =>
+    fx.assertClaudeAliveEmitterKeys(source, ["id", "claudeAlive", "liveness"]),
+  ).not.toThrow();
+  expect(() => fx.assertClaudeAliveEmitterKeys(mutated, ["id", "claudeAlive", "liveness"])).toThrow(
+    "liveness fixture keys differ from the production emitter",
+  );
 });
 
 // Stays LAST in this file, like every other stream's gate.

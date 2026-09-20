@@ -2,13 +2,58 @@ import type { GitState } from "../../src/forge/types";
 import type { SessionActivity } from "../../src/activity-signal";
 import type { ReviewVerdict } from "../../src/types";
 import type { LivenessWiring } from "../../src/poller";
+import { readFileSync } from "node:fs";
+import ts from "typescript";
 
-/** Payload copied from src/index.ts's liveness onChange emitter. Keep the callback's server
- *  parameter types so changes to the poller's liveness values cannot silently drift. */
+const emitterSource = readFileSync(new URL("../../src/index.ts", import.meta.url), "utf8");
+
+/** Assert the production wiring, without importing index.ts and starting the real server.
+ *  Fail closed if the emitter stops using an inline object, or adds/renames a property. */
+export function assertClaudeAliveEmitterKeys(source: string, keys: string[]): void {
+  const file = ts.createSourceFile("index.ts", source, ts.ScriptTarget.Latest, true);
+  const emissions: string[][] = [];
+  function visit(node: ts.Node): void {
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      node.expression.name.text === "emit" &&
+      node.arguments[0] &&
+      ts.isStringLiteral(node.arguments[0]) &&
+      node.arguments[0].text === "session:claude-alive"
+    ) {
+      const payload = node.arguments[1];
+      if (!payload || !ts.isObjectLiteralExpression(payload)) {
+        throw new Error(
+          "liveness emitter no longer has an inline payload; update the fixture binding",
+        );
+      }
+      emissions.push(
+        payload.properties
+          .map((property) => {
+            const name = property.name;
+            if (!name || (!ts.isIdentifier(name) && !ts.isStringLiteral(name))) {
+              throw new Error("liveness emitter has an unbound payload property");
+            }
+            return name.text;
+          })
+          .sort(),
+      );
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(file);
+  if (emissions.length !== 1 || JSON.stringify(emissions[0]) !== JSON.stringify([...keys].sort())) {
+    throw new Error("liveness fixture keys differ from the production emitter");
+  }
+}
+
+/** Bind both parameter types and emitted property names to the production wiring. */
 export function claudeAliveEvent(
   ...[id, claudeAlive, liveness]: Parameters<LivenessWiring["onChange"]>
 ) {
-  return { id, claudeAlive, liveness };
+  const payload = { id, claudeAlive, liveness };
+  assertClaudeAliveEmitterKeys(emitterSource, Object.keys(payload));
+  return payload;
 }
 
 /** Every field the classifier reads, on one row, so a rename in src/forge/types.ts breaks

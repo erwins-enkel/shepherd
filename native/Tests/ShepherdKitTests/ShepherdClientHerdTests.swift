@@ -14,6 +14,19 @@ struct ShepherdClientHerdTests {
       profile: profile, credentials: credentials, urlSession: server.urlSession())
   }
 
+  @Test(arguments: ["alive", "husk", "stranded", "future_liveness"])
+  func livenessEventPreservesKnownAndUnknownValues(_ value: String) throws {
+    let event = try JSONDecoder().decode(
+      Components.Schemas.SessionClaudeAliveEvent.self,
+      from: Data("{\"id\":\"a\",\"claudeAlive\":false,\"liveness\":\"\(value)\"}".utf8))
+    let liveness = event.liveness
+    #expect(liveness.rawValue == value)
+    #expect(liveness.known?.rawValue == (value == "future_liveness" ? nil : value))
+    let roundTrip = try JSONDecoder().decode(
+      Components.Schemas.SessionClaudeAliveEvent.self, from: JSONEncoder().encode(event))
+    #expect(roundTrip.liveness.rawValue == value)
+  }
+
   @Test func gitStatesDecodesTheFiveFieldsTheClassifierNeeds() async throws {
     let server = FakeShepherdServer()
     defer { server.tearDown() }

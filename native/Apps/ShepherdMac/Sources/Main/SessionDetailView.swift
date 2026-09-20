@@ -8,6 +8,7 @@ import ShepherdKit
 /// and no stream has to touch `MainWindow` to hand them over.
 struct SessionDetailView: View {
     let session: Session?
+    @State private var selectedTab = "terminal"
     @Environment(AppModel.self) private var model
 
     var body: some View {
@@ -18,6 +19,9 @@ struct SessionDetailView: View {
             VStack(alignment: .leading, spacing: 16) {
                 header(session)
                 tabs(session, store)
+                    .onChange(of: model.extension(PlanModel.self)?.openPlanTick[session.id]) { _, _ in
+                        selectedTab = "plan"
+                    }
             }
             .padding(24)
             .accessibilityIdentifier("session-detail")
@@ -48,9 +52,10 @@ struct SessionDetailView: View {
             // exactly the remaining viewport. Their lists/scroll views and the
             // terminal then resize within it instead of pushing chrome offscreen.
             GeometryReader { geometry in
-                TabView {
+                TabView(selection: $selectedTab) {
                     ForEach(registered, id: \.id) { tab in
                         tab.makeView(session: session, store: store, app: model)
+                            .tag(tab.id)
                             .tabItem { Label(tab.title, systemImage: tab.systemImage) }
                     }
                 }
@@ -65,6 +70,9 @@ struct SessionDetailView: View {
             Text(verbatim: session.name).font(.title3)
                 .lineLimit(1)
             Spacer()
+            if let plan = model.extension(PlanModel.self) {
+                PlanGateBadgeView(session: session, model: plan)
+            }
             Text(verbatim: L.t("native_detail_status_label"))
                 .font(.caption)
                 .foregroundStyle(.secondary)

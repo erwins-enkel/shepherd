@@ -10,6 +10,24 @@ import ShepherdKit
 /// `AppModel`, and is tested here without a single view in sight.
 @MainActor
 struct SidebarViewTests {
+    @Test func panelLensesEnableOnlyWhenTheirSidebarFactoryExists() {
+        resetStreamSeams()
+        defer { resetStreamSeams() }
+        for lens in [HerdLens.next, .owed, .done] {
+            #expect(!lens.isAvailable)
+            #expect(QueuesPanels.panel(for: lens) == nil)
+        }
+        StreamRegistrations.installScene()
+        for lens in [HerdLens.next, .owed, .done] {
+            #expect(lens.isAvailable)
+            #expect(QueuesPanels.panel(for: lens) != nil)
+        }
+        for lens in [HerdLens.all, .ready] {
+            #expect(lens.isAvailable)
+            #expect(QueuesPanels.panel(for: lens) == nil)
+        }
+    }
+
     private func session(_ id: String, repo: String = "/repos/a") -> Session {
         var s = PreviewData.session(id: id)
         s.repoPath = repo

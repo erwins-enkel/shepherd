@@ -28,12 +28,24 @@ struct SidebarView: View {
 
         return VStack(spacing: 0) {
             HeaderStrip(model: model)
+            if let queues = app.extension(QueuesModel.self) {
+                VStack(alignment: .leading, spacing: 6) {
+                    HeldQueueView(model: queues)
+                    QueueActionsView(model: queues)
+                }
+                .padding(.horizontal, 8)
+                .padding(.bottom, 6)
+            }
             lensStrip
             // Shown once there is something to choose between — or whenever a filter is actually
             // applied, so the rail can never be the control that vanishes while its filter stays.
             if model.showsRepoRail(chips) { repoRail(chips) }
             Divider()
-            list(groups, selection: $app.selectedSessionID)
+            if let panel = QueuesPanels.panel(for: model.lens) {
+                panel()
+            } else {
+                list(groups, selection: $app.selectedSessionID)
+            }
         }
         .accessibilityIdentifier("herd-sidebar")
     }

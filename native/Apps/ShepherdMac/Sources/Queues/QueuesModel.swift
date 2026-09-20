@@ -47,8 +47,9 @@ final class QueuesModel: AppExtension {
     private(set) var retrySelectionGeneration = 0
     private var haltFlags: [String: Components.Schemas.SessionHaltEvent] = [:]
 
-    /// SessionStore does not apply session:halt. Overlay our current flags only when
-    /// opening Retry and rendering its badges; the sheet owns its selection throughout.
+    /// Overlay reconciled halt flags when opening Retry and rendering badges. SessionStore
+    /// also patches pushes; this overlay repairs missed frames from the queue's REST refresh.
+    /// The sheet owns its selection throughout.
     var retrySessions: [Session] {
         (store?.sessions ?? []).map { session in
             guard let flags = haltFlags[session.id] else { return session }
@@ -128,13 +129,14 @@ final class QueuesModel: AppExtension {
         let haltVersion = retrySelectionGeneration
         let upNextVersion = upNextRevision
         let sources = reads
+        let mayRecompute = app?.allowsQueueRecomputation ?? true
         async let heldResult = Self.load(sources.held)
         async let doneResult = Self.load(sources.done)
         async let recapsResult = Self.load(sources.recaps)
         async let strandedResult = Self.load(sources.stranded)
         async let haltResult = Self.load(sources.haltSnapshots)
         async let upNextResult = Self.load {
-            if recomputeUpNext { try await sources.refreshUpNext() }
+            if recomputeUpNext && mayRecompute { try await sources.refreshUpNext() }
         }
         let results = await (heldResult, doneResult, recapsResult, strandedResult, upNextResult, haltResult)
         guard isCurrent(mine), activation == app?.activationGeneration,

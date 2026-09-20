@@ -61,7 +61,7 @@ struct ActionsLiveTests {
             // revoked, only what this run itself creates.
             try await ProfileSetup.login(
                 profile: profile, password: password, credentials: credentials,
-                tokenName: ProfileSetup.tokenName(prefix: "Shepherd UI test ("))
+                tokenName: ProfileSetup.tokenName(prefix: "Shepherd UI test (", hostName: "actions-\(UUID().uuidString)"))
             minted = true
         }
 

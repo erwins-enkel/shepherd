@@ -114,6 +114,11 @@ struct LiveServerTests {
         do {
             // --- sign-in path -----------------------------------------------
             let signedInModel = makeModel(defaults: defaults, credentials: credentials)
+            signedInModel.login = { profile, password, credentials in
+                try await ProfileSetup.login(profile: profile, password: password, credentials: credentials,
+                    tokenName: ProfileSetup.tokenName(prefix: "Shepherd UI test (",
+                        hostName: "restore-\(UUID().uuidString)"))
+            }
             model = signedInModel
             let signedInProfile = try signedInModel.addRemoteProfile(name: "Live", address: base)
             profile = signedInProfile

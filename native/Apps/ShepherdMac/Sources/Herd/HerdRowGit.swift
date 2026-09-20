@@ -14,22 +14,31 @@ struct HerdRowGit: View {
     static func presentation(_ git: GitState?) -> Presentation? {
         guard let git else { return nil }
         var blockers: [SessionBadge] = []
-        let key: StaticString?
-        switch HerdClassifier.prReadinessBlock(git) {
-        case .draft: key = "gitrail_merge_blocked_draft"
-        case .behind: key = "gitrail_merge_blocked_behind"
-        case .conflict: key = "gitrail_merge_blocked_conflict"
-        case .blocked: key = "gitrail_merge_blocked_protected"
-        case nil: key = nil
-        }
+        let key = mergeBlockedReason(git)
         if let key { blockers.append(.init(id: "merge-blocker", text: L.t(key), tint: .orange)) }
-        if git.state.known == .open, git.checks.known == .failure {
-            blockers.append(.init(id: "checks-blocker", text: L.t("gitrail_merge_blocked_checks"), tint: .orange))
-        }
         // Terminal labels omit the number in PrBadge; retain it on the git rail.
         let number = git.state.known == .merged || git.state.known == .closed
             ? git.number.map { L.t("prbadge_open", "\($0)") } : nil
         return Presentation(pr: SessionBadges.pr(git), number: number, blockers: blockers)
+    }
+
+    /// GitRail.svelte's mergeBlocked + mergeBlockedReason, inside its open-PR render gate.
+    /// This read-only rail has no busy action. A known merge status is authoritative:
+    /// `unstable` can mean a failed OPTIONAL check, so only absent/unknown falls back to CI.
+    private static func mergeBlockedReason(_ git: GitState) -> StaticString? {
+        guard git.state.known == .open else { return nil }
+        if git.isDraft == true { return "gitrail_merge_blocked_draft" }
+        if git.mergeStateStatus?.known == .dirty || git.mergeable == false {
+            return "gitrail_merge_blocked_conflict"
+        }
+        if let status = git.mergeStateStatus?.rawValue, !status.isEmpty, status != "unknown" {
+            switch status {
+            case "behind": return "gitrail_merge_blocked_behind"
+            case "blocked": return "gitrail_merge_blocked_protected"
+            default: return nil
+            }
+        }
+        return git.checks.known == .failure ? "gitrail_merge_blocked_checks" : nil
     }
 
     var body: some View {
@@ -119,22 +128,39 @@ struct HerdRowSignals: View {
     let block: BlockReason?
     let showCli: Bool
 
+    struct Presentation {
+        let git: GitState?
+        let badges: [SessionBadge]
+        let stepper: StepperInfo
+    }
+
+    static func presentation(
+        for session: Session, herd: HerdSignals?, block: BlockReason?, showCli: Bool, now: Int
+    ) -> Presentation {
+        let git = herd?.git[session.id]
+        let verdict = herd?.verdicts[session.id]
+        // HerdStream.inReview combines plan + critic for Ready exclusion. The web's
+        // UnitRowRight and Stepper use only the critic flag for these presentations.
+        let reviewing = herd?.isReviewing(session.id) ?? false
+        return Presentation(git: git,
+            badges: SessionBadges.items(for: session, block: block, git: git,
+                verdict: verdict, reviewing: reviewing, showCli: showCli, now: now,
+                repoAutopilotDefault: herd?.repoAutopilotDefault(session.repoPath)),
+            stepper: HerdClassifier.deriveStage(session: session, git: git,
+                verdict: verdict, reviewing: reviewing))
+    }
+
     var body: some View {
         TimelineView(.periodic(from: .now, by: 20)) { timeline in
             let herd = app.extension(HerdSignals.self)
-            let git = herd?.git[session.id]
-            let verdict = herd?.verdicts[session.id]
-            let reviewing = (herd?.isReviewing(session.id) ?? false) || (herd?.planReviewing(session) ?? false)
             let now = Int(timeline.date.timeIntervalSince1970 * 1_000)
-            let stepper = HerdClassifier.deriveStage(session: session, git: git, verdict: verdict, reviewing: reviewing)
-            let badges = SessionBadges.items(for: session, block: block, git: git,
-                verdict: verdict, reviewing: reviewing, showCli: showCli, now: now)
+            let model = Self.presentation(for: session, herd: herd, block: block, showCli: showCli, now: now)
             VStack(alignment: .leading, spacing: 3) {
-                HerdRowGit(git: git)
+                HerdRowGit(git: model.git)
                 // The PR and its sub-markers are rendered once, on the inline rail above.
-                SessionBadgeStack(badges: badges.filter { $0.id != "pr" })
+                SessionBadgeStack(badges: model.badges.filter { $0.id != "pr" })
                 // The terminal PR state already appears on the rail; avoid a second chip.
-                if stepper.terminal == nil { HerdStepperView(info: stepper) }
+                if model.stepper.terminal == nil { HerdStepperView(info: model.stepper) }
                 if let activity = herd?.activity[session.id] { HerdHeartbeatView(activity: activity, now: now) }
             }
         }

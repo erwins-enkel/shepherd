@@ -82,7 +82,7 @@ struct HerdBadgesTests {
         }
     }
 
-    @Test func criticReviewWinsAndOtherwiseShowsVerdictAndClampedStallCounter() throws {
+    @Test func criticSelectsExactlyOneVerdictRoundFinalStalledOrReviewingLabel() throws {
         #expect(SessionBadges.critic(nil, reviewing: false, now: 0) == nil)
         for (decision, key) in [(ReviewDecisionKnown.changesRequested, "criticbadge_changes"),
                                 (.commented, "criticbadge_commented"), (.error, "criticbadge_error")] as [(ReviewDecisionKnown, StaticString)] {
@@ -94,12 +94,33 @@ struct HerdBadgesTests {
         review.addressRound = 9
         review.findings = [.init()]
         var badge = try #require(SessionBadges.critic(review, reviewing: false, now: 1_050))
-        #expect(badge.markers.map(\.text) == [L.t("criticbadge_round", "3", "3"), L.t("criticbadge_stalled")])
+        #expect(badge.text == L.t("criticbadge_stalled"))
+        #expect(badge.markers.isEmpty)
         review.finalRoundPending = true
         badge = try #require(SessionBadges.critic(review, reviewing: false, now: 1_050))
-        #expect(badge.markers.last?.text == L.t("criticbadge_final"))
-        #expect(SessionBadges.critic(review, reviewing: false, now: 1_101)?.markers.last?.text == L.t("criticbadge_stalled"))
-        #expect(SessionBadges.critic(review, reviewing: true, now: 1_101)?.markers.contains { $0.id == "stall" } == false)
+        #expect(badge.text == L.t("criticbadge_final"))
+        #expect(badge.markers.isEmpty)
+        for reviewing in [false, true] {
+            let final = try #require(SessionBadges.critic(review, reviewing: reviewing, now: 1_050))
+            #expect(final.text == L.t("criticbadge_final"))
+            #expect(final.markers.isEmpty)
+            let expired = try #require(SessionBadges.critic(review, reviewing: reviewing, now: 1_101))
+            #expect(expired.text == L.t(reviewing ? "criticbadge_reviewing" : "criticbadge_stalled"))
+            #expect(expired.tint == (reviewing ? Color.orange : Color.red))
+            #expect(expired.markers.isEmpty)
+        }
+        review.addressRound = 2
+        review.finalRoundPending = false
+        for reviewing in [false, true] {
+            let round = try #require(SessionBadges.critic(review, reviewing: reviewing, now: 1_050))
+            #expect(round.text == L.t("criticbadge_round", "2", "3"))
+            #expect(round.markers.isEmpty)
+        }
+        // Over-cap error streaks without findings remain a round, with a clamped numerator.
+        review.addressRound = 9
+        review.findings = []
+        review.decision = .init(known: .error)
+        #expect(SessionBadges.critic(review, reviewing: false, now: 1_050)?.text == L.t("criticbadge_round", "3", "3"))
     }
 
     @Test func heartbeatBucketsRecentActivityAndTintsOnlyMatchingErrors() {
@@ -197,11 +218,89 @@ struct HerdBadgesTests {
         state.mergeStateStatus = .init(known: .dirty)
         let rail = try #require(HerdRowGit.presentation(state))
         #expect(rail.pr?.text == L.t("prbadge_open", "42"))
-        #expect(rail.blockers.map(\.text) == [L.t("gitrail_merge_blocked_conflict"), L.t("gitrail_merge_blocked_checks")])
+        #expect(rail.blockers.map(\.text) == [L.t("gitrail_merge_blocked_conflict")])
         state.state = .init(known: .merged)
         let merged = try #require(HerdRowGit.presentation(state))
         #expect(merged.pr?.text == L.t("prbadge_merged"))
         #expect(merged.number == L.t("prbadge_open", "42"))
         #expect(merged.blockers.isEmpty)
+    }
+
+    @Test func gitRailUsesAuthoritativeMergeStatusBeforeFallingBackToChecks() throws {
+        let cases: [(String?, ChecksStateKnown, StaticString?)] = [
+            ("unstable", .failure, nil), ("clean", .failure, nil),
+            ("has_hooks", .failure, nil), ("future-status", .failure, nil),
+            ("unknown", .failure, "gitrail_merge_blocked_checks"),
+            (nil, .failure, "gitrail_merge_blocked_checks"),
+            ("", .failure, "gitrail_merge_blocked_checks"),
+            ("unknown", .pending, nil), (nil, .success, nil),
+            ("blocked", .success, "gitrail_merge_blocked_protected"),
+            ("behind", .failure, "gitrail_merge_blocked_behind"),
+            ("dirty", .failure, "gitrail_merge_blocked_conflict"),
+        ]
+        for (status, checks, reason) in cases {
+            var state = git(checks: checks)
+            state.mergeable = true
+            state.mergeStateStatus = status.map { .init(value1: MergeStateStatusKnown(rawValue: $0), value2: $0) }
+            let rail = try #require(HerdRowGit.presentation(state))
+            #expect(rail.blockers.map(\.text) == reason.map { [L.t($0)] } ?? [], "status=\(status ?? "nil")")
+            state.state = .init(known: .closed)
+            #expect(HerdRowGit.presentation(state)?.blockers.isEmpty == true)
+        }
+        var state = git(checks: .failure)
+        state.mergeStateStatus = .init(known: .unstable)
+        state.mergeable = false
+        #expect(HerdRowGit.presentation(state)?.blockers.first?.text == L.t("gitrail_merge_blocked_conflict"))
+        state.isDraft = true
+        #expect(HerdRowGit.presentation(state)?.blockers.map(\.text) == [L.t("gitrail_merge_blocked_draft")])
+    }
+
+    @Test func badgeTintsMatchWebSemantics() throws {
+        var state = git(checks: .pending)
+        state.latestReview = .init(state: .init(value1: .commented), author: "alex", submittedAt: 0)
+        var row = session(.codex)
+        row.autopilotEnabled = true
+        row.mergingSince = 1_000
+        let badges: [(SessionBadge?, Color)] = [
+            (SessionBadges.critic(nil, reviewing: true, now: 0), .orange),
+            (SessionBadges.critic(verdict(.commented), reviewing: false, now: 0), .blue),
+            (SessionBadges.critic(verdict(.error), reviewing: false, now: 0), .secondary.opacity(0.65)),
+            (SessionBadges.critic(verdict(), reviewing: false, now: 0), .orange),
+            (SessionBadges.autopilot(row, reviewing: false), .secondary),
+            (SessionBadges.status(row, git: nil, reviewing: false, now: 1_010), .orange),
+            (SessionBadges.pr(git(.merged)), .secondary),
+            (SessionBadges.pr(git(.closed)), .secondary.opacity(0.65)),
+        ]
+        for (badge, color) in badges { #expect(try #require(badge).tint == color) }
+        #expect(SessionBadges.ci(state)?.tint == .orange)
+        #expect(SessionBadges.pr(state)?.markers.first { $0.id == "review" }?.tint == .blue)
+        row.autopilotPaused = true
+        #expect(SessionBadges.autopilot(row, reviewing: false)?.tint == .orange)
+        row.autopilotPaused = false
+        row.autopilotComplete = true
+        #expect(SessionBadges.autopilot(row, reviewing: false)?.tint == .green)
+    }
+
+    @Test func productionRowUsesRepositoryDefaultsAndExplicitSessionOverrides() throws {
+        let herd = HerdSignals(reads: .stub(), now: { 0 })
+        defer { herd.teardown() }
+        var row = session(.codex)
+        row.autopilotEnabled = nil
+        #expect(herd.repoAutopilotDefault(row.repoPath) == nil)
+        @MainActor func autopilot() -> SessionBadge? {
+            HerdRowSignals.presentation(for: row, herd: herd, block: nil, showCli: false, now: 0)
+                .badges.first { $0.id == "autopilot" }
+        }
+        #expect(autopilot() == nil) // Unknown config cannot claim autopilot is enabled.
+        let path = row.repoPath
+        herd.repoAutopilotDefault = { $0 == path }
+        #expect(autopilot()?.text == L.t("session_autopilot_unavailable_label"))
+        row.autopilotEnabled = false
+        #expect(autopilot() == nil)
+        herd.repoAutopilotDefault = { _ in false }
+        row.autopilotEnabled = true
+        #expect(autopilot() != nil)
+        row.autopilotEnabled = nil
+        #expect(autopilot() == nil)
     }
 }

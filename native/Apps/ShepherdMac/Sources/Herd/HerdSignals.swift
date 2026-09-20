@@ -37,6 +37,13 @@ final class HerdSignals: AppExtension {
     var planRework: @MainActor (Session) -> Bool = { _ in false }
     var planReviewing: @MainActor (Session) -> Bool = { _ in false }
 
+    /// Web: repoConfig.isAutopilotEnabled(repoPath), loaded from
+    /// GET /api/repo-config?repo=… → autopilotEnabled. That S12 route/schema is
+    /// absent from the native contract; SessionStore.repos is only GET /api/repos
+    /// metadata and does not contain this default. The integration lane must bind
+    /// S12's observable config here. nil means unavailable, never an inferred false.
+    var repoAutopilotDefault: @MainActor (String) -> Bool? = { _ in nil }
+
     @ObservationIgnored var reads: HerdReads
     @ObservationIgnored private let now: @Sendable () -> Int
     @ObservationIgnored private weak var app: AppModel?

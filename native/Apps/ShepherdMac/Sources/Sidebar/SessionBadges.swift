@@ -26,7 +26,7 @@ enum SessionBadges {
     static func items(
         for session: Session, block: BlockReason?, git: GitState? = nil,
         verdict: ReviewVerdict? = nil, reviewing: Bool = false, showCli: Bool = false,
-        now: Int = 0, repoAutopilotDefault: Bool = false
+        now: Int = 0, repoAutopilotDefault: Bool? = nil
     ) -> [SessionBadge] {
         var items: [SessionBadge] = []
         if showCli {
@@ -81,7 +81,7 @@ enum SessionBadges {
         case .success:
             return .init(id: "ci", text: L.t("activity_ci_success"), tint: .green, symbol: "checkmark.circle.fill")
         case .pending:
-            return .init(id: "ci", text: L.t("activity_ci_pending"), tint: SessionStatusStyle.tint(.init(known: .running)), symbol: "clock.fill")
+            return .init(id: "ci", text: L.t("activity_ci_pending"), tint: .orange, symbol: "clock.fill")
         case .failure:
             return .init(id: "ci", text: L.t("activity_ci_failure"), tint: .red, symbol: "xmark.circle.fill")
         case nil:
@@ -97,8 +97,8 @@ enum SessionBadges {
         let tint: Color
         switch git.state.known {
         case .open: text = L.t("prbadge_open", "\(git.number ?? 0)"); tint = .secondary
-        case .merged: text = L.t("prbadge_merged"); tint = .green
-        case .closed: text = L.t("prbadge_closed"); tint = .orange
+        case .merged: text = L.t("prbadge_merged"); tint = .secondary
+        case .closed: text = L.t("prbadge_closed"); tint = .secondary.opacity(0.65)
         default: return nil
         }
         var markers: [SessionBadgeMarker] = []
@@ -108,7 +108,7 @@ enum SessionBadges {
             let color: Color
             switch review.state.known {
             case .approved: key = "prbadge_review_approved"; color = .green
-            case .commented: key = "prbadge_review_comment"; color = .secondary
+            case .commented: key = "prbadge_review_comment"; color = .blue
             default: key = "prbadge_review_changes"; color = .orange
             }
             markers.append(.init(id: "review", text: L.t(key), tint: color))
@@ -126,31 +126,34 @@ enum SessionBadges {
 
     static func critic(_ verdict: ReviewVerdict?, reviewing: Bool, now: Int) -> SessionBadge? {
         guard reviewing || verdict != nil else { return nil }
+        // CriticBadge.rawView: a streak REPLACES the verdict/reviewing label.
+        // Only a stalled streak yields to an in-flight re-review.
+        if let verdict, verdict.addressRound > 0 {
+            let status = HerdClassifier.addressStallStatus(verdict, now: now)
+            if status != .stalled || !reviewing {
+                let text: String
+                switch status {
+                case .round: text = L.t("criticbadge_round", "\(min(verdict.addressRound, verdict.addressCap))", "\(verdict.addressCap)")
+                case .final: text = L.t("criticbadge_final")
+                case .stalled: text = L.t("criticbadge_stalled")
+                }
+                return .init(id: "critic", text: text, tint: status == .stalled ? .red : .orange)
+            }
+        }
         let text: String
         let tint: Color
-        if reviewing { text = L.t("criticbadge_reviewing"); tint = SessionStatusStyle.tint(.init(known: .running)) }
+        if reviewing { text = L.t("criticbadge_reviewing"); tint = .orange }
         else {
             switch verdict?.decision.known {
             case .changesRequested: text = L.t("criticbadge_changes"); tint = .orange
-            case .commented: text = L.t("criticbadge_commented"); tint = .green
-            default: text = L.t("criticbadge_error"); tint = .red
+            case .commented: text = L.t("criticbadge_commented"); tint = .blue
+            default: text = L.t("criticbadge_error"); tint = .secondary.opacity(0.65)
             }
         }
-        var markers: [SessionBadgeMarker] = []
-        if let verdict, verdict.addressRound > 0 {
-            markers.append(.init(id: "round", text: L.t("criticbadge_round",
-                "\(min(verdict.addressRound, verdict.addressCap))", "\(verdict.addressCap)"), tint: .orange))
-            switch HerdClassifier.addressStallStatus(verdict, now: now) {
-            case .final: markers.append(.init(id: "stall", text: L.t("criticbadge_final"), tint: .orange))
-            case .stalled where !reviewing:
-                markers.append(.init(id: "stall", text: L.t("criticbadge_stalled"), tint: .red))
-            default: break
-            }
-        }
-        return .init(id: "critic", text: text, tint: tint, markers: markers)
+        return .init(id: "critic", text: text, tint: tint)
     }
 
-    static func autopilot(_ session: Session, reviewing: Bool, repoDefault: Bool = false) -> SessionBadge? {
+    static func autopilot(_ session: Session, reviewing: Bool, repoDefault: Bool? = nil) -> SessionBadge? {
         guard !reviewing else { return nil }
         if session.autopilotPaused {
             return .init(id: "needs-you", text: L.t("session_autopilot_paused_label"), tint: .orange)
@@ -159,10 +162,10 @@ enum SessionBadges {
             return .init(id: "autopilot", text: L.t("session_autopilot_complete_label"), tint: .green)
         }
         let launch = session.additionalProperties.value["codexLaunchId"] as? String
-        if session.autopilotEnabled ?? repoDefault, session.agentProvider == .codex,
+        if (session.autopilotEnabled ?? repoDefault) == true, session.agentProvider == .codex,
             launch?.isEmpty != false || session.providerSessionId?.isEmpty != false,
             session.research != true {
-            return .init(id: "autopilot", text: L.t("session_autopilot_unavailable_label"), tint: .orange)
+            return .init(id: "autopilot", text: L.t("session_autopilot_unavailable_label"), tint: .secondary)
         }
         return nil
     }
@@ -181,7 +184,7 @@ enum SessionBadges {
             }
         }
         if HerdPartition.isMerging(session, now: now) {
-            return .init(id: "status", text: L.t("status_merging"), tint: SessionStatusStyle.tint(.init(known: .running)))
+            return .init(id: "status", text: L.t("status_merging"), tint: .orange)
         }
         if session.readyToMerge {
             return .init(id: "status", text: L.t("status_ready_to_merge"), tint: .green)

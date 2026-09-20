@@ -82,6 +82,22 @@ struct HerdStreamTests {
             #expect(herd.stage(for: session) == .reviewerRunning)
             #expect(sidebar.inReview(session))
             #expect(ready().isEmpty)
+            var paused = session
+            paused.autopilotPaused = true
+            @MainActor func row() -> HerdRowSignals.Presentation {
+                HerdRowSignals.presentation(for: paused, herd: herd, block: nil, showCli: false, now: 0)
+            }
+            // Plan review still excludes Ready, but cannot invent a PR review or hide autopilot.
+            #expect(row().stepper.reached == .implementing)
+            #expect(row().stepper.review == .none)
+            #expect(!row().badges.contains { $0.id == "critic" })
+            #expect(row().badges.contains { $0.id == "needs-you" })
+            herd.applyForTesting(name: "session:reviewing", payload: ["id": "a", "reviewing": true])
+            #expect(row().stepper.reached == .review)
+            #expect(row().stepper.review == .reviewing)
+            #expect(row().badges.first { $0.id == "critic" }?.text == L.t("criticbadge_reviewing"))
+            #expect(!row().badges.contains { $0.id == "needs-you" })
+            herd.applyForTesting(name: "session:reviewing", payload: ["id": "a", "reviewing": false])
             herd.planReviewing = { _ in false }
             #expect(ready().map(\.id) == ["a"])
         }

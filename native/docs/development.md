@@ -331,12 +331,19 @@ presentation. `MacStreamHost.configure()` supplies those callbacks exactly once.
 
 Configuration must happen before `StreamRegistrations.installScene()` and before any `Scene` body
 reads the non-observable registries. The scene order is queues, merge, Wave 2, settings. The model
-order is terminal, detail, sidebar, actions, local server, notifications, `SessionSignals`, plan,
+order is backend recovery, terminal, detail, sidebar, actions, local server, notifications, `SessionSignals`, plan,
 Herd, queues, compose, merge, `Wave2Seams`, settings, then the settings notification bridges.
 `installAll(into:)` performs the once-only scene pass and the repeatable model pass.
 
+The Mac app also calls the direct Settings installer during initialization, before the root view's
+launch task. It registers recovery, Settings, and ready models idempotently, preserving upstream's
+early Settings-window behavior. The app-updates pane is registered after the scene pass. The
+first-launch installation prompt runs before starting the updater and the root activation flow;
+isolated launches disable both installation prompting and update activity. These platform features
+stay Mac-owned. Recovery policy/state and terminal resume state live in the shared core.
+
 `resetStreamSeams()` resets the installation guard, registries, slots, signal bridges, and
-conservative defaults, and releases composition owners. It deliberately preserves the immutable
+conservative defaults (including requested Settings pane state), and releases composition owners. It deliberately preserves the immutable
 configured `StreamHost`, including the prompt renderer. Thin direct installers in the Mac target
 configure the same host and reuse the same core model statements; previews use
 `MacStreamHost.makePreview()` with in-memory credentials and notification fakes.
@@ -392,11 +399,33 @@ python3 native/scripts/check-core-results.py \
   -parallel-testing-enabled NO -only-testing:ShepherdUITests
 ```
 
-The rich simulator form proves mapped identities plus all 36 parameterized declarations and 135
+The rich simulator form proves mapped identities plus all 41 parameterized declarations and 151
 argument executions. XML validation instead uses `--xunit FILE --target ShepherdAppCoreTests`, or
 for the isolated existing Kit CI lane `--xunit FILE --target ShepherdKitTests
 --require-keychain`. XML alone validates declarations but does not prove individual parameter
 executions.
+
+### Pinned upstream test provenance
+
+The original Stage 1 capture remains immutable: 1,519 identities at
+`83e8d45172fc63eff1336c12cf6d850cdbfdfcb8`, plus eight separately recorded Stage 1 additions.
+The rebase onto `c4961c40ec2cdfde9c011387536d2bd0bc1f9e58` adds 54 upstream declarations:
+24 core, 17 Mac, 12 Kit, and one UI. Current source totals are 960 core, 179 Mac, 428 Kit,
+and 14 UI declarations (1,581 total).
+
+`Tests/Conservation/issue-2431-upstream.json` independently records 65 affected upstream tests:
+11 transitions from originals (including two renamed scenarios), plus 54 additions. Its Git blob
+IDs and source snapshots anchor the upstream bodies, assertions, and traits; exact destination
+snapshots protect the integrated result. The original baseline and eight Stage 1 additions are
+hash-locked. Updated upstream assertions are explicit original → upstream → destination chains,
+not replacement baseline captures. `issue-2431-map.json` keeps `upstreamAdded` separate from `added`.
+The checker needs the pinned upstream Git objects; the two conservation CI jobs use full-history
+checkouts. Missing provenance, omitted scenarios, changed assertions/traits, or destination drift fail.
+
+The current simulator inventory derives from a successful 960-test run and preserves all prior
+36 declarations / 135 arguments while adding five declarations / 16 arguments. macOS XML still
+cannot prove individual argument execution. Local live and Keychain skips do not satisfy G5 or
+the hosted Kit Keychain gate.
 
 ## Parallel streams: seams and rules
 

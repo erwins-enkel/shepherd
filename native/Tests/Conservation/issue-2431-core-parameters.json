@@ -2,11 +2,12 @@
   "schemaVersion": 1,
   "target": "ShepherdAppCoreTests",
   "provenance": {
-    "sourceCommit": "ef32f57fe5561131bb7aebfdc77d89d9201da8a8",
-    "bundle": "task4/core.xcresult",
-    "testsSHA256": "d4813d2df88399b8072ede7828da08842b237cc285bd90e7ebca21aebc862da6",
-    "summarySHA256": "69709a01e7750f81f1c017625a55d2ad783edc3ddec79392c3c20a1826d40547",
-    "toolchain": "Xcode 26.6 (17F113), Swift 6.3.3, iOS Simulator 26.5"
+    "bundle": "task6-rebase/core.xcresult",
+    "testsSHA256": "c7ea959d9ef2157e05579365e06fa8831be0f26689270e98b94ae955b3cfde78",
+    "summarySHA256": "37c590c1f8447902da284eee0e66506b03ca6855b19e3d9045e147aea6578587",
+    "toolchain": "Xcode 26.6 (17F113), Swift 6.3.3, iOS Simulator 26.5",
+    "sourceCommit": "e84307181410a81ae7b2de4ba76e24d5c09938eb",
+    "sourceNote": "Executed on the integration worktree; native source/test content is committed unchanged at sourceCommit. Original Task4 arguments retained exactly; five upstream parameterized declarations added from successful simulator execution."
   },
   "arguments": {
     "CoreSeamTests.ActionBarTests/failedCompletionsDoNotWriteASuccessNote": [
@@ -207,6 +208,29 @@
       "99.0"
     ],
     "CoreSeamTests.SidebarModelTests/usageReceiptAfterAPushIsCommittedOnlyIfHoldsSucceeds": [
+      "false",
+      "true"
+    ],
+    "CoreSeamTests.TerminalResumeTests/detachDiscardsResumeCompletion": ["false", "true"],
+    "CoreSeamTests.TerminalResumeTests/resumeOnlyRestartsGoneSessionsWithInputEnabled": [
+      ".gone, false",
+      ".gone, true",
+      ".superseded, false",
+      ".superseded, true",
+      ".unreachable, false",
+      ".unreachable, true"
+    ],
+    "CoreSeamTests.TerminalStateTests/goneRecoveryCoalescesClicksAndDetachInvalidatesAwaitedWork": [
+      "false",
+      "true"
+    ],
+    "CoreSeamTests.TerminalStateTests/ineligibleGoneSessionNeverResumesOrReattaches": [
+      "\"authentication\"",
+      "\"no-conversation\"",
+      "\"running\"",
+      "\"terminal\""
+    ],
+    "CoreSeamTests.TerminalStateTests/unavailableGoneSessionReloadsListWithoutResuming": [
       "false",
       "true"
     ]

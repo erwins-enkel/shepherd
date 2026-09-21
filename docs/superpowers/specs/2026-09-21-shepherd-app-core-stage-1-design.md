@@ -17,11 +17,11 @@ The [brainstorming skill](/Users/kai.osthoff/.codex/plugins/cache/openai-curated
 
 ## Alternatives and selected scope
 
-| Approach | Consequence | Decision |
-| --- | --- | --- |
-| Copy the application models into an iOS app | Fast initial scaffold, two implementations of activation, event reconciliation and rules immediately | Rejected; defeats shared feature development |
-| Extract state and all reusable views together | Larger review surface; platform modifier and navigation changes obscure behavioral extraction failures | Deferred to later stages |
-| Extract models, rules, seams and localization first; then iOS skeleton; then views | Establishes the module boundary while keeping current Mac presentation and integration tests | **Approved option 3** |
+| Approach                                                                           | Consequence                                                                                            | Decision                                     |
+| ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ | -------------------------------------------- |
+| Copy the application models into an iOS app                                        | Fast initial scaffold, two implementations of activation, event reconciliation and rules immediately   | Rejected; defeats shared feature development |
+| Extract state and all reusable views together                                      | Larger review surface; platform modifier and navigation changes obscure behavioral extraction failures | Deferred to later stages                     |
+| Extract models, rules, seams and localization first; then iOS skeleton; then views | Establishes the module boundary while keeping current Mac presentation and integration tests           | **Approved option 3**                        |
 
 The issue's final definition of done spans all stages. iOS sign-in/session-list UI and shared sidebar/plan views are not Stage 1 acceptance requirements. Building **and running core unit tests** on an iOS simulator is required in Stage 1, even though the issue mentions a new iOS app CI job under Stage 2.
 
@@ -75,55 +75,55 @@ Paths in this section are relative to `native/Apps/ShepherdMac/Sources/` unless 
 
 ### Whole-file core moves
 
-| Area | Files/declarations moving to core |
-| --- | --- |
-| App state and utilities | `App/AppModel.swift` (including `AppSheet`, `RemoteServerForm`, `ConnectionSource`, `ProbeGate`), `AppModel+Extensions.swift`, `ProfileStore.swift`, `SessionSignals.swift`, `ShepherdErrorCopy.swift`, `Log.swift`, `L.swift` |
-| Simple seams | `App/SidebarSlot.swift`, `WelcomeSlots.swift`, `ActionBarSlot.swift`, `NewSessionSlot.swift` including `NewSessionExtras` |
-| Sidebar | `Sidebar/SidebarModel.swift`, `HerdPartition.swift`, `SidebarCopy.swift` |
-| Detail | `Detail/DetailModel.swift` including `Loaded` and `DetailFeed`, `UnifiedPatch.swift`, `DiffAnnotationLayout.swift` |
-| Actions | `Actions/ActionsModel.swift`, `ActionRules.swift`, `ActionErrorCopy.swift` |
-| Herd | `Herd/HerdSignals.swift`, `HerdClassifier.swift`, `HerdStream.swift` including its private activation-scoped `HerdBindings` |
-| Plan | `Plan/PlanModel.swift`, `PlanGateChip.swift` (a value/rules type, despite its name) |
-| Queues | `Queues/QueuesModel.swift` and its reads/state types |
-| Composer | `Compose/ComposeModel.swift`, `ComposeSubmission.swift`, `RepoBranchModel.swift`, `ShapeRoundModel.swift`, `AttachmentModel.swift`, `IssueFilter.swift` |
-| Merge | `Merge/MergeModel.swift`, `MergeRules.swift`, `MergeConfirmationRules.swift`, `MergeOverviewCopy.swift` |
-| Settings | `Settings/SettingsModel.swift`, `SettingsTokensModel.swift`, `SettingsReadyModel.swift` including `SettingsNotificationBridge`, `SettingsReadyRules`, `SettingsReadyState`; `SettingsDiagnosticCopy.swift` |
-| Notification policy | `Notifications/NotificationSettings.swift`, `NotificationCopy.swift`, `NotificationGate.swift`, `NotificationTrigger.swift`, neutral `NotificationsStream.swift` after dependency injection |
-| Terminal state, not terminal UI | `Terminal/TerminalController.swift`, `TerminalSessionModel.swift`, `PTYAttaching.swift` including `PTYCommandQueue`/`LivePTYAttachment`, `ConnectingOverlayDebouncer.swift` |
-| Shared presentation values | `Main/SessionStatusStyle.swift`; `Main/PreviewData.swift` remains DEBUG-only, moved with the model fixtures it supplies to both tests and Mac previews |
+| Area                            | Files/declarations moving to core                                                                                                                                                                                              |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| App state and utilities         | `App/AppModel.swift` (including `AppSheet`, `RemoteServerForm`, `ConnectionSource`, `ProbeGate`), `AppModel+Extensions.swift`, `ProfileStore.swift`, `SessionSignals.swift`, `ShepherdErrorCopy.swift`, `Log.swift`, `L.swift` |
+| Simple seams                    | `App/SidebarSlot.swift`, `WelcomeSlots.swift`, `ActionBarSlot.swift`, `NewSessionSlot.swift` including `NewSessionExtras`                                                                                                      |
+| Sidebar                         | `Sidebar/SidebarModel.swift`, `HerdPartition.swift`, `SidebarCopy.swift`                                                                                                                                                       |
+| Detail                          | `Detail/DetailModel.swift` including `Loaded` and `DetailFeed`, `UnifiedPatch.swift`, `DiffAnnotationLayout.swift`                                                                                                             |
+| Actions                         | `Actions/ActionsModel.swift`, `ActionRules.swift`, `ActionErrorCopy.swift`                                                                                                                                                     |
+| Herd                            | `Herd/HerdSignals.swift`, `HerdClassifier.swift`, `HerdStream.swift` including its private activation-scoped `HerdBindings`                                                                                                    |
+| Plan                            | `Plan/PlanModel.swift`, `PlanGateChip.swift` (a value/rules type, despite its name)                                                                                                                                            |
+| Queues                          | `Queues/QueuesModel.swift` and its reads/state types                                                                                                                                                                           |
+| Composer                        | `Compose/ComposeModel.swift`, `ComposeSubmission.swift`, `RepoBranchModel.swift`, `ShapeRoundModel.swift`, `AttachmentModel.swift`, `IssueFilter.swift`                                                                        |
+| Merge                           | `Merge/MergeModel.swift`, `MergeRules.swift`, `MergeConfirmationRules.swift`, `MergeOverviewCopy.swift`                                                                                                                        |
+| Settings                        | `Settings/SettingsModel.swift`, `SettingsTokensModel.swift`, `SettingsReadyModel.swift` including `SettingsNotificationBridge`, `SettingsReadyRules`, `SettingsReadyState`; `SettingsDiagnosticCopy.swift`                     |
+| Notification policy             | `Notifications/NotificationSettings.swift`, `NotificationCopy.swift`, `NotificationGate.swift`, `NotificationTrigger.swift`, neutral `NotificationsStream.swift` after dependency injection                                    |
+| Terminal state, not terminal UI | `Terminal/TerminalController.swift`, `TerminalSessionModel.swift`, `PTYAttaching.swift` including `PTYCommandQueue`/`LivePTYAttachment`, `ConnectingOverlayDebouncer.swift`                                                    |
+| Shared presentation values      | `Main/SessionStatusStyle.swift`; `Main/PreviewData.swift` remains DEBUG-only, moved with the model fixtures it supplies to both tests and Mac previews                                                                         |
 
 Terminal state owns attachment sequencing/output callbacks and depends on ShepherdKit, not SwiftTerm. Moving it does not provide an iOS terminal view, keyboard or touch input. `AttachmentModel` keeps its existing bounded reads and security-scoped URL lifetime; the Mac file importer/paste UI does not move.
 
 ### Mandatory declaration-level splits
 
-| Current file(s) | Core part | Mac part |
-| --- | --- | --- |
-| `App/DetailTabs.swift` | `DetailTab`, registry, layout/order rules and prompt descriptor metadata | `PromptTabView`; injected prompt rendering closure |
-| `App/CommandRegistry.swift` | `MenuCommand`, `Shortcut`, `CommandRegistry` | `MenuCommandItems`, `OptionalShortcut`, scene menu rendering |
-| `App/SettingsScene.swift` | `SettingsPane`, `SettingsPaneRegistry` | `SettingsSceneView` |
-| `App/StreamRegistrations.swift`, `Wave2Seams.swift` | `Installation`, fixed ordered model wiring and neutral signal connections | Concrete scene/tab/panel/slot rendering hooks; `IntegratedOwedPanel` |
-| `Notifications/NotificationsModel.swift` | Observable state, trigger/gate, event tap, presence, authorization/badge generations, delivery and teardown | Launch-mode choice, actual notification-center construction and Mac focus observation/sample |
-| `Notifications/NotificationCenterClient.swift` | `NotificationRequest`, `NotificationAuthorization`, `NotificationCenterClient`, `FakeNotificationCenter` | `SystemNotificationCenter` and `ResponseDelegate` |
-| `Main/MainWindow.swift` | `SessionCommandState`, `NoticeTone` | `MainWindow`, `NoticeBar`, toolbar and `openComposer` UI entry point |
-| `Main/NewSessionSheet.swift`, `Welcome/FirstRunSheet.swift`, `Welcome/LoginSheet.swift` | `NewSessionSubmission`, `ProviderSelection`, `FirstRunSubmission`, `LoginSheetState` | Sheets; `FolderPicking`/`SystemFolderPicker` remain with Mac folder selection |
-| `Main/ConnectionBanner.swift` | `BannerKind`, `SemanticVersion`, `AppVersion`, `BannerPolicy` | `ConnectionBanner` |
-| `Actions/ActionBarView.swift`, `RenameSheet.swift`, `AmendSheet.swift` | `RecapLine`, `ActionNote`, `ActionBarOutcome`, `RenameSubmission`, `AmendSubmission`; pure current-selection predicate | Views, shortcuts, sheets; optional thin forwarding method for old test/call-site spelling |
-| `Detail/DetailFeature.swift`, `FilesTabView.swift`, `GitTabView.swift` | Model registration portion, `DetailTaskKey`, `DetailStatePhase`, `FilesBreadcrumb`, `GitPanelRules` | Tab conformers/factories, refresh/state containers and tab views |
-| `Header/UsageMeter.swift` | `UsageBar`, `UsageMeter` rules/copy | `UsageMeterView` |
-| `Sidebar/SessionBadges.swift`, `Herd/HerdStepper.swift`, `Herd/HerdRowGit.swift` | Badge descriptors/rules, `HerdStepperSegment`, `HerdStepper`, `HerdHeartbeat` | Badge stack, stepper, git rail and heartbeat views |
-| `Plan/PlanStream.swift`, `PlanTabView.swift`, `QuestionFormView.swift` | `PlanSignals`, neutral registration/signals; `PlanTabWriter`, `PlanTabActions`, `PlanEnvironment`; `QuestionAnswerContext`, `QuestionFormWriter`, `QuestionFormModel` | `PlanDetailTab`, plan tab and question views |
-| `Plan/VisualBlocksView.swift` | `VisualFileTree` value helper | All visual-block/markdown rendering |
-| `Queues/QueuesStream.swift` | `QueuesPanels` and model registration | Factories for `UpNextView`, `DonePanelView`, `OwedPanelView` |
-| `Queues/UpNextView.swift` | `UpNextSort`, `UpNextGroup`, `UpNextPresentation`, `UpNextNotice`, `UpNextCommands`, `UpNextPanelState` | `UpNextView` |
-| `Queues/HeldQueueView.swift`, `QueueActions.swift` | Held presentation/confirmation/action/commands; queue presentation/confirmation/selection/action/commands and `QueueActionState` | Queue controls, rows, sheets, notices, fallback owed view |
-| `Queues/DonePanelView.swift`, `DoneRecapView.swift` | `DoneReads`, `DonePanelState`, `DonePresentation`, `DoneUsageState`, `DoneRestoreConfirmation`, `DoneMarkdown` | Done panel/chips and recap view |
-| `Compose/ComposeActions.swift`, `ComposeFooter.swift`, `CapacityLine.swift` | `ComposeActions`, `ComposeReadiness`, `ComposeCapacity` | `ComposeSessionActions`, footer/capacity views |
-| `Compose/ModelPicker.swift`, `ModelGuidance.swift`, `ModeTabs.swift`, `ComposeKeymap.swift` | `ComposeRunConfig`, `ModelGuidance`, `ComposeMode`, `ComposeKeymap` | Pickers, guidance, tabs/guards, environment keys, keycap/card views |
-| `Compose/SourceToggle.swift` | Nested `Source` value becomes a core `ComposeSource` enum with identical cases/conformances | `SourceToggle`; a typealias can preserve its old nested spelling for Mac call sites |
-| `Merge/MergeOwedView.swift`, `MergePanels.swift` | `MergeOwedActions`, `MergeOwedState`, `MergeInputs` | Owed/queue/overview/step-editor views |
-| `Settings/SettingsFields.swift`, `SettingsRepoFields.swift` | `SettingsField`, `SettingsFields`, `SettingsFieldDraft`, `SettingsRepoTextDraft` | Form rows and views |
-| `Settings/SettingsAppearance.swift`, `SettingsAccessView.swift`, `SettingsCommandPalette.swift` | `SettingsPresentation` (same singleton/lifetime), `SettingsTokenCopy`, `SettingsCommandSearch` | Appearance/access/palette views, environment keys, status-shape/root modifiers and `openSettings` |
-| Existing per-stream installers | Pure registration/signal statements delegated into core at their original positions | Concrete tabs/slots/view composition, local-server installer and settings scene contributions |
+| Current file(s)                                                                                 | Core part                                                                                                                                                             | Mac part                                                                                          |
+| ----------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `App/DetailTabs.swift`                                                                          | `DetailTab`, registry, layout/order rules and prompt descriptor metadata                                                                                              | `PromptTabView`; injected prompt rendering closure                                                |
+| `App/CommandRegistry.swift`                                                                     | `MenuCommand`, `Shortcut`, `CommandRegistry`                                                                                                                          | `MenuCommandItems`, `OptionalShortcut`, scene menu rendering                                      |
+| `App/SettingsScene.swift`                                                                       | `SettingsPane`, `SettingsPaneRegistry`                                                                                                                                | `SettingsSceneView`                                                                               |
+| `App/StreamRegistrations.swift`, `Wave2Seams.swift`                                             | `Installation`, fixed ordered model wiring and neutral signal connections                                                                                             | Concrete scene/tab/panel/slot rendering hooks; `IntegratedOwedPanel`                              |
+| `Notifications/NotificationsModel.swift`                                                        | Observable state, trigger/gate, event tap, presence, authorization/badge generations, delivery and teardown                                                           | Launch-mode choice, actual notification-center construction and Mac focus observation/sample      |
+| `Notifications/NotificationCenterClient.swift`                                                  | `NotificationRequest`, `NotificationAuthorization`, `NotificationCenterClient`, `FakeNotificationCenter`                                                              | `SystemNotificationCenter` and `ResponseDelegate`                                                 |
+| `Main/MainWindow.swift`                                                                         | `SessionCommandState`, `NoticeTone`                                                                                                                                   | `MainWindow`, `NoticeBar`, toolbar and `openComposer` UI entry point                              |
+| `Main/NewSessionSheet.swift`, `Welcome/FirstRunSheet.swift`, `Welcome/LoginSheet.swift`         | `NewSessionSubmission`, `ProviderSelection`, `FirstRunSubmission`, `LoginSheetState`                                                                                  | Sheets; `FolderPicking`/`SystemFolderPicker` remain with Mac folder selection                     |
+| `Main/ConnectionBanner.swift`                                                                   | `BannerKind`, `SemanticVersion`, `AppVersion`, `BannerPolicy`                                                                                                         | `ConnectionBanner`                                                                                |
+| `Actions/ActionBarView.swift`, `RenameSheet.swift`, `AmendSheet.swift`                          | `RecapLine`, `ActionNote`, `ActionBarOutcome`, `RenameSubmission`, `AmendSubmission`; pure current-selection predicate                                                | Views, shortcuts, sheets; optional thin forwarding method for old test/call-site spelling         |
+| `Detail/DetailFeature.swift`, `FilesTabView.swift`, `GitTabView.swift`                          | Model registration portion, `DetailTaskKey`, `DetailStatePhase`, `FilesBreadcrumb`, `GitPanelRules`                                                                   | Tab conformers/factories, refresh/state containers and tab views                                  |
+| `Header/UsageMeter.swift`                                                                       | `UsageBar`, `UsageMeter` rules/copy                                                                                                                                   | `UsageMeterView`                                                                                  |
+| `Sidebar/SessionBadges.swift`, `Herd/HerdStepper.swift`, `Herd/HerdRowGit.swift`                | Badge descriptors/rules, `HerdStepperSegment`, `HerdStepper`, `HerdHeartbeat`                                                                                         | Badge stack, stepper, git rail and heartbeat views                                                |
+| `Plan/PlanStream.swift`, `PlanTabView.swift`, `QuestionFormView.swift`                          | `PlanSignals`, neutral registration/signals; `PlanTabWriter`, `PlanTabActions`, `PlanEnvironment`; `QuestionAnswerContext`, `QuestionFormWriter`, `QuestionFormModel` | `PlanDetailTab`, plan tab and question views                                                      |
+| `Plan/VisualBlocksView.swift`                                                                   | `VisualFileTree` value helper                                                                                                                                         | All visual-block/markdown rendering                                                               |
+| `Queues/QueuesStream.swift`                                                                     | `QueuesPanels` and model registration                                                                                                                                 | Factories for `UpNextView`, `DonePanelView`, `OwedPanelView`                                      |
+| `Queues/UpNextView.swift`                                                                       | `UpNextSort`, `UpNextGroup`, `UpNextPresentation`, `UpNextNotice`, `UpNextCommands`, `UpNextPanelState`                                                               | `UpNextView`                                                                                      |
+| `Queues/HeldQueueView.swift`, `QueueActions.swift`                                              | Held presentation/confirmation/action/commands; queue presentation/confirmation/selection/action/commands and `QueueActionState`                                      | Queue controls, rows, sheets, notices, fallback owed view                                         |
+| `Queues/DonePanelView.swift`, `DoneRecapView.swift`                                             | `DoneReads`, `DonePanelState`, `DonePresentation`, `DoneUsageState`, `DoneRestoreConfirmation`, `DoneMarkdown`                                                        | Done panel/chips and recap view                                                                   |
+| `Compose/ComposeActions.swift`, `ComposeFooter.swift`, `CapacityLine.swift`                     | `ComposeActions`, `ComposeReadiness`, `ComposeCapacity`                                                                                                               | `ComposeSessionActions`, footer/capacity views                                                    |
+| `Compose/ModelPicker.swift`, `ModelGuidance.swift`, `ModeTabs.swift`, `ComposeKeymap.swift`     | `ComposeRunConfig`, `ModelGuidance`, `ComposeMode`, `ComposeKeymap`                                                                                                   | Pickers, guidance, tabs/guards, environment keys, keycap/card views                               |
+| `Compose/SourceToggle.swift`                                                                    | Nested `Source` value becomes a core `ComposeSource` enum with identical cases/conformances                                                                           | `SourceToggle`; a typealias can preserve its old nested spelling for Mac call sites               |
+| `Merge/MergeOwedView.swift`, `MergePanels.swift`                                                | `MergeOwedActions`, `MergeOwedState`, `MergeInputs`                                                                                                                   | Owed/queue/overview/step-editor views                                                             |
+| `Settings/SettingsFields.swift`, `SettingsRepoFields.swift`                                     | `SettingsField`, `SettingsFields`, `SettingsFieldDraft`, `SettingsRepoTextDraft`                                                                                      | Form rows and views                                                                               |
+| `Settings/SettingsAppearance.swift`, `SettingsAccessView.swift`, `SettingsCommandPalette.swift` | `SettingsPresentation` (same singleton/lifetime), `SettingsTokenCopy`, `SettingsCommandSearch`                                                                        | Appearance/access/palette views, environment keys, status-shape/root modifiers and `openSettings` |
+| Existing per-stream installers                                                                  | Pure registration/signal statements delegated into core at their original positions                                                                                   | Concrete tabs/slots/view composition, local-server installer and settings scene contributions     |
 
 `QuestionFormWriter.live` currently calls `ActionBarView.isCurrent`. Extract that exact predicate into a shared non-view helper and call it from both sides. Do not simplify its selection/store/session checks. Similarly, `ComposeModel` currently names `SourceToggle.Source`: lifting the enum is required to break a reverse dependency, not a feature rename. These are concrete examples of why literal whole-file moves alone cannot satisfy the issue.
 
@@ -151,9 +151,9 @@ Configure the host once in `ShepherdApp.init()` **before** `installScene()` and 
 
 ### Order that must survive
 
-| Pass | Existing sequence to preserve |
-| --- | --- |
-| Scene, once per installation | Queues panel factories → Merge scene command → Wave2 integrated owed-panel override → Settings panes/commands |
+| Pass                           | Existing sequence to preserve                                                                                                                                                                             |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Scene, once per installation   | Queues panel factories → Merge scene command → Wave2 integrated owed-panel override → Settings panes/commands                                                                                             |
 | Model, repeatable per AppModel | Terminal → Detail → Sidebar → Actions → LocalServer → Notifications → `SessionSignals.connect` → Plan → Herd → Queues → Compose → Merge → `Wave2Seams.connect` → Settings → Settings notification bridges |
 
 Within that sequence, preserve the current statements' order too: terminal tab registration precedes `TerminalController` registration; detail/sidebar/actions installers retain their original model/slot order; Plan establishes reviewing/unanswered-question closures before Herd consumes them. Herd registers `HerdSignals`, then `HerdBindings`. Settings registers `SettingsModel`, then `SettingsReadyModel`. Compose contributes presentation-owned state through views; do not invent an application extension for it.
@@ -203,13 +203,13 @@ Update `native/scripts/gen-strings.sh` descriptions, generator tests and `native
 
 Preserve every existing test's scenario/assertions. Change imports, fixture/resource paths and adapter setup where required. Split mixed suites by responsibility rather than dropping a platform-incompatible assertion or wrapping an entire shared suite in `#if os(macOS)`.
 
-| Destination | Existing coverage |
-| --- | --- |
+| Destination                               | Existing coverage                                                                                                                                                                                                                                                                                                                  |
+| ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Core unit target, macOS and iOS simulator | App/profile/form/submission/banner policy; extension lifecycle; Sidebar, Herd, Detail, Actions, Plan, Queues, Compose, Merge, Settings models and extracted state/rules; terminal state; notification fake/gate/trigger/copy/settings/badge races; registry ordering/reset contracts with test view factories; catalogs/formatting |
-| Mac unit target | LocalServer model/panel/probe; LaunchEnvironment/isolation; actual folder picker/sheet injection; Mac view rendering and modifiers; real tab/slot/command/pane composition; Mac notification focus/adapter wiring; full production stream installation |
-| Split with explicit old-test mapping | `StreamRegistrationsTests`, `SettingsIntegrationTests`, `SettingsFinalTests`, `SettingsRegistrationTests`, `SettingsSceneTests`, `DetailFeatureTests`, `SidebarInstallTests`, `MergeRegistrationTests`, `FolderPickerTests`, and any suite mixing retained views with extracted models |
-| Mac live/host harness | Existing `*LiveTests` and `LiveServerTests` remain opt-in/read-only with their Mac host setup; do not accidentally turn these into simulator CI network tests. Pure unit tests inside a live-named file still follow their dependency, and none are lost. |
-| Unchanged | All ShepherdKit tests; all 13 Mac UI methods and their shared isolated harness |
+| Mac unit target                           | LocalServer model/panel/probe; LaunchEnvironment/isolation; actual folder picker/sheet injection; Mac view rendering and modifiers; real tab/slot/command/pane composition; Mac notification focus/adapter wiring; full production stream installation                                                                             |
+| Split with explicit old-test mapping      | `StreamRegistrationsTests`, `SettingsIntegrationTests`, `SettingsFinalTests`, `SettingsRegistrationTests`, `SettingsSceneTests`, `DetailFeatureTests`, `SidebarInstallTests`, `MergeRegistrationTests`, `FolderPickerTests`, and any suite mixing retained views with extracted models                                             |
+| Mac live/host harness                     | Existing `*LiveTests` and `LiveServerTests` remain opt-in/read-only with their Mac host setup; do not accidentally turn these into simulator CI network tests. Pure unit tests inside a live-named file still follow their dependency, and none are lost.                                                                          |
+| Unchanged                                 | All ShepherdKit tests; all 13 Mac UI methods and their shared isolated harness                                                                                                                                                                                                                                                     |
 
 Move shared fixtures/helpers with their consumers, including latches and fake readers currently declared in another test file. Preserve DEBUG-only `PreviewData` for both previews and tests. Do not make production internals public just to let a retained test mutate them. Mac tests can import both modules with `@testable`; core tests cannot import Shepherd. Fake notifications remain available to the isolated app as well as tests, so they are not relocated exclusively into a test bundle.
 
@@ -300,13 +300,13 @@ Required live validation is a foreground, serialized run of the existing Mac uni
 
 ## CI coverage and deployment
 
-| Lane | Current behavior | Stage 1 requirement |
-| --- | --- | --- |
+| Lane                                         | Current behavior                                                                                                                      | Stage 1 requirement                                                                                                                                                                                                                                                                                                  |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `native.yml` / `shepherdkit` (`ShepherdKit`) | macos-latest; Swift 6.2+; contract checks; package build/test; strings; Release app/signature; Mac unit bundle; temporary CI Keychain | Preserve job identity and current Mac gates. Include core in the package build; separate Kit and core test invocations so the old Kit opt-in never reaches core. Execute moved scenarios and resource/guard tests, and report conservation totals. Apply the approved existing-Kit-only CI Keychain exception below. |
-| New blocking core simulator lane | Absent today | Swift 6.2+ toolchain with available iOS 18+ simulator; generic iOS build plus executed `ShepherdAppCoreTests`; no live credentials/Keychain opt-in; package/localization freshness checks; publish results |
-| `native.yml` / `shepherd-mac-ui` | macos-latest, `continue-on-error: true`, existing UI smoke | Preserve existing hosted-runner status policy; local isolated UI/live evidence remains mandatory for this PR. Do not relabel this currently advisory job as an existing blocking check. |
-| `ci.yml` / `verify` | Root format/lint/typecheck/tests plus other repository checks | Preserve; updated generator and both source guards are exercised by root tests |
-| `macos.yml` | Bun backend/process probes | Preserve; this is not native app or simulator coverage |
+| New blocking core simulator lane             | Absent today                                                                                                                          | Swift 6.2+ toolchain with available iOS 18+ simulator; generic iOS build plus executed `ShepherdAppCoreTests`; no live credentials/Keychain opt-in; package/localization freshness checks; publish results                                                                                                           |
+| `native.yml` / `shepherd-mac-ui`             | macos-latest, `continue-on-error: true`, existing UI smoke                                                                            | Preserve existing hosted-runner status policy; local isolated UI/live evidence remains mandatory for this PR. Do not relabel this currently advisory job as an existing blocking check.                                                                                                                              |
+| `ci.yml` / `verify`                          | Root format/lint/typecheck/tests plus other repository checks                                                                         | Preserve; updated generator and both source guards are exercised by root tests                                                                                                                                                                                                                                       |
+| `macos.yml`                                  | Bun backend/process probes                                                                                                            | Preserve; this is not native app or simulator coverage                                                                                                                                                                                                                                                               |
 
 Under the approved existing-CI exception, retain its temporary-Keychain setup and scope the existing opt-in test step to `swift test --package-path native --no-parallel --filter ShepherdKitTests`. Run core in a separate step with neither Keychain opt-in spelling present: `swift test --package-path native --no-parallel --filter ShepherdAppCoreTests`. Assert nonzero expected execution counts and account for every original Kit/core test identity; a filter matching nothing is a failure. The unfiltered package test command above remains the local gate with no Keychain opt-in. This split preserves the old CI coverage without exposing new core tests to the opt-in environment.
 
@@ -316,16 +316,16 @@ Hosted jobs run on separate machines; serialize xcodebuild within each runner. T
 
 ## Risks and approved policy decisions
 
-| Risk | Required evidence/containment |
-| --- | --- |
-| Hidden app dependency through mixed files/transitive imports | Declaration inventory, import guard, actual simulator build and tests |
-| Visibility expansion becomes an API redesign | App-driven public surface, explicit constructors, private setters/internal test seams |
-| Installation callback split changes ordering or captures old activations | Exact order above; preserved production install/reset tests and per-activation bridge tests |
-| Notification extraction changes focus/presence/badge races | Synchronous adapter contract and existing delayed-completion/badge/teardown tests; Mac host integration tests |
-| Module compiles but strings resolve to keys | Generated runtime strings, module bundle lookup and EN/DE runtime assertions on both platforms and Mac app host |
-| Test loss hidden by moving suites or platform guards | 1,090-identity mapping, separate 416 Kit/13 UI conservation, runtime pass/skip accounting |
-| Global registry tests overlap | Serial core runner plus suite organization covering all shared global state |
-| Local-server model incorrectly treated as shared | Explicit Mac exception; no fake process implementation on iOS |
+| Risk                                                                     | Required evidence/containment                                                                                   |
+| ------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| Hidden app dependency through mixed files/transitive imports             | Declaration inventory, import guard, actual simulator build and tests                                           |
+| Visibility expansion becomes an API redesign                             | App-driven public surface, explicit constructors, private setters/internal test seams                           |
+| Installation callback split changes ordering or captures old activations | Exact order above; preserved production install/reset tests and per-activation bridge tests                     |
+| Notification extraction changes focus/presence/badge races               | Synchronous adapter contract and existing delayed-completion/badge/teardown tests; Mac host integration tests   |
+| Module compiles but strings resolve to keys                              | Generated runtime strings, module bundle lookup and EN/DE runtime assertions on both platforms and Mac app host |
+| Test loss hidden by moving suites or platform guards                     | 1,090-identity mapping, separate 416 Kit/13 UI conservation, runtime pass/skip accounting                       |
+| Global registry tests overlap                                            | Serial core runner plus suite organization covering all shared global state                                     |
+| Local-server model incorrectly treated as shared                         | Explicit Mac exception; no fake process implementation on iOS                                                   |
 
 **Approved decision 1 — existing CI Keychain coverage.** Retain the pre-existing isolated ShepherdKit CI coverage, including its throwaway CI Keychain and `CredentialStoreTests.keychainIsUsableOnCI` sentinel. Scope the opt-in step to Kit only. Never opt local/core/simulator tests in with either environment-variable spelling. The operator explicitly approved this exception; it does not authorize credential access during planning.
 
@@ -333,20 +333,48 @@ Hosted jobs run on separate machines; serialize xcodebuild within each runner. T
 
 No other large behavior choice is deferred: the proposed host-required prompt factory, notification dependency injection, declaration splits and generated runtime localization resources are approved concrete design choices. Their toolchain feasibility is not claimed as tested. Scheme discovery, resource bundling and actual simulator availability remain mandatory future verification, not reasons to weaken acceptance. ShepherdKit declares iOS 18 support, but no simulator build was performed in this run: any pre-existing SDK incompatibility discovered by the gate must be reported explicitly, not hidden with a platform stub, test exclusion or an unreviewed Kit rewrite.
 
-## Recorded implementation evidence
+## Recorded pre-rebase implementation evidence
 
 Tasks 1–4 were implemented and independently reviewed through `1f4259884c87fa60cbfe063c189e1b80958934f7` (Task 4 fix) and its approved scoped re-review. The reusable native evidence was collected on arm64 macOS 26.6.2 with Swift 6.3.3, Xcode 26.6 build 17F113, and iPhone 17 / iOS 26.5 simulator `70214AF9-7AEB-49EA-96FF-BAA3E8B9F814`. The exact commands and bounded logs are recorded in `.superpowers/sdd/2026-09-21-shepherd-app-core-stage-1/task-4-report.md` and `task-4-fix-1-report.md`; no new product gate is claimed by this documentation task.
 
-The accepted native matrix is: core 936 pass on macOS and simulator; Kit 414 pass plus 2 permitted local Keychain skips; Mac 147 pass plus 15 live skips; UI 6 pass plus 7 live skips. The simulator result checker proved 936 identities, 36 parameterized declarations and 135 argument executions. Conservation remains 1,519 original identities and 1,527 total declarations, with 8 explicit additions; the prior 1,519/1,519 baseline is unchanged. The existing Kit-only Keychain exception and the two approved unchanged Kit annotations remain the only exceptions.
+The accepted pre-rebase native matrix was: core 936 pass on macOS and simulator; Kit 414 pass plus 2 permitted local Keychain skips; Mac 147 pass plus 15 live skips; UI 6 pass plus 7 live skips. The simulator result checker proved 936 identities, 36 parameterized declarations and 135 argument executions. Conservation remains 1,519 original identities and 1,527 total declarations, with 8 explicit additions; the prior 1,519/1,519 baseline is unchanged. The existing Kit-only Keychain exception and the two approved unchanged Kit annotations remain the only exceptions.
 
-Acceptance is not overall complete: the last root gate was `10,600 pass / 41 skip / 18 fail / 3 errors` with no new failing identities; G5 read-only live smoke is UNMET because automatic approval blocked authenticated execution; hosted CI is pending and has not been run. These are unmet gates, not waived failures. No CI URL, live success, merge, PR or issue completion is claimed. Stage 2 iOS skeleton and Stage 3 view extraction remain later work.
+At that pre-rebase checkpoint, acceptance was not overall complete: the root gate was `10,600 pass / 41 skip / 18 fail / 3 errors` with no new failing identities; G5 read-only live smoke is UNMET because automatic approval blocked authenticated execution; hosted CI is pending and has not been run. These are unmet gates, not waived failures. No CI URL, live success, merge, PR or issue completion is claimed. Stage 2 iOS skeleton and Stage 3 view extraction remain later work.
+
+## Pinned rebase integration evidence
+
+Task 6 rebased the ten original commits onto `c4961c40ec2cdfde9c011387536d2bd0bc1f9e58`,
+assessing all six upstream commits. Integration source is recorded at
+`e84307181410a81ae7b2de4ba76e24d5c09938eb`. All upstream backend recovery and terminal resume changes now follow their
+shared-core owners; updater, first-launch installation, local-process hosting and window behavior
+remain Mac-owned. Recovery precedes terminal in the complete model pass, and early Settings
+registration remains in app initialization. Original notification and presentation hook ordering
+is preserved around those upstream additions.
+
+The immutable 1,519-test baseline and original eight additions remain separate from 54 upstream
+additions. Eleven original scenarios have explicit Git-backed upstream transitions, including two
+renames with changed upstream assertions. Final declaration counts are **960 core / 179 Mac /
+428 Kit / 14 UI = 1,581**. Independent upstream provenance is recorded in
+`native/Tests/Conservation/issue-2431-upstream.json`; no baseline was recaptured.
+
+Fresh native evidence: core **960 pass** on macOS and iOS Simulator; Kit **426 pass / 2 permitted
+local Keychain skips**; Mac **164 pass / 15 live skips**; UI **7 pass / 7 live skips**. The simulator
+proves **41 parameterized declarations / 151 argument executions**, preserving all original
+arguments. Universal Release, strict ad-hoc/hardened-runtime signing, update signatures/appcast,
+update packaging, DMG copies, generators/conservation, typecheck, lint and contract checks passed.
+Exact commands, source snapshots and results are in the Task 6 rebase report/evidence directory.
+
+Overall acceptance remains **UNMET**. The fresh root result is **10,613 pass / 41 skip / 18 fail /
+3 errors**, with the same 18 failing identities. G5 remains blocked by the binding automatic
+approval rejection; hosted CI has not run. Local passes do not waive either gate. The rebase and
+provenance integration require fresh deep review before the later publication/acceptance workflow.
 
 ## Acceptance criteria
 
 - [x] New product/target/test target consume the existing ShepherdKit under macOS 15 / iOS 18 floors; Mac app uses the shared implementation with no duplicate model definitions.
 - [x] Every listed shared model/state/rule and seam moves; required splits contain no copied/reimplemented algorithms; all view bodies and listed Mac adapters remain Mac-owned.
 - [x] Core has no AppKit/UIKit/SwiftTerm/app dependency; Swift 6 checking and required API access work in both Mac consumption and simulator compilation.
-- [x] Scene installation precedes scene reads, model order is unchanged, late registration and repeated installation work, reset restores conservative defaults and prompt fallback, and teardown/signal semantics are preserved.
+- [x] Scene installation precedes scene reads; pinned upstream registration order and early Settings registration are preserved. Late registration, repeated installation, conservative reset defaults, prompt fallback and teardown/signal semantics remain intact.
 - [x] Notification focus, delivery, badge ordering, profile-bound settings and isolated launch behavior are unchanged with explicit adapters.
 - [x] Generator/check covers module catalog plus EN/DE runtime resources; `L.t` resolves/formats correctly from module resources on both platforms and in the Mac host.
 - [x] All 1,090 existing app-unit declarations/scenarios, 416 Kit declarations and 13 UI methods are accounted for and preserved. Moved unit cases execute on both platforms; Mac-only cases remain exercised; new tests are reported separately.

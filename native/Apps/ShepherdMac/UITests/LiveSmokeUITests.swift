@@ -343,20 +343,45 @@ final class LiveSmokeUITests: XCTestCase {
         return tabs.isEmpty ? group.radioButtons.allElementsBoundByIndex : tabs
     }
 
-    /// Clicks the tab at `index`. See `testEveryDetailTabLoadsForASelectedSession` for why this
-    /// goes by position rather than by title.
+    /// Clicks the tab at `index` and waits for the selected tab and its paired body.
+    /// See `testEveryDetailTabLoadsForASelectedSession` for why this goes by position rather
+    /// than by title.
     @discardableResult
     private func selectTab(at index: Int) -> Bool {
-        let deadline = Date().addingTimeInterval(30)
+        let bodyIdentifiers = [
+            "detail-tab-terminal",
+            "detail-tab-activity",
+            "detail-tab-diff",
+            "detail-tab-files",
+            "detail-tab-git",
+            "detail-tab-plan",
+            "detail-tab-merge",
+            "detail-tab-prompt",
+        ]
+        guard index < bodyIdentifiers.count else { return false }
+
+        let expectedBody = app.descendants(matching: .any)[bodyIdentifiers[index]]
+        // Keep selection in a bounded 12-second window. The caller's existing separate
+        // 30-second body-resolution assertion remains unchanged.
+        let deadline = Date().addingTimeInterval(12)
+        var clicks = 0
+        var nextClick = Date.distantPast
         repeat {
             let buttons = tabButtons
-            if index < buttons.count, buttons[index].isHittable {
-                buttons[index].click()
-                return true
+            if index < buttons.count, buttons[index].isHittable, clicks < 2, Date() >= nextClick {
+                let button = buttons[index]
+                button.click()
+                clicks += 1
+                // A missed AX click can report success before AppKit has selected its tab.
+                // Require the native tab's AX selected state as well as the expected body;
+                // then retry that same tab once inside the original interaction deadline.
+                nextClick = Date().addingTimeInterval(2)
             }
+            if index < buttons.count, buttons[index].isSelected, expectedBody.exists { return true }
             Thread.sleep(forTimeInterval: 0.25)
         } while Date() < deadline
-        return false
+        let buttons = tabButtons
+        return index < buttons.count && buttons[index].isSelected && expectedBody.exists
     }
 
     /// Waits for one detail tab's body to leave `detail-state-loading`.

@@ -179,7 +179,6 @@ describe("RunSettingsGroups — guard timeline placement", () => {
       autopilot: false,
       modeLocked: false,
       sandboxLocked: false,
-      mode: "code",
       planGateLoading: false,
       autopilotLoading: false,
       planGateDefault: false,
@@ -205,13 +204,12 @@ describe("RunSettingsGroups — guard timeline placement", () => {
     await expect.poll(() => document.querySelector(".gtl-head")).toBeTruthy();
   });
 
-  // A non-code mode has no guards: the switches and the timeline give way to one sentence
-  // saying why, so nothing describes a path the task never takes.
-  it("replaces the switches and the timeline with the no-guards sentence in a locked mode", async () => {
-    mountGroups({ modeLocked: true, sandboxLocked: true, mode: "research", research: true });
-    await expect
-      .poll(() => document.body.textContent?.includes(m.newtask_guards_none_research()))
-      .toBe(true);
+  // A non-code mode has no guards, so the whole block is absent — heading included.
+  it("omits the whole guards block in a locked mode", async () => {
+    mountGroups({ modeLocked: true, sandboxLocked: true, research: true });
+    // The engine group still mounts — otherwise an unmounted component would pass this.
+    await expect.poll(() => document.querySelector("#nt-sandbox")).toBeTruthy();
+    expect(document.body.textContent).not.toContain(m.newtask_group_guards());
     expect(document.querySelector('button[role="switch"]')).toBeNull();
     expect(document.querySelector(".gtl-head")).toBeNull();
   });

@@ -156,3 +156,20 @@ enum BackendRecovery {
 - [ ] Perform whole-branch review after all three task reviews; fix findings and rerun affected checks.
 - [ ] Open one PR explaining cold bootstrap, verified external warning, shared diagnostics and local Settings. Record automated evidence and explicitly mark operator-Mac cold/existing/stale-socket manual scenarios as pending if not safely performed.
 - [ ] Squash merge only after all required checks are green. No approval to terminate the existing operator herdr daemon is implied by this implementation.
+
+
+## Recorded verification — 2026-09-21
+
+Implementation commits: `c8141eee` (bootstrap), `63abc03a` (socket normalization), `d12d7c6d` (shared recovery), `fcd528f5` (Settings), `4fdde2f1` (local Settings login navigation).
+
+- Full ShepherdKit: 428 tests in 44 suites passed after bootstrap review fixes.
+- Full native app: 1,106 tests in 120 suites passed after Settings implementation. The subsequent navigation fix passed all 31 affected unit tests and all three Settings UI tests.
+- Settings UI: three isolated tests passed, including actual disconnected-pane navigation. The exported English screenshot was inspected: six icons, title, summary and action are visible without clipping.
+- TypeScript typecheck and full ESLint passed; Web UI check reported zero errors and warnings. Contract synchronization and native string freshness passed.
+- Full server suite: 10,536 passed, 41 skipped, 23 failed and three errors on macOS with isolated Bun 1.4.2 and disposable state. The 17 herdr-recovery failures/three errors and one merge-driver failure reproduced identically on an exported `origin/main`. Other failures concern macOS path aliases, unsupported non-UTF-8 filenames and node-pty helper permissions. This broad gate is not green.
+- Full Web UI suite: 5,502 passed and 23 failed. All 22 keyboard failures reproduced in the explicit `origin/main` Chromium baseline (192 passed/22 failed across the 214 affected browser tests). The remaining backlog import timeout passed on the current branch in a targeted run (63/63).
+- The installed Bun 1.3.1 was left unchanged; official Bun 1.4.2 was used from a temporary directory to match CI's latest-Bun policy.
+
+Manual cold install, existing proper installation and stale-socket recovery on the operator's real Mac remain unverified. No existing daemon/socket/install or remote server was mutated. German and local-offline screenshots were not separately captured; localization and state behavior have automated coverage.
+
+These local results do not authorize merging past a red required CI check. Any PR must retain the broad-gate limitations and manual checks in its validation notes.

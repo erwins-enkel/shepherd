@@ -152,7 +152,9 @@ jobs:
         run: bun run check:strings
 
       - name: Verify update archive authentication
-        run: native/scripts/test-update-signature.sh
+        run: |
+          native/scripts/test-update-signature.sh
+          python3 native/scripts/test-publish-appcast.py
 
       - name: Build Shepherd.app
         run: native/scripts/build-app.sh Release

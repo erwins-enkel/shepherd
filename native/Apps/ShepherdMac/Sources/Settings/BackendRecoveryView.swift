@@ -24,8 +24,8 @@ struct BackendRecoveryView: View {
                     Button(L.t("native_recovery_start_runner"), action: startRunner)
                         .accessibilityIdentifier("backend-recovery-action")
                 } else if (failure == .sessionGone || failure == .sessionSuperseded), let reopen {
-                    Button(L.t("native_recovery_reopen"), action: reopen)
-                        .accessibilityIdentifier("backend-recovery-action")
+                    Button(L.t(failure == .sessionGone ? "cardmenu_resume" : "native_recovery_reopen"), action: reopen)
+                        .accessibilityIdentifier(failure == .sessionGone ? "terminal-resume" : "backend-recovery-action")
                 }
                 if failure != .sessionGone && failure != .sessionSuperseded, let reopen {
                     Button(L.t("native_recovery_reopen"), action: reopen)

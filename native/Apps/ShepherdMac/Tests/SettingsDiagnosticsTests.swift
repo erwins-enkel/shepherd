@@ -3,6 +3,27 @@ import Testing
 import ShepherdKit
 @testable import Shepherd
 struct SettingsDiagnosticsTests {
+    @MainActor @Test func unrelatedSettingsFailureKeepsSharedDiagnosticsVisible() async throws {
+        let recovery = BackendRecoveryModel(reads: .init(health: { true }, diagnostics: { throw ShepherdError.forbidden }))
+        let snapshot = try BackendRecoveryTests.snapshot("diagnostics_hint_herdr_offline")
+        recovery.replaceDiagnostics(snapshot)
+        let model = SettingsModel(reads: .init(snapshot: { throw ShepherdError.notFound }), recovery: recovery)
+        await model.load()
+        #expect(model.error != nil)
+        #expect(model.diagnostics?.checks.first?.hintKey == "diagnostics_hint_herdr_offline")
+        model.teardown(); recovery.teardown()
+    }
+
+    @MainActor @Test func successfulDiagnosticFixDoesNotRequireSettingsReconciliation() async throws {
+        let snapshot = try BackendRecoveryTests.snapshot("diagnostics_hint_herdr_ok")
+        let recovery = BackendRecoveryModel(reads: .init(health: { true }, diagnostics: { snapshot }))
+        let model = SettingsModel(reads: .init(snapshot: { throw ShepherdError.notFound },
+            reconcile: { throw ShepherdError.notFound }), recovery: recovery)
+        await model.runDiagnostic { snapshot }
+        #expect(model.diagnostics?.checks.first?.hintKey == "diagnostics_hint_herdr_ok")
+        #expect(model.error == nil)
+        model.teardown(); recovery.teardown()
+    }
     @Test func presentationLocalizesKnownCodesAndKeepsUnknownIDs() {
         #expect(SettingsDiagnosticCopy.label("host_capacity") == L.t("diagnostics_label_host_capacity"))
         #expect(SettingsDiagnosticCopy.state("warning") == L.t("diagnostics_state_warning"))

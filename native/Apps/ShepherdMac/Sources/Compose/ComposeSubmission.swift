@@ -13,6 +13,7 @@ final class ComposeSubmission {
     private(set) var spawnID: String?
     private(set) var progress: Components.Schemas.SpawnProgressEvent?
     private(set) var message: String?
+    private(set) var recoveryFailure: BackendFailure?
     @ObservationIgnored private var eventsTask: Task<Void, Never>?
     @ObservationIgnored private var timer: Task<Void, Never>?
     private var generation = 0
@@ -36,6 +37,7 @@ final class ComposeSubmission {
 
     func submit(model: ComposeModel, repoResolved: Bool, holdLikely: Bool, force: Bool = false,
                 events: AsyncStream<ServerEvent>? = nil,
+                recovery: BackendRecoveryModel? = nil,
                 create: (CreateSessionRequest, String) async throws -> CreateOutcome,
                 onHeld: () -> Void = {},
                 isCurrent: @escaping @MainActor () -> Bool) async -> Session? {
@@ -43,6 +45,7 @@ final class ComposeSubmission {
                                                    holdLikely: holdLikely).canSubmit,
               var request = model.createRequest(baseBranch: model.repoBranches.baseBranch) else { return nil }
         request.force = force
+        recoveryFailure = nil
         busy = true; slow = false; message = nil; progress = nil; cancelRequested = false
         generation += 1
         let mine = generation, id = UUID().uuidString
@@ -82,6 +85,11 @@ final class ComposeSubmission {
             guard mine == generation, !stopped, isCurrent() else { return nil }
             message = cancelRequested ? L.t("newtask_spawn_canceled")
                 : L.t("newtask_create_failed", ShepherdErrorCopy.message(error))
+            if !cancelRequested, BackendRecovery.isCompatibleCreateFailure(error), let recovery {
+                await recovery.refresh()
+                guard mine == generation, !stopped, isCurrent(), !Task.isCancelled else { return nil }
+                recoveryFailure = recovery.diagnosis(for: nil)
+            }
             return nil
         }
     }
@@ -110,6 +118,7 @@ final class ComposeSubmission {
     }
     func teardown() {
         stopped = true; generation += 1
+        recoveryFailure = nil
         finish()
     }
 }

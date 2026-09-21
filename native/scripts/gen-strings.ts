@@ -1065,6 +1065,15 @@ export const KEYS_COMPOSE: readonly string[] = [
 
 /** S12 — the settings panes, the command menu and the usage gauges. */
 export const KEYS_SETTINGS: readonly string[] = [
+  "native_recovery_reopen",
+  "native_recovery_runner_body",
+  "native_recovery_runner_title",
+  "native_recovery_server_body",
+  "native_recovery_server_title",
+  "native_recovery_start_runner",
+  "native_recovery_unknown_body",
+  "native_recovery_unknown_title",
+
   "native_settings_search",
   "settings_auth_mode_subscription",
   "settings_auth_mode_apikey",

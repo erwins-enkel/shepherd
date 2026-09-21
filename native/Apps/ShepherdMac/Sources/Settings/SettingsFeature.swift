@@ -65,7 +65,7 @@ struct SettingsPaneEntry: SettingsPane {
             titleKey:"native_settings_open",action:{_ in SettingsPresentation.shared.openSettingsRequest += 1}))
         CommandRegistry.register(.init(id:"settings.refresh",menu:.help,order:100,
             titleKey:"native_settings_refresh_diagnostics",isEnabled:{$0.extension(SettingsModel.self) != nil},
-            action:{$0.extension(SettingsModel.self)?.reload()}))
+            action:{ app in Task { await app.extension(BackendRecoveryModel.self)?.refresh() } }))
     }
     static func install(_ app: AppModel) {
         app.register(SettingsModel.self)

@@ -100,7 +100,7 @@ private actor SettingsReadSequence {
         await second.value
         await reads.succeed(1, try fixture(1))
         await first.value
-        #expect(model.snapshot?.diagnostics.generatedAt == 2)
+        #expect(model.diagnostics?.generatedAt == 2)
     }
     @Test func snapshotPrunesMissingRepositoryAndItsMetadata() async throws {
         let value = try fixture()

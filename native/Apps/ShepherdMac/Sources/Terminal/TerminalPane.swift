@@ -68,22 +68,8 @@ struct TerminalPane: View {
     /// happen.
     @ViewBuilder
     private func endedCard(for closure: PTYConnection.Closure) -> some View {
-        switch closure {
-        case .gone:
-            statusCard(
-                title: L.t("native_terminal_ended_title"),
-                body: L.t("native_terminal_ended_body"),
-                action: nil,
-                systemImage: "moon.zzz"
-            )
-        default:
-            statusCard(
-                title: L.t("native_terminal_unreachable_title"),
-                body: L.t("native_terminal_unreachable_body"),
-                action: (L.t("common_retry"), { model.takeOver() }),
-                systemImage: "exclamationmark.triangle"
-            )
-        }
+        BackendRecoveryPanel(failure: closure == .gone ? .sessionGone : model.recoveryFailure,
+            reopen: { model.takeOver() })
     }
 
     /// A descriptive title, one short explanatory sentence, and the one next

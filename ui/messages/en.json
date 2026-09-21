@@ -4475,5 +4475,13 @@
   "native_local_external_stop_title": "How to stop this server",
   "native_local_external_stop_body": "Stop it in the terminal or service manager that started it, or ask its owner. Then recheck here. Shepherd cannot stop a server it does not own.",
   "native_local_path_unknown": "Unavailable — this server did not report its path",
-  "native_local_recheck": "Recheck"
+  "native_local_recheck": "Recheck",
+  "native_recovery_server_title": "Server unavailable",
+  "native_recovery_server_body": "Shepherd could not reach this server. Start your local server or check its connection.",
+  "native_recovery_runner_title": "Session runner unavailable",
+  "native_recovery_runner_body": "The server is reachable, but its session runner is offline or missing. Diagnose shows the required next step.",
+  "native_recovery_unknown_title": "Connection needs checking",
+  "native_recovery_unknown_body": "The cause is not yet known. Check diagnostics before retrying your action.",
+  "native_recovery_start_runner": "Start session runner",
+  "native_recovery_reopen": "Reopen terminal"
 }

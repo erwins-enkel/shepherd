@@ -62,6 +62,19 @@ final class FakeAttachment: PTYAttaching {
 
 @MainActor
 struct TerminalStateTests {
+    @Test func unreachableDiagnosesWithoutReattaching() async {
+        let recovery = BackendRecoveryModel(reads: .init(health: { false }, diagnostics: { throw ShepherdError.transport("offline") }))
+        let attachment = FakeAttachment()
+        let model = TerminalSessionModel(sessionID: "s1", recovery: recovery,
+            reply: { _ in }, makeAttachment: { _, _ in attachment })
+        model.attach(cols: 80, rows: 24)
+        attachment.emit(.closed(.unreachable))
+        #expect(await settle(until: { model.recoveryFailure == .serverUnavailable }))
+        #expect(attachment.startCount == 1)
+        #expect(attachment.takeOverCount == 0)
+        model.detach(); recovery.teardown()
+    }
+
     @Test(arguments: [false, true])
     func emulatorRepliesRespectLiveInputIsolation(allowsInput: Bool) async {
         let attachment = FakeAttachment()

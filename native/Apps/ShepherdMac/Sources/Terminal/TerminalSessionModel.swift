@@ -25,6 +25,9 @@ final class TerminalSessionModel {
     var promptText: String = ""
     private(set) var promptBusy = false
     private(set) var promptError: String?
+    private(set) var recoveryFailure: BackendFailure = .undetermined
+    private let recovery: BackendRecoveryModel?
+    private var recoveryTask: Task<Void, Never>?
 
     /// Set by the SwiftTerm view: raw bytes to feed the emulator. Anything that
     /// arrives before it is set is buffered, because the first bytes of an
@@ -75,9 +78,11 @@ final class TerminalSessionModel {
     init(
         sessionID: String,
         allowsInput: Bool = true,
+        recovery: BackendRecoveryModel? = nil,
         reply: @escaping @Sendable (String) async throws -> Void,
         makeAttachment: @escaping @MainActor (Int, Int) -> any PTYAttaching
     ) {
+        self.recovery = recovery
         self.sessionID = sessionID
         self.allowsInput = allowsInput
         self.reply = reply
@@ -86,11 +91,12 @@ final class TerminalSessionModel {
 
     /// The app's wiring: reply through the store's client, attach over a real
     /// socket.
-    convenience init(sessionID: String, store: SessionStore, allowsInput: Bool = true) {
+    convenience init(sessionID: String, store: SessionStore, allowsInput: Bool = true, recovery: BackendRecoveryModel? = nil) {
         let client = store.client
         self.init(
             sessionID: sessionID,
             allowsInput: allowsInput,
+            recovery: recovery,
             reply: { text in try await client.replySession(id: sessionID, text: text) },
             makeAttachment: { cols, rows in
                 LivePTYAttachment(client: client, sessionID: sessionID, cols: cols, rows: rows)
@@ -140,6 +146,7 @@ final class TerminalSessionModel {
     /// cleared: the next `attach()` restores it instead of opening a second
     /// socket.
     func detach() {
+        recoveryTask?.cancel(); recoveryTask = nil
         generation += 1
         for pump in pumps { pump.cancel() }
         pumps = []
@@ -249,6 +256,17 @@ final class TerminalSessionModel {
             phase = .idle
         case .closed(let closure):
             phase = .ended(closure)
+            recoveryFailure = BackendRecovery.classify(serverReachable: nil, diagnostics: nil, closure: closure)
+            if closure == .unreachable, let recovery {
+                let mine = generation
+                recoveryTask?.cancel()
+                recoveryTask = Task { [weak self] in
+                    await recovery.refresh()
+                    guard let self, self.generation == mine, self.phase == .ended(.unreachable),
+                          !Task.isCancelled else { return }
+                    self.recoveryFailure = recovery.diagnosis(for: closure)
+                }
+            }
         }
     }
 }

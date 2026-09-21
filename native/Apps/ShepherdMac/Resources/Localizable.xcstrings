@@ -10332,6 +10332,142 @@
         }
       }
     },
+    "native_recovery_reopen": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal erneut öffnen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reopen terminal"
+          }
+        }
+      }
+    },
+    "native_recovery_runner_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Server ist erreichbar, aber sein Sitzungsdienst ist offline oder fehlt. Diagnose zeigt den nötigen nächsten Schritt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The server is reachable, but its session runner is offline or missing. Diagnose shows the required next step."
+          }
+        }
+      }
+    },
+    "native_recovery_runner_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sitzungsdienst nicht verfügbar"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session runner unavailable"
+          }
+        }
+      }
+    },
+    "native_recovery_server_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd konnte diesen Server nicht erreichen. Starte deinen lokalen Server oder prüfe die Verbindung."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd could not reach this server. Start your local server or check its connection."
+          }
+        }
+      }
+    },
+    "native_recovery_server_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Server nicht erreichbar"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Server unavailable"
+          }
+        }
+      }
+    },
+    "native_recovery_start_runner": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sitzungsdienst starten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start session runner"
+          }
+        }
+      }
+    },
+    "native_recovery_unknown_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Ursache ist noch unbekannt. Prüfe die Diagnose, bevor du deine Aktion erneut ausführst."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The cause is not yet known. Check diagnostics before retrying your action."
+          }
+        }
+      }
+    },
+    "native_recovery_unknown_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbindung prüfen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection needs checking"
+          }
+        }
+      }
+    },
     "native_settings_access": {
       "extractionState": "manual",
       "localizations": {

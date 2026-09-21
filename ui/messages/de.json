@@ -4475,5 +4475,13 @@
   "native_local_external_stop_title": "So beendest du diesen Server",
   "native_local_external_stop_body": "Beende ihn im Terminal oder Dienstmanager, der ihn gestartet hat, oder bitte seinen Betreiber darum. Prüfe danach hier erneut. Shepherd kann fremde Server nicht beenden.",
   "native_local_path_unknown": "Unbekannt – dieser Server hat seinen Pfad nicht gemeldet",
-  "native_local_recheck": "Erneut prüfen"
+  "native_local_recheck": "Erneut prüfen",
+  "native_recovery_server_title": "Server nicht erreichbar",
+  "native_recovery_server_body": "Shepherd konnte diesen Server nicht erreichen. Starte deinen lokalen Server oder prüfe die Verbindung.",
+  "native_recovery_runner_title": "Sitzungsdienst nicht verfügbar",
+  "native_recovery_runner_body": "Der Server ist erreichbar, aber sein Sitzungsdienst ist offline oder fehlt. Diagnose zeigt den nötigen nächsten Schritt.",
+  "native_recovery_unknown_title": "Verbindung prüfen",
+  "native_recovery_unknown_body": "Die Ursache ist noch unbekannt. Prüfe die Diagnose, bevor du deine Aktion erneut ausführst.",
+  "native_recovery_start_runner": "Sitzungsdienst starten",
+  "native_recovery_reopen": "Terminal erneut öffnen"
 }
